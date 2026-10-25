@@ -1,0 +1,42 @@
+[package.upstream]
+url = "https://www.sqlite.org/2026/sqlite-autoconf-3530200.tar.gz"
+checksum = "sha256:588ad51949419a56ebe81fe56193d510c559eb94c9a57748387860b5d3069316"
+format = "tar.gz"
+strip-prefix = "sqlite-autoconf-3530200"
+[package]
+name = "cabin-ports/sqlite3"
+version = "3.53.2"
+
+# SQLite ships as a single-file "amalgamation": sqlite3.c plus the
+# sqlite3.h / sqlite3ext.h headers. The CLI shell (shell.c) is not
+# part of the library and is intentionally not built.
+#
+# The library is threadsafe (serialized) by default. Enabling the
+# `single-threaded` feature compiles it with SQLITE_THREADSAFE=0
+# for builds that never touch SQLite from more than one thread.
+[features]
+default = []
+single-threaded = []
+
+[target.sqlite3]
+type = "library"
+sources = ["sqlite3.c"]
+include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
+links = "sqlite3"
+
+# The default (threadsafe) build links pthreads; SQLite also calls
+# dlopen for run-time extension loading and a few libm routines.
+# These are system libraries with no pkg-config `.pc` file, so they
+# are declared as propagating `link-libs` that reach every consumer's
+# link line (emitted as `-lpthread -ldl -lm` after the archive).
+# Windows uses Win32 primitives and needs none of them, so the set
+# is gated to Unix. (`single-threaded` drops the pthread *need* at
+# compile time; the harmless unused `-lpthread` is left in place.)
+[target.'cfg(family = "unix")'.profile]
+link-libs = ["pthread", "dl", "m"]
+
+[target.'cfg(feature = "single-threaded")'.profile]
+defines = ["SQLITE_THREADSAFE=0"]

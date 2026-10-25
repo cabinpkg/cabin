@@ -1,0 +1,47 @@
+[package]
+name = "cabin-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "libFuzzer targets for Cabin's hostile-input boundaries"
+
+[package.metadata]
+cargo-fuzz = true
+
+# A standalone workspace, like `registry/`: the targets build on a pinned
+# nightly with sanitizer flags that must not leak into the main
+# workspace. `Cargo.lock` was seeded from the root lockfile so shared
+# dependencies fuzz at the versions Cabin ships.
+[workspace]
+members = ["."]
+
+[dependencies]
+cabin-core = { package = "cabinpkg-core", path = "../crates/cabin-core" }
+cabin-fs = { package = "cabinpkg-fs", path = "../crates/cabin-fs" }
+cabin-manifest = { package = "cabinpkg-manifest", path = "../crates/cabin-manifest" }
+cabin-package = { package = "cabinpkg-package", path = "../crates/cabin-package" }
+cabin-registry-verify = { package = "cabinpkg-registry-verify", path = "../crates/cabin-registry-verify" }
+libfuzzer-sys = "0.4"
+serde_json = "1"
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+
+[[bin]]
+name = "inspect_zip"
+path = "fuzz_targets/inspect_zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inspect_zip_wrong_digest"
+path = "fuzz_targets/inspect_zip_wrong_digest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_manifest"
+path = "fuzz_targets/parse_manifest.rs"
+test = false
+doc = false
+bench = false

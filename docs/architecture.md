@@ -51,6 +51,7 @@ crates/
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-ci/          repository tool: the local mirror of the CI gate
   xtask-dist/        repository tool: release packaging step for dist.yml
+  xtask-fuzz/        repository tool: seed corpora for the fuzz targets
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
@@ -74,6 +75,7 @@ crates/
   cabin-tidy/        run-clang-tidy runner used by `cabin tidy`
   cabin-system-deps/ pkg-config runner used by ``system = true` deps`
   cabin/             `cabin` binary, command dispatch
+fuzz/                cargo-fuzz targets for the hostile-input parsers (own workspace)
 ports/               curated foundation ports
   README.md          foundation-port policy + retirement plan
   <name>/<version>/  a provenance-bearing package: cabin.toml with
@@ -589,6 +591,17 @@ the client's canonical bytes and the server's schema cannot silently drift.  The
 - package with the binary built from this checkout, never an installed `cabin`;
 - write its fixtures only into the caller-supplied output directory, and author their sources in
   a scratch directory it owns.
+
+### `xtask-fuzz`
+
+Repository-owned maintainer tool (`publish = false`) for the cargo-fuzz targets under `fuzz/`,
+a standalone workspace on a pinned nightly (`fuzz/README.md`).  `cargo fuzz-seeds` regenerates
+`fuzz/seeds/` from in-tree inputs.  The crate must:
+
+- build seed archives through the real `cabin-package` staging path, so the seeds are what
+  publish emits rather than hand-written bytes;
+- write only under `fuzz/seeds/`, apart from a private scratch directory it stages a generated
+  package in.
 
 ### `xtask-ci`
 

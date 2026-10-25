@@ -1,0 +1,22 @@
+[package.upstream]
+url = "https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.6.2.tar.gz"
+checksum = "sha256:c6ea6b2e5608b3ea8617999bd5f47420c71b2ebdb8dc4767c1034d1da5785711"
+format = "tar.gz"
+strip-prefix = "CLI11-2.6.2"
+[package]
+name = "cabin-ports/cli11"
+version = "2.6.2"
+
+# CLI11 is consumed in its upstream-default header-only form:
+# consumers include <CLI/CLI.hpp>, which pulls the impl/ headers
+# inline. The opt-in precompiled variant (src/Precompile.cpp with
+# CLI11_COMPILE) is intentionally not offered: it requires every
+# consumer TU to see the same CLI11_COMPILE define, and Cabin
+# propagates include dirs across dependency edges but not defines.
+[target.cli11]
+type = "header-only"
+include-dirs = ["include"]
+# Upstream builds with C++11 by default (CMAKE_CXX_STANDARD 11);
+# declaring the interface floor keeps valid c++11 / c++14
+# consumers from being rejected.
+interface-cxx-standard = "c++11"

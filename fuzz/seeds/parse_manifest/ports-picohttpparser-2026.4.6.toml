@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/h2o/picohttpparser/archive/f4d94b48b31e0abae029ebeafcfd9ca0680ede58.tar.gz"
+checksum = "sha256:bd773fad1e2c6532b7a65ef6b60dec3612a3e566e3c844272cc2cbab89dc7e9c"
+format = "tar.gz"
+strip-prefix = "picohttpparser-f4d94b48b31e0abae029ebeafcfd9ca0680ede58"
+[package]
+name = "cabin-ports/picohttpparser"
+version = "2026.4.6"
+
+# picohttpparser is a single translation unit: picohttpparser.c plus
+# its header at the archive root. The repository's test.c/bench.c
+# and the picotest/ submodule directory (empty in the tarball) are
+# the upstream test harness, not part of the library. The optional
+# SSE4.2 fast path stays compile-time-gated behind __SSE4_2__, so
+# the default build is portable C; no defines or extra link
+# libraries are needed.
+[target.picohttpparser]
+type = "library"
+sources = ["picohttpparser.c"]
+include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
+links = "picohttpparser"

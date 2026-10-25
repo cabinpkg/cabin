@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz"
+checksum = "sha256:aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80"
+format = "tar.gz"
+strip-prefix = "xxHash-0.8.3"
+[package]
+name = "cabin-ports/xxhash"
+version = "0.8.3"
+
+# xxHash's whole implementation lives in `xxhash.c` (it pulls in
+# `xxhash.h` and `xxh3.h` as headers). The optional
+# `xxh_x86dispatch.c` runtime-SIMD-dispatch translation unit is
+# x86-only and gated behind `XXH_X86DISPATCH`; it is intentionally
+# not built here. The base TU auto-selects vector code paths at
+# compile time, compiles with a strict C compiler, and needs no
+# defines or extra link libraries (only libc).
+[target.xxhash]
+type = "library"
+sources = ["xxhash.c"]
+include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
+links = "xxhash"

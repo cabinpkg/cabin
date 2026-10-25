@@ -1,0 +1,27 @@
+[package.upstream]
+url = "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.18.tar.gz"
+checksum = "sha256:3aa806844a03442c00769b83e99970be70fbef03735ff898f4811dd03b9f5ee5"
+format = "tar.gz"
+strip-prefix = "cJSON-1.7.18"
+[package]
+name = "cabin-ports/cjson"
+version = "1.7.18"
+
+# cJSON's core parser/printer is a single translation unit. The
+# optional `cJSON_Utils.c` (JSON Pointer / Patch / Merge-Patch
+# helpers) is intentionally not built here: it is a separate,
+# optional API and consumers that need it can vendor it. The base
+# library compiles cleanly with a strict C compiler and needs no
+# defines — `fabs` lowers to a compiler builtin on every supported
+# platform, and the only `sqrt` reference is inside a
+# `#ifndef NAN` / `#ifdef _WIN32` fallback that never fires where
+# `<math.h>` already defines `NAN`, so no `-lm` link is required.
+[target.cjson]
+type = "library"
+sources = ["cJSON.c"]
+include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
+# Upstream installs libcjson (lowercase), unlike the project name.
+links = "cjson"

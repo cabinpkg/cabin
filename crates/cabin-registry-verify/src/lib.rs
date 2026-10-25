@@ -54,7 +54,6 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -354,6 +353,25 @@ pub fn inspect(
     limits: &Limits,
     upstream_archive: Option<&Path>,
 ) -> Result<Verdict, VerifyError> {
+    let bytes = std::fs::read(archive).map_err(|source| VerifyError::Io {
+        path: archive.to_path_buf(),
+        source,
+    })?;
+    inspect_bytes(&bytes, pending, limits, upstream_archive)
+}
+
+/// [`inspect`] over archive bytes already in memory: the checks run on,
+/// and the checksum is taken over, exactly these bytes.
+///
+/// # Errors
+///
+/// As [`inspect`].
+pub fn inspect_bytes(
+    archive: &[u8],
+    pending: &PendingVersion,
+    limits: &Limits,
+    upstream_archive: Option<&Path>,
+) -> Result<Verdict, VerifyError> {
     // The registry mints the revision id from the checksum, so a row
     // where the two disagree is corrupt state, not a hostile archive:
     // refuse before inspecting anything (the version stays pending).
@@ -366,7 +384,7 @@ pub fn inspect(
 
     // The scan retains the bytes of every entry the stored metadata
     // declares as an upstream patch file (the upstream pass applies
-    // them; nothing else in the archive is kept in memory).  The list
+    // them; no other entry is kept decompressed).  The list
     // is peeked tolerantly: the declaration is only *enforced* after
     // the consistency pass proves the stored document equals what the
     // manifest derives, and a garbage `patches` value simply retains
@@ -386,7 +404,7 @@ pub fn inspect(
         })
         .unwrap_or_default();
     let (manifest, files, patch_bytes) =
-        match scan::scan_archive(archive, limits, &declared_patches)? {
+        match scan::scan_archive(archive, limits, &declared_patches) {
             scan::ScanOutcome::Manifest {
                 bytes,
                 files,
@@ -394,16 +412,7 @@ pub fn inspect(
             } => (bytes, files, retained),
             scan::ScanOutcome::Reject(reason) => return Ok(Verdict::Rejected(vec![reason])),
         };
-
-    let file = File::open(archive).map_err(|source| VerifyError::Io {
-        path: archive.to_path_buf(),
-        source,
-    })?;
-    let archive_checksum =
-        cabin_core::Checksum::of_reader(file).map_err(|source| VerifyError::Io {
-            path: archive.to_path_buf(),
-            source,
-        })?;
+    let archive_checksum = cabin_core::Checksum::of_bytes(archive);
 
     if let Some(reason) = consistency::check(&manifest, &files, pending, &archive_checksum)? {
         return Ok(Verdict::Rejected(vec![reason]));

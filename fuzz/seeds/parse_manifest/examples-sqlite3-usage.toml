@@ -1,0 +1,14 @@
+[package]
+name = "sqlite3-usage"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+# Default build is threadsafe. To compile a single-threaded SQLite,
+# add `features = ["single-threaded"]` to this dependency.
+"cabin-ports/sqlite3" = "=3.53.2"
+
+[target.sqlite3-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["cabin-ports/sqlite3"]

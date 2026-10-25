@@ -25,13 +25,11 @@
 //! this pass.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs;
-use std::path::Path;
 
 use flate2::{Decompress, FlushDecompress, Status};
 use sha2::{Digest, Sha256};
 
-use crate::{Limits, Reason, VerifyError};
+use crate::{Limits, Reason};
 
 /// The archive root entry the consistency pass parses; the one
 /// layout invariant `cabin-artifact` extraction relies on.
@@ -108,23 +106,14 @@ pub(crate) type Contents = BTreeMap<String, String>;
 /// asked the scan to retain (declared upstream patch files).
 pub(crate) type RetainedBytes = BTreeMap<String, Vec<u8>>;
 
-/// Inspect `archive`.
-///
-/// # Errors
-///
-/// [`VerifyError::Io`] when the container cannot be read from disk;
-/// once it is in memory, every parse failure is a verdict, not an
-/// error (a container that will not parse in the strict profile is a
-/// hostile or corrupt archive).
+/// Inspect the archive `bytes`.  Every parse failure is a verdict, not
+/// an error: a container that will not parse in the strict profile is
+/// a hostile or corrupt archive.
 pub(crate) fn scan_archive(
-    archive: &Path,
+    bytes: &[u8],
     limits: &Limits,
     wanted: &BTreeSet<String>,
-) -> Result<ScanOutcome, VerifyError> {
-    let bytes = fs::read(archive).map_err(|source| VerifyError::Io {
-        path: archive.to_path_buf(),
-        source,
-    })?;
+) -> ScanOutcome {
     let compressed_size = bytes.len() as u64;
     let floor = RATIO_FLOOR_BASE_BYTES
         .saturating_add((limits.max_entries as u64).saturating_mul(FRAMING_BYTES_PER_ENTRY));
@@ -133,14 +122,14 @@ pub(crate) fn scan_archive(
         .saturating_mul(compressed_size)
         .max(floor)
         .min(limits.abs_cap_bytes);
-    Ok(match parse(&bytes, cap, limits, wanted) {
+    match parse(bytes, cap, limits, wanted) {
         Ok((bytes, files, retained)) => ScanOutcome::Manifest {
             bytes,
             files,
             retained,
         },
         Err(reason) => ScanOutcome::Reject(reason),
-    })
+    }
 }
 
 /// One central-directory record, retained to drive the local-record

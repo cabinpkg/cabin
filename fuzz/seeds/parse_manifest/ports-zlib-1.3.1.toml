@@ -1,0 +1,46 @@
+[package.upstream]
+url = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+format = "tar.gz"
+strip-prefix = "zlib-1.3.1"
+[package]
+name = "cabin-ports/zlib"
+version = "1.3.1"
+
+[target.z]
+type = "library"
+sources = [
+  "adler32.c",
+  "compress.c",
+  "crc32.c",
+  "deflate.c",
+  "gzclose.c",
+  "gzlib.c",
+  "gzread.c",
+  "gzwrite.c",
+  "infback.c",
+  "inffast.c",
+  "inflate.c",
+  "inftrees.c",
+  "trees.c",
+  "uncompr.c",
+  "zutil.c",
+]
+include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
+links = "z"
+
+# zlib's gz*.c sources call read(2) / close(2) / lseek(2) through
+# `unistd.h`, which they include only when one of `HAVE_UNISTD_H`
+# or `Z_HAVE_UNISTD_H` is defined. Define it on Unix, where the
+# header exists and a strict C11 compiler (Apple clang's default,
+# recent GCC without -Wno-implicit-function-declaration) would
+# otherwise reject the undeclared calls; the upstream zlib build
+# (CMake or configure) sets the flag the same way. On Windows there
+# is no `<unistd.h>` — zlib's gz*.c use `<io.h>` / `_read` / `_close`
+# under `#ifdef _WIN32` instead — so the flag must stay unset, or MSVC
+# fails with `C1083: Cannot open include file: 'unistd.h'`.
+[target.'cfg(family = "unix")'.profile]
+defines = ["HAVE_UNISTD_H=1"]

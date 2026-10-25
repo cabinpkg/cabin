@@ -1,0 +1,12 @@
+[package]
+name = "xxhash-usage"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+"cabin-ports/xxhash" = "=0.8.3"
+
+[target.xxhash-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["cabin-ports/xxhash"]
