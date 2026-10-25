@@ -561,6 +561,15 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         dev_for: &dev_for,
     })?;
 
+    // Every fetched archive was hashed this run, cache hits included.
+    for pkg in &pipeline.fetched {
+        reporter.aux_verbose(format_args!(
+            "cabin: checksum matched for {} {} ({})",
+            pkg.name.as_str(),
+            pkg.version,
+            pkg.checksum
+        ));
+    }
     emit_fetch_output(&pipeline.fetched, args.format, &manifest_path)?;
     Ok(())
 }

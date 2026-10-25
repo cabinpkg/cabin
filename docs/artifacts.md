@@ -203,7 +203,7 @@ Behavior:
    `checksum` in the index.
 5. Verify checksums and copy archives into the cache.
 6. Safely extract sources into the cache and validate each extracted package's `cabin.toml`.
-7. Print the fetched packages.
+7. Print the fetched packages.  `-v` also reports each archive's checksum match on stderr.
 
 `cabin build --index-path <path>` runs the same pipeline before planning the build.
 
