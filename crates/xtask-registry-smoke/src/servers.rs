@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Map, Value};
-use tempfile::{NamedTempFile, TempPath};
+use tempfile::{NamedTempFile, TempDir, TempPath};
 use xtask_registry_admin::{output, registry_dir, results, status, wrangler};
 
 use crate::bytes::sha256_hex;
@@ -334,6 +334,34 @@ fn result_sets(json: &str) -> Result<Vec<Value>> {
         .collect()
 }
 
+/// The website role's worker.  One deployed Worker serves both
+/// hostnames, so this one only hands each request, Host header and all,
+/// to the registry role's worker through wrangler's dev registry: one
+/// workerd then opens the governor's SQLite, D1 and R2, where two over
+/// the same files fail writes with `database is locked` whenever they
+/// overlap.
+const WEB_WORKER: &str =
+    "export default { fetch: (request, env) => env.REGISTRY.fetch(request) };\n";
+
+/// [`WEB_WORKER`]'s config; the service is `wrangler.jsonc`'s worker.
+const WEB_CONFIG: &str = r#"{
+  "name": "cabin-registry-smoke-web",
+  "main": "index.js",
+  "compatibility_date": "2026-07-09",
+  "services": [{ "binding": "REGISTRY", "service": "cabin-registry" }]
+}
+"#;
+
+/// Writes [`WEB_WORKER`] and [`WEB_CONFIG`] into `dir`.
+///
+/// # Errors
+///
+/// If either file cannot be written.
+fn write_web_worker(dir: &Path) -> Result<()> {
+    fs::write(dir.join("index.js"), WEB_WORKER).context("write the website-role worker")?;
+    fs::write(dir.join("wrangler.json"), WEB_CONFIG).context("write the website-role config")
+}
+
 /// The four servers, their logs, and the `.dev.vars` they are
 /// configured by - one owner, so one teardown orders the cleanup
 /// across them.
@@ -355,6 +383,12 @@ pub struct DevServers {
     /// path restores it with `rename(2)`, which cannot cross a
     /// filesystem (`registry/.gitignore` covers `/.dev.vars*`).
     dev_vars_backup: Option<TempPath>,
+    /// The website role's forwarding worker (`WEB_WORKER`).
+    web_worker: TempDir,
+    /// This run's wrangler dev registry, through which the website
+    /// role reaches the registry role's worker; per run, so no other
+    /// local `wrangler dev` answers for that worker.
+    dev_registry: TempDir,
 }
 
 impl DevServers {
@@ -383,10 +417,13 @@ impl DevServers {
             dev_vars: registry_dir().join(".dev.vars"),
             dev_vars_created: false,
             dev_vars_backup: None,
+            web_worker: TempDir::new().context("create the website-role worker directory")?,
+            dev_registry: TempDir::new().context("create the wrangler dev registry")?,
         };
         // Every `?` from here drops `servers`, which is the teardown.
         servers.start_mocks(mock_dir)?;
         servers.write_dev_vars()?;
+        write_web_worker(servers.web_worker.path())?;
         servers.refuse_stale_ports()?;
         servers
             .start_dev_servers()
@@ -419,6 +456,7 @@ impl DevServers {
     /// `/healthz`.
     pub fn start_registry_dev(&mut self) -> Result<()> {
         let mut command = wrangler(&["dev", "--port", &self.ports.registry, "--test-scheduled"]);
+        command.env("WRANGLER_REGISTRY_PATH", self.dev_registry.path());
         log_to(&mut command, self.dev_log.path())?;
         self.registry = Some(xtask_ci::spawn_tracked(&mut command).context("start wrangler dev")?);
         let url = format!("{}/healthz", self.ports.base());
@@ -430,17 +468,32 @@ impl DevServers {
         )
     }
 
-    /// The website-role instance: same code, same local state, but
-    /// wrangler pins its emulated Host header to cabinpkg.com, which is
-    /// what flips the Worker's role dispatch.  `/healthz` only exists
-    /// on the registry role, so any HTTP status at all (the website
-    /// role answers it 401/404) proves the instance is up.
+    /// The website-role instance: a forwarder into the registry role's
+    /// worker (`WEB_WORKER`), with wrangler pinning its emulated Host
+    /// header to cabinpkg.com, which is what flips the Worker's role
+    /// dispatch.
+    /// `/healthz` only exists on the registry role, so any HTTP status
+    /// at all (the website role answers it 401/404) proves the
+    /// instance is up.
     ///
     /// # Errors
     ///
     /// If the child cannot be spawned, exits early, or never answers.
     pub fn start_web_dev(&mut self) -> Result<()> {
-        let mut command = wrangler(&["dev", "--port", &self.ports.web, "--host", "cabinpkg.com"]);
+        let config = self.web_worker.path().join("wrangler.json");
+        let config = config
+            .to_str()
+            .context("the scratch directory is not UTF-8")?;
+        let mut command = wrangler(&[
+            "dev",
+            "--config",
+            config,
+            "--port",
+            &self.ports.web,
+            "--host",
+            "cabinpkg.com",
+        ]);
+        command.env("WRANGLER_REGISTRY_PATH", self.dev_registry.path());
         log_to(&mut command, self.web_log.path())?;
         self.web = Some(
             xtask_ci::spawn_tracked(&mut command).context("start the website-role wrangler dev")?,
