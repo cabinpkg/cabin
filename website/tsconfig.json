@@ -10,10 +10,6 @@
         "allowImportingTsExtensions": true,
         "erasableSyntaxOnly": true,
         "verbatimModuleSyntax": true,
-        "baseUrl": ".",
-        "paths": {
-            "~/*": ["./src/*"]
-        },
         "types": ["node"]
     },
     "include": [

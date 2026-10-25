@@ -16,8 +16,6 @@ export const DOCS_SEARCH_PATH = "/docs/search";
 // searched terms (see `src/scripts/docs.ts`).
 export const DOCS_HIGHLIGHT_PARAM = "highlight";
 
-// Docs now render inside this Astro site under `/docs/` (see
-// `src/pages/docs/[...slug].astro`); they are no longer an external site.
 export const DOCS_URL = "/docs/";
 export const INSTALL_DOC_URL = "/docs/installation/";
 
