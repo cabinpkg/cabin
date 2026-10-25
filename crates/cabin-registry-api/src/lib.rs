@@ -327,38 +327,10 @@ impl RegistryApi {
         result: Result<ureq::Response, ureq::Error>,
         refused: impl FnOnce(String) -> RegistryApiError,
     ) -> Result<(u16, ureq::Response), RegistryApiError> {
-        match result {
-            Ok(response) => {
-                let status = response.status();
-                if (300..400).contains(&status) {
-                    return Err(RegistryApiError::ServerError {
-                        status,
-                        detail: None,
-                    });
-                }
-                Ok((status, response))
-            }
-            Err(ureq::Error::Status(status, response)) => {
-                let retry_after_secs = response
-                    .header("Retry-After")
-                    .and_then(|value| value.trim().parse::<u64>().ok());
-                let (detail, code) = match envelope_entry(response) {
-                    Some(entry) => (Some(entry.detail), entry.code),
-                    None => (None, None),
-                };
-                Err(match status {
-                    401 => refused(self.origin.clone()),
-                    429 => RegistryApiError::RateLimited { retry_after_secs },
-                    503 if code.as_deref() == Some(OVER_BUDGET_CODE) => {
-                        RegistryApiError::RegistryOverBudget { retry_after_secs }
-                    }
-                    _ => RegistryApiError::ServerError { status, detail },
-                })
-            }
-            Err(ureq::Error::Transport(transport)) => Err(RegistryApiError::Transport {
-                message: transport.to_string(),
-            }),
-        }
+        classify(result, |refusal| match refusal.status {
+            401 => refused(self.origin.clone()),
+            _ => refusal.into_error(),
+        })
     }
 
     /// `<api>/api/v1/packages/<scope>/<name>/<version><suffix>`.  The
@@ -408,109 +380,154 @@ impl RegistryApi {
 
     /// Map a `ureq` result into either a success status (2xx, with the
     /// response for the caller to interpret) or the typed error for
-    /// the shared protocol statuses.
+    /// the package routes' protocol statuses.
     fn send(
         &self,
         result: Result<ureq::Response, ureq::Error>,
         name: &str,
         version: &semver::Version,
     ) -> Result<(u16, ureq::Response), RegistryApiError> {
-        match result {
-            Ok(response) => {
-                let status = response.status();
-                // `.redirects(0)` refuses to follow, but ureq still
-                // returns the 3xx as `Ok`; reject it explicitly.
-                if (300..400).contains(&status) {
-                    return Err(RegistryApiError::ServerError {
-                        status,
-                        detail: None,
-                    });
+        classify(result, |refusal| match refusal.status {
+            400 => RegistryApiError::BadRequest {
+                detail: refusal.detail,
+            },
+            401 if self.token.is_some() => RegistryApiError::TokenRejected {
+                origin: self.origin.clone(),
+            },
+            401 => RegistryApiError::AuthRequired {
+                origin: self.origin.clone(),
+            },
+            // A 403 whose envelope carries a `quota_*` code is a
+            // per-user quota refusal (`docs/remote-registry.md`,
+            // "Error envelope"), not a scope problem: the server
+            // detail - which embeds the registry's own usage URL -
+            // reaches the user verbatim. The client never derives
+            // a web URL itself.
+            403 if refusal
+                .code
+                .as_deref()
+                .is_some_and(|code| code.starts_with("quota_")) =>
+            {
+                RegistryApiError::QuotaExceeded {
+                    // The envelope requires `detail`, so a parsed
+                    // `code` guarantees one.
+                    detail: refusal.detail.unwrap_or_default(),
                 }
-                Ok((status, response))
             }
-            Err(ureq::Error::Status(status, response)) => {
-                // `Retry-After` (delta seconds) rides on the 429 and 503
-                // refusals; an absent or non-numeric value (an HTTP date,
-                // say) degrades to no hint rather than failing the
-                // mapping.  Read before the body consumes the response.
-                let retry_after_secs = response
-                    .header("Retry-After")
-                    .and_then(|value| value.trim().parse::<u64>().ok());
-                let (detail, code) = match envelope_entry(response) {
-                    Some(entry) => (Some(entry.detail), entry.code),
-                    None => (None, None),
-                };
-                Err(match status {
-                    400 => RegistryApiError::BadRequest { detail },
-                    401 if self.token.is_some() => RegistryApiError::TokenRejected {
-                        origin: self.origin.clone(),
-                    },
-                    401 => RegistryApiError::AuthRequired {
-                        origin: self.origin.clone(),
-                    },
-                    // A 403 whose envelope carries a `quota_*` code is a
-                    // per-user quota refusal (`docs/remote-registry.md`,
-                    // "Error envelope"), not a scope problem: the server
-                    // detail - which embeds the registry's own usage URL -
-                    // reaches the user verbatim. The client never derives
-                    // a web URL itself.
-                    403 if code
-                        .as_deref()
-                        .is_some_and(|code| code.starts_with("quota_")) =>
-                    {
-                        RegistryApiError::QuotaExceeded {
-                            // The envelope requires `detail`, so a parsed
-                            // `code` guarantees one.
-                            detail: detail.unwrap_or_default(),
-                        }
-                    }
-                    // A token-authenticated, code-less 403 covers two
-                    // distinct server refusals that differ only in
-                    // their `detail`: a token permission the user did
-                    // not grant, and a scope the token's user is not a
-                    // member of.  The detail is surfaced verbatim so
-                    // the user fixes the right one; only an
-                    // envelope-less response falls back to the generic
-                    // token-permission wording.  A tokenless 403 is
-                    // neither case (no credential was presented), and
-                    // an unknown code falls through to the generic
-                    // mapping so its detail still reaches the user.
-                    403 if self.token.is_some() && code.is_none() => RegistryApiError::Forbidden {
-                        origin: self.origin.clone(),
-                        detail,
-                    },
-                    404 => RegistryApiError::NotFound {
-                        name: name.to_owned(),
-                        version: version.to_string(),
-                    },
-                    409 => RegistryApiError::VersionConflict {
-                        name: name.to_owned(),
-                        version: version.to_string(),
-                        detail,
-                    },
-                    413 => RegistryApiError::ArchiveTooLarge { detail },
-                    429 => RegistryApiError::RateLimited { retry_after_secs },
-                    // The service-wide budget breaker
-                    // (`registry/docs/architecture.md`, "Why 503, not
-                    // 402"): an operator-side, temporary refusal, so the
-                    // registry answers `503` rather than the `402` it
-                    // used before - `503` has explicit `Retry-After`
-                    // semantics where `402` has none, and nothing the
-                    // caller can pay clears the breaker.  Unlike the `402` it
-                    // replaces, `503` is a status Cloudflare's own edge
-                    // and runtime emit too, so the code identifies the
-                    // breaker; an uncoded `503` stays the generic server
-                    // error it was before, rather than blaming a
-                    // platform outage on the registry's budget.
-                    503 if code.as_deref() == Some(OVER_BUDGET_CODE) => {
-                        RegistryApiError::RegistryOverBudget { retry_after_secs }
-                    }
-                    _ => RegistryApiError::ServerError { status, detail },
-                })
+            // A token-authenticated, code-less 403 covers two
+            // distinct server refusals that differ only in
+            // their `detail`: a token permission the user did
+            // not grant, and a scope the token's user is not a
+            // member of.  The detail is surfaced verbatim so
+            // the user fixes the right one; only an
+            // envelope-less response falls back to the generic
+            // token-permission wording.  A tokenless 403 is
+            // neither case (no credential was presented), and
+            // an unknown code falls through to the generic
+            // mapping so its detail still reaches the user.
+            403 if self.token.is_some() && refusal.code.is_none() => RegistryApiError::Forbidden {
+                origin: self.origin.clone(),
+                detail: refusal.detail,
+            },
+            404 => RegistryApiError::NotFound {
+                name: name.to_owned(),
+                version: version.to_string(),
+            },
+            409 => RegistryApiError::VersionConflict {
+                name: name.to_owned(),
+                version: version.to_string(),
+                detail: refusal.detail,
+            },
+            413 => RegistryApiError::ArchiveTooLarge {
+                detail: refusal.detail,
+            },
+            _ => refusal.into_error(),
+        })
+    }
+}
+
+/// Split an executed request into a success status (2xx, with the
+/// response for the caller to interpret) or a typed error: `route`
+/// maps a non-2xx answer, deferring to [`Refusal::into_error`] for
+/// every status it does not own.
+fn classify(
+    result: Result<ureq::Response, ureq::Error>,
+    route: impl FnOnce(Refusal) -> RegistryApiError,
+) -> Result<(u16, ureq::Response), RegistryApiError> {
+    match result {
+        Ok(response) => {
+            let status = response.status();
+            // `.redirects(0)` refuses to follow, but ureq still
+            // returns the 3xx as `Ok`; reject it explicitly.
+            if (300..400).contains(&status) {
+                return Err(RegistryApiError::ServerError {
+                    status,
+                    detail: None,
+                });
             }
-            Err(ureq::Error::Transport(transport)) => Err(RegistryApiError::Transport {
-                message: transport.to_string(),
-            }),
+            Ok((status, response))
+        }
+        Err(ureq::Error::Status(status, response)) => Err(route(Refusal::read(status, response))),
+        Err(ureq::Error::Transport(transport)) => Err(RegistryApiError::Transport {
+            message: transport.to_string(),
+        }),
+    }
+}
+
+/// A non-2xx answer: its status, `Retry-After` hint, and error
+/// envelope entry.
+struct Refusal {
+    status: u16,
+    retry_after_secs: Option<u64>,
+    detail: Option<String>,
+    code: Option<String>,
+}
+
+impl Refusal {
+    fn read(status: u16, response: ureq::Response) -> Self {
+        // `Retry-After` (delta seconds) rides on the 429 and 503
+        // refusals; an absent or non-numeric value (an HTTP date,
+        // say) degrades to no hint rather than failing the
+        // mapping.  Read before the body consumes the response.
+        let retry_after_secs = response
+            .header("Retry-After")
+            .and_then(|value| value.trim().parse::<u64>().ok());
+        let (detail, code) = match envelope_entry(response) {
+            Some(entry) => (Some(entry.detail), entry.code),
+            None => (None, None),
+        };
+        Self {
+            status,
+            retry_after_secs,
+            detail,
+            code,
+        }
+    }
+
+    /// The mappings every route shares.
+    fn into_error(self) -> RegistryApiError {
+        let retry_after_secs = self.retry_after_secs;
+        match self.status {
+            429 => RegistryApiError::RateLimited { retry_after_secs },
+            // The service-wide budget breaker
+            // (`registry/docs/architecture.md`, "Why 503, not
+            // 402"): an operator-side, temporary refusal, so the
+            // registry answers `503` rather than the `402` it
+            // used before - `503` has explicit `Retry-After`
+            // semantics where `402` has none, and nothing the
+            // caller can pay clears the breaker.  Unlike the `402` it
+            // replaces, `503` is a status Cloudflare's own edge
+            // and runtime emit too, so the code identifies the
+            // breaker; an uncoded `503` stays the generic server
+            // error it was before, rather than blaming a
+            // platform outage on the registry's budget.
+            503 if self.code.as_deref() == Some(OVER_BUDGET_CODE) => {
+                RegistryApiError::RegistryOverBudget { retry_after_secs }
+            }
+            status => RegistryApiError::ServerError {
+                status,
+                detail: self.detail,
+            },
         }
     }
 }
