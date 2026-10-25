@@ -1,23 +1,21 @@
 //! Shared blobs, rejection accounting and the write plane's uniform
-//! 403, `registry/scripts/smoke.sh` L1600-1741: a second version
-//! publishing the exact bytes of the first (one blob, counted once),
-//! the verdict binding's stale-listing 409, a rejection that keeps both
-//! the shared blob and the accounting while going invisible to
-//! everyone, the republish that supersedes it, the reclaim and refund
-//! once the rejected blob is unshared, the byte-identical restart, and
-//! the byte-identical refusal an unclaimed and a foreign scope must
-//! both answer.
+//! 403: a second version publishing the exact bytes of the first (one
+//! blob, counted once), the verdict binding's stale-listing 409, a
+//! rejection that keeps both the shared blob and the accounting while
+//! going invisible to everyone, the republish that supersedes it, the
+//! reclaim and refund once the rejected blob is unshared, the
+//! byte-identical restart, and the byte-identical refusal an unclaimed
+//! and a foreign scope must both answer.
 //!
 //! Three legs here compare a response against one an *earlier* request
-//! left in the shared buffer (the shell's `cp "$body" …` then `cmp -s`,
-//! plan §7.6): each is a clone taken at exactly the line the shell
-//! copied, compared over raw bytes.  Parsing either side would weaken
-//! "byte-identical refusal" to "same fields", which is the property
-//! these legs exist to prove.
+//! left in the shared buffer: each is a clone taken before the next
+//! request overwrites it, compared over raw bytes.  Parsing either side
+//! would weaken "byte-identical refusal" to "same fields", which is the
+//! property these legs exist to prove.
 //!
-//! The leg inherits the publisher credential the previous phase left
-//! set (L1562) and hands it back the same way, so nothing here selects
-//! a credential on entry.
+//! The leg inherits the publisher credential the previous leg left set
+//! and hands it back the same way, so nothing here selects a credential
+//! on entry.
 
 use std::fs;
 use std::path::Path;
@@ -38,48 +36,39 @@ use crate::text::{capture, contains};
 /// leg reads: the fixture identity, the two derived request paths for
 /// `0.2.1`, the bodies already framed, and the minted session cookie.
 pub struct BlobInputs<'a> {
-    /// `$scope`.
     pub scope: &'a str,
-    /// `$name`.
     pub name: &'a str,
-    /// `$version` - the version the uniform-403 leg names on the two
-    /// scopes it may not write to.
+    /// The version the uniform-403 leg names on the two scopes it may
+    /// not write to.
     pub version: &'a str,
-    /// `$version2`, the shared-blob version.
+    /// The shared-blob version.
     pub version2: &'a str,
-    /// `$rev`, the fixture archive's packaging revision.
+    /// The fixture archive's packaging revision.
     pub rev: &'a str,
-    /// `$blob_hash`, the fixture archive's SHA-256, which the
-    /// replacement metadata is retargeted off.
+    /// The fixture archive's SHA-256, which the replacement metadata is
+    /// retargeted off.
     pub blob_hash: &'a str,
-    /// `$artifact_path`, the verified `0.2.0` artifact.
+    /// The verified `0.2.0` artifact.
     pub artifact_path: &'a str,
-    /// `$package_path`, the package document.
+    /// The package document.
     pub package_path: &'a str,
-    /// `$publish2_path`.
     pub publish2_path: &'a str,
-    /// `$artifact2_path`, `0.2.1`'s first revision - the same id as
-    /// `0.2.0`'s, because the bytes are the same.
+    /// `0.2.1`'s first revision - the same id as `0.2.0`'s, because the
+    /// bytes are the same.
     pub artifact2_path: &'a str,
-    /// `$verdict2_path`.
     pub verdict2_path: &'a str,
-    /// `$work/withdep-0.2.1.json`, the metadata the replacement is
-    /// retargeted from.
+    /// The `0.2.1` metadata the replacement is retargeted from.
     pub metadata2: &'a [u8],
-    /// `$work/publish2.bin`.
     pub publish2: &'a [u8],
-    /// `$fixture_archive`, the bytes the tampered replacement is
-    /// derived from.
+    /// The bytes the tampered replacement is derived from.
     pub archive: &'a [u8],
-    /// `$work/publish.bin`, the well-formed body the 403 leg sends to
-    /// scopes it may not write to.
+    /// The well-formed body the 403 leg sends to scopes it may not
+    /// write to.
     pub publish: &'a [u8],
-    /// `$work/yank.json`.
     pub yank: &'a [u8],
-    /// `$session_cookie`.
     pub session_cookie: &'a str,
-    /// `$work`, the run's scratch directory: `wrangler r2 object get`
-    /// needs a real `--file` path.
+    /// The run's scratch directory: `wrangler r2 object get` needs a
+    /// real `--file` path.
     pub work: &'a Path,
 }
 
@@ -96,11 +85,11 @@ const TOTAL_STORED_BYTES: &str = "SELECT value FROM meta WHERE key = 'total_stor
 const RESET_PUBLISH_BUCKET: &str = "
   UPDATE users SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke');";
 
-/// The whole leg, in the shell's order.
+/// The whole leg.
 ///
 /// # Errors
 ///
-/// The first failed check, worded as the shell's `fail` worded it.
+/// The first failed check.
 pub fn run(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     let before_bytes = shared_blob(smoke, inputs)?;
     let entry = pending_entry(smoke, inputs)?;
@@ -112,8 +101,8 @@ pub fn run(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     uniform_403(smoke, inputs)
 }
 
-/// L1600-1605.  The second version publishes the exact archive the
-/// first did, so the blob is shared and the accounting must not move.
+/// The second version publishes the exact archive the first did, so the
+/// blob is shared and the accounting must not move.
 fn shared_blob(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<String> {
     step("publishing a second version with identical content shares the blob");
     let before_bytes = stored_bytes()?;
@@ -128,9 +117,9 @@ fn shared_blob(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<String> {
     Ok(before_bytes)
 }
 
-/// L1607-1614.  Every verdict binds to the listing entry of the version
-/// it judges: the checksum names the revision, and `published_at` names
-/// the publish event.  `0.2.1` shares `0.2.0`'s bytes - so the same
+/// Every verdict binds to the listing entry of the version it judges:
+/// the checksum names the revision, and `published_at` names the
+/// publish event.  `0.2.1` shares `0.2.0`'s bytes - so the same
 /// checksum - but is its own publish event, so it needs its own entry.
 fn pending_entry(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<Entry> {
     smoke.as_verifier();
@@ -143,10 +132,10 @@ fn pending_entry(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<Entry> {
     )
 }
 
-/// L1616-1629.  The checksum must be the real one - a bogus digest
-/// names no revision under this triple and is a plain 404, never the
-/// binding conflict.  The stale half is the publish event, exactly what
-/// a byte-identical revival changes.
+/// The checksum must be the real one - a bogus digest names no revision
+/// under this triple and is a plain 404, never the binding conflict.
+/// The stale half is the publish event, exactly what a byte-identical
+/// revival changes.
 fn stale_verdict(smoke: &mut Smoke, inputs: &BlobInputs<'_>, entry: &Entry) -> Result<()> {
     step("a verdict bound to a stale listing conflicts");
     let verdict = verdict_stale(&entry.checksum);
@@ -154,8 +143,8 @@ fn stale_verdict(smoke: &mut Smoke, inputs: &BlobInputs<'_>, entry: &Entry) -> R
     smoke.expect_body("changed since it was listed")
 }
 
-/// L1631-1667.  Bound to `0.2.1`'s own listing entry: the shared
-/// checksum names the revision, its publish event names the generation.
+/// Bound to `0.2.1`'s own listing entry: the shared checksum names the
+/// revision, its publish event names the generation.
 fn reject_shared(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
@@ -212,8 +201,6 @@ fn reject_shared(
     }
     smoke.check(inputs.artifact_path, &[200])?;
     smoke.check(inputs.package_path, &[200])?;
-    // The shell spelled this needle out rather than interpolating
-    // `$version2`, and so does the listing assertion at L1688.
     if contains(&smoke.body, br#""0.2.1""#) {
         bail!(
             "a rejected version leaked into the package document: {}",
@@ -228,9 +215,9 @@ fn reject_shared(
     )
 }
 
-/// L1669-1689.  Different bytes are a different revision, but the
-/// version's only other revision is the rejected one - nothing live to
-/// supersede - so this needs no new-revision opt-in.
+/// Different bytes are a different revision, but the version's only
+/// other revision is the rejected one - nothing live to supersede - so
+/// this needs no new-revision opt-in.
 fn republish_over_rejected(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
@@ -268,8 +255,8 @@ fn republish_over_rejected(
     })
 }
 
-/// L1691-1707.  The rejected revision is the blob's only holder now, so
-/// the reject must both refund the bytes and delete the object.
+/// The rejected revision is the blob's only holder now, so the reject
+/// must both refund the bytes and delete the object.
 fn reclaim_unshared(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
@@ -300,8 +287,8 @@ fn reclaim_unshared(
     let key = format!("{BLOBS_BUCKET}/blobs/sha256/{}", replacement.hash);
     let mut command =
         xtask_registry_admin::wrangler(&["r2", "object", "get", &key, "--file", file, "--local"]);
-    // A successful read is the failure: the shell put this in an `if`,
-    // where a non-zero exit is the expected outcome and never an abort.
+    // A successful read is the failure: a non-zero exit is the expected
+    // outcome and never an abort.
     let got = command
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -313,8 +300,8 @@ fn reclaim_unshared(
     Ok(())
 }
 
-/// L1709-1719.  Byte-identical, so this revives the rejected revision
-/// in place rather than minting another one.
+/// Byte-identical, so this revives the rejected revision in place
+/// rather than minting another one.
 fn restart_verification(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
@@ -337,11 +324,11 @@ fn restart_verification(
     Ok(())
 }
 
-/// L1721-1741.  `ghost` was never claimed; `foreign` belongs only to
-/// the seeded user 2.  Both must answer the byte-identical refusal, so
-/// an authenticated publisher cannot probe which scopes exist.  The
-/// gate fires before the body is read, so the well-formed publish body
-/// is irrelevant.
+/// `ghost` was never claimed; `foreign` belongs only to the seeded
+/// user 2.  Both must answer the byte-identical refusal, so an
+/// authenticated publisher cannot probe which scopes exist.  The gate
+/// fires before the body is read, so the well-formed publish body is
+/// irrelevant.
 fn uniform_403(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     // These attempts charge the publish bucket like any others (the
     // membership gate sits after the rate limit), so the leg gets its
@@ -385,16 +372,14 @@ fn uniform_403(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
 /// between the three legs that publish it, reject it and republish it
 /// unchanged.
 struct Replacement {
-    /// `$replacement_hash`.
     hash: String,
-    /// `$replacement_rev`, which the restart leg names again.
+    /// The revision id, which the restart leg names again.
     revision: String,
-    /// `$artifact2_replacement_path`.
     artifact: String,
-    /// `$work/replacement.bin`, re-sent verbatim by the restart leg.
+    /// The framed body, re-sent verbatim by the restart leg.
     body: Vec<u8>,
-    /// `$replacement_size`, the archive's own length and not the
-    /// framed body's - only the blob is accounted for.
+    /// The archive's own length and not the framed body's - only the
+    /// blob is accounted for.
     size: usize,
 }
 
@@ -407,14 +392,9 @@ struct Entry {
 }
 
 /// The two halves of the binding, read back out of the entry file the
-/// shared `listing_entry` just wrote - the node verdict builders read
-/// that file rather than the listing, so the extraction runs through
-/// the same document they did.
-///
-/// Node bound `entry.checksum` unconditionally and `JSON.stringify`
-/// dropped an `undefined` key, sending a verdict with no binding whose
-/// 400 would have surfaced as a status mismatch several lines later; a
-/// missing half fails here instead.
+/// shared `listing_entry` just wrote.  A missing half fails here rather
+/// than as a verdict with no binding, whose 400 would surface as a
+/// status mismatch several lines later.
 fn binding(listing: &[u8], name: &str, version: &str, out: &Path) -> Result<Entry> {
     session::listing_entry(listing, name, version, out)?;
     let written = fs::read(out).with_context(|| format!("read {}", out.display()))?;
@@ -433,8 +413,8 @@ fn binding(listing: &[u8], name: &str, version: &str, out: &Path) -> Result<Entr
     })
 }
 
-/// `verdict-stale.json` (L1621-1627): the real checksum, so the
-/// revision resolves, with a publish event that never happened.
+/// The real checksum, so the revision resolves, with a publish event
+/// that never happened.
 fn verdict_stale(checksum: &str) -> String {
     format!(
         r#"{{"verdict":"verified","checksum":{},"published_at":"{EPOCH}"}}"#,
@@ -442,9 +422,8 @@ fn verdict_stale(checksum: &str) -> String {
     )
 }
 
-/// `verdict-rejected2.json` / `verdict-rejected-replacement.json`
-/// (L1634-1640, L1693-1699), which differ only in the entry they bind
-/// to.
+/// The two rejection verdicts, which differ only in the entry they
+/// bind to.
 fn verdict_rejected(checksum: &str, published_at: &str) -> String {
     format!(
         r#"{{"verdict":"rejected","reason":"smoke rejection","checksum":{},"published_at":{}}}"#,
@@ -453,16 +432,13 @@ fn verdict_rejected(checksum: &str, published_at: &str) -> String {
     )
 }
 
-/// `JSON.stringify` of one string: its quotes and any escaping.  Both
-/// builders emit their keys in the literal order the object literal
-/// wrote them, which a `serde_json::Map` would sort.
+/// One string as JSON: its quotes and any escaping.
 fn json_string(value: &str) -> String {
     Value::String(value.to_owned()).to_string()
 }
 
-/// `stored_bytes` (L1583): `meta.total_stored_bytes` as the shell's
-/// `console.log` printed it, so the comparisons stay the string
-/// comparisons `[[ … == … ]]` made.
+/// `meta.total_stored_bytes` as display text; the comparisons are
+/// string comparisons.
 fn stored_bytes() -> Result<String> {
     let value = d1_rows(TOTAL_STORED_BYTES)?
         .first()
@@ -471,7 +447,7 @@ fn stored_bytes() -> Result<String> {
     Ok(xtask_registry_admin::display(&value))
 }
 
-/// `$((before_bytes + size))`, rendered as the shell rendered it.
+/// `before_bytes + size`, as text.
 fn sum(before_bytes: &str, size: usize) -> Result<String> {
     let before: usize = before_bytes
         .parse()
@@ -479,12 +455,11 @@ fn sum(before_bytes: &str, size: usize) -> Result<String> {
     Ok((before + size).to_string())
 }
 
-/// L1724-1725, whose stdout the shell left on the terminal.
 fn reset_publish_bucket() -> Result<()> {
     d1(RESET_PUBLISH_BUCKET).context("resetting the publish bucket")
 }
 
-/// `$scope/$name`, the scoped name the admin listing keys entries by.
+/// `<scope>/<name>`, the scoped name the admin listing keys entries by.
 fn scoped(inputs: &BlobInputs<'_>) -> String {
     format!("{}/{}", inputs.scope, inputs.name)
 }

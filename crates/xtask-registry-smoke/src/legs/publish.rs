@@ -1,38 +1,32 @@
-//! The publish and verification core, `registry/scripts/smoke.sh`
-//! L998-1330: the validation 400s that refuse before any write, the
-//! first publish, the pending version's invisibility to every reader
-//! without a verify scope, the verifier's listing/download/verdict
-//! round trip, download counting, backup replication, and the
-//! idempotent re-publish that heals the primary blob only.
+//! The publish and verification core: the validation 400s that refuse
+//! before any write, the first publish, the pending version's
+//! invisibility to every reader without a verify scope, the verifier's
+//! listing/download/verdict round trip, download counting, backup
+//! replication, and the idempotent re-publish that heals the primary
+//! blob only.
 //!
 //! Three shapes here look like they could be tidied and cannot be.
 //!
-//! The **oversized verdict** (L1095-1104) must reach the Worker with
-//! no `Content-Length`, because the leg's whole subject is that the
-//! body cap holds while a stream is read.  `curl` got that from
-//! `-H "Transfer-Encoding: chunked"`, and `ureq` reads the same header
-//! back off the caller's request: with a user-set `chunked` encoding it
-//! skips its own `Content-Length` and chunk-frames the body it was
-//! given (`ureq-2.12.1/src/unit.rs:50-83`, pinned upstream by that
-//! crate's own `content_length_and_chunked` test).  So the ordinary
-//! [`Smoke::http`] carries this leg; `send(reader)` would work too, but
-//! only because an unsized reader lands in the same branch.
+//! The **oversized verdict** must reach the Worker with no
+//! `Content-Length`, because the leg's whole subject is that the body
+//! cap holds while a stream is read.  `ureq` reads a
+//! `Transfer-Encoding: chunked` header off the caller's request: with a
+//! user-set `chunked` encoding it skips its own `Content-Length` and
+//! chunk-frames the body it was given (`ureq-2.12.1/src/unit.rs:50-83`,
+//! pinned upstream by that crate's own `content_length_and_chunked`
+//! test).  So the ordinary [`Smoke::http`] carries this leg;
+//! `send(reader)` would work too, but only because an unsized reader
+//! lands in the same branch.
 //!
-//! **The `sleep 1`s** at L1059 and L1318 precede *negative* assertions:
-//! no backup blob for a pending version, and no backup rewrite by a
-//! re-publish.  In-process HTTP outruns a forked `curl`, so trimming
-//! either one turns a real assertion into a race that passes for the
-//! wrong reason (plan §7.9).
+//! **The two `SETTLE` pauses** precede *negative* assertions: no
+//! backup blob for a pending version, and no backup rewrite by a
+//! re-publish.  Trimming either one turns a real assertion into a race
+//! that passes for the wrong reason.
 //!
-//! **`curl -o <file>` never wrote `$body`.**  The two artifact
-//! downloads and the header-only fetches left the shared response
-//! buffers holding what the *previous* request put there (plan §7.6),
-//! so they go through `detached_get` rather than clobbering
-//! [`Smoke::body`].
-//!
-//! `listing_entry`, `run_verifier` and `session_request` are the
-//! shell's shared helpers (L704-767), not this span's; the copies below
-//! are private and exist only so this module compiles on its own.
+//! **Downloads leave the shared body alone.**  The artifact downloads
+//! go through `detached_get`, which puts back the *previous* request's
+//! [`Smoke::body`], and its [`Smoke::headers`] too unless the caller
+//! asks for the download's own headers.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -58,52 +52,47 @@ use crate::text::{contains, read, write};
 /// exists still make `wrangler` write it somewhere.
 const DEV_NULL: &str = "/dev/null";
 
-/// Every poll budget and pause in this span, the shell's literally:
-/// `await_row_downloads` (L1224-1239), `await_backup_blob` (L1270-1279)
-/// and the `backup_pending` drain (L1287-1296) are each 20 × 0.5s, and
-/// the two bare `sleep 1`s guard negative assertions.
+/// Every poll budget and pause in this span: `await_row_downloads`,
+/// `await_backup_blob` and the `backup_pending` drain are each
+/// 20 × 0.5s, and the two `SETTLE` pauses guard negative assertions.
 const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
 const SETTLE: Duration = Duration::from_secs(1);
 
-/// The unbound verdict body, `printf`'d at L1077 and sent twice: once
-/// without the verify scope (403) and once with it (400).
+/// The unbound verdict body, sent twice: once without the verify scope
+/// (403) and once with it (400).
 const VERDICT_UNBOUND: &[u8] = br#"{"verdict":"verified"}"#;
 
-/// What this span needs out of the run's setup - the shell's variables
-/// as they stood at L998, with the fixtures as *paths* because
-/// `wrangler r2 object put` takes `--file` and three `cmp -s` sites
-/// read the archive again.
+/// What this span needs out of the run's setup, with the fixtures as
+/// *paths* because `wrangler r2 object put` takes `--file` and three
+/// sites read the archive again.
 pub struct PublishInputs<'a> {
-    /// `$work`, the run's `mktemp -d`.
+    /// The run's scratch directory.
     pub work: &'a Path,
-    /// `$fixture_archive`.
     pub fixture_archive: &'a Path,
-    /// `$fixture_metadata`.
     pub fixture_metadata: &'a Path,
-    /// `$verifier_bin`, already built, next to this tool's own binary.
+    /// The verifier binary, already built, next to this tool's own binary.
     pub verifier_bin: &'a Path,
-    /// `$session_cookie`, the real one restored at L796.
+    /// The minted session cookie.
     pub session_cookie: &'a str,
-    /// `$scope`, `$name`, `$version` - `smoke`, `withdep`, `0.2.0`.
+    /// `smoke`, `withdep`, `0.2.0`.
     pub scope: &'a str,
     pub name: &'a str,
     pub version: &'a str,
-    /// `$rev`, the archive's packaging revision id.
+    /// The archive's packaging revision id.
     pub rev: &'a str,
-    /// `$blob_hash`, the archive's full SHA-256.
+    /// The archive's full SHA-256.
     pub blob_hash: &'a str,
-    /// `$publish_path`, `$package_path`, `$artifact_path`.
     pub publish_path: &'a str,
     pub package_path: &'a str,
     pub artifact_path: &'a str,
 }
 
-/// The whole publish/verify core, in the shell's order.
+/// The whole publish/verify core.
 ///
 /// # Errors
 ///
-/// The first failed check, worded as the shell's `fail` worded it.
+/// The first failed check.
 pub fn run(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     let metadata = read(inputs.fixture_metadata)?;
     let archive = read(inputs.fixture_archive)?;
@@ -126,7 +115,6 @@ pub fn run(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     byte_identical_no_op(smoke, inputs, &publish_body)
 }
 
-/// L998-1011.
 fn bare_dependency_key(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
@@ -134,9 +122,6 @@ fn bare_dependency_key(
     archive: &[u8],
 ) -> Result<()> {
     step("a bare dependency key is a 400 before any write");
-    // The one substitution the shell left ungreedy (`sed` without `g`,
-    // so first-per-line): the scoped name occurs once in the frozen
-    // fixture, which the setup's own `grep -qF` already pinned.
     let bare = replace_all(metadata, br#""smoke/nodep""#, br#""nodep""#);
     smoke.wrequest("PUT", inputs.publish_path, &frame(&bare, archive), &[400])?;
     smoke.expect_body("canonical <scope>/<name> names")?;
@@ -146,7 +131,6 @@ fn bare_dependency_key(
     refund()
 }
 
-/// L1012-1019.
 fn first_publish(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
@@ -155,8 +139,8 @@ fn first_publish(
 ) -> Result<Vec<u8>> {
     step("first publish creates the version pending verification");
     let body = frame(metadata, archive);
-    // Later legs re-send this exact file (L1505, L1537, L1573, L1732),
-    // so it stays on disk as well as in hand.
+    // Later legs re-send this exact file, so it stays on disk as well
+    // as in hand.
     write(&inputs.work.join("publish.bin"), &body)?;
     smoke.wrequest("PUT", inputs.publish_path, &body, &[201])?;
     smoke.expect_body(r#""ok":true"#)?;
@@ -166,7 +150,6 @@ fn first_publish(
     Ok(body)
 }
 
-/// L1020-1041.
 fn twin_and_reserved_names(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
@@ -203,7 +186,6 @@ fn twin_and_reserved_names(
     refund()
 }
 
-/// L1042-1079.
 fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("pending versions are invisible to no-verify tokens and anonymous readers");
     // The no-verify subject is the CI publish-arm credential: the
@@ -292,7 +274,7 @@ fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
     )
 }
 
-/// L1081-1123.  Returns the pending listing the advisory leg reads.
+/// Returns the pending listing the advisory leg reads.
 fn verify_scope_listing(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<Vec<u8>> {
     step("the verify scope lists and downloads pending versions");
     smoke.as_verifier();
@@ -366,14 +348,13 @@ fn verify_scope_listing(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
     Ok(pending)
 }
 
-/// L1125-1127.
 fn unbound_verdict(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("a verified verdict must name the listing it inspected");
     smoke.verdict_patch(&admin_version(inputs), VERDICT_UNBOUND, &[400])?;
     smoke.expect_body("requires the checksum")
 }
 
-/// L1129-1141.  Returns the listing entry every verdict below binds to.
+/// Returns the listing entry every verdict below binds to.
 fn advisory_abstain(inputs: &PublishInputs<'_>, pending: &[u8]) -> Result<Map<String, Value>> {
     step("the advisory gate abstains on the skeleton-equal fixture pair");
     // `withdep` and `with-dep` fold to the same skeleton, and neither is
@@ -408,8 +389,8 @@ fn advisory_abstain(inputs: &PublishInputs<'_>, pending: &[u8]) -> Result<Map<St
     Ok(entry)
 }
 
-/// L1142-1175.  Returns the bound verified verdict, which two later
-/// legs re-send byte for byte.
+/// Returns the bound verified verdict, which two later legs re-send
+/// byte for byte.
 fn real_verification(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
@@ -466,7 +447,6 @@ fn real_verification(
     Ok(verdict)
 }
 
-/// L1176-1182.
 fn corpus_vetted(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("a verified version flips the corpus row to vetted");
     smoke.as_verifier();
@@ -477,7 +457,6 @@ fn corpus_vetted(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L1183-1197.
 fn search_and_package_routes(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("search and the package routes see the verified version");
     let cookie = inputs.session_cookie;
@@ -512,7 +491,6 @@ fn search_and_package_routes(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> R
     )
 }
 
-/// L1198-1215.
 fn verdict_idempotence(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
@@ -534,7 +512,6 @@ fn verdict_idempotence(
     Ok(())
 }
 
-/// L1216-1251.
 fn download_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("verified downloads count; the verifier's pending fetch never did");
     // The counter lands off the response path (waitUntil), so poll the
@@ -559,7 +536,6 @@ fn download_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()
     await_row_downloads("2")
 }
 
-/// L1252-1281.
 fn anonymous_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("anonymous readers see the verified version, and their downloads count");
     smoke.anonymous();
@@ -584,7 +560,6 @@ fn anonymous_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<(
     Ok(())
 }
 
-/// L1282-1303.
 fn backup_replication(inputs: &PublishInputs<'_>) -> Result<()> {
     // The verdict batch enqueued the backup work transactionally with
     // the verified transition, and the verdict's waitUntil drain
@@ -609,7 +584,6 @@ fn backup_replication(inputs: &PublishInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L1304-1326.
 fn heal_primary_only(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
@@ -646,7 +620,6 @@ fn heal_primary_only(
     r2_put(BACKUP_BUCKET, &key, inputs.fixture_archive)
 }
 
-/// L1327-1331.
 fn byte_identical_no_op(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
@@ -661,16 +634,14 @@ fn byte_identical_no_op(
 
 // --- Helpers. ---
 
-/// `listing_entry` (L704-715): the one admin-listing element the
-/// verifier binary consumes, written to `out` exactly as
-/// `JSON.stringify` wrote it - the six keys in that insertion order,
+/// The one admin-listing element the verifier binary consumes,
+/// written to `out` - the six keys in this insertion order,
 /// a key the listing does not carry omitted rather than nulled
 /// (`preserve_order` is on workspace-wide, so a `Map` round trip keeps
 /// both the outer order and `metadata`'s own).
 ///
 /// The parsed entry comes back because two verdict bodies and the
-/// oversized one bind to its `checksum` and `published_at`; the shell
-/// read those back off the file it had just written.
+/// oversized one bind to its `checksum` and `published_at`.
 fn listing_entry(
     listing: &[u8],
     name: &str,
@@ -708,13 +679,11 @@ fn listing_entry(
     Ok(entry)
 }
 
-/// `run_verifier` (L720-723): the built binary's JSON verdict, written
-/// to `out` as the shell's redirect wrote it.  Exit 2 is an operational
-/// failure with no verdict, which must abort the run rather than pass
-/// silently.
+/// The built binary's JSON verdict, written to `out`.  Exit 2 is an
+/// operational failure with no verdict, which must abort the run
+/// rather than pass silently.
 ///
-/// The verdict comes back because the caller greps it; the shell
-/// grepped the file it had just written.
+/// The verdict comes back because the caller greps it.
 fn run_verifier(bin: &Path, archive: &Path, entry: &Path, out: &Path) -> Result<Vec<u8>> {
     let (ok, verdict) = verifier(bin, &[archive.as_os_str(), entry.as_os_str()])?;
     write(out, &verdict)?;
@@ -728,9 +697,8 @@ fn run_verifier(bin: &Path, archive: &Path, entry: &Path, out: &Path) -> Result<
     Ok(verdict)
 }
 
-/// The verifier binary with `args`, stdout captured (the shell
-/// redirected it into a file) and stderr left on the operator's
-/// terminal (the shell never redirected it).
+/// The verifier binary with `args`, stdout captured and stderr left on
+/// the operator's terminal.
 fn verifier(bin: &Path, args: &[&OsStr]) -> Result<(bool, Vec<u8>)> {
     let run = Command::new(bin)
         .args(args)
@@ -740,8 +708,7 @@ fn verifier(bin: &Path, args: &[&OsStr]) -> Result<(bool, Vec<u8>)> {
     Ok((run.status.success(), run.stdout))
 }
 
-/// `session_request <method> <path> <expected>` (L758-767) for the GET
-/// sites this span uses: the website origin, the session cookie, one
+/// A session GET: the website origin, the session cookie, one
 /// accepted status, and a fail wording of its own - it names the single
 /// expectation where `check`/`request` list every accepted status.
 fn session_get(
@@ -765,10 +732,9 @@ fn session_get(
     Ok(())
 }
 
-/// `curl -o <file>` / `-o /dev/null`: the response body went somewhere
-/// other than `$body`, so the shared buffer must keep what the previous
-/// request left in it (plan §7.6).  `dump_headers` is true where the
-/// call also passed `-D "$headers"`.
+/// A GET whose body is returned rather than stored: the shared body
+/// buffer keeps what the previous request left in it.  `dump_headers`
+/// also writes [`Smoke::headers`].
 fn detached_get(smoke: &mut Smoke, url: &str, dump_headers: bool) -> Result<(u16, Vec<u8>)> {
     let auth = smoke.auth.clone();
     let previous_body = std::mem::take(&mut smoke.body);
@@ -781,7 +747,6 @@ fn detached_get(smoke: &mut Smoke, url: &str, dump_headers: bool) -> Result<(u16
     Ok((status, received))
 }
 
-/// `await_row_downloads` (L1224-1239).
 fn await_row_downloads(expected: &str) -> Result<()> {
     let mut row_downloads = String::new();
     for _ in 0..POLLS {
@@ -795,9 +760,7 @@ fn await_row_downloads(expected: &str) -> Result<()> {
     bail!("smoke/withdep@0.2.0 downloads never reached {expected} (last: {row_downloads})")
 }
 
-/// The `downloads` column of the one fixture row, as the shell's `node`
-/// printed it (L1229-1235).  The package identity is spelled out rather
-/// than derived: so was the SQL.
+/// The `downloads` column of the one fixture row.
 fn row_downloads_now() -> Result<String> {
     let json = d1_json(
         "SELECT downloads FROM versions
@@ -806,8 +769,8 @@ fn row_downloads_now() -> Result<String> {
     column(&json, "downloads")
 }
 
-/// `await_backup_blob` (L1270-1279): replication runs via `waitUntil`
-/// after the response, so poll the BACKUP bucket briefly.
+/// Replication runs via `waitUntil` after the response, so poll the
+/// BACKUP bucket briefly.
 fn await_backup_blob(key: &str, out: &Path) -> Result<()> {
     for _ in 0..POLLS {
         if r2_get(BACKUP_BUCKET, key, out, true)? {
@@ -818,7 +781,7 @@ fn await_backup_blob(key: &str, out: &Path) -> Result<()> {
     bail!("blob {key} never appeared in the BACKUP bucket")
 }
 
-/// The `backup_pending` rows still queued for this blob (L1288-1294).
+/// The `backup_pending` rows still queued for this blob.
 fn backup_pending_rows(inputs: &PublishInputs<'_>) -> Result<String> {
     let json = d1_json(&format!(
         "SELECT COUNT(*) AS n FROM backup_pending
@@ -828,7 +791,7 @@ fn backup_pending_rows(inputs: &PublishInputs<'_>) -> Result<String> {
     column(&json, "n")
 }
 
-/// `out[0].results[0].<name>` as `console.log` printed it.
+/// The first row's `name` column, as display text.
 fn column(json: &str, name: &str) -> Result<String> {
     let rows = results(json)?;
     let row = rows.first().context("the query returned no row")?;
@@ -838,8 +801,8 @@ fn column(json: &str, name: &str) -> Result<String> {
     Ok(display(value))
 }
 
-/// The publish-bucket refund (L1009-1010, L1039-1040) on the smoke
-/// token's owner: the bucket is the user's, not the token's.
+/// The publish-bucket refund on the smoke token's owner: the bucket is
+/// the user's, not the token's.
 fn refund() -> Result<()> {
     crate::servers::d1_quiet(
         "
@@ -850,7 +813,7 @@ fn refund() -> Result<()> {
 /// `wrangler r2 object get <bucket>/<key> --file <out> --local`, and
 /// whether it succeeded: three of the four sites read a *failure* as
 /// the assertion (the object must be absent) rather than as an error.
-/// `quiet` is the `2>&1` those three added.
+/// `quiet` discards stderr for those three.
 fn r2_get(bucket: &str, key: &str, out: &Path, quiet: bool) -> Result<bool> {
     let target = format!("{bucket}/{key}");
     let mut command = wrangler(&[
@@ -895,10 +858,9 @@ fn r2_put(bucket: &str, key: &str, file: &Path) -> Result<()> {
 
 // --- Pure shapes. ---
 
-/// L1095-1097: `printf '…%4097s}'` with an empty argument - padding
-/// *inside* an otherwise well-formed rejected verdict, so an uncapped
-/// handler would parse and apply it and only the body cap can be what
-/// refused.  Ten caps of it rather than the shell's one byte past: the
+/// Padding *inside* an otherwise well-formed rejected verdict, so an
+/// uncapped handler would parse and apply it and only the body cap can
+/// be what refused.  Ten caps of it rather than one byte past: the
 /// refused body then spans several chunked wire frames and runs past
 /// any bound a drain might stop at, so the request after it succeeds
 /// only if the worker read the body to its end.
@@ -913,8 +875,7 @@ fn oversized_verdict(checksum: &str, published_at: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-/// The bound verdict bodies (L1147-1152, L1205-1211) as
-/// `JSON.stringify` wrote them: the keys in that insertion order, and a
+/// The bound verdict bodies: the keys in this insertion order, and a
 /// binding the listing entry does not carry omitted rather than nulled.
 fn verdict_body(
     entry: &Map<String, Value>,
@@ -934,9 +895,9 @@ fn verdict_body(
     Ok(serde_json::to_vec(&Value::Object(document))?)
 }
 
-/// L1244-1248: `packages`, `versions` and `downloads` must each be an
-/// integer of at least 1.  `Number.isInteger`, so a fractional value or
-/// a non-number fails and a whole `1.0` passes.
+/// `packages`, `versions` and `downloads` must each be an integer of at
+/// least 1: a fractional value or a non-number fails and a whole `1.0`
+/// passes.
 fn stats_are_counted(body: &[u8]) -> bool {
     let Ok(stats) = serde_json::from_slice::<Value>(body) else {
         return false;
@@ -957,8 +918,8 @@ fn header_starts_with(headers: &[u8], prefix: &str) -> bool {
     block.lines().any(|line| line.starts_with(prefix))
 }
 
-/// `grep -i <fixed> "$headers"` as the two no-store failures
-/// interpolated it: every matching line, `\r` and all, newline joined.
+/// The header lines containing `needle` case-insensitively, `\r` and
+/// all, newline joined - the two no-store failures' diagnostic.
 fn grep_lines(headers: &[u8], needle: &str) -> String {
     String::from_utf8_lossy(headers)
         .split('\n')
@@ -967,7 +928,7 @@ fn grep_lines(headers: &[u8], needle: &str) -> String {
         .join("\n")
 }
 
-/// `$(cat "$body")` in a `fail` message.
+/// Bytes as text, for a failure message.
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
@@ -1007,8 +968,8 @@ fn utf8(path: &Path) -> Result<&str> {
 mod tests {
     use super::*;
 
-    /// `JSON.stringify` omits an undefined field; a `null` binding is a
-    /// different document and stays one.
+    /// A missing field is omitted; a `null` binding is a different
+    /// document and stays one.
     #[test]
     fn a_missing_binding_is_omitted_and_an_explicit_null_is_kept() {
         let mut sparse = Map::new();

@@ -2,9 +2,7 @@
 //! existing user signs in whatever their account age, a fresh account
 //! under the sign-up gate's 30 days is refused with the first eligible
 //! date, and a fresh account past them is created and signed in
-//! (`registry/src/signup.rs`).  Post-migration coverage with no
-//! `smoke.sh` ancestor - the shell only ever drove `/callback` to its
-//! parameterless refusal.
+//! (`registry/src/signup.rs`).
 
 use anyhow::{Result, bail};
 

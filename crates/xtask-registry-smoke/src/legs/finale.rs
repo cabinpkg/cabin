@@ -1,19 +1,13 @@
-//! The run's tail, `registry/scripts/smoke.sh` L1746-2302: the backup
-//! and breaker cron legs, the strict zip-container profile, the
-//! governor's hard limits across two mid-run dev-server restarts, the
-//! admin governor endpoint, and the bounded-concurrency finale that
-//! closes the run with `smoke OK`.  One leg postdates the shell: the
-//! real verification driver's pass over two fresh versions
-//! (`driver_pass`).
+//! The run's tail: the backup and breaker cron legs, the strict
+//! zip-container profile, the governor's hard limits across two mid-run
+//! dev-server restarts, the admin governor endpoint, the real
+//! verification driver's pass over two fresh versions (`driver_pass`),
+//! and the bounded-concurrency finale that closes the run with `smoke OK`.
 //!
 //! The concurrency finale runs its waves on threads released by a
-//! [`Barrier`], where the shell forked subshells parked on a go-file.
-//! Deliberately not `xtask_ci::spawn_tracked`: those are for children
-//! the teardown must kill, its table holds eight, and wave two alone
-//! wants ten.  Each thread builds its own `ureq` agent, because one
-//! shared agent pools connections and would serialize the very overlap
-//! the wave exists to produce - the shell got that for free by forking
-//! a fresh `curl` per request.
+//! [`Barrier`].  Deliberately not `xtask_ci::spawn_tracked`: those are
+//! for children the teardown must kill, its table holds eight, and wave
+//! two alone wants ten.  Each thread builds its own `ureq` agent.
 
 use std::fs;
 use std::io::Read as _;
@@ -34,10 +28,8 @@ use crate::servers::{DevServers, d1, d1_quiet, d1_rows};
 use crate::step;
 use crate::text::{capture, contains, grep_lines, read, write};
 
-/// Every count and duration is the shell's literally (plan §7.9):
-/// in-process HTTP is faster than forking `curl`, and a poll budget
-/// trimmed to what it takes locally turns a negative assertion into a
-/// race that passes for the wrong reason.
+/// A poll budget trimmed to what it takes locally turns a negative
+/// assertion into a race that passes for the wrong reason.
 const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
 
@@ -113,31 +105,32 @@ pub struct FinaleInputs<'a> {
     /// The four children, for the two mid-run restarts and for the
     /// `.dev.vars` mutations between them.
     pub servers: &'a mut DevServers,
-    /// `$work`: the run's scratch directory.  Only the files the
-    /// verifier binary opens by path are written there.
+    /// The run's scratch directory.  Only the files the verifier binary
+    /// opens by path are written there.
     pub work: &'a Path,
-    /// `$mock_dir`, whose `dump.sql` the stored backup must equal.
+    /// The mock directory, whose `dump.sql` the stored backup must
+    /// equal.
     pub mock_dir: &'a Path,
-    /// `$verifier_bin`, runnable from this process's directory.
+    /// The verifier binary, runnable from this process's directory.
     pub verifier_bin: &'a Path,
-    /// `$scope` and `$name`: the fixture's package.
+    /// The fixture's package.
     pub scope: &'a str,
     pub name: &'a str,
     /// The frozen fixture metadata document, verbatim.
     pub fixture_metadata: &'a [u8],
-    /// `$blob_hash`: the fixture archive's SHA-256, the digest every
-    /// derived document is retargeted away from.
+    /// The fixture archive's SHA-256, the digest every derived document
+    /// is retargeted away from.
     pub blob_hash: &'a str,
-    /// `$artifact_path`: the main fixture's artifact route, whose
-    /// cached copy must keep serving under an exhausted pool.
+    /// The main fixture's artifact route, whose cached copy must keep
+    /// serving under an exhausted pool.
     pub artifact_path: &'a str,
-    /// `$publish_path` and `$work/publish.bin`: the original publish,
-    /// replayed as an idempotent no-op.
+    /// The original publish's path and body, replayed as an idempotent
+    /// no-op.
     pub publish_path: &'a str,
     pub publish_body: &'a [u8],
     /// The minted session cookie, for the source-viewer read.
     pub session_cookie: &'a str,
-    /// `$token`: the publisher's bearer token, which the load threads
+    /// The publisher's bearer token, which the load threads
     /// carry directly (they do not go through [`Smoke`]).
     pub token: &'a str,
 }
@@ -151,11 +144,11 @@ struct Fixtures {
     load: Vec<(&'static str, Arc<Vec<u8>>)>,
 }
 
-/// The run's tail, in the shell's order.
+/// The run's tail.
 ///
 /// # Errors
 ///
-/// The first failed check, worded as the shell's `fail` worded it.
+/// The first failed check.
 pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     let today = utc_today()?;
     let dump_key = format!("d1/{today}.sql");
@@ -180,9 +173,9 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L1746-1764.  The `/__scheduled` route invokes the cron handler; any
-/// non-breaker expression routes to the dump job, which talks to the
-/// export-API mock.
+/// The `/__scheduled` route invokes the cron handler; any non-breaker
+/// expression routes to the dump job, which talks to the export-API
+/// mock.
 fn backup_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>, dump_key: &str) -> Result<()> {
     step("the backup cron stores a validated dump in the BACKUP bucket");
     smoke.check(DUMP_CRON, &[200])?;
@@ -204,8 +197,8 @@ fn backup_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>, dump_key: &str) -> 
     Ok(())
 }
 
-/// L1766-1772.  The sidecar names the dump by its date, so the copy it
-/// is checked against has to carry that name.
+/// The sidecar names the dump by its date, so the copy it is checked
+/// against has to carry that name.
 fn dump_sidecar(inputs: &FinaleInputs<'_>, today: &str, dump_key: &str) -> Result<()> {
     step("the dump's sha256 sidecar verifies with shasum -c");
     let sidecar = inputs.work.join(format!("{today}.sql.sha256"));
@@ -225,7 +218,6 @@ fn dump_sidecar(inputs: &FinaleInputs<'_>, today: &str, dump_key: &str) -> Resul
     Ok(())
 }
 
-/// L1774-1784.
 fn meta_records_backup(dump_key: &str) -> Result<String> {
     step("meta records the backup");
     let rows =
@@ -241,9 +233,9 @@ fn meta_records_backup(dump_key: &str) -> Result<String> {
     Ok(last_backup_at)
 }
 
-/// L1786-1798.  One validated dump per date: a same-day re-run must
-/// skip instead of re-exporting, because a failed re-export would
-/// overwrite the verified copy.
+/// One validated dump per date: a same-day re-run must skip instead of
+/// re-exporting, because a failed re-export would overwrite the
+/// verified copy.
 fn same_day_rerun(smoke: &mut Smoke, last_backup_at: &str) -> Result<()> {
     step("a same-day re-run of the dump job is a no-op");
     smoke.check(DUMP_CRON, &[200])?;
@@ -259,7 +251,7 @@ fn same_day_rerun(smoke: &mut Smoke, last_backup_at: &str) -> Result<()> {
     Ok(())
 }
 
-/// L1800-1812.  The breaker expression additionally runs the governor
+/// The breaker expression additionally runs the governor
 /// reconciliation, and the usage log line proves the ledger answered.
 fn breaker_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("the breaker cron reconciles the governor ledger");
@@ -270,18 +262,18 @@ fn breaker_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L1814-1887: the strict zip container profile, at publish and at
-/// verification.  Both publishes charge the publish bucket, so the leg
-/// opens with its own burst.
+/// The strict zip container profile, at publish and at verification.
+/// Both publishes charge the publish bucket, so the leg opens with its
+/// own burst.
 fn zip_profile(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     d1(BURST_RESET)?;
     non_zip_body(smoke, inputs)?;
     traversal_archive(smoke, inputs)
 }
 
-/// L1824-1834.  Canonical metadata for a fresh version with an archive
-/// part that is plainly not a zip: the fixed-offset container gate
-/// rejects it ahead of the checksum and immutability checks.
+/// Canonical metadata for a fresh version with an archive part that is
+/// plainly not a zip: the fixed-offset container gate rejects it ahead
+/// of the checksum and immutability checks.
 fn non_zip_body(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("the publish path fast-fails a non-zip body before hashing it");
     let body = publish_payload(inputs, PROFILE_VERSION, b"not a zip archive");
@@ -294,9 +286,9 @@ fn non_zip_body(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     smoke.expect_body("archive is not a zip container")
 }
 
-/// L1836-1887.  A single stored zero-length entry named `../evil`: the
-/// EOCD arithmetic is exact, so it clears the worker's container gate,
-/// but the strict profile fails it on path traversal.
+/// A single stored zero-length entry named `../evil`: the EOCD
+/// arithmetic is exact, so it clears the worker's container gate, but
+/// the strict profile fails it on path traversal.
 fn traversal_archive(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("a profile-violating archive publishes pending, then the verifier rejects it");
     let evil = min_zip("../evil");
@@ -479,10 +471,10 @@ pub fn driver(args: &[String]) -> Result<()> {
     })
 }
 
-/// L1889-1967.  The isolation fixtures publish while the pools are
-/// still large: a pending version (never verified, never downloaded)
-/// and a verified one (never downloaded), each with distinct
-/// content-addressed bytes, then five more for the load leg.
+/// The isolation fixtures publish while the pools are still large: a
+/// pending version (never verified, never downloaded) and a verified
+/// one (never downloaded), each with distinct content-addressed bytes,
+/// then five more for the load leg.
 fn governor_fixtures(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<Fixtures> {
     step("seeding isolation fixtures for the governor legs");
     d1_quiet(BURST_RESET)?;
@@ -530,15 +522,14 @@ fn governor_fixtures(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<Fix
     })
 }
 
-/// L1969-2038.  Tiny pools via a restart: the ledger and windows
-/// persist in the local Durable Object state, so the main run's
-/// consumption already exceeds these limits and every fresh billable
-/// call must refuse - while the edge cache, filled before the restart,
-/// keeps serving.
+/// Tiny pools via a restart: the ledger and windows persist in the
+/// local Durable Object state, so the main run's consumption already
+/// exceeds these limits and every fresh billable call must refuse -
+/// while the edge cache, filled before the restart, keeps serving.
 fn tiny_pools(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>, fixtures: &Fixtures) -> Result<()> {
     restart_on_tiny_pools(inputs)?;
-    // Both routes are derived after the restart, as the shell derived
-    // them: the revision is the archive's, not the running server's.
+    // Both routes are derived after the restart: the revision is the
+    // archive's, not the running server's.
     let verified = artifact_route(inputs, ISO_VERIFIED_VERSION, &fixtures.iso_verified);
     let pending = artifact_route(inputs, ISO_PENDING_VERSION, &fixtures.iso_pending);
     cached_downloads(smoke, inputs)?;
@@ -549,7 +540,6 @@ fn tiny_pools(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>, fixtures: &Fixtu
     source_reads(smoke, inputs)
 }
 
-/// L1973-1986.
 fn restart_on_tiny_pools(inputs: &mut FinaleInputs<'_>) -> Result<()> {
     step("restarting wrangler dev with tiny governor pools");
     inputs.servers.stop_dev_servers();
@@ -562,9 +552,8 @@ fn restart_on_tiny_pools(inputs: &mut FinaleInputs<'_>) -> Result<()> {
     inputs.servers.start_web_dev()
 }
 
-/// L1991-1998.  A cache HIT cannot have consumed the pool, and it thaws
-/// to the same outward `no-store`: the stored copy's public header never
-/// escapes.
+/// A cache HIT cannot have consumed the pool, and it thaws to the same
+/// outward `no-store`: the stored copy's public header never escapes.
 fn cached_downloads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("cached verified downloads keep serving under an exhausted read pool");
     smoke.check(inputs.artifact_path, &[200])?;
@@ -579,10 +568,10 @@ fn cached_downloads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> 
     Ok(())
 }
 
-/// L2000-2010.  Anonymous readers draw from the same exhausted
-/// `b_ordinary` pool: public reads are charged like tokened ones, so a
-/// regression that skipped admission for credential-less callers would
-/// serve this and turn public downloads into ungoverned R2 spend.
+/// Anonymous readers draw from the same exhausted `b_ordinary` pool:
+/// public reads are charged like tokened ones, so a regression that
+/// skipped admission for credential-less callers would serve this and
+/// turn public downloads into ungoverned R2 spend.
 fn uncached_refusal(smoke: &mut Smoke, artifact: &str) -> Result<()> {
     step("an uncached verified download is refused with the budget envelope");
     smoke.check(artifact, &[503])?;
@@ -594,7 +583,6 @@ fn uncached_refusal(smoke: &mut Smoke, artifact: &str) -> Result<()> {
     Ok(())
 }
 
-/// L2012-2015.
 fn verifier_isolation(smoke: &mut Smoke, pending: &str) -> Result<()> {
     step("the verifier pool is isolated from the exhausted ordinary pool");
     smoke.as_verifier();
@@ -603,7 +591,6 @@ fn verifier_isolation(smoke: &mut Smoke, pending: &str) -> Result<()> {
     Ok(())
 }
 
-/// L2017-2030.
 fn blocked_publish(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("a fresh publish is refused before any r2 write when storage is exhausted");
     d1_quiet(BURST_RESET)?;
@@ -627,14 +614,12 @@ fn blocked_publish(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L2032-2034.
 fn idempotent_republish(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("an idempotent re-publish stays a 200 no-op under a full storage pool");
     smoke.wrequest("PUT", inputs.publish_path, inputs.publish_body, &[200])?;
     smoke.expect_body(r#""no_op":true"#)
 }
 
-/// L2036-2038.
 fn source_reads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("source-viewer reads fail closed on an exhausted source pool");
     let source = format!(
@@ -653,11 +638,11 @@ fn source_reads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     smoke.expect_body("registry_over_budget")
 }
 
-/// L2040-2069.  The pre-launch ledger wipe clears the primary storage
-/// rows while the backup and dump rows survive - the registry wipe never
-/// touches the BACKUP bucket, so their objects keep billing - and the
-/// monthly op windows survive too: they mirror R2 operations Cloudflare
-/// already metered this month, so zeroing them would re-mint a month of
+/// The pre-launch ledger wipe clears the primary storage rows while the
+/// backup and dump rows survive - the registry wipe never touches the
+/// BACKUP bucket, so their objects keep billing - and the monthly op
+/// windows survive too: they mirror R2 operations Cloudflare already
+/// metered this month, so zeroing them would re-mint a month of
 /// allowance for spend that already happened.
 fn admin_governor(smoke: &mut Smoke) -> Result<()> {
     step("the admin governor endpoint reports usage and takes operator actions");
@@ -685,10 +670,10 @@ fn admin_governor(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// L2071-2093.  The on-demand reconcile is the operator's recovery path
-/// after a ledger wipe or a Durable Object storage loss: the same
-/// increase-only primary rebuild the cron runs, answering with the
-/// report instead of waiting up to 15 minutes.
+/// The on-demand reconcile is the operator's recovery path after a
+/// ledger wipe or a Durable Object storage loss: the same increase-only
+/// primary rebuild the cron runs, answering with the report instead of
+/// waiting up to 15 minutes.
 fn admin_reconcile(smoke: &mut Smoke) -> Result<()> {
     step("an admin reconcile rebuilds the wiped primary ledger on demand");
     smoke.wrequest("POST", GOVERNOR, br#"{"reconcile":true}"#, &[200])?;
@@ -718,11 +703,11 @@ fn admin_reconcile(smoke: &mut Smoke) -> Result<()> {
     smoke.expect_body(r#""ok":true"#)
 }
 
-/// L2095-2132.  The next breaker pass commits every live checksum back
-/// into the ledger and logs how many it recorded; the pass after that
-/// logs the rebuilt rows in its usage snapshot, because each pass logs
-/// usage before it reconciles.  Both waits are line watermarks over a
-/// log a live child is still appending to.
+/// The next breaker pass commits every live checksum back into the
+/// ledger and logs how many it recorded; the pass after that logs the
+/// rebuilt rows in its usage snapshot, because each pass logs usage
+/// before it reconciles.  Both waits are line watermarks over a log a
+/// live child is still appending to.
 fn cron_reconcile(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("reconciliation rebuilds the wiped primary ledger from d1");
     let log = inputs.servers.dev_log().to_path_buf();
@@ -745,11 +730,11 @@ fn cron_reconcile(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L2134-2302.  The ordinary-read pool gets exactly three fresh
-/// operations of headroom, then two barrier-released waves race for
-/// them through the serialized Durable Object, then a sequential retry
-/// pass.  The invariant: distinct successes <= ledger delta <=
-/// headroom, and the ledger never crosses the configured limit.
+/// The ordinary-read pool gets exactly three fresh operations of
+/// headroom, then two barrier-released waves race for them through the
+/// serialized Durable Object, then a sequential retry pass.  The
+/// invariant: distinct successes <= ledger delta <= headroom, and the
+/// ledger never crosses the configured limit.
 fn concurrency(
     smoke: &mut Smoke,
     inputs: &mut FinaleInputs<'_>,
@@ -835,8 +820,8 @@ fn concurrency(
     verdicts(used_after, load_limit, delta, successes, refusals)
 }
 
-/// L2292-2300, in order: every one of them is about the same ledger, so
-/// they are read as one block.
+/// Every one of these is about the same ledger, so they are read as
+/// one block.
 fn verdicts(
     used_after: i64,
     load_limit: i64,
@@ -865,8 +850,8 @@ fn verdicts(
     Ok(())
 }
 
-/// L2245-2254.  One sequential retry per artifact that saw no success
-/// in either wave: a retry must not mint allowance either.
+/// One sequential retry per artifact that saw no success in either
+/// wave: a retry must not mint allowance either.
 fn retry_pass(wave: &Wave, fixtures: &Fixtures, attempts: &mut Vec<Attempt>) -> Result<()> {
     for (version, zip) in &fixtures.load {
         if served(attempts, version) {
@@ -877,10 +862,10 @@ fn retry_pass(wave: &Wave, fixtures: &Fixtures, attempts: &mut Vec<Attempt>) -> 
     Ok(())
 }
 
-/// L2255-2271.  Every attempt must resolve to a success or the budget
-/// refusal: any other status (a 500, a rate limit) would make the
-/// accounting assertions vacuous for that attempt.  The sweep runs in
-/// the shell's glob order, so the same attempt decides the message.
+/// Every attempt must resolve to a success or the budget refusal: any
+/// other status (a 500, a rate limit) would make the accounting
+/// assertions vacuous for that attempt.  The sweep runs in label order,
+/// so the same attempt decides the message.
 fn sweep(attempts: &mut [Attempt]) -> Result<usize> {
     attempts.sort_by(|left, right| left.label.cmp(&right.label));
     let mut refusals = 0;
@@ -902,17 +887,17 @@ fn sweep(attempts: &mut [Attempt]) -> Result<usize> {
     Ok(refusals)
 }
 
-/// `grep -qxs 200` over one artifact's attempts.
+/// Whether any of one artifact's attempts answered 200.
 fn served(attempts: &[Attempt], version: &str) -> bool {
     attempts
         .iter()
         .any(|attempt| attempt.version == version && attempt.status == 200)
 }
 
-/// One recorded request: the shell's `status-<wave>-<version>-<attempt>`
-/// file, its body file, and its time file, as one value.
+/// One recorded request.
 struct Attempt {
-    /// The status file's name, which is what the sweep sorts on.
+    /// `status-<wave>-<version>-<attempt>`, which is what the sweep
+    /// sorts on.
     label: String,
     version: String,
     status: u16,
@@ -930,9 +915,9 @@ struct Wave {
 }
 
 impl Wave {
-    /// `fire_wave <wave> <attempts-per-artifact>`: every request is
-    /// parked on the barrier and released together, so the wave really
-    /// arrives simultaneously instead of serializing on spawn order.
+    /// Every request is parked on the barrier and released together, so
+    /// the wave really arrives simultaneously instead of serializing on
+    /// spawn order.
     fn fire(
         &self,
         artifacts: &[(&'static str, Arc<Vec<u8>>)],
@@ -963,8 +948,8 @@ impl Wave {
             .into_iter()
             .map(|thread| match thread.join() {
                 Ok(Ok(attempt)) => Ok(attempt),
-                // The shell read this as a failed `wait`, whatever the
-                // subshell's own diagnostic was.
+                // Whatever the thread's own error, the wave fails with
+                // this one message.
                 Ok(Err(_)) | Err(_) => bail!("a load-test download process failed outright"),
             })
             .collect()
@@ -995,10 +980,7 @@ struct Request {
 
 impl Request {
     /// The span covers the artifact route's derivation as well as the
-    /// request, exactly as the shell timed `$(load_artifact "$v")`
-    /// inside the timed region: hashing the archive is most of what a
-    /// forked `curl` line cost, and hoisting it out shortens every span
-    /// and quietly weakens the overlap assertion.
+    /// request.
     fn send(self, zip: &[u8]) -> Result<Attempt> {
         let start = Instant::now();
         let url = format!(
@@ -1036,7 +1018,7 @@ impl Request {
     }
 }
 
-/// L2236-2244: at least two spans of the wave overlap.
+/// At least two spans of the wave overlap.
 fn overlapping(attempts: &[Attempt]) -> bool {
     attempts.len() >= 2
         && attempts.iter().enumerate().any(|(index, left)| {
@@ -1046,7 +1028,6 @@ fn overlapping(attempts: &[Attempt]) -> bool {
         })
 }
 
-/// `publish_min_version <version> <zip>` (L1907-1915).
 fn publish_min_version(
     smoke: &mut Smoke,
     inputs: &FinaleInputs<'_>,
@@ -1059,7 +1040,7 @@ fn publish_min_version(
 }
 
 /// The verified verdict a listing entry binds: the checksum and
-/// `published_at` the listing reported (L1926-1933, L1958-1965).
+/// `published_at` the listing reported.
 fn verify_version(
     smoke: &mut Smoke,
     inputs: &FinaleInputs<'_>,
@@ -1079,15 +1060,15 @@ fn verify_version(
     smoke.expect_body(r#""verification":"verified""#)
 }
 
-/// The listing entry as the verdict builders read it back: the shell's
-/// `node` programs opened the file `listing_entry` had just written.
+/// The listing entry, read back from the file `listing_entry` just
+/// wrote.
 fn parse_entry(path: &Path) -> Result<Value> {
     serde_json::from_slice(&read(path)?).with_context(|| format!("parse {}", path.display()))
 }
 
-/// `curl -sS -o <file>`: the download is the subject and neither shared
-/// buffer is written, so an assertion further down still reads what the
-/// last checked request left behind.
+/// The download is the subject and neither shared buffer is written, so
+/// an assertion further down still reads what the last checked request
+/// left behind.
 fn download(smoke: &mut Smoke, path: &str) -> Result<Vec<u8>> {
     let url = smoke.url(Base::Registry, path);
     let auth = smoke.auth.clone();
@@ -1098,8 +1079,8 @@ fn download(smoke: &mut Smoke, path: &str) -> Result<Vec<u8>> {
     Ok(std::mem::replace(&mut smoke.body, body))
 }
 
-/// `curl -sS -o /dev/null -D "$headers"`: the header block is the whole
-/// subject, and `$body` keeps whatever the previous request left in it.
+/// The header block is the whole subject, and [`Smoke::body`] keeps
+/// whatever the previous request left in it.
 fn header_block(smoke: &mut Smoke, path: &str) -> Result<()> {
     let url = smoke.url(Base::Registry, path);
     let auth = smoke.auth.clone();
@@ -1138,11 +1119,9 @@ fn artifact_route(inputs: &FinaleInputs<'_>, version: &str, archive: &[u8]) -> S
     )
 }
 
-/// `sed "s/0\.2\.0/$v/g" "$fixture_metadata" | retarget_hash …` then
-/// `frame`: two textual substitutions over the frozen document's raw
-/// bytes, never a JSON edit - re-serializing would change the
-/// document's own sha256, hence the packaging revision and every
-/// derived route.
+/// The version replace and `retarget_hash`, then `frame`: textual
+/// substitutions over the frozen document's raw bytes, never a JSON
+/// edit, so every other byte stays as frozen.
 fn publish_payload(inputs: &FinaleInputs<'_>, version: &str, archive: &[u8]) -> Vec<u8> {
     let metadata = replace_all(
         inputs.fixture_metadata,
@@ -1153,16 +1132,13 @@ fn publish_payload(inputs: &FinaleInputs<'_>, version: &str, archive: &[u8]) -> 
     frame(&metadata, archive)
 }
 
-/// `make_min_zip <out> <entry>` (L1896-1906) and the `../evil` builder
-/// (L1843-1851), which are the same hand-packed container: one stored,
-/// zero-length entry, exact EOCD arithmetic, no zip crate.
+/// A hand-packed container: one stored, zero-length entry, exact EOCD
+/// arithmetic, no zip crate.
 fn min_zip(entry: &str) -> Vec<u8> {
     stored_zip(&[(entry, b"")])
 }
 
-/// The container [`min_zip`] packs, over any stored entries.  Field
-/// order is Python's `struct.pack` format verbatim, so a diff against
-/// the original is a diff of these lines.
+/// The container [`min_zip`] packs, over any stored entries.
 fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut local = Vec::new();
     let mut cd = Vec::new();
@@ -1224,10 +1200,9 @@ fn size(bytes: usize) -> u32 {
     u32::try_from(bytes).unwrap_or(u32::MAX)
 }
 
-/// The three governor-snapshot readings, each a `node -e` over `$body`.
-/// A body that is not the shape the program expected made `node` exit
-/// non-zero, which the shell read as the assertion failing - so a parse
-/// failure answers `false` here rather than raising its own error.
+/// The three governor-snapshot readings.  A body that is not a
+/// snapshot fails the assertion, so a parse failure answers `false`
+/// here rather than raising its own error.
 fn wiped_the_right_rows(body: &[u8]) -> bool {
     let Ok(snapshot) = serde_json::from_slice::<Value>(body) else {
         return false;
@@ -1265,8 +1240,8 @@ fn has_committed_primary(body: &[u8]) -> bool {
     })
 }
 
-/// L2148-2154 and L2279-2285: `${row.used} ${row.window}`, or `0 -`
-/// when the pool has no row yet, split back apart by the shell.
+/// The `b_ordinary` pool's used count and window, or `0` and `-` when
+/// the pool has no row yet.
 fn ordinary_usage(body: &[u8]) -> Result<(i64, String)> {
     let snapshot: Value =
         serde_json::from_slice(body).context("parse the governor usage snapshot")?;
@@ -1293,9 +1268,8 @@ fn pool(row: &Value) -> Option<&str> {
     row.get("pool").and_then(Value::as_str)
 }
 
-/// `JSON.stringify` drops a key whose value is `undefined` and keeps
-/// one that is `null`; a field the source document does not carry is
-/// therefore absent, not null.
+/// A field the source document does not carry stays absent, not null;
+/// an explicit `null` is copied.
 fn copy_field(into: &mut Map<String, Value>, field: &str, value: Option<&Value>) {
     if let Some(value) = value {
         into.insert(field.to_owned(), value.clone());
@@ -1306,8 +1280,8 @@ fn json_bytes(value: &Value) -> Result<Vec<u8>> {
     serde_json::to_vec(value).context("serialize a request body")
 }
 
-/// The rows of a key/value read as the shell's `Object.fromEntries`
-/// built them: a later row for the same key wins.
+/// The rows of a key/value read as a map: a later row for the same key
+/// wins.
 fn key_values(rows: &[Map<String, Value>]) -> std::collections::HashMap<String, String> {
     rows.iter()
         .filter_map(|row| Some((display(row.get("key")?), display(row.get("value")?))))
@@ -1344,7 +1318,7 @@ fn is_timestamp(value: &str) -> bool {
 /// hash to the digest beside it, and a listing with no usable line is a
 /// failure, as `shasum` reports one.
 ///
-/// Ceiling: only the two formats `shasum` writes are read (`<hex>  <name>`
+/// Only the two formats `shasum` writes are read (`<hex>  <name>`
 /// and the binary-mode `<hex> *<name>`); its BSD `SHA256 (name) = hex`
 /// tag form is not, and the worker writes the first of the two
 /// (`registry/src/backup_glue.rs`).
@@ -1458,17 +1432,13 @@ mod tests {
         })
     }
 
-    /// The bytes the Python builders emitted, recorded from the
-    /// original programs by running them.
     const EVIL_ZIP: &str = "504b030414000000000000000000000000000000000000000000070000002e2e2f6576696c504b01021400140000000000000000000000000000000000000000000700000000000000000000000000000000002e2e2f6576696c504b0506000000000100010035000000250000000000";
     const MIN_ZIP: &str = "504b0304140000000000000000000000000000000000000000000a00000069736f70656e64696e67504b01021400140000000000000000000000000000000000000000000a000000000000000000000000000000000069736f70656e64696e67504b0506000000000100010038000000280000000000";
 
-    /// The bytes the Python builders emitted, recorded from the
-    /// original programs.  Both entry names, because the name length
-    /// rides three separate fields and the EOCD's two offsets move with
-    /// it.
+    /// Pinned bytes for both entry names, because the name length rides
+    /// three separate fields and the EOCD's two offsets move with it.
     #[test]
-    fn the_min_zip_matches_the_python_builder() {
+    fn the_min_zip_matches_the_pinned_bytes() {
         assert_eq!(hex(&min_zip("../evil")), EVIL_ZIP);
         assert_eq!(hex(&min_zip("isopending")), MIN_ZIP);
     }
@@ -1578,10 +1548,10 @@ mod tests {
         }
     }
 
-    /// The sweep must visit the attempts in the shell's glob order, so
-    /// the same one decides the failure message.
+    /// The sweep must visit the attempts in label order, so the same
+    /// one decides the failure message.
     #[test]
-    fn the_sweep_keeps_the_glob_order() {
+    fn the_sweep_visits_attempts_in_label_order() {
         let mut attempts = vec![
             attempt("status-retry-0.7.0-1", "0.7.0", 500),
             attempt("status-2-0.7.0-1", "0.7.0", 404),
@@ -1657,7 +1627,7 @@ mod tests {
     }
 
     #[test]
-    fn the_reconcile_report_and_the_rebuilt_rows_are_read_as_the_node_read_them() {
+    fn the_reconcile_report_and_the_rebuilt_rows_are_detected() {
         assert!(added_anything(br#"{"added":["blobs/sha256/aa"]}"#));
         assert!(!added_anything(br#"{"added":[]}"#));
         assert!(!added_anything(br#"{"ok":true}"#));
@@ -1684,7 +1654,7 @@ mod tests {
     }
 
     #[test]
-    fn the_load_verdicts_and_the_final_assertions_read_as_the_shell_read_them() {
+    fn the_load_verdicts_reject_every_broken_invariant() {
         assert_eq!(
             verdicts(5, 4, 1, 1, 1).unwrap_err().to_string(),
             "the ledger crossed its configured limit: 5 > 4"

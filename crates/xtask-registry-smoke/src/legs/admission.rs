@@ -1,17 +1,15 @@
-//! The OIDC admission control, post-migration coverage with no shell
-//! ancestor: the global cache-bypass budget on unknown-kid JWKS
-//! refetches, then the per-client-IP gate on the two public OIDC
-//! endpoints and the session mint (`registry/wrangler.jsonc`, the
-//! ratelimit bindings).
-//! Deliberately the run's LAST leg: every local request shares one
-//! admission bucket (no `CF-Connecting-IP` off the edge), so the
-//! exhaustion burst would answer any later OIDC request or session
-//! mint with the 429
-//! for up to a minute.  The budget arithmetic below counts against a
-//! full bucket, which holds twice over: the concurrency leg's dev
-//! restart starts fresh in-process limiter state, and the legs since
-//! the run's last OIDC request (reconciles, download waves) outlast
-//! the limiter's minute anyway.
+//! The OIDC admission control: the global cache-bypass budget on
+//! unknown-kid JWKS refetches, then the per-client-IP gate on the two
+//! public OIDC endpoints and the session mint
+//! (`registry/wrangler.jsonc`, the ratelimit bindings).  Deliberately
+//! the run's LAST leg: every local request shares one admission bucket
+//! (no `CF-Connecting-IP` off the edge), so the exhaustion burst would
+//! answer any later OIDC request or session mint with the 429 for up to
+//! a minute.  The budget arithmetic below counts against a full bucket,
+//! which holds twice over: the concurrency leg's dev restart starts
+//! fresh in-process limiter state, and the legs since the run's last
+//! OIDC request (reconciles, download waves) outlast the limiter's
+//! minute anyway.
 
 use anyhow::{Result, bail};
 

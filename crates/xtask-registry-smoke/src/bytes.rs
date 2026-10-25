@@ -5,9 +5,7 @@
 use sha2::Digest as _;
 
 /// `frame`: the publish body,
-/// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]` (the
-/// shell emitted each length through nested octal `printf`s because
-/// the bytes are usually NULs).
+/// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`.
 #[must_use]
 pub fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(8 + metadata.len() + archive.len());
@@ -37,8 +35,7 @@ pub fn revision_of(archive: &[u8]) -> String {
         .to_owned()
 }
 
-/// The full SHA-256 of a blob, lowercase hex - what the shell spelled
-/// `shasum -a 256 | cut -d' ' -f1`.
+/// The full SHA-256 of a blob, lowercase hex.
 #[must_use]
 pub fn sha256_hex(data: &[u8]) -> String {
     cabin_core::hash::hex_digest(&sha2::Sha256::digest(data))
@@ -57,9 +54,7 @@ pub fn retarget_hash(document: &[u8], old: &str, new: &str) -> Vec<u8> {
     replace_all(&full, &old.as_bytes()[..16], &new.as_bytes()[..16])
 }
 
-/// `sed s/old/new/g` over raw bytes.  The needles here are hex
-/// strings, so `sed`'s per-line application and a whole-buffer
-/// replacement cannot differ.
+/// `sed s/old/new/g` over raw bytes.
 #[must_use]
 pub fn replace_all(haystack: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8> {
     if needle.is_empty() {
@@ -85,7 +80,7 @@ pub fn replace_all(haystack: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8
 /// local-header prefix and the trailing EOCD, so touching the middle
 /// keeps the request on the immutability/verification path.  A
 /// distinct `seed` yields distinct bytes; a seed whose low byte is
-/// zero flips bit 0, as the Python's `or 1` did.
+/// zero flips bit 0.
 #[must_use]
 pub fn tamper_zip(source: &[u8], seed: u32) -> Vec<u8> {
     let mut data = source.to_vec();

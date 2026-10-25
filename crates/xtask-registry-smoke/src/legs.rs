@@ -1,7 +1,5 @@
 //! The run's checks, split by the surface each covers and sequenced by
-//! the crate's `run`.  One module per contiguous span of
-//! `registry/scripts/smoke.sh`, in that script's order - except
-//! `signin`, post-migration coverage with no shell ancestor.
+//! the crate's `run`.
 
 pub mod admission;
 pub mod anonymous;

@@ -1,19 +1,16 @@
-//! The unauthenticated surface, `registry/scripts/smoke.sh` L487-659:
-//! `/healthz`, the public machine read plane, the uniform 401 and its
-//! byte-identical challenge on both roles, the session plane's
-//! challenge-less 401, the public stats subtree, the OAuth plane's
-//! host-only cookies, and the launch guard end to end.
+//! The unauthenticated surface: `/healthz`, the public machine read
+//! plane, the uniform 401 and its byte-identical challenge on both
+//! roles, the session plane's challenge-less 401, the public stats
+//! subtree, the OAuth plane's host-only cookies, and the launch guard
+//! end to end.
 //!
-//! Everything here runs anonymously - the shell's `curl_args=()` at
-//! L486 - so nothing in this module touches [`Smoke::auth`], and the
-//! two `uniform_401` legs that present a credential pass it as a
-//! request header of their own, exactly as the shell passed it as an
-//! extra `curl` argument rather than through `curl_args`.
+//! Everything here runs anonymously, so nothing in this module touches
+//! [`Smoke::auth`], and the two `uniform_401` legs that present a
+//! credential pass it as a request header of their own.
 //!
-//! The early exit at L655-659 (no token: one more `step`, `smoke OK`,
-//! exit 0) is deliberately *not* here: it is the caller's sequencing
-//! decision, and this module ends where the shell's anonymous surface
-//! does.
+//! The early exit with no token (one more `step`, `smoke OK`, exit 0)
+//! is deliberately *not* here: it is the caller's sequencing
+//! decision.
 
 use std::path::Path;
 
@@ -37,11 +34,11 @@ pub const TRUSTPUB_TOKENS_PATH: &str = "/api/v1/trusted_publishing/tokens";
 /// [`login_session_surface`].
 pub const SESSION_TOKENS_PATH: &str = "/api/v1/sessions/tokens";
 
-/// The whole anonymous surface, in the shell's order.
+/// The whole anonymous surface.
 ///
 /// # Errors
 ///
-/// The first failed check, worded as the shell's `fail` worded it.
+/// The first failed check.
 pub fn run(smoke: &mut Smoke, registry_dir: &Path, github_port: u16) -> Result<()> {
     healthz(smoke)?;
     read_plane(smoke)?;
@@ -55,7 +52,6 @@ pub fn run(smoke: &mut Smoke, registry_dir: &Path, github_port: u16) -> Result<(
     wipe_guard(smoke, registry_dir)
 }
 
-/// L487-489.
 fn healthz(smoke: &mut Smoke) -> Result<()> {
     step("healthz is unauthenticated and empty");
     smoke.check("/healthz", &[200])?;
@@ -65,7 +61,6 @@ fn healthz(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// L512-530.
 fn read_plane(smoke: &mut Smoke) -> Result<()> {
     step("the machine read plane is public; unknown packages are plain 404s");
     smoke.check("/config.json", &[200])?;
@@ -109,7 +104,6 @@ fn read_plane(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// L532-546.
 fn off_the_read_plane(smoke: &mut Smoke) -> Result<()> {
     step("the registry host is a uniform 401 with the challenge off the read plane");
     // Non-read-plane paths - the whole API and session surface included
@@ -152,7 +146,6 @@ fn off_the_read_plane(smoke: &mut Smoke) -> Result<()> {
     )
 }
 
-/// L548-570.
 fn mutation_surface(smoke: &mut Smoke) -> Result<()> {
     step("the mutation surface keeps the byte-identical uniform 401");
     // Public reads narrowed the uniform-401 discipline to the mutation
@@ -177,8 +170,7 @@ fn mutation_surface(smoke: &mut Smoke) -> Result<()> {
     )?;
     // The trusted-publishing exchange is auth-exempt (the JWT in the
     // body is the credential), but an unverifiable JWT - or no JSON at
-    // all - is an absent credential and must answer the same bytes:
-    // post-migration coverage with no shell ancestor.
+    // all - is an absent credential and must answer the same bytes.
     uniform_401_with(
         smoke,
         Base::Web,
@@ -225,7 +217,6 @@ fn mutation_surface(smoke: &mut Smoke) -> Result<()> {
 /// uniform 401 (no signature/audience/pin/replay oracle), and a jti
 /// never authenticates twice.  Runs before anything is published on
 /// purpose: the refusals must be independent of route state.
-/// Post-migration coverage with no shell ancestor.
 fn verdict_oidc_surface(smoke: &mut Smoke) -> Result<()> {
     const VERDICT_PATH: &str = "/api/v1/admin/versions/smoke/withdep/0.1.0";
     step("the verdict route answers every OIDC authn failure with the uniform 401");
@@ -290,7 +281,6 @@ fn verdict_oidc_surface(smoke: &mut Smoke) -> Result<()> {
 /// all.  Anonymous in spirit (nothing here touches [`Smoke::auth`])
 /// but called from the tokened phase: the arm's backing lookup needs
 /// the seeded operator identity, which a tokenless run never writes.
-/// Post-migration coverage with no shell ancestor.
 ///
 /// # Errors
 ///
@@ -381,7 +371,6 @@ pub fn verifier_exchange_surface(smoke: &mut Smoke) -> Result<()> {
 /// route.  Anonymous in spirit (nothing here touches [`Smoke::auth`])
 /// but called from the tokened phase: the mint's identity lookup needs
 /// the seeded github account, which a tokenless run never writes.
-/// Post-migration coverage with no shell ancestor.
 ///
 /// # Errors
 ///
@@ -470,7 +459,6 @@ pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Resu
     uniform_401_with(smoke, Base::Web, "DELETE", SESSION_TOKENS_PATH, &auth, None)
 }
 
-/// L572-584.
 fn session_endpoints(smoke: &mut Smoke) -> Result<()> {
     step("session endpoints answer 401 json without a session (no challenge)");
     smoke.wcheck("/api/v1/user", &[401])?;
@@ -487,10 +475,8 @@ fn session_endpoints(smoke: &mut Smoke) -> Result<()> {
         "/api/v1/user/search?q=withdep",
         "/api/v1/user/package/smoke/withdep",
         "/api/v1/user/package/smoke/withdep/reverse-dependencies",
-        // L584 spells `-X POST` after the expected status, where
-        // `check_at` reads everything past the path as another expected
-        // status: the request the shell makes is this GET, and the
-        // extra words only ever reached its `fail` wording.
+        // A GET like the rest: the assertion is only that a request
+        // without a session is refused.
         "/api/v1/user/logout",
     ] {
         smoke.wcheck(path, &[401])?;
@@ -498,7 +484,6 @@ fn session_endpoints(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// L586-597.
 fn public_stats(smoke: &mut Smoke) -> Result<()> {
     step("the public stats endpoint is unauthenticated json on the website origin");
     smoke.wcheck("/api/v1/stats", &[200])?;
@@ -517,7 +502,6 @@ fn public_stats(smoke: &mut Smoke) -> Result<()> {
     uniform_401(smoke, Base::Registry, "/api/v1/stats")
 }
 
-/// L599-622.
 fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     step("the oauth plane lives on the website origin with host-only cookies");
     headers_only(smoke, Base::Web, "/login")?;
@@ -564,7 +548,6 @@ fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     Ok(())
 }
 
-/// L624-629.
 fn parameterless_callback(smoke: &mut Smoke) -> Result<()> {
     step("a parameterless callback redirects to the denied page");
     headers_only(smoke, Base::Web, "/callback")?;
@@ -579,23 +562,19 @@ fn parameterless_callback(smoke: &mut Smoke) -> Result<()> {
     uniform_401(smoke, Base::Registry, "/login")
 }
 
-/// L631-653: the launch guard end to end
-/// (`registry/docs/runbook.md`, "Data policy") - flip the local flag,
-/// expect the wipe to refuse with the guard's message and to leave the
-/// state untouched, then flip it back.
+/// The launch guard end to end (`registry/docs/runbook.md`, "Data
+/// policy") - flip the local flag, expect the wipe to refuse with the
+/// guard's message and to leave the state untouched, then flip it back.
 fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {
     step("the wipe refuses while meta.launched is 'true'");
     set_launched("true")?;
-    // The deleted test's sentinel, kept literally: bytes written before
-    // the refusal must be the same bytes after it - a directory that
-    // merely exists could have been removed and recreated.
+    // Bytes written before the refusal must be the same bytes after
+    // it - a directory that merely exists could have been removed and
+    // recreated.
     let sentinel = registry_dir.join(".wrangler/state/v3/d1/smoke-wipe-sentinel");
     std::fs::write(&sentinel, b"survives the refusal").context("write the wipe-guard sentinel")?;
     // The refusal is the expected outcome, so it is read rather than
-    // propagated. The shell ran `scripts/wipe.sh --local 2>&1` and
-    // grepped the interleaved streams for the guard's line; the wipe is
-    // `cargo registry-wipe` now and this crate can call it, so the
-    // refusal IS the error value.
+    // propagated.
     let Err(refusal) =
         xtask_registry_admin::wipe::run(xtask_registry_admin::launch_guard::Mode::Local)
     else {
@@ -606,10 +585,7 @@ fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {
         bail!("the wipe's refusal is missing the guard's message: {refusal}");
     }
     // A refusal stops before the first mutation, so the state the wipe
-    // would have deleted is still there. `registry/tests/launch_guard.rs`
-    // held this with a sentinel file while the wipe was a shell script
-    // whose ordering only an end-to-end run could check; the script and
-    // that test go together, and the property stays here.
+    // would have deleted is still there.
     let survived = std::fs::read(&sentinel).context("read the wipe-guard sentinel back")?;
     if survived != b"survives the refusal" {
         bail!("the refused wipe disturbed the local D1 state");
@@ -626,14 +602,14 @@ fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {
 }
 
 /// `UPDATE meta SET value = '<value>' WHERE key = 'launched'` against
-/// the local state, stdout swallowed as the shell swallowed it.
+/// the local state, stdout swallowed.
 fn set_launched(value: &str) -> Result<()> {
     let command = format!("UPDATE meta SET value = '{value}' WHERE key = 'launched'");
     crate::servers::d1_quiet(&command)
 }
 
-/// The `-H` argument the read-plane and admin legs present: a
-/// credential that cannot validate.
+/// The header the read-plane and admin legs present: a credential that
+/// cannot validate.
 const ROTATED_HEADER: &str = "Authorization: Bearer cabin_definitelyNotAToken";
 
 fn rotated() -> Vec<(String, String)> {
@@ -643,7 +619,7 @@ fn rotated() -> Vec<(String, String)> {
     )]
 }
 
-/// `uniform_401 <base> <path>`: a plain GET with no credential.
+/// A plain GET with no credential.
 ///
 /// # Errors
 ///
@@ -652,22 +628,20 @@ pub fn uniform_401(smoke: &mut Smoke, at: Base, path: &str) -> Result<()> {
     uniform_401_with(smoke, at, "GET", path, &[], None)
 }
 
-/// `uniform_401` and `uniform_401_web`, which differ only in the role
-/// they ask and therefore in the origin the challenge names: the
-/// response must be the exact envelope plus the byte-identical
-/// `WWW-Authenticate` challenge, whatever the path, method or
-/// credential.  The header value is compared byte for byte - a
-/// duplicated header or a suffixed value must fail - so the comparison
-/// is against the exact expected string, never a substring.
+/// The uniform 401 on either role, which differ only in the origin the
+/// challenge names: the response must be the exact envelope plus the
+/// byte-identical `WWW-Authenticate` challenge, whatever the path,
+/// method or credential.  The header value is compared byte for byte -
+/// a duplicated header or a suffixed value must fail - so the
+/// comparison is against the exact expected string, never a substring.
 ///
-/// Neither shell helper carried `curl_args`, so the credential is only
-/// ever the one passed in `headers`: a later leg presenting the
-/// publisher's own token passes it there too (L737-738).
+/// The credential is only ever the one passed in `headers`, never
+/// [`Smoke::auth`]: a later leg presenting the publisher's own token
+/// passes it there too.
 ///
 /// # Errors
 ///
-/// If the status, the body or the challenge is not the uniform one,
-/// worded as the shell worded it.
+/// If the status, the body or the challenge is not the uniform one.
 pub fn uniform_401_with(
     smoke: &mut Smoke,
     at: Base,
@@ -707,9 +681,8 @@ fn challenge(smoke: &Smoke, at: Base) -> String {
     format!("Cabin login_url=\"{origin}/docs/remote-registry\"")
 }
 
-/// `curl -o /dev/null -D "$headers"`: the header block is the whole
-/// subject, and `$body` keeps whatever the previous request left in it
-/// - the shell wrote only one of the two buffers here.
+/// A GET whose header block is the whole subject: [`Smoke::body`]
+/// keeps whatever the previous request left in it.
 fn headers_only(smoke: &mut Smoke, at: Base, path: &str) -> Result<()> {
     let url = smoke.url(at, path);
     let body = std::mem::take(&mut smoke.body);
@@ -718,10 +691,9 @@ fn headers_only(smoke: &mut Smoke, at: Base, path: &str) -> Result<()> {
     Ok(())
 }
 
-/// The `www-authenticate` value as
-/// `grep -i '^www-authenticate:' | sed 's/^[^:]*: //' | tr -d '\r'`
-/// extracted it: every matching line, so a duplicated header yields two
-/// lines and can never equal the single-line challenge.
+/// The `www-authenticate` value with CRs dropped: every matching line,
+/// so a duplicated header yields two lines and can never equal the
+/// single-line challenge.
 fn challenge_value(block: &str) -> String {
     grep_lines(block, "www-authenticate:")
         .into_iter()

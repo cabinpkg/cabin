@@ -1,18 +1,16 @@
-//! The run's local state and its four long-running children, ported
-//! from `registry/scripts/smoke.sh`: the migrations and token seeding
-//! (L199-257), the export-API and GitHub mocks (L259-401), the
-//! `.dev.vars` the worker reads (L405-434), and the two `wrangler dev`
-//! instances (L438-484) - plus the `trap cleanup EXIT` (L85-102) they
-//! all hang off.
+//! The run's local state and its four long-running children: the
+//! migrations and token seeding, the export-API and GitHub mocks, the
+//! `.dev.vars` the worker reads, and the two `wrangler dev`
+//! instances - plus the teardown they all hang off.
 //!
-//! Signal-path ceiling.  The shell's trap fired on SIGINT too, where
-//! `Drop` does not, so [`DevServers`] splits the teardown:
-//! `xtask_ci::arm_teardown` kills the process groups and restores
-//! `.dev.vars` before `_exit`, but the D1 `service_mode` reset is
-//! deliberately *not* on that path - spawning wrangler from a signal
-//! handler is not async-signal-safe.  A run killed inside a breaker
-//! leg therefore leaves the pinned mode behind in the local database,
-//! and [`seed_tokens`] normalizes it on the next tokened run.
+//! Signal path.  `Drop` does not run on SIGINT, so [`DevServers`]
+//! splits the teardown: `xtask_ci::arm_teardown` kills the process
+//! groups and restores `.dev.vars` before `_exit`, but the D1
+//! `service_mode` reset is deliberately *not* on that path - spawning
+//! wrangler from a signal handler is not async-signal-safe.  A run
+//! killed inside a breaker leg therefore leaves the pinned mode behind
+//! in the local database, and [`seed_tokens`] normalizes it on the next
+//! tokened run.
 
 use std::fs::{self, File};
 use std::io::Write as _;
@@ -28,21 +26,11 @@ use xtask_registry_admin::{output, registry_dir, results, status, wrangler};
 use crate::bytes::sha256_hex;
 use crate::step;
 
-/// The mock servers, kept as the JavaScript the shell wrote from a
-/// heredoc: they are test doubles of the D1 export API and of GitHub,
-/// not repository automation, and rewriting their wire behavior in
-/// Rust is not something a one-to-one port may do.  One deliberate
-/// divergence from the heredoc bytes: the export mock's 404
-/// diagnostic gained a `text/plain` content type (`CodeQL`
-/// `js/reflected-xss` - the echoed URL became visible to scanning once
-/// it left the heredoc); no smoke leg reads that body.
+/// The mock servers, in JavaScript: they are test doubles of the D1
+/// export API and of GitHub, not repository automation.
 const MOCK_JS: &str = include_str!("../assets/mock.js");
 const GITHUB_MOCK_JS: &str = include_str!("../assets/github-mock.js");
 
-/// Every count and duration below is the shell's literally (plan
-/// §7.9): in-process HTTP is faster than forking `curl`, so a poll
-/// budget trimmed to "what it takes locally" turns a real negative
-/// assertion into a race that passes for the wrong reason.
 const DEV_POLLS: u32 = 300;
 const DEV_INTERVAL: Duration = Duration::from_secs(1);
 const MOCK_POLLS: u32 = 20;
@@ -53,10 +41,8 @@ const HALF_SECOND: Duration = Duration::from_millis(500);
 /// (`await_log` polls for the same reason).
 const LOG_SETTLE: Duration = Duration::from_secs(2);
 
-/// The four ports, as strings.  The shell interpolated `$SMOKE_PORT`
-/// and friends straight into URLs and into `.dev.vars` without ever
-/// reading them as numbers, so a junk value reached wrangler and
-/// failed there; parsing here would fail earlier and differently.
+/// The four ports, as strings: they go into URLs and into `.dev.vars`
+/// unparsed, so a junk value reaches wrangler and fails there.
 #[derive(Clone)]
 pub struct Ports {
     pub registry: String,
@@ -66,7 +52,6 @@ pub struct Ports {
 }
 
 impl Ports {
-    /// L59-62.
     pub fn from_env() -> Self {
         Self {
             registry: var("SMOKE_PORT", "8787"),
@@ -76,12 +61,11 @@ impl Ports {
         }
     }
 
-    /// L63.
     pub fn base(&self) -> String {
         format!("http://127.0.0.1:{}", self.registry)
     }
 
-    /// L70: the website role, a second `wrangler dev` emulating the
+    /// The website role, a second `wrangler dev` emulating the
     /// website origin's hostname over the same local D1/R2 state.
     pub fn web_base(&self) -> String {
         format!("http://127.0.0.1:{}", self.web)
@@ -96,9 +80,9 @@ fn var(name: &str, default: &str) -> String {
         .unwrap_or_else(|| default.to_owned())
 }
 
-/// L199-200.  Wrangler's output stays on the operator's terminal, as
-/// it did in the shell - the first run applies every migration and the
-/// list is the only progress the run shows for a while.
+/// Wrangler's output stays on the operator's terminal: the first run
+/// applies every migration and the list is the only progress the run
+/// shows for a while.
 ///
 /// # Errors
 ///
@@ -115,27 +99,25 @@ pub fn apply_migrations() -> Result<()> {
 }
 
 /// `wrangler d1 execute DB --local --command <sql>`, with wrangler's
-/// own result table left on the operator's terminal; the sites the
-/// shell redirected or captured use the quiet and JSON variants below.
+/// own result table left on the operator's terminal; the quiet and
+/// JSON variants below capture it instead.
 pub(crate) fn d1(sql: &str) -> Result<()> {
     status(&mut d1_execute(&["--command", sql]))
 }
 
-/// The same with `>/dev/null`: capturing stdout is how it is
-/// swallowed.
+/// The same with stdout captured and dropped.
 pub(crate) fn d1_quiet(sql: &str) -> Result<()> {
     output(&mut d1_execute(&["--command", sql]))?;
     Ok(())
 }
 
-/// `wrangler d1 execute DB --local --json --command <sql>`, as the
-/// shell piped it into `node`.
+/// `wrangler d1 execute DB --local --json --command <sql>`, stdout
+/// captured.
 pub(crate) fn d1_json(sql: &str) -> Result<String> {
     output(&mut d1_execute(&["--json", "--command", sql]))
 }
 
-/// The `results` rows of a `--json` read, which the `node` programs
-/// indexed into as `out[0].results`.
+/// The `results` rows of a `--json` read.
 pub(crate) fn d1_rows(sql: &str) -> Result<Vec<Map<String, Value>>> {
     results(&d1_json(sql)?)
 }
@@ -146,9 +128,9 @@ fn d1_execute(tail: &[&str]) -> Command {
     wrangler(&arguments)
 }
 
-/// L203-248.  The fixture rows are cleared so re-runs still see a
-/// first publish and a first claim; the content-addressed R2 blob may
-/// survive, which the publish path skips.
+/// The fixture rows are cleared so re-runs still see a first publish
+/// and a first claim; the content-addressed R2 blob may survive, which
+/// the publish path skips.
 ///
 /// # Errors
 ///
@@ -250,7 +232,7 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
     )
 }
 
-/// L254-257.  The backup-cron leg drives the worker's dump job against
+/// The backup-cron leg drives the worker's dump job against
 /// a local mock of the D1 export API serving a dump exported from the
 /// local database right here, so the job's polling, streaming,
 /// validation and bookkeeping all run for real without touching
@@ -269,13 +251,12 @@ pub fn export_dump(mock_dir: &Path) -> Result<()> {
 }
 
 /// The four servers, their logs, and the `.dev.vars` they are
-/// configured by - one owner, because the cleanup order across them is
-/// what the shell's single `cleanup` defined.
+/// configured by - one owner, so one teardown orders the cleanup
+/// across them.
 pub struct DevServers {
     ports: Ports,
     /// `None` once killed and reaped: a reaped pid is recyclable, so
-    /// nothing may signal it again (the guarantee bash's job table
-    /// gave the trap's kill loop).
+    /// nothing may signal it again.
     registry: Option<std::process::Child>,
     web: Option<std::process::Child>,
     mock: Option<std::process::Child>,
@@ -294,9 +275,7 @@ pub struct DevServers {
 
 impl DevServers {
     /// Starts both mocks, writes `.dev.vars`, refuses a stale server on
-    /// either dev port, then starts both `wrangler dev` instances
-    /// (L259-484).  The step banners are emitted here, in the shell's
-    /// places.
+    /// either dev port, then starts both `wrangler dev` instances.
     ///
     /// # Errors
     ///
@@ -321,7 +300,7 @@ impl DevServers {
             dev_vars_created: false,
             dev_vars_backup: None,
         };
-        // Every `?` from here drops `servers`, which is the trap.
+        // Every `?` from here drops `servers`, which is the teardown.
         servers.start_mocks(mock_dir)?;
         servers.write_dev_vars()?;
         servers.refuse_stale_ports()?;
@@ -346,10 +325,9 @@ impl DevServers {
         self.start_web_dev()
     }
 
-    /// The registry-role instance (L446-463).  `spawn_tracked` is the
-    /// shell's `set -m`: the tree gets its own process group, so the
-    /// teardown kills npx, wrangler and workerd together instead of
-    /// orphaning them on a bound port.
+    /// The registry-role instance.  `spawn_tracked` gives the tree its
+    /// own process group, so the teardown kills npx, wrangler and
+    /// workerd together instead of orphaning them on a bound port.
     ///
     /// # Errors
     ///
@@ -368,12 +346,11 @@ impl DevServers {
         )
     }
 
-    /// The website-role instance (L465-477): same code, same local
-    /// state, but wrangler pins its emulated Host header to
-    /// cabinpkg.com, which is what flips the Worker's role dispatch.
-    /// `/healthz` only exists on the registry role, so any HTTP status
-    /// at all (the website role answers it 401/404) proves the
-    /// instance is up.
+    /// The website-role instance: same code, same local state, but
+    /// wrangler pins its emulated Host header to cabinpkg.com, which is
+    /// what flips the Worker's role dispatch.  `/healthz` only exists
+    /// on the registry role, so any HTTP status at all (the website
+    /// role answers it 401/404) proves the instance is up.
     ///
     /// # Errors
     ///
@@ -394,9 +371,9 @@ impl DevServers {
     }
 
     /// Both dev servers down and reaped, then up to 30 × 0.5 s until
-    /// `/healthz` stops answering (L1973-1979, L2158-2165).  The
-    /// caller mutates `.dev.vars` between this and the restarts, which
-    /// is the whole point of the two mid-run restarts.
+    /// `/healthz` stops answering.  The caller mutates `.dev.vars`
+    /// between this and the restarts, which is the whole point of the
+    /// two mid-run restarts.
     pub fn stop_dev_servers(&mut self) {
         let mut registry = self.registry.take();
         let mut web = self.web.take();
@@ -405,7 +382,7 @@ impl DevServers {
         }
         // Reaped before the port poll, and before the pid could be
         // recycled: a later teardown must not signal an unrelated
-        // group. Errors are the shell's `|| true`.
+        // group.
         for child in [registry.as_mut(), web.as_mut()].into_iter().flatten() {
             let _ = xtask_ci::reap(child);
         }
@@ -418,7 +395,7 @@ impl DevServers {
         }
     }
 
-    /// L1980-1984: `cat >> .dev.vars`.
+    /// Appends to `.dev.vars`.
     ///
     /// # Errors
     ///
@@ -427,13 +404,9 @@ impl DevServers {
         append(&self.dev_vars, extra)
     }
 
-    /// L2166-2172: replace a key rather than append a second copy.
-    /// Wrangler takes the last value of a duplicated key, so the
-    /// `grep -v` is load-bearing - without it the earlier
-    /// `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="1"` would be the one that
-    /// stuck and every load assertion below it would go vacuous - and
-    /// a stale duplicate is a foot-gun for the next reader either way.
-    /// `drop_prefix` is matched anchored, as `grep -v '^KEY='` was.
+    /// Replace a key rather than append a second copy: a stale duplicate
+    /// is a foot-gun for the next reader.
+    /// `drop_prefix` is matched anchored at the start of a line.
     ///
     /// # Errors
     ///
@@ -508,8 +481,8 @@ impl DevServers {
         )
     }
 
-    /// L405-434.  Wrangler reads `.dev.vars` for `wrangler dev`; an
-    /// existing file is saved and restored.
+    /// Wrangler reads `.dev.vars` for `wrangler dev`; an existing file
+    /// is saved and restored.
     ///
     /// `SESSION_SECRET` is pinned so the session-plane leg can mint a
     /// valid session cookie for the seeded user (github id 0) without
@@ -550,9 +523,9 @@ impl DevServers {
         Ok(())
     }
 
-    /// L438-442.  A stale server on either port would silently answer
-    /// the checks below in place of the instances started here.  The
-    /// mock ports deliberately get no such guard.
+    /// A stale server on either port would silently answer the checks
+    /// below in place of the instances started here.  The mock ports
+    /// deliberately get no such guard.
     fn refuse_stale_ports(&self) -> Result<()> {
         for port in [&self.ports.registry, &self.ports.web] {
             if alive(&format!("http://127.0.0.1:{port}/healthz")) {
@@ -564,13 +537,11 @@ impl DevServers {
 }
 
 impl Drop for DevServers {
-    /// L85-102, in order.
     fn drop(&mut self) {
         // A failure inside a breaker leg would otherwise leave the
         // pinned mode behind in the local D1 state, blocking unrelated
         // local work until the next run's seeding normalizes it.  Best
-        // effort, both streams discarded, exactly as the trap's
-        // `|| true` was.
+        // effort, both streams discarded.
         let _ = wrangler(&[
             "d1",
             "execute",
@@ -609,7 +580,6 @@ impl Drop for DevServers {
     }
 }
 
-/// L422-433, in the file's order.
 fn render_dev_vars(ports: &Ports) -> String {
     let Ports { mock, github, .. } = ports;
     format!(
@@ -648,7 +618,7 @@ fn rewrite_key(path: &Path, drop_prefix: &str, extra: &str) -> Result<()> {
             kept.push('\n');
             kept
         });
-    // `$dev_vars.next`, not a `.next` extension: the file is
+    // `.dev.vars.next`, not a `.next` extension: the file is
     // `.dev.vars`, whose extension is `vars`.
     let mut next = path.as_os_str().to_owned();
     next.push(".next");
@@ -658,14 +628,13 @@ fn rewrite_key(path: &Path, drop_prefix: &str, extra: &str) -> Result<()> {
     append(path, extra)
 }
 
-/// `>"$log" 2>&1`: a fresh, truncated log per start - the mid-run
-/// restarts reuse the same path, and the legs that watermark it with
-/// `wc -l` count from the restart's first line.
+/// Both output streams into a fresh, truncated log per start - the
+/// mid-run restarts reuse the same path, and the legs that watermark it
+/// with `wc -l` count from the restart's first line.
 ///
-/// stdin is `/dev/null` where the shell's background job inherited the
-/// terminal: nothing here ever writes to a child's stdin, and a
-/// backgrounded wrangler that decides it owns a TTY would be stopped
-/// by SIGTTIN in its own process group.
+/// stdin is `/dev/null`: nothing here ever writes to a child's stdin,
+/// and a backgrounded wrangler that decides it owns a TTY would be
+/// stopped by SIGTTIN in its own process group.
 fn log_to(command: &mut Command, log: &Path) -> Result<()> {
     let file = File::create(log).with_context(|| format!("create {}", log.display()))?;
     let errors = file.try_clone().context("redirect stderr to the log")?;
@@ -673,11 +642,8 @@ fn log_to(command: &mut Command, log: &Path) -> Result<()> {
     Ok(())
 }
 
-/// One `curl` invocation's verdict: the HTTP status if the server
-/// answered at all, `None` for what `curl` reported as `000`.  A fresh
-/// agent per probe because `curl` was a fresh process per probe -
-/// a pooled connection across a mid-run restart would answer for a
-/// server that is gone.  No redirect following, as `curl` had no `-L`.
+/// One probe's verdict: the HTTP status if the server answered at
+/// all, `None` if it did not.  A fresh agent per probe.
 fn probe(url: &str) -> Option<u16> {
     match ureq::AgentBuilder::new()
         .redirects(0)
@@ -691,13 +657,12 @@ fn probe(url: &str) -> Option<u16> {
     }
 }
 
-/// `curl -fsS`: `-f` fails on 400 and up, and there is no `-L`, so a
-/// redirect is a success.
+/// Any status below 400, so an unfollowed redirect counts as alive.
 fn alive(url: &str) -> bool {
     matches!(probe(url), Some(status) if status < 400)
 }
 
-/// `kill -0`, done with a peek that never reaps: `try_wait` would
+/// A liveness check done with a peek that never reaps: `try_wait` would
 /// reap the child and leave its recyclable pid in the teardown table
 /// until the `xtask_ci::reap` below cleared it - the exact window the
 /// `WNOWAIT` design exists to close.  `waitid(WNOWAIT | WNOHANG)`
@@ -728,10 +693,9 @@ fn exited_no_reap(child: &mut std::process::Child) -> bool {
         )
     };
     if found != 0 {
-        // A failed probe WAS the shell's death signal (`kill -0`'s
-        // nonzero, whatever errno says), so it takes the same path:
-        // the caller dumps the log and issues the server-named
-        // diagnostic, never a generic error.
+        // A failed probe reads as an exit, whatever errno says: the
+        // caller dumps the log and issues the server-named diagnostic,
+        // never a generic error.
         return true;
     }
     // With WNOHANG, a zero si_pid means "still running".
@@ -746,7 +710,7 @@ fn exited_no_reap(child: &mut std::process::Child) -> bool {
     child.try_wait().map_or(true, |state| state.is_some())
 }
 
-/// `cat "$log" >&2`, bounded: a boot log fits whole, a full run's
+/// The log on stderr, bounded: a boot log fits whole, a full run's
 /// request lines would swamp a CI log, and the exit or the refused
 /// request is at the end either way.
 const LOG_TAIL: usize = 64 * 1024;
@@ -757,10 +721,10 @@ fn dump(log: &Path) {
     }
 }
 
-/// The dev-server readiness loop (L449-462, L471-476): 300 × 1 s, with
-/// the liveness check before every probe, so a child that died fails
-/// at once instead of after five minutes of polling a dead port.  The
-/// logs are printed by whoever owns the failure (`start`, `run`).
+/// The dev-server readiness loop: 300 × 1 s, with the liveness check
+/// before every probe, so a child that died fails at once instead of
+/// after five minutes of polling a dead port.  The logs are printed by
+/// whoever owns the failure (`start`, `run`).
 fn await_dev(
     child: &mut Option<std::process::Child>,
     exited_early: &str,
@@ -779,9 +743,8 @@ fn await_dev(
     bail!("{never_answered}")
 }
 
-/// The mock readiness loop (L281-288, L394-401): 20 × 0.5 s, and
-/// deliberately no timeout arm - the shell's loop simply fell through,
-/// leaving an unready mock to fail at the first leg that needs it.
+/// The mock readiness loop: 20 × 0.5 s, and deliberately no timeout
+/// arm - an unready mock fails at the first leg that needs it.
 fn await_mock(
     child: &mut Option<std::process::Child>,
     log: &Path,

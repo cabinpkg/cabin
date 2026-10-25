@@ -1,8 +1,7 @@
-//! The shell's text idioms over the shared response buffers - `grep`,
-//! `sed`, `head` and `"$(cat …)"` - plus the file read and write the
-//! legs that touch disk spell the same way.  One copy each: a
-//! leg-local copy that drifts changes what the assertion built on it
-//! means.
+//! Text helpers over the shared response buffers - `grep`, `sed`,
+//! `head` and `"$(cat …)"` - plus the file read and write the legs that
+//! touch disk share.  One copy each: a leg-local copy that drifts
+//! changes what the assertion built on it means.
 
 use std::borrow::Cow;
 use std::fs;
@@ -30,7 +29,7 @@ pub(crate) fn text(bytes: &[u8]) -> Cow<'_, str> {
 
 /// `grep -i '^<prefix>'` over the header block: every line whose start
 /// matches case-insensitively, keeping duplicates and each line's
-/// trailing CR - the shell's captures carry it into the diagnostics.
+/// trailing CR - the captures carry it into the diagnostics.
 pub(crate) fn grep_lines<'a>(block: &'a str, prefix: &str) -> Vec<&'a str> {
     let prefix = prefix.to_ascii_lowercase();
     block
