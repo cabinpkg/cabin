@@ -644,9 +644,7 @@ runs it after the Worker build on every registry-touching pull request and merge
 wasm32 glue before a deploy.  The crate must:
 
 - stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
-  environment;
-- stay out of `registry/`'s own tooling: with `wipe.sh` and `lib.sh` gone, `registry/scripts/`
-  no longer exists, and no shell tooling is left in the repository.
+  environment.
 
 ### `xtask-registry-guard`
 

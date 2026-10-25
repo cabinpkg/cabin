@@ -249,9 +249,7 @@ fn verify(directory: &Path, sidecar: &Path) -> Result<()> {
         if !digest.eq_ignore_ascii_case(hex) {
             bail!("{name} does not match its recorded digest");
         }
-        // `shasum -c`'s own line, which was never redirected: the
-        // recorded drill in `registry/docs/verification.md` shows it
-        // between the download and the scratch-database step.
+        // `shasum -c`'s own success line.
         println!("{name}: OK");
         checked += 1;
     }
