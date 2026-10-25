@@ -23,6 +23,7 @@
 
 [alias]
 check-deploy = "run --quiet --locked -p xtask-registry-guard -- check-deploy"
+check-kani-report = "run --quiet --locked -p xtask-registry-guard -- check-kani-report"
 check-r2 = "run --quiet --locked -p xtask-registry-guard -- check-r2"
 check-sql = "run --quiet --locked -p xtask-registry-guard -- check-sql"
 ci = "run --quiet --locked -p xtask-ci --"

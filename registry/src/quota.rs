@@ -711,8 +711,8 @@ mod verification {
 
         // Non-vacuity: the domain reaches each outcome, each exact
         // boundary on both sides, and the edges of the input domain.
-        // Covers are reported, never enforced: Kani stays green on an
-        // unsatisfiable cover, so read the cover summary in the output.
+        // Kani stays green on an unsatisfied cover; CI's
+        // `cargo check-kani-report` fails the run on one.
         kani::cover!(result == Ok(()));
         kani::cover!(result == Err(QUOTA_STORAGE));
         kani::cover!(result == Err(QUOTA_PACKAGES_DAILY));
