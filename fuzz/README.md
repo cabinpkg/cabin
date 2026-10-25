@@ -44,6 +44,18 @@ dictionary, so a target without either fails. It needs `cargo-fuzz`
 (`cargo install cargo-fuzz --locked`); `cargo ci` does not run it, so run
 it after changing an API a target calls.
 
+`cargo fuzz-campaign`, from the repository root, is what the daily
+`Fuzz campaign` workflow runs: five minutes of each target on
+`corpus/<target>` and its seeds, then a libFuzzer `-merge=1` that
+minimizes that corpus. The workflow keeps the corpus in the Actions
+cache between runs. Only runs on this repository's branches write it,
+never a pull request's, though any pull request can read it, and GitHub
+drops an entry no run has restored for seven days. A failed target
+prints only its name and loses its corpus, because both can hold the
+crashing input. Nothing keeps that input, since a public repository's
+logs, artifacts, and caches are all readable: reproduce the crash by
+fuzzing that target locally.
+
 `seeds/` is generated: `cargo fuzz-seeds`, from the repository root,
 stages example packages (C and C++) and a package of the fallback
 manifest through the real packager, copies the published-archive fixture,

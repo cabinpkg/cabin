@@ -1,0 +1,53 @@
+name: Fuzz campaign
+
+# Not a required check. It fuzzes every target daily on the corpus the
+# previous run kept. A failure names the target and withholds its
+# output, which can quote the crashing input (fuzz/README.md).
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  campaign:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Install the fuzz workspace's nightly
+        run: rustup toolchain install
+        working-directory: fuzz
+
+      - name: Install cargo-fuzz
+        run: cargo install -q "cargo-fuzz@=0.13.2" --locked
+
+      # A pull request's run cannot write a cache its base branch
+      # restores, so only main's own runs grow the corpus they restore.
+      - name: Restore the corpus
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: fuzz-corpus-
+
+      - name: Fuzz every target
+        run: cargo fuzz-campaign
+
+      # Also after a failed target: the others' corpora are still good.
+      - name: Save the corpus
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}

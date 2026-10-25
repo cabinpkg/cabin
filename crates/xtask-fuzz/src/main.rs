@@ -1,11 +1,13 @@
 //! Fuzz-target maintenance (`fuzz/README.md`).
 //!
-//!   `cargo fuzz-seeds`  regenerate `fuzz/seeds/` from in-tree packages
-//!                       and manifests
-//!   `cargo fuzz-check`  lint and test the fuzz workspace and replay
-//!                       every target's seeds
+//!   `cargo fuzz-seeds`     regenerate `fuzz/seeds/` from in-tree
+//!                          packages and manifests
+//!   `cargo fuzz-check`     lint and test the fuzz workspace and replay
+//!                          every target's seeds
+//!   `cargo fuzz-campaign`  fuzz every target on its kept corpus, then
+//!                          minimize that corpus
 
-use std::fs;
+use std::fs::{self, File};
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -37,6 +39,9 @@ const SEED_PREFIX: &str = "pkg";
 /// Trees whose every `cabin.toml` seeds the manifest parser.
 const MANIFEST_TREES: &[&str] = &["examples", "ports"];
 
+/// How long `cargo fuzz-campaign` fuzzes each target.
+const CAMPAIGN_SECONDS: u32 = 300;
+
 #[derive(Parser)]
 enum Cli {
     /// Regenerate the seed corpora under `fuzz/seeds/`.
@@ -44,6 +49,9 @@ enum Cli {
     /// Lint and test `fuzz/` and replay every target's seeds (needs
     /// `cargo-fuzz`).
     Check,
+    /// Fuzz every target on `fuzz/corpus/` and its seeds, then minimize
+    /// that corpus (needs `cargo-fuzz`).
+    Campaign,
 }
 
 fn main() -> ExitCode {
@@ -51,6 +59,7 @@ fn main() -> ExitCode {
     let result = match Cli::parse() {
         Cli::Seeds => seeds(&root),
         Cli::Check => check(&root.join("fuzz")),
+        Cli::Campaign => campaign(&root.join("fuzz")),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -224,24 +233,94 @@ fn check(fuzz: &Path) -> Result<()> {
     )?;
     cargo(fuzz, &["test", "--locked"])?;
 
+    // A target without seeds or a dictionary fails here: libFuzzer
+    // refuses a missing corpus directory or dictionary file.
+    for target in targets(fuzz)? {
+        let corpus = corpus(&target);
+        let seeds = format!("seeds/{corpus}");
+        let dict = format!("-dict=dicts/{corpus}.dict");
+        cargo(
+            fuzz,
+            &["fuzz", "run", &target, &seeds, "--", "-runs=0", &dict],
+        )?;
+    }
+    Ok(())
+}
+
+/// Fuzzes every target on `corpus/<target>`, which keeps what it
+/// finds, and its seeds, then minimizes that corpus.  A target's
+/// output can quote the input that crashed it (`README.md`,
+/// "Crashes"), so it goes to a scratch log: the console gets
+/// libFuzzer's numeric final stats, or the name of a target that
+/// failed.  A failed target's corpus is dropped too, since it can hold
+/// that input and the workflow caches the corpus where any pull
+/// request can read it.
+fn campaign(fuzz: &Path) -> Result<()> {
+    cargo(fuzz, &["fuzz", "build"])?;
+    let logs = tempfile::tempdir().context("creating a scratch directory")?;
+    let max_time = format!("-max_total_time={CAMPAIGN_SECONDS}");
+    let mut failed = Vec::new();
+    for target in targets(fuzz)? {
+        let kept = format!("corpus/{target}");
+        fs::create_dir_all(fuzz.join(&kept)).with_context(|| format!("creating {kept}"))?;
+        let corpus = corpus(&target);
+        let seeds = format!("seeds/{corpus}");
+        let dict = format!("-dict=dicts/{corpus}.dict");
+        let run = [
+            "fuzz",
+            "run",
+            &target,
+            &kept,
+            &seeds,
+            "--",
+            &dict,
+            &max_time,
+            "-timeout=60",
+            "-print_final_stats=1",
+        ];
+        // `cargo fuzz cmin` exits 0 when its merge fails, so the merge
+        // runs here, into a directory that replaces the corpus.
+        let merged = tempfile::tempdir_in(fuzz).context("creating a scratch directory")?;
+        let merged_dir = merged
+            .path()
+            .to_str()
+            .context("the fuzz path is not UTF-8")?;
+        let merge = ["fuzz", "run", &target, merged_dir, &kept, "--", "-merge=1"];
+        // Stats come from the run's own log: a run that exits 0 dumped no
+        // input, but a merge carries on past a crash it has dumped.
+        let log = logs.path().join(format!("{target}.log"));
+        let merge_log = logs.path().join(format!("{target}.merge.log"));
+        let passed = quiet_cargo(fuzz, &run, &log)? && quiet_cargo(fuzz, &merge, &merge_log)?;
+        fs::remove_dir_all(fuzz.join(&kept)).with_context(|| format!("removing {kept}"))?;
+        if passed {
+            fs::rename(merged.keep(), fuzz.join(&kept))
+                .with_context(|| format!("replacing {kept}"))?;
+            let log = fs::read_to_string(&log).context("reading a fuzz log")?;
+            for stat in log.lines().filter(|line| line.starts_with("stat::")) {
+                println!("{target}: {stat}");
+            }
+        } else {
+            println!("{target}: failed (output withheld)");
+            failed.push(target);
+        }
+    }
+    ensure!(
+        failed.is_empty(),
+        "{} failed; fuzz each locally to reproduce (fuzz/README.md)",
+        failed.join(", ")
+    );
+    Ok(())
+}
+
+/// The targets `cargo fuzz list` names.
+fn targets(fuzz: &Path) -> Result<Vec<String>> {
     let listed = fuzz_cargo(fuzz)
         .args(["fuzz", "list"])
         .output()
         .context("running `cargo fuzz list`")?;
     ensure!(listed.status.success(), "`cargo fuzz list` failed");
     let listed = String::from_utf8(listed.stdout).context("`cargo fuzz list` printed non-UTF-8")?;
-    // A target without seeds or a dictionary fails here: libFuzzer
-    // refuses a missing corpus directory or dictionary file.
-    for target in listed.lines() {
-        let corpus = corpus(target);
-        let seeds = format!("seeds/{corpus}");
-        let dict = format!("-dict=dicts/{corpus}.dict");
-        cargo(
-            fuzz,
-            &["fuzz", "run", target, &seeds, "--", "-runs=0", &dict],
-        )?;
-    }
-    Ok(())
+    Ok(listed.lines().map(str::to_owned).collect())
 }
 
 /// The seeds and dictionary `target` runs on.
@@ -258,6 +337,18 @@ fn fuzz_cargo(fuzz: &Path) -> Command {
     let mut cargo = Command::new("cargo");
     cargo.current_dir(fuzz).env_remove("RUSTUP_TOOLCHAIN");
     cargo
+}
+
+/// `cargo` with its output in `log`; whether it succeeded.
+fn quiet_cargo(fuzz: &Path, args: &[&str], log: &Path) -> Result<bool> {
+    let log = File::create(log).context("creating a fuzz log")?;
+    let status = fuzz_cargo(fuzz)
+        .args(args)
+        .stdout(log.try_clone().context("opening a fuzz log")?)
+        .stderr(log)
+        .status()
+        .with_context(|| format!("running `cargo {}`", args.join(" ")))?;
+    Ok(status.success())
 }
 
 fn cargo(fuzz: &Path, args: &[&str]) -> Result<()> {
