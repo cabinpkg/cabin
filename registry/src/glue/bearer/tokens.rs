@@ -10,8 +10,8 @@ use worker::{D1Database, Env, Request, Response, console_error, console_log};
 use crate::auth::{self, AuthContext};
 use crate::error;
 use crate::glue::{
-    MAX_MUTATION_BODY_BYTES, bounded_body, error_response, js_int, json_response, now_epoch_ms,
-    unauthorized, write_gate,
+    MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response, js_int, json_response,
+    now_epoch_ms, unauthorized, write_gate,
 };
 use crate::{allowlist, session_tokens, sql, trustpub, web_glue};
 
@@ -304,7 +304,7 @@ pub(super) async fn self_revoke_response(
         .bind(&[auth.token_id.as_str().into()])?
         .run()
         .await?;
-    if deleted.meta()?.and_then(|meta| meta.changes).unwrap_or(0) == 0 {
+    if changed_rows(deleted.meta()?) == 0 {
         return unauthorized(env);
     }
     Ok(Response::empty()?.with_status(204))
