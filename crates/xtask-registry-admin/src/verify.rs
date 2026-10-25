@@ -6,7 +6,9 @@
 //! not a failure; only operational trouble - a download that would not
 //! come, a verifier that would not run, a PATCH the service refused -
 //! counts, and every one of those leaves its version pending for the
-//! next pass.
+//! next pass.  The TLA+ lifecycle model (`registry/proofs/README.md`,
+//! "The verifier") abstracts this pass step by step; a change to its
+//! order or outcomes must keep that model faithful.
 //!
 //! Unlike the rest of the crate this runs unattended, and its log is a
 //! public CI artifact.  It prints package names and versions, which

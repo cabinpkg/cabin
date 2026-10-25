@@ -217,7 +217,7 @@ jobs:
     needs: changes
     if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     defaults:
       run:
@@ -239,6 +239,9 @@ jobs:
 
       - name: Check the lifecycle model (shared blob)
         run: java -XX:+UseParallelGC -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycleShared.cfg RegistryLifecycle.tla
+
+      - name: Check the lifecycle model (scan-rejected content)
+        run: java -XX:+UseParallelGC -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycleScan.cfg RegistryLifecycle.tla
 
   # Ships the Worker on a registry-relevant main push. Validation ran
   # pre-merge (Merge Queue), so only the change gate runs here. No

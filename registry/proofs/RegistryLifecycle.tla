@@ -15,6 +15,12 @@
 (* guards compare it exactly as the SQL compares the column.  `gen` and   *)
 (* `decided` are ghost history for the properties only; no guard reads    *)
 (* them.                                                                   *)
+(*                                                                         *)
+(* The external verifier (the registry-verify workflow's driver) is a     *)
+(* participant on its own schedule: it lists, downloads, inspects, and    *)
+(* PATCHes.  The archive inspector is the oracle `Inspections`: it rejects *)
+(* Malicious bytes outright and is otherwise free (README.md, "The        *)
+(* verifier").                                                             *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
@@ -23,10 +29,12 @@ CONSTANTS
     Checksums,   \* archive contents, each named by the byte count it stores
     Publishers,  \* concurrent publish request slots
     Verifiers,   \* concurrent verdict request slots
-    MaxStamps    \* how many publish events one execution can stamp
+    MaxStamps,   \* how many publish events one execution can stamp
+    Malicious    \* the contents the archive inspector rejects (its result, abstracted)
 
 ASSUME /\ Checksums \subseteq Nat \ {0}
        /\ MaxStamps \in Nat
+       /\ Malicious \subseteq Checksums
 
 Size(c) == c   \* revisions.archive_size, a function of the bytes
 
@@ -41,9 +49,10 @@ VARIABLES
     pub,      \* [Publishers -> publish request]
     ver,      \* [Verifiers -> verdict request]
     gen,      \* ghost: how many publish events (the insert, each revival) the row has had
-    decided   \* ghost: the generation a row's terminal verdict was computed against, 0 for none
+    decided,  \* ghost: the generation a row's terminal verdict was computed against, 0 for none
+    basis     \* ghost: what rendered a row's terminal verdict - the inspector, or an operator's reject resolution
 
-vars == <<status, pubAt, clock, counter, blob, ledger, deletes, pub, ver, gen, decided>>
+vars == <<status, pubAt, clock, counter, blob, ledger, deletes, pub, ver, gen, decided, basis>>
 rows == <<status, pubAt>>
 
 Status == {"absent", "pending", "verified", "rejected"}
@@ -56,8 +65,9 @@ Ledger == {"none", "reserved", "committed"}
 Idle == [phase |-> "idle"]
 PubPhase == {"idle", "disposed", "stored", "written", "lost"}
 Disp == {"new", "revive", "noop", "refuse"}
-VerPhase == {"idle", "listed", "apply", "reclaim"}
+VerPhase == {"idle", "decided", "apply", "reclaim"}
 Verdicts == {"verified", "rejected"}
+Basis == {"none", "inspected", "manual"}
 
 \* Publishers, verifiers, and versions are interchangeable; checksums are
 \* not (they carry sizes and break the served-revision tie).
@@ -124,6 +134,16 @@ ArtifactReadable(v, c, verifyScope) ==
       [] OTHER -> FALSE
 
 -----------------------------------------------------------------------------
+(* The verifier *)
+
+\* cabin-registry-verify's possible verdicts on an archive.  The archive
+\* scan rejects Malicious bytes whatever else is true; for other bytes the
+\* verdict also depends on the generation's stored metadata (a revival may
+\* carry corrected metadata for the same bytes) and on the pinned upstream
+\* fetch, which the model leaves free.
+Inspections(c) == IF c \in Malicious THEN {"rejected"} ELSE Verdicts
+
+-----------------------------------------------------------------------------
 Init ==
     /\ status = [v \in Versions |-> [c \in Checksums |-> "absent"]]
     /\ pubAt = [v \in Versions |-> [c \in Checksums |-> 0]]
@@ -136,6 +156,7 @@ Init ==
     /\ ver = [w \in Verifiers |-> Idle]
     /\ gen = [v \in Versions |-> [c \in Checksums |-> 0]]
     /\ decided = [v \in Versions |-> [c \in Checksums |-> 0]]
+    /\ basis = [v \in Versions |-> [c \in Checksums |-> "none"]]
 
 -----------------------------------------------------------------------------
 (* Publish: PUT /api/v1/packages/<scope>/<name>/<version>[?new-revision=true] *)
@@ -146,7 +167,7 @@ PubStart(p) ==
     /\ \E v \in Versions, c \in Checksums, optIn \in BOOLEAN :
         pub' = [pub EXCEPT ![p] = [phase |-> "disposed", v |-> v, c |-> c, optIn |-> optIn,
                                    disp |-> Disposition(v, c, optIn)]]
-    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, deletes, ver, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, deletes, ver, gen, decided, basis>>
 
 \* Answered from the preflight: the byte-identical 200 no-op (which heals
 \* its blob) or the 409 new-revision-required refusal.  Nothing is written.
@@ -156,7 +177,7 @@ PubAnswer(p) ==
     /\ IF pub[p].disp = "noop"
        THEN Heal(pub[p].c) /\ pub' = [pub EXCEPT ![p] = Idle]
        ELSE UNCHANGED <<blob, ledger>> /\ pub' = [pub EXCEPT ![p] = Idle]
-    /\ UNCHANGED <<status, pubAt, clock, counter, deletes, ver, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, deletes, ver, gen, decided, basis>>
 
 \* The handler samples now_iso8601() here - before the quota reads and the
 \* storage work, so a slow request commits with an older stamp than a
@@ -182,7 +203,7 @@ PubStore(p) ==
           \/ /\ ledger' \in {ledger, reserve}
              /\ pub' = [pub EXCEPT ![p] = Idle]
              /\ UNCHANGED <<blob, clock>>
-    /\ UNCHANGED <<status, pubAt, counter, deletes, ver, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, counter, deletes, ver, gen, decided, basis>>
 
 \* One D1 batch: the guarded insert or revival plus the stored-bytes bump,
 \* evaluated against the rows as they are now, not as the preflight saw
@@ -201,12 +222,13 @@ PubBatch(p) ==
              /\ counter' = counter + CountOnWrite(c)
              /\ gen' = [gen EXCEPT ![v][c] = gen[v][c] + 1]
              /\ decided' = [decided EXCEPT ![v][c] = 0]
+             /\ basis' = [basis EXCEPT ![v][c] = "none"]
              /\ pub' = [pub EXCEPT ![p].phase = "written"]
           \/ /\ ~guard
              /\ pub' = [pub EXCEPT ![p].phase = "lost"]
-             /\ UNCHANGED <<status, pubAt, counter, gen, decided>>
+             /\ UNCHANGED <<status, pubAt, counter, gen, decided, basis>>
           \/ /\ pub' = [pub EXCEPT ![p] = Idle]
-             /\ UNCHANGED <<status, pubAt, counter, gen, decided>>
+             /\ UNCHANGED <<status, pubAt, counter, gen, decided, basis>>
     /\ UNCHANGED <<clock, blob, ledger, deletes, ver>>
 
 \* After a lost race the handler re-reads and answers as if it had arrived
@@ -217,7 +239,7 @@ PubReread(p) ==
        IF d = "noop"
        THEN Heal(pub[p].c) /\ pub' = [pub EXCEPT ![p] = Idle]
        ELSE UNCHANGED <<blob, ledger>> /\ pub' = [pub EXCEPT ![p] = Idle]
-    /\ UNCHANGED <<status, pubAt, clock, counter, deletes, ver, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, deletes, ver, gen, decided, basis>>
 
 \* After the commit: settle the reservation (best-effort - a lost settle
 \* leaves the conservative reserved entry), then heal the blob if a
@@ -230,41 +252,69 @@ PubFinish(p) ==
              /\ ledger' \in {settled, ledger}
           \/ UNCHANGED blob /\ ledger' \in {settled, ledger}
     /\ pub' = [pub EXCEPT ![p] = Idle]
-    /\ UNCHANGED <<status, pubAt, clock, counter, deletes, ver, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, deletes, ver, gen, decided, basis>>
 
 -----------------------------------------------------------------------------
 (* Verdicts: GET /api/v1/admin/versions?status=pending, then                *)
 (* PATCH /api/v1/admin/versions/<scope>/<name>/<version>                    *)
 
-\* The listing snapshots a pending row's binding (checksum, published_at);
-\* the ghost `gen` remembers which generation that was.
+\* One verifier run over one listed entry (xtask-registry-admin verify.rs,
+\* Pass::version): the listing (admin_versions_response, read with the
+\* run's verify-scoped token) snapshots the pending row's binding
+\* (checksum, published_at) - the ghost `gen` remembers which generation
+\* that was - then the name advisories, the artifact download with the
+\* same token (a pending row is readable to the verify scope, and the
+\* download needs its blob), the digest check against the listed checksum,
+\* the optional upstream fetch, the inspector child, and the OIDC mint for
+\* the PATCH.  The advisory's abstain, a digest mismatch, and every failure
+\* end the run for this entry without a PATCH: the row stays pending and
+\* nothing else changes, so those outcomes are the stutter.  An operator's
+\* `reject` resolution (Pass::resolve) composes the advisory rejection
+\* from the listing entry and inspects nothing; the `verify` resolution is
+\* the same pass with the advisory gate waived, so the inspector still
+\* renders its verdict.
+\*
+\* The listing and the download are one step although the driver reads
+\* them minutes apart: a PATCH lands only while the row is still pending
+\* at the listed stamp, the download needs the blob while the row is
+\* readable, and both hold at the download instant of any landing PATCH -
+\* when this step, taken then, snapshots the same stamp and renders the
+\* same request; a PATCH that would be refused changes nothing either way.
 VerList(w) ==
     /\ ver[w].phase = "idle"
     /\ \E v \in Versions, c \in Checksums :
         /\ status[v][c] = "pending"
-        /\ ver' = [ver EXCEPT ![w] = [phase |-> "listed", v |-> v, c |-> c,
-                                      stamp |-> pubAt[v][c], gen |-> gen[v][c]]]
-    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, deletes, pub, gen, decided>>
+        /\ LET render(verdict, how) ==
+                   ver' = [ver EXCEPT ![w] = [phase |-> "decided", v |-> v, c |-> c,
+                                              stamp |-> pubAt[v][c], gen |-> gen[v][c],
+                                              verdict |-> verdict, basis |-> how]]
+           IN \/ /\ blob[c]
+                 /\ \E bytes \in Checksums : \E verdict \in Inspections(bytes) :
+                     /\ bytes = c   \* undeclared_digest and the inspector's own hash (a mutation hook, README "Sensitivity")
+                     /\ render(verdict, "inspected")
+              \/ render("rejected", "manual")
+    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, deletes, pub, gen, decided, basis>>
 
-\* The handler's VERDICT_TARGET read: verdict_binding_matches compares the
-\* listing's (checksum, published_at) against the row it just read, then
-\* the transition table (verify.rs) decides.  What the handler carries into
-\* its guarded UPDATE is the row's stamp as *it* read it - the SQL binds
-\* target.published_at, not the listing's - so the listing-to-row binding
-\* is enforced here, in Rust, and nowhere else.  A repeat rejection
-\* re-drives the reclaim.
+\* The PATCH arrives: verdict_authn consumes its single-use OIDC jti in
+\* its own transaction first (a replayed PATCH is refused there and never
+\* reaches this read; not modeled), then the handler's VERDICT_TARGET
+\* read: verdict_binding_matches compares the listing's (checksum,
+\* published_at) against the row it just read, then the transition table
+\* (verify.rs) decides.  What the handler carries into its guarded UPDATE
+\* is the row's stamp as *it* read it - the SQL binds target.published_at,
+\* not the listing's - so the listing-to-row binding is enforced here, in
+\* Rust, and nowhere else.  A repeat rejection re-drives the reclaim.
 VerRead(w) ==
-    /\ ver[w].phase = "listed"
-    /\ \E verdict \in Verdicts :
-       LET v == ver[w].v
+    /\ ver[w].phase = "decided"
+    /\ LET v == ver[w].v
            c == ver[w].c
            cur == status[v][c]
+           verdict == ver[w].verdict
        IN IF pubAt[v][c] # ver[w].stamp
           THEN ver' = [ver EXCEPT ![w] = Idle] /\ UNCHANGED deletes
           ELSE CASE cur = "pending" ->
-                       /\ ver' = [ver EXCEPT ![w] = [phase |-> "apply", v |-> v, c |-> c,
-                                                       stamp |-> pubAt[v][c], gen |-> ver[w].gen,
-                                                       verdict |-> verdict]]
+                       \* the stamp carried on is the row's as read (equal here, by the check above)
+                       /\ ver' = [ver EXCEPT ![w].phase = "apply", ![w].stamp = pubAt[v][c]]
                        /\ UNCHANGED deletes
                  [] cur = verdict ->
                        /\ ver' = [ver EXCEPT ![w] = Idle]
@@ -272,7 +322,7 @@ VerRead(w) ==
                                      THEN deletes \cup {c} ELSE deletes
                  [] OTHER ->
                        ver' = [ver EXCEPT ![w] = Idle] /\ UNCHANGED deletes
-    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, pub, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, pub, gen, decided, basis>>
 
 \* One D1 batch: MARK_REVISION_VERIFIED, or REFUND_STORED_BYTES_ON_REJECTION
 \* then MARK_REVISION_REJECTED, guarded on the row still being pending with
@@ -286,6 +336,7 @@ VerApply(w) ==
        IN \/ /\ guard /\ ver[w].verdict = "verified"
              /\ status' = [status EXCEPT ![v][c] = "verified"]
              /\ decided' = [decided EXCEPT ![v][c] = ver[w].gen]
+             /\ basis' = [basis EXCEPT ![v][c] = ver[w].basis]
              /\ ver' = [ver EXCEPT ![w] = Idle]
              /\ UNCHANGED counter
           \/ /\ guard /\ ver[w].verdict = "rejected"
@@ -293,12 +344,13 @@ VerApply(w) ==
                 counter' = IF counter > refund THEN counter - refund ELSE 0
              /\ status' = [status EXCEPT ![v][c] = "rejected"]
              /\ decided' = [decided EXCEPT ![v][c] = ver[w].gen]
+             /\ basis' = [basis EXCEPT ![v][c] = ver[w].basis]
              /\ ver' = [ver EXCEPT ![w].phase = "reclaim"]
           \/ /\ ~guard
              /\ ver' = [ver EXCEPT ![w] = Idle]
-             /\ UNCHANGED <<status, counter, decided>>
+             /\ UNCHANGED <<status, counter, decided, basis>>
           \/ /\ ver' = [ver EXCEPT ![w] = Idle]
-             /\ UNCHANGED <<status, counter, decided>>
+             /\ UNCHANGED <<status, counter, decided, basis>>
     /\ UNCHANGED <<pubAt, clock, blob, ledger, deletes, pub, gen>>
 
 \* delete_blob_if_unreferenced after the flip: a separate refcount read
@@ -310,7 +362,7 @@ VerReclaim(w) ==
           /\ ver' = [ver EXCEPT ![w] = Idle]
        \/ /\ UNCHANGED deletes
           /\ ver' = [ver EXCEPT ![w] = Idle]
-    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, pub, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, pub, gen, decided, basis>>
 
 -----------------------------------------------------------------------------
 (* R2: a decided delete lands whenever, or fails and leaves an orphan.  *)
@@ -319,12 +371,12 @@ LandDelete(c) ==
     /\ c \in deletes
     /\ blob' = [blob EXCEPT ![c] = FALSE]
     /\ deletes' = deletes \ {c}
-    /\ UNCHANGED <<status, pubAt, clock, counter, ledger, pub, ver, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, ledger, pub, ver, gen, decided, basis>>
 
 DropDelete(c) ==
     /\ c \in deletes
     /\ deletes' = deletes \ {c}
-    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, pub, ver, gen, decided>>
+    /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, pub, ver, gen, decided, basis>>
 
 -----------------------------------------------------------------------------
 Next ==
@@ -358,9 +410,11 @@ TypeOK ==
         /\ ver[w].phase # "idle" =>
             /\ ver[w].v \in Versions /\ ver[w].c \in Checksums
             /\ ver[w].stamp \in 1..MaxStamps /\ ver[w].gen \in 1..MaxStamps
-        /\ ver[w].phase \in {"apply", "reclaim"} => ver[w].verdict \in Verdicts
+        /\ ver[w].phase \in {"decided", "apply", "reclaim"} =>
+            ver[w].verdict \in Verdicts /\ ver[w].basis \in Basis \ {"none"}
     /\ gen \in [Versions -> [Checksums -> 0..MaxStamps]]
     /\ decided \in [Versions -> [Checksums -> 0..MaxStamps]]
+    /\ basis \in [Versions -> [Checksums -> Basis]]
 
 \* A row exists exactly when it has been stamped; stamps are unique (each
 \* sample advances the clock, so a sample never repeats).
@@ -387,7 +441,16 @@ TerminalDecidedOnCurrentGeneration ==
 
 \* A pending row carries no verdict; a revival clears the old one.
 PendingUndecided ==
-    \A v \in Versions, c \in Checksums : status[v][c] = "pending" => decided[v][c] = 0
+    \A v \in Versions, c \in Checksums :
+        status[v][c] = "pending" => decided[v][c] = 0 /\ basis[v][c] = "none"
+
+\* A verified row was rendered by the inspector, and never on bytes the
+\* scan rejects: no operator resolution, abstain, failed download,
+\* mismatched digest, or inspector failure produces `verified` (each
+\* leaves the row pending).
+VerifiedByInspection ==
+    \A v \in Versions, c \in Checksums :
+        status[v][c] = "verified" => basis[v][c] = "inspected" /\ c \notin Malicious
 
 RECURSIVE Sum(_)
 Sum(S) == IF S = {} THEN 0 ELSE LET c == CHOOSE x \in S : TRUE IN Size(c) + Sum(S \ {c})
@@ -443,7 +506,7 @@ AnsweredWithoutCommitWritesNothing ==
             (pub[p].phase \in {"disposed", "stored", "lost"} /\ pub'[p].phase = "idle")
                 => UNCHANGED <<rows, counter>>
        /\ \A w \in Verifiers :
-            (ver[w].phase = "listed" /\ ver'[w].phase = "idle")
+            (ver[w].phase = "decided" /\ ver'[w].phase = "idle")
                 => UNCHANGED <<rows, counter>>]_vars
 
 -----------------------------------------------------------------------------
@@ -458,7 +521,7 @@ NoRevivedVerified == \A v \in Versions, c \in Checksums : ~(gen[v][c] > 1 /\ sta
 \* a verdict is refused at the read because its generation binding went stale
 NoStaleVerdictRefused ==
     [][\A w \in Verifiers :
-        ~(ver[w].phase = "listed" /\ ver'[w].phase = "idle"
+        ~(ver[w].phase = "decided" /\ ver'[w].phase = "idle"
           /\ pubAt[ver[w].v][ver[w].c] # ver[w].stamp)]_vars
 \* a verdict loses the race between its read and its guarded update
 NoVerdictLostRace ==
@@ -473,6 +536,14 @@ NoRespin == \A v \in Versions : Cardinality({c \in Checksums : IsLive(v, c)}) < 
 NoSharedBlob == \A c \in Checksums : LiveRefs(c) < 2
 \* a rejection is applied (and its reclaim decided)
 NoRejection == \A w \in Verifiers : ver[w].phase # "reclaim"
+\* the inspector rejects the bytes it rejects
+NoInspectedRejection ==
+    \A v \in Versions, c \in Checksums : ~(status[v][c] = "rejected" /\ basis[v][c] = "inspected")
+\* an operator's reject resolution lands on bytes the scan accepts: the
+\* advisory rejection, nothing inspected
+NoManualRejection ==
+    \A v \in Versions, c \in Checksums :
+        ~(status[v][c] = "rejected" /\ basis[v][c] = "manual" /\ c \notin Malicious)
 \* the documented reclaim/revival window: a live row whose blob a late
 \* delete removed after its publish healed, with nothing in flight for it
 \* (runbook, "Orphaned R2 blobs"; verifier.rs delete_blob_if_unreferenced)
