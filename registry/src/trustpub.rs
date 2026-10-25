@@ -597,6 +597,7 @@ impl JwksProvider for GithubJwks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_db::migrated_connection;
     use crate::{auth, sql};
     use rsa::RsaPrivateKey;
     use rsa::pkcs1v15::SigningKey;
@@ -1409,40 +1410,6 @@ mod tests {
         let mut wrong = claims;
         wrong.git_ref = "refs/heads/other".to_owned();
         assert_eq!(pins.refuses(&wrong), Some("git ref"));
-    }
-
-    /// The migrations applied to an in-memory database, as
-    /// `tests/sql_validation/` applies them. Duplicated here (an
-    /// integration test cannot reach unit-test fixtures, and the JWT
-    /// fixtures live in this module) so the exchange flow below runs
-    /// end to end: signed JWT through the verifier, then the exchange's
-    /// real statements against the really-migrated schema.
-    fn migrated_connection() -> rusqlite::Connection {
-        let conn = rusqlite::Connection::open_in_memory().expect("open in-memory sqlite");
-        conn.pragma_update(None, "foreign_keys", true)
-            .expect("enable foreign_keys");
-        // D1 parity, like tests/sql_validation/'s copy: patterns
-        // evaluate under D1's 50-byte LIKE/GLOB cap here too, so a
-        // statement this module exercises cannot pass on host defaults
-        // while failing in production.
-        conn.set_limit(
-            rusqlite::limits::Limit::SQLITE_LIMIT_LIKE_PATTERN_LENGTH,
-            50,
-        )
-        .expect("pin the D1 LIKE/GLOB pattern limit");
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-        let mut migrations: Vec<_> = std::fs::read_dir(&dir)
-            .expect("read migrations/")
-            .map(|entry| entry.expect("read migrations/ entry").path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
-            .collect();
-        migrations.sort();
-        assert!(!migrations.is_empty(), "no migrations in {}", dir.display());
-        for path in migrations {
-            let statements = std::fs::read_to_string(&path).expect("read migration");
-            conn.execute_batch(&statements).expect("apply migration");
-        }
-        conn
     }
 
     /// The publish path's bearer lookup, as `glue::authenticate` binds
