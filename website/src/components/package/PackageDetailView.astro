@@ -1,15 +1,12 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import { formatEdition } from "../../lib/format";
 import type { PackageRecord, PackageVersionListItem } from "../../lib/packages";
 import IconTile from "../IconTile.astro";
 import Icon from "../Icon.astro";
-import Badge from "../ui/Badge.astro";
 import InstallSnippet from "./InstallSnippet.astro";
 import PackageDependencies from "./PackageDependencies.astro";
 import PackageFeatures from "./PackageFeatures.astro";
 import PackageMetaGrid from "./PackageMetaGrid.astro";
-import ReadmeRenderer from "./ReadmeRenderer.astro";
 
 interface Props {
     pack: PackageRecord;
@@ -25,7 +22,6 @@ interface Props {
 
 const { pack, versions, currentVersion, title, description, canonicalPath } =
     Astro.props;
-const editionLabel = formatEdition(pack.edition);
 ---
 
 <BaseLayout
@@ -34,40 +30,16 @@ const editionLabel = formatEdition(pack.edition);
     canonicalPath={canonicalPath}
     contentClass="container-shell py-10"
 >
-    <section class="mb-8">
-        <div class="flex flex-col gap-4">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
-                <div class="flex items-center gap-3">
-                    <IconTile name="cube" size="lg" />
-                    <div>
-                        <h1 class="text-3xl font-bold tracking-tight md:text-4xl">
-                            {pack.name}
-                        </h1>
-                        <p class="mt-1 flex items-center gap-2 font-mono text-base text-ink-faint">
-                            <Icon name="tag" class="h-4 w-4" />
-                            v{pack.version}
-                        </p>
-                    </div>
-                </div>
-                {
-                    editionLabel && (
-                        <div class="sm:ml-auto">
-                            <Badge class="px-3 py-2">
-                                <Icon name="code" class="h-4 w-4" />
-                                {editionLabel}
-                            </Badge>
-                        </div>
-                    )
-                }
-            </div>
-
-            {
-                pack.description && (
-                    <p class="max-w-3xl text-xl leading-8 text-ink-muted">
-                        {pack.description}
-                    </p>
-                )
-            }
+    <section class="mb-8 flex items-center gap-3">
+        <IconTile name="cube" size="lg" />
+        <div>
+            <h1 class="text-3xl font-bold tracking-tight md:text-4xl">
+                {pack.name}
+            </h1>
+            <p class="mt-1 flex items-center gap-2 font-mono text-base text-ink-faint">
+                <Icon name="tag" class="h-4 w-4" />
+                v{pack.version}
+            </p>
         </div>
     </section>
 
@@ -76,7 +48,6 @@ const editionLabel = formatEdition(pack.edition);
             <InstallSnippet package={pack} />
             <PackageDependencies package={pack} />
             <PackageFeatures package={pack} />
-            {pack.readme && <ReadmeRenderer readme={pack.readme} />}
         </div>
 
         <PackageMetaGrid

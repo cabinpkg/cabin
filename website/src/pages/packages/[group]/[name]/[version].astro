@@ -24,7 +24,6 @@ const { pack, versions } = Astro.props;
     versions={versions}
     currentVersion={pack.version}
     title={`${pack.name} (v${pack.version})`}
-    description={pack.description ||
-        `Cabin package ${pack.name} v${pack.version}`}
+    description={`Cabin package ${pack.name} v${pack.version}`}
     canonicalPath={getPackageVersionHref(pack.name, pack.version)}
 />

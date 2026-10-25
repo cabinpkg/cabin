@@ -2,11 +2,6 @@ export function stringifyValue(value: unknown): string {
     return value === null || value === undefined ? "" : String(value);
 }
 
-export function formatEdition(edition: unknown): string {
-    const value = stringifyValue(edition);
-    return value === "" ? "" : `C++${value.slice(-2)}`;
-}
-
 export function formatBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes < 0) {
         return "";

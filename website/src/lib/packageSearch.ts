@@ -13,9 +13,7 @@ const SEARCH_OPTIONS = {
     threshold: 0.35,
     keys: [
         { name: "name", weight: 0.7 },
-        { name: "description", weight: 0.2 },
         { name: "version", weight: 0.06 },
-        { name: "edition", weight: 0.04 },
     ],
 } satisfies IFuseOptions<PackageListItem>;
 
