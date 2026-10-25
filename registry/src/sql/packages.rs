@@ -217,7 +217,7 @@ statements! {
                        AND json_extract(metadata_json, '$.links') \
                            IS NOT json_extract(?1, '$.links'))))";
 
-    /// How many versions have sat `pending` for over an hour (the
+    /// How many revisions have sat `pending` for over an hour (the
     /// stuck-verifier alert).
     COUNT_STALE_PENDING =
         "SELECT COUNT(*) AS n FROM revisions WHERE verification = 'pending' \

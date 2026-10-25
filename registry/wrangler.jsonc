@@ -27,8 +27,8 @@
     // defaults (src/breaker.rs) and only need `vars` entries to override.
     // BUDGET_R2_CLASS_B_MONTH is different: unset, Class B is monitored
     // against a warn-only default; setting it is what arms the read-side
-    // breaker (docs/runbook.md, "Read budgets and the paid-plan
-    // activation procedure") - do not set it before that procedure.
+    // breaker (docs/runbook.md, "Read budgets and paid-plan
+    // activation") - do not set it before that procedure.
     // The governor's hard R2 limits (GOVERNOR_STORAGE_*_BYTES and
     // GOVERNOR_R2_CLASS_{A,B}_*_MONTH; src/governor.rs) follow the same
     // in-code-default pattern, with one deliberate difference: a var
@@ -89,7 +89,7 @@
         // export REST call (bindings do not expose it). Must
         // mirror d1_databases[0].database_id - a wipe that
         // recreates the database changes both (docs/runbook.md,
-        // "Wipe procedure (pre-launch)").
+        // "Wipe procedure (pre-launch only)").
         "D1_DATABASE_ID": "2e836cec-d063-4711-8607-2c2c80538b4f",
         // The one workflow allowed to deliver verdicts and to mint the
         // verify-scoped exchange token: both take only a GitHub

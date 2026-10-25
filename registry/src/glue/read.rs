@@ -94,7 +94,7 @@ pub(super) async fn handle_registry(
     };
 
     // The read-side budget gate (`docs/architecture.md`, "Billing
-    // model and the budget breaker"). Anonymous readers receive the
+    // model: the governor and the breaker"). Anonymous readers receive the
     // same refusal as authenticated ones - a public over-budget
     // answer necessarily reveals service state, which is inherent
     // to public reads (the recorded revision in "Origins and
@@ -343,12 +343,6 @@ async fn artifact_response(
     Ok(response)
 }
 
-/// A verified archive download: edge cache first (a hit costs no R2
-/// operation and no governor call), then a single-flighted, governor-
-/// charged R2 read that fills the cache for everyone else. On a
-/// governor refusal or outage the R2 read is never initiated - only
-/// already-cached bodies keep serving (`docs/architecture.md`, "The
-/// cost governor").
 /// A cache-matched response carries immutable headers; rebuild a
 /// mutable response around the cached body and headers so the shared
 /// response plumbing (the generation stamp) can write to it.
@@ -365,6 +359,12 @@ fn thaw_cached(mut cached: Response) -> worker::Result<Response> {
     Ok(response)
 }
 
+/// A verified archive download: edge cache first (a hit costs no R2
+/// operation and no governor call), then a single-flighted, governor-
+/// charged R2 read that fills the cache for everyone else. On a
+/// governor refusal or outage the R2 read is never initiated - only
+/// already-cached bodies keep serving (`docs/architecture.md`, "The
+/// cost governor").
 #[allow(clippy::too_many_arguments)] // the caller identity plus the artifact triple
 async fn verified_artifact_response(
     env: &Env,

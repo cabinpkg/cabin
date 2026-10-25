@@ -30,8 +30,9 @@ pub struct AuthContext {
     /// provider account id, which lives only in `identities`.
     pub user_id: i64,
     pub scopes: Vec<Scope>,
-    /// The user's quota class (`users.quota_class`); `crate::quota` maps
-    /// it to the enforced limits.
+    /// The token's quota-class grant (`tokens.quota_class`), falling back
+    /// to the user's (`users.quota_class`); `crate::quota` maps it to the
+    /// enforced limits.
     pub quota_class: String,
     /// `tokens.scope_limit`: `None` is an unlimited token; `Some` confines
     /// every write-side operation to packages under exactly that scope

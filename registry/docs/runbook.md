@@ -259,9 +259,9 @@ smoke test). What it does, in order:
    prefix or bulk mode, which is why the wipe drives the API
    directly). The BACKUP bucket is never wiped.
 5. Bumps `meta.registry_generation` to one more than the pre-wipe value
-   read in step 1 (every authenticated response echoes it as
-   `x-cabin-registry-generation`, so clients and smoke runs can tell the
-   wipe happened).
+   read in step 1 (every authenticated response except a token
+   self-revocation echoes it as `x-cabin-registry-generation`, so
+   clients and smoke runs can tell the wipe happened).
 6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings.
 7. Resets the governor ledger - a manual follow-up the command reminds
@@ -815,7 +815,7 @@ time, and a rollback does not restore DO state.
 ## Read budgets and paid-plan activation
 
 The read-side breaker (`reads_blocked`; `docs/architecture.md`, "Billing
-model and the budget breaker") ships as dormant infrastructure: fully
+model: the governor and the breaker") ships as dormant infrastructure: fully
 implemented and tested, unreachable until `BUDGET_R2_CLASS_B_MONTH` is
 set. Arming it is a policy decision tied to leaving the free plan, in
 this order:
