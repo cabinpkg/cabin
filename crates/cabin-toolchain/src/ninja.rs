@@ -2,6 +2,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use crate::error::ToolchainError;
+use crate::path_search::{find_with_exe_suffix, looks_like_relative_path, search_path};
 
 /// Detect a usable Ninja binary on the host.
 ///
@@ -11,33 +12,18 @@ use crate::error::ToolchainError;
 /// and [`ToolchainError::NoNinja`] when no `ninja` binary is found on
 /// `PATH`.
 pub fn locate_ninja() -> Result<PathBuf, ToolchainError> {
-    find_command("NINJA", &["ninja"]).map_err(map_ninja_err)
-}
-
-fn map_ninja_err(err: FindError) -> ToolchainError {
-    match err {
-        FindError::EnvOverride { var, value } => ToolchainError::BadEnvOverride { var, value },
-        FindError::NotFound => ToolchainError::NoNinja,
-    }
-}
-
-/// Internal lookup error returned by [`find_command`].  Mapped into the
-/// public [`ToolchainError`] by [`locate_ninja`].
-#[derive(Debug, PartialEq, Eq)]
-enum FindError {
-    EnvOverride { var: String, value: String },
-    NotFound,
+    find_command_with_env(|v| std::env::var_os(v), "NINJA", &["ninja"])
 }
 
 /// Locate an executable, honoring an environment variable override and
-/// falling back to a list of candidate names searched on `PATH`.
-fn find_command(env_var: &str, fallbacks: &[&str]) -> Result<PathBuf, FindError> {
-    find_command_with_env(|v| std::env::var_os(v), env_var, fallbacks)
-}
-
-/// Same as [`find_command`] but with an injectable environment getter so
-/// the helper can be tested without mutating real process environment.
-fn find_command_with_env<F>(env: F, env_var: &str, fallbacks: &[&str]) -> Result<PathBuf, FindError>
+/// falling back to a list of candidate names searched on `PATH`.  The
+/// environment getter is injectable so the helper can be tested without
+/// mutating real process environment.
+fn find_command_with_env<F>(
+    env: F,
+    env_var: &str,
+    fallbacks: &[&str],
+) -> Result<PathBuf, ToolchainError>
 where
     F: Fn(&str) -> Option<OsString>,
 {
@@ -45,7 +31,7 @@ where
         if let Some(path) = locate(&env, value.as_os_str()) {
             return Ok(path);
         }
-        return Err(FindError::EnvOverride {
+        return Err(ToolchainError::BadEnvOverride {
             var: env_var.to_owned(),
             value: value.to_string_lossy().into_owned(),
         });
@@ -55,40 +41,22 @@ where
             return Ok(path);
         }
     }
-    Err(FindError::NotFound)
+    Err(ToolchainError::NoNinja)
 }
 
 fn locate<F>(env: &F, name: &OsStr) -> Option<PathBuf>
 where
     F: Fn(&str) -> Option<OsString>,
 {
-    let path = Path::new(name);
-    if path.is_absolute() || crate::path_search::looks_like_relative_path(&name.to_string_lossy()) {
-        return resolve_executable(path);
-    }
-    let path_var = env("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        if dir.as_os_str().is_empty() {
-            continue;
-        }
-        let candidate = dir.join(name);
-        if let Some(found) = resolve_executable(&candidate) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn resolve_executable(path: &Path) -> Option<PathBuf> {
-    // Probe the literal path, then retry with the platform
-    // `EXE_SUFFIX` via the shared helper that `resolve` / `wrapper`
-    // also use, so all three agree on the `.exe` fallback rule.
     let probe = |p: &Path| p.is_file();
-    if probe(path) {
-        Some(path.to_path_buf())
-    } else {
-        crate::path_search::find_with_exe_suffix(path, &probe)
+    let path = Path::new(name);
+    if path.is_absolute() || looks_like_relative_path(&name.to_string_lossy()) {
+        if probe(path) {
+            return Some(path.to_path_buf());
+        }
+        return find_with_exe_suffix(path, &probe);
     }
+    search_path(name, env, &probe)
 }
 
 #[cfg(test)]
@@ -137,11 +105,11 @@ mod tests {
 
         let err = find_command_with_env(fake_env(env), "NINJA", &["ninja"]).unwrap_err();
         match err {
-            FindError::EnvOverride { var, value } => {
+            ToolchainError::BadEnvOverride { var, value } => {
                 assert_eq!(var, "NINJA");
                 assert_eq!(value, missing.to_string_lossy());
             }
-            FindError::NotFound => panic!("expected EnvOverride, got NotFound"),
+            ToolchainError::NoNinja => panic!("expected BadEnvOverride, got NoNinja"),
         }
     }
 
@@ -189,6 +157,6 @@ mod tests {
             &["definitely-not-a-real-ninja-9999"],
         )
         .unwrap_err();
-        assert_eq!(err, FindError::NotFound);
+        assert!(matches!(err, ToolchainError::NoNinja));
     }
 }

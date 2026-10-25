@@ -1,19 +1,19 @@
 //! Shared `$PATH` executable lookup.
 //!
-//! Both compiler/archiver resolution ([`crate::resolve`]) and
-//! compiler-wrapper resolution ([`crate::wrapper`]) need the same
-//! "walk `$PATH`, probe each candidate, then retry with the platform
-//! `EXE_SUFFIX`" search.  Keeping it in one place ensures the two paths
+//! Compiler/archiver resolution ([`crate::resolve`]), compiler-wrapper
+//! resolution ([`crate::wrapper`]), and Ninja discovery ([`crate::ninja`])
+//! need the same "walk `$PATH`, probe each candidate, then retry with the
+//! platform `EXE_SUFFIX`" search.  Keeping it in one place ensures they
 //! agree on which binary on `PATH` is selected - a security-relevant
 //! decision - and on the Windows `.exe`-suffix fallback.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 /// Walk the `PATH` entries returned by `env`, returning the first
 /// `name` candidate that `probe` accepts (trying the bare name first,
 /// then the platform `EXE_SUFFIX`).  Empty `PATH` entries are skipped.
-pub(crate) fn search_path<F, P>(name: &str, env: &F, probe: &P) -> Option<PathBuf>
+pub(crate) fn search_path<F, P>(name: impl AsRef<OsStr>, env: &F, probe: &P) -> Option<PathBuf>
 where
     F: Fn(&str) -> Option<OsString> + ?Sized,
     P: Fn(&Path) -> bool + ?Sized,
@@ -23,7 +23,7 @@ where
         if dir.as_os_str().is_empty() {
             continue;
         }
-        let candidate = dir.join(name);
+        let candidate = dir.join(name.as_ref());
         if probe(&candidate) {
             return Some(candidate);
         }
