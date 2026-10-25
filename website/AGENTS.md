@@ -12,6 +12,12 @@ directory.
   progressive enhancements. Those pages must retain meaningful script-less and
   offline content. Keep fetch-only UI hidden until its request succeeds.
 
+## UI
+
+- Avoid redundant secondary labels and descriptions. Let layout and visual
+  hierarchy clarify structure, while preserving essential context,
+  instructions, and accessible labels.
+
 ## Package identity
 
 - Treat package names as exactly two non-empty slash-separated segments:
