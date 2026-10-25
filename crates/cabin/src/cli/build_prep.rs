@@ -936,9 +936,6 @@ pub(crate) fn resolve_per_package_build_flags(
 /// / `CXXFLAGS` / `LDFLAGS` from the process environment - in the
 /// order both layers must run for the resulting
 /// `BuildConfiguration::fingerprint` to stay stable across commands.
-/// Reports from both layers are intentionally discarded; callers that
-/// need them invoke the individual `crate::cli::system_deps` /
-/// `crate::cli::env_flags` helpers directly.
 pub(crate) fn augment_build_flags(
     graph: &PackageGraph,
     host_platform: &cabin_core::TargetPlatform,
@@ -946,21 +943,19 @@ pub(crate) fn augment_build_flags(
     build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
     reporter: Reporter,
 ) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
-    let (build_flags, _system_dep_reports) =
-        crate::cli::system_deps::augment_build_flags_with_system_deps(
-            graph,
-            host_platform,
-            dev_for,
-            build_flags,
-            reporter,
-        )?;
-    let (build_flags, _env_build_flags) = crate::cli::env_flags::augment_build_flags_with_env(
+    let build_flags = crate::cli::system_deps::augment_build_flags_with_system_deps(
+        graph,
+        host_platform,
+        dev_for,
+        build_flags,
+        reporter,
+    )?;
+    crate::cli::env_flags::augment_build_flags_with_env(
         graph,
         build_flags,
         |k| std::env::var_os(k),
         reporter,
-    )?;
-    Ok(build_flags)
+    )
 }
 
 /// Resolve a `BuildConfiguration` for every package in the graph.
