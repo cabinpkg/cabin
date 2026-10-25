@@ -46,7 +46,5 @@ pub use effective::{
     EffectiveVerbosity, merge_loaded_files,
 };
 pub use error::{ConfigError, ConfigParseError};
-pub use parse::{
-    ParsedConfig, ParsedSourceReplacement, ParsedTerm, redact_userinfo, url_contains_credentials,
-};
+pub use parse::{ParsedConfig, ParsedTerm, redact_userinfo, url_contains_credentials};
 pub use source::{ConfigSource, LoadedConfigFile, SourcedValue};
