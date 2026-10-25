@@ -51,7 +51,7 @@ crates/
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-ci/          repository tool: the local mirror of the CI gate
   xtask-dist/        repository tool: release packaging and archive check for dist.yml
-  xtask-fuzz/        repository tool: seed corpora for the fuzz targets
+  xtask-fuzz/        repository tool: seed corpora and CI check for the fuzz targets
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
@@ -603,12 +603,14 @@ the client's canonical bytes and the server's schema cannot silently drift.  The
 
 Repository-owned maintainer tool (`publish = false`) for the cargo-fuzz targets under `fuzz/`,
 a standalone workspace on a pinned nightly (`fuzz/README.md`).  `cargo fuzz-seeds` regenerates
-`fuzz/seeds/` from in-tree inputs.  The crate must:
+`fuzz/seeds/` from in-tree inputs; `cargo fuzz-check`, which `rust.yml` runs, lints and tests the
+workspace and replays every target's seeds.  The crate must:
 
 - build seed archives through the real `cabin-package` staging path, so the seeds are what
   publish emits rather than hand-written bytes;
 - write only under `fuzz/seeds/`, apart from a private scratch directory it stages a generated
-  package in.
+  package in;
+- replay every target `cargo fuzz list` names, so none skips CI.
 
 ### `xtask-ci`
 

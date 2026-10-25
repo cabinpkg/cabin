@@ -16,6 +16,8 @@ on:
         value: ${{ jobs.changes.outputs.rust }}
       toml:
         value: ${{ jobs.changes.outputs.toml }}
+      fuzz:
+        value: ${{ jobs.changes.outputs.fuzz }}
       website:
         value: ${{ jobs.changes.outputs.website }}
       registry:
@@ -36,6 +38,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       toml: ${{ steps.filter.outputs.toml }}
+      fuzz: ${{ steps.filter.outputs.fuzz }}
       website: ${{ steps.filter.outputs.website }}
       registry: ${{ steps.filter.outputs.registry }}
       ports: ${{ steps.filter.outputs.ports }}

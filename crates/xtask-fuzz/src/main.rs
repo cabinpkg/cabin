@@ -2,12 +2,14 @@
 //!
 //!   `cargo fuzz-seeds`  regenerate `fuzz/seeds/` from in-tree packages
 //!                       and manifests
+//!   `cargo fuzz-check`  lint and test the fuzz workspace and replay
+//!                       every target's seeds
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use clap::Parser;
 
 /// Examples staged through the real packager into seed archives: C and
@@ -33,11 +35,16 @@ const MANIFEST_TREES: &[&str] = &["examples", "ports"];
 enum Cli {
     /// Regenerate the seed corpora under `fuzz/seeds/`.
     Seeds,
+    /// Lint and test `fuzz/` and replay every target's seeds (needs
+    /// `cargo-fuzz`).
+    Check,
 }
 
 fn main() -> ExitCode {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = match Cli::parse() {
-        Cli::Seeds => seeds(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")),
+        Cli::Seeds => seeds(&root),
+        Cli::Check => check(&root.join("fuzz")),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -132,5 +139,65 @@ fn write_seeds(dir: &Path, seeds: &[(String, Vec<u8>)]) -> Result<()> {
         let path = dir.join(name);
         fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
     }
+    Ok(())
+}
+
+fn check(fuzz: &Path) -> Result<()> {
+    cargo(fuzz, &["fmt", "--check"])?;
+    cargo(
+        fuzz,
+        &[
+            "clippy",
+            "--locked",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
+    cargo(fuzz, &["test", "--locked"])?;
+
+    let listed = fuzz_cargo(fuzz)
+        .args(["fuzz", "list"])
+        .output()
+        .context("running `cargo fuzz list`")?;
+    ensure!(listed.status.success(), "`cargo fuzz list` failed");
+    let listed = String::from_utf8(listed.stdout).context("`cargo fuzz list` printed non-UTF-8")?;
+    // A target without seeds or a dictionary fails here: libFuzzer
+    // refuses a missing corpus directory or dictionary file.
+    for target in listed.lines() {
+        let corpus = corpus(target);
+        let seeds = format!("seeds/{corpus}");
+        let dict = format!("-dict=dicts/{corpus}.dict");
+        cargo(
+            fuzz,
+            &["fuzz", "run", target, &seeds, "--", "-runs=0", &dict],
+        )?;
+    }
+    Ok(())
+}
+
+/// The seeds and dictionary `target` runs on.
+fn corpus(target: &str) -> &str {
+    match target {
+        "inspect_zip_wrong_digest" => "inspect_zip",
+        target => target,
+    }
+}
+
+/// `cargo` in `fuzz/`. The rustup proxy that ran this xtask exports
+/// its own toolchain, which would override `fuzz/rust-toolchain.toml`.
+fn fuzz_cargo(fuzz: &Path) -> Command {
+    let mut cargo = Command::new("cargo");
+    cargo.current_dir(fuzz).env_remove("RUSTUP_TOOLCHAIN");
+    cargo
+}
+
+fn cargo(fuzz: &Path, args: &[&str]) -> Result<()> {
+    let status = fuzz_cargo(fuzz)
+        .args(args)
+        .status()
+        .with_context(|| format!("running `cargo {}`", args.join(" ")))?;
+    ensure!(status.success(), "`cargo {}` failed", args.join(" "));
     Ok(())
 }
