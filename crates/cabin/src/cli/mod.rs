@@ -1330,69 +1330,34 @@ pub(crate) fn enabled_features_by_package(
         .collect()
 }
 
-/// Pick the single package manifest path that
-/// `cabin package` / `cabin publish` should operate on.  When the
+/// Result of [`select_single_package_manifest`].  Carries both the
+/// manifest path and the pre-resolved `Package`, so member manifests
+/// with `dep = { workspace = true }` reach `cabin-package` after the
+/// workspace loader has substituted the inherited requirement.
+struct SinglePackage {
+    manifest_path: PathBuf,
+    /// `None` for a standalone manifest path: `cabin-package`'s own
+    /// validator decides what to do with any unresolved workspace
+    /// dep it sees.  For a workspace member, `cabin-workspace` has
+    /// already resolved any `workspace = true` deps.
+    resolved_project: Option<cabin_core::Package>,
+    /// The raw `[workspace.<kind>-dependencies]` strings from the
+    /// workspace root (empty for a standalone manifest), so archive
+    /// staging can rewrite dependency `{ workspace = true }` markers
+    /// to the author's original requirement spelling.
+    workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
+}
+
+/// Pick the single package manifest path that `cabin add` /
+/// `remove` / `package` / `publish` should operate on.  When the
 /// invocation manifest is a workspace root, the user must supply
 /// exactly one explicit `--package <name>` selection.  Otherwise we
 /// honor the existing single-package contract.
-/// Result of selecting a single package manifest for a
-/// workspace-aware `cabin package` / `cabin publish` invocation.
-/// Carries both the manifest path and the pre-resolved `Package`,
-/// so member manifests with `dep = { workspace = true }` reach
-/// `cabin-package` after the workspace loader has substituted the
-/// inherited requirement.
-enum SinglePackageSelection {
-    /// The user passed a standalone manifest path; `cabin-package`'s
-    /// own validator decides what to do with any unresolved
-    /// workspace dep it sees.
-    Standalone { manifest_path: PathBuf },
-    /// The manifest was loaded through a workspace, so
-    /// `cabin-workspace` resolved any `workspace = true` deps into
-    /// `package`, and the raw `[workspace.<kind>-dependencies]`
-    /// strings from the workspace root travel alongside so archive
-    /// staging can rewrite dependency `{ workspace = true }` markers
-    /// to the author's original requirement spelling.
-    WorkspaceMember {
-        manifest_path: PathBuf,
-        // Boxed: `Package` dwarfs the `Standalone` variant
-        // (clippy::large_enum_variant).
-        package: Box<cabin_core::Package>,
-        workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
-    },
-}
-
-impl SinglePackageSelection {
-    /// Split into the (manifest path, loader-resolved package,
-    /// workspace requirement strings) triple the packaging APIs
-    /// consume.  Standalone manifests carry no workspace
-    /// requirements, so they contribute an empty table.
-    fn into_parts(
-        self,
-    ) -> (
-        PathBuf,
-        Option<cabin_core::Package>,
-        cabin_core::WorkspaceDepRequirements,
-    ) {
-        match self {
-            Self::Standalone { manifest_path } => (
-                manifest_path,
-                None,
-                cabin_core::WorkspaceDepRequirements::default(),
-            ),
-            Self::WorkspaceMember {
-                manifest_path,
-                package,
-                workspace_dep_requirements,
-            } => (manifest_path, Some(*package), workspace_dep_requirements),
-        }
-    }
-}
-
 fn select_single_package_manifest(
     invocation: &Path,
     selection: &WorkspaceSelectionArgs,
     command: &'static str,
-) -> Result<SinglePackageSelection> {
+) -> Result<SinglePackage> {
     let parsed = cabin_manifest::load_manifest(invocation)
         .with_context(|| format!("failed to load manifest at {}", invocation.display()))?;
     if parsed.workspace.is_none() {
@@ -1408,8 +1373,10 @@ fn select_single_package_manifest(
                 "workspace package-selection flags are not valid for `cabin {command}` against a non-workspace manifest"
             );
         }
-        return Ok(SinglePackageSelection::Standalone {
+        return Ok(SinglePackage {
             manifest_path: invocation.to_path_buf(),
+            resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         });
     }
     // The root manifest parse carries the original requirement
@@ -1446,9 +1413,9 @@ fn select_single_package_manifest(
     if !graph.primary_packages.contains(&idx) {
         bail!("package `{name}` is not a member of this workspace");
     }
-    Ok(SinglePackageSelection::WorkspaceMember {
+    Ok(SinglePackage {
         manifest_path: graph.packages[idx].manifest_path.clone(),
-        package: Box::new(graph.packages[idx].package.clone()),
+        resolved_project: Some(graph.packages[idx].package.clone()),
         workspace_dep_requirements,
     })
 }
