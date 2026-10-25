@@ -65,7 +65,7 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
         manifest_path,
         &[],
         &[],
-        &RegistryEnforcement::strict(),
+        &RegistryPolicy::Strict,
         &BTreeSet::new(),
     )
 }
@@ -112,6 +112,15 @@ pub enum RegistryPolicy<'a> {
     StrictFor(&'a BTreeSet<String>),
 }
 
+impl RegistryPolicy<'_> {
+    fn requires_registry_for(&self, parent_name: &str) -> bool {
+        match self {
+            Self::Strict => true,
+            Self::StrictFor(set) => set.contains(parent_name),
+        }
+    }
+}
+
 /// Load the workspace with a single options bag.  When
 /// `include_dev_for` is empty the loader follows the
 /// `cabin build` policy of treating dev-deps as
@@ -133,50 +142,13 @@ pub fn load_workspace_with_options(
     manifest_path: impl AsRef<Path>,
     options: &WorkspaceLoadOptions<'_>,
 ) -> Result<PackageGraph, WorkspaceError> {
-    let policy = match &options.registry_policy {
-        RegistryPolicy::Strict => RegistryEnforcement::strict(),
-        RegistryPolicy::StrictFor(set) => RegistryEnforcement::scoped((*set).clone()),
-    };
     load_workspace_inner(
         manifest_path,
         options.registry,
         options.patches,
-        &policy,
+        &options.registry_policy,
         options.include_dev_for,
     )
-}
-
-/// How strictly missing registry entries are enforced.  Internal
-/// mirror of [`RegistryPolicy`] - public callers pick the policy via
-/// the enum; the loader collapses it to this owned form so the rest
-/// of the load path doesn't carry the lifetime parameter.
-#[derive(Debug, Clone)]
-struct RegistryEnforcement {
-    /// `Some` -> only enforce missing-registry for the listed
-    /// package names; `None` -> enforce for every package
-    /// (the strict default).
-    strict_packages: Option<BTreeSet<String>>,
-}
-
-impl RegistryEnforcement {
-    fn strict() -> Self {
-        Self {
-            strict_packages: None,
-        }
-    }
-
-    fn scoped(strict_packages: BTreeSet<String>) -> Self {
-        Self {
-            strict_packages: Some(strict_packages),
-        }
-    }
-
-    fn requires_registry_for(&self, parent_name: &str) -> bool {
-        match &self.strict_packages {
-            None => true,
-            Some(set) => set.contains(parent_name),
-        }
-    }
 }
 
 #[allow(clippy::too_many_lines)] // linear scan-then-load pipeline; splitting would scatter the load loop
@@ -184,7 +156,7 @@ fn load_workspace_inner(
     manifest_path: impl AsRef<Path>,
     registry: &[RegistryPackageSource],
     patches: &[PatchedPackageSource],
-    policy: &RegistryEnforcement,
+    policy: &RegistryPolicy<'_>,
     include_dev_for: &BTreeSet<String>,
 ) -> Result<PackageGraph, WorkspaceError> {
     let manifest_path = canonicalize(manifest_path.as_ref())?;
@@ -653,7 +625,7 @@ fn reject_external_workspace_markers(
 struct DepResolutionContext<'a> {
     host_platform: &'a cabin_core::TargetPlatform,
     registry: &'a RegistryLookup<'a>,
-    policy: &'a RegistryEnforcement,
+    policy: &'a RegistryPolicy<'a>,
     include_dev_for: &'a BTreeSet<String>,
 }
 
