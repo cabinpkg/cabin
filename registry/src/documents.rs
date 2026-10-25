@@ -123,14 +123,8 @@ pub fn package_json(
         fields.insert("revision".to_owned(), Value::String(row.revision.clone()));
         let mut revision_map = Map::new();
         for revision in revisions.iter().filter(|r| r.version == row.version) {
-            // The canonical per-revision source path, the same grammar
-            // publish validates (`crate::publish::validate_metadata`)
-            // and the local file registry writes.
-            let path = format!(
-                "../../artifacts/{scope}/{package}/{scope}-{package}-{version}-{rev}.zip",
-                version = revision.version,
-                rev = revision.revision,
-            );
+            let path =
+                crate::publish::source_path(scope, package, &revision.version, &revision.revision);
             revision_map.insert(
                 revision.revision.clone(),
                 serde_json::json!({

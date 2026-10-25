@@ -86,7 +86,7 @@ pub(super) async fn push_live_set_to_governor(
     let live = rows
         .into_iter()
         .map(|row| governor::LiveObject {
-            key: format!("blobs/sha256/{}", crate::checksum::hex(&row.checksum)),
+            key: crate::checksum::blob_key(&row.checksum),
             bytes: non_negative(row.size),
         })
         .collect();

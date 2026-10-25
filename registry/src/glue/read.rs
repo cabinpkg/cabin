@@ -278,7 +278,7 @@ async fn artifact_response(
 
     // Archives are immutable and content-addressed; yanked versions stay
     // downloadable on purpose (docs/remote-registry.md, "Yank").
-    let key = format!("blobs/sha256/{}", crate::checksum::hex(&record.checksum));
+    let key = crate::checksum::blob_key(&record.checksum);
     if status == Some(verify::Status::Verified) {
         let response = verified_artifact_response(
             env,

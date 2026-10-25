@@ -42,6 +42,17 @@ pub fn hex(value: &str) -> &str {
     }
 }
 
+/// The R2 key prefix of every archive blob (OCI-style layout).
+pub const BLOB_KEY_PREFIX: &str = "blobs/sha256/";
+
+/// The R2 key of the archive blob a checksum names,
+/// `blobs/sha256/<hex>`; a non-canonical value yields the bare
+/// prefix (see [`hex`]).
+#[must_use]
+pub fn blob_key(value: &str) -> String {
+    format!("{BLOB_KEY_PREFIX}{}", hex(value))
+}
+
 /// The packaging-revision id a canonical checksum mints: the leading
 /// 16 characters of its bare hex tail.  A value too short to carry
 /// one (never a canonical checksum) yields the empty id, which no
@@ -84,6 +95,7 @@ mod tests {
         let value = from_hex(SHA);
         assert_eq!(hex(&value), SHA);
         assert_eq!(revision_id(&value), "9a93b2b7dfdac77c");
+        assert_eq!(blob_key(&value), format!("blobs/sha256/{SHA}"));
     }
 
     /// Corrupt column values must degrade to impossible keys and
@@ -97,6 +109,7 @@ mod tests {
         for corrupt in ["", "aa", "sha256:", "sha256:short", "é", bare] {
             assert_eq!(hex(corrupt), "", "{corrupt:?}");
             assert_eq!(revision_id(corrupt), "", "{corrupt:?}");
+            assert_eq!(blob_key(corrupt), "blobs/sha256/", "{corrupt:?}");
         }
     }
 
