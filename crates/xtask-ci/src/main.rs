@@ -255,13 +255,7 @@ fn checks(
         let flavor = if nextest { "nextest" } else { "test" };
         gate.launch(
             &format!("cargo {flavor} (workspace, all targets, all features)"),
-            &mut test_phase(
-                nextest,
-                target("ci-test"),
-                &["--workspace", "--all-targets"],
-                &[],
-                &test,
-            ),
+            &mut test_phase(nextest, target("ci-test"), &test),
         )?;
         gate.launch(
             "cargo doc (workspace, no deps, -D warnings)",
@@ -278,27 +272,20 @@ fn checks(
     website(gate, surfaces, gate_binary)
 }
 
-/// The test phase's command over one package scope, with an optional
-/// trailing test filter.  `cargo-nextest` runs the same test set (the
-/// phase excludes doctests either way, via `--all-targets`) but
-/// schedules each test in its own process instead of one binary at a
-/// time, which is the bulk of this phase's wall clock.  It is an
-/// optional accelerator: without it the phase runs CI's exact command.
-fn test_phase(
-    nextest: bool,
-    target: std::path::PathBuf,
-    scope: &[&str],
-    filter: &[&str],
-    jobs: &str,
-) -> Command {
+/// The test phase's command over the whole workspace.
+/// `cargo-nextest` runs the same test set (the phase excludes
+/// doctests either way, via `--all-targets`) but schedules each test
+/// in its own process instead of one binary at a time, which is the
+/// bulk of this phase's wall clock.  It is an optional accelerator:
+/// without it the phase runs CI's exact command.
+fn test_phase(nextest: bool, target: std::path::PathBuf, jobs: &str) -> Command {
     let mut command = Command::new("cargo");
     command
         .env("CARGO_TARGET_DIR", target)
         .env("RUSTFLAGS", "-D warnings");
     if nextest {
         command
-            .args(["nextest", "run"])
-            .args(scope)
+            .args(["nextest", "run", "--workspace", "--all-targets"])
             .args([
                 "--all-features",
                 "--locked",
@@ -308,13 +295,11 @@ fn test_phase(
             .args(["--build-jobs", jobs, "--test-threads", jobs]);
     } else {
         command
-            .arg("test")
-            .args(scope)
+            .args(["test", "--workspace", "--all-targets"])
             .args(["--all-features", "--locked", "--no-fail-fast", "--verbose"])
             .args(["--jobs", jobs])
             .args(["--", "--show-output", "--test-threads", jobs]);
     }
-    command.args(filter);
     command
 }
 
@@ -433,15 +418,8 @@ mod tests {
 
     #[test]
     fn the_folded_test_phase_builds_the_exact_argv() {
-        let nextest_ws = test_phase(
-            true,
-            "t".into(),
-            &["--workspace", "--all-targets"],
-            &[],
-            "8",
-        );
         assert_eq!(
-            argv(&nextest_ws),
+            argv(&test_phase(true, "t".into(), "8")),
             [
                 "nextest",
                 "run",
@@ -457,21 +435,12 @@ mod tests {
                 "8"
             ]
         );
-        let test_docs = test_phase(
-            false,
-            "t".into(),
-            &["-p", "cabinpkg", "--test", "cli"],
-            &["docs"],
-            "8",
-        );
         assert_eq!(
-            argv(&test_docs),
+            argv(&test_phase(false, "t".into(), "8")),
             [
                 "test",
-                "-p",
-                "cabinpkg",
-                "--test",
-                "cli",
+                "--workspace",
+                "--all-targets",
                 "--all-features",
                 "--locked",
                 "--no-fail-fast",
@@ -481,8 +450,7 @@ mod tests {
                 "--",
                 "--show-output",
                 "--test-threads",
-                "8",
-                "docs"
+                "8"
             ]
         );
     }

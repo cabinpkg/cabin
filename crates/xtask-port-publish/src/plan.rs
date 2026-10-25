@@ -164,7 +164,6 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
 
     ensure_distinct_scoped_names(&scoped_by_dir)?;
     ensure_requirements_satisfiable(&conversions)?;
-    ensure_unique_identities(&conversions)?;
     order_by_dependencies(conversions)
 }
 
@@ -649,24 +648,6 @@ fn read_sorted_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
     }
     dirs.sort();
     Ok(dirs)
-}
-
-fn ensure_unique_identities(conversions: &[PortConversion]) -> Result<()> {
-    let mut seen = BTreeSet::new();
-    for conversion in conversions {
-        let identity = (
-            conversion.scoped_name.clone(),
-            conversion.published_version.to_string(),
-        );
-        if !seen.insert(identity) {
-            bail!(
-                "two ports publish as `{} {}`; published identities must be unique",
-                conversion.scoped_name.as_str(),
-                conversion.published_version
-            );
-        }
-    }
-    Ok(())
 }
 
 /// Kahn's algorithm over the scoped-name dependency edges.  Ready
