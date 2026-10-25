@@ -320,7 +320,9 @@ mod tests {
 
         // The operator's own session - user 1, the row the baseline
         // migration seeds as the operator - is the one that carries
-        // verify.
+        // verify, and it publishes at the operator class (the row's
+        // NULL class falls through to the user's, which also sizes the
+        // publish bucket).
         let operator_hash = auth::token_hash(&auth::format_session_token(&[8; 32]));
         mint_batch(
             &conn,
@@ -331,9 +333,11 @@ mod tests {
             expires_at,
         )
         .expect("the operator's mint batch commits");
-        let (scopes, _, _) = auth_lookup(&conn, &operator_hash, "2026-08-15T06:00:00.000Z")
-            .expect("the operator's token is live");
+        let (scopes, quota_class, _) =
+            auth_lookup(&conn, &operator_hash, "2026-08-15T06:00:00.000Z")
+                .expect("the operator's token is live");
         assert_eq!(scopes, "publish,yank,verify");
+        assert_eq!(quota_class, "operator");
 
         // A quota promotion is not an admin grant: the operator class
         // raises another account's limits, and its next mint still
