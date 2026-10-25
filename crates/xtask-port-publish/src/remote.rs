@@ -1,7 +1,7 @@
 //! Remote publication through the existing `cabin publish` flow.
 //!
 //! The preflighted packages upload in consecutive batches of
-//! [`BATCH_SIZE`], each through ONE `cabin -Z remote-registry publish`
+//! `BATCH_SIZE`, each through ONE `cabin -Z remote-registry publish`
 //! invocation carrying a `--manifest-path` per scratch package, in
 //! publication order (the client publishes a batch in exactly the order
 //! the flags are given, and the batches run in order), so staging,
