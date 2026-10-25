@@ -175,30 +175,17 @@ pub fn require_scoped_dependency_names(
     Ok(())
 }
 
-/// Mirror of the hosted registry's scope and package-name grammars
-/// (`registry/src/routes.rs`; `cabin-registry-api` and
-/// `cabin-index-http` keep the same mirror at their URL boundaries).
+/// The hosted registry's scope and package-name grammars
+/// (`registry/src/routes.rs`), whose mirrors `cabin-core` owns.
 /// `PackageName`'s own grammar is looser - uppercase and `.` are
 /// legal in local-only names - so a plain scoped check would let a
 /// key the registry refuses fail publish only after staging and
 /// network work.
 fn is_canonical_registry_key(key: &str) -> bool {
-    let Some((scope, name)) = key.split_once('/') else {
-        return false;
-    };
-    let scope_ok = !scope.is_empty()
-        && scope.len() <= 39
-        && scope
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        && !scope.starts_with('-')
-        && !scope.ends_with('-');
-    let name_ok = !name.is_empty()
-        && name.as_bytes()[0].is_ascii_alphanumeric()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
-    scope_ok && name_ok
+    key.split_once('/').is_some_and(|(scope, name)| {
+        cabin_core::is_valid_package_scope(scope)
+            && cabin_core::is_valid_registry_package_name(name)
+    })
 }
 
 /// Run the standard-compatibility lints against a staged package and
