@@ -37,11 +37,11 @@ no violation.
 
 ## What is modeled
 
-The model follows the registry at commit `3c5b227ce30540ad7c009c9d436309a5064f02fc`
-(`registry/src/glue/bearer/package.rs`, `registry/src/glue/bearer/verifier.rs`,
+The model follows the registry sources as of the commit this file ships
+in (`registry/src/glue/bearer/package.rs`, `registry/src/glue/bearer/verifier.rs`,
 `registry/src/verify.rs`, `registry/src/sql/packages.rs`, `registry/src/sql/meta.rs`,
 `registry/src/sql/downloads.rs`, `registry/src/sql/backup.rs`,
-`registry/migrations/0001_init.sql`) and the verifier at the same commit
+`registry/migrations/0001_init.sql`) and the verifier
 (`crates/xtask-registry-admin/src/verify.rs`, `crates/cabin-registry-verify/src/lib.rs`,
 `.github/workflows/registry-verify.yml`).
 
@@ -79,8 +79,8 @@ State:
 | `PubReread` | the `Persist::Lost` re-read | `EXISTING_REVISIONS` again; `200` (healing) or `409` |
 | `PubFinish` | `governor_client::settle` (best-effort), `heal_blob_if_reclaimed` | ledger commit; head, reserve, re-put if the blob is gone - or the reservation is refused and the repair skipped |
 | `VerList` | one verifier run over one listed entry: `admin_versions_response`, then the driver's `Pass::version` or `Pass::resolve` ("The verifier" below) | `REVISIONS_BY_VERIFICATION_STATUS('pending')`: snapshots `(checksum, published_at)`; the artifact download reads the blob |
-| `VerRead` | the `PATCH` arrives: `verdict_authn` (the run's OIDC JWT, single-use `jti`; not modeled), then `verdict_response`: `verdict_binding_matches` compares the listing's `(checksum, published_at)` with the row just read, then `verify::transition`; a repeat rejection re-drives `delete_blob_if_unreferenced` | `VERDICT_TARGET`; the row's stamp as read here is what the update below binds |
-| `VerApply` | `apply_verdict` / `apply_rejection`, `changed_rows == 0` as the lost race; a failed batch | `MARK_REVISION_VERIFIED` (+ `ENQUEUE_VERIFIED_BACKUP`), or `REFUND_STORED_BYTES_ON_REJECTION` then `MARK_REVISION_REJECTED` - one transaction, `published_at = ?` bound to `target.published_at` (the handler's own read, not the listing's) |
+| `VerRead` | the `PATCH` arrives: `verdict_authn` (the run's OIDC JWT, single-use `jti`; not modeled), then `verdict_response`: `verdict_binding_matches` compares the listing's `(checksum, published_at)` with the row just read, then `verify::transition`; a repeat rejection re-drives `delete_blob_if_unreferenced` | `VERDICT_TARGET` |
+| `VerApply` | `apply_verdict` / `apply_rejection`, `changed_rows == 0` as the lost race; a failed batch | `MARK_REVISION_VERIFIED` (+ `ENQUEUE_VERIFIED_BACKUP`), or `REFUND_STORED_BYTES_ON_REJECTION` then `MARK_REVISION_REJECTED` - one transaction, `checksum = ?` and `published_at = ?` bound to the body's values (the listing's binding, which the check at the read found equal to the row's) |
 | `VerReclaim` | `delete_blob_if_unreferenced` after the rejection batch; or the request dying first | `COUNT_LIVE_BLOB_REFERENCES`, then the delete is in flight |
 | `LandDelete`, `DropDelete` | the R2 delete landing, or failing into an orphan | `bucket.delete` |
 
@@ -332,7 +332,7 @@ flight), where each violation surfaces within seconds.
 | `NewGuard` drops the opt-in conjunct | `INSERT_REVISION` without the `?10 OR NOT EXISTS` guard | `RespinNeedsOptIn` |
 | `CountOnWrite` ignores existing live references | `COUNT_STORED_BYTES_ON_PUBLISH` without `COUNT(*) ... = 0` | `CounterExact` |
 | `ReviveGuard` drops the rejected test | `REVIVE_REJECTED_REVISION` without `verification = 'rejected'` | `LiveGenerationStable` (a slow second revival restamps the first's live row) |
-| `VerRead` skips the `published_at` binding check | `verdict_binding_matches` removed | `TerminalDecidedOnCurrentGeneration` (a verdict listed against the rejected generation lands on its revival) |
+| `VerRead` skips the binding check and carries the row's stamp as the handler read it into `VerApply` | `verdict_binding_matches` removed and `MARK_REVISION_*` bound to the handler's `VERDICT_TARGET` read instead of the body | `TerminalDecidedOnCurrentGeneration` (a verdict listed against the rejected generation lands on its revival) |
 | `Inspections` allows `verified` for every content | the archive scan bypassed | `VerifiedByInspection` (the malicious content verifies) |
 | the run inspects bytes other than the listed content | both checksum checks removed, the driver's `undeclared_digest` and the inspector's own hash; either alone still refuses | `VerifiedByInspection` (benign bytes verify the malicious row) |
 | the `reject` resolution renders `verified` | an operator verifying from the name alone | `VerifiedByInspection` (a `manual` basis on a verified row) |
@@ -341,12 +341,14 @@ The third row is the clock assumption's role made visible: the production
 guards compare `published_at` exactly, so a revival whose stamp equals the
 rejected generation's would let a delayed verdict of either direction land
 on it. The ghost generation detects it; the stamp alone cannot. The
-`VerRead` row shows that the Rust check is load-bearing: the guarded `UPDATE` binds
-the stamp the handler itself just read, which closes the read-to-update
-race but says nothing about the listing the verdict was computed from,
-so the listing-to-row binding is enforced by `verdict_binding_matches`
-alone. (Binding the listing's `published_at` into the `UPDATE` instead
-would make D1 enforce both; the model records the code as it is.) The
+`VerRead` row is a double mutation because the listing binding is
+enforced twice: `verdict_binding_matches` refuses a stale or mismatched
+verdict loudly at the read, and the guarded `UPDATE` binds the same
+body values, so a stale verdict that would apply is refused again by
+D1 (as the lost-race `409`) if the Rust check were gone, while a stale
+no-op or conflict answers as its transition says - removing the check
+alone changes no row and is not a detected mutation. Binding the handler's own read instead, as the
+code once did, would make the Rust check the only enforcement. The
 three verifier rows test the driver model's arms, not a server statement:
 the first two make `Inspections` or the digest hook inconsistent with
 `Malicious` (the second against the skew/corruption threat the model
