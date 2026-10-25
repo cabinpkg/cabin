@@ -410,11 +410,7 @@ impl ResolvedProfile {
             "debug": self.debug,
             "opt_level": self.opt_level.as_str(),
             "assertions": self.assertions,
-            "source": match self.source {
-                ProfileSource::Builtin => "builtin",
-                ProfileSource::BuiltinOverridden => "builtin-overridden",
-                ProfileSource::Custom => "custom",
-            },
+            "source": self.source,
             "inherits_chain": self
                 .inherits_chain
                 .iter()
@@ -741,6 +737,19 @@ mod tests {
         assert_eq!(r.opt_level, OptLevel::O3);
         assert!(!r.assertions);
         assert_eq!(r.source, ProfileSource::BuiltinOverridden);
+    }
+
+    #[test]
+    fn as_json_labels_every_profile_source() {
+        let mut r = resolve_profile(&ProfileSelection::default_dev(), &BTreeMap::new()).unwrap();
+        for (source, label) in [
+            (ProfileSource::Builtin, "builtin"),
+            (ProfileSource::BuiltinOverridden, "builtin-overridden"),
+            (ProfileSource::Custom, "custom"),
+        ] {
+            r.source = source;
+            assert_eq!(r.as_json()["source"], label);
+        }
     }
 
     #[test]
