@@ -76,9 +76,9 @@ enum AddStatus {
 
 pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
     let invocation = super::resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let (manifest_path, _, _) =
+    let manifest_path =
         super::select_single_package_manifest(&invocation, &args.workspace_selection, "add")?
-            .into_parts();
+            .manifest_path;
     let mut doc = super::manifest_edit::read_document(&manifest_path)?;
     if doc.get("package").is_none() {
         bail!(

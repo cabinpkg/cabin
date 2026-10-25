@@ -1,24 +1,23 @@
 use super::{
-    Context, PackageArgs, Path, PathBuf, PublishArgs, Reporter, ResolveFormat, Result, absolutise,
-    bail, resolve_invocation_manifest, select_single_package_manifest,
+    Context, PackageArgs, Path, PathBuf, PublishArgs, Reporter, ResolveFormat, Result,
+    SinglePackage, absolutise, bail, resolve_invocation_manifest, select_single_package_manifest,
 };
 
 use cabin_core::{ExperimentalFeature, ExperimentalFeatures};
 
 pub(super) fn package(args: &PackageArgs, _reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let (manifest_path, resolved_project, workspace_dep_requirements) =
-        select_single_package_manifest(&manifest_path, &args.workspace_selection, "package")?
-            .into_parts();
+    let selected =
+        select_single_package_manifest(&manifest_path, &args.workspace_selection, "package")?;
     let output_dir = absolutise(&args.output_dir)
         .with_context(|| format!("failed to resolve {}", args.output_dir.display()))?;
     let artifact = cabin_package::package_with_project(
         cabin_package::PackageRequest {
-            manifest_path: &manifest_path,
+            manifest_path: &selected.manifest_path,
             output_dir: &output_dir,
         },
-        resolved_project,
-        &workspace_dep_requirements,
+        selected.resolved_project,
+        &selected.workspace_dep_requirements,
     )?;
     emit_package_output(&artifact, args.format)?;
     Ok(())
@@ -68,21 +67,19 @@ pub(super) fn publish(
     let mut selections = Vec::new();
     if args.manifest_path.is_empty() {
         let manifest_path = resolve_invocation_manifest(None)?;
-        selections.push(
-            select_single_package_manifest(&manifest_path, &args.workspace_selection, "publish")?
-                .into_parts(),
-        );
+        selections.push(select_single_package_manifest(
+            &manifest_path,
+            &args.workspace_selection,
+            "publish",
+        )?);
     } else {
         for path in &args.manifest_path {
             let manifest_path = resolve_invocation_manifest(Some(path))?;
-            selections.push(
-                select_single_package_manifest(
-                    &manifest_path,
-                    &args.workspace_selection,
-                    "publish",
-                )?
-                .into_parts(),
-            );
+            selections.push(select_single_package_manifest(
+                &manifest_path,
+                &args.workspace_selection,
+                "publish",
+            )?);
         }
     }
 
@@ -90,37 +87,37 @@ pub(super) fn publish(
         (Some(registry_dir), true) => {
             let registry_dir = absolutise(registry_dir)
                 .with_context(|| format!("failed to resolve {}", registry_dir.display()))?;
-            for (manifest_path, resolved_project, workspace_dep_requirements) in selections {
+            for selected in selections {
                 let report = cabin_publish::dry_run_against_file_registry(
                     cabin_publish::RegistryPublishWorkflow {
-                        manifest_path: &manifest_path,
+                        manifest_path: &selected.manifest_path,
                         registry_dir: &registry_dir,
-                        resolved_project,
-                        workspace_dep_requirements,
+                        resolved_project: selected.resolved_project,
+                        workspace_dep_requirements: selected.workspace_dep_requirements,
                         new_revision: args.new_revision,
                     },
                 )
-                .with_context(|| format!("dry-running {}", manifest_path.display()))?;
+                .with_context(|| format!("dry-running {}", selected.manifest_path.display()))?;
                 emit_registry_publish_output(&report, args.format, reporter)?;
             }
         }
         (Some(registry_dir), false) => {
             let registry_dir = absolutise(registry_dir)
                 .with_context(|| format!("failed to resolve {}", registry_dir.display()))?;
-            for (manifest_path, resolved_project, workspace_dep_requirements) in selections {
+            for selected in selections {
                 // A failure mid-batch leaves the earlier members
                 // published; the context names the member it stopped
                 // on (lint errors alone render only target names).
                 let report = cabin_publish::publish_to_file_registry(
                     cabin_publish::RegistryPublishWorkflow {
-                        manifest_path: &manifest_path,
+                        manifest_path: &selected.manifest_path,
                         registry_dir: &registry_dir,
-                        resolved_project,
-                        workspace_dep_requirements,
+                        resolved_project: selected.resolved_project,
+                        workspace_dep_requirements: selected.workspace_dep_requirements,
                         new_revision: args.new_revision,
                     },
                 )
-                .with_context(|| format!("publishing {}", manifest_path.display()))?;
+                .with_context(|| format!("publishing {}", selected.manifest_path.display()))?;
                 emit_registry_publish_output(&report, args.format, reporter)?;
             }
         }
@@ -137,14 +134,14 @@ pub(super) fn publish(
             // byte mismatch - a stem-colliding same-version member
             // refuses, naming the file, rather than clobbering an
             // earlier member; such batches need separate invocations.
-            for (manifest_path, resolved_project, workspace_dep_requirements) in selections {
+            for selected in selections {
                 let report = cabin_publish::dry_run(cabin_publish::DryRunRequest {
-                    manifest_path: &manifest_path,
+                    manifest_path: &selected.manifest_path,
                     output_dir: &output_dir,
-                    resolved_project,
-                    workspace_dep_requirements,
+                    resolved_project: selected.resolved_project,
+                    workspace_dep_requirements: selected.workspace_dep_requirements,
                 })
-                .with_context(|| format!("dry-running {}", manifest_path.display()))?;
+                .with_context(|| format!("dry-running {}", selected.manifest_path.display()))?;
                 emit_dry_run_output(&report, args.format, reporter)?;
             }
         }
@@ -247,18 +244,14 @@ fn effective_publish_index_url(
 fn effective_batch_index_url(
     cli_index_url: Option<&str>,
     remote_enabled: bool,
-    selections: &[(
-        PathBuf,
-        Option<cabin_core::Package>,
-        cabin_core::WorkspaceDepRequirements,
-    )],
+    selections: &[SinglePackage],
 ) -> Result<Option<crate::cli::login::EffectiveRegistryIndex>> {
     if cli_index_url.is_some() {
-        return effective_publish_index_url(cli_index_url, &selections[0].0);
+        return effective_publish_index_url(cli_index_url, &selections[0].manifest_path);
     }
     let mut remote: Option<(&Path, crate::cli::login::EffectiveRegistryIndex)> = None;
     let mut unresolved: Option<&Path> = None;
-    for (manifest_path, _, _) in selections {
+    for SinglePackage { manifest_path, .. } in selections {
         match effective_publish_index_url(None, manifest_path)? {
             Some(index) => match &mut remote {
                 None => remote = Some((manifest_path, index)),
@@ -349,11 +342,7 @@ struct RemotePublishReport {
 /// fail-fast `429`).
 fn publish_batch_to_remote_registry(
     registry: &crate::cli::login::EffectiveRegistryIndex,
-    packages: Vec<(
-        PathBuf,
-        Option<cabin_core::Package>,
-        cabin_core::WorkspaceDepRequirements,
-    )>,
+    packages: Vec<SinglePackage>,
     new_revision: bool,
     retry_rate_limits: bool,
     format: ResolveFormat,
@@ -363,19 +352,19 @@ fn publish_batch_to_remote_registry(
     // Stage before touching the network so validation failures never
     // need a connection - the whole batch, before any upload.
     let mut all_staged = Vec::new();
-    for (manifest_path, resolved_project, workspace_dep_requirements) in packages {
+    for package in packages {
         let staged = cabin_package::stage_with_project(
-            &manifest_path,
-            resolved_project,
+            &package.manifest_path,
+            package.resolved_project,
             None,
-            &workspace_dep_requirements,
+            &package.workspace_dep_requirements,
         )?;
         // Registry packages are always `<scope>/<name>`, and so are
         // the keys of their registry dependency maps: fail a bare
         // name here, before credentials, index reads, or the API
         // call.
-        cabin_publish::require_scoped_name(&staged.name, &manifest_path)?;
-        cabin_publish::require_scoped_dependency_names(&staged.metadata, &manifest_path)?;
+        cabin_publish::require_scoped_name(&staged.name, &package.manifest_path)?;
+        cabin_publish::require_scoped_dependency_names(&staged.metadata, &package.manifest_path)?;
         all_staged.push(staged);
     }
 
