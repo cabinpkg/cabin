@@ -2,4 +2,3 @@
 /target/
 /.wrangler/
 /.dev.vars*
-/.smoke-web.json

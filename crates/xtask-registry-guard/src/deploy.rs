@@ -536,7 +536,7 @@ fn render(value: &Value) -> String {
 
 /// Comment- and string-aware JSONC strip: a `//` or `/*` inside a string
 /// starts no comment (the config carries URLs and cron expressions).
-pub fn strip_jsonc(text: &str) -> String {
+fn strip_jsonc(text: &str) -> String {
     let source: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
