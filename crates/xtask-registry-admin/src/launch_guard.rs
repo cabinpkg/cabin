@@ -14,56 +14,29 @@
 //! account's database named `cabin-registry` must carry exactly the id
 //! the config binds, or the guard could read one database while a wipe
 //! deletes another.  Local mode has no name resolution - the `DB`
-//! binding is the local state - so it skips that check, as the shell
-//! did.
+//! binding is the local state - so it skips that check.
 //!
 //! Nothing reaches stdout: a passing guard is silent, and every
 //! refusal is one `launch guard:` line on stderr.
 //!
-//! One thing the port is strictly better at, rather than equal: the
-//! shell's fail-safe rested on a `refuse` shell function calling
-//! `exit`, both of which an exported function in the environment could
-//! shadow, turning every refusal into a silent success.  A compiled
-//! binary has no such dispatch.
+//! Both wipes - [`crate::wipe`] and the governor's - call it
+//! in-process, so nothing stands between its refusal and the delete it
+//! guards but a function call.  What the
+//! environment does reach - `wrangler` through `npx` - the guard does
+//! not defend against: it exists to stop a launched registry and a
+//! stale config, not its own operator.
 //!
-//! One thing it was worse at while its last caller was shell, now
-//! closed.  `registry/scripts/wipe.sh` reached this through
-//! `cargo run`, which the environment can redirect -
-//! `CARGO_TARGET_<TRIPLE>_RUNNER`, or a `cargo` earlier on `PATH` - so
-//! the guard could be made not to run at all.  The shell guard before
-//! it had the same shape of hole through `npx`, which a fake on `PATH`
-//! answered for.  That caller is [`crate::wipe`] now and the hop is
-//! gone: nothing stands between its refusal and the `rm -rf` but a
-//! function call.  What the environment still reaches - `wrangler`
-//! through `npx` - it reached in the shell too, and the guard defends
-//! against neither: it exists to stop a launched registry and a stale
-//! config, not its own operator.
+//! Ceilings, all fail-closed:
 //!
-//! Ceilings, where this deliberately stops short of the shell it
-//! replaces.  All are fail-closed - the guard refuses where the shell
-//! carried on, never the reverse, which is the only direction a guard
-//! may differ in:
-//!
-//! - the mode must be the only argument.  The shell read `$1` and
-//!   ignored the rest, so `--local --remote` ran in local mode;
-//! - `meta.launched` must be exactly `false`.  Command substitution
-//!   stripped trailing newlines and dropped NUL bytes before the
-//!   shell's comparison, so `false\n` and `false\0` passed there;
-//! - an answer that is not the documented shape ends the run.  The
-//!   shell reached the same refusal through a `node` `TypeError`, but
-//!   `results` that merely *has* a `length` - a string, an object -
-//!   satisfied its duck-typed check and reported the row as missing;
+//! - the mode must be the only argument;
+//! - `meta.launched` must be exactly `false`, so `false\n` and `false\0`
+//!   refuse;
+//! - an answer that is not the documented shape ends the run;
 //! - a `meta.launched` holding a JSON object is refused naming its
-//!   JSON text, where the shell's `String()` wrote `[object Object]`.
-//!   The verdict is the same refusal either way, and D1 returns no
-//!   column that shape (see [`crate::display`]);
-//! - the refusal line is prefixed `error:` by the command shim, where
-//!   the shell wrote `launch guard:` alone.  What follows is the
-//!   shell's own wording - `cargo registry-smoke` greps a refused
-//!   wipe's output for one of these messages - except where the
-//!   offending value is rendered into it, which follows
-//!   [`crate::display`]'s ceilings rather than `String()`'s exact
-//!   text.
+//!   JSON text (see [`crate::display`]);
+//! - the refusal line is prefixed `error:` by the command shim.
+//!   `cargo registry-smoke` matches a refused wipe's error against one
+//!   of these messages.
 
 use anyhow::{Result, bail};
 use serde::Deserialize;
@@ -85,8 +58,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// The wrangler flag, which is also exactly what the shell took as
-    /// its one argument.
+    /// The wrangler flag.
     #[must_use]
     pub fn flag(self) -> &'static str {
         match self {
@@ -122,7 +94,7 @@ impl Database {
 ///
 /// # Errors
 ///
-/// On every other state, each carrying the shell's own message.
+/// On every other state.
 pub fn run(mode: Mode) -> Result<()> {
     if matches!(mode, Mode::Remote) {
         same_database()?;
@@ -159,8 +131,8 @@ pub fn run(mode: Mode) -> Result<()> {
     }
 }
 
-/// The flag's value as the shell's `node` rendered it, or the sentinel
-/// it used for no rows.
+/// The flag's value as [`display`] renders it, or a sentinel for no
+/// rows.
 fn launched(rows: &[serde_json::Map<String, serde_json::Value>]) -> String {
     let Some(row) = rows.first() else {
         return "__MISSING__".to_owned();
@@ -168,15 +140,14 @@ fn launched(rows: &[serde_json::Map<String, serde_json::Value>]) -> String {
     // `String(row.value)`, which is `display`'s coercion and not
     // `console.log`'s: a missing key renders as the word `undefined`,
     // and a one-element array renders as its element, so a `["false"]`
-    // passes here as it passed there.
+    // passes.
     //
     // The coercion widens the encoding, never the meaning. Every value
     // it renders as `false` - the string, the JSON boolean, arrays
     // nesting either - is a spelling of "not launched"; `true`,
     // `["true"]`, `null`, `0`, `""` and `{}` all render as something
     // else and refuse. Narrowing this to a JSON string would refuse
-    // states the shell allowed without refusing any state it should
-    // have caught.
+    // more states without refusing any it should catch.
     match row.get("value") {
         Some(value) => display(value),
         None => "undefined".to_owned(),
@@ -191,8 +162,7 @@ fn same_database() -> Result<()> {
     let databases: Vec<Database> = serde_json::from_str(&answer).map_err(|_| missing_database())?;
     // `list.find(...)`: the FIRST entry of that name wins. Two
     // databases sharing it would leave the check proving the config
-    // matches whichever wrangler listed first, which is the shell's
-    // behavior and is carried over rather than tightened here.
+    // matches whichever wrangler listed first.
     let account = databases
         .iter()
         .find(|database| database.name.as_deref() == Some(DATABASE))
@@ -218,8 +188,8 @@ fn missing_database() -> anyhow::Error {
     refusal(&format!("no database named {DATABASE} on the account"))
 }
 
-/// The shell's `refuse`: one `launch guard:` line, and the trailing
-/// `(fail-safe)` every branch but the launched one carried.
+/// One `launch guard:` line, with the trailing `(fail-safe)` every
+/// branch but the launched one carries.
 fn refusal(message: &str) -> anyhow::Error {
     anyhow::anyhow!("launch guard: {message}; refusing (fail-safe)")
 }

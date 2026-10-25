@@ -25,29 +25,17 @@
 //! that will not say where to resume *is* the diagnosis.  Neither
 //! output goes in an incident thread.
 //!
-//! Ceilings, where this deliberately stops short of the shell it
-//! replaces.  All are fail-closed: the audit stops where the shell
-//! carried on, never the reverse.
+//! Ceilings, all fail-closed:
 //!
 //! - an answer must carry every field the request named.  A listed
 //!   object with no key or no integer size, a verified row with no
 //!   checksum or no integer archive size, a queue depth with no count,
 //!   a page whose fields are not the documented types - each ends the
-//!   run.  The shell rendered whatever came out through a template
-//!   literal and audited *that*, so some of these reached the same
-//!   non-zero exit by another route, and some did not: a queue depth
-//!   with no count only ever reached the remedy line of a section that
-//!   found nothing, so a healthy audit passed with an `undefined` it
-//!   never printed;
-//! - `--keys` is the only argument, and it must be the only one.  The
-//!   shell read `$1` alone, so `--keys anything` ran with the keys
-//!   shown and an empty first argument ran without them;
+//!   run;
+//! - `--keys` is the only argument, and it must be the only one;
 //! - a proxy-only network is not reachable.  `ureq` takes its proxy
-//!   from the agent, not from `HTTPS_PROXY`/`ALL_PROXY`, where `curl`
-//!   read the environment - the same ceiling the crate's other HTTP
-//!   clients have;
-//! - a divergent audit ends with an `error:` line naming the sections
-//!   above it, where the shell exited 1 with nothing after them.
+//!   from the agent, not from `HTTPS_PROXY`/`ALL_PROXY` - the same
+//!   ceiling the crate's other HTTP clients have.
 
 use std::collections::{HashMap, HashSet};
 
@@ -168,12 +156,12 @@ fn list(token: &str, account: &str) -> Result<Vec<Object>> {
     Ok(listing)
 }
 
-/// Neither `curl` carried `-L`, so a redirect was the answer, never a
-/// step on the way to one - and a redirected read is the one way this
-/// could audit a bucket or a ledger other than the one it names.
-/// `ureq` returns the 3xx as `Ok` with this set, which is what `curl`
-/// did too: the listing then fails to parse and the ledger read fails
-/// its status check, each with the body the redirect carried.
+/// No redirects: a redirect is the answer, never a step on the way to
+/// one - and a redirected read is the one way this could audit a
+/// bucket or a ledger other than the one it names.  `ureq` returns the
+/// 3xx as `Ok` with this set: the listing then fails to parse and the
+/// ledger read fails its status check, each with the body the redirect
+/// carried.
 pub(crate) fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().redirects(0).build()
 }
@@ -371,8 +359,8 @@ fn audit(
     Ok(report)
 }
 
-/// The `blobs/` namespace as `new Map(entries)` held it: one entry per
-/// key, in first-seen order, carrying the last size listed for it.  A
+/// The `blobs/` namespace: one entry per key, in first-seen order,
+/// carrying the last size listed for it.  A
 /// bucket cannot list a key twice, so this only decides what the audit
 /// reports if the API ever repeats one across pages - and there it
 /// keeps the count and the byte total honest.
@@ -545,11 +533,9 @@ fn is_dump_or_sidecar(key: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    //! Every expectation below was taken from the shell the port
-    //! replaces, run over the same fixtures.  They live here rather
-    //! than in `tests/` because what they exercise - the listing and
-    //! ledger wire shapes, and what the audit reads them to mean -
-    //! is not this crate's API.
+    //! These live here rather than in `tests/` because what they
+    //! exercise - the listing and ledger wire shapes, and what the audit
+    //! reads them to mean - is not this crate's API.
 
     use super::*;
 
@@ -733,12 +719,11 @@ mod tests {
     }
 
     /// A key the listing repeats is one object, carrying the last size
-    /// listed for it - the `Map` and the `Set` the shell built its
-    /// `blobs/` view and its sidecar set from.  Only those two collapse:
-    /// the dump count and the `d1/` ledger were plain filters, so they
-    /// count the repeat.  Nothing in R2 lists a key twice today; this is
-    /// what keeps a paging quirk from inventing an orphan sidecar or
-    /// failing an exact ledger.
+    /// listed for it, in the `blobs/` view and the sidecar set.  Only
+    /// those two collapse: the dump count and the `d1/` ledger are plain
+    /// filters, so they count the repeat.  Nothing in R2 lists a key
+    /// twice today; this is what keeps a paging quirk from inventing an
+    /// orphan sidecar or failing an exact ledger.
     #[test]
     fn a_repeated_key_is_one_object_carrying_its_last_size() {
         let checksum = "0123456789abcdef".repeat(4);
@@ -875,10 +860,10 @@ mod tests {
         }
     }
 
-    /// `encodeURIComponent`, which is what the cursor was escaped with
-    /// before it went back into the query string.
+    /// `encodeURIComponent`, which is what the cursor is escaped with
+    /// before it goes back into the query string.
     #[test]
-    fn the_cursor_is_escaped_as_javascript_escaped_it() {
+    fn the_cursor_is_percent_encoded_like_encode_uri_component() {
         for (raw, escaped) in [
             ("simple", "simple"),
             (

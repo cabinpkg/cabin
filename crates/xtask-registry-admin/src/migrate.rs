@@ -1,6 +1,6 @@
 //! Apply D1 migrations and keep the deploy gate's stamp honest
 //! (`registry/docs/runbook.md`, "Integrated topology and route
-//! management"), ported one-to-one from `registry/scripts/migrate.sh`:
+//! management"):
 //!
 //! ```text
 //!   cargo registry-migrate --local    apply to the local .wrangler/ state
@@ -21,12 +21,10 @@
 //! pre-launch (drop, recreate, apply from zero); post-launch, schema
 //! changes are only ever NEW files.
 //!
-//! Inherited properties, preserved rather than fixed - a port is not a
-//! place to change behavior.  Each was pinned by running the original
-//! under `bash`:
+//! Properties:
 //!
-//! - **The refusals run in the script's order**, which is not the
-//!   order that reads most naturally: the missing-file and
+//! - **The refusals' order is deliberate**, and is not the order that
+//!   reads most naturally: the missing-file and
 //!   edited-in-place refusals both come BEFORE the "nothing pending"
 //!   early exit, so a run with nothing to apply still refuses a
 //!   corrupt state rather than reporting the stamp current.
@@ -39,73 +37,43 @@
 //!   first provisioning - reads as "nothing applied"; every other
 //!   failure refuses, because an empty set makes every file pending
 //!   and every refusal vacuous.
-//! - **`$(cat migrations-applied)` is a command substitution**, so it
-//!   drops NUL bytes and strips trailing newlines and nothing else - a
-//!   CRLF ending's `\r` survives into the comparison.  The read is the
-//!   deploy gate's own [`migrations_pending::applied`].  A missing
-//!   stamp file ends the run, as it did under `set -e`: read as empty,
-//!   it would say every applied file was edited in place.
-//! - **`read -r` under default `IFS`** strips leading and trailing
-//!   spaces and tabs from the confirmation but keeps a trailing `\r`,
-//!   and returns non-zero at end of input - which `set -e` turned into
-//!   an exit, so an answer that is not newline-terminated never
-//!   reached the comparison at all.
+//! - **The stamp file read drops NUL bytes and strips trailing
+//!   newlines** and nothing else - a CRLF ending's `\r` survives into
+//!   the comparison.  The read is the deploy gate's own
+//!   [`migrations_pending::applied`].  A missing stamp file ends the
+//!   run: read as empty, it would say every applied file was edited in
+//!   place.
+//! - **The confirmation** has leading and trailing spaces and tabs
+//!   stripped but keeps a trailing `\r`, and an answer that is not
+//!   newline-terminated refuses.
 //! - **The migrations glob and digest** are the deploy gate's own
 //!   [`migration_files`] and [`digest`], so the two
 //!   readings of the stamp cannot drift.
 //!
-//! Diagnostics split the way `docs/architecture.md` draws the line for
-//! a ported script: every refusal the script itself wrote through
-//! `lib.sh`'s `fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }` keeps
-//! those bytes, through `or_fail` - as `xtask-registry-guard` and
-//! `xtask-registry-smoke` keep theirs, and as [`crate::verify`]'s
-//! `abort` keeps its script's.  An *incidental* failure the shell would
-//! have died on under `set -e` - a wrangler spawn, an unreadable stamp
-//! file, a `migrations/` that will not list - carries no such text, and
-//! reports through this crate's `Result` and the shim's `error:`
-//! prefix instead.
+//! Diagnostics split in two: every refusal this module makes itself is
+//! `FAIL: <message>` on stderr and exit 1, through `or_fail` - as
+//! `xtask-registry-guard` and `xtask-registry-smoke` write theirs, and
+//! as [`crate::verify`]'s `abort` keeps its own text.  An *incidental*
+//! failure - a wrangler spawn, an unreadable stamp file, a
+//! `migrations/` that will not list - carries no such text, and reports
+//! through this crate's `Result` and the shim's `error:` prefix
+//! instead.
 //!
-//! Ceilings, where this deliberately stops short of the shell.  All
-//! keep the exit code and the direction of every refusal:
+//! Ceilings:
 //!
-//! - the argument surface is clap's, in the binary: the mode arrives
-//!   here already parsed, so there is no usage error to render;
-//! - the pending-sorts-before-applied refusal compares bytes.  Bash's
-//!   `[[ < ]]` collates through `strcoll` in the operator's locale,
-//!   where `en_US.UTF-8` sorts `0002_a.sql` before `0002_B.sql` and
-//!   `C` does not - the same locale divergence
-//!   [`xtask_workflow_guard::migrations_pending`] carries for the
-//!   glob's order, and the byte order is what a fresh database's
-//!   replay actually follows;
+//! - the pending-sorts-before-applied refusal compares bytes, the order
+//!   a fresh database's replay actually follows, not the operator's
+//!   locale collation;
 //! - a confirmation that ends at end of input rather than at a newline
-//!   refuses saying `FAIL: not confirmed`, where `set -e` ended the
-//!   script at the failing `read` with nothing on stderr.  Both exit 1
-//!   without applying anything; the alternative - accepting an
-//!   EOF-terminated `migrate` - would apply migrations the shell did
-//!   not;
-//! - an empty or unreadable `migrations/` ends the run at the stamp
-//!   computation, where the shell's unexpanded glob had already
-//!   counted one pending file literally named `migrations/*.sql` and
-//!   then died in `cat` under `pipefail`.  Same exit code, and the
-//!   count line above it reads `0 pending` rather than `1 pending`;
-//! - membership is an exact whole-line match on bytes.  `grep -qxF`
-//!   reads a pattern carrying a newline as two alternative patterns,
-//!   so a migration filename containing one would have matched either
-//!   half there and matches neither here;
-//! - every abort exits 1, where `set -e` propagated wrangler's own
-//!   status from a failed apply.  Nothing reads the distinction;
-//! - the `node` hop is gone: the D1 answers are parsed here.  Both
-//!   refusal messages are the script's, but the diagnostic underneath
-//!   one - a `TypeError` from `node` - is not reproduced.  Wrangler's
-//!   own stderr still reaches the operator's terminal;
-//! - arguments after the mode are rejected, where `$1` alone was read
-//!   and the rest ignored - this crate's dispatcher convention, and a
-//!   refusal rather than a silent acceptance;
+//!   refuses saying `FAIL: not confirmed`, without applying anything;
+//! - an empty `migrations/` ends the run at the stamp computation;
+//! - membership is an exact whole-line match on bytes, so a migration
+//!   filename containing a newline matches neither half;
+//! - every abort exits 1, even when the failed apply exited otherwise;
+//! - arguments after the mode are rejected;
 //! - the confirmation is read as UTF-8: an answer carrying invalid
 //!   bytes refuses through the read's own error, and one carrying NUL
-//!   bytes refuses as "not confirmed", where bash dropped the NULs
-//!   before comparing and could confirm on `mig\0rate`.  Both refuse
-//!   where the shell also refused on everything an operator can type.
+//!   bytes refuses as "not confirmed".
 
 use std::ffi::OsStr;
 use std::io::Write as _;
@@ -127,10 +95,9 @@ const HAS_TABLE: &str = "SELECT COUNT(*) AS n FROM sqlite_master
 
 const APPLIED_NAMES: &str = "SELECT name FROM d1_migrations ORDER BY name";
 
-/// `lib.sh`'s `fail`: the script's own refusal text on stderr, exit 1.
-/// The prefix lands on the first line only, which is what
-/// `printf 'FAIL: %s\n'` does with a multi-line argument, so the
-/// refusals' continuation lines stay unindented.
+/// This module's own refusal text on stderr, exit 1.  The prefix lands
+/// on the first line only, so the refusals' continuation lines stay
+/// unindented.
 ///
 /// Held apart from the `Result` the incidental failures take, because
 /// the shim renders those with its own `error:` prefix and these carry
@@ -146,10 +113,9 @@ fn or_fail<T>(result: Result<T>) -> T {
 ///
 /// # Errors
 ///
-/// On the incidental failures the shell died on under `set -e` - a
-/// wrangler invocation that will not run, an unreadable `migrations/`
-/// or stamp file.  The script's own refusals leave through `or_fail`
-/// instead.
+/// On the incidental failures - a wrangler invocation that will not
+/// run, an unreadable `migrations/` or stamp file.  This module's own
+/// refusals leave through `or_fail` instead.
 pub fn run(mode: Mode) -> Result<()> {
     match mode {
         Mode::Local => local(),
@@ -227,9 +193,8 @@ fn applied_names() -> Result<Vec<String>> {
     let bookkeeping = || anyhow!("could not read the live database's migration bookkeeping");
     let answer = d1(HAS_TABLE).map_err(|_| bookkeeping())?;
     let rows = results(&answer).map_err(|_| bookkeeping())?;
-    // `console.log(out[0].results[0].n)`: no row at all was the
-    // `TypeError` that failed the pipeline, while a row carrying no `n`
-    // printed the word `undefined` and read as "the table is there".
+    // No row at all is unreadable bookkeeping, while a row carrying no
+    // `n` reads as "the table is there".
     let count = rows.first().ok_or_else(bookkeeping)?;
     if table_absent(count.get("n")) {
         return Ok(Vec::new());
@@ -241,13 +206,11 @@ fn applied_names() -> Result<Vec<String>> {
     Ok(column_lines(&rows, "name", Nullish::Printed))
 }
 
-/// `[[ "$has_table" == "0" ]]` against `console.log`'s rendering of the
-/// count, which is `"0"` only for the number or the string zero.
-/// `console.log` renders an array or object through `util.inspect`
-/// (`[ 0 ]`, `{ n: 0 }`), never as the bare `0` - and `display` is the
-/// other coercion (`${x}`, where `String([0])` IS `"0"`), so routing a
-/// malformed count through it would read "no bookkeeping table" and
-/// skip every refusal built on the applied set.
+/// Whether the count is zero, which only the number or the string zero
+/// is.  An array or object never is - [`display`] alone would render
+/// `[0]` as `"0"`, so routing a malformed count through it would read
+/// "no bookkeeping table" and skip every refusal built on the applied
+/// set.
 fn table_absent(count: Option<&serde_json::Value>) -> bool {
     match count {
         None | Some(serde_json::Value::Array(_) | serde_json::Value::Object(_)) => false,
@@ -261,19 +224,16 @@ fn table_absent(count: Option<&serde_json::Value>) -> bool {
 /// certify that.
 fn every_recorded_name_exists(migrations: &Path, applied: &[String]) -> Result<()> {
     for name in applied {
-        // The here-string that fed the shell's loop always carried a
-        // final newline, so an empty applied set arrived as one blank
-        // line.
+        // An empty applied set arrives as one blank line.
         if name.is_empty() {
             continue;
         }
-        // `[[ -f migrations/$name ]]` concatenates, so no recorded
-        // name could escape the directory the shell tested in: a
-        // POSIX-absolute one stayed inside (`migrations//etc/passwd`),
-        // and a Windows-rooted one (`C:\...`, a UNC path) named a file
-        // that could not exist there. `Path::join` would discard or
-        // reset the base for both, so the trimmed name must carry no
-        // root of its own before it is joined.
+        // No recorded name may escape `migrations/`: a POSIX-absolute
+        // one is read inside it (`migrations//etc/passwd`), and a
+        // Windows-rooted one (`C:\...`, a UNC path) is refused as gone.
+        // `Path::join` would discard or reset the base for both, so the
+        // trimmed name must carry no root of its own before it is
+        // joined.
         let name_path = Path::new(name.trim_start_matches('/'));
         let escapes = name_path.components().any(|component| {
             matches!(
@@ -372,12 +332,10 @@ fn confirm(pending: usize) -> Result<()> {
     Ok(())
 }
 
-/// Whether one line of input is the confirmation, as `read -r answer`
-/// followed by `[[ "$answer" == "migrate" ]]` judged it: an answer that
-/// is not newline-terminated is end of input, where `read` failed and
-/// `set -e` ended the run before the comparison; otherwise the default
-/// `IFS` strips leading and trailing spaces and tabs - and nothing
-/// else, so a CRLF line's `\r` still refuses.
+/// Whether one line of input is the confirmation: an answer that is not
+/// newline-terminated is end of input and refuses; otherwise leading
+/// and trailing spaces and tabs are stripped - and nothing else, so a
+/// CRLF line's `\r` still refuses.
 fn confirmed(answer: &str) -> bool {
     let Some(answer) = answer.strip_suffix('\n') else {
         return false;
@@ -385,15 +343,14 @@ fn confirmed(answer: &str) -> bool {
     answer.trim_matches([' ', '\t']) == "migrate"
 }
 
-/// `grep -qxF "$(basename "$file")" <<<"$applied"`: an exact
-/// whole-line match, on bytes rather than UTF-8 - the glob selects
-/// names that are not UTF-8 at all, and rendering one lossily here
-/// would match a name D1 never recorded.
+/// Whether D1 recorded `file`'s name: an exact whole-line match, on
+/// bytes rather than UTF-8 - the glob selects names that are not UTF-8
+/// at all, and rendering one lossily here would match a name D1 never
+/// recorded.
 fn recorded(applied: &[String], file: &Path) -> bool {
     let name = file_name(file);
-    // `grep -qxF "$name"` read a leading-dash basename as options and
-    // failed, and every caller treated that failure as "not recorded" -
-    // the fail-closed reading this keeps.
+    // A leading-dash name is never read as recorded - the fail-closed
+    // reading.
     if name.as_encoded_bytes().starts_with(b"-") {
         return false;
     }
@@ -406,7 +363,7 @@ fn file_name(file: &Path) -> &OsStr {
     file.file_name().unwrap_or(file.as_os_str())
 }
 
-/// `basename "$file"` as a message renders it.
+/// The file name as a message renders it.
 fn basename(file: &Path) -> std::borrow::Cow<'_, str> {
     file_name(file).to_string_lossy()
 }
@@ -456,15 +413,14 @@ mod tests {
     }
 
     #[test]
-    fn only_a_console_logged_zero_reads_as_no_table() {
+    fn only_a_scalar_zero_count_reads_as_no_table() {
         use serde_json::json;
         assert!(table_absent(Some(&json!(0))));
         assert!(table_absent(Some(&json!("0"))));
         assert!(!table_absent(Some(&json!(1))));
         assert!(!table_absent(None), "`undefined` is not `0`");
-        // console.log renders these `[ 0 ]` and `{ n: 0 }`, never the
-        // bare `0` - where `${x}` coercion would say "0" for the array
-        // and fail open to "no bookkeeping table".
+        // Neither is zero - where `${x}` coercion would say "0" for the
+        // array and fail open to "no bookkeeping table".
         assert!(!table_absent(Some(&json!([0]))));
         assert!(!table_absent(Some(&json!({ "n": 0 }))));
     }
@@ -474,9 +430,9 @@ mod tests {
         let temp = assert_fs::TempDir::new().expect("a scratch directory");
         let migrations = temp.path().join("migrations");
         write(&migrations, "0001_init.sql", b"create table a;\n");
-        // The shell tested `migrations//etc/passwd`; a join that
-        // discarded the base would test the host's real /etc/passwd
-        // and could pass.
+        // This tests `migrations//etc/passwd`; a join that discarded
+        // the base would test the host's real /etc/passwd and could
+        // pass.
         let refusal = every_recorded_name_exists(&migrations, &["/etc/passwd".to_owned()])
             .expect_err("an absolute name is a missing file");
         assert!(refusal.to_string().contains("'/etc/passwd'"), "{refusal}");
@@ -491,8 +447,6 @@ mod tests {
 
     #[test]
     fn a_leading_dash_name_is_never_recorded() {
-        // grep read `-x.sql` as options and failed; every caller took
-        // that as "not recorded".
         let applied = ["-x.sql".to_owned()];
         assert!(!recorded(&applied, Path::new("migrations/-x.sql")));
     }
@@ -501,7 +455,7 @@ mod tests {
     fn membership_is_an_exact_whole_line_match() {
         let applied = ["0001_init.sql".to_owned(), String::new()];
         assert!(recorded(&applied, Path::new("migrations/0001_init.sql")));
-        // `-x` anchors both ends: neither a prefix nor a suffix of a
+        // Both ends are anchored: neither a prefix nor a suffix of a
         // recorded name is that name.
         assert!(!recorded(&applied, Path::new("migrations/0001_init.sq")));
         assert!(!recorded(&applied, Path::new("migrations/00001_init.sql")));
@@ -579,9 +533,8 @@ ran. Name new migrations after every applied one."
     fn the_sort_order_is_bytewise() {
         // `B` (0x42) sorts before `a` (0x61), so a pending `0002_a.sql`
         // is out of order after an applied `0002_B.sql`. An en_US
-        // collation - the operator's locale, and what bash's `[[ < ]]`
-        // used - reverses that; the ceiling is in the module docs, and
-        // the byte order is the one a fresh database replays in.
+        // collation reverses that; the byte order is the one a fresh
+        // database replays in.
         let applied = [PathBuf::from("0002_B.sql")];
         assert!(every_pending_sorts_after(&applied, &[PathBuf::from("0002_a.sql")]).is_ok());
         let applied = [PathBuf::from("0002_a.sql")];
@@ -589,19 +542,18 @@ ran. Name new migrations after every applied one."
     }
 
     #[test]
-    fn the_confirmation_reads_one_line_the_way_read_r_did() {
+    fn the_confirmation_is_one_blank_trimmed_newline_terminated_line() {
         assert!(confirmed("migrate\n"));
-        // Default IFS strips leading and trailing blanks.
+        // Leading and trailing blanks are stripped.
         assert!(confirmed("  migrate  \n"));
         assert!(confirmed("\tmigrate\t\n"));
 
         assert!(!confirmed("Migrate\n"));
         assert!(!confirmed("migrate now\n"));
         assert!(!confirmed("\n"));
-        // `read` keeps a CRLF line's `\r`: it is not an IFS blank.
+        // A CRLF line's `\r` is kept: it is not a blank.
         assert!(!confirmed("migrate\r\n"));
-        // End of input, where `read` returned non-zero and `set -e`
-        // ended the run before the comparison ran at all.
+        // End of input.
         assert!(!confirmed(""));
         assert!(!confirmed("migrate"));
     }

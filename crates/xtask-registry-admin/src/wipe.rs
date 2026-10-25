@@ -1,6 +1,5 @@
 //! Wipe and recreate the registry's data from zero
-//! (`registry/docs/runbook.md`, "Wipe procedure (pre-launch only)"),
-//! ported one-to-one from `registry/scripts/wipe.sh`:
+//! (`registry/docs/runbook.md`, "Wipe procedure (pre-launch only)"):
 //!
 //! ```text
 //!   cargo registry-wipe            the deployed registry (asks to confirm)
@@ -22,35 +21,29 @@
 //! account's database named `cabin-registry` are the same database, so
 //! the reads here and the `d1 delete` below cannot diverge.
 //!
-//! **The guard is a function call, and that is the point of this port.**
-//! The shell reached it through `(cd .. && cargo run … -- launch-guard)`,
-//! spelled out rather than through the `registry-launch-guard` alias
-//! because a Cargo alias is overridable by `CARGO_ALIAS_<NAME>` in the
-//! environment.  That spelling closed one hole and left another: a
-//! `cargo` earlier on `PATH`, or `CARGO_TARGET_<TRIPLE>_RUNNER`, still
-//! replaced what ran, so the guard could be made not to run at all.  The
-//! shell guard before it had the same shape of hole through `npx`.  The
-//! recorded decision is not to carry the hop forward in any form: the
-//! guard is this crate, so [`launch_guard::run`] is called directly and
-//! no environment variable stands between the refusal and the `rm -rf`.
-//! What remains reachable through the environment - `wrangler` through
-//! `npx`, the R2 base below - is what the shell also had; the guard is a
-//! fail-safe against a launched registry and a stale config, not against
-//! whoever sets the environment.
+//! **The guard is a function call.**  Spawning it through the
+//! `registry-launch-guard` alias or `cargo run` would let the
+//! environment replace what ran - `CARGO_ALIAS_<NAME>`, a `cargo`
+//! earlier on `PATH`, `CARGO_TARGET_<TRIPLE>_RUNNER` - so the guard
+//! could be made not to run at all.  [`launch_guard::run`] is called
+//! directly, and no environment variable stands between the refusal and
+//! the first destructive call.  What remains reachable through the
+//! environment - `wrangler` through `npx`, the R2 base below - the guard
+//! does not defend against: it is a fail-safe against a launched
+//! registry and a stale config, not against whoever sets the
+//! environment.
 //!
-//! Inherited properties, preserved rather than fixed - a port is not a
-//! place to change behavior.  Each was pinned by running the original
-//! under `bash`:
+//! Properties:
 //!
 //! - **The generation is read before the wipe and written after it.**
 //!   Every authenticated response echoes `x-cabin-registry-generation`,
 //!   so clients and smoke runs can tell the wipe happened; a run that
 //!   read it afterwards would have nothing to bump.
-//! - **That read arrives through `console.log`**, not through `String()`.
-//!   The two coercions differ on exactly the values the numeric guard
-//!   exists to catch - see `logged` below.
-//! - **`$((old + 1))` is bash arithmetic**, which is 64-bit and wrapping,
-//!   and which reads a leading zero as octal - see `increment` below.
+//! - **That read is not rendered through [`display`].**  The two
+//!   coercions differ on exactly the values the numeric guard exists to
+//!   catch - see `logged` below.
+//! - **The bump is 64-bit and wrapping**, and reads a leading zero as
+//!   octal - see `increment` below.
 //! - **The `--local` reset deletes four subtrees and nothing else.**  The
 //!   governor Durable Object's ledger and the emulated edge cache go with
 //!   the D1 and R2 state: a wiped registry must not keep accounting for
@@ -64,68 +57,45 @@
 //!   is handled at all (opaque cursors carry URL-hostile characters).
 //! - **The stamp is refreshed from [`migrations_pending::stamp`]**, the
 //!   deploy gate's own reading of `migrations/*.sql`, so it cannot
-//!   drift from the gate's or from `cargo registry-migrate`'s.  Its
-//!   redirection truncated `migrations-applied` before the pipeline ran,
-//!   so a failure never leaves the pre-wipe stamp in place - see
-//!   `stamp` below.
+//!   drift from the gate's or from `cargo registry-migrate`'s.  The
+//!   stamp file is rewritten on every path, emptied when the stamp
+//!   cannot be computed, so a failure never leaves the pre-wipe stamp
+//!   in place - see `stamp` below.
 //!
-//! Diagnostics split the way `docs/architecture.md` draws the line for a
-//! ported script, as [`crate::migrate`]'s do: every refusal the script
-//! wrote through `lib.sh`'s
-//! `fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }` keeps those bytes,
-//! through this module's own `fail`.  An *incidental* failure the shell
-//! died on under `set -e` - a wrangler invocation that will not run, an
-//! unreadable `wrangler.jsonc`, a `migrations/` that will not list -
-//! carries no such text and reports through this crate's `Result` and
-//! the shim's `error:` prefix instead.
+//! Diagnostics split as [`crate::migrate`]'s do: every refusal this
+//! module makes itself is `FAIL: <message>` on stderr and exit 1,
+//! through its own `fail`.  An *incidental* failure - a wrangler
+//! invocation that will not run, an unreadable `wrangler.jsonc`, a
+//! `migrations/` that will not list - carries no such text and reports
+//! through this crate's `Result` and the shim's `error:` prefix instead.
 //!
-//! Ceilings, where this deliberately stops short of the shell.  All keep
-//! the exit code and the direction of every refusal:
+//! Ceilings:
 //!
-//! - the R2 sweep goes through the crate's own HTTP layer
-//!   (the audit's pinned `ureq` agent) rather than `curl`, which is the
-//!   curl-versus-library decision this crate already made for R2.
-//!   `curl`'s flags and diagnostics are not reproduced: a proxy named
-//!   only in the environment is not read, and a transfer failure carries
-//!   `ureq`'s wording under the script's own `FAIL:` line;
-//! - the base of that API is `CF_API_BASE`, defaulting to the literal the
-//!   script hardcoded.  It is the same variable the Worker reads
-//!   (`registry/src/backup_glue.rs`) and the smoke run already points at
-//!   a local mock.  It also means the environment
-//!   names where `CLOUDFLARE_API_TOKEN` is sent - as it did for the
-//!   shell, whose `curl` a `curl` earlier on `PATH` answered for;
-//! - the `node` hops are gone: the D1 and R2 answers are parsed here.
-//!   The refusal messages are the script's, but the `TypeError` or
-//!   `SyntaxError` underneath one is not reproduced.  Wrangler's own
-//!   stderr still reaches the operator's terminal;
-//! - the comment in `registry/migrations/0001_init.sql` still names
-//!   `scripts/wipe.sh`.  Applied migrations are byte-frozen: the
+//! - the R2 sweep goes through the audit's pinned `ureq` agent, so a
+//!   proxy named only in the environment is not read;
+//! - the base of that API is `CF_API_BASE`, defaulting to Cloudflare's.
+//!   It is the same variable the Worker reads
+//!   (`registry/src/backup_glue.rs`) and the smoke run points at a local
+//!   mock, so the environment names where `CLOUDFLARE_API_TOKEN` is
+//!   sent;
+//! - the comment in `registry/migrations/0001_init.sql` still names the
+//!   deleted `scripts/wipe.sh`.  Applied migrations are byte-frozen: the
 //!   deploy gate compares `migrations-applied` against the files'
 //!   content, so editing that comment would block every deploy until
 //!   an operator re-runs this very command against the live database.
 //!   The wording follows the next baseline edit that ships through a
 //!   wipe, which re-stamps as part of the procedure;
-//! - `wrangler.jsonc` is read as UTF-8.  A config carrying invalid bytes
-//!   ends the run, where `node`'s `readFileSync(…, "utf8")` replaced them
-//!   with U+FFFD and wrote that corruption back;
-//! - the four `rm -rf` targets are removed in order and the first failure
-//!   ends the run, where `rm -rf` attempted all four and then died.  A
-//!   target that is a symlink to a directory refuses here and was
-//!   unlinked there;
-//! - the argument surface is clap's, in the binary: the mode arrives
-//!   here already parsed, and anything malformed is refused before this
-//!   module runs;
-//! - every abort exits 1, where `set -e` propagated wrangler's own status
-//!   from a failed call.  Nothing reads the distinction;
+//! - `wrangler.jsonc` is read as UTF-8; a config carrying invalid bytes
+//!   ends the run;
+//! - the four local state directories are removed in order and the
+//!   first failure ends the run;
+//! - every abort exits 1, even when a failed wrangler call exited
+//!   otherwise;
 //! - the confirmation is read as UTF-8: an answer carrying invalid bytes
 //!   refuses through the read's own error, and one carrying NUL bytes
-//!   refuses as "not confirmed", where bash dropped the NULs before
-//!   comparing and could confirm on `wi\0pe`.  Both refuse where the
-//!   shell also refused on everything an operator can type;
+//!   refuses as "not confirmed";
 //! - a confirmation that ends at end of input rather than at a newline
-//!   refuses saying `FAIL: not confirmed`, where `set -e` ended the
-//!   script at the failing `read` with nothing on stderr.  Both exit 1
-//!   without touching anything.
+//!   refuses saying `FAIL: not confirmed`.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -146,10 +116,10 @@ const DATABASE: &str = "cabin-registry";
 
 const GENERATION: &str = "SELECT value FROM meta WHERE key = 'registry_generation'";
 
-/// What the script hardcoded, and what `CF_API_BASE` overrides.
+/// What `CF_API_BASE` overrides.
 const DEFAULT_API_BASE: &str = "https://api.cloudflare.com/client/v4";
 
-/// `lib.sh`'s `fail`: the script's own refusal text on stderr, exit 1.
+/// This module's own refusal text on stderr, exit 1.
 ///
 /// Held apart from the `Result` the incidental failures take, because
 /// the shim renders those with its own `error:` prefix and these carry
@@ -159,7 +129,7 @@ fn fail(message: &str) -> ! {
     std::process::exit(1)
 }
 
-/// [`fail`] over a `Result` whose error is one of the script's own.
+/// [`fail`] over a `Result` whose error is one of this module's own.
 fn or_fail<T>(result: Result<T>) -> T {
     result.unwrap_or_else(|error| fail(&format!("{error:#}")))
 }
@@ -168,8 +138,8 @@ fn or_fail<T>(result: Result<T>) -> T {
 ///
 /// # Errors
 ///
-/// On the incidental failures the shell died on under `set -e`.  The
-/// script's own refusals leave through `fail` instead.
+/// On the incidental failures.  This module's own refusals leave
+/// through `fail` instead.
 pub fn run(mode: Mode) -> Result<()> {
     if matches!(mode, Mode::Remote) {
         // The one follow-up that must happen BEFORE the wipe, so it is
@@ -210,7 +180,7 @@ fn local(old: &str, new: i64) -> Result<()> {
         let path = root.join(".wrangler/state/v3").join(state);
         match std::fs::remove_dir_all(&path) {
             Ok(()) => {}
-            // `rm -rf` says nothing about what is not there.
+            // A directory that is not there is already reset.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error).with_context(|| format!("remove {}", path.display())),
         }
@@ -234,8 +204,6 @@ fn remote(old: &str, new: i64) -> Result<()> {
     // The account id anchors the R2 REST calls below; it is a plain var
     // in `wrangler.jsonc` (not a secret - it is in every dashboard URL).
     let account = or_fail(account(&root));
-    // `: "${CLOUDFLARE_API_TOKEN:?…}"`, which bash refused for an unset
-    // AND an empty value, naming the script's own path and line.
     let token = std::env::var("CLOUDFLARE_API_TOKEN").unwrap_or_default();
     if token.is_empty() {
         bail!("CLOUDFLARE_API_TOKEN is required for the R2 sweep");
@@ -243,8 +211,8 @@ fn remote(old: &str, new: i64) -> Result<()> {
 
     step(&format!("dropping and recreating the {DATABASE} database"));
     wrangler_run(&["d1", "delete", DATABASE, "-y"], Show::Stdout)?;
-    // The script's `>/dev/null`: the create says nothing, and the id is
-    // read from the listing rather than from its output.
+    // The create says nothing, and the id is read from the listing
+    // rather than from its output.
     wrangler_run(&["d1", "create", DATABASE], Show::Nothing)?;
     let listing = output(wrangler(&["d1", "list", "--json"]).current_dir(&root))?;
     let Some(new_id) = listed_id(&listing) else {
@@ -271,8 +239,8 @@ fn remote(old: &str, new: i64) -> Result<()> {
     ));
     let baked = bake(&config, &new_id);
     std::fs::write(&path, &baked).with_context(|| format!("write {}", path.display()))?;
-    // `grep -c` re-read the file this just wrote, and counted LINES: a
-    // config binding both ids on one line counts once and refuses. The
+    // Re-read the file this just wrote, and count LINES: a config
+    // binding both ids on one line counts once and refuses. The
     // re-read matters - the disk bytes, not this process's copy, are
     // what every wrangler call below consumes.
     let written =
@@ -338,8 +306,7 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
 }
 
 /// The interactive confirmation, skipped when its escape hatch is set to
-/// exactly `1`.  Remote only: the shell prompted for the deployed
-/// registry and never for the local state.
+/// exactly `1`.  Remote only.
 fn confirm() -> Result<()> {
     if std::env::var(cabin_env::CABIN_WIPE_YES).as_deref() == Ok("1") {
         return Ok(());
@@ -359,12 +326,10 @@ fn confirm() -> Result<()> {
     Ok(())
 }
 
-/// Whether one line of input is the confirmation, as `read -r answer`
-/// followed by `[[ "$answer" == "wipe" ]]` judged it: an answer that is
-/// not newline-terminated is end of input, where `read` failed and
-/// `set -e` ended the run before the comparison; otherwise the default
-/// `IFS` strips leading and trailing spaces and tabs - and nothing else,
-/// so a CRLF line's `\r` still refuses.
+/// Whether one line of input is the confirmation: an answer that is not
+/// newline-terminated is end of input and refuses; otherwise leading and
+/// trailing spaces and tabs are stripped - and nothing else, so a CRLF
+/// line's `\r` still refuses.
 fn confirmed(answer: &str) -> bool {
     let Some(answer) = answer.strip_suffix('\n') else {
         return false;
@@ -372,12 +337,9 @@ fn confirmed(answer: &str) -> bool {
     answer.trim_matches([' ', '\t']) == "wipe"
 }
 
-/// The pre-wipe generation, as the script's `node` projection printed
-/// it.  A missing row, an unparsable answer or an answer that is not the
-/// documented shape reached `console.log` through a `TypeError` there,
-/// which failed the pipeline under `set -e` before the numeric guard ran
-/// at all - so each is an incidental failure here, not the script's own
-/// refusal.
+/// The pre-wipe generation, as `logged` renders it.  A missing row, an
+/// unparsable answer or an answer that is not the documented shape is an
+/// incidental failure, not one of this module's refusals.
 fn generation(mode: Mode) -> Result<String> {
     let answer = output(
         wrangler(&[
@@ -398,14 +360,11 @@ fn generation(mode: Mode) -> Result<String> {
     Ok(logged(row.get("value")))
 }
 
-/// `console.log(out[0].results[0].value)`, which is NOT [`display`]'s
-/// coercion.  `console.log` renders an array or an object through
-/// `util.inspect` (`[ '1' ]`, `{ value: 1 }`), never as the bare element,
-/// where `String(["1"])` IS `"1"` - so routing one through [`display`]
-/// would let `["1"]` pass the numeric guard and wipe against a generation
-/// the shell refused.  The JSON text used for those here is not Node's
-/// inspect text either, which is the ceiling: both fail the guard, and
-/// failing it is all a non-primitive value is ever read for.
+/// A value as text, which is NOT [`display`]'s coercion: an array or an
+/// object renders as its JSON text, never as the bare element, where
+/// `String(["1"])` IS `"1"` - so routing one through [`display`] would
+/// let `["1"]` pass the numeric guard and wipe against a generation that
+/// is not a number.
 fn logged(value: Option<&serde_json::Value>) -> String {
     match value {
         None => "undefined".to_owned(),
@@ -416,19 +375,17 @@ fn logged(value: Option<&serde_json::Value>) -> String {
     }
 }
 
-/// `[[ "$old_generation" =~ ^[0-9]+$ ]]`.
+/// `^[0-9]+$`.
 fn numeric(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-/// `$((old_generation + 1))` as bash computed it.  Bash arithmetic is
-/// 64-bit and wraps - while reading a literal too wide to hold, and
-/// again at the signed edge - and it reads a literal with a leading zero
-/// as octal, so `010` increments to 9 and `08` is not a number at all
-/// (bash diagnosed it and `set -e` ended the run, which is the incidental
-/// failure this returns).  The numeric guard admits all three, so this is
-/// where the distinction is made; no generation the registry itself
-/// writes carries a leading zero.
+/// The generation plus one, 64-bit and wrapping - while reading a
+/// literal too wide to hold, and again at the signed edge - and reading
+/// a literal with a leading zero as octal, so `010` increments to 9 and
+/// `08` is not a number at all (an incidental failure).  The numeric
+/// guard admits all three, so this is where the distinction is made; no
+/// generation the registry itself writes carries a leading zero.
 fn increment(digits: &str) -> Result<i64> {
     let radix = if digits.len() > 1 && digits.starts_with('0') {
         8
@@ -446,9 +403,8 @@ fn increment(digits: &str) -> Result<i64> {
     Ok(value.wrapping_add(1))
 }
 
-/// The account id, matched the way the shell's regex matched it.  The
-/// script reached both a missing file and a config that binds no id
-/// through one `|| fail`, so both carry that one message here.
+/// The account id.  A missing file and a config that binds no id carry
+/// the same message.
 fn account(root: &Path) -> Result<String> {
     std::fs::read_to_string(root.join("wrangler.jsonc"))
         .ok()
@@ -456,8 +412,8 @@ fn account(root: &Path) -> Result<String> {
         .ok_or_else(|| anyhow!("CF_ACCOUNT_ID not found in wrangler.jsonc"))
 }
 
-/// One entry of `wrangler d1 list --json`, read as JavaScript read it:
-/// whatever type each field carries.
+/// One entry of `wrangler d1 list --json`, whatever type each field
+/// carries.
 #[derive(Deserialize)]
 struct Database {
     name: Option<serde_json::Value>,
@@ -467,15 +423,14 @@ struct Database {
 }
 
 /// `list.find((db) => db.name === "cabin-registry")` and then
-/// `console.log(db.uuid || db.database_id)`.  The FIRST entry of that
-/// name wins, as it does for the launch guard's own cross-check.
+/// `db.uuid || db.database_id`, rendered by `logged`.  The FIRST entry of
+/// that name wins, as it does for the launch guard's own cross-check.
 ///
 /// `||` is a *falsy* fallback, so an empty, null, zero or `false` `uuid`
 /// falls through to `database_id` exactly as a missing one does.  A found
-/// entry carrying neither printed the word `undefined` and reached the id
-/// grammar, which is why that is `Some("undefined")` here and `None` only
-/// for no such database at all - the two took different refusals in the
-/// script.
+/// entry carrying neither yields the word `undefined`, which the id
+/// grammar refuses; `None` is only for no such database at all - the two
+/// take different refusals.
 fn listed_id(answer: &str) -> Option<String> {
     let databases: Vec<Database> = serde_json::from_str(answer).ok()?;
     let database = databases.into_iter().find(|database| {
@@ -502,10 +457,10 @@ fn truthy(value: &serde_json::Value) -> bool {
     }
 }
 
-/// `[[ "$new_id" =~ ^[0-9a-f-]{36}$ ]]`, and the alphabet the rewrite's
-/// own regex matched.  The same ceiling [`crate::declared_database_id`]
-/// carries: 36 hyphens satisfy it, because what is being checked is that
-/// a config and an account agree, and a malformed id agrees with nothing.
+/// `^[0-9a-f-]{36}$`, which is also the shape `replace_id` replaces.
+/// The same ceiling [`crate::declared_database_id`] carries: 36 hyphens
+/// satisfy it, because what is being checked is that a config and an
+/// account agree, and a malformed id agrees with nothing.
 fn database_id(text: &str) -> bool {
     text.len() == 36
         && text
@@ -513,13 +468,13 @@ fn database_id(text: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) || byte == b'-')
 }
 
-/// `grep -c <needle> <file>`, which counts LINES holding it rather than
-/// occurrences.  Both counts the script takes are of lines.
+/// The number of LINES holding `needle`, not of occurrences.  Both
+/// counts the wipe takes are of lines.
 fn lines_holding(text: &str, needle: &str) -> usize {
     text.lines().filter(|line| line.contains(needle)).count()
 }
 
-/// The two textual replaces, in the script's order.
+/// The two textual replaces.
 fn bake(config: &str, id: &str) -> String {
     let baked = replace_id(config, "database_id", id);
     replace_id(&baked, "D1_DATABASE_ID", id)
@@ -552,7 +507,6 @@ fn replace_id(text: &str, key: &str, id: &str) -> String {
 fn stamp(root: &Path) -> Result<()> {
     let stamp = migrations_pending::stamp(root);
     let path = root.join("migrations-applied");
-    // `cut` ended its line, so the stamp file carries one.
     let line = stamp
         .as_ref()
         .map_or_else(|_| String::new(), |stamp| format!("{stamp}\n"));
@@ -588,9 +542,8 @@ fn sweep(account: &str, token: &str) -> u64 {
                 .map_err(|_| anyhow!("listing {BLOBS_BUCKET} failed")),
         );
         let listed = or_fail(keys(&page));
-        // An empty capture: no object matched the prefix - and equally,
-        // one object whose key is empty, which ended the shell's loop the
-        // same way.
+        // No object matched the prefix - or one object's key is empty,
+        // which ends the sweep the same way.
         if listed.is_empty() {
             return deleted;
         }
@@ -617,15 +570,13 @@ fn api_base() -> String {
         .unwrap_or_else(|| DEFAULT_API_BASE.to_owned())
 }
 
-/// The keys of one page, as the `node` projection printed them and `$(…)`
-/// captured them: one percent-encoded key per line with the slashes left
-/// literal (the API requires it), trailing newlines stripped.
+/// The keys of one page: one percent-encoded key per line with the
+/// slashes left literal (the API requires it), trailing newlines
+/// stripped.
 ///
 /// # Errors
 ///
-/// If the page is not a successful listing of objects with keys - each of
-/// which the script reached through the same `|| fail`, whether by
-/// `!out.success`, a `SyntaxError` or a `TypeError`.
+/// If the page is not a successful listing of objects with keys.
 fn keys(page: &str) -> Result<String> {
     let unexpected = || anyhow!("unexpected R2 list response: {page}");
     let parsed: Page = serde_json::from_str(page).map_err(|_| unexpected())?;
@@ -640,8 +591,7 @@ fn keys(page: &str) -> Result<String> {
     Ok(text.trim_end_matches('\n').to_owned())
 }
 
-/// `curl -fsS -o /dev/null -X DELETE`: the body is discarded and only the
-/// status is read.
+/// The body is discarded and only the status is read.
 fn delete(agent: &ureq::Agent, url: &str, token: &str) -> Result<()> {
     agent
         .delete(url)
@@ -651,8 +601,8 @@ fn delete(agent: &ureq::Agent, url: &str, token: &str) -> Result<()> {
 }
 
 /// `wrangler d1 execute DB <flag> --command "UPDATE meta …"`.  The value
-/// is interpolated into the statement as the script interpolated it: it
-/// is a number this run computed, not an answer from anywhere.
+/// is interpolated into the statement: it is a number this run computed,
+/// not an answer from anywhere.
 fn bump(mode: Mode, new: i64) -> Result<()> {
     wrangler_run(
         &[
@@ -667,8 +617,8 @@ fn bump(mode: Mode, new: i64) -> Result<()> {
     )
 }
 
-/// Whether a wrangler call's stdout is the operator's sign of life or the
-/// script's `>/dev/null`.
+/// Whether a wrangler call's stdout is the operator's sign of life or
+/// discarded.
 #[derive(Clone, Copy)]
 enum Show {
     Stdout,
@@ -686,9 +636,6 @@ fn wrangler_run(arguments: &[&str], show: Show) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    //! Every expectation below was taken from the shell the port
-    //! replaces, run over the same values.
-
     use super::*;
 
     /// An id of the shape the account hands back, and a second one to
@@ -697,7 +644,7 @@ mod tests {
     const OLD: &str = "00000000-0000-0000-0000-000000000000";
 
     #[test]
-    fn the_generation_is_read_as_console_log_printed_it() {
+    fn a_composite_generation_never_passes_the_numeric_guard() {
         use serde_json::json;
         assert_eq!(logged(Some(&json!("7"))), "7");
         assert_eq!(logged(Some(&json!(7))), "7");
@@ -705,7 +652,7 @@ mod tests {
         assert_eq!(logged(Some(&json!(null))), "null");
         // The trap: `String(["7"])` is `"7"`, so rendering an array
         // through `display` would pass the numeric guard and wipe against
-        // a generation `console.log` printed as `[ '7' ]`.
+        // a generation that is an array.
         assert!(!numeric(&logged(Some(&json!(["7"])))));
         assert!(!numeric(&logged(Some(&json!({ "value": 7 })))));
         assert!(!numeric(&logged(None)));
@@ -717,15 +664,14 @@ mod tests {
     }
 
     #[test]
-    fn the_bump_is_bash_arithmetic() {
+    fn the_bump_wraps_at_64_bits_and_reads_a_leading_zero_as_octal() {
         assert_eq!(increment("0").unwrap(), 1);
         assert_eq!(increment("7").unwrap(), 8);
         // A leading zero is octal: `010` is eight.
         assert_eq!(increment("010").unwrap(), 9);
         assert_eq!(increment("007").unwrap(), 8);
         assert_eq!(increment("000").unwrap(), 1);
-        // Which makes `08` no number at all - bash diagnosed it and
-        // `set -e` ended the run there.
+        // Which makes `08` no number at all.
         assert!(increment("08").is_err());
         assert!(increment("09").is_err());
         // 64-bit and wrapping, both at the signed edge and while reading
@@ -738,25 +684,24 @@ mod tests {
     }
 
     #[test]
-    fn the_confirmation_reads_one_line_the_way_read_r_did() {
+    fn the_confirmation_is_one_blank_trimmed_newline_terminated_line() {
         assert!(confirmed("wipe\n"));
-        // Default IFS strips leading and trailing blanks.
+        // Leading and trailing blanks are stripped.
         assert!(confirmed("  wipe  \n"));
         assert!(confirmed("\twipe\t\n"));
 
         assert!(!confirmed("Wipe\n"));
         assert!(!confirmed("wipe it\n"));
         assert!(!confirmed("\n"));
-        // `read` keeps a CRLF line's `\r`: it is not an IFS blank.
+        // A CRLF line's `\r` is kept: it is not a blank.
         assert!(!confirmed("wipe\r\n"));
-        // End of input, where `read` returned non-zero and `set -e` ended
-        // the run before the comparison ran at all.
+        // End of input.
         assert!(!confirmed(""));
         assert!(!confirmed("wipe"));
     }
 
     #[test]
-    fn the_listed_id_falls_back_the_way_javascript_did() {
+    fn the_listed_id_falls_back_past_a_falsy_uuid() {
         assert_eq!(
             listed_id(&format!(r#"[{{"name":"cabin-registry","uuid":"{NEW}"}}]"#)),
             Some(NEW.to_owned())
@@ -794,15 +739,15 @@ mod tests {
             )),
             Some(NEW.to_owned())
         );
-        // Found, but carrying neither: `console.log(undefined)`, which
-        // the id grammar then refuses.
+        // Found, but carrying neither: the word `undefined`, which the
+        // id grammar then refuses.
         assert_eq!(
             listed_id(r#"[{"name":"cabin-registry"}]"#),
             Some("undefined".to_owned())
         );
         assert!(!database_id("undefined"));
         // No such database, and an answer that is not a listing at all:
-        // the script's other refusal.
+        // the other refusal.
         assert_eq!(listed_id(r#"[{"name":"other","uuid":"x"}]"#), None);
         assert_eq!(listed_id(r#"[{"name":42,"uuid":"x"}]"#), None);
         assert_eq!(listed_id("not json"), None);
@@ -812,7 +757,7 @@ mod tests {
     #[test]
     fn the_id_grammar_checks_the_alphabet_and_the_width() {
         assert!(database_id(NEW));
-        // The carried-over ceiling: 36 hyphens satisfy it.
+        // The ceiling: 36 hyphens satisfy it.
         assert!(database_id(&"-".repeat(36)));
         assert!(!database_id(&"a".repeat(35)));
         assert!(!database_id(&"a".repeat(37)));
@@ -856,7 +801,7 @@ mod tests {
 
     #[test]
     fn the_counts_are_of_lines() {
-        // `grep -c` counts lines, so two bindings on one line count once,
+        // The counts are of lines, so two bindings on one line count once,
         // which is what makes the twice-present check refuse a config it
         // could not have baked correctly.
         let one_line = format!("\"database_id\": \"{NEW}\" \"D1_DATABASE_ID\": \"{NEW}\"");
@@ -882,11 +827,11 @@ mod tests {
             keys(&page(r#"[{"key":"blobs/a\nb"}]"#)).unwrap(),
             "blobs/a%0Ab"
         );
-        // One empty key projects one empty line, which `$(…)` strips to
-        // nothing - and an empty capture ended the shell's loop.
+        // One empty key projects one empty line, stripped to nothing -
+        // which ends the sweep.
         assert_eq!(keys(&page(r#"[{"key":""}]"#)).unwrap(), "");
 
-        // Everything the script reached through one `|| fail`.
+        // Every answer that is not a successful listing of keyed objects.
         for refused in [
             r#"{"success":false,"result":[]}"#,
             r#"{"success":true}"#,

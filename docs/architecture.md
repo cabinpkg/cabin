@@ -510,10 +510,9 @@ caller that vouches for them: the registry smoke, against its loopback Worker.  
 invocation goes through one pinned constructor, so no command can reach an unpinned CLI.  The
 `verify` driver speaks its own token-plane HTTP - the
 OIDC mint and the trusted-publishing exchange/revocation included - as a deliberate exception to
-`cabin-registry-api`'s ownership of those calls: it is a self-contained port of the retired
-shell with its own documented transport ceilings (no redirects on any credentialed request,
-`curl` parity), and it pins the verifier arm's exact answer statuses where the shared client is
-deliberately laxer.  The crate must:
+`cabin-registry-api`'s ownership of those calls: it is self-contained, with its own documented
+transport ceilings (no redirects on any credentialed request), and it pins the verifier arm's
+exact answer statuses where the shared client is deliberately laxer.  The crate must:
 
 - keep `registry/docs/runbook.md`'s disclosure rule where it governs.  It governs what is meant
   to leave the operator's terminal: `cargo registry-diagnose` gathers a report for an incident
@@ -531,7 +530,7 @@ deliberately laxer.  The crate must:
   either archive;
 - treat an answer they cannot parse as a failure.  An empty result set is not one: it is an
   answer about the database, and each read judges its own — the service-state read prints no
-  rows, the counts read refuses — as the two `node` snippets they replace did;
+  rows, the counts read refuses;
 - never read a partial answer as a whole one.  The R2 REST listing is cursor-paginated, and a
   page that reports itself truncated without saying where to resume fails the audit rather than
   standing in for the whole bucket;
@@ -544,17 +543,16 @@ deliberately laxer.  The crate must:
   account-level name, so a disagreement between config and account cannot pass for a restore.
   The drill refuses to run when a scratch database already exists, and attempts the teardown on
   every path that returns, a failed comparison included.  Attempts, not guarantees: a delete
-  that itself fails leaves the database, as the shell's `|| true` did;
+  that itself fails leaves the database;
 - stay fail-safe where a command guards a destructive one.  The launch guard succeeds only when
-  `meta.launched` says `false` - the string, or anything whose JavaScript coercion is that
-  string, which is what the shell it replaces compared and what keeps the encoding wide while
-  the meaning stays narrow: `true`, `null`, `0` and `''` all refuse, as does every value that
-  is not one of those spellings.  A missing row, an unreadable database and an unparsable
-  answer refuse too, and in remote mode it first proves the account's
-  `cabin-registry` carries the id `wrangler.jsonc` binds, so a read here and a `d1 delete` by
-  name cannot reach different databases.  It prints nothing when it passes, because the command
-  that runs it is mid-sentence when it does - `wipe` calls it directly, so nothing an operator's
-  environment names stands between its refusal and the delete it guards;
+  `meta.launched` says `false` - the string, or anything whose JavaScript coercion is that string,
+  which keeps the encoding wide while the meaning stays narrow: `true`, `null`, `0` and `''` all
+  refuse, as does every value that is not one of those spellings.  A missing row, an unreadable
+  database and an unparsable answer refuse too, and in remote mode it first proves the account's
+  `cabin-registry` carries the id `wrangler.jsonc` binds, so a read here and a `d1 delete` by name
+  cannot reach different databases.  It prints nothing when it passes, because the command that runs
+  it is mid-sentence when it does - `wipe` calls it directly, so nothing an operator's environment
+  names stands between its refusal and the delete it guards;
 - prove absence before releasing ledger allowance, never infer it.  The governor's `release` and
   `wipe` shrink the cost ledger, and an understating ledger admits writes past the true R2 cap,
   so a listing that fails - an unparsable page, a row carrying no key, an unencodable prefix - is
@@ -571,9 +569,8 @@ deliberately laxer.  The crate must:
   pending" early exit included.  The stamp it writes is the digest taken before the apply, over
   every migration file: the deploy gate in `registry.yml` reads that stamp, so a stamp written
   from anything but a verified live apply unblocks deploys against a schema nobody checked.  Its
-  refusals keep the `FAIL:` prefix the shell's own `fail` wrote, on the same split the smoke port
-  keeps: only an incidental failure - one the shell would have died on under `set -e` - reports
-  through this crate's `error:` channel instead;
+  refusals carry a `FAIL:` prefix; only an incidental failure - a wrangler spawn, an unreadable
+  file - reports through this crate's `error:` channel instead;
 - keep the pre-launch reset whole, and pre-launch only.  `wipe` runs the launch guard after its
   confirmation prompt and before the first destructive call, drops and recreates the database,
   bakes the recreated id into both sites of `wrangler.jsonc` that name it, applies every
