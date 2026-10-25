@@ -1064,6 +1064,39 @@ mod tests {
     }
 
     #[test]
+    fn a_deep_conflict_is_explained_without_expanding_its_shared_derivations() {
+        // Every version of p<i> needs a lower version of p<i+1>, one
+        // more level than there are versions.  The derivation shares
+        // its subproofs, and expanded as a tree it doubles with each
+        // level.
+        let depth = 30;
+        let names: Vec<String> = (0..=depth).map(|i| format!("p{i}")).collect();
+        let versions: Vec<String> = (1..depth).map(|j| format!("{j}.0.0")).collect();
+        let below: Vec<String> = (1..depth).map(|j| format!("<{j}.0.0")).collect();
+        let index = build_index(
+            (0..=depth)
+                .map(|i| {
+                    let specs = (0..depth - 1)
+                        .map(|j| {
+                            let deps = names
+                                .get(i + 1)
+                                .map(|next| vec![(next.as_str(), below[j].as_str())])
+                                .unwrap_or_default();
+                            (versions[j].as_str(), deps, false)
+                        })
+                        .collect();
+                    entry(&names[i], specs)
+                })
+                .collect(),
+        );
+        let err = resolve(&make_input(vec![("p0", "*")]), &index).unwrap_err();
+        let ResolveError::Conflict { package, .. } = err else {
+            panic!("expected a conflict, got {err:?}");
+        };
+        assert_eq!(package, "p0");
+    }
+
+    #[test]
     fn deterministic_output_order() {
         // Two unrelated direct deps should always come out alphabetical.
         let index = build_index(vec![
@@ -1829,6 +1862,11 @@ mod tests {
         assert!(
             rendered.contains(">=2") || rendered.contains(">= 2"),
             "expected the conflicting version requirement in: {rendered}"
+        );
+        // Collapsed: the unused "no versions" branches are gone.
+        assert!(
+            !rendered.contains("there is no version"),
+            "expected a collapsed explanation in: {rendered}"
         );
     }
 
