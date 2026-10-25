@@ -172,7 +172,7 @@ checkout; put `/src/target/debug` (the `cabin` binary) on `PATH`.
   whole write path end to end against two `wrangler dev` instances with GitHub
   and Cloudflare mocks. To probe by hand, keep a dev server up the way
   `crates/xtask-registry-smoke/src/servers.rs` does (`render_dev_vars`,
-  `seed_sql`, `npx --yes wrangler@4.112.0 dev`); its `.dev.vars` values are
+  `seed_sql`, `npx --yes wrangler@4.151.1 dev`); its `.dev.vars` values are
   local fixtures, not secrets.
 
 The best reproducer is a `curl` transcript against `wrangler dev`, a Rust test
