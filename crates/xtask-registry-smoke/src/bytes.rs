@@ -78,9 +78,9 @@ pub fn replace_all(haystack: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8
 /// checksum) change while the container stays well formed - the
 /// worker's fixed-offset sanity check reads only the four-byte
 /// local-header prefix and the trailing EOCD, so touching the middle
-/// keeps the request on the immutability/verification path.  A
-/// distinct `seed` yields distinct bytes; a seed whose low byte is
-/// zero flips bit 0.
+/// keeps the request on the immutability/verification path.  The flip
+/// mask is `seed`'s low byte, or 1 when that is zero, so seeds sharing
+/// a mask (0, 1 and 256 all flip bit 0) yield the same bytes.
 #[must_use]
 pub fn tamper_zip(source: &[u8], seed: u32) -> Vec<u8> {
     let mut data = source.to_vec();
