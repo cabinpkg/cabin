@@ -8,6 +8,7 @@ import {
     asOutcome,
     type FetchLike,
     getUser,
+    PACKAGE_NAME_PATTERN,
     packageDownloads,
     resolveAuth,
     signOut,
@@ -176,4 +177,33 @@ test("packageDownloads counts each version once across its revisions", () => {
         ],
     };
     assert.equal(packageDownloads(pkg), 107);
+});
+
+test("PACKAGE_NAME_PATTERN admits exactly the registry's scoped names", () => {
+    const scope39 = `a${"-".repeat(37)}b`;
+    for (const name of [
+        "cabin-ports/zlib",
+        "a/b",
+        "0x/fmt_lib-2",
+        `${scope39}/x`,
+    ]) {
+        assert.ok(PACKAGE_NAME_PATTERN.test(name), name);
+    }
+    for (const name of [
+        "zlib",
+        "a/",
+        "/b",
+        "a/b/c",
+        "Cabin/zlib",
+        "cabin/Zlib",
+        "-a/b",
+        "a-/b",
+        "a_b/c",
+        `${scope39}c/x`,
+        "a/_b",
+        "a/-b",
+        "a/b.c",
+    ]) {
+        assert.ok(!PACKAGE_NAME_PATTERN.test(name), name);
+    }
 });

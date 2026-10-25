@@ -7,7 +7,8 @@
 // with DecompressionStream. Content renders as text only, always via
 // textContent - never markup - with binary and oversized files replaced
 // by a notice.
-import { bootAccountShell } from "../lib/accountShell";
+import { PACKAGE_NAME_PATTERN } from "../lib/account.ts";
+import { bootAccountShell, setText } from "../lib/accountShell";
 import { formatBytes } from "../lib/format";
 import {
     type ArchiveEntry,
@@ -27,8 +28,6 @@ import {
 // validation: everything they admit is URL-path-safe verbatim, so the
 // route below is interpolated unencoded (percent-escapes would fail the
 // server's charset checks).
-const NAME_PATTERN =
-    /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/[a-z0-9][a-z0-9_-]*$/;
 // Registry versions are plain upstream versions (pre-releases legal,
 // build metadata is the removed packaging-revision shape).
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]*)?$/;
@@ -140,13 +139,6 @@ async function inflatePrefix(
         at += part.length;
     }
     return bytes;
-}
-
-function setText(root: HTMLElement, selector: string, text: string): void {
-    const target = root.querySelector(selector);
-    if (target instanceof HTMLElement) {
-        target.textContent = text;
-    }
 }
 
 interface FileView {
@@ -315,7 +307,10 @@ async function centralDirectory(
 }
 
 bootAccountShell(async (shell) => {
-    if (!NAME_PATTERN.test(packageName) || !VERSION_PATTERN.test(version)) {
+    if (
+        !PACKAGE_NAME_PATTERN.test(packageName) ||
+        !VERSION_PATTERN.test(version)
+    ) {
         shell.show(
             "error",
             "the source viewer needs a published package and version, " +

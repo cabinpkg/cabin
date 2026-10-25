@@ -56,6 +56,17 @@ function accountShell(): Shell | null {
     };
 }
 
+export function setText(
+    root: HTMLElement,
+    selector: string,
+    text: string,
+): void {
+    const target = root.querySelector(selector);
+    if (target instanceof HTMLElement) {
+        target.textContent = text;
+    }
+}
+
 export function bootAccountShell(
     render: (shell: Shell, user: User) => void | Promise<void>,
 ): void {

@@ -4,7 +4,7 @@
 import {
     type AccountPackage,
     asOutcome,
-    type FetchLike,
+    browserFetch,
     getPackages,
     getUsage,
     packageDownloads,
@@ -12,21 +12,12 @@ import {
     searchPackages,
     type Usage,
 } from "../lib/account.ts";
-import { bootAccountShell } from "../lib/accountShell";
+import { bootAccountShell, setText } from "../lib/accountShell";
 import { ACCOUNT_URLS } from "../lib/constants";
 import { debounce } from "../lib/debounce";
 import { formatBytes, formatCount, formatRelativeTime } from "../lib/format";
 
 const SEARCH_DEBOUNCE_MS = 200;
-
-const doFetch: FetchLike = (input, init) => fetch(input, init);
-
-function setText(root: HTMLElement, selector: string, text: string): void {
-    const target = root.querySelector(selector);
-    if (target instanceof HTMLElement) {
-        target.textContent = text;
-    }
-}
 
 function setBar(
     root: HTMLElement,
@@ -274,7 +265,7 @@ function wireSearch(root: HTMLElement, onSignedOut: () => void): void {
             showStatus("");
             return;
         }
-        const result = await searchPackages(doFetch, query);
+        const result = await searchPackages(browserFetch, query);
         if (current !== generation) {
             return;
         }
@@ -304,8 +295,8 @@ function wireSearch(root: HTMLElement, onSignedOut: () => void): void {
 
 bootAccountShell(async (shell) => {
     const [usage, packages] = await Promise.all([
-        getUsage(doFetch),
-        getPackages(doFetch),
+        getUsage(browserFetch),
+        getPackages(browserFetch),
     ]);
     const usageOutcome = asOutcome(usage);
     const packagesOutcome = asOutcome(packages);
