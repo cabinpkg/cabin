@@ -43,6 +43,11 @@ in the same change and follow the architecture document.
 - Reuse existing code and patterns. Within Cabin-owned Rust code, prefer
   direct implementations over speculative abstraction, configuration, or
   flexibility.
+- When documentation and existing code disagree about implementation
+  conventions, follow the established patterns in the relevant code unless
+  doing so violates an explicit requirement, architectural decision, or
+  security invariant. Report each discrepancy you encounter in your final
+  reply.
 - Before finalizing a change, review the complete diff for code,
   configuration, helpers, files, or dependencies that can be removed or
   simplified without changing the intended behavior.
