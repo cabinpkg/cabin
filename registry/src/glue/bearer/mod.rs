@@ -18,8 +18,8 @@ use crate::web_glue;
 use crate::{quota, sql, trustpub};
 
 use super::{
-    GENERATION_HEADER, authenticate, error_response, error_response_with_code, registry_generation,
-    unauthorized, web_origin,
+    authenticate, error_response, error_response_with_code, stamp_generation, unauthorized,
+    web_origin,
 };
 
 use governor::{admin_governor_mutation_response, admin_governor_usage_response};
@@ -77,9 +77,7 @@ pub(super) async fn handle_website(
         } else {
             session_mint_response(req, env, &db).await?
         };
-        if let Some(generation) = registry_generation(&db).await {
-            response.headers_mut().set(GENERATION_HEADER, &generation)?;
-        }
+        stamp_generation(&db, &mut response).await?;
         return Ok((response, token_id));
     }
     // The other auth-exempt route: the verdict PATCH's credential is a
@@ -106,9 +104,7 @@ pub(super) async fn handle_website(
         } else {
             unauthorized(env)?
         };
-        if let Some(generation) = registry_generation(&db).await {
-            response.headers_mut().set(GENERATION_HEADER, &generation)?;
-        }
+        stamp_generation(&db, &mut response).await?;
         return Ok((response, None));
     }
     let Some(auth) = authenticate(req, &db, ctx).await? else {
@@ -180,9 +176,7 @@ pub(super) async fn handle_website(
     };
 
     // The same generation stamp as the read plane (docs/runbook.md).
-    if let Some(generation) = registry_generation(&db).await {
-        response.headers_mut().set(GENERATION_HEADER, &generation)?;
-    }
+    stamp_generation(&db, &mut response).await?;
     Ok((response, Some(auth.token_id)))
 }
 

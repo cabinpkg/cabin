@@ -10,10 +10,10 @@ use worker::{D1Database, Env, Request, Response, console_error, console_log};
 use crate::auth::{self, AuthContext};
 use crate::error;
 use crate::glue::{
-    MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response, js_int, json_response,
-    now_epoch_ms, unauthorized, write_gate,
+    MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response, github_id_allowed, js_int,
+    json_response, now_epoch_ms, unauthorized, write_gate,
 };
-use crate::{allowlist, session_tokens, sql, trustpub, web_glue};
+use crate::{session_tokens, sql, trustpub, web_glue};
 
 use super::{oidc_admission, verifier_pins};
 
@@ -373,8 +373,7 @@ pub(super) async fn session_mint_response(
         Ok(github_id) => github_id,
         Err(reason) => return refused(reason),
     };
-    let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
-    if !allowed.contains(&github_id) {
+    if !github_id_allowed(env, github_id)? {
         return refused(format!("github id {github_id} is not allowlisted"));
     }
     let Some(user) = web_glue::user_record(db, github_id).await? else {

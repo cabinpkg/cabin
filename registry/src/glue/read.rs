@@ -17,9 +17,9 @@ use crate::routes::{Route, match_route};
 use crate::{breaker, quota, sql, telemetry, verify};
 
 use super::{
-    GENERATION_HEADER, authenticate, error_response, error_response_with_code,
-    governor_refusal_response, has_verify_scope, js_int, json_response, now_epoch_ms,
-    registry_generation, service_mode, unauthorized, web_origin,
+    authenticate, error_response, error_response_with_code, governor_refusal_response,
+    has_verify_scope, js_int, json_response, now_epoch_ms, service_mode, stamp_generation,
+    unauthorized, web_origin,
 };
 
 #[derive(Deserialize)]
@@ -72,9 +72,7 @@ pub(super) async fn handle_registry(
     // oracle on a route that exists for everyone.
     if req.method() != Method::Get {
         let mut response = error_response(405, error::METHOD_NOT_ALLOWED)?;
-        if let Some(generation) = registry_generation(&db).await {
-            response.headers_mut().set(GENERATION_HEADER, &generation)?;
-        }
+        stamp_generation(&db, &mut response).await?;
         return Ok((response, None));
     }
 
@@ -150,9 +148,7 @@ pub(super) async fn handle_registry(
 
     // Debug aid for the pre-launch registry (see docs/runbook.md):
     // stamp every read-plane response with the registry generation.
-    if let Some(generation) = registry_generation(&db).await {
-        response.headers_mut().set(GENERATION_HEADER, &generation)?;
-    }
+    stamp_generation(&db, &mut response).await?;
     Ok((response, auth.map(|auth| auth.token_id)))
 }
 
