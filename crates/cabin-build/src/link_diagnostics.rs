@@ -17,6 +17,8 @@
 
 use std::collections::BTreeSet;
 
+use cabin_driver::Dialect;
+
 /// Parsed picture of one failing link action.  Only the *first*
 /// failure ninja reports is extracted; secondary failures in a
 /// parallel build are not surfaced (the user fixes one, re-runs,
@@ -57,18 +59,19 @@ pub enum LinkDiagnostic {
     },
 }
 
-/// Top-level entry point.  Parses `stderr`, walks the captured
-/// failure(s), and consults `lookup_deps` to compute the gap.
-/// Returns the first applicable diagnostic, or `None` if the
-/// stderr does not look like a recognizable link failure.
-pub fn diagnose<F>(stderr: &str, lookup_deps: F) -> Option<LinkDiagnostic>
+/// Top-level entry point.  Parses `stderr` from a build lowered for
+/// `dialect`, walks the captured failure(s), and consults
+/// `lookup_deps` to compute the gap.  Returns the first applicable
+/// diagnostic, or `None` if the stderr does not look like a
+/// recognizable link failure.
+pub fn diagnose<F>(stderr: &str, dialect: Dialect, lookup_deps: F) -> Option<LinkDiagnostic>
 where
     F: Fn(&str, &str) -> Option<TargetDepInfo>,
 {
     // The path parse cannot tell a bare package dir from a scope
     // dir, so each failure line yields up to two readings; the first
     // one the workspace graph recognizes wins.
-    for failure in parse_link_failure_candidates(stderr) {
+    for failure in parse_link_failure_candidates(stderr, dialect) {
         let Some(info) = lookup_deps(&failure.package, &failure.target) else {
             continue;
         };
@@ -138,34 +141,37 @@ pub fn render(diag: &LinkDiagnostic) -> String {
 /// target name): the bare reading first, then - when the path is
 /// deep enough - the scoped `<scope>/<name>` reading.  The caller
 /// resolves the ambiguity against the loaded workspace.
-pub fn parse_link_failure_candidates(stderr: &str) -> Vec<LinkFailure> {
-    find_failed_target(stderr)
+pub fn parse_link_failure_candidates(stderr: &str, dialect: Dialect) -> Vec<LinkFailure> {
+    find_failed_target(stderr, dialect)
         .into_iter()
         .map(|(package, target)| LinkFailure { package, target })
         .collect()
 }
 
 /// Recover the declared target name from a link-action output
-/// filename.  Cabin's planner emits exactly two forms:
+/// filename by inverting [`Dialect::static_library_name`] and
+/// [`Dialect::executable_name`]:
 ///
-/// * `lib<name>.a` for static libraries
-/// * `<name>` (no extension) for every executable kind
+/// * GCC/Clang: `lib<name>.a` for static libraries, `<name>` (no
+///   extension) for executables
+/// * MSVC: `<name>.lib` for static libraries, `<name>.exe` for
+///   executables
 ///
-/// Stripping the library wrapper is therefore *only* safe when
-/// the filename matches the full `lib…a` shape - a literal target
-/// named `tool.a` or `tool.exe` would otherwise be misread as
-/// `tool` and the workspace-graph lookup would miss it, silently
-/// suppressing the link hint.  Names that do not match the
-/// library pattern round-trip unchanged.
-fn extract_target_name(filename: &str) -> &str {
-    if let Some(stem) = filename
-        .strip_prefix("lib")
-        .and_then(|s| s.strip_suffix(".a"))
-        && !stem.is_empty()
-    {
-        return stem;
-    }
-    filename
+/// Only the dialect's own wrapper is stripped, and only once - a
+/// literal target named `tool.a` or `tool.exe` would otherwise be
+/// misread as `tool` and the workspace-graph lookup would miss it,
+/// silently suppressing the link hint.  Names that do not match
+/// the dialect's patterns round-trip unchanged.
+fn extract_target_name(filename: &str, dialect: Dialect) -> &str {
+    let stem = match dialect {
+        Dialect::GnuLike => filename
+            .strip_prefix("lib")
+            .and_then(|s| s.strip_suffix(".a")),
+        Dialect::Msvc => filename
+            .strip_suffix(".exe")
+            .or_else(|| filename.strip_suffix(".lib")),
+    };
+    stem.filter(|s| !s.is_empty()).unwrap_or(filename)
 }
 
 /// Find the first `FAILED:` line in ninja stderr and pull the
@@ -181,7 +187,7 @@ fn extract_target_name(filename: &str) -> &str {
 /// reading; a deeper tail is ambiguous (bare package with an object
 /// subdir vs scoped package), so both readings are returned, bare
 /// first.
-fn find_failed_target(stderr: &str) -> Vec<(String, String)> {
+fn find_failed_target(stderr: &str, dialect: Dialect) -> Vec<(String, String)> {
     for line in stderr.lines() {
         let trimmed = line.trim_start();
         if !trimmed.starts_with("FAILED:") {
@@ -216,11 +222,14 @@ fn find_failed_target(stderr: &str) -> Vec<(String, String)> {
                 if pkg.is_empty() || target.is_empty() {
                     continue;
                 }
-                let mut candidates = vec![(pkg.to_owned(), extract_target_name(target).to_owned())];
+                let mut candidates = vec![(
+                    pkg.to_owned(),
+                    extract_target_name(target, dialect).to_owned(),
+                )];
                 if let Some(scoped_target) = parts.next().filter(|s| !s.is_empty()) {
                     candidates.push((
                         format!("{pkg}/{target}"),
-                        extract_target_name(scoped_target).to_owned(),
+                        extract_target_name(scoped_target, dialect).to_owned(),
                     ));
                 }
                 return candidates;
@@ -251,7 +260,7 @@ mod tests {
     fn parses_macos_failed_line() {
         let stderr = "FAILED: [code=1] /abs/build/dev/packages/mytest/mytest\n\
                       /usr/bin/c++ ...\n";
-        let failure = parse_link_failure_candidates(stderr)
+        let failure = parse_link_failure_candidates(stderr, Dialect::GnuLike)
             .into_iter()
             .next()
             .unwrap();
@@ -267,7 +276,7 @@ mod tests {
     #[test]
     fn parses_linux_failed_line_with_library_wrapper() {
         let stderr = "FAILED: build/dev/packages/mylib/libmylib.a\n/usr/bin/ar ...\n";
-        let failure = parse_link_failure_candidates(stderr)
+        let failure = parse_link_failure_candidates(stderr, Dialect::GnuLike)
             .into_iter()
             .next()
             .unwrap();
@@ -279,14 +288,12 @@ mod tests {
     /// parser must still find `\packages\<package>\<target>`
     /// and recover the same identity it would on POSIX, so the
     /// downstream "declared-but-unlinked" hint reaches the
-    /// Windows user too.  Cabin's planner declares the executable
-    /// output filename without an extension on every platform, so
-    /// the FAILED path mirrors that.
+    /// Windows user too.
     #[test]
     fn parses_windows_failed_line_with_backslashes() {
-        let stderr = "FAILED: build\\dev\\packages\\mytest\\mytest\n\
+        let stderr = "FAILED: build\\dev\\packages\\mytest\\mytest.exe\n\
                       link.exe ...\n";
-        let failure = parse_link_failure_candidates(stderr)
+        let failure = parse_link_failure_candidates(stderr, Dialect::Msvc)
             .into_iter()
             .next()
             .unwrap();
@@ -303,7 +310,7 @@ mod tests {
     #[test]
     fn anchors_on_last_packages_segment() {
         let stderr = "FAILED: /tmp/packages/out/dev/packages/realpkg/realtarget\nld: ...\n";
-        let failure = parse_link_failure_candidates(stderr)
+        let failure = parse_link_failure_candidates(stderr, Dialect::GnuLike)
             .into_iter()
             .next()
             .unwrap();
@@ -313,13 +320,13 @@ mod tests {
 
     /// A target spelled with a literal dot (e.g. `tool.v2`) is
     /// not an extension and must round-trip through the parser
-    /// unchanged; the parser only unwraps the `lib…a` library
-    /// shape, so anything else (including names that happen to
-    /// look like an extension) survives verbatim.
+    /// unchanged; the parser only unwraps the dialect's own
+    /// artifact shapes, so anything else (including names that
+    /// happen to look like an extension) survives verbatim.
     #[test]
     fn preserves_target_names_with_internal_dots() {
         let stderr = "FAILED: build/dev/packages/mypkg/tool.v2\nld: ...\n";
-        let failure = parse_link_failure_candidates(stderr)
+        let failure = parse_link_failure_candidates(stderr, Dialect::GnuLike)
             .into_iter()
             .next()
             .unwrap();
@@ -328,8 +335,8 @@ mod tests {
     }
 
     /// Target names ending in `.a`, `.exe`, `.so`, `.dylib`,
-    /// `.dll`, or `.lib` must round-trip unchanged.  Cabin's
-    /// planner only produces `lib<name>.a` (libraries) and
+    /// `.dll`, or `.lib` must round-trip unchanged on GCC/Clang.
+    /// That dialect only produces `lib<name>.a` (libraries) and
     /// `<name>` (executables, no extension), so any dot in the
     /// FAILED path is part of the user's declared target name -
     /// stripping it would silently drop the link hint for
@@ -345,7 +352,7 @@ mod tests {
             "shim.lib",
         ] {
             let stderr = format!("FAILED: build/dev/packages/mypkg/{name}\nld: ...\n");
-            let failure = parse_link_failure_candidates(&stderr)
+            let failure = parse_link_failure_candidates(&stderr, Dialect::GnuLike)
                 .into_iter()
                 .next()
                 .unwrap();
@@ -354,9 +361,34 @@ mod tests {
         }
     }
 
+    /// MSVC names outputs `<name>.exe` and `<name>.lib`.  The parser
+    /// strips exactly one such wrapper and leaves the GCC/Clang
+    /// `lib<name>.a` shape alone, since under MSVC that can only be
+    /// a literal target name.
+    #[test]
+    fn unwraps_msvc_executable_and_library_names() {
+        for (file, target) in [
+            ("app.exe", "app"),
+            ("greet.lib", "greet"),
+            ("tool.exe.exe", "tool.exe"),
+            ("cfg.lib.exe", "cfg.lib"),
+            ("libfoo.a", "libfoo.a"),
+        ] {
+            let stderr = format!("FAILED: build\\dev\\packages\\mypkg\\{file}\nlink.exe ...\n");
+            let failure = parse_link_failure_candidates(&stderr, Dialect::Msvc)
+                .into_iter()
+                .next()
+                .unwrap();
+            assert_eq!(failure.package, "mypkg");
+            assert_eq!(failure.target, target, "{file}");
+        }
+    }
+
     #[test]
     fn no_failed_line_returns_none() {
-        assert!(parse_link_failure_candidates("ninja: no work to do\n").is_empty());
+        assert!(
+            parse_link_failure_candidates("ninja: no work to do\n", Dialect::GnuLike).is_empty()
+        );
     }
 
     // ---- diagnose ------------------------------------------------
@@ -369,7 +401,7 @@ mod tests {
 
     #[test]
     fn flags_declared_but_unlinked() {
-        let diag = diagnose(ninja_link_failure(), |pkg, target| {
+        let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |pkg, target| {
             assert_eq!(pkg, "mytest");
             assert_eq!(target, "mytest");
             // User declared `zlib` at the package level but
@@ -393,7 +425,7 @@ mod tests {
     #[test]
     fn parses_scoped_failed_line_into_both_candidates() {
         let stderr = "FAILED: build/dev/packages/fmtlib/fmt/demo\nld: ...\n";
-        let candidates = parse_link_failure_candidates(stderr);
+        let candidates = parse_link_failure_candidates(stderr, Dialect::GnuLike);
         assert_eq!(
             candidates,
             vec![
@@ -417,7 +449,7 @@ mod tests {
         let stderr = "FAILED: [code=1] /abs/build/dev/packages/fmtlib/fmt/demo\n\
              /usr/bin/c++ obj/main.cc.o -o /abs/.../demo\n\
              ld: symbol(s) not found for architecture arm64\n";
-        let diag = diagnose(stderr, |pkg, target| {
+        let diag = diagnose(stderr, Dialect::GnuLike, |pkg, target| {
             (pkg == "fmtlib/fmt" && target == "demo").then(|| deps(&["zlib"], &[]))
         })
         .unwrap();
@@ -434,7 +466,7 @@ mod tests {
         // be something else (a real bug in the user's code, a
         // missing system lib, etc.).  Cabin has no useful hint;
         // surface nothing.
-        let diag = diagnose(ninja_link_failure(), |_, _| {
+        let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| {
             Some(deps(&["zlib"], &["zlib"]))
         });
         assert!(diag.is_none());
@@ -444,7 +476,9 @@ mod tests {
     fn returns_none_when_nothing_is_declared() {
         // No deps declared at the package level - the gap-based
         // diagnostic has nothing to say.
-        let diag = diagnose(ninja_link_failure(), |_, _| Some(deps(&[], &[])));
+        let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| {
+            Some(deps(&[], &[]))
+        });
         assert!(diag.is_none());
     }
 
@@ -452,13 +486,13 @@ mod tests {
     fn returns_none_when_package_lookup_fails() {
         // Closure returns None - the failing target isn't in the
         // graph.  Don't pretend to know anything.
-        let diag = diagnose(ninja_link_failure(), |_, _| None);
+        let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| None);
         assert!(diag.is_none());
     }
 
     #[test]
     fn returns_none_on_unparsable_stderr() {
-        let diag = diagnose("just some random output\n", |_, _| {
+        let diag = diagnose("just some random output\n", Dialect::GnuLike, |_, _| {
             Some(deps(&["zlib"], &[]))
         });
         assert!(diag.is_none());
@@ -468,7 +502,7 @@ mod tests {
     fn lists_every_unlinked_dep_when_multiple_declared() {
         // Package declares zlib + fmt + spdlog; target links
         // none.  All three appear in `unlinked`.
-        let diag = diagnose(ninja_link_failure(), |_, _| {
+        let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| {
             Some(deps(&["fmt", "spdlog", "zlib"], &[]))
         })
         .unwrap();
