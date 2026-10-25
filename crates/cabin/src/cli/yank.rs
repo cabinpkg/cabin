@@ -108,6 +108,10 @@ pub(crate) fn yank(
              one to locate the registry API origin"
         );
     };
+    reporter.aux_verbose(format_args!(
+        "cabin: registry api = {}",
+        cabin_core::escape_control_chars(api)
+    ));
 
     let api_client = cabin_registry_api::RegistryApi::new(api, token)?;
     api_client.set_yanked(name.as_str(), &version, !args.undo)?;
