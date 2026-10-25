@@ -80,9 +80,6 @@ pub fn preflight(request: &PreflightRequest<'_>) -> Result<PreflightReport> {
             &sources_dir,
             &registry_dir,
             ArchiveFetch::CacheOrDownload,
-            // The preflight registry is rebuilt from scratch every
-            // run, so every publish is a first revision.
-            false,
         )?;
         for warning in &report.warnings {
             eprintln!("warning: {warning}");
@@ -142,7 +139,6 @@ pub fn stage_conversion(
     sources_dir: &Path,
     registry_dir: &Path,
     fetch: ArchiveFetch,
-    new_revision: bool,
 ) -> Result<(PathBuf, cabin_publish::RegistryPublishReport)> {
     let package_dir = materialize(conversion, ports_cache, sources_dir, fetch)?;
     let report = cabin_publish::publish_to_file_registry(RegistryPublishWorkflow {
@@ -150,7 +146,9 @@ pub fn stage_conversion(
         registry_dir,
         resolved_project: None,
         workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
-        new_revision,
+        // Every caller stages into a fresh registry, so every publish
+        // is a first revision.
+        new_revision: false,
     })
     .with_context(|| {
         format!(
@@ -595,7 +593,6 @@ mod tests {
             &dir.path().join("src"),
             &dir.path().join("registry"),
             ArchiveFetch::CacheOnly,
-            false,
         )
         .unwrap_err();
         let message = format!("{err:#}");
@@ -692,7 +689,6 @@ mod tests {
             &sources_dir,
             &dir.path().join("registry"),
             ArchiveFetch::CacheOnly,
-            false,
         )
         .unwrap_err();
         assert!(format!("{err:#}").contains("already exists"), "{err:#}");

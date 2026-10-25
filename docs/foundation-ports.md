@@ -186,7 +186,7 @@ publisher owns and clears that whole scratch root).
 | `under a cfg-conditional table` | A dependency sits in a `[target.'cfg(...)'.dependencies]` table; ordering does not evaluate conditions. |
 | `which no committed port version satisfies` | A declared requirement matches no version published in the same run. |
 | `inter-port dependency cycle among` | The declared edges do not form a DAG. |
-| `both publish as` / `published identities must be unique` | Two port directories fold onto one published name, or onto one name and version. |
+| `both publish as` | Two port directories fold onto one published name. |
 | `is not a regular file` / `is a symlinked directory` | A manifest or port directory is a symlink; published bytes must be the committed files. |
 | `is (or crosses) a symlink` | A declared patch path resolves through a symlink. |
 | `no cached archive for ... and downloads are disabled` | A hermetic (cache-only) staging run found no archive matching the declared SHA-256. |
