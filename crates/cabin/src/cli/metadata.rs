@@ -551,7 +551,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let crate::cli::workspace_prep::WorkspacePrep {
         effective_config,
         active_patches,
-        graph: initial_graph,
+        graph,
     } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     // `cabin metadata` never reaches the network, but reject
     // `--offline` paired with a URL registry source so the
@@ -564,9 +564,6 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         metadata_offline,
         resolved_index_for_offline_check.as_ref(),
     )?;
-    let patched_sources = active_patches.workspace_sources();
-    let graph =
-        crate::cli::patch::reload_for_patches(&manifest_path, initial_graph, &patched_sources)?;
     let lockfile_path = lockfile_path_for(&manifest_path);
     let lockfile = read_optional_lockfile(&lockfile_path)?;
     let request = build_selection_request(
