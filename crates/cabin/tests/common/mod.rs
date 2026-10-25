@@ -24,9 +24,7 @@ mod ports_registry;
 #[allow(unused_imports)]
 pub use fake_ports::FakePortRepo;
 #[allow(unused_imports)]
-pub use foundation_port_smoke::{
-    PortBuildRun, PortCacheLifecycle, run_port_build_then_run, run_port_cache_lifecycle,
-};
+pub use foundation_port_smoke::{PortBuildRun, run_port_build_then_run};
 #[allow(unused_imports)]
 pub use ports_registry::{RegistryConsumer, committed_ports_registry, stage_ports_registry};
 

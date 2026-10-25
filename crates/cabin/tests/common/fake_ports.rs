@@ -15,9 +15,10 @@ fn archive_url(archive_name: &str) -> String {
     format!("https://ports.invalid/{archive_name}")
 }
 
-/// Test fixture builder for local Cabin ports backed by loopback
-/// archives.  It keeps test bodies focused on port topology while the
-/// tarball, checksum, manifest, and HTTP plumbing stay in one place.
+/// Test fixture builder for local Cabin ports whose archives are
+/// seeded into the cache.  It keeps test bodies focused on port
+/// topology while the tarball, checksum, and manifest plumbing stay
+/// in one place.
 pub struct FakePortRepo {
     root: PathBuf,
 }
@@ -44,27 +45,12 @@ impl FakePortRepo {
 }
 
 pub struct FakePort {
-    pub name: String,
-    pub version: String,
-    pub port_dir: PathBuf,
     pub archive: FakeArchive,
 }
 
-#[derive(Clone)]
 pub struct FakeArchive {
-    name: String,
     path: PathBuf,
     sha256: String,
-}
-
-impl FakeArchive {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn sha256(&self) -> &str {
-        &self.sha256
-    }
 }
 
 impl FakePort {
@@ -164,11 +150,7 @@ impl FakePortBuilder {
             fs::write(&patch_path, contents).expect("write fake port patch");
         }
         FakePort {
-            name: self.name,
-            version: self.version,
-            port_dir,
             archive: FakeArchive {
-                name: archive_name,
                 path: archive_path,
                 sha256,
             },
