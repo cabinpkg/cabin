@@ -765,9 +765,12 @@ rules, the artifact read gate, and the verdict body live in
   listed, and both are required for **both** verdicts: `checksum` names
   the revision under the route's `(scope, name, version)` triple, and
   `published_at` names the publish event - a byte-identical revival
-  regenerates the row under the same checksum, so without the pair a
-  delayed verdict of either direction could land on a generation it
-  never judged,
+  regenerates the row under the same checksum, and the revival's guard
+  requires the new stamp to exceed the old (`REVIVE_REJECTED_REVISION`
+  refuses an equal or earlier sample, so the pair is unique per
+  generation whatever the sampling Workers' clocks do), so without the
+  pair a delayed verdict of either direction could land on a generation
+  it never judged,
   and the applying updates are guarded on the row still being pending
   under that same binding, so D1 refuses a stale verdict's application
   even without the handler's check, and a verdict racing a conflicting

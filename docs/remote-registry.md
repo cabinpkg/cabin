@@ -404,7 +404,11 @@ Server-side behavior is part of the contract:
   registry implementing this contract.
 - **Recovery.**  A version whose revisions are all **rejected** never became part of the registry,
   so fresh bytes are accepted without the opt-in.  Byte-identical bytes revive the rejected revision
-  in place - new metadata, timestamp, and publisher - back to `pending` with a `201`.
+  in place - new metadata, timestamp, and publisher - back to `pending` with a `201`.  The new
+  timestamp must be later than the stored one, since the timestamp names the generation a verdict
+  binds: a revival whose clock sample is not (a server clock behind the one that stamped the row,
+  or a slow revival overtaken by another revival of the same row that was rejected in the
+  meantime) is the same `409` a racing revival gets, and a retry succeeds once its sample is later.
 - A publish that creates or revives a revision succeeds with `201` and body
   `{"ok":true,"name":...,"version":...,"checksum":...,"revision":"<16 hex>","verification":"pending"}`:
   the revision is accepted but becomes resolvable only once verified.  Clients read the
@@ -948,7 +952,7 @@ a repeated `DELETE` idempotent - the same contract as the
 | `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there) - and every [trusted-publishing](#trusted-publishing) exchange, [login-session](#login-sessions) mint, or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge). |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
-| `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; or a conflicting [verdict](#admin-api-scope-verify). |
+| `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; a revival that lost a race or whose timestamp is not later than the rejected revision's; or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
 | `429` | A rate limit: the publish token bucket is empty, or the per-client admission budget of the [trusted-publishing](#trusted-publishing) exchange, the verdict route, and the [login-session](#login-sessions) mint is spent (both code `rate_limited`); or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets. |
 | `503` | The registry is protecting its own infrastructure budget (the hosted service blocks itself before provider limits or real spend are reached): its service-wide breaker tripped, or its per-request cost governor refused - or could not be reached - for the specific resource the request needed.  Writes refuse first; archive downloads refuse when the registry's read allowance for fresh storage reads is exhausted (recently downloaded archives can keep serving from the registry's edge cache through that), or service-wide when the registry's operator has paused reads outright.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`.  The refusal is operator-side and temporary, so it is a `503` rather than a `402`: nothing the caller can pay clears it, and `503` has explicit `Retry-After` semantics where `402` has none. |

@@ -59,7 +59,7 @@ State:
 | --- | --- |
 | `status[v][c]` | `revisions.verification`, or `absent` when no row exists |
 | `pubAt[v][c]` | `revisions.published_at`: the `now_iso8601()` sample of the publish event that wrote the row |
-| `clock` | the last stamp sampled |
+| `clock` | the greatest stamp sampled so far (a revival's repeated sample does not advance it) |
 | `counter` | `meta.total_stored_bytes` |
 | `blob[c]` | the R2 object `blobs/sha256/<c>` exists |
 | `ledger[c]` | the governor's primary-pool entry for that key: none, reserved, committed |
@@ -74,8 +74,8 @@ State:
 | --- | --- | --- |
 | `PubStart` | `package.rs` `revision_disposition` | `EXISTING_REVISIONS`; decides no-op `200`, `409` new-revision-required, revive, or new |
 | `PubAnswer` | the `Answered` arms; `heal_blobs_on_retry` on the `200` | no D1 write; the no-op heads and re-puts its blob |
-| `PubStore` | `now_iso8601()` sampled (before the quota reads and the storage work), then `persist_new_revision` head-then-put or `revive_rejected_revision` unconditional put; or the governor refuses admission or the reservation, or the put fails | governor reserve (idempotent per key), `bucket.put`; a reservation taken before a failed put stays |
-| `PubBatch` | the `db.batch` in both write paths, `changed_rows == 0` as `Persist::Lost`; a failed batch or a request that dies after the upload | `INSERT_PACKAGE`, `INSERT_VERSION_ROW`, `COUNT_STORED_BYTES_ON_PUBLISH`, `INSERT_REVISION`; or `COUNT_STORED_BYTES_ON_REVIVAL`, `REVIVE_REJECTED_REVISION` - one transaction, guards evaluated against the rows as they are then |
+| `PubStore` | `now_iso8601()` sampled (before the quota reads and the storage work; a revival may sample its row's current stamp again, the clock-skew case `ReviveGuard` refuses), then `persist_new_revision` head-then-put or `revive_rejected_revision` unconditional put; or the governor refuses admission or the reservation, or the put fails | governor reserve (idempotent per key), `bucket.put`; a reservation taken before a failed put stays |
+| `PubBatch` | the `db.batch` in both write paths, `changed_rows == 0` as `Persist::Lost`; a failed batch or a request that dies after the upload | `INSERT_PACKAGE`, `INSERT_VERSION_ROW`, `COUNT_STORED_BYTES_ON_PUBLISH`, `INSERT_REVISION`; or `COUNT_STORED_BYTES_ON_REVIVAL`, `REVIVE_REJECTED_REVISION` (`published_at < ?`: the stamp must advance) - one transaction, guards evaluated against the rows as they are then |
 | `PubReread` | the `Persist::Lost` re-read | `EXISTING_REVISIONS` again; `200` (healing) or `409` |
 | `PubFinish` | `governor_client::settle` (best-effort), `heal_blob_if_reclaimed` | ledger commit; head, reserve, re-put if the blob is gone - or the reservation is refused and the repair skipped |
 | `VerList` | one verifier run over one listed entry: `admin_versions_response`, then the driver's `Pass::version` or `Pass::resolve` ("The verifier" below) | `REVISIONS_BY_VERIFICATION_STATUS('pending')`: snapshots `(checksum, published_at)`; the artifact download reads the blob |
@@ -147,26 +147,22 @@ their outcomes as given.
 
 ### Assumptions
 
-- **Every publish event samples a distinct stamp.** `published_at` is
-  `now_iso8601()`, sampled after the disposition read and before the
-  storage work, so a slow request commits with an older stamp than a
-  faster one that sampled later; the model reproduces that (a row's
-  generations need not carry increasing stamps, and `current_revisions`
-  serves by stamp, not commit order). What the model's clock adds is that
-  no two samples are equal, and the generation-isolation results rest on
-  exactly that: the guards compare the stamp as the SQL compares the
-  column - no generation counter replaces the production identity - and
-  `REVIVE_REJECTED_REVISION` binds no stamp the reviver observed, so two
-  publish events of one row that sampled the same millisecond would be
-  one generation to the SQL, and a verdict listed against the first could
-  land on the second (the third sensitivity row shows the consequence).
-  In production that needs two publish requests for the same row to
-  sample the same millisecond: two revivals of one rejected row racing
-  through the same Worker, or Worker clocks that disagree by at least the
-  gap between them. The model excludes it rather than argues it away.
-  Equal stamps across different rows would only reach the
-  `(published_at, revision)` tie-break of `current_revisions`, which the
-  model therefore never exercises.
+- **The clock is trusted only where a repeated stamp is harmless.**
+  `published_at` is `now_iso8601()`, sampled after the disposition read
+  and before the storage work, so a slow request commits with an older
+  stamp than a faster one that sampled later; the model reproduces that
+  (across rows, commit order need not follow stamp order, and
+  `current_revisions` serves by stamp, not commit order). Within one row the stamp is the generation identity, and the
+  model does not assume the clock makes it unique: a revival may sample
+  its row's current stamp again (two publish events of one row in one
+  millisecond, or Worker clocks that disagree by at least the gap
+  between them), and `REVIVE_REJECTED_REVISION`'s `published_at < ?`
+  refuses that revival as a lost race, which the third sensitivity row
+  shows to be load-bearing. The guards otherwise compare the stamp as
+  the SQL compares the column; no generation counter replaces the
+  production identity. Equal stamps across different rows would only
+  reach the `(published_at, revision)` tie-break of
+  `current_revisions`, which the model does not exercise.
 - One package: `INSERT_PACKAGE`, `INSERT_VERSION_ROW`, and the `-`/`_`
   twin guard always succeed; the twin `400` is unreachable.
 - Resolver-metadata invariance (`dependencies`, `features`, `standards`,
@@ -202,7 +198,10 @@ their outcomes as given.
   would sample past the bound can still fail or be answered from its
   preflight, never reach the storage work. A sample spent by a publish
   that fails before D1 is elided (the model leaves the clock untouched),
-  so the bound counts samples that can reach a row.
+  so the bound counts samples that can reach a row. A revival's repeated
+  sample is offered under the same bound, so at the bound it is not
+  explored; such a revival can only lose its race (the row's stamp only
+  rises), so the bound cuts lost-race traces, not commits.
 
 ## Properties
 
@@ -211,7 +210,7 @@ of every configuration:
 
 | Property | Statement |
 | --- | --- |
-| `TypeOK`, `RowsStamped` | domains; a row exists iff stamped, and stamps are unique (the clock's consequence - a sanity check on the model, not a production property) |
+| `TypeOK`, `RowsStamped` | domains; a row exists iff stamped, and stamps are unique (fresh samples advance the clock and the revival guard refuses the repeated one - a sanity check on the model, not a production property) |
 | `PublicReadsAreVerified` | without the `verify` scope, an artifact is readable only when `verified`; the served pointer names a verified row (both follow from the two read predicates' definitions: this documents the gate rather than tests the write path) |
 | `TerminalDecidedOnCurrentGeneration` | a `verified` or `rejected` row was decided by a verdict computed against its current generation (the ghost `gen`, not the stamp): no delayed verdict lands on a revival of the same bytes |
 | `PendingUndecided` | a pending row carries no verdict and no basis (revival clears both) |
@@ -245,9 +244,9 @@ the number of states checked after symmetry reduction.
 
 | Configuration | Constants | Distinct / generated states | Depth | Result | Local time (10 cores) |
 | --- | --- | --- | --- | --- | --- |
-| `RegistryLifecycle.cfg` (CI) | `Versions = {v1}`, `Checksums = {1, 2}`, `Publishers = {p1, p2}`, `Verifiers = {w1}`, `MaxStamps = 3`, `Malicious = {}` | 2,677,602 / 16,691,131 | 30 | complete, no violation | 25 s |
-| `RegistryLifecycleShared.cfg` (CI) | `Versions = {v1, v2}`, `Checksums = {1}`, `Publishers = {p1, p2}`, `Verifiers = {w1, w2}`, `MaxStamps = 3`, `Malicious = {}` | 6,667,763 / 52,141,379 | 31 | complete, no violation | 1 min 36 s |
-| `RegistryLifecycleScan.cfg` (CI) | `Versions = {v1}`, `Checksums = {1, 2}`, `Publishers = {p1, p2}`, `Verifiers = {w1, w2}`, `MaxStamps = 2`, `Malicious = {2}` | 2,176,817 / 15,930,353 | 25 | complete, no violation | 25 s |
+| `RegistryLifecycle.cfg` (CI) | `Versions = {v1}`, `Checksums = {1, 2}`, `Publishers = {p1, p2}`, `Verifiers = {w1}`, `MaxStamps = 3`, `Malicious = {}` | 3,637,794 / 22,537,331 | 32 | complete, no violation | 34 s |
+| `RegistryLifecycleShared.cfg` (CI) | `Versions = {v1, v2}`, `Checksums = {1}`, `Publishers = {p1, p2}`, `Verifiers = {w1, w2}`, `MaxStamps = 3`, `Malicious = {}` | 9,237,089 / 71,498,443 | 32 | complete, no violation | 2 min 18 s |
+| `RegistryLifecycleScan.cfg` (CI) | `Versions = {v1}`, `Checksums = {1, 2}`, `Publishers = {p1, p2}`, `Verifiers = {w1, w2}`, `MaxStamps = 2`, `Malicious = {2}` | 2,627,569 / 19,073,169 | 27 | complete, no violation | 29 s |
 
 The first configuration exercises respins (two contents of one version,
 both of which the inspector may verify, so the served revision switches),
@@ -327,7 +326,7 @@ flight), where each violation surfaces within seconds.
 | --- | --- | --- |
 | `VerApply` guard drops `pubAt[v][c] = s` | `MARK_REVISION_*` without `published_at = ?` | `TerminalDecidedOnCurrentGeneration` |
 | `VerApply` guard drops `status = "pending"` | `MARK_REVISION_*` without `verification = 'pending'` | `VerifiedImmutable` (a late rejection flips a verified row) |
-| a revival keeps the rejected generation's stamp | the clock assumption fails: two publish events of one row sample the same `now_iso8601()` | `TerminalDecidedOnCurrentGeneration` (the stale verdict lands on the revival) |
+| `ReviveGuard` drops `stamp > pubAt[v][c]` | `REVIVE_REJECTED_REVISION` without `published_at < ?`: a revival that sampled the rejected generation's stamp lands | `TerminalDecidedOnCurrentGeneration` (the stale verdict lands on the revival) |
 | `RefundOnReject` ignores the sole-reference count | `REFUND_STORED_BYTES_ON_REJECTION` without `COUNT(*) ... = 1` | `CounterExact` |
 | `NewGuard` drops the opt-in conjunct | `INSERT_REVISION` without the `?10 OR NOT EXISTS` guard | `RespinNeedsOptIn` |
 | `CountOnWrite` ignores existing live references | `COUNT_STORED_BYTES_ON_PUBLISH` without `COUNT(*) ... = 0` | `CounterExact` |
@@ -337,10 +336,11 @@ flight), where each violation surfaces within seconds.
 | the run inspects bytes other than the listed content | both checksum checks removed, the driver's `undeclared_digest` and the inspector's own hash; either alone still refuses | `VerifiedByInspection` (benign bytes verify the malicious row) |
 | the `reject` resolution renders `verified` | an operator verifying from the name alone | `VerifiedByInspection` (a `manual` basis on a verified row) |
 
-The third row is the clock assumption's role made visible: the production
-guards compare `published_at` exactly, so a revival whose stamp equals the
-rejected generation's would let a delayed verdict of either direction land
-on it. The ghost generation detects it; the stamp alone cannot. The
+The third row is the stamp guard's role made visible: the verdict guards
+compare `published_at` exactly, so a revival that repeated the rejected
+generation's stamp would let a delayed verdict of either direction land
+on it; the revival guard refuses such a sample, and without it the ghost
+generation detects what the stamp alone cannot. The
 `VerRead` row is a double mutation because the listing binding is
 enforced twice: `verdict_binding_matches` refuses a stale or mismatched
 verdict loudly at the read, and the guarded `UPDATE` binds the same

@@ -258,8 +258,10 @@ pub(super) async fn publish_response(
                     Ok(response)
                 }
                 RevisionDisposition::Revive => {
-                    // Rejected again (a third racer): the conservative
-                    // refusal; a retry resolves it.
+                    // Rejected again (a third racer), or this request's
+                    // stamp did not advance the row's: the conservative
+                    // refusal; a retry resolves it (for the stamp, once
+                    // its sample is later than the row's).
                     error_response(409, error::VERSION_IMMUTABLE)
                 }
                 // No revision rows at all means the twin guard
@@ -636,11 +638,14 @@ async fn heal_blob_if_reclaimed(
 /// fresh metadata, publisher, and timestamp, verification back to
 /// `pending` with the old verdict cleared. R2 first, like
 /// [`persist_new_revision`]. Both statements are guarded on the row
-/// still being the rejected generation this request read (plus the
-/// in-batch `new-revision` opt-in guard) - `false` means a concurrent
-/// revival or verdict moved it first and nothing was changed (a stale
-/// revival must never rewrite a live row, least of all drag a
-/// verified one back to pending). The accounting is decided **before**
+/// still being rejected (plus the in-batch `new-revision` opt-in
+/// guard) and on this request's stamp
+/// exceeding the row's - `false` means a concurrent revival or verdict
+/// moved it first, or the clock did not advance past the rejected
+/// generation, and nothing was changed (a stale revival must never
+/// rewrite a live row, least of all drag a verified one back to
+/// pending; a repeated stamp would let a verdict listed against the
+/// rejected generation land on the revival). The accounting is decided **before**
 /// the row flips, mirroring the verifier's `apply_rejection`: the counter regains
 /// the archive's bytes exactly when the guards will let the flip apply
 /// and no other live row references the checksum - the rejection
@@ -707,6 +712,7 @@ async fn revive_rejected_revision(
                 new.revision.into(),
                 opt_in.clone(),
                 new.metadata_text.into(),
+                new.published_at.into(),
             ])?,
             db.prepare(sql::REVIVE_REJECTED_REVISION).bind(&[
                 new.metadata_text.into(),

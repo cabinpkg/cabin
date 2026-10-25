@@ -10,8 +10,9 @@
 (* A revision row is keyed by (version, checksum): the packaging-revision  *)
 (* id is derived from the checksum, so the two name the same row.  Its    *)
 (* production generation identity is the pair (checksum, published_at);   *)
-(* `pubAt` stands for published_at as the handler sampled it from a clock  *)
-(* that never repeats a value (the assumption README.md states), and the  *)
+(* `pubAt` stands for published_at as the handler sampled it: a fresh      *)
+(* sample advances the clock, and a revival may repeat its row's stamp     *)
+(* (README.md, "Assumptions"), which ReviveGuard refuses; the              *)
 (* guards compare it exactly as the SQL compares the column.  `gen` and   *)
 (* `decided` are ghost history for the properties only; no guard reads    *)
 (* them.                                                                   *)
@@ -41,7 +42,7 @@ Size(c) == c   \* revisions.archive_size, a function of the bytes
 VARIABLES
     status,   \* [Versions -> [Checksums -> Status]]: revisions.verification, "absent" for no row
     pubAt,    \* [Versions -> [Checksums -> Nat]]: revisions.published_at, 0 for no row
-    clock,    \* the last stamp now_iso8601() issued
+    clock,    \* the greatest stamp now_iso8601() has issued (a repeated sample leaves it)
     counter,  \* meta.total_stored_bytes
     blob,     \* [Checksums -> BOOLEAN]: the R2 object blobs/sha256/<checksum> exists
     ledger,   \* [Checksums -> Ledger]: the governor's primary storage entry for that key
@@ -97,10 +98,12 @@ NewGuard(v, c, optIn) ==
     /\ status[v][c] = "absent"
     /\ optIn \/ ~LiveOtherBytes(v, c)
 
-\* REVIVE_REJECTED_REVISION's guards; the checksum is the row's own
-ReviveGuard(v, c, optIn) ==
+\* REVIVE_REJECTED_REVISION's guards; the checksum is the row's own, and
+\* `published_at < ?` makes the revival a new generation by stamp alone
+ReviveGuard(v, c, optIn, stamp) ==
     /\ status[v][c] = "rejected"
     /\ optIn \/ ~LiveOtherBytes(v, c)
+    /\ stamp > pubAt[v][c]
 
 \* COUNT_STORED_BYTES_ON_PUBLISH / _ON_REVIVAL: the sole live reference counts
 CountOnWrite(c) == IF LiveRefs(c) = 0 THEN Size(c) ELSE 0
@@ -187,6 +190,13 @@ PubAnswer(p) ==
 \* The request can also end here without reaching D1: the governor refuses
 \* admission or the reservation (nothing written), or the put fails after
 \* the reservation (a conservative reserved entry with no object).
+\*
+\* The clock is not trusted where the stamp carries the generation: a
+\* revival may also sample its row's current stamp again (a Worker clock
+\* behind the one that stamped the rejected generation, or two publish
+\* events in one millisecond; an earlier sample fails the same guard), and
+\* ReviveGuard refuses it.  Elsewhere a repeated stamp would only reach
+\* the `(published_at, revision)` tie-break of current_revisions.
 PubStore(p) ==
     /\ pub[p].phase = "disposed"
     /\ pub[p].disp \in {"new", "revive"}
@@ -196,10 +206,12 @@ PubStore(p) ==
              /\ IF pub[p].disp = "new" /\ blob[c]
                 THEN UNCHANGED <<blob, ledger>>
                 ELSE blob' = [blob EXCEPT ![c] = TRUE] /\ ledger' = reserve
-             /\ clock' = clock + 1
-             /\ pub' = [pub EXCEPT ![p] = [phase |-> "stored", v |-> pub[p].v, c |-> c,
-                                        optIn |-> pub[p].optIn, disp |-> pub[p].disp,
-                                        stamp |-> clock + 1]]
+             /\ \E stamp \in {clock + 1} \cup
+                             (IF pub[p].disp = "revive" THEN {pubAt[pub[p].v][c]} ELSE {}) :
+                 /\ clock' = IF stamp = clock + 1 THEN clock + 1 ELSE clock
+                 /\ pub' = [pub EXCEPT ![p] = [phase |-> "stored", v |-> pub[p].v, c |-> c,
+                                            optIn |-> pub[p].optIn, disp |-> pub[p].disp,
+                                            stamp |-> stamp]]
           \/ /\ ledger' \in {ledger, reserve}
              /\ pub' = [pub EXCEPT ![p] = Idle]
              /\ UNCHANGED <<blob, clock>>
@@ -215,7 +227,7 @@ PubBatch(p) ==
            c == pub[p].c
            guard == IF pub[p].disp = "new"
                     THEN NewGuard(v, c, pub[p].optIn)
-                    ELSE ReviveGuard(v, c, pub[p].optIn)
+                    ELSE ReviveGuard(v, c, pub[p].optIn, pub[p].stamp)
        IN \/ /\ guard
              /\ status' = [status EXCEPT ![v][c] = "pending"]
              /\ pubAt' = [pubAt EXCEPT ![v][c] = pub[p].stamp]
@@ -418,8 +430,9 @@ TypeOK ==
     /\ decided \in [Versions -> [Checksums -> 0..MaxStamps]]
     /\ basis \in [Versions -> [Checksums -> Basis]]
 
-\* A row exists exactly when it has been stamped; stamps are unique (each
-\* sample advances the clock, so a sample never repeats).
+\* A row exists exactly when it has been stamped; stamps are unique (a
+\* fresh sample advances the clock, and the one repeated sample the model
+\* admits, a revival's, is refused by ReviveGuard).
 RowsStamped ==
     /\ \A v \in Versions, c \in Checksums :
         /\ (status[v][c] = "absent") <=> (pubAt[v][c] = 0)

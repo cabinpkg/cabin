@@ -107,9 +107,9 @@ statements! {
     /// `revive_rejected_revision`; revivals are byte-identical, so
     /// the checksum is the row's own).  The conditions mirror
     /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)'s guards one-for-one - the
-    /// opt-in (`?8`) and resolver-metadata invariance (`?9`)
-    /// conjuncts included - so the counter can never gain bytes for
-    /// a flip the guards refused.
+    /// opt-in (`?8`), resolver-metadata invariance (`?9`), and
+    /// advancing-stamp (`?10`) conjuncts included - so the counter can
+    /// never gain bytes for a flip the guards refused.
     COUNT_STORED_BYTES_ON_REVIVAL =
         "UPDATE meta SET value = CAST(value AS INTEGER) + \
          CASE WHEN (SELECT verification FROM revisions \
@@ -119,6 +119,8 @@ statements! {
                    WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?7) = ?4 \
               AND (SELECT COUNT(*) FROM revisions \
                    WHERE checksum = ?5 AND verification != 'rejected') = 0 \
+              AND (SELECT published_at FROM revisions \
+                   WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?7) < ?10 \
               AND (?8 OR NOT EXISTS \
                    (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
                     AND verification IN ('pending', 'verified') AND checksum <> ?4)) \

@@ -812,7 +812,18 @@ fn links_accounting_guards_mirror_the_revision_guards() {
     let revive_count = |metadata: &str| {
         conn.execute(
             sql::COUNT_STORED_BYTES_ON_REVIVAL,
-            rusqlite::params!["alpha", "pkg", "1.0.0", "f1", "f1", 40, "f1", 1, metadata],
+            rusqlite::params![
+                "alpha",
+                "pkg",
+                "1.0.0",
+                "f1",
+                "f1",
+                40,
+                "f1",
+                1,
+                metadata,
+                "2026-07-15T03:00:00.000Z"
+            ],
         )
         .expect("revival accounting");
     };
@@ -970,7 +981,18 @@ fn a_refused_revival_never_counts_its_bytes() {
     // first, then the guarded flip - both with opt-in 0.
     conn.execute(
         sql::COUNT_STORED_BYTES_ON_REVIVAL,
-        rusqlite::params!["alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 0, "{}"],
+        rusqlite::params![
+            "alpha",
+            "pkg",
+            "1.0.0",
+            "aa",
+            "aa",
+            10,
+            "aa",
+            0,
+            "{}",
+            "2026-07-15T03:00:00.000Z"
+        ],
     )
     .expect("revival accounting");
     let flipped = conn
@@ -995,7 +1017,18 @@ fn a_refused_revival_never_counts_its_bytes() {
     // With the opt-in both fire together and the bytes are re-counted.
     conn.execute(
         sql::COUNT_STORED_BYTES_ON_REVIVAL,
-        rusqlite::params!["alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 1, "{}"],
+        rusqlite::params![
+            "alpha",
+            "pkg",
+            "1.0.0",
+            "aa",
+            "aa",
+            10,
+            "aa",
+            1,
+            "{}",
+            "2026-07-15T03:00:00.000Z"
+        ],
     )
     .expect("revival accounting");
     let flipped = conn
@@ -1047,7 +1080,18 @@ fn revival_invariance_guard_is_enforced_inside_the_update() {
     let revive = |metadata: &str| -> usize {
         conn.execute(
             sql::COUNT_STORED_BYTES_ON_REVIVAL,
-            rusqlite::params!["alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 1, metadata],
+            rusqlite::params![
+                "alpha",
+                "pkg",
+                "1.0.0",
+                "aa",
+                "aa",
+                10,
+                "aa",
+                1,
+                metadata,
+                "2026-07-15T03:00:00.000Z"
+            ],
         )
         .expect("revival accounting");
         conn.execute(
@@ -1139,4 +1183,54 @@ fn revision_inserts_enforce_resolver_metadata_invariance() {
         ),
         1
     );
+}
+
+/// A revival must advance the rejected generation's `published_at`: an
+/// equal or earlier stamp (a Worker clock behind the one that stamped
+/// the rejected generation) changes zero rows and counts zero bytes, so
+/// `(checksum, published_at)` names one publish event and a verdict
+/// listed against the rejected generation can never bind the revival.
+#[test]
+fn revival_must_advance_the_rejected_generations_stamp() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    conn.execute(
+        "UPDATE revisions SET verification = 'rejected' WHERE revision = 'aa'",
+        [],
+    )
+    .expect("reject aa");
+    let stored = || -> String {
+        conn.query_row(
+            "SELECT value FROM meta WHERE key = 'total_stored_bytes'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stored bytes")
+    };
+    let revive_count = |stamp: &str| {
+        conn.execute(
+            sql::COUNT_STORED_BYTES_ON_REVIVAL,
+            rusqlite::params![
+                "alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 1, "{}", stamp
+            ],
+        )
+        .expect("revival accounting");
+    };
+    let revive = |stamp: &str| -> usize {
+        conn.execute(
+            sql::REVIVE_REJECTED_REVISION,
+            rusqlite::params!["{}", stamp, 2, "alpha", "pkg", 1, "1.0.0", "aa", "aa"],
+        )
+        .expect("guarded revival")
+    };
+
+    // The seeded row was stamped 2026-07-15T00:00:00.000Z.
+    for stale in ["2026-07-15T00:00:00.000Z", "2026-07-14T23:59:59.999Z"] {
+        revive_count(stale);
+        assert_eq!(revive(stale), 0, "a stamp that does not advance must lose");
+        assert_eq!(stored(), "30", "a refused revival must add nothing");
+    }
+    revive_count("2026-07-15T00:00:00.001Z");
+    assert_eq!(revive("2026-07-15T00:00:00.001Z"), 1);
+    assert_eq!(stored(), "40", "the applied revival re-counts its bytes");
 }
