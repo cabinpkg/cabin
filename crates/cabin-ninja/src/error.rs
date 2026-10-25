@@ -16,13 +16,6 @@ pub enum NinjaError {
     #[error("failed to serialize compile_commands.json: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// Lowering a semantic [`cabin_build::BuildAction`] into a concrete
-    /// command failed - in practice, a path that must be embedded in
-    /// the command line is not valid UTF-8.  The wrapped
-    /// [`cabin_build::BuildError`] carries the offending path.
-    #[error(transparent)]
-    Lowering(#[from] cabin_build::BuildError),
-
     /// A path token carried a literal `\n` or `\r`.  Ninja has no
     /// escape for either in token positions: a newline ends the
     /// build statement, and a lone carriage return trips Ninja's
@@ -49,7 +42,4 @@ pub enum NinjaError {
     /// the whole render.  Carries the offending argument verbatim.
     #[error("command argument cannot be shell-quoted: {0:?}")]
     UnquotableArgument(String),
-
-    #[error("path {} cannot be represented as UTF-8", .0.display())]
-    NonUtf8Path(PathBuf),
 }
