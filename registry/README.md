@@ -112,8 +112,9 @@ artifact checksum) -
 and the verification lifecycle (pending -> verify -> resolvable with a
 verify-scoped token, plus the reject -> reclaim -> refund -> republish
 flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
-and Node (for the pinned `npx --yes wrangler@4.151.1`); `worker-build`
-installs itself on first build.
+and Node, then `npm ci --ignore-scripts` in this directory (again after
+`package-lock.json` changes) to install the wrangler `package.json` pins;
+`worker-build` installs itself on first build.
 
 Before its servers start, the smoke also restores its local D1 export into a
 scratch database and requires the same schema and rows: the backup cron leg
@@ -143,13 +144,13 @@ id and the database id - both public identifiers, not secrets; fill
 `database_id` after creating the database):
 
 ```sh
-npx --yes wrangler@4.151.1 d1 create cabin-registry
-npx --yes wrangler@4.151.1 r2 bucket create cabin-registry-blobs
-npx --yes wrangler@4.151.1 r2 bucket create cabin-registry-backup
-npx --yes wrangler@4.151.1 d1 migrations apply DB --remote
-npx --yes wrangler@4.151.1 deploy
-npx --yes wrangler@4.151.1 secret put GITHUB_CLIENT_SECRET
-openssl rand -base64 32 | npx --yes wrangler@4.151.1 secret put SESSION_SECRET
+node_modules/.bin/wrangler d1 create cabin-registry
+node_modules/.bin/wrangler r2 bucket create cabin-registry-blobs
+node_modules/.bin/wrangler r2 bucket create cabin-registry-backup
+node_modules/.bin/wrangler d1 migrations apply DB --remote
+node_modules/.bin/wrangler deploy
+node_modules/.bin/wrangler secret put GITHUB_CLIENT_SECRET
+openssl rand -base64 32 | node_modules/.bin/wrangler secret put SESSION_SECRET
 ```
 
 The secrets back the GitHub sign-in flow ("Getting a token" above):

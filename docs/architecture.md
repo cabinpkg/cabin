@@ -511,7 +511,8 @@ credentials and talk to the running service, which is what separates them from t
 in `xtask-registry-guard`.  `verify::run` is the workflow's entry and pins every origin to https
 before calling `verify::run_with`, which takes its origins, mint and inspector as given, for a
 caller that vouches for them: the registry smoke, against its loopback Worker.  Every wrangler
-invocation goes through one pinned constructor, so no command can reach an unpinned CLI.  The
+invocation goes through one constructor, which runs the copy `npm ci` installed from
+`registry/package-lock.json` by path, so no command can reach an unpinned CLI.  The
 `verify` driver speaks its own token-plane HTTP - the
 OIDC mint and the trusted-publishing exchange/revocation included - as a deliberate exception to
 `cabin-registry-api`'s ownership of those calls: it is self-contained, with its own documented

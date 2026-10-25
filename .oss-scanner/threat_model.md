@@ -36,9 +36,10 @@ session plane (`/api/v1/user`, including the source viewer); and stored rows
 read back later. Routes and the two credential planes are specified in
 `docs/remote-registry.md` and `registry/docs/architecture.md`; body caps are
 constants in `registry/src/`. `wrangler.jsonc` vars and secrets are operator
-input, and so is the deploy toolchain: the deploy job installs the pinned
-`wrangler` through npm at deploy time, so its dependency closure runs with the
-deploy token. That is an accepted boundary, not a hardened one.
+input, and so is the deploy toolchain: the deploy job installs `wrangler`
+through npm at deploy time, locked by `registry/package-lock.json`, so its
+dependency closure runs with the deploy token. That is an accepted boundary,
+not a hardened one.
 
 **Verifier.** `cargo registry-verify` (the driver, run by
 `.github/workflows/registry-verify.yml`) downloads each pending archive with a
@@ -147,8 +148,9 @@ report them, but not as currently exploitable.
 
 ## Reproduce offline
 
-No network at scan time; `cargo` and `npx` resolve from caches. `/src` is the
-checkout; put `/src/target/debug` (the `cabin` binary) on `PATH`.
+No network at scan time; `cargo` resolves from its cache and wrangler from
+`/src/registry/node_modules`. `/src` is the checkout; put `/src/target/debug`
+(the `cabin` binary) on `PATH`.
 
 - `cargo test --workspace --all-targets --all-features --locked --no-fail-fast`:
   unit tests and the CLI integration tests (`crates/cabin/tests/`), which serve
@@ -172,7 +174,7 @@ checkout; put `/src/target/debug` (the `cabin` binary) on `PATH`.
   whole write path end to end against two `wrangler dev` instances with GitHub
   and Cloudflare mocks. To probe by hand, keep a dev server up the way
   `crates/xtask-registry-smoke/src/servers.rs` does (`render_dev_vars`,
-  `seed_sql`, `npx --yes wrangler@4.151.1 dev`); its `.dev.vars` values are
+  `seed_sql`, `node_modules/.bin/wrangler dev`); its `.dev.vars` values are
   local fixtures, not secrets.
 
 The best reproducer is a `curl` transcript against `wrangler dev`, a Rust test

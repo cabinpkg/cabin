@@ -1,0 +1,7 @@
+{
+  "name": "cabin-registry",
+  "private": true,
+  "dependencies": {
+    "wrangler": "4.151.1"
+  }
+}

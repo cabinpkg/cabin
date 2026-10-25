@@ -29,7 +29,8 @@ RUN cd registry \
     && cargo test --locked --no-run \
     && cargo install -q "worker-build@=0.8.5" --locked \
     && worker-build --release \
-    && npx --yes wrangler@4.151.1 --version
+    && npm ci --ignore-scripts \
+    && node_modules/.bin/wrangler --version
 
 # The scan has no network: resolve from the caches above instead of timing out.
 ENV CARGO_NET_OFFLINE=true \

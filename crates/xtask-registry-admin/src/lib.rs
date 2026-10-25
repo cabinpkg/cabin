@@ -38,11 +38,6 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-/// The pinned wrangler.  `.github/workflows/registry.yml`
-/// (`wranglerVersion`) pins it independently; the two move together,
-/// and nothing checks that they do - bump both.
-pub const WRANGLER: &str = "wrangler@4.151.1";
-
 /// The BACKUP bucket, which more than one command reaches: the
 /// backfill writes to it and the audit reads it.  Its `blobs/`
 /// namespace is append-only (`registry/docs/runbook.md`, "Disaster
@@ -165,13 +160,14 @@ fn js_whitespace(character: char) -> bool {
     )
 }
 
-/// `wrangler`, pinned, run from `registry/`.  Held apart from the
-/// argument lists so no command can reach an unpinned CLI.
+/// `wrangler` as `npm ci` installed it from `registry/package-lock.json`,
+/// run from `registry/`.  The entry point is named by path, not resolved
+/// through `npx`, which falls back to any other wrangler on the machine
+/// when that install is missing; so no command can reach an unpinned CLI.
 pub fn wrangler(arguments: &[&str]) -> Command {
-    let mut command = Command::new("npx");
+    let mut command = Command::new("node");
     command
-        .arg("--yes")
-        .arg(WRANGLER)
+        .arg(registry_dir().join("node_modules/wrangler/bin/wrangler.js"))
         .args(arguments)
         // Wrangler's diagnostics go to the operator's terminal; a
         // caller that wants them quiet says so itself.

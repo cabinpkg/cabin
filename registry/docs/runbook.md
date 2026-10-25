@@ -2,7 +2,9 @@
 
 All wrangler commands run with `registry/` as the working directory against
 the single top-level configuration in `wrangler.jsonc` (no wrangler
-environments, no `--env`). Authentication: `CLOUDFLARE_API_TOKEN` in the
+environments, no `--env`), as `node_modules/.bin/wrangler`: the version
+`package.json` pins, installed by `npm ci --ignore-scripts` there (again
+after `package-lock.json` changes). Authentication: `CLOUDFLARE_API_TOKEN` in the
 environment (scopes: Workers Scripts Edit, D1 Edit, R2 Edit, and DNS Edit
 on the cabinpkg.com zone).
 
@@ -118,8 +120,8 @@ contract therefore briefly has the account pages ahead of the live
 registry Worker while the deploy runs - accepted pre-launch (private
 alpha), with no legacy-field fallbacks in the frontend. A red deploy job may or may not
 have activated the new version (`wrangler deploy` can fail after
-activation), so check `npx --yes wrangler@4.151.1 deployments list` and run
-the smoke checks below; `npx --yes wrangler@4.151.1 deploy` from this directory stays
+activation), so check `node_modules/.bin/wrangler deployments list` and run
+the smoke checks below; `node_modules/.bin/wrangler deploy` from this directory stays
 the manual fallback. The CI deploy token is scoped to Workers
 Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
 remain manual steps in this runbook. For exactly that reason the
@@ -184,20 +186,20 @@ the nightly dump (plus the optional `NOTIFY_WEBHOOK_URL`; see "Budget
 breaker and service mode" and "Disaster recovery").
 
 ```sh
-npx --yes wrangler@4.151.1 d1 create cabin-registry
+node_modules/.bin/wrangler d1 create cabin-registry
 # copy the printed database_id into d1_databases AND vars.D1_DATABASE_ID
 # in wrangler.jsonc
-npx --yes wrangler@4.151.1 r2 bucket create cabin-registry-blobs
-npx --yes wrangler@4.151.1 r2 bucket create cabin-registry-backup
-npx --yes wrangler@4.151.1 d1 migrations apply DB --remote
-npx --yes wrangler@4.151.1 deploy
+node_modules/.bin/wrangler r2 bucket create cabin-registry-blobs
+node_modules/.bin/wrangler r2 bucket create cabin-registry-backup
+node_modules/.bin/wrangler d1 migrations apply DB --remote
+node_modules/.bin/wrangler deploy
 # deploy creates the registry.cabinpkg.com custom domain and its DNS
 # record on the cabinpkg.com zone; deploy first so the secret puts below
 # attach to a deployed Worker instead of prompting to create a draft.
-printf '%s' "$GITHUB_CLIENT_SECRET" | npx --yes wrangler@4.151.1 secret put GITHUB_CLIENT_SECRET
-openssl rand -base64 32 | npx --yes wrangler@4.151.1 secret put SESSION_SECRET
-printf '%s' "$ANALYTICS_API_TOKEN" | npx --yes wrangler@4.151.1 secret put ANALYTICS_API_TOKEN
-printf '%s' "$D1_EXPORT_API_TOKEN" | npx --yes wrangler@4.151.1 secret put D1_EXPORT_API_TOKEN
+printf '%s' "$GITHUB_CLIENT_SECRET" | node_modules/.bin/wrangler secret put GITHUB_CLIENT_SECRET
+openssl rand -base64 32 | node_modules/.bin/wrangler secret put SESSION_SECRET
+printf '%s' "$ANALYTICS_API_TOKEN" | node_modules/.bin/wrangler secret put ANALYTICS_API_TOKEN
+printf '%s' "$D1_EXPORT_API_TOKEN" | node_modules/.bin/wrangler secret put D1_EXPORT_API_TOKEN
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
@@ -371,7 +373,7 @@ ones. Launch is a data and policy event, in order:
 2. Flip the launch flag - once, by hand:
 
    ```sh
-   npx --yes wrangler@4.151.1 d1 execute DB --remote --command \
+   node_modules/.bin/wrangler d1 execute DB --remote --command \
      "UPDATE meta SET value = 'true' WHERE key = 'launched'"
    ```
 
@@ -416,7 +418,7 @@ until a read budget is configured - see "Read budgets and paid-plan
 activation" below). Inspect it:
 
 ```sh
-npx --yes wrangler@4.151.1 d1 execute DB --remote --command \
+node_modules/.bin/wrangler d1 execute DB --remote --command \
   "SELECT key, value FROM meta WHERE key IN
    ('service_mode', 'service_mode_reason', 'total_stored_bytes')"
 ```
@@ -425,7 +427,7 @@ Override it (for example to force-block writes during an incident, or to
 unblock after freeing storage):
 
 ```sh
-npx --yes wrangler@4.151.1 d1 execute DB --remote --command \
+node_modules/.bin/wrangler d1 execute DB --remote --command \
   "UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode'"
 ```
 
@@ -479,7 +481,7 @@ Tokens -> Create Token -> Custom token). It reads aggregate usage numbers
 and nothing else.
 
 ```sh
-printf '%s' "$ANALYTICS_API_TOKEN" | npx --yes wrangler@4.151.1 secret put ANALYTICS_API_TOKEN
+printf '%s' "$ANALYTICS_API_TOKEN" | node_modules/.bin/wrangler secret put ANALYTICS_API_TOKEN
 ```
 
 To rotate it, create the replacement token first, run the `secret put`
@@ -574,7 +576,7 @@ report - `added`, `unreferenced`, `mismatched` - and touches the
 (a crashed publish's blob, a lost race, or a blob you deleted by
 hand); it keeps consuming allowance until an operator releases it with
 evidence. To release one: delete the object if it still exists
-(dashboard or `npx --yes wrangler@4.151.1 r2 object delete`), then:
+(dashboard or `node_modules/.bin/wrangler r2 object delete`), then:
 
 ```sh
 (cd .. && cargo registry-governor release primary blobs/sha256/<hex>)
@@ -598,15 +600,15 @@ script enforces. The full sequence:
 # a blanket 'normal' - if the breaker had the registry in 'warn' or a
 # blocked mode for budget reasons, forcing 'normal' would reopen it
 # until the next cron pass recomputes
-npx --yes wrangler@4.151.1 d1 execute DB --remote --command \
+node_modules/.bin/wrangler d1 execute DB --remote --command \
   "SELECT value FROM meta WHERE key = 'service_mode'"
-npx --yes wrangler@4.151.1 d1 execute DB --remote --command \
+node_modules/.bin/wrangler d1 execute DB --remote --command \
   "UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode'"
 # wait ~5 minutes: the mode cache (60 s) plus in-flight upload time -
 # after a publish's reservation, the put is server-paced (the body is
 # already consumed), so the reserve-to-put gap is not client-extendable
 (cd .. && cargo registry-governor release primary blobs/sha256/<hex>)
-npx --yes wrangler@4.151.1 d1 execute DB --remote --command \
+node_modules/.bin/wrangler d1 execute DB --remote --command \
   "UPDATE meta SET value = '<the mode noted above>' WHERE key = 'service_mode'"
 ```
 
@@ -708,7 +710,7 @@ true R2 cap in the interim.
 `wrangler.jsonc` tags `Governor` as a SQLite-backed class); the CI
 deploy token's Workers Scripts:Edit scope covers Durable Object
 migrations, but watch the first deploy that introduces the class and
-fall back to a manual `npx --yes wrangler@4.151.1 deploy` if the API
+fall back to a manual `node_modules/.bin/wrangler deploy` if the API
 refuses. A wiped or reinitialized object recreates its schema
 idempotently; reconciliation then rebuilds the **primary** rows
 conservatively from D1, the backfill script re-ledgers the **backup**
@@ -742,6 +744,7 @@ cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
 
 # 2. The full local smoke run (wrangler dev; several minutes). Wipe
 #    local state first so the ledger and edge cache start empty.
+npm ci --ignore-scripts
 (cd .. && CABIN_WIPE_YES=1 cargo registry-wipe --local)
 (cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)
 
@@ -750,7 +753,7 @@ cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
 #    deploy-registry (skipped while
 #    the migrations stamp is pending - cargo registry-migrate).
 #    Watch it land:
-npx --yes wrangler@4.151.1 deployments list
+node_modules/.bin/wrangler deployments list
 
 # 4. Post-deploy validation (see "Deploy skew" for the smoke curls):
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
@@ -788,12 +791,12 @@ resources). Two rules bound what a rollback may target:
   whose governor protocol matches what is deployed today (any version
   since the hardening pass shares it), and prefer a `git revert`
   through CI - it keeps the freshness and migrations gates and leaves
-  an auditable trail. `npx --yes wrangler@4.151.1 rollback` is for the
+  an auditable trail. `node_modules/.bin/wrangler rollback` is for the
   emergency where CI itself is the problem.
 
 ```sh
-npx --yes wrangler@4.151.1 deployments list   # find the target version
-npx --yes wrangler@4.151.1 rollback           # interactive; or pass the version id
+node_modules/.bin/wrangler deployments list   # find the target version
+node_modules/.bin/wrangler rollback           # interactive; or pass the version id
 # then validate exactly like a deploy:
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
 (cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor usage)
@@ -1097,8 +1100,8 @@ list; each later option covers a case the earlier one cannot.
    planning an incident response). Restore is destructive and in-place:
 
    ```sh
-   npx --yes wrangler@4.151.1 d1 time-travel info cabin-registry
-   npx --yes wrangler@4.151.1 d1 time-travel restore cabin-registry --timestamp=<unix-ts>
+   node_modules/.bin/wrangler d1 time-travel info cabin-registry
+   node_modules/.bin/wrangler d1 time-travel restore cabin-registry --timestamp=<unix-ts>
    ```
 
    Blobs need nothing - R2 is untouched by a bad deploy, and archives
@@ -1176,7 +1179,7 @@ reuses it instead of re-uploading (and counts it into
 is never invisible spend: the crashed publish's reservation keeps
 representing the bytes, reconciliation reports the entry as
 `unreferenced` on every pass, and the cleanup is the operator pairing -
-delete the object (dashboard or `npx --yes wrangler@4.151.1 r2 object
+delete the object (dashboard or `node_modules/.bin/wrangler r2 object
 delete`), then `cargo registry-governor release primary <key>` from the
 repository root ("The cost
 governor"). There is deliberately
@@ -1194,7 +1197,7 @@ from D1 alone - every revision row carries `archive_size`, and the
 counter is one size per distinct live checksum:
 
 ```sh
-wrangler d1 execute DB --remote --command "
+node_modules/.bin/wrangler d1 execute DB --remote --command "
   INSERT INTO meta (key, value) SELECT 'total_stored_bytes',
     CAST(COALESCE(SUM(size), 0) AS TEXT) FROM (
       SELECT MAX(archive_size) AS size FROM revisions
@@ -1221,7 +1224,7 @@ backfill. Nothing should ever make them drift; this check, which reads
 every package and revision once, must return no rows:
 
 ```sh
-wrangler d1 execute DB --remote --command "
+node_modules/.bin/wrangler d1 execute DB --remote --command "
   SELECT id, package_count, stored_bytes FROM users u
   WHERE package_count != (SELECT COUNT(*) FROM packages WHERE created_by = u.id)
      OR stored_bytes != (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
@@ -1232,7 +1235,7 @@ A row it returns is a bug to investigate first; the repair recomputes
 the tallies from the rows:
 
 ```sh
-wrangler d1 execute DB --remote --command "
+node_modules/.bin/wrangler d1 execute DB --remote --command "
   UPDATE users SET
     package_count = (SELECT COUNT(*) FROM packages WHERE created_by = users.id),
     stored_bytes = (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
