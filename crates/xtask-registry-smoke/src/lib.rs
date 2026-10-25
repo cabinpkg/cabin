@@ -59,6 +59,7 @@ pub fn run() -> Result<()> {
     // reading files from it right up until they are killed.
     let mock_dir = TempDir::new().context("creating the mock directory")?;
     servers::export_dump(mock_dir.path())?;
+    servers::rehearse_restore(mock_dir.path())?;
     let mut servers = DevServers::start(&ports, mock_dir.path())?;
 
     let github_port = port("SMOKE_GITHUB_PORT", &ports.github)?;
