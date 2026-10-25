@@ -71,23 +71,7 @@ pub struct RegistryPublishReport {
 pub fn publish_to_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
-    let staged = stage_with_project(
-        workflow.manifest_path,
-        workflow.resolved_project,
-        None,
-        &workflow.workspace_dep_requirements,
-    )?;
-    require_scoped_name(&staged.name, workflow.manifest_path)?;
-    require_scoped_dependency_names(&staged.metadata, workflow.manifest_path)?;
-    // Reject on a PL1 error before touching the registry; a passing
-    // check returns the PL2/PL3 warnings to surface.
-    let warnings = evaluate_lints(&staged, workflow.registry_dir)?;
-    let outcome = publish_to_registry(&RegistryPublishRequest {
-        registry_dir: workflow.registry_dir,
-        staged: &staged,
-        new_revision: workflow.new_revision,
-    })?;
-    Ok(into_report(staged, outcome, false, warnings))
+    run_workflow(workflow, false)
 }
 
 /// Stage the package and run every pre-write check against the file
@@ -103,6 +87,13 @@ pub fn publish_to_file_registry(
 pub fn dry_run_against_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
+    run_workflow(workflow, true)
+}
+
+fn run_workflow(
+    workflow: RegistryPublishWorkflow<'_>,
+    dry_run: bool,
+) -> Result<RegistryPublishReport, PublishError> {
     let staged = stage_with_project(
         workflow.manifest_path,
         workflow.resolved_project,
@@ -111,13 +102,20 @@ pub fn dry_run_against_file_registry(
     )?;
     require_scoped_name(&staged.name, workflow.manifest_path)?;
     require_scoped_dependency_names(&staged.metadata, workflow.manifest_path)?;
+    // Reject on a PL1 error before touching the registry; a passing
+    // check returns the PL2/PL3 warnings to surface.
     let warnings = evaluate_lints(&staged, workflow.registry_dir)?;
-    let outcome = validate_publish(&RegistryPublishRequest {
+    let request = RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
         new_revision: workflow.new_revision,
-    })?;
-    Ok(into_report(staged, outcome, true, warnings))
+    };
+    let outcome = if dry_run {
+        validate_publish(&request)
+    } else {
+        publish_to_registry(&request)
+    }?;
+    Ok(into_report(staged, outcome, dry_run, warnings))
 }
 
 /// The publish gate for bare names: registry packages are always
