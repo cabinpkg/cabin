@@ -76,11 +76,9 @@ the paid exposure (R2 Class A writes) and the heavy CPU live. The zone
 security exemption above must likewise keep the machine `/api/*` traffic
 on `cabinpkg.com` out of any visitor challenge.
 
-Verified 2026-07-09 with a 70-request burst against an `/api/` path:
-exactly 50 requests reached the Worker, the rest answered a Cloudflare
-`429` with `retry-after: 10` (see `verification.md`). A WAF `429` carries
-no error envelope; cabin's rate-limit mapping degrades to the same "try
-again" hint off the header alone.
+A WAF `429` carries `retry-after: 10` but no error envelope; cabin's
+rate-limit mapping degrades to the same "try again" hint off the header
+alone.
 
 This dashboard-managed rule is the OUTER layer only. The two public
 OIDC endpoints (the trusted-publishing exchange and the verdict PATCH)
@@ -657,8 +655,11 @@ request count matters, and the `b_ordinary` budget alone
 touch the object, so steady-state traffic stays far below either
 wall; when one is hit the platform refuses the object's requests and
 every governed path fails closed (an availability backstop, never
-overspend). Moving to Workers Paid lifts these ceilings and is the
-prerequisite for opening the registry beyond the allowlist; until
+overspend). Moving to Workers Paid lifts these ceilings - and the free
+plan's documented 10 ms CPU limit, which near-cap publishes and
+downloads exceed (hashing alone costs ~4 ms/MiB, so no useful
+`max_archive_bytes` fits under it) - and is the prerequisite for opening
+the registry beyond the allowlist; until
 then, do not raise `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` toward its
 cap without accepting that the object's daily quotas become the
 guaranteed failure point.
@@ -1007,7 +1008,7 @@ origin. Set both variables together when targeting a different deployment.
 Backups run entirely inside Cloudflare - R2/D1 bindings and one
 D1-scoped API token, no second vendor holding credentials. Post-launch
 registry data is a permanent commitment, so this machinery exists and
-was rehearsed pre-launch (see [`verification.md`](verification.md)).
+is rehearsed (see "Rehearsal" below).
 
 **What is backed up, and how.**
 
@@ -1149,8 +1150,7 @@ database (`cabin-registry-drill`), compares per-table row counts against
 the live database, spot-checks one revision's `metadata_json`
 byte-for-byte, and deletes the scratch database. Run it after enabling
 backups, after changing the dump machinery, and periodically before
-launch milestones; record runs in
-[`verification.md`](verification.md). Row counts legitimately drift on
+launch milestones. Row counts legitimately drift on
 an active database (the dump is nightly) - investigate only differences
 the timeline cannot explain.
 
