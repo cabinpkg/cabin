@@ -124,9 +124,11 @@ pub fn generate(out: &Path) -> Result<()> {
         .args(["build", "--locked", "--manifest-path"])
         .arg(root.join("Cargo.toml"))
         .args(["--bin", "cabin"]))?;
-    let cabin = root
-        .join("target/debug")
-        .join(format!("cabin{}", std::env::consts::EXE_SUFFIX));
+    // The alias builds this tool into the same target directory and
+    // profile as the build above, wherever the target directory is.
+    let cabin = std::env::current_exe()
+        .context("resolve the tool's own path")?
+        .with_file_name(format!("cabin{}", std::env::consts::EXE_SUFFIX));
 
     let sources = tempfile::tempdir().context("create a scratch directory")?;
     step("authoring the fixture packages");
