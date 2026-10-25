@@ -400,6 +400,25 @@ pub(crate) fn enforce_vendor_local_index_post_replacement(
     );
 }
 
+/// Locate a resolved index source after source-replacement, enforce
+/// the post-replacement offline rule, and report whether the final
+/// origin is [user-chosen](index_origin_user_chosen).
+pub(crate) fn resolve_index_locator(
+    source: &ResolvedIndexSource,
+    effective_config: &EffectiveConfig,
+    offline: bool,
+    no_patches: bool,
+) -> Result<(cabin_core::SourceReplacementResolution, bool)> {
+    let resolved = crate::cli::patch::apply_source_replacement(
+        index_source_kind_to_locator(&source.kind),
+        effective_config,
+        no_patches,
+    )?;
+    enforce_offline_post_replacement(offline, &resolved)?;
+    let user_chosen = index_origin_user_chosen(source, &resolved);
+    Ok((resolved, user_chosen))
+}
+
 /// The inputs the artifact pipeline consumes once a command has a
 /// concrete index source: the lock policy, the resolved artifact
 /// cache directory, and the locator the index is reachable through
@@ -445,17 +464,11 @@ pub(crate) fn resolve_pipeline_inputs(
     };
     let (index_source, index_user_chosen) = match index_source {
         Some(source) => {
-            let initial_locator = index_source_kind_to_locator(&source.kind);
-            let resolved_locator = crate::cli::patch::apply_source_replacement(
-                initial_locator,
-                effective_config,
-                no_patches,
-            )?;
-            enforce_offline_post_replacement(offline, &resolved_locator)?;
+            let (resolved_locator, user_chosen) =
+                resolve_index_locator(source, effective_config, offline, no_patches)?;
             if vendor_local_index {
                 enforce_vendor_local_index_post_replacement(&resolved_locator)?;
             }
-            let user_chosen = index_origin_user_chosen(source, &resolved_locator);
             (resolved_locator.resolved, user_chosen)
         }
         // The default hosted registry passes the override gate on
