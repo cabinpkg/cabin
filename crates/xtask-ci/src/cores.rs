@@ -230,11 +230,10 @@ pub fn ancestors(root: &str, mount: &str, path: &str) -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
-    /// The table the shell computed, cell for cell.  The shares sum to
-    /// the detected capacity, except the four-core floor where keeping
-    /// every phase alive costs one extra.
+    /// The shares sum to the detected capacity, except the four-core
+    /// floor where keeping every phase alive costs one extra.
     #[test]
-    fn the_split_matches_the_shell_arithmetic() {
+    fn the_split_divides_the_cores_between_the_phases() {
         for cores in 1..4 {
             let jobs = split(cores);
             assert!(!jobs.parallel, "{cores} cores should stay serial");

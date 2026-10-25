@@ -10,12 +10,9 @@
 //! it.  The generic accessors that could yield a `Bucket` without the
 //! `bucket` token appearing at all are banned outright.
 //!
-//! Two things differ from the Perl guard this replaces.  Violations come
-//! out sorted by path rather than in `find`'s directory order.  And the
-//! allowlist keys on the reported path exactly, where the Perl matched
-//! any path ENDING in a sanctioned one - so a nested
-//! `src/x/src/glue/read.rs` no longer inherits `src/glue/read.rs`'s
-//! pins.  Nothing else about which call sites are accepted changes.
+//! Violations come out sorted by path, and the allowlist keys on the
+//! reported path exactly, so a nested `src/x/src/glue/read.rs` does not
+//! inherit `src/glue/read.rs`'s pins.
 //!
 //! ponytail: pins where handles are acquired, not that every use is
 //! admitted - a new call inside an already-pinned function passes, and a

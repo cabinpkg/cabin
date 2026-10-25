@@ -2,7 +2,7 @@
 //! JSON on stdin, always exits 0, and prints `{}` on success or a
 //! decision naming the failed step.
 //!
-//! Two rules the shell established and this keeps:
+//! Two rules:
 //!
 //! - stdout carries ONLY the JSON.  Every byte the gate produced is
 //!   replayed to stderr, success included;
@@ -18,18 +18,14 @@ use std::io::Read as _;
 /// already blocked once, and blocking again on an unfixable failure
 /// would loop the agent through the full gate forever.
 ///
-/// Matched per line over the raw text, as the shell's
-/// `grep '"stop_hook_active"[[:space:]]*:[[:space:]]*true'` matched
-/// it, rather than parsed.  The difference is deliberate and runs both
-/// ways: a parser would find the key in pretty-printed JSON that the
-/// grep misses (allowing a stop the shell blocked), and would miss a
-/// nested occurrence the grep finds.  Keeping the grep keeps the
-/// behavior, and keeping it infallible means malformed JSON cannot
-/// take the hook down.
-/// POSIX `[[:space:]]` in the C locale, which is what the shell's grep
-/// accepted between the key, the colon and `true`.  Trimming only
-/// space and tab would treat a carriage return as a first stop and
-/// block twice.
+/// Matched per line over the raw text rather than parsed.  The
+/// difference runs both ways: a parser would find the key in
+/// pretty-printed JSON that the line match misses, and would miss a
+/// nested occurrence the line match finds.  Keeping it infallible
+/// means malformed JSON cannot take the hook down.
+/// POSIX `[[:space:]]` in the C locale, accepted between the key, the
+/// colon and `true`.  Trimming only space and tab would treat a
+/// carriage return as a first stop and block twice.
 const BLANK: [char; 6] = [' ', '\t', '\n', '\r', '\u{b}', '\u{c}'];
 
 #[must_use]
@@ -84,10 +80,8 @@ pub fn decision(passed: bool, step: &str, already_blocked: bool) -> String {
 }
 
 /// The step name is a phase label this repository writes, not
-/// arbitrary compiler output - the shell kept the reason a fixed
-/// ASCII template for exactly that reason, since one bad escape makes
-/// the whole hook output invalid.  Escaping it anyway costs nothing
-/// and removes the constraint.
+/// arbitrary compiler output, but one bad escape makes the whole hook
+/// output invalid, so it is escaped anyway.
 fn escape(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
@@ -107,9 +101,8 @@ fn escape(value: &str) -> String {
 }
 
 /// Everything on stdin, or the empty string.  A closed or absent fd is
-/// not an error: the shell's `$(cat || true)` treated it as empty, and
-/// empty input falls through to the blocking branch, which is the safe
-/// direction.
+/// not an error: empty input falls through to the blocking branch,
+/// which is the safe direction.
 #[must_use]
 pub fn read_stdin() -> String {
     let mut input = String::new();
@@ -122,11 +115,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_active_flag_is_matched_per_line_as_the_grep_matched_it() {
+    fn the_active_flag_is_matched_per_line() {
         assert!(already_blocked(r#"{"stop_hook_active":true}"#));
         assert!(already_blocked(r#"{"stop_hook_active": true}"#));
         assert!(already_blocked("{\"stop_hook_active\"\t:\ttrue}"));
-        // Nested at any depth, because the grep had no structure.
+        // Nested at any depth, because the line match has no structure.
         assert!(already_blocked(r#"{"a":{"stop_hook_active":true}}"#));
 
         assert!(!already_blocked(r#"{"stop_hook_active":false}"#));
@@ -134,11 +127,10 @@ mod tests {
         assert!(!already_blocked("{}"));
         assert!(!already_blocked(""));
         // A JSON string cannot hold a raw quote, so an escaped mention
-        // never matches - the grep was accidentally robust here.
+        // never matches.
         assert!(!already_blocked(r#"{"x":"{\"stop_hook_active\": true}"}"#));
-        // Line-oriented: the shell's `[[:space:]]*` never spanned a
-        // newline, and neither does this - `lines()` has already split
-        // it, so the key and the value are never on one line together.
+        // Line-oriented: `lines()` has already split it, so the key
+        // and the value are never on one line together.
         assert!(!already_blocked("{\"stop_hook_active\":\n  true}"));
         // ...but every other blank the character class covers is
         // accepted on a single line.
@@ -183,8 +175,7 @@ mod tests {
         assert!(warned.contains("stop allowed to avoid a hook loop"));
     }
 
-    /// A step name carrying a quote must not break the body, which is
-    /// the failure the shell avoided by never interpolating one.
+    /// A step name carrying a quote must not break the body.
     #[test]
     fn a_quoted_step_name_stays_inside_the_string() {
         let body = decision(false, "npm run \"lint\"\n", false);

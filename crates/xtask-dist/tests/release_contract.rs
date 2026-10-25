@@ -1,6 +1,5 @@
 //! The release-packaging contracts a published archive depends on
-//! (cargo-binstall declares `pkg-fmt = "txz"` against these names),
-//! extracted from the retired shell-vs-port differentials.
+//! (cargo-binstall declares `pkg-fmt = "txz"` against these names).
 //!
 //! Unix-only: the archive on this path is `tar -cJf`'s, and `tar` is
 //! what unpacks it for the layout assertion.

@@ -1,13 +1,5 @@
-//! The migrations deploy gate, ported from the `run:` body of the
-//! "Skip until changed D1 migrations are applied by hand" step of
-//! `.github/workflows/registry.yml`.
-//!
-//! ```text
-//! L1  stamp=$(cat registry/migrations/*.sql | sha256sum | cut -d' ' -f1)
-//! L2  if [ "$stamp" != "$(cat registry/migrations-applied)" ]; then
-//! L3    echo "pending=true" >> "$GITHUB_OUTPUT"
-//! L4  fi
-//! ```
+//! The migrations deploy gate: the "Skip until changed D1 migrations
+//! are applied by hand" step of `.github/workflows/registry.yml`.
 //!
 //! This module owns the stamp: [`stamp`], [`digest`], [`applied`] and
 //! [`current`] are also how `cargo registry-migrate`,
@@ -19,33 +11,24 @@
 //!   empty, missing or unreadable `migrations/`, an unreadable
 //!   migration, or an unreadable `migrations-applied` leaves a
 //!   diagnostic on stderr and records `pending=true`. Nothing can fail
-//!   the step except L3's redirect.
+//!   the step except the `$GITHUB_OUTPUT` write.
 //! - **The glob's selection and order.** `*.sql` skips dotfiles, is
-//!   case-sensitive, matches bytes rather than UTF-8 (bash falls back
-//!   to byte matching for an invalid multibyte basename), matches a
-//!   directory (whose read then fails), and expands in the runner's
-//!   `C.UTF-8` collation, which is byte order. [`migration_files`] is
-//!   that rule.
-//! - **The comparison is bytes.** `$(...)` drops NUL bytes and strips
-//!   every trailing newline; whatever else `migrations-applied` holds
-//!   (a CRLF ending included) must equal the stamp's lowercase hex
-//!   bytes exactly.
-//! - **L3 is reachable only in the pending case**, so an unset
-//!   `$GITHUB_OUTPUT` fails the step there and nowhere else - the
-//!   shell's `>> ""` exited 1 the same way.
-//!
-//! Stated ceiling: the shell's stderr diagnostics carry `cat`'s
-//! wording and this port's carry its own; `registry.yml` reads the
-//! step's output, never its stderr. The shell's collation follows the
-//! locale (`en_US.UTF-8` sorts `0002_a.sql` before `0002_B.sql`); the
-//! port is fixed to the byte order the runner's `C.UTF-8` produces.
+//!   case-sensitive, matches bytes rather than UTF-8, matches a
+//!   directory (whose read then fails), and sorts in byte order.
+//!   [`migration_files`] is that rule.
+//! - **The comparison is bytes.** `migrations-applied` loses its NUL
+//!   bytes and every trailing newline; whatever else it holds (a CRLF
+//!   ending included) must equal the stamp's lowercase hex bytes
+//!   exactly.
+//! - **The `$GITHUB_OUTPUT` write is reachable only in the pending
+//!   case**, so an unset `$GITHUB_OUTPUT` fails the step there and
+//!   nowhere else.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use sha2::{Digest as _, Sha256};
 
-/// L3's line, byte for byte.
 const OUTPUT_LINE: &str = "pending=true\n";
 
 /// Answer whether the committed D1 migrations still match the stamp
@@ -54,13 +37,13 @@ const OUTPUT_LINE: &str = "pending=true\n";
 ///
 /// # Errors
 ///
-/// Only when `$GITHUB_OUTPUT` is unusable in the pending case (L3).
+/// Only when `$GITHUB_OUTPUT` is unusable in the pending case.
 pub fn run() -> Result<()> {
     run_in(Path::new("."))
 }
 
 /// The whole gate against one repository root; [`run`] passes the
-/// working directory the way the shell's relative paths did.
+/// working directory.
 fn run_in(base: &Path) -> Result<()> {
     match current(&base.join("registry")) {
         Ok(true) => return Ok(()),
@@ -80,8 +63,7 @@ pub fn current(registry: &Path) -> Result<bool> {
     Ok(stamp(registry)?.as_bytes() == applied(registry)?)
 }
 
-/// The files `migrations/*.sql` expands to, in the order the shell
-/// concatenated them.
+/// The files `migrations/*.sql` expands to, in byte order.
 ///
 /// # Errors
 ///
@@ -96,14 +78,10 @@ pub fn migration_files(directory: &Path) -> Result<Vec<PathBuf>> {
         let Some(name) = path.file_name() else {
             return false;
         };
-        // The glob matches bytes, not UTF-8: bash falls back to byte
-        // matching for an invalid multibyte basename, so requiring
-        // `to_str` here would silently drop a migration the shell
-        // counted. And it skips dotfiles unless `dotglob` is set, so
-        // an operator's `.draft.sql` scratch file is outside the
-        // stamp. `registry.yml`'s deploy gate and
-        // `cargo registry-migrate` hash the same glob; counting one
-        // here would report PENDING while deploys stay unblocked.
+        // The glob matches bytes, not UTF-8: requiring `to_str` here
+        // would silently drop a migration with a non-UTF-8 name. And
+        // it skips dotfiles, so an operator's `.draft.sql` scratch
+        // file is outside the stamp.
         let name = name.as_encoded_bytes();
         !name.starts_with(b".") && name.ends_with(b".sql")
     });
@@ -112,7 +90,7 @@ pub fn migration_files(directory: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// L1: the [`digest`] of `<registry>/migrations/*.sql`, which
+/// The [`digest`] of `<registry>/migrations/*.sql`, which
 /// `migrations-applied` records as `"{stamp}\n"`.
 ///
 /// # Errors
@@ -139,8 +117,8 @@ pub fn digest(files: &[PathBuf]) -> Result<String> {
     Ok(cabin_core::hash::hex_digest(&hasher.finalize()))
 }
 
-/// L2's right-hand side: `<registry>/migrations-applied` through
-/// `$(...)`.
+/// `<registry>/migrations-applied` with its NUL bytes and trailing
+/// newlines dropped.
 ///
 /// # Errors
 ///
@@ -181,7 +159,7 @@ mod tests {
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         // The directory entry is selected - the glob matches it, and
-        // `cat`'s per-entry failure is the reader's concern, not the
+        // its read failure is the reader's concern, not the
         // selection's.
         assert_eq!(names, ["0001_a.sql", "0003_dir.sql"]);
     }
@@ -222,7 +200,7 @@ mod tests {
                 .map(|path| path.file_name().unwrap().to_owned())
                 .collect::<Vec<_>>(),
             ["0001_a.sql".into(), name],
-            "bash byte-matches an invalid multibyte basename against *.sql"
+            "an invalid multibyte basename still matches *.sql"
         );
     }
 
@@ -241,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn the_applied_stamp_reads_like_a_command_substitution() {
+    fn the_applied_stamp_drops_nuls_and_trailing_newlines() {
         let temp = assert_fs::TempDir::new().expect("a scratch directory");
         let registry = temp.path();
         let read = || applied(registry).expect("the stamp file");

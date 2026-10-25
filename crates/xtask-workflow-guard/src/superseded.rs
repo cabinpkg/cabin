@@ -1,23 +1,12 @@
-//! The deploy freshness guard, ported from the `run:` body of the
-//! "Skip when superseded by a newer main commit" step of
-//! `.github/workflows/registry.yml`.
+//! The deploy freshness guard: the "Skip when superseded by a newer
+//! main commit" step of `.github/workflows/registry.yml`.
 //!
-//! ```text
-//! L1  git fetch --quiet origin main
-//! L2  if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main")" ]; then
-//! L9    echo "superseded=true" >> "$GITHUB_OUTPUT"
-//! L10 fi
-//! ```
-//!
-//! The original step listed a pathspec once, duplicating
-//! `registry.yml`'s two trigger filters, and lost it when those
-//! filters were removed. `--relevant-to <filter>` restores the
-//! scoping from the shared filter file instead of a duplicated list:
-//! only newer commits matching that filter's entries in
-//! `.github/path-filters.yml` supersede this run. A newer commit
-//! matching none of them cannot change what this run deploys or
-//! publishes, so skipping for it would strand this run's work with no
-//! later run redoing it.
+//! `--relevant-to <filter>` scopes the check through the shared filter
+//! file instead of a duplicated list: only newer commits matching that
+//! filter's entries in `.github/path-filters.yml` supersede this run.
+//! A newer commit matching none of them cannot change what this run
+//! deploys or publishes, so skipping for it would strand this run's
+//! work with no later run redoing it.
 //!
 //! Failure direction: when the filter file defies the strict line
 //! grammar (or lacks the named list), the guard warns on stderr and
@@ -37,17 +26,11 @@
 //! change cannot be hidden, the pre-squash-merge history a re-run of
 //! an old run would walk included.
 //!
-//! Inherited properties of the port, each pinned by running the
-//! original under `bash -e`, GitHub's default `run:` shell (`-e` on,
-//! `-u` and `-o pipefail` off):
-//!
-//! - **L2 fails open.** The substitution sits in an `if` condition,
-//!   where `set -e` is suppressed and `[` sees only the captured text,
-//!   never `rev-list`'s status. A `rev-list` that errors - an unknown
-//!   `$GITHUB_SHA`, a shallow clone not containing it - therefore
-//!   captures nothing, answers "not superseded" and exits 0 with
-//!   `$GITHUB_OUTPUT` untouched. Only L1, a standalone command, is
-//!   fail-safe.
+//! - **`rev-list` fails open.** Only its captured text is read, never
+//!   its status. A `rev-list` that errors - an unknown `$GITHUB_SHA`,
+//!   a shallow clone not containing it - therefore captures nothing,
+//!   answers "not superseded" and exits 0 with `$GITHUB_OUTPUT`
+//!   untouched. Only the fetch is fail-safe.
 //! - **An unset `GITHUB_SHA` reads as empty**, so the range degrades to
 //!   `..origin/main`, which git resolves as `HEAD..origin/main`. Hence
 //!   the literal concatenation in `range` rather than resolving the SHA
@@ -55,15 +38,13 @@
 //! - **Nothing reaches stdout** in either answer. The negative case
 //!   writes nothing anywhere.
 //!
-//! Stated ceiling: L1's exit status collapses to 1 here, where the shell
-//! propagated git's own (128 for an unreachable remote), matching the
-//! precedent the `registry-verify` port set.
+//! Stated ceiling: the fetch's exit status collapses to 1; git's own
+//! (128 for an unreachable remote) is not propagated.
 
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
 
-/// L9's line, byte for byte.
 const OUTPUT_LINE: &str = "superseded=true\n";
 
 /// The shared filter file, relative to the repository root the
@@ -77,8 +58,8 @@ const FILTER_FILE: &str = ".github/path-filters.yml";
 ///
 /// # Errors
 ///
-/// When `git fetch` fails (L1), or when `$GITHUB_OUTPUT` is unusable in
-/// the positive case (L9).
+/// When `git fetch` fails, or when `$GITHUB_OUTPUT` is unusable in the
+/// positive case.
 pub fn run(relevant_to: Option<&str>) -> Result<()> {
     fetch_origin_main()?;
 
@@ -90,13 +71,13 @@ pub fn run(relevant_to: Option<&str>) -> Result<()> {
     record_superseded()
 }
 
-/// L2's range argument. Concatenated, never resolved: see the empty-SHA
-/// note in the module docs.
+/// The `rev-list` range. Concatenated, never resolved: see the
+/// empty-SHA note in the module docs.
 fn range(sha: &str) -> String {
     format!("{sha}..origin/main")
 }
 
-/// L1. The one fail-safe step: a standalone command under `set -e`.
+/// The one fail-safe step.
 fn fetch_origin_main() -> Result<()> {
     let status = Command::new("git")
         .args(["fetch", "--quiet", "origin", "main"])
@@ -160,9 +141,9 @@ fn filter_entries(text: &str, name: &str) -> Option<Vec<String>> {
     (!entries.is_empty()).then_some(entries)
 }
 
-/// L2. A non-zero `rev-list` yields the empty capture the shell's
-/// condition context yielded, not an error. Only a failure to *spawn*
-/// git surfaces - unreachable in practice, since L1 just ran it.
+/// A non-zero `rev-list` yields an empty capture, not an error. Only a
+/// failure to *spawn* git surfaces - unreachable in practice, since
+/// the fetch just ran it.
 fn newer_commit(range: &str, pathspecs: &[String]) -> Result<Vec<u8>> {
     let mut command = Command::new("git");
     command.args(["rev-list", "-n", "1", range]);
@@ -179,9 +160,8 @@ fn newer_commit(range: &str, pathspecs: &[String]) -> Result<Vec<u8>> {
     Ok(crate::substitute(output.stdout))
 }
 
-/// L9, reachable only in the positive case - the redirect lives inside
-/// the `if`, so an unset `GITHUB_OUTPUT` fails the step there and
-/// nowhere else.
+/// Reachable only in the positive case, so an unset `GITHUB_OUTPUT`
+/// fails the step there and nowhere else.
 fn record_superseded() -> Result<()> {
     crate::append_github_output(OUTPUT_LINE)
 }
