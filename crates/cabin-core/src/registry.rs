@@ -9,7 +9,7 @@
 //! and maps the shared predicates and message helpers into its own
 //! diagnostic.
 
-use std::path::{Component, Path};
+use std::path::Path;
 
 /// Supported `config.json` `schema` version.
 pub const REGISTRY_CONFIG_SCHEMA: u32 = 1;
@@ -87,16 +87,7 @@ pub fn api_url_error(value: &str) -> Option<String> {
 /// `.` is tolerated).  Rejects `..`, absolute paths, and OS root /
 /// prefix components so a config cannot point outside the registry.
 pub fn relative_subdir_is_safe(value: &str) -> bool {
-    if value.is_empty() {
-        return false;
-    }
-    let candidate = Path::new(value);
-    if candidate.is_absolute() {
-        return false;
-    }
-    candidate
-        .components()
-        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+    !value.is_empty() && cabin_fs::path::is_safe_relative_path(Path::new(value))
 }
 
 #[cfg(test)]
