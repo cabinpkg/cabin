@@ -95,7 +95,9 @@ cargo kani                                # proof harnesses (`cargo install kani
 ```
 
 `cargo registry-smoke` runs two `wrangler dev` instances over shared local
-D1/R2 state under `.wrangler/` - one per hostname role - and checks
+D1/R2 state under `.wrangler/` - one per hostname role, the registry role's
+alone hosting the governor Durable Object, which the other reaches through
+wrangler's dev registry - and checks
 `/healthz`, the mutation surface's uniform `401` with its byte-identical
 `WWW-Authenticate` challenge, the hostname dispatch (no read plane on the
 website origin, no API surface on the registry domain), the OAuth and

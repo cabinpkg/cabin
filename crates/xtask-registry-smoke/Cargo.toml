@@ -22,6 +22,7 @@ tempfile = { workspace = true }
 ureq = { workspace = true }
 xtask-ci = { path = "../xtask-ci" }
 xtask-registry-admin = { path = "../xtask-registry-admin" }
+xtask-registry-guard = { path = "../xtask-registry-guard" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

@@ -20,8 +20,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Map, Value};
-use tempfile::{NamedTempFile, TempPath};
+use tempfile::{NamedTempFile, TempDir, TempPath};
 use xtask_registry_admin::{output, registry_dir, results, status, wrangler};
+use xtask_registry_guard::deploy::strip_jsonc;
 
 use crate::bytes::sha256_hex;
 use crate::step;
@@ -334,6 +335,50 @@ fn result_sets(json: &str) -> Result<Vec<Value>> {
         .collect()
 }
 
+/// The website role's config, beside `wrangler.jsonc` so its relative
+/// paths and `.dev.vars` resolve the same.
+const WEB_CONFIG: &str = ".smoke-web.json";
+
+/// `wrangler.jsonc` under another worker name, its Durable Object
+/// bindings pointed at the registry role's worker.  Both instances
+/// hosting the Governor would run two live copies of one object over
+/// one SQLite file, which no deployment does and which fails writes
+/// with `database is locked` whenever the two overlap.
+///
+/// # Errors
+///
+/// If `wrangler.jsonc` cannot be read or parsed, or the copy written.
+fn write_web_config() -> Result<()> {
+    let registry = registry_dir();
+    let text =
+        fs::read_to_string(registry.join("wrangler.jsonc")).context("read wrangler.jsonc")?;
+    let mut config: Value =
+        serde_json::from_str(&strip_jsonc(&text)).context("parse wrangler.jsonc")?;
+    let owner = config
+        .get("name")
+        .and_then(Value::as_str)
+        .context("wrangler.jsonc names no worker")?
+        .to_owned();
+    for binding in config
+        .pointer_mut("/durable_objects/bindings")
+        .and_then(Value::as_array_mut)
+        .context("wrangler.jsonc binds no Durable Object")?
+    {
+        binding["script_name"] = Value::String(owner.clone());
+    }
+    config["name"] = Value::String(format!("{owner}-smoke-web"));
+    // The owner's alone: they create the classes the bindings now borrow.
+    config
+        .as_object_mut()
+        .context("wrangler.jsonc is not an object")?
+        .remove("migrations");
+    fs::write(
+        registry.join(WEB_CONFIG),
+        serde_json::to_vec_pretty(&config).context("serialize the website-role config")?,
+    )
+    .context("write the website-role config")
+}
+
 /// The four servers, their logs, and the `.dev.vars` they are
 /// configured by - one owner, so one teardown orders the cleanup
 /// across them.
@@ -355,6 +400,10 @@ pub struct DevServers {
     /// path restores it with `rename(2)`, which cannot cross a
     /// filesystem (`registry/.gitignore` covers `/.dev.vars*`).
     dev_vars_backup: Option<TempPath>,
+    /// This run's wrangler dev registry, through which the website
+    /// role reaches the registry role's Governor; per run, so no other
+    /// local `wrangler dev` answers for that worker.
+    dev_registry: TempDir,
 }
 
 impl DevServers {
@@ -383,10 +432,12 @@ impl DevServers {
             dev_vars: registry_dir().join(".dev.vars"),
             dev_vars_created: false,
             dev_vars_backup: None,
+            dev_registry: TempDir::new().context("create the wrangler dev registry")?,
         };
         // Every `?` from here drops `servers`, which is the teardown.
         servers.start_mocks(mock_dir)?;
         servers.write_dev_vars()?;
+        write_web_config()?;
         servers.refuse_stale_ports()?;
         servers
             .start_dev_servers()
@@ -419,6 +470,7 @@ impl DevServers {
     /// `/healthz`.
     pub fn start_registry_dev(&mut self) -> Result<()> {
         let mut command = wrangler(&["dev", "--port", &self.ports.registry, "--test-scheduled"]);
+        command.env("WRANGLER_REGISTRY_PATH", self.dev_registry.path());
         log_to(&mut command, self.dev_log.path())?;
         self.registry = Some(xtask_ci::spawn_tracked(&mut command).context("start wrangler dev")?);
         let url = format!("{}/healthz", self.ports.base());
@@ -430,17 +482,28 @@ impl DevServers {
         )
     }
 
-    /// The website-role instance: same code, same local state, but
-    /// wrangler pins its emulated Host header to cabinpkg.com, which is
-    /// what flips the Worker's role dispatch.  `/healthz` only exists
-    /// on the registry role, so any HTTP status at all (the website
-    /// role answers it 401/404) proves the instance is up.
+    /// The website-role instance: same code, same local D1 and R2
+    /// state, but wrangler pins its emulated Host header to
+    /// cabinpkg.com, which is what flips the Worker's role dispatch, and
+    /// its Governor is the registry role's (`write_web_config`).
+    /// `/healthz` only exists on the registry role, so any HTTP status
+    /// at all (the website role answers it 401/404) proves the
+    /// instance is up.
     ///
     /// # Errors
     ///
     /// If the child cannot be spawned, exits early, or never answers.
     pub fn start_web_dev(&mut self) -> Result<()> {
-        let mut command = wrangler(&["dev", "--port", &self.ports.web, "--host", "cabinpkg.com"]);
+        let mut command = wrangler(&[
+            "dev",
+            "--config",
+            WEB_CONFIG,
+            "--port",
+            &self.ports.web,
+            "--host",
+            "cabinpkg.com",
+        ]);
+        command.env("WRANGLER_REGISTRY_PATH", self.dev_registry.path());
         log_to(&mut command, self.web_log.path())?;
         self.web = Some(
             xtask_ci::spawn_tracked(&mut command).context("start the website-role wrangler dev")?,

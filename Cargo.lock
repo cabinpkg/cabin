@@ -2787,6 +2787,7 @@ dependencies = [
  "ureq",
  "xtask-ci",
  "xtask-registry-admin",
+ "xtask-registry-guard",
 ]
 
 [[package]]
