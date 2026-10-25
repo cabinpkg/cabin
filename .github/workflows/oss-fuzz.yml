@@ -1,0 +1,60 @@
+name: OSS-Fuzz build
+
+# Not a required check. It builds and checks the fuzz targets with
+# OSS-Fuzz's own tooling from fuzz/oss-fuzz/, and submits nothing.
+# The weekly run catches crate changes that break that build.
+on:
+  pull_request:
+    paths: ["fuzz/**", ".github/workflows/oss-fuzz.yml"]
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: oss-fuzz
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: cabin
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: google/oss-fuzz
+          ref: dec0ef9471729f77ed49c5cf0ff818538f616add
+          persist-credentials: false
+          path: oss-fuzz
+
+      - name: Stage the project files
+        run: cp -R ../cabin/fuzz/oss-fuzz projects/cabin
+
+      # The checkout replaces the image's clone of main.
+      - name: Build the fuzz targets
+        run: python3 infra/helper.py build_fuzzers --sanitizer address --engine libfuzzer cabin ../cabin
+
+      # Silent: it runs every fuzzer, and a crash would print its input
+      # (fuzz/README.md, "Crashes"). Reproduce a failure locally.
+      - name: Check the build
+        run: python3 infra/helper.py check_build --sanitizer address --engine libfuzzer cabin > /dev/null 2>&1
+
+      # A toolchain whose profile format OSS-Fuzz's LLVM cannot read
+      # builds and checks clean, and fails only here.
+      - name: Build for coverage
+        run: python3 infra/helper.py build_fuzzers --sanitizer coverage cabin ../cabin
+
+      # Loud: it replays only the committed seeds, which are public.
+      - name: Report coverage of the committed seeds
+        run: python3 infra/helper.py coverage --no-serve --fuzz-target parse_manifest --corpus-dir ../cabin/fuzz/seeds/parse_manifest cabin

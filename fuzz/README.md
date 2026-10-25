@@ -43,6 +43,35 @@ and collects every `cabin.toml` under `examples/` and `ports/`. `dicts/` holds t
 dependencies (`zip`, `toml`, the deflate backend, ...) started at the
 versions Cabin ships; Dependabot updates the two lockfiles separately.
 
+## OSS-Fuzz
+
+`oss-fuzz/` holds the project files OSS-Fuzz would build Cabin from:
+`project.yaml`, `Dockerfile`, and `build.sh`, which builds every target
+with its seeds and dictionary. The `OSS-Fuzz build` workflow builds,
+checks, and builds for coverage with OSS-Fuzz's own `infra/helper.py`
+(at a pinned google/oss-fuzz commit; the images are OSS-Fuzz's current
+ones), on pull requests that touch `fuzz/` and weekly. The check step
+runs every fuzzer, so it prints nothing: a failure there is reproduced
+locally.
+
+The `Dockerfile` pins its own nightly, apart from `rust-toolchain.toml`
+here: OSS-Fuzz's image defaults to one older than Cabin's MSRV, and its
+coverage tools read only LLVM 22's profiles, which nightlies after
+2026-08-05 no longer write. Move it to a later nightly only once
+OSS-Fuzz's LLVM moves.
+
+Cabin is not enrolled: enrolling submits these files to google/oss-fuzz
+with a `primary_contact`, which is a maintainer decision, and with the
+license header its presubmit requires. The same check locally (needs
+Docker), from a google/oss-fuzz clone:
+
+```sh
+mkdir -p projects/cabin && cp <cabin>/fuzz/oss-fuzz/* projects/cabin/
+python3 infra/helper.py build_image --pull cabin
+python3 infra/helper.py build_fuzzers --clean --sanitizer address --engine libfuzzer cabin <cabin>
+python3 infra/helper.py check_build --sanitizer address --engine libfuzzer cabin
+```
+
 ## Crashes
 
 A crash in a target can be a vulnerability in the client or the registry
