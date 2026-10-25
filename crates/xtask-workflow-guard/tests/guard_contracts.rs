@@ -281,3 +281,20 @@ fn migrations_pending_answers_through_github_output() {
     let run = guard(current.path(), &["migrations-pending"], &[]);
     assert!(run.status.success(), "{run:?}");
 }
+
+/// A stamp file that cannot be read keeps deploys blocked rather than
+/// failing open.
+#[test]
+fn a_missing_stamp_file_is_pending() {
+    let scratch = assert_fs::TempDir::new().unwrap();
+    stamp_corpus(scratch.path(), "");
+    fs::remove_file(scratch.path().join("registry/migrations-applied")).unwrap();
+    let output = scratch.path().join("out");
+    let run = guard(
+        scratch.path(),
+        &["migrations-pending"],
+        &[("GITHUB_OUTPUT", &output.to_string_lossy())],
+    );
+    assert!(run.status.success(), "{run:?}");
+    assert_eq!(fs::read_to_string(&output).unwrap(), "pending=true\n");
+}

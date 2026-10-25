@@ -1,6 +1,6 @@
-//! The migrations deploy gate, ported one-to-one from the `run:` body
-//! of the "Skip until changed D1 migrations are applied by hand" step
-//! of `.github/workflows/registry.yml`.
+//! The migrations deploy gate, ported from the `run:` body of the
+//! "Skip until changed D1 migrations are applied by hand" step of
+//! `.github/workflows/registry.yml`.
 //!
 //! ```text
 //! L1  stamp=$(cat registry/migrations/*.sql | sha256sum | cut -d' ' -f1)
@@ -9,30 +9,23 @@
 //! L4  fi
 //! ```
 //!
-//! Inherited properties, preserved rather than fixed - a port is not a
-//! place to change behavior. Each was pinned by running the original
-//! under `bash -e`, GitHub's default `run:` shell (`-e` on, `-u` and
-//! `-o pipefail` off):
+//! This module owns the stamp: [`stamp`], [`digest`], [`applied`] and
+//! [`current`] are also how `cargo registry-migrate`,
+//! `cargo registry-wipe` and `cargo registry-diagnose`
+//! (`xtask-registry-admin`) compute and read it, so no two readings of
+//! the stamp can drift.
 //!
-//! - **Every read fails toward "pending", never toward an error.**
-//!   L1's pipeline ends in `sha256sum | cut`, which succeed whatever
-//!   `cat` did, so an empty `migrations/` (the glob stays unexpanded
-//!   and `cat` fails on the literal pattern), a missing directory, or
-//!   an unreadable entry leaves a diagnostic on stderr and hashes
-//!   whatever bytes were read, a prefix delivered before a mid-file
-//!   failure included (`cat` streams) - an empty selection stamps as
-//!   the digest of empty input, not as an error. L2's substitution sits in
-//!   the `if` condition, where `set -e` is suppressed: a missing
-//!   `migrations-applied` compares as empty. Nothing can fail the step
-//!   except L3's redirect.
+//! - **Every failure reads as "pending", never as an error.** An
+//!   empty, missing or unreadable `migrations/`, an unreadable
+//!   migration, or an unreadable `migrations-applied` leaves a
+//!   diagnostic on stderr and records `pending=true`. Nothing can fail
+//!   the step except L3's redirect.
 //! - **The glob's selection and order.** `*.sql` skips dotfiles, is
 //!   case-sensitive, matches bytes rather than UTF-8 (bash falls back
 //!   to byte matching for an invalid multibyte basename), matches a
-//!   directory (whose `cat` diagnoses and contributes nothing), and
-//!   expands in the runner's `C.UTF-8` collation, which is byte
-//!   order. [`migration_files`] is that rule;
-//!   the diagnose bundle (`xtask-registry-admin`) consumes the same
-//!   function so the two readings of the stamp cannot drift.
+//!   directory (whose read then fails), and expands in the runner's
+//!   `C.UTF-8` collation, which is byte order. [`migration_files`] is
+//!   that rule.
 //! - **The comparison is bytes.** `$(...)` drops NUL bytes and strips
 //!   every trailing newline; whatever else `migrations-applied` holds
 //!   (a CRLF ending included) must equal the stamp's lowercase hex
@@ -49,7 +42,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use sha2::{Digest as _, Sha256};
 
 /// L3's line, byte for byte.
@@ -69,10 +62,22 @@ pub fn run() -> Result<()> {
 /// The whole gate against one repository root; [`run`] passes the
 /// working directory the way the shell's relative paths did.
 fn run_in(base: &Path) -> Result<()> {
-    if stamp(base).into_bytes() == applied(base) {
-        return Ok(());
+    match current(&base.join("registry")) {
+        Ok(true) => return Ok(()),
+        Ok(false) => {}
+        Err(error) => eprintln!("{error:#}"),
     }
     crate::append_github_output(OUTPUT_LINE)
+}
+
+/// Whether `<registry>/migrations-applied` records the stamp of
+/// `<registry>/migrations/`. Every caller reads an error as pending.
+///
+/// # Errors
+///
+/// If either side cannot be read; see [`stamp`] and [`applied`].
+pub fn current(registry: &Path) -> Result<bool> {
+    Ok(stamp(registry)?.as_bytes() == applied(registry)?)
 }
 
 /// The files `migrations/*.sql` expands to, in the order the shell
@@ -107,74 +112,51 @@ pub fn migration_files(directory: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// L1: the digest of the migrations' concatenation, as lowercase hex.
-/// Selection or read failures diagnose to stderr and contribute
-/// nothing, exactly as `cat`'s did under the pipeline's swallowed
-/// status.
-fn stamp(base: &Path) -> String {
-    let directory = base.join("registry/migrations");
-    let files = match migration_files(&directory) {
-        Ok(files) => files,
-        Err(error) => {
-            eprintln!("{error:#}");
-            Vec::new()
-        }
-    };
+/// L1: the [`digest`] of `<registry>/migrations/*.sql`, which
+/// `migrations-applied` records as `"{stamp}\n"`.
+///
+/// # Errors
+///
+/// If the directory cannot be read, or as [`digest`].
+pub fn stamp(registry: &Path) -> Result<String> {
+    digest(&migration_files(&registry.join("migrations"))?)
+}
+
+/// The SHA-256 of `files` concatenated in the given order, as
+/// lowercase hex.
+///
+/// # Errors
+///
+/// If `files` is empty or one of them cannot be read.
+pub fn digest(files: &[PathBuf]) -> Result<String> {
     if files.is_empty() {
-        // The shell's glob stays unexpanded here and `cat` fails on
-        // the literal pattern; the pipeline hashes empty input either
-        // way.
-        eprintln!("no migrations match {}/*.sql", directory.display());
+        bail!("no migrations match migrations/*.sql");
     }
     let mut hasher = Sha256::new();
     for file in files {
-        // `cat` streams: bytes read before an error have already
-        // reached the pipeline, and the failure only moves it to the
-        // next operand - so no whole-file read that would discard a
-        // partially delivered prefix.
-        if let Err(error) = hash_file(&mut hasher, &file) {
-            eprintln!("{}: {error}", file.display());
-        }
+        hasher.update(std::fs::read(file).with_context(|| format!("read {}", file.display()))?);
     }
-    cabin_core::hash::hex_digest(&hasher.finalize())
+    Ok(cabin_core::hash::hex_digest(&hasher.finalize()))
 }
 
-fn hash_file(hasher: &mut Sha256, file: &Path) -> std::io::Result<()> {
-    hash_reader(hasher, &mut std::fs::File::open(file)?)
-}
-
-/// Feeds `reader` into `hasher` until end of input or the first real
-/// error; whatever arrived before the error stays in the digest.
-fn hash_reader(hasher: &mut Sha256, reader: &mut dyn std::io::Read) -> std::io::Result<()> {
-    let mut buffer = [0_u8; 16 * 1024];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => return Ok(()),
-            Ok(count) => hasher.update(&buffer[..count]),
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-/// L2's right-hand side: the stamp file's bytes through `$(...)`, or
-/// the empty string a failing `cat` substituted.
-fn applied(base: &Path) -> Vec<u8> {
-    let path = base.join("registry/migrations-applied");
-    match std::fs::read(&path) {
-        Ok(bytes) => crate::substitute(bytes),
-        Err(error) => {
-            eprintln!("{}: {error}", path.display());
-            Vec::new()
-        }
-    }
+/// L2's right-hand side: `<registry>/migrations-applied` through
+/// `$(...)`.
+///
+/// # Errors
+///
+/// If the file cannot be read.
+pub fn applied(registry: &Path) -> Result<Vec<u8>> {
+    let path = registry.join("migrations-applied");
+    let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+    Ok(crate::substitute(bytes))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The digest of empty input: what an empty selection stamps as.
+    /// The digest of empty input, which an empty selection must never
+    /// be read as matching.
     const EMPTY_STAMP: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     fn write(dir: &Path, name: &str, contents: &[u8]) {
@@ -245,56 +227,15 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_read_stays_in_the_digest() {
-        /// Delivers a prefix, then fails - the shape `cat` streams
-        /// through: the prefix has already reached the pipeline.
-        struct FailsAfter(&'static [u8]);
-        impl std::io::Read for FailsAfter {
-            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-                if self.0.is_empty() {
-                    return Err(std::io::Error::other("injected read failure"));
-                }
-                let given = self.0.len().min(buffer.len());
-                buffer[..given].copy_from_slice(&self.0[..given]);
-                self.0 = &self.0[given..];
-                Ok(given)
-            }
-        }
-
-        let mut streamed = Sha256::new();
-        streamed.update(b"before");
-        hash_reader(&mut streamed, &mut FailsAfter(b"prefix")).expect_err("the injected failure");
-        let mut expected = Sha256::new();
-        expected.update(b"beforeprefix");
-        assert_eq!(
-            cabin_core::hash::hex_digest(&streamed.finalize()),
-            cabin_core::hash::hex_digest(&expected.finalize()),
-            "bytes read before the error have already reached the digest"
-        );
-    }
-
-    #[test]
-    fn an_empty_selection_stamps_as_the_digest_of_empty_input() {
-        let temp = assert_fs::TempDir::new().expect("a scratch directory");
-        std::fs::create_dir_all(temp.path().join("registry/migrations"))
-            .expect("the empty migrations directory");
-        assert_eq!(stamp(temp.path()), EMPTY_STAMP);
-        // A missing directory reads the same way.
-        let gone = assert_fs::TempDir::new().expect("a scratch directory");
-        std::fs::create_dir_all(gone.path().join("registry")).expect("the registry directory");
-        assert_eq!(stamp(gone.path()), EMPTY_STAMP);
-    }
-
-    #[test]
     fn the_stamp_concatenates_in_selection_order() {
         let temp = assert_fs::TempDir::new().expect("a scratch directory");
-        let migrations = temp.path().join("registry/migrations");
+        let migrations = temp.path().join("migrations");
         write(&migrations, "0001_a.sql", b"one");
         write(&migrations, "0002_b.sql", b"two");
         let mut hasher = Sha256::new();
         hasher.update(b"onetwo");
         assert_eq!(
-            stamp(temp.path()),
+            stamp(temp.path()).expect("the stamp"),
             cabin_core::hash::hex_digest(&hasher.finalize())
         );
     }
@@ -302,19 +243,27 @@ mod tests {
     #[test]
     fn the_applied_stamp_reads_like_a_command_substitution() {
         let temp = assert_fs::TempDir::new().expect("a scratch directory");
-        let registry = temp.path().join("registry");
-        write(&registry, "migrations-applied", b"abc\n\n\n");
-        assert_eq!(applied(temp.path()), b"abc");
-        write(&registry, "migrations-applied", b"ab\0c\n");
-        assert_eq!(applied(temp.path()), b"abc");
+        let registry = temp.path();
+        let read = || applied(registry).expect("the stamp file");
+        write(registry, "migrations-applied", b"abc\n\n\n");
+        assert_eq!(read(), b"abc");
+        write(registry, "migrations-applied", b"ab\0c\n");
+        assert_eq!(read(), b"abc");
         // The `\r` of a CRLF ending survives into the comparison.
-        write(&registry, "migrations-applied", b"abc\r\n");
-        assert_eq!(applied(temp.path()), b"abc\r");
+        write(registry, "migrations-applied", b"abc\r\n");
+        assert_eq!(read(), b"abc\r");
     }
 
     #[test]
-    fn a_missing_applied_stamp_compares_as_empty() {
+    fn an_empty_selection_is_never_current() {
         let temp = assert_fs::TempDir::new().expect("a scratch directory");
-        assert!(applied(temp.path()).is_empty());
+        let registry = temp.path();
+        std::fs::create_dir(registry.join("migrations")).expect("the empty migrations directory");
+        write(
+            registry,
+            "migrations-applied",
+            format!("{EMPTY_STAMP}\n").as_bytes(),
+        );
+        current(registry).expect_err("an empty selection has no stamp");
     }
 }

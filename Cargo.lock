@@ -2745,7 +2745,6 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "ureq",
  "xtask-workflow-guard",
