@@ -910,12 +910,14 @@ fn parse_hunk_header(header: &[u8]) -> Option<(usize, usize, usize, usize)> {
 }
 
 fn parse_range(range: &str) -> Option<(usize, usize)> {
+    // Git emits bare digits; `str::parse::<usize>` alone would accept a leading `+`.
+    if !range.bytes().all(|b| b.is_ascii_digit() || b == b',') {
+        return None;
+    }
     let (start, count) = match range.split_once(',') {
         Some((start, count)) => (start, count.parse().ok()?),
         None => (range, 1),
     };
-    // Reject empty and non-digit spellings (`usize::parse` handles
-    // both) so garbage headers never parse.
     Some((start.parse().ok()?, count))
 }
 
@@ -1913,6 +1915,26 @@ mod tests {
             ("--- a/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n", "missing +++"),
             ("--- a/a.txt\n+++ b/a.txt\n", "no hunks"),
             ("--- a/a.txt\n+++ b/a.txt\n@@ garbage @@\n", "bad header"),
+            (
+                "--- a/a.txt\n+++ b/a.txt\n@@ -+1,1 +1,1 @@\n-x\n+y\n",
+                "signed old start",
+            ),
+            (
+                "--- a/a.txt\n+++ b/a.txt\n@@ -1,+1 +1,1 @@\n-x\n+y\n",
+                "signed old count",
+            ),
+            (
+                "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 ++1,1 @@\n-x\n+y\n",
+                "signed new start",
+            ),
+            (
+                "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,+1 @@\n-x\n+y\n",
+                "signed new count",
+            ),
+            (
+                "--- a/a.txt\n+++ b/a.txt\n@@ -+1 ++1 @@\n-x\n+y\n",
+                "signed comma-less ranges",
+            ),
             (
                 "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,1 @@\n-x\n",
                 "truncated",
