@@ -29,12 +29,12 @@
 //!   an operator reruns the workflow once the deploy lands.
 //! - A terminal Stop (either arm) requires a CONFIRMED absence: an
 //!   iteration only Stops when its own `git fetch` succeeded (a
-//!   failed fetch folds every ancestor check to false) and its
-//!   candidate scan was not blind, and `poll` demands two
-//!   CONSECUTIVE such iterations, so a sampling race - a deploy
-//!   landing between the candidate and pending listings, a head
-//!   pushed after the fetch - resolves on the second pass.  Anything
-//!   less retries.
+//!   failed fetch can leave a fresh head unknown, so its ancestor
+//!   check reads false) and its candidate scan was not blind, and
+//!   `poll` demands two CONSECUTIVE such iterations, so a sampling
+//!   race - a deploy landing between the candidate and pending
+//!   listings, a head pushed after the fetch - resolves on the second
+//!   pass.  Anything less retries.
 //! - An empty same-SHA listing waits. `registry.yml` runs on
 //!   every main push and the dispatched SHA is a main push, so an
 //!   empty same-SHA listing means the push run is not registered
@@ -85,9 +85,9 @@
 //!   `runs` capture is kept as raw bytes, since it is only piped back
 //!   into `jq`.
 //! - **A failing conclusion query's exit status collapses to 1.**
-//!   `jq`'s own code - parse failures vary by jq version, a missing
-//!   binary is 127 - is not propagated, and nothing downstream reads
-//!   more than pass or fail.
+//!   `jq`'s own code - parse failures vary by jq version, and a
+//!   missing binary has none - is not propagated, and nothing
+//!   downstream reads more than pass or fail.
 //! - **The context is read once**, at startup, rather than at each
 //!   splice: nothing this step spawns can change its own environment.
 
@@ -237,10 +237,10 @@ fn poll(shell: &mut dyn Shell, output: &mut dyn Output, sha: &str, repository: &
 /// The loop's `n`th pass. `None` is the fall-through, which waits
 /// without saying anything.
 fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Option<Report> {
-    // A failed fetch leaves fresh heads unknown to the local clone,
-    // so every `merge-base --is-ancestor` below answers false (exit
-    // 128 folds to false) and a landed deploy is indistinguishable
-    // from a missing one.  The terminal confirmation at the bottom
+    // A failed fetch can leave fresh heads unknown to the local clone,
+    // so their `merge-base --is-ancestor` answers false (exit 128
+    // folds to false) and a landed deploy is indistinguishable from a
+    // missing one.  The terminal confirmation at the bottom
     // refuses to Stop on such an iteration.
     let (fetched, _) = shell.capture(&["git", "fetch", "--quiet", "origin", "main"], &[]);
 

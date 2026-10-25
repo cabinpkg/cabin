@@ -81,9 +81,7 @@ pub fn migration_files(directory: &Path) -> Result<Vec<PathBuf>> {
         // The glob matches bytes, not UTF-8: requiring `to_str` here
         // would silently drop a migration with a non-UTF-8 name. And
         // it skips dotfiles, so an operator's `.draft.sql` scratch
-        // file is outside the stamp. `registry.yml`'s deploy gate and
-        // `cargo registry-migrate` hash the same glob; counting one
-        // here would report PENDING while deploys stay unblocked.
+        // file is outside the stamp.
         let name = name.as_encoded_bytes();
         !name.starts_with(b".") && name.ends_with(b".sql")
     });

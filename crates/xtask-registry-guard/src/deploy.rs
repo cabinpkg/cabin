@@ -15,10 +15,10 @@
 //! bundle a failure instead of a skip.
 //!
 //! A lifecycle key (`deleted_classes`, `new_sqlite_classes`,
-//! `new_classes`, `renamed_classes`) that is present but not an array
-//! is refused by name instead of being coerced, and a migration tag
-//! that is not a string is refused instead of being compared by JSON
-//! rendering.
+//! `new_classes`, `renamed_classes`) that is present but neither an
+//! array nor `null` is refused by name instead of being coerced, and a
+//! migration tag that is not a string is refused instead of being
+//! compared by JSON rendering.
 //!
 //! ponytail: the export check is a lexical scan of the bundle's
 //! `export{...}` lists; worker-build changing its output shape would
