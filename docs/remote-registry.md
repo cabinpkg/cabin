@@ -850,8 +850,8 @@ Success is `200`:
 ```
 
 The plaintext is rendered exactly once, in this response.  The minted token is a bearer token
-like any other, multi-use within its 30-minute lifetime (one ports run publishes its whole
-batch on one token).  The config arm's token is `publish`-scoped, confined to the config's
+like any other, multi-use within its 30-minute lifetime (each `cabin publish` invocation of a
+ports run publishes its whole batch of up to 50 packages on one token).  The config arm's token is `publish`-scoped, confined to the config's
 scope, and carries the config's quota class; the verifier arm's is `verify`-scoped with
 neither confinement nor a class of its own.  Every exchange failure - a malformed body, a bad
 signature, an unknown repository, a mismatched workflow, ref, or environment, a replayed
