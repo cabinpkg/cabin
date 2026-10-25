@@ -50,7 +50,7 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-ci/          repository tool: the local mirror of the CI gate
-  xtask-dist/        repository tool: release packaging step for dist.yml
+  xtask-dist/        repository tool: release packaging and archive check for dist.yml
   xtask-fuzz/        repository tool: seed corpora for the fuzz targets
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
@@ -707,12 +707,15 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 ### `xtask-dist`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
-holding the release-packaging step of `dist.yml`.  `cargo dist-package` is that workflow's
+holding the release-packaging steps of `dist.yml`.  `cargo dist-package` is that workflow's
 "Package binary" step: it stages `target/<triple>/release/cabin`
 (`cabin.exe` on Windows), `README.md` and `LICENSE` into `cabin-<version>-<triple>/`, archives
 that directory, and prints the archive's path.  The version is the ref name for a tag build and
 `dev-<sha[..12]>` for every other ref type, which is what keeps a branch build's artifacts from
-claiming a release name.  The crate must:
+claiming a release name.  `cargo dist-check` is the next step: it unpacks that archive with the
+inverse archiver and runs the binary inside it, which must print `cabin <workspace version>`, and
+on a tag build it refuses a tag that is not the workspace version, so every matrix row proves its
+archive runs on its own target before the release attests it.  The crate must:
 
 - keep the archive names and formats a cargo-binstall contract: `tar -cJf` on Unix and
   `Compress-Archive` on Windows stay child processes carrying the shell's exact argv, because

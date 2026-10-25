@@ -5,9 +5,9 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use xtask_dist::package;
+use xtask_dist::{check, package};
 
-/// Release packaging step for .github/workflows/dist.yml, run from a
+/// Release packaging steps for .github/workflows/dist.yml, run from a
 /// workflow step through its Cargo alias.
 #[derive(Parser)]
 struct Cli {
@@ -20,6 +20,24 @@ enum Command {
     /// Stage the release binary, README.md and LICENSE, archive them,
     /// and print the archive's path (`cargo dist-package`).
     Package(PackageArgs),
+    /// Unpack a packaged archive and run the binary inside it
+    /// (`cargo dist-check`).
+    Check(CheckArgs),
+}
+
+/// The archive `package` printed and the run's ref, as the workflow
+/// step forwards them.
+#[derive(clap::Parser)]
+struct CheckArgs {
+    /// The archive path `package` printed.
+    archive: std::path::PathBuf,
+    /// `$GITHUB_REF_NAME`, which a tag build requires to be the
+    /// workspace version.
+    #[arg(long)]
+    ref_name: String,
+    /// `$GITHUB_REF_TYPE`.
+    #[arg(long, default_value = "")]
+    ref_type: String,
 }
 
 /// The flags the workflow step passes, which this shim translates into
@@ -67,5 +85,6 @@ fn main() -> ExitCode {
 fn run(command: &Command) -> Result<()> {
     match command {
         Command::Package(args) => package::run(&args.into()),
+        Command::Check(args) => check::run(&args.archive, &args.ref_name, &args.ref_type),
     }
 }

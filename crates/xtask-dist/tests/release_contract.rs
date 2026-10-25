@@ -93,3 +93,45 @@ fn a_tag_build_packages_the_staged_trio() {
         .mode();
     assert_ne!(mode & 0o111, 0, "the binary lost its executable bit");
 }
+
+/// `check` unpacks what `package` made and runs the binary inside it:
+/// one that reports the workspace version passes, any other fails.
+#[test]
+fn check_runs_the_packaged_binary_and_compares_its_version() {
+    let version = env!("CARGO_PKG_VERSION");
+    for (prints, passes) in [(version, true), ("0.0.0", false)] {
+        let root = assert_fs::TempDir::new().unwrap();
+        let release = root.path().join("target/triple/release");
+        fs::create_dir_all(&release).unwrap();
+        fs::write(
+            release.join("cabin"),
+            format!("#!/bin/sh\necho 'cabin {prints}'\n"),
+        )
+        .unwrap();
+        fs::set_permissions(release.join("cabin"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(root.path().join("README.md"), b"readme").unwrap();
+        fs::write(root.path().join("LICENSE"), b"license").unwrap();
+        let package = tool(
+            root.path(),
+            &[
+                "package",
+                "--target",
+                "triple",
+                "--ref-name",
+                "main",
+                "--sha",
+                "0123456789abcdef",
+            ],
+        );
+        assert!(package.status.success());
+        let archive = String::from_utf8(package.stdout).unwrap();
+
+        let check = tool(
+            root.path(),
+            &["check", archive.trim_end(), "--ref-name", "main"],
+        );
+        let stderr = String::from_utf8_lossy(&check.stderr);
+        assert_eq!(check.status.success(), passes, "{prints}: {stderr}");
+        assert_eq!(passes, !stderr.contains("not \"cabin "), "{stderr}");
+    }
+}
