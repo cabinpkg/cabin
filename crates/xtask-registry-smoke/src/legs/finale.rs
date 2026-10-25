@@ -105,8 +105,7 @@ pub struct FinaleInputs<'a> {
     /// The four children, for the two mid-run restarts and for the
     /// `.dev.vars` mutations between them.
     pub servers: &'a mut DevServers,
-    /// The run's scratch directory.  Only the files the verifier binary
-    /// opens by path are written there.
+    /// The run's scratch directory.
     pub work: &'a Path,
     /// The mock directory, whose `dump.sql` the stored backup must
     /// equal.
@@ -1436,7 +1435,8 @@ mod tests {
     const MIN_ZIP: &str = "504b0304140000000000000000000000000000000000000000000a00000069736f70656e64696e67504b01021400140000000000000000000000000000000000000000000a000000000000000000000000000000000069736f70656e64696e67504b0506000000000100010038000000280000000000";
 
     /// Pinned bytes for both entry names, because the name length rides
-    /// three separate fields and the EOCD's two offsets move with it.
+    /// both headers' name fields and moves the EOCD's directory size and
+    /// offset.
     #[test]
     fn the_min_zip_matches_the_pinned_bytes() {
         assert_eq!(hex(&min_zip("../evil")), EVIL_ZIP);
