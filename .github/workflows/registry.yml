@@ -354,3 +354,31 @@ jobs:
           # and never falls back to its unpinned default.
           wranglerVersion: ${{ steps.wrangler.outputs.version }}
           workingDirectory: registry
+
+  # TEMPORARY PR probe, removed before merge: the deploy job's install
+  # and action steps, with --version in place of deploy.
+  probe-wrangler-action:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install wrangler
+        id: wrangler
+        working-directory: registry
+        run: |
+          npm ci --ignore-scripts
+          version=$(jq -er .dependencies.wrangler package.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run the action against the install
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          wranglerVersion: ${{ steps.wrangler.outputs.version }}
+          workingDirectory: registry
+          command: --version
+
+      - name: Fail if the action installed a wrangler of its own
+        run: git diff --exit-code
