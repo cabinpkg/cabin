@@ -64,10 +64,6 @@ pub struct CompileAction {
     pub object: Utf8PathBuf,
     /// Object vs. syntax-only.
     pub mode: CompileMode,
-    /// Inputs the compile depends on but that are not command
-    /// arguments (e.g. a generated source produced upstream).  The
-    /// `source` is the sole compiled input and is not repeated here.
-    pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Header-dependency tracking file.  `Some` records that the
     /// dialect should wire dependency discovery for this compile -
     /// the GNU/Clang lowering emits a `-MD -MF <depfile>` Makefile
@@ -148,8 +144,6 @@ pub struct LinkAction {
     pub output: Utf8PathBuf,
     /// Link inputs (objects then static archives), in link order.
     pub inputs: Vec<Utf8PathBuf>,
-    /// Inputs the link depends on but that are not command arguments.
-    pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Extra linker flags (`ldflags`), inserted after the inputs and
     /// before the output spelling.
     pub arguments: Vec<String>,

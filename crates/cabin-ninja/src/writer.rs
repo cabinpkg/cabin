@@ -191,13 +191,6 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
         out.push(' ');
         out.push_str(&escape_path(input.as_str())?);
     }
-    if !action.implicit_inputs.is_empty() {
-        out.push_str(" |");
-        for input in &action.implicit_inputs {
-            out.push(' ');
-            out.push_str(&escape_path(input.as_str())?);
-        }
-    }
     out.push('\n');
 
     // Ninja launches each edge's command itself, so the argv is quoted
@@ -404,7 +397,6 @@ mod tests {
             source: Utf8PathBuf::from("/abs/src/main.cc"),
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode: CompileMode::Object,
-            implicit_inputs: vec![],
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
@@ -446,7 +438,6 @@ mod tests {
             linker: Utf8PathBuf::from("/usr/bin/g++"),
             output: Utf8PathBuf::from("/abs/build/hello"),
             inputs: vec![Utf8PathBuf::from("/abs/build/main.o")],
-            implicit_inputs: vec![],
             arguments: vec![],
             link_libs: vec![],
             description: "LINK /abs/build/hello".into(),
@@ -462,7 +453,6 @@ mod tests {
             mode: CompileMode::SyntaxOnly {
                 stamp: Utf8PathBuf::from("/abs/build/main.o.check"),
             },
-            implicit_inputs: vec![],
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
@@ -629,14 +619,6 @@ mod tests {
         assert!(body.contains("depfile = /abs/build/main.o.d"));
         // The C variant rule is always emitted alongside the C++ one.
         assert!(body.contains("rule c_check"));
-    }
-
-    #[test]
-    fn implicit_inputs_render_with_pipe() {
-        let act =
-            compile_with(|c| c.implicit_inputs = vec![Utf8PathBuf::from("/abs/build/generated.h")]);
-        let body = render(&graph_with(vec![act], vec![])).unwrap();
-        assert!(body.contains("| /abs/build/generated.h"));
     }
 
     #[test]

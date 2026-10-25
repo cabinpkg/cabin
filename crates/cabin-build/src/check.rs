@@ -33,8 +33,8 @@ fn check_stamp_path(object: &Utf8Path) -> Utf8PathBuf {
 /// The transform is purely semantic: it flips each surviving compile's
 /// [`CompileMode`] from [`CompileMode::Object`] to
 /// [`CompileMode::SyntaxOnly`] and retypes its description.  The
-/// compiler driver, wrapper, depfile, flags, and implicit inputs are
-/// preserved untouched; the actual `-fsyntax-only` / `-MT <stamp>`
+/// compiler driver, wrapper, depfile, and flags are preserved
+/// untouched; the actual `-fsyntax-only` / `-MT <stamp>`
 /// argv is produced later by lowering, not here. `compile_commands` is
 /// passed through unchanged so IDE tooling keeps the real object-build
 /// commands.  Recorded MSVC standard violations are pruned with the
@@ -119,7 +119,6 @@ mod tests {
             source: Utf8PathBuf::from("/src/a.cc"),
             object: Utf8PathBuf::from(object),
             mode: CompileMode::Object,
-            implicit_inputs: vec![],
             depfile: Some(Utf8PathBuf::from(depfile)),
             compiler: Utf8PathBuf::from("/usr/bin/c++"),
             compiler_wrapper: None,
@@ -150,7 +149,6 @@ mod tests {
             linker: Utf8PathBuf::from("/usr/bin/c++"),
             output: Utf8PathBuf::from(exe),
             inputs: vec![Utf8PathBuf::from(object_input)],
-            implicit_inputs: vec![],
             arguments: vec![],
             link_libs: vec![],
             description: format!("LINK {exe}"),

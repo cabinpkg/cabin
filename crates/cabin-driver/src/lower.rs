@@ -28,9 +28,6 @@ pub struct LoweredAction {
     pub kind: LoweredActionKind,
     /// Inputs that participate in the command.
     pub inputs: Vec<Utf8PathBuf>,
-    /// Inputs the action implicitly depends on but that are not
-    /// arguments.
-    pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Files this action produces.
     pub outputs: Vec<Utf8PathBuf>,
     /// Optional Makefile-style depfile path.  Only the GNU/Clang
@@ -122,7 +119,6 @@ fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
     LoweredAction {
         kind,
         inputs: vec![compile.source.clone()],
-        implicit_inputs: compile.implicit_inputs.clone(),
         outputs,
         depfile,
         command,
@@ -403,7 +399,6 @@ fn lower_archive(dialect: Dialect, archive: &ArchiveAction) -> LoweredAction {
     LoweredAction {
         kind: LoweredActionKind::ArchiveStaticLibrary,
         inputs: archive.inputs.clone(),
-        implicit_inputs: Vec::new(),
         outputs: vec![archive.output.clone()],
         depfile: None,
         command,
@@ -419,7 +414,6 @@ fn lower_link(dialect: Dialect, link: &LinkAction) -> LoweredAction {
     LoweredAction {
         kind: LoweredActionKind::LinkExecutable,
         inputs: link.inputs.clone(),
-        implicit_inputs: link.implicit_inputs.clone(),
         outputs: vec![link.output.clone()],
         depfile: None,
         command,
@@ -446,7 +440,6 @@ mod tests {
             source: Utf8PathBuf::from("/abs/src/main.cc"),
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode,
-            implicit_inputs: vec![Utf8PathBuf::from("/abs/build/generated.h")],
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
@@ -692,7 +685,6 @@ mod tests {
                 Utf8PathBuf::from("/abs/build/main.o"),
                 Utf8PathBuf::from("/abs/build/libfoo.a"),
             ],
-            implicit_inputs: vec![],
             arguments: strs(&["-Wl,--as-needed"]),
             link_libs: vec![],
             description: "LINK /abs/build/app".to_owned(),
@@ -725,7 +717,6 @@ mod tests {
             source: Utf8PathBuf::from("C:/src/main.cc"),
             object: Utf8PathBuf::from("C:/build/main.obj"),
             mode,
-            implicit_inputs: vec![],
             depfile: Some(Utf8PathBuf::from("C:/build/main.obj.d")),
             compiler: Utf8PathBuf::from("cl.exe"),
             compiler_wrapper: None,
@@ -887,7 +878,6 @@ mod tests {
                 Utf8PathBuf::from("C:/build/main.obj"),
                 Utf8PathBuf::from("C:/build/foo.lib"),
             ],
-            implicit_inputs: vec![],
             arguments: strs(&["/SUBSYSTEM:CONSOLE"]),
             link_libs: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
@@ -913,7 +903,6 @@ mod tests {
             linker: Utf8PathBuf::from("cl.exe"),
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
-            implicit_inputs: vec![],
             arguments: vec![],
             link_libs: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
@@ -942,7 +931,6 @@ mod tests {
                 Utf8PathBuf::from("/abs/build/main.o"),
                 Utf8PathBuf::from("/abs/build/libsqlite3.a"),
             ],
-            implicit_inputs: vec![],
             arguments: vec![],
             link_libs: strs(&["pthread", "m"]),
             description: "LINK /abs/build/app".to_owned(),
@@ -971,7 +959,6 @@ mod tests {
             linker: Utf8PathBuf::from("cl.exe"),
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
-            implicit_inputs: vec![],
             arguments: vec![],
             link_libs: strs(&["user32"]),
             description: "LINK C:/build/app.exe".to_owned(),
