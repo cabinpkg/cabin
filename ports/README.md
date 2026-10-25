@@ -116,37 +116,14 @@ entire port removes the whole `ports/<name>/` directory.
 
 ## Publishing ports as `cabin-ports/*` registry packages
 
-The repository tool `xtask-port-publish` (`crates/xtask-port-publish`; not part of the shipped
-`cabin` binary) publishes every port in this directory as an ordinary registry package under the
-`cabin-ports` scope.
-
-Every committed port is published **verbatim**: its `cabin.toml` already carries the canonical
-identity, provenance, and target names, so nothing is rewritten.  Its sources are materialized
-through the same `cabin-artifact` pipeline the registry verifier replays, and it reaches another
-port through an ordinary scoped registry dependency.
+`cargo port-publish` publishes every port here, verbatim, under the `cabin-ports` scope.  Its
+`--dry-run` mode runs the full local preflight with no remote mutation:
 
 ```console
 $ cargo build -p cabinpkg
-$ cargo port-publish --dry-run     # full local preflight, no remote mutation
-$ cargo port-publish --publish --index-url https://registry.cabinpkg.com
+$ cargo port-publish --dry-run
 ```
 
-CI automates the tool (`.github/workflows/ports-publish.yml`): ports-relevant pull requests
-(the `ports` filter in `.github/path-filters.yml`) run the
-complete `--dry-run` preflight, and publishing is manual only - dispatching the workflow from
-`main` publishes the full set to `https://registry.cabinpkg.com` (dispatching any other ref runs
-the dry-run), so a merged change reaches the registry at the next dispatch, and the same
-dispatch is the recovery path after a pre-launch registry wipe.
-
-Published bytes are immutable, and the published version is always the upstream version.  A
-packaging-only correction to an already-published version therefore reaches the registry as a new
-*packaging revision* of that version: edit the port's committed `cabin.toml` (or a file under its
-`patches/`) and merge it - the changed archive bytes give the revision its identity, and both
-revisions stay listed and fetchable.  A package directory publishes verbatim, so a comment is a
-byte change like any other.  There is no sidecar file
-and no version-string marker.  Consumers keep their existing pin until they run `cabin update`.
-
-A revision must not change what resolution consumes, so a correction that alters the published
-package's dependencies, features, or language-standard table is not a respin - it needs a new
-upstream version.  See `docs/foundation-ports.md`, "Publishing ports as registry packages", for the
-full behavior.
+See [`foundation-ports.md`](../docs/foundation-ports.md#publishing-ports-as-registry-packages) for
+the publish rules, [publish automation](../docs/foundation-ports.md#publish-automation), and which
+corrections may ship as a [packaging revision](../docs/foundation-ports.md#packaging-revisions).
