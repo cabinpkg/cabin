@@ -116,7 +116,7 @@ use xtask_workflow_guard::migrations_pending::{self, digest, migration_files};
 
 use crate::launch_guard::Mode;
 use crate::{
-    Nullish, column_lines, display, output, registry_dir, results, status, step, wrangler,
+    Nullish, column_lines, display, output, registry_root, results, status, step, wrangler,
 };
 
 /// Is there anything to read the applied names out of?  A first
@@ -168,7 +168,7 @@ fn local() -> Result<()> {
 }
 
 fn remote() -> Result<()> {
-    let root = root();
+    let root = registry_root();
     let migrations = root.join("migrations");
 
     step("reading the applied set from the live database");
@@ -411,18 +411,6 @@ fn basename(file: &Path) -> std::borrow::Cow<'_, str> {
     file_name(file).to_string_lossy()
 }
 
-/// The registry root this run reads, writes and runs wrangler in.
-/// `CABIN_REGISTRY_DIR` overrides [`registry_dir`], which is how tests
-/// point the command at a synthetic registry
-/// root.  Everything the run touches resolves
-/// through this one function, so the migrations, the stamp and
-/// wrangler's working directory cannot come from different trees.
-fn root() -> PathBuf {
-    std::env::var_os(cabin_env::CABIN_REGISTRY_DIR)
-        .filter(|value| !value.is_empty())
-        .map_or_else(registry_dir, PathBuf::from)
-}
-
 fn d1(sql: &str) -> Result<String> {
     output(
         wrangler(&[
@@ -434,14 +422,14 @@ fn d1(sql: &str) -> Result<String> {
             "--command",
             sql,
         ])
-        .current_dir(root()),
+        .current_dir(registry_root()),
     )
 }
 
 /// `wrangler d1 migrations apply DB <flag>`, whose output is the
 /// operator's only sign of life while it runs and so is not captured.
 fn apply(flag: &str) -> Result<()> {
-    status(wrangler(&["d1", "migrations", "apply", "DB", flag]).current_dir(root()))
+    status(wrangler(&["d1", "migrations", "apply", "DB", flag]).current_dir(registry_root()))
 }
 
 #[cfg(test)]
