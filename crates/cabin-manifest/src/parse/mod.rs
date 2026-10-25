@@ -247,13 +247,16 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     // which never reaches `project_from_raw`.
     reject_unsupported_target_conditions(&conditional_targets)?;
 
-    let root_settings = root_settings_from_parts(
-        profiles.clone(),
-        toolchain_decl.clone(),
-        compiler_wrapper.clone(),
-        patches.clone(),
-        &conditional_targets,
-    )?;
+    let toolchain_settings = cabin_core::ToolchainSettings {
+        general: toolchain_decl,
+        conditional: conditional_toolchains_from_raw(&conditional_targets)?,
+    };
+    let root_settings = RootSettings {
+        profiles: profiles.clone(),
+        toolchain: toolchain_settings.clone(),
+        compiler_wrapper: compiler_wrapper.clone(),
+        patches: patches.clone(),
+    };
 
     let package = if let Some(raw_project) = package {
         Some(project_from_raw(ProjectFromRawInput {
@@ -264,7 +267,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             conditional_targets,
             raw_features: features,
             profiles,
-            toolchain_general: toolchain_decl,
+            toolchain: toolchain_settings,
             build_general: build_decl,
             compiler_wrapper,
             patches,
@@ -274,22 +277,13 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         if !target.is_empty() {
             return Err(ManifestError::EmptyManifest);
         }
-        // Conditional dep tables without a `[package]` are
-        // ignored, like the unconditional ones.
-        let _ = conditional_targets;
-        // Profile / toolchain / build tables in a pure-
-        // workspace root have no package to apply against
-        // locally; the workspace loader passes them down to
-        // members or, for toolchain settings, applies them
-        // workspace-wide.
-        let _ = profiles;
-        let _ = toolchain_decl;
-        let _ = build_decl;
-        let _ = compiler_wrapper;
-        let _ = patches;
-        // Dependency tables without [package] are silently ignored - a pure
-        // workspace root has nothing to apply them to.  The [workspace.*]
-        // tables below still flow through.
+        // Without a [package], conditional and plain dependency tables
+        // are silently ignored - a pure workspace root has nothing to
+        // apply them to.  Profile / toolchain / build tables have no
+        // package to apply against locally either; the workspace loader
+        // passes them down to members or, for toolchain settings,
+        // applies them workspace-wide.  The [workspace.*] tables below
+        // still flow through.
         None
     };
 
@@ -338,25 +332,6 @@ fn reject_unsupported_target_conditions(
     Ok(())
 }
 
-fn root_settings_from_parts(
-    profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
-    toolchain_general: cabin_core::ToolchainDecl,
-    compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
-    patches: cabin_core::PatchManifestSettings,
-    conditional_targets: &[RawConditionalTarget],
-) -> Result<RootSettings, ManifestError> {
-    let toolchain = cabin_core::ToolchainSettings {
-        general: toolchain_general,
-        conditional: conditional_toolchains_from_raw(conditional_targets)?,
-    };
-    Ok(RootSettings {
-        profiles,
-        toolchain,
-        compiler_wrapper,
-        patches,
-    })
-}
-
 fn conditional_toolchains_from_raw(
     conditional_targets: &[RawConditionalTarget],
 ) -> Result<Vec<cabin_core::ConditionalToolchainDecl>, ManifestError> {
@@ -390,7 +365,7 @@ struct ProjectFromRawInput {
     conditional_targets: Vec<RawConditionalTarget>,
     raw_features: BTreeMap<String, Vec<String>>,
     profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
-    toolchain_general: cabin_core::ToolchainDecl,
+    toolchain: cabin_core::ToolchainSettings,
     build_general: cabin_core::ProfileFlags,
     compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
     patches: cabin_core::PatchManifestSettings,
@@ -405,7 +380,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         conditional_targets,
         raw_features,
         profiles,
-        toolchain_general,
+        toolchain,
         build_general,
         compiler_wrapper,
         patches,
@@ -446,11 +421,9 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
 
     let features = features_from_raw(raw_features);
 
-    // Collect target-conditioned [target.'cfg(...)'.toolchain] /
-    // [target.'cfg(...)'.profile] entries alongside the conditional
-    // dependency tables so the typed Package carries the full
-    // settings struct.
-    let conditional_toolchains = conditional_toolchains_from_raw(&conditional_targets)?;
+    // Collect target-conditioned [target.'cfg(...)'.profile] entries
+    // alongside the conditional dependency tables so the typed Package
+    // carries the full settings struct.
     let mut conditional_build_flags: Vec<cabin_core::ConditionalProfileFlags> = Vec::new();
     for cond_target in &conditional_targets {
         if let Some(raw_profile) = &cond_target.profile {
@@ -475,10 +448,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         }
     }
 
-    let toolchain_settings = cabin_core::ToolchainSettings {
-        general: toolchain_general,
-        conditional: conditional_toolchains,
-    };
     let build_settings = cabin_core::ProfileSettings {
         general: build_general,
         conditional: conditional_build_flags,
@@ -493,7 +462,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         features,
     })?
     .with_profiles(profiles)
-    .with_toolchain(toolchain_settings)
+    .with_toolchain(toolchain)
     .with_build(build_settings)
     .with_language(language)
     .with_compiler_wrapper(compiler_wrapper)
