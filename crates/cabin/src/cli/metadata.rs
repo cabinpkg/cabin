@@ -13,14 +13,16 @@ use cabin_core::{DependencySource, Package};
 use cabin_lockfile::Lockfile;
 use cabin_workspace::PackageGraph;
 
+use crate::cli::build_prep::{
+    InspectionPrep, resolve_compiler_wrapper_layered, resolve_inspection_prep,
+};
 use crate::cli::term_verbosity::Reporter;
 use crate::cli::{
     ManifestArgs, ResolveFormat, augment_build_flags, build_selection_request,
     build_workspace_selection, compiler_wrapper_override_from_args, compute_feature_resolution,
-    lockfile_path_for, profile_selection_for_metadata, read_optional_lockfile,
-    resolve_build_configurations, resolve_invocation_manifest, resolve_per_package_build_flags,
-    resolve_toolchain_layered, toolchain_selection_from_args, workspace_compiler_wrapper_settings,
-    workspace_profile_definitions,
+    lockfile_path_for, read_optional_lockfile, resolve_build_configurations,
+    resolve_invocation_manifest, resolve_per_package_build_flags,
+    workspace_compiler_wrapper_settings,
 };
 
 /// Top-level `cabin metadata --format json` document.
@@ -580,47 +582,29 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // errors surface here and in `cabin build`.
     let feature_resolution =
         compute_feature_resolution(&graph, &resolved_selection, &request, &BTreeSet::new())?;
-    let manifest_profiles = workspace_profile_definitions(&graph);
-    let profile_selection =
-        profile_selection_for_metadata(args.profile.as_deref(), &effective_config)?;
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
-    let host_platform = cabin_core::TargetPlatform::current();
-    let toolchain_selection = toolchain_selection_from_args(&args.toolchain)?;
-    let toolchain = resolve_toolchain_layered(
+    // The detection report reaches the JSON view as `null` when
+    // subprocess detection fails.
+    let InspectionPrep {
+        manifest_profiles,
+        profile,
+        host_platform,
+        toolchain,
+        detection: detection_report,
+    } = resolve_inspection_prep(
         &graph,
-        &toolchain_selection,
+        args.profile.as_deref(),
+        &args.toolchain,
         &effective_config,
-        &host_platform,
+        reporter,
     )?;
-    // Capability detection runs against the resolved tools.
-    // `cabin metadata` is fail-soft so a misbehaving compiler
-    // does not block users from inspecting the rest of the
-    // workspace; the typed report is reported to the JSON view
-    // as `null` when subprocess detection fails.
-    let detection_report =
-        match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
-            Ok(report) => Some(report),
-            Err(err) => {
-                reporter.warning(format_args!("toolchain detection failed: {err}"));
-                None
-            }
-        };
     // Resolve the compiler wrapper. `cabin metadata` mirrors
     // the build-side resolution but fails soft on subprocess
     // errors so a missing wrapper executable cannot block
     // inspection of the rest of the workspace.
-    let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
-    let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
-    let mut wrapper_inputs = cabin_toolchain::WrapperInputs::from_process(
-        cli_compiler_wrapper,
-        manifest_compiler_wrapper.as_ref(),
-    );
-    if let Some(layer) = crate::cli::config::wrapper_layer(&effective_config) {
-        wrapper_inputs = wrapper_inputs.with_config(layer);
-    }
-    let compiler_wrapper = match cabin_toolchain::resolve_compiler_wrapper(
-        &wrapper_inputs,
-        Some(&cabin_toolchain::ProcessRunner),
+    let compiler_wrapper = match resolve_compiler_wrapper_layered(
+        compiler_wrapper_override_from_args(&args.toolchain)?,
+        workspace_compiler_wrapper_settings(&graph).as_ref(),
+        &effective_config,
     ) {
         Ok(w) => w,
         Err(err) => {

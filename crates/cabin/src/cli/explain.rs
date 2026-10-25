@@ -16,10 +16,8 @@ use clap::{Args, Subcommand};
 use crate::cli::{
     ConfigSelectionArgs, ResolveFormat, ToolchainSelectionArgs, WorkspaceSelectionArgs,
     build_selection_request, build_workspace_selection, compiler_wrapper_override_from_args,
-    compute_feature_resolution, lockfile_path_for, profile_selection_for_metadata,
-    read_optional_lockfile, resolve_build_configurations, resolve_invocation_manifest,
-    toolchain_selection_from_args, workspace_compiler_wrapper_settings,
-    workspace_profile_definitions,
+    compute_feature_resolution, lockfile_path_for, read_optional_lockfile,
+    resolve_build_configurations, resolve_invocation_manifest, workspace_compiler_wrapper_settings,
 };
 
 #[derive(Debug, Args)]
@@ -171,36 +169,13 @@ pub(crate) fn explain(
             cabin_explain::Explanation::Feature(exp)
         }
         ExplainCommand::BuildConfig { name } => {
-            // Build-config explanations need the same preamble
-            // as `cabin metadata`.  We compute it inline rather
-            // than refactoring `metadata()` itself so the
-            // existing path stays untouched.
-            let manifest_profiles = workspace_profile_definitions(&graph);
-            let profile_selection =
-                profile_selection_for_metadata(args.profile.as_deref(), &effective_config)?;
-            let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
-            let host_platform = cabin_core::TargetPlatform::current();
-            let toolchain_selection = toolchain_selection_from_args(&args.toolchain)?;
-            let toolchain = crate::cli::resolve_toolchain_layered(
+            let inspection = crate::cli::build_prep::resolve_inspection_prep(
                 &graph,
-                &toolchain_selection,
+                args.profile.as_deref(),
+                &args.toolchain,
                 &effective_config,
-                &host_platform,
+                reporter,
             )?;
-            // Capability detection mirrors `cabin metadata`: fail-soft
-            // so a misbehaving compiler does not block explaining the
-            // configuration; compiler cfg conditions then evaluate as
-            // `unknown` with no version.
-            let detection_report = match cabin_toolchain::detect_toolchain(
-                &toolchain,
-                &cabin_toolchain::ProcessRunner,
-            ) {
-                Ok(report) => Some(report),
-                Err(err) => {
-                    reporter.warning(format_args!("toolchain detection failed: {err}"));
-                    None
-                }
-            };
             let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
             let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
             // `cabin explain` does not opt into dev-dep activation;
@@ -209,13 +184,13 @@ pub(crate) fn explain(
             let prep = crate::cli::build_prep::resolve_build_prep(
                 crate::cli::build_prep::BuildConfigInputs {
                     graph: &graph,
-                    host_platform: &host_platform,
-                    toolchain: &toolchain,
-                    detection: detection_report.as_ref(),
+                    host_platform: &inspection.host_platform,
+                    toolchain: &inspection.toolchain,
+                    detection: inspection.detection.as_ref(),
                     cli_compiler_wrapper,
                     manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
                     effective_config: &effective_config,
-                    profile: &profile,
+                    profile: &inspection.profile,
                     dev_for: &dev_for,
                     feature_resolution: &feature_resolution,
                     reporter,
@@ -225,7 +200,7 @@ pub(crate) fn explain(
                 &graph,
                 &request,
                 &resolved_selection.packages,
-                &profile,
+                &inspection.profile,
                 &prep.toolchain_summary,
                 &prep.build_flags,
             )?;

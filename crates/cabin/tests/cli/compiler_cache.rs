@@ -243,6 +243,60 @@ sources = ["src/lib.cc"]
     );
 }
 
+/// The read-only commands share their toolchain preamble but not the
+/// wrapper policy: `cabin metadata` reports a missing wrapper and keeps
+/// going, `cabin explain build-config` refuses like a build.
+#[cfg(unix)]
+#[test]
+fn missing_wrapper_executable_warns_in_metadata_and_fails_explain() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+    let bin = TempDir::new().unwrap();
+    let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
+    let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
+    // No ccache staged.
+    let run = |args: &[&str]| {
+        let mut cmd = cabin();
+        cmd.args(args)
+            .arg("--manifest-path")
+            .arg(dir.path().join("cabin.toml"))
+            .args(["--compiler-wrapper", "ccache"])
+            .env("PATH", bin.path())
+            .env_remove("CXX")
+            .env_remove("CC")
+            .env_remove("AR")
+            .env_remove("CABIN_COMPILER_WRAPPER");
+        cmd
+    };
+
+    let metadata = run(&["metadata"]).assert().success();
+    let stderr = String::from_utf8_lossy(&metadata.get_output().stderr);
+    assert!(
+        stderr.contains("compiler-wrapper resolution failed") && stderr.contains("ccache"),
+        "expected a wrapper warning, got: {stderr}"
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&metadata.get_output().stdout)).unwrap();
+    assert!(value["toolchain"]["compiler_wrapper"].is_null());
+
+    let explain = run(&["explain"])
+        .args(["build-config", "demo"])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&explain.get_output().stderr);
+    assert!(
+        stderr.contains("ccache") && stderr.contains("could not be found"),
+        "expected NotFound message naming ccache, got: {stderr}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn arbitrary_cli_executable_is_accepted() {
