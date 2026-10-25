@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Map, Value};
 use tempfile::{NamedTempFile, TempPath};
 use xtask_registry_admin::{output, registry_dir, results, status, wrangler};
@@ -266,6 +266,90 @@ pub fn export_dump(mock_dir: &Path) -> Result<()> {
     status(&mut wrangler(&[
         "d1", "export", "DB", "--local", "--output", dump,
     ]))
+}
+
+/// Restores that dump into a scratch database and requires the schema
+/// and every table's rows to match the database it was exported from:
+/// the backup cron leg proves the stored backup is this dump, and this
+/// proves the dump restores.  Nothing writes in between - the servers
+/// are not up yet.  Rows compare as wrangler's JSON renders them, which
+/// cannot tell a BLOB from the TEXT spelling its bytes, or integers past
+/// 2^53 apart; the registry stores neither.
+///
+/// # Errors
+///
+/// If wrangler cannot be run, or the restored database differs.
+pub fn rehearse_restore(mock_dir: &Path) -> Result<()> {
+    step("restoring the exported dump into a scratch database");
+    let scratch = tempfile::tempdir().context("creating the scratch database directory")?;
+    let persist = scratch
+        .path()
+        .to_str()
+        .context("the scratch directory is not UTF-8")?;
+    let dump = mock_dir.join("dump.sql");
+    let dump = dump.to_str().context("the mock directory is not UTF-8")?;
+    output(&mut d1_execute(&["--persist-to", persist, "--file", dump]))?;
+
+    // `sqlite_sequence` included: the export restores its rows too.
+    let tables = d1_rows(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB '_cf_*' ORDER BY name",
+    )?;
+    let tables = tables
+        .iter()
+        .map(|row| {
+            row.get("name")
+                .and_then(Value::as_str)
+                .context("a table row has no name")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    // SQLite's own objects and D1's are rebuilt, not restored.
+    let mut statements = vec![
+        "SELECT type, name, sql FROM sqlite_master \
+         WHERE name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*' ORDER BY type, name"
+            .to_owned(),
+    ];
+    statements.extend(
+        tables
+            .iter()
+            .map(|table| format!("SELECT * FROM \"{table}\"")),
+    );
+    let query = statements.join("; ");
+    let live = result_sets(&d1_json(&query)?)?;
+    let restored = result_sets(&output(&mut d1_execute(&[
+        "--persist-to",
+        persist,
+        "--json",
+        "--command",
+        &query,
+    ]))?)?;
+    ensure!(
+        live.len() == statements.len() && restored.len() == statements.len(),
+        "wrangler answered {} and {} of {} statements",
+        live.len(),
+        restored.len(),
+        statements.len(),
+    );
+    let labels = std::iter::once("the schema").chain(tables.iter().copied());
+    for (label, (live, restored)) in labels.zip(live.iter().zip(&restored)) {
+        ensure!(
+            live == restored,
+            "the restored dump differs from its database in {label}"
+        );
+    }
+    Ok(())
+}
+
+/// Every statement's `results`, where [`results`] reads the first.
+fn result_sets(json: &str) -> Result<Vec<Value>> {
+    let parsed: Vec<Value> = serde_json::from_str(json).context("parse wrangler output")?;
+    parsed
+        .into_iter()
+        .map(|set| {
+            set.get("results")
+                .cloned()
+                .context("wrangler output has no results array")
+        })
+        .collect()
 }
 
 /// The four servers, their logs, and the `.dev.vars` they are

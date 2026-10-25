@@ -113,6 +113,10 @@ flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
 and Node (for the pinned `npx --yes wrangler@4.112.0`); `worker-build`
 installs itself on first build.
 
+Before its servers start, the smoke also restores its local D1 export into a
+scratch database and requires the same schema and rows: the backup cron leg
+proves the stored backup is that export, and this proves it restores.
+
 `cargo gen-fixtures <dir>`, run from the repository root (the alias names a
 root-workspace package), builds the in-tree `cabin` binary and
 packages real archive + canonical-metadata pairs; the `#[ignore]`d

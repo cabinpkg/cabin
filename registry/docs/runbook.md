@@ -1152,7 +1152,10 @@ byte-for-byte, and deletes the scratch database. Run it after enabling
 backups, after changing the dump machinery, and periodically before
 launch milestones. Row counts legitimately drift on
 an active database (the dump is nightly) - investigate only differences
-the timeline cannot explain.
+the timeline cannot explain. `cargo registry-smoke` restores its own local export
+into a scratch database on every registry pull request and requires the same schema and
+rows, so the import path is checked continuously; only the drill exercises a production
+dump.
 
 **Known limitation - account-level compromise.** Everything above lives
 in one Cloudflare account, and no in-account (or in-account-targeting)
