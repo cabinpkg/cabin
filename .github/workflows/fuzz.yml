@@ -4,6 +4,9 @@ name: Fuzz campaign
 # previous run kept. A failure names the target and withholds its
 # output, which can quote the crashing input (fuzz/README.md).
 on:
+  # TEMPORARY PR probe, removed before merge.
+  pull_request:
+    paths: [".github/workflows/fuzz.yml"]
   schedule:
     - cron: "23 4 * * *"
   workflow_dispatch:
