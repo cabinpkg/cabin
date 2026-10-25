@@ -4,7 +4,8 @@
 //! `.github/path-filters.yml`).
 //!
 //! Crate boundaries: the guards inspect committed sources and
-//! configuration only.  They take no credentials, make no network
+//! configuration, and the outputs of the job's own build and proof
+//! steps, only.  They take no credentials, make no network
 //! calls, and mutate nothing - which is why they are separate from the
 //! operator tooling that does all three.  Each guard reports its
 //! violations as diagnostic lines and leaves exit codes and printing to
@@ -15,6 +16,7 @@
 //! ceiling.
 
 pub mod deploy;
+pub mod kani;
 pub mod lexical;
 pub mod r2;
 pub mod source;

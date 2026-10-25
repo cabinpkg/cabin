@@ -198,7 +198,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           cache-on-failure: false
-          cache-workspaces: registry
+          cache-workspaces: |
+            .
+            registry
           rustflags: ""
 
       - name: Install Kani
@@ -206,8 +208,15 @@ jobs:
           cargo install -q "kani-verifier@=0.68.0" --locked
           cargo kani setup
 
+      # Explicit bash for pipefail: tee must not hide a failed proof.
       - name: Verify every proof harness
-        run: cargo kani
+        shell: bash
+        run: cargo kani | tee "$RUNNER_TEMP/kani.log"
+
+      # Kani passes a harness with a cover it never satisfies.
+      - name: Require every cover satisfied
+        run: cargo check-kani-report "$RUNNER_TEMP/kani.log"
+        working-directory: .
 
   # Model-checks the TLA+ specification of the publish/verification
   # lifecycle (registry/proofs) with the pinned TLC release; the runner's

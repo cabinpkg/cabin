@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Repository tool: static guards over the registry Worker's sources and deploy configuration"
+description = "Repository tool: static guards over the registry Worker's sources, deploy configuration, and proof report"
 # Repository-owned maintainer tooling (AGENTS.md, "Repository
 # automation"): the guards read the committed `registry/` tree, so a
 # published copy would have nothing to inspect.

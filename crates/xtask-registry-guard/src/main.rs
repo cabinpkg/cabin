@@ -1,14 +1,15 @@
-//! Command-line shim for the registry source guards; the guards
-//! themselves live in the library.
+//! Command-line shim for the registry guards; the guards themselves
+//! live in the library.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use xtask_registry_guard::{deploy, r2, registry_dir, sql};
+use xtask_registry_guard::{deploy, kani, r2, registry_dir, sql};
 
-/// Static guards over the hosted registry Worker's sources.  Each
+/// Static guards over the hosted registry Worker's sources, build and
+/// proofs.  Each
 /// prints every violation it finds and exits non-zero when there is
 /// one.
 #[derive(Parser)]
@@ -34,6 +35,11 @@ enum Guard {
         /// check.
         #[arg(long)]
         require_bundle: bool,
+    },
+    /// A saved `cargo kani` report shows every cover satisfied.
+    CheckKaniReport {
+        /// The report `cargo kani` printed.
+        report: PathBuf,
     },
 }
 
@@ -68,6 +74,14 @@ fn run(cli: &Cli) -> Result<bool> {
             println!("deploy config OK");
             return Ok(true);
         }
+        Guard::CheckKaniReport { ref report } => (
+            kani::check(
+                &std::fs::read_to_string(report)
+                    .with_context(|| format!("reading {}", report.display()))?,
+            ),
+            "error: a Kani harness left a cover unsatisfied; \
+             its assumptions may leave nothing to check",
+        ),
         Guard::CheckSql => (
             sql::check(&directory)?,
             "error: executed SQL outside src/sql/; \
