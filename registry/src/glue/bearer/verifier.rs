@@ -271,9 +271,6 @@ pub(super) async fn verdict_response(
     // id is the digest's leading hex prefix); `parse_verdict` requires
     // it for both verdicts, so the lookup is never ambiguous when a
     // pending respin sits beside the version's other revisions.
-    if !crate::checksum::is_canonical(&parsed.checksum) {
-        return error_response(400, verify::INVALID_VERDICT_CHECKSUM);
-    }
     let revision = crate::checksum::revision_id(&parsed.checksum).to_owned();
     let target: Option<VerdictTargetRecord> = db
         .prepare(sql::VERDICT_TARGET)

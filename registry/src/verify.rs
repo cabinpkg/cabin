@@ -112,8 +112,9 @@ pub struct ParsedVerdict {
 /// # Errors
 ///
 /// The fixed `400` detail string for a malformed body, an unknown
-/// verdict value, a rejection without a reason, or a missing checksum
-/// (both verdicts) and `published_at` (both verdicts) binding.
+/// verdict value, a rejection without a reason, a missing checksum
+/// (both verdicts) and `published_at` (both verdicts) binding, or a
+/// non-canonical checksum.
 pub fn parse_verdict(body: &[u8]) -> Result<ParsedVerdict, &'static str> {
     let Ok(VerdictBody {
         verdict,
@@ -148,6 +149,9 @@ pub fn parse_verdict(body: &[u8]) -> Result<ParsedVerdict, &'static str> {
     let Some(published_at) = published_at.filter(|stamp| !stamp.is_empty()) else {
         return Err(error::VERDICT_BINDING_REQUIRED);
     };
+    if !crate::checksum::is_canonical(&checksum) {
+        return Err(INVALID_VERDICT_CHECKSUM);
+    }
     Ok(ParsedVerdict {
         verdict,
         reason,
@@ -260,44 +264,64 @@ mod tests {
         }
     }
 
-    const BOUND_VERIFIED: &[u8] =
-        br#"{"verdict":"verified","checksum":"aa12","published_at":"2026-07-10T00:00:00.000Z"}"#;
+    const CHECKSUM: &str =
+        "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
 
     #[test]
     fn parse_verdict_accepts_the_two_verdicts() {
+        let body = format!(
+            r#"{{"verdict":"verified","checksum":"{CHECKSUM}","published_at":"2026-07-10T00:00:00.000Z"}}"#
+        );
         assert_eq!(
-            parse_verdict(BOUND_VERIFIED),
+            parse_verdict(body.as_bytes()),
             Ok(ParsedVerdict {
                 verdict: Verdict::Verified,
                 reason: None,
-                checksum: "aa12".to_owned(),
+                checksum: CHECKSUM.to_owned(),
                 published_at: "2026-07-10T00:00:00.000Z".to_owned(),
             })
         );
         // A reason on a verified verdict is accepted and ignored.
+        let body = format!(
+            r#"{{"verdict":"verified","reason":"fine","checksum":"{CHECKSUM}","published_at":"t"}}"#
+        );
         assert_eq!(
-            parse_verdict(
-                br#"{"verdict":"verified","reason":"fine","checksum":"aa12","published_at":"t"}"#
-            ),
+            parse_verdict(body.as_bytes()),
             Ok(ParsedVerdict {
                 verdict: Verdict::Verified,
                 reason: None,
-                checksum: "aa12".to_owned(),
+                checksum: CHECKSUM.to_owned(),
                 published_at: "t".to_owned(),
             })
         );
         // A rejection carries both bindings too.
+        let body = format!(
+            r#"{{"verdict":"rejected","reason":"malware","checksum":"{CHECKSUM}","published_at":"t"}}"#
+        );
         assert_eq!(
-            parse_verdict(
-                br#"{"verdict":"rejected","reason":"malware","checksum":"aa12","published_at":"t"}"#
-            ),
+            parse_verdict(body.as_bytes()),
             Ok(ParsedVerdict {
                 verdict: Verdict::Rejected,
                 reason: Some("malware".to_owned()),
-                checksum: "aa12".to_owned(),
+                checksum: CHECKSUM.to_owned(),
                 published_at: "t".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn parse_verdict_requires_the_canonical_checksum() {
+        for body in [
+            br#"{"verdict":"verified","checksum":"aa12","published_at":"t"}"#.as_slice(),
+            br#"{"verdict":"rejected","reason":"malware","checksum":"aa12","published_at":"t"}"#,
+        ] {
+            assert_eq!(
+                parse_verdict(body),
+                Err(INVALID_VERDICT_CHECKSUM),
+                "body: {}",
+                String::from_utf8_lossy(body)
+            );
+        }
     }
 
     #[test]
