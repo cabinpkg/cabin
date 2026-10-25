@@ -49,7 +49,6 @@ pub(super) fn package_dependency_from_raw(
     kind: DependencyKind,
     condition: Option<Condition>,
 ) -> Result<Dependency, ManifestError> {
-    let section = kind.manifest_section();
     let raw_outcome: ResolvedDep = match raw {
         RawDependency::String(s) => ResolvedDep {
             source: DependencySource::Version(parse_version_req(&name, &s)?),
@@ -61,18 +60,9 @@ pub(super) fn package_dependency_from_raw(
         RawDependency::Table(table) => {
             // The router catches `system = true`.  Reaching this
             // arm with `system = true` is an internal invariant
-            // violation; fail loudly so a future refactor cannot
-            // silently drop the system path.
+            // violation; the debug assertion makes tests fail if a
+            // future refactor drops the system path.
             debug_assert!(!table.system, "router should have routed system deps");
-            if table.system {
-                return Err(ManifestError::SystemConflictsWith {
-                    name,
-                    section,
-                    field: "system",
-                    detail: "system = true must be routed before package_dependency_from_raw",
-                });
-            }
-
             ordinary_dep_from_table(&name, table, kind)?
         }
     };
@@ -203,7 +193,6 @@ pub(super) fn system_dependency_from_raw_table(
         ignore_interface_standard,
     } = table;
     debug_assert!(system, "router only dispatches here when system = true");
-    let _ = system;
 
     // Reject every field that has no meaning alongside
     // `system = true`.  The order matches the user-visible field
@@ -226,7 +215,6 @@ pub(super) fn system_dependency_from_raw_table(
                 name,
                 section,
                 field,
-                detail: "the field is incompatible with `system = true`",
             });
         }
     }

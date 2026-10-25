@@ -7,11 +7,7 @@ pub(super) fn compiler_wrapper_request_from_raw(
     let Some(value) = raw.and_then(|build| build.compiler_wrapper) else {
         return Ok(None);
     };
-    let request = cabin_core::CompilerWrapperRequest::parse(&value).map_err(|source| {
-        ManifestError::InvalidCompilerWrapper {
-            section: "[build]".to_owned(),
-            source,
-        }
-    })?;
+    let request = cabin_core::CompilerWrapperRequest::parse(&value)
+        .map_err(|source| ManifestError::InvalidCompilerWrapper { source })?;
     Ok(Some(request))
 }
