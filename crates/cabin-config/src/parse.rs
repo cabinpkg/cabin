@@ -33,7 +33,8 @@ pub struct ParsedConfig {
     pub toolchain: ParsedToolchain,
     pub term: ParsedTerm,
     pub patches: BTreeMap<PackageName, PatchSource>,
-    pub source_replacements: BTreeMap<SourceLocator, ParsedSourceReplacement>,
+    /// Keyed by the original locator; each value is its replacement.
+    pub source_replacements: BTreeMap<SourceLocator, SourceLocator>,
 }
 
 /// Validated `[resolver]` table.  `incompatible_standards` is `None`
@@ -54,14 +55,6 @@ pub struct ParsedTerm {
     /// single typed [`Verbosity`].  `None` when neither key was
     /// set in this file.
     pub verbosity: Option<Verbosity>,
-}
-
-/// One typed `[source-replacement]` entry.  The original (table
-/// key) is held by the surrounding map; this struct carries
-/// the replacement target.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedSourceReplacement {
-    pub replacement: SourceLocator,
 }
 
 /// `[registry]` table after validation.  A single config file may
@@ -335,7 +328,7 @@ fn parsed_patches_from_raw(
 
 fn parsed_source_replacements_from_raw(
     rows: BTreeMap<String, RawConfigSourceReplacement>,
-) -> Result<BTreeMap<SourceLocator, ParsedSourceReplacement>, ConfigParseError> {
+) -> Result<BTreeMap<SourceLocator, SourceLocator>, ConfigParseError> {
     let mut out = BTreeMap::new();
     for (raw_original, row) in rows {
         reject_credentials_in_url(&raw_original, &raw_original)?;
@@ -353,36 +346,18 @@ fn parsed_source_replacements_from_raw(
                     },
                 });
             }
-            (Some(path), None) => {
-                let trimmed = path.trim();
-                if trimmed.is_empty() {
-                    return Err(ConfigParseError::InvalidSourceReplacement {
-                        original: raw_original,
-                        source: cabin_core::SourceReplacementError::MissingReplacement {
-                            original: original.display(),
-                        },
-                    });
-                }
-                SourceLocator::IndexPath {
-                    path: Utf8PathBuf::from(trimmed),
-                }
-            }
-            (None, Some(url)) => {
+            (Some(path), None) if !path.trim().is_empty() => SourceLocator::IndexPath {
+                path: Utf8PathBuf::from(path.trim()),
+            },
+            (None, Some(url)) if !url.trim().is_empty() => {
                 let trimmed = url.trim();
-                if trimmed.is_empty() {
-                    return Err(ConfigParseError::InvalidSourceReplacement {
-                        original: raw_original,
-                        source: cabin_core::SourceReplacementError::MissingReplacement {
-                            original: original.display(),
-                        },
-                    });
-                }
                 reject_credentials_in_url(trimmed, &raw_original)?;
                 SourceLocator::IndexUrl {
                     url: trimmed.to_owned(),
                 }
             }
-            (None, None) => {
+            // Absent, or a lone blank key.
+            _ => {
                 return Err(ConfigParseError::InvalidSourceReplacement {
                     original: raw_original,
                     source: cabin_core::SourceReplacementError::MissingReplacement {
@@ -391,7 +366,7 @@ fn parsed_source_replacements_from_raw(
                 });
             }
         };
-        out.insert(original, ParsedSourceReplacement { replacement });
+        out.insert(original, replacement);
     }
     Ok(out)
 }
@@ -837,14 +812,64 @@ mod tests {
         let original = SourceLocator::IndexUrl {
             url: "https://example.com/index".into(),
         };
-        let entry = parsed
+        let replacement = parsed
             .source_replacements
             .get(&original)
             .expect("entry present");
         assert!(matches!(
-            entry.replacement,
-            SourceLocator::IndexPath { ref path } if path == &Utf8PathBuf::from("../mirror")
+            replacement,
+            SourceLocator::IndexPath { path } if path == &Utf8PathBuf::from("../mirror")
         ));
+    }
+
+    #[test]
+    fn source_replacement_maps_each_absent_blank_or_set_target_pair() {
+        use cabin_core::SourceReplacementError::{AmbiguousReplacement, MissingReplacement};
+
+        let key = "https://example.com/index";
+        let missing = Err(MissingReplacement {
+            original: key.into(),
+        });
+        // A blank key still counts as present for the both-keys check.
+        let ambiguous = Err(AmbiguousReplacement {
+            original: key.into(),
+        });
+        let path = Ok(SourceLocator::IndexPath {
+            path: Utf8PathBuf::from("../mirror"),
+        });
+        let url = Ok(SourceLocator::IndexUrl {
+            url: "https://mirror.example.com/index".into(),
+        });
+        let cases = [
+            ("", missing.clone()),
+            (r#"index-path = " ""#, missing.clone()),
+            (r#"index-url = " ""#, missing),
+            (r#"index-path = "../mirror""#, path),
+            (r#"index-url = "https://mirror.example.com/index""#, url),
+            (r#"index-path = " ", index-url = " ""#, ambiguous.clone()),
+            (
+                r#"index-path = " ", index-url = "https://mirror.example.com/index""#,
+                ambiguous.clone(),
+            ),
+            (
+                r#"index-path = "../mirror", index-url = " ""#,
+                ambiguous.clone(),
+            ),
+            (
+                r#"index-path = "../mirror", index-url = "https://mirror.example.com/index""#,
+                ambiguous,
+            ),
+        ];
+        let original = SourceLocator::IndexUrl { url: key.into() };
+        for (row, expected) in cases {
+            let text = format!("[source-replacement]\n\"{key}\" = {{ {row} }}\n");
+            let actual = match parse_config_str(&text) {
+                Ok(parsed) => Ok(parsed.source_replacements[&original].clone()),
+                Err(ConfigParseError::InvalidSourceReplacement { source, .. }) => Err(source),
+                Err(other) => panic!("{row}: unexpected error {other:?}"),
+            };
+            assert_eq!(actual, expected, "{row}");
+        }
     }
 
     #[test]

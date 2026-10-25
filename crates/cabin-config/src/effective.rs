@@ -279,12 +279,12 @@ fn apply_parsed(
             },
         );
     }
-    for (original, parsed_replacement) in &parsed.source_replacements {
+    for (original, replacement) in &parsed.source_replacements {
         effective.source_replacements.entries.insert(
             original.clone(),
             SourceReplacementEntry {
                 original: original.clone(),
-                replacement: parsed_replacement.replacement.clone(),
+                replacement: replacement.clone(),
                 provenance: source_to_value(source),
             },
         );
