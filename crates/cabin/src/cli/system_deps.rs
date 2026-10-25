@@ -8,16 +8,15 @@
 //! package rule that `cabin` stays thin: no probing,
 //! parsing, or flag-merge business logic lives in `cli.rs`.
 //!
-//! The single helper [`augment_build_flags_with_system_deps`]
-//! must be called from every command that constructs a build
-//! configuration or planner request - `cabin build` /
-//! `cabin run` / `cabin test` / `cabin tidy` /
-//! `cabin metadata`.  The merge point sits *after*
+//! Every command that constructs a build configuration or planner
+//! request reaches [`augment_build_flags_with_system_deps`] through
+//! `crate::cli::build_prep::augment_build_flags`, which runs it
+//! before the environment-flag layer.  The merge point sits *after*
 //! `cabin_core::resolve_build_flags` and *before*
 //! `BuildConfiguration::resolve`, so the build configuration
 //! fingerprint observes the discovered flags.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use camino::Utf8PathBuf;
 
@@ -32,26 +31,9 @@ use cabin_workspace::PackageGraph;
 
 use crate::cli::term_verbosity::Reporter;
 
-/// Per-package map of every successful `pkg-config` probe
-/// produced during a workspace probe.  Keyed by package index so
-/// callers can correlate the resolution back to the originating
-/// manifest.
-type SystemDependencyReports = BTreeMap<usize, Vec<SystemDependencyResolution>>;
-
-/// Return shape of [`augment_build_flags_with_system_deps`]:
-/// the augmented per-package flag map plus the deterministic
-/// probe reports.
-type AugmentedBuildFlags = (
-    HashMap<usize, ResolvedProfileFlags>,
-    SystemDependencyReports,
-);
-
 /// Probe every active system dependency declared by every
 /// primary package in the supplied graph and merge the
-/// discovered flags into `build_flags`.  Returns the same map,
-/// augmented, plus a deterministic per-package probe report so
-/// the caller can render verbose output or extend a metadata
-/// view.
+/// discovered flags into `build_flags`.
 ///
 /// The function is a no-op when no system dependency is active:
 /// no `pkg-config` subprocess is spawned and the supplied
@@ -64,10 +46,10 @@ pub(crate) fn augment_build_flags_with_system_deps(
     dev_for: &BTreeSet<String>,
     mut build_flags: HashMap<usize, ResolvedProfileFlags>,
     reporter: Reporter,
-) -> Result<AugmentedBuildFlags> {
+) -> Result<HashMap<usize, ResolvedProfileFlags>> {
     let active = collect_active_system_deps(graph, host_platform, dev_for);
     if active.is_empty() {
-        return Ok((build_flags, BTreeMap::new()));
+        return Ok(build_flags);
     }
 
     let tool = PkgConfigTool::from_env(|key| std::env::var_os(key));
@@ -94,19 +76,15 @@ pub(crate) fn augment_build_flags_with_system_deps(
         return Err(err.into());
     }
 
-    let mut reports: BTreeMap<usize, Vec<SystemDependencyResolution>> = BTreeMap::new();
     for (pkg_idx, deps) in active {
         let pkg_name = graph.packages[pkg_idx].package.name.as_str();
         let entry = build_flags.entry(pkg_idx).or_default();
-        let mut pkg_reports: Vec<SystemDependencyResolution> = Vec::with_capacity(deps.len());
         for dep in deps {
             let resolved = probe_dep(&tool, pkg_name, dep, reporter)?;
             merge_flags(entry, &resolved.flags);
-            pkg_reports.push(resolved);
         }
-        reports.insert(pkg_idx, pkg_reports);
     }
-    Ok((build_flags, reports))
+    Ok(build_flags)
 }
 
 /// Whether any active `system = true` dependency is declared by a

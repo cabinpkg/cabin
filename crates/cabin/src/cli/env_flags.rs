@@ -15,10 +15,9 @@
 //!    [`ResolvedProfileFlags`] entry, *after* `pkg-config`
 //!    contributions have already been merged.
 //!
-//! Calling this helper is the documented merge point for the
-//! environment layer; every command that resolves a build
-//! configuration (`build`, `run`, `test`, `tidy`, `metadata`,
-//! `explain`) must call it directly after
+//! Every command that resolves a build configuration reaches this
+//! helper through `crate::cli::build_prep::augment_build_flags`,
+//! which calls it right after
 //! `crate::cli::system_deps::augment_build_flags_with_system_deps`
 //! so the resulting `BuildConfiguration::fingerprint` observes
 //! the user's environment.
@@ -49,11 +48,6 @@ use crate::plural;
 /// shell-style word splitting, and merge the result into every
 /// primary package's [`ResolvedProfileFlags`] entry.
 ///
-/// Returns the augmented map (so call sites can chain it with
-/// the system-deps step) plus the parsed [`EnvBuildFlags`] for
-/// downstream observers (verbose reporting, future metadata
-/// view).
-///
 /// Empty / whitespace-only / unset variables are no-ops.  A
 /// malformed value surfaces as an `anyhow::Error` wrapping
 /// the typed [`EnvBuildFlagsError`].
@@ -62,7 +56,7 @@ pub(crate) fn augment_build_flags_with_env<F>(
     mut build_flags: HashMap<usize, ResolvedProfileFlags>,
     env: F,
     reporter: Reporter,
-) -> Result<(HashMap<usize, ResolvedProfileFlags>, EnvBuildFlags)>
+) -> Result<HashMap<usize, ResolvedProfileFlags>>
 where
     F: Fn(&str) -> Option<std::ffi::OsString>,
 {
@@ -71,7 +65,7 @@ where
         Err(err) => return Err(format_parse_error(err)),
     };
     if parsed.is_empty() {
-        return Ok((build_flags, parsed));
+        return Ok(build_flags);
     }
     apply_to_primary_packages(graph, &mut build_flags, &parsed);
     // Verbose mode acknowledges that an environment layer
@@ -84,7 +78,7 @@ where
     } else if reporter.verbosity().shows_verbose() {
         log_verbose(&parsed, reporter);
     }
-    Ok((build_flags, parsed))
+    Ok(build_flags)
 }
 
 fn format_parse_error(err: EnvBuildFlagsError) -> anyhow::Error {
@@ -236,10 +230,8 @@ mod tests {
         let graph = one_primary_graph();
         let mut start = HashMap::new();
         start.insert(0, ResolvedProfileFlags::default());
-        let (out, parsed) =
-            augment_build_flags_with_env(&graph, start.clone(), |_| None, quiet_reporter())
-                .unwrap();
-        assert!(parsed.is_empty());
+        let out = augment_build_flags_with_env(&graph, start.clone(), |_| None, quiet_reporter())
+            .unwrap();
         assert_eq!(out, start);
     }
 
@@ -255,7 +247,7 @@ mod tests {
             },
         );
         let env = env_from(&[("CPPFLAGS", "-DFOO=1 -DBAR")]);
-        let (out, _) = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
+        let out = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
         let entry = out.get(&0).unwrap();
         assert_eq!(
             entry.extra_compile_args,
@@ -273,7 +265,7 @@ mod tests {
         let start: HashMap<usize, ResolvedProfileFlags> =
             HashMap::from_iter([(0, ResolvedProfileFlags::default())]);
         let env = env_from(&[("CFLAGS", "-std=c11 -Wmissing-prototypes")]);
-        let (out, _) = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
+        let out = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
         let entry = out.get(&0).unwrap();
         assert!(entry.extra_compile_args.is_empty());
         assert_eq!(entry.cflags, vec!["-std=c11", "-Wmissing-prototypes"],);
@@ -286,7 +278,7 @@ mod tests {
         let start: HashMap<usize, ResolvedProfileFlags> =
             HashMap::from_iter([(0, ResolvedProfileFlags::default())]);
         let env = env_from(&[("CXXFLAGS", "-fno-rtti")]);
-        let (out, _) = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
+        let out = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
         let entry = out.get(&0).unwrap();
         assert!(entry.cflags.is_empty());
         assert_eq!(entry.cxxflags, vec!["-fno-rtti".to_owned()]);
@@ -303,7 +295,7 @@ mod tests {
             },
         )]);
         let env = env_from(&[("LDFLAGS", "-L/opt/lib -lfoo")]);
-        let (out, _) = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
+        let out = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
         let entry = out.get(&0).unwrap();
         // LDFLAGS append after existing link args; order is
         // load-bearing for the link line.
@@ -346,7 +338,7 @@ mod tests {
             ("CPPFLAGS", "-DENV_CPP=1"),
             ("LDFLAGS", "-L/opt/lib -lextra"),
         ]);
-        let (out, _) = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
+        let out = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
         let entry = out.get(&0).unwrap();
         assert_eq!(entry.extra_compile_args, vec!["-pthread", "-DENV_CPP=1"],);
         assert_eq!(
@@ -364,7 +356,7 @@ mod tests {
         graph.primary_packages = vec![0, 1];
         let start: HashMap<usize, ResolvedProfileFlags> = HashMap::new();
         let env = env_from(&[("CFLAGS", "-DSHARED")]);
-        let (out, _) = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
+        let out = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap();
         for idx in [0, 1] {
             let e = out.get(&idx).unwrap();
             assert_eq!(e.cflags, vec!["-DSHARED".to_owned()]);
