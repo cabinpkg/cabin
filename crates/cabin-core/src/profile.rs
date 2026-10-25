@@ -383,9 +383,7 @@ pub enum ProfileSource {
 /// Fully resolved profile.
 ///
 /// Scalar fields are typed and concrete; downstream consumers
-/// (build planner, CLI) read this struct directly. `build` is
-/// the per-profile flag overlay merged root → selected across
-/// `inherits_chain` - see the field docstring.
+/// (build planner, CLI) read this struct directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfile {
     pub name: ProfileName,
@@ -396,29 +394,10 @@ pub struct ResolvedProfile {
     /// Chain of profile names walked by inheritance, root first.
     /// For built-ins this is `[name]`; for a custom profile that
     /// inherits from `release` it is `["release", <custom>]`.
-    /// The chain is also the order used to **append** each
-    /// step's `ProfileDefinition.build` into [`Self::build`].
+    /// The chain is also the order in which
+    /// [`crate::build_flags::resolve_build_flags`] **appends** each
+    /// step's `ProfileDefinition.build`.
     pub inherits_chain: Vec<ProfileName>,
-    /// `[profile.<name>]` per-profile flag overlay, merged
-    /// root-first across `inherits_chain` via
-    /// `ProfileFlags::append_layer`.
-    ///
-    /// `None` means **no** profile in the chain declared
-    /// `build = Some(_)`.  `Some(_)` means at least one step
-    /// contributed profile flags, even if the resulting
-    /// accumulator happens to be empty (uniform shape for
-    /// consumers).
-    ///
-    /// `#[serde(skip)]` because the merged value is computed
-    /// from the inherits-chain walk inside
-    /// [`resolve_profile`] - it isn't part of the on-disk JSON
-    /// schema. `cabin metadata`'s JSON view of a profile comes
-    /// from [`Self::as_json`], which lists fields explicitly;
-    /// the resolved build flags surface under
-    /// `BuildConfiguration.build_flags` in metadata output, not
-    /// here.
-    #[serde(skip)]
-    pub build: Option<crate::build_flags::ProfileFlags>,
 }
 
 impl ResolvedProfile {
@@ -510,14 +489,11 @@ fn display_chain(chain: &[String]) -> String {
 ///   **replacement** - root first, child later, later wins.
 /// - **Array fields** in
 ///   [`ProfileDefinition::build`] (`cflags`, `cxxflags`,
-///   `ldflags`, `defines`, `include-dirs`) use **append**:
-///   each chain step's
-///   layer is folded into the accumulator via
-///   `ProfileFlags::append_layer` in
-///   root → selected order.  The merged result lands on
-///   [`ResolvedProfile::build`]. Build-flag resolution also uses
-///   [`ResolvedProfile::inherits_chain`] and the original definitions
-///   so named target overlays can be interleaved after each step.
+///   `ldflags`, `defines`, `include-dirs`) use **append**, root →
+///   selected. [`crate::build_flags::resolve_build_flags`] applies
+///   them from [`ResolvedProfile::inherits_chain`] and the original
+///   definitions so named target overlays can be interleaved after
+///   each step.
 ///
 /// # Errors
 /// Returns a [`ProfileResolutionError`] when the definitions or selection are
@@ -602,12 +578,6 @@ pub fn resolve_profile(
     let mut debug = defaults.debug;
     let mut opt_level = defaults.opt_level;
     let mut assertions = defaults.assertions;
-    // Per-profile flag arrays merge with **append** semantics
-    // across the inherits chain - root → selected.  Scalars
-    // above use replacement (later wins); arrays here use
-    // accumulation.  The merge stays out of `as_json` so the
-    // cabin-metadata schema is unchanged.
-    let mut merged_build: Option<crate::build_flags::ProfileFlags> = None;
     for step in &chain {
         if let Some(def) = definitions.get(step) {
             if let Some(d) = def.debug {
@@ -618,11 +588,6 @@ pub fn resolve_profile(
             }
             if let Some(a) = def.assertions {
                 assertions = a;
-            }
-            if let Some(layer) = def.build.as_ref() {
-                let acc =
-                    merged_build.get_or_insert_with(crate::build_flags::ProfileFlags::default);
-                acc.append_layer(layer);
             }
         }
     }
@@ -644,7 +609,6 @@ pub fn resolve_profile(
         assertions,
         source,
         inherits_chain: chain,
-        build: merged_build,
     })
 }
 
@@ -825,147 +789,28 @@ mod tests {
         assert_eq!(chain, vec!["release", "intermediate", "ci"]);
     }
 
-    fn def_full(
-        n: &str,
-        inherits: Option<&str>,
-        debug: Option<bool>,
-        opt: Option<OptLevel>,
-        assertions: Option<bool>,
-        build: Option<crate::build_flags::ProfileFlags>,
-    ) -> (ProfileName, ProfileDefinition) {
-        let profile_name = name(n);
-        let def = ProfileDefinition {
-            name: profile_name.clone(),
-            inherits: inherits.map(name),
-            debug,
-            opt_level: opt,
-            assertions,
-            build,
-        };
-        (profile_name, def)
-    }
-
-    fn flags_cxx(values: &[&str]) -> crate::build_flags::ProfileFlags {
-        crate::build_flags::ProfileFlags {
-            cxxflags: values.iter().map(|s| (*s).to_owned()).collect(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn cxxflags_append_across_inheritance() {
-        let d = defs(vec![
-            def_full("release", None, None, None, None, Some(flags_cxx(&["-O3"]))),
-            def_full(
-                "bench",
-                Some("release"),
-                None,
-                None,
-                None,
-                Some(flags_cxx(&["-pg"])),
-            ),
-        ]);
-        let r = resolve_profile(&ProfileSelection::from_name(name("bench")), &d).unwrap();
-        let build = r
-            .build
-            .expect("merged build is some when chain contributes");
-        assert_eq!(build.cxxflags, vec!["-O3".to_owned(), "-pg".to_owned()]);
-    }
-
-    #[test]
-    fn parent_build_inherited_when_leaf_has_no_build() {
-        let d = defs(vec![
-            def_full("release", None, None, None, None, Some(flags_cxx(&["-O3"]))),
-            def_full("bench", Some("release"), None, None, None, None),
-        ]);
-        let r = resolve_profile(&ProfileSelection::from_name(name("bench")), &d).unwrap();
-        let build = r.build.expect("parent build survives leaf having no build");
-        assert_eq!(build.cxxflags, vec!["-O3".to_owned()]);
-    }
-
-    #[test]
-    fn include_dirs_dedup_across_inheritance() {
-        use camino::Utf8PathBuf;
-        let parent_flags = crate::build_flags::ProfileFlags {
-            include_dirs: vec![
-                Utf8PathBuf::from("include"),
-                Utf8PathBuf::from("vendor/include"),
-            ],
-            ..Default::default()
-        };
-        let leaf_flags = crate::build_flags::ProfileFlags {
-            include_dirs: vec![
-                Utf8PathBuf::from("include"),
-                Utf8PathBuf::from("third_party"),
-            ],
-            ..Default::default()
-        };
-        let d = defs(vec![
-            def_full("release", None, None, None, None, Some(parent_flags)),
-            def_full("bench", Some("release"), None, None, None, Some(leaf_flags)),
-        ]);
-        let r = resolve_profile(&ProfileSelection::from_name(name("bench")), &d).unwrap();
-        let build = r.build.expect("merged build is some");
-        assert_eq!(
-            build.include_dirs,
-            vec![
-                Utf8PathBuf::from("include"),
-                Utf8PathBuf::from("vendor/include"),
-                Utf8PathBuf::from("third_party"),
-            ],
-        );
-    }
-
     #[test]
     fn scalar_fields_replace_across_inheritance() {
         let d = defs(vec![
-            def_full(
+            def(
                 "release",
                 None,
                 Some(false),
                 Some(OptLevel::O3),
                 Some(false),
-                Some(flags_cxx(&["-O3"])),
             ),
-            def_full(
+            def(
                 "bench",
                 Some("release"),
                 Some(true),
                 Some(OptLevel::O2),
                 Some(true),
-                Some(flags_cxx(&["-pg"])),
             ),
         ]);
         let r = resolve_profile(&ProfileSelection::from_name(name("bench")), &d).unwrap();
         assert!(r.debug, "leaf debug=true replaces parent debug=false");
         assert_eq!(r.opt_level, OptLevel::O2, "leaf opt-level replaces parent");
         assert!(r.assertions, "leaf assertions replaces parent");
-        let build = r.build.expect("merged build is some");
-        assert_eq!(
-            build.cxxflags,
-            vec!["-O3".to_owned(), "-pg".to_owned()],
-            "arrays still append even though scalars replace",
-        );
-    }
-
-    #[test]
-    fn build_is_none_when_no_chain_step_sets_build() {
-        let d = defs(vec![
-            def_full("ci", Some("release"), Some(true), None, None, None),
-            def_full(
-                "ci-strict",
-                Some("ci"),
-                None,
-                Some(OptLevel::O2),
-                None,
-                None,
-            ),
-        ]);
-        let r = resolve_profile(&ProfileSelection::from_name(name("ci-strict")), &d).unwrap();
-        assert!(
-            r.build.is_none(),
-            "build stays None when no chain step contributed flags",
-        );
     }
 
     #[test]
