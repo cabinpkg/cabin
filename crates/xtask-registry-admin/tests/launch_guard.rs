@@ -43,22 +43,21 @@ fn config_database_id() -> String {
 }
 
 struct Shim {
-    dir: PathBuf,
+    dir: assert_fs::TempDir,
 }
 
 impl Shim {
-    /// `name` keys the shim's scratch directory under cargo's per-crate
-    /// `target/tmp`, so parallel tests never share a log.
+    /// Each shim owns a fresh temporary directory, removed on drop, so
+    /// no two shims - in this process or another - share a log, a
+    /// canned response, or the `node` script.
     ///
     /// The shim serves `d1 list` from its own canned response (a
     /// one-database account whose `cabin-registry` carries the config's
     /// bound id, so the guard's consistency check passes); `behavior`
     /// governs every other wrangler invocation.
-    fn new(name: &str, behavior: FakeWrangler<'_>) -> Self {
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
-        // A previous run's log would corrupt the invocation asserts.
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("shim dir");
+    fn new(behavior: FakeWrangler<'_>) -> Self {
+        let temp = assert_fs::TempDir::new().expect("shim dir");
+        let dir = temp.path();
         let (fail, response) = match behavior {
             FakeWrangler::Respond(body) => ("", body),
             FakeWrangler::Fail => ("1", ""),
@@ -86,14 +85,14 @@ impl Shim {
         )
         .expect("write node shim");
         fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).expect("chmod node");
-        Self { dir }
+        Self { dir: temp }
     }
 
     /// Rewrites the `d1 list` response so the account's `cabin-registry`
     /// carries `uuid` instead of the config's bound id.
     fn set_account_database_id(&self, uuid: &str) {
         let list = format!(r#"[{{"name":"cabin-registry","uuid":"{uuid}"}}]"#);
-        fs::write(self.dir.join("response-list"), list).expect("rewrite list response");
+        fs::write(self.dir.path().join("response-list"), list).expect("rewrite list response");
     }
 
     /// Runs the guard with the shim first on `PATH`; the rest of `PATH`
@@ -101,7 +100,7 @@ impl Shim {
     fn run(&self, args: &[&str]) -> Output {
         let path = format!(
             "{}:{}",
-            self.dir.display(),
+            self.dir.path().display(),
             std::env::var("PATH").expect("PATH")
         );
         Command::new(assert_cmd::cargo::cargo_bin("xtask-registry-admin"))
@@ -114,7 +113,7 @@ impl Shim {
 
     /// One line per fake-`node` invocation, in order.
     fn log(&self) -> Vec<String> {
-        match fs::read_to_string(self.dir.join("log")) {
+        match fs::read_to_string(self.dir.path().join("log")) {
             Ok(text) => text.lines().map(str::to_owned).collect(),
             Err(_) => Vec::new(),
         }
@@ -133,7 +132,7 @@ fn stderr(output: &Output) -> String {
 
 #[test]
 fn passes_when_not_launched_and_queries_the_flag() {
-    let shim = Shim::new("pass-false", FakeWrangler::Respond(&meta_response("false")));
+    let shim = Shim::new(FakeWrangler::Respond(&meta_response("false")));
     let output = shim.run(&["--remote"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     // A passing guard says nothing: it is run for its status, and a
@@ -159,10 +158,7 @@ fn refuses_when_the_binding_and_the_account_disagree() {
     // A stale wrangler.jsonc binding must refuse before the flag is even
     // read: the guard would otherwise read one database while a wipe
     // deletes another.
-    let shim = Shim::new(
-        "refuse-id-mismatch",
-        FakeWrangler::Respond(&meta_response("false")),
-    );
+    let shim = Shim::new(FakeWrangler::Respond(&meta_response("false")));
     shim.set_account_database_id("11111111-2222-3333-4444-555555555555");
     let output = shim.run(&["--remote"]);
     assert!(!output.status.success());
@@ -175,7 +171,7 @@ fn refuses_when_the_binding_and_the_account_disagree() {
 
 #[test]
 fn respects_the_local_mode() {
-    let shim = Shim::new("pass-local", FakeWrangler::Respond(&meta_response("false")));
+    let shim = Shim::new(FakeWrangler::Respond(&meta_response("false")));
     let output = shim.run(&["--local"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     // Local state has no name resolution; the DB binding is the state,
@@ -190,10 +186,7 @@ fn respects_the_local_mode() {
 
 #[test]
 fn refuses_when_launched() {
-    let shim = Shim::new(
-        "refuse-launched",
-        FakeWrangler::Respond(&meta_response("true")),
-    );
+    let shim = Shim::new(FakeWrangler::Respond(&meta_response("true")));
     let output = shim.run(&["--remote"]);
     assert!(!output.status.success());
     let message = stderr(&output);
@@ -209,7 +202,7 @@ fn refuses_when_launched() {
 
 #[test]
 fn refuses_fail_safe_on_a_missing_row() {
-    let shim = Shim::new("refuse-missing-row", FakeWrangler::Respond(NO_ROW));
+    let shim = Shim::new(FakeWrangler::Respond(NO_ROW));
     let output = shim.run(&["--remote"]);
     assert!(!output.status.success());
     assert!(
@@ -224,10 +217,7 @@ fn refuses_fail_safe_on_an_unexpected_value() {
     // Only the exact string 'false' passes - not casing variants, and
     // not a trailing newline.
     for value in ["False", "TRUE", "yes", "", "false "] {
-        let shim = Shim::new(
-            &format!("refuse-value-{}", value.replace(' ', "_")),
-            FakeWrangler::Respond(&meta_response(value)),
-        );
+        let shim = Shim::new(FakeWrangler::Respond(&meta_response(value)));
         let output = shim.run(&["--remote"]);
         assert!(!output.status.success(), "accepted {value:?}");
         assert!(
@@ -240,7 +230,7 @@ fn refuses_fail_safe_on_an_unexpected_value() {
 
 #[test]
 fn refuses_fail_safe_when_wrangler_fails() {
-    let shim = Shim::new("refuse-wrangler-failure", FakeWrangler::Fail);
+    let shim = Shim::new(FakeWrangler::Fail);
     let output = shim.run(&["--remote"]);
     assert!(!output.status.success());
     assert!(
@@ -252,7 +242,7 @@ fn refuses_fail_safe_when_wrangler_fails() {
 
 #[test]
 fn refuses_fail_safe_on_malformed_wrangler_output() {
-    let shim = Shim::new("refuse-malformed", FakeWrangler::Respond("not json at all"));
+    let shim = Shim::new(FakeWrangler::Respond("not json at all"));
     let output = shim.run(&["--remote"]);
     assert!(!output.status.success());
     assert!(
@@ -265,10 +255,7 @@ fn refuses_fail_safe_on_malformed_wrangler_output() {
 #[test]
 fn rejects_an_unknown_mode_without_querying() {
     for mode in [vec!["--both"], vec![], vec!["--local", "--remote"]] {
-        let shim = Shim::new(
-            &format!("unknown-mode-{}", mode.len()),
-            FakeWrangler::Respond(&meta_response("false")),
-        );
+        let shim = Shim::new(FakeWrangler::Respond(&meta_response("false")));
         let output = shim.run(&mode);
         assert!(!output.status.success(), "accepted {mode:?}");
         // Nothing was asked of the account before the mode was refused.
@@ -315,10 +302,7 @@ fn the_flag_is_read_through_javascript_string_coercion() {
             false,
         ),
     ] {
-        let shim = Shim::new(
-            &format!("coercion-{}", name.replace(' ', "-")),
-            FakeWrangler::Respond(body),
-        );
+        let shim = Shim::new(FakeWrangler::Respond(body));
         let output = shim.run(&["--remote"]);
         assert_eq!(
             output.status.success(),
