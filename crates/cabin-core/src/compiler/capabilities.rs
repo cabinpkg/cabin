@@ -63,8 +63,7 @@ impl Capability {
 pub struct CompilerCapabilities {
     /// Accepts GCC-style `-O<n>`, `-DNAME`, `-Idir`, `-c`, `-o`.
     pub gcc_style_flags: Capability,
-    /// Accepts MSVC-style `/O<n>`, `/DNAME`, `/I dir`.  Detection-
-    /// only; the current backend never emits these.
+    /// Accepts MSVC-style `/O<n>`, `/DNAME`, `/I dir`.
     pub msvc_style_flags: Capability,
     /// Accepts `-MMD -MF <file>` to write a make-style depfile.
     pub depfile_mmd_mf: Capability,
