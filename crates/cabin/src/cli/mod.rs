@@ -819,8 +819,7 @@ pub(crate) struct WorkspaceSelectionArgs {
     pub default_members: bool,
 
     /// Drop the named package from the selection.  Only valid in
-    /// combination with `--workspace` or `--default-members`, or with
-    /// the no-flag default-member fallback.
+    /// combination with `--workspace` or `--default-members`.
     #[arg(long, value_name = "PACKAGE")]
     pub exclude: Vec<String>,
 }
