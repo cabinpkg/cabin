@@ -337,5 +337,5 @@ jobs:
           accountId: 7bd7dbea3c4c76cd396153fb0e92178f
           # Keep deployment on the audited CLI version instead of the
           # action's default or a moving major tag.
-          wranglerVersion: "4.112.0"
+          wranglerVersion: "4.151.1"
           workingDirectory: registry
