@@ -2534,6 +2534,32 @@ fn profile_accepts_link_libs_in_base_and_cfg_tables() {
 }
 
 #[test]
+fn conditional_toolchain_reaches_the_package_and_the_root_settings() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [toolchain]
+            cxx = "clang++"
+
+            [target.'cfg(family = "unix")'.toolchain]
+            cxx = "g++"
+        "#;
+    let parsed = parse_manifest_str(manifest).unwrap();
+    let package = parsed.package.expect("package");
+    let cxx = |decl: &cabin_core::ToolchainDecl| {
+        decl.get(cabin_core::ToolKind::CxxCompiler)
+            .map(cabin_core::ToolSpec::display)
+    };
+    assert_eq!(cxx(&package.toolchain.general).as_deref(), Some("clang++"));
+    let conditional = &package.toolchain.conditional;
+    assert_eq!(conditional.len(), 1);
+    assert_eq!(cxx(&conditional[0].toolchain).as_deref(), Some("g++"));
+    assert_eq!(parsed.root_settings.toolchain, package.toolchain);
+}
+
+#[test]
 fn target_named_profile_overlays_accept_valid_undeclared_names() {
     for (key, expected) in [
         ("dev", "dev"),
