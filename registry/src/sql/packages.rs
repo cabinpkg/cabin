@@ -179,8 +179,14 @@ statements! {
                            IS NOT json_extract(?6, '$.links'))))";
 
     /// Revives a rejected revision in place (back to `pending`),
-    /// guarded on the row still being the rejected generation this
-    /// request read.  The revision id derives from the bytes, so a
+    /// guarded on the row still being rejected (any rejected generation
+    /// of these bytes revives alike) and on the new stamp (`?2`)
+    /// exceeding the row's: a
+    /// revival never repeats the `published_at` of the generation it
+    /// replaces, so `(checksum, published_at)` names one publish event
+    /// however the sampling Workers' clocks relate (an equal or earlier
+    /// sample loses like any other race; a retry lands once its sample
+    /// is later than the stored stamp).  The revision id derives from the bytes, so a
     /// revival is always byte-identical to what was rejected -
     /// `checksum` never changes - and the opt-in guard (`?6`, like
     /// [`INSERT_REVISION`]'s) keeps an unflagged revival from slipping
@@ -194,7 +200,7 @@ statements! {
         "UPDATE revisions SET metadata_json = ?1, published_at = ?2, published_by = ?3, \
          verification = 'pending', verification_reason = NULL, verified_at = NULL \
          WHERE scope = ?4 AND name = ?5 AND version = ?7 AND revision = ?8 \
-         AND verification = 'rejected' AND checksum = ?9 \
+         AND verification = 'rejected' AND checksum = ?9 AND published_at < ?2 \
          AND (?6 OR NOT EXISTS \
               (SELECT 1 FROM revisions WHERE scope = ?4 AND name = ?5 AND version = ?7 \
                AND verification IN ('pending', 'verified') AND checksum <> ?9)) \
