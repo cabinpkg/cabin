@@ -435,8 +435,9 @@ pub(crate) struct PipelineInputs {
 /// Turn a resolved index source into [`PipelineInputs`] - the inner
 /// band that `build` / `run` / `test` / `fetch` / `vendor` all run
 /// once versioned dependencies force an index: derive the lock
-/// policy, resolve the cache dir (preferring the config-resolved
-/// value), convert the source to a [`cabin_core::SourceLocator`],
+/// policy, resolve the cache dir (the [`resolve_cache_dir`] value,
+/// else [`crate::cli::user_cache_dir`]), convert the source to a
+/// [`cabin_core::SourceLocator`],
 /// apply source-replacement, and enforce the post-replacement
 /// offline rule (and, for `vendor`, the local-index rule).  A `None`
 /// source falls back to the default hosted registry via
@@ -449,7 +450,6 @@ pub(crate) struct PipelineInputs {
 pub(crate) fn resolve_pipeline_inputs(
     index_source: Option<&ResolvedIndexSource>,
     effective_config: &EffectiveConfig,
-    cache_dir_arg: Option<&Path>,
     resolved_cache_dir: Option<&(PathBuf, ConfigValueSource)>,
     offline: bool,
     locked: bool,
@@ -460,7 +460,7 @@ pub(crate) fn resolve_pipeline_inputs(
     let policy = crate::cli::LockPolicy::from_flags(locked, frozen);
     let cache_dir = match resolved_cache_dir {
         Some((path, _)) => path.clone(),
-        None => crate::cli::cache_dir_for(cache_dir_arg)?,
+        None => crate::cli::user_cache_dir()?,
     };
     let (index_source, index_user_chosen) = match index_source {
         Some(source) => {
@@ -625,7 +625,7 @@ pub(crate) fn resolve_incompatible_standards_sourced(
 ///
 /// Precedence: CLI `--cache-dir` > [`cabin_env::CABIN_CACHE_DIR`]
 /// env var > `[paths] cache-dir` config setting > `None` (the
-/// caller keeps its existing default behavior).  Mirrors the
+/// caller falls back to [`crate::cli::user_cache_dir`]).  Mirrors the
 /// sibling helpers [`resolve_build_dir_with_env`] and
 /// [`resolve_build_jobs`].
 pub(crate) fn resolve_cache_dir(
