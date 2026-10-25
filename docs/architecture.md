@@ -601,14 +601,18 @@ the client's canonical bytes and the server's schema cannot silently drift.  The
 Repository-owned maintainer tool (`publish = false`) for the cargo-fuzz targets under `fuzz/`,
 a standalone workspace on a pinned nightly (`fuzz/README.md`).  `cargo fuzz-seeds` regenerates
 `fuzz/seeds/` from in-tree inputs; `cargo fuzz-check`, which `rust.yml` runs, lints and tests the
-workspace and replays every target's seeds.  The crate must:
+workspace and replays every target's seeds; `cargo fuzz-campaign`, which the scheduled `fuzz.yml`
+runs, fuzzes every target on the corpus the previous run kept and minimizes it.  The crate must:
 
 - build seed archives through the real `cabin-package` staging path, so the seeds are what
   publish emits rather than hand-written bytes (the extraction seeds re-wrap those files under
   one top directory, as an upstream release archive nests them);
-- write only under `fuzz/seeds/`, apart from a private scratch directory it stages a generated
-  package in;
-- replay every target `cargo fuzz list` names, so none skips CI.
+- write only under `fuzz/seeds/` and `fuzz/corpus/`, apart from cargo-fuzz's `fuzz/artifacts/` and
+  private scratch directories (the generated package it stages, the campaign's logs and merge);
+- replay every target `cargo fuzz list` names, so none skips CI;
+- keep a fuzzed target's output off the console, past libFuzzer's numeric final stats, and drop a
+  failed target's corpus before the workflow caches it: either can hold the input that crashed
+  it (`fuzz/README.md`, "Crashes").
 
 ### `xtask-ci`
 
