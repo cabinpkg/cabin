@@ -92,7 +92,13 @@ pub fn setup(registry: &Path) -> Result<Setup> {
         eprintln!("{diagnostic}");
         bail!("failed to build cabinpkg-registry-verify");
     }
-    let verifier_bin = repo_root.join("target/debug/cabin-registry-verify");
+    // The alias builds this tool into the same target directory and profile.
+    let verifier_bin = std::env::current_exe()
+        .context("resolving the tool's own path")?
+        .with_file_name(format!(
+            "cabin-registry-verify{}",
+            std::env::consts::EXE_SUFFIX
+        ));
 
     let fixtures = registry.join("tests/fixtures");
     let fixture_archive = fixtures.join(format!("{SCOPE}-{NAME}-{VERSION}.zip"));

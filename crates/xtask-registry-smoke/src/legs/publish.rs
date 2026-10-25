@@ -81,9 +81,7 @@ pub struct PublishInputs<'a> {
     pub fixture_archive: &'a Path,
     /// `$fixture_metadata`.
     pub fixture_metadata: &'a Path,
-    /// `$verifier_bin`, already built.  Absolute: the shell's
-    /// `../target/debug/cabin-registry-verify` resolved against
-    /// `registry/`, which is not this process's working directory.
+    /// `$verifier_bin`, already built, next to this tool's own binary.
     pub verifier_bin: &'a Path,
     /// `$session_cookie`, the real one restored at L796.
     pub session_cookie: &'a str,
