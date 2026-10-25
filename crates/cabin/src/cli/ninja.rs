@@ -258,6 +258,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
     run: &NinjaRun,
     graph: &cabin_workspace::PackageGraph,
     planned_packages: &BTreeSet<String>,
+    dialect: cabin_build::Dialect,
     feature_resolution: &cabin_feature::FeatureResolution,
     include_dev_for: &BTreeSet<String>,
     reporter: Reporter,
@@ -351,7 +352,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
         })
     };
 
-    if let Some(diag) = diagnose(&combined, lookup) {
+    if let Some(diag) = diagnose(&combined, dialect, lookup) {
         reporter.help(&render(&diag));
     }
 }
@@ -581,6 +582,7 @@ pub(crate) fn invoke_ninja_and_report(
             &run,
             req.graph,
             &req.plan_graph.planned_packages,
+            req.plan_graph.dialect,
             req.feature_resolution,
             req.dev_for,
             req.reporter,
