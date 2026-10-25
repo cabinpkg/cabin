@@ -252,6 +252,16 @@ jobs:
       - name: Check the lifecycle model (scan-rejected content)
         run: java -XX:+UseParallelGC -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycleScan.cfg RegistryLifecycle.tla
 
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache-on-failure: false
+          rustflags: ""
+
+      # Each trap must be violated (registry/proofs/README.md, "Non-vacuity").
+      - name: Check the witness traps
+        run: cargo check-tlc-witnesses --jar registry/proofs/tla2tools.jar registry/proofs/RegistryLifecycle.tla registry/proofs/RegistryLifecycle_witness.cfg registry/proofs/RegistryLifecycleShared_witness.cfg
+        working-directory: .
+
   # Ships the Worker on a registry-relevant main push. Validation ran
   # pre-merge (Merge Queue), so only the change gate runs here. No
   # build step of its own: `wrangler deploy` runs wrangler.jsonc's

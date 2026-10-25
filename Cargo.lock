@@ -2769,6 +2769,7 @@ dependencies = [
  "clap",
  "predicates",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
