@@ -159,29 +159,19 @@ pub fn parse_manifest_str(input: &str) -> Result<ParsedManifest, ManifestError> 
 fn split_profile_table(
     table: Option<crate::raw::RawProfileTable>,
 ) -> (
-    Option<crate::raw::RawProfileFlags>,
+    crate::raw::RawProfileFlags,
     BTreeMap<String, crate::raw::RawProfile>,
 ) {
     let Some(t) = table else {
-        return (None, BTreeMap::new());
+        return (crate::raw::RawProfileFlags::default(), BTreeMap::new());
     };
-    let has_base_flags = !t.defines.is_empty()
-        || !t.include_dirs.is_empty()
-        || !t.cflags.is_empty()
-        || !t.cxxflags.is_empty()
-        || !t.ldflags.is_empty()
-        || !t.link_libs.is_empty();
-    let base = if has_base_flags {
-        Some(crate::raw::RawProfileFlags {
-            defines: t.defines,
-            include_dirs: t.include_dirs,
-            cflags: t.cflags,
-            cxxflags: t.cxxflags,
-            ldflags: t.ldflags,
-            link_libs: t.link_libs,
-        })
-    } else {
-        None
+    let base = crate::raw::RawProfileFlags {
+        defines: t.defines,
+        include_dirs: t.include_dirs,
+        cflags: t.cflags,
+        cxxflags: t.cxxflags,
+        ldflags: t.ldflags,
+        link_libs: t.link_libs,
     };
     (base, t.variants)
 }
@@ -208,11 +198,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         .transpose()?
         .unwrap_or_default();
     let compiler_wrapper = compiler_wrapper_request_from_raw(build)?;
-    let build_decl = profile_flags
-        .as_ref()
-        .map(build_flags_decl_from_raw_ref)
-        .transpose()?
-        .unwrap_or_default();
+    let build_decl = build_flags_decl_from_raw_ref(&profile_flags)?;
 
     if package.is_none() && workspace.is_none() {
         return Err(ManifestError::EmptyManifest);

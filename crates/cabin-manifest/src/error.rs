@@ -87,13 +87,12 @@ pub enum ManifestError {
     // Dependency-kind errors.
     // -----------------------------------------------------------------
     #[error(
-        "dependency {name:?} in {section} sets `system = true` but also declares {field:?}; {detail}"
+        "dependency {name:?} in {section} sets `system = true` but also declares {field:?}; the field is incompatible with `system = true`"
     )]
     SystemConflictsWith {
         name: String,
         section: &'static str,
         field: &'static str,
-        detail: &'static str,
     },
 
     #[error("system dependency {name:?} requires a `version` requirement string")]
@@ -271,10 +270,8 @@ pub enum ManifestError {
     /// A `[build] compiler-wrapper = "<value>"` declaration could
     /// not be turned into a typed
     /// [`cabin_core::CompilerWrapperRequest`].
-    #[error("invalid {section}.compiler-wrapper: {source}")]
+    #[error("invalid [build].compiler-wrapper: {source}")]
     InvalidCompilerWrapper {
-        /// The TOML section the bad value lived under.
-        section: String,
         #[source]
         source: cabin_core::CompilerWrapperParseError,
     },
@@ -319,12 +316,6 @@ pub struct ManifestParseError {
     pub span: miette::SourceSpan,
     #[source]
     pub source: toml::de::Error,
-}
-
-impl From<ManifestParseError> for ManifestError {
-    fn from(value: ManifestParseError) -> Self {
-        Self::TomlAt(Box::new(value))
-    }
 }
 
 impl ManifestParseError {
