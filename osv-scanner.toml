@@ -20,14 +20,14 @@ reason = "website/: @tailwindcss/typography pins postcss-selector-parser 6.0.10;
 [[IgnoredVulns]]
 id = "GHSA-4qv8-2p9j-2685"
 ignoreUntil = 2027-01-31
-reason = "website/: miniflare pins undici 7.29.1 for wrangler's local dev server, which never ships."
+reason = "website/, registry/: miniflare pins undici 7.29.1 for wrangler's local dev server, which never ships."
 
 [[IgnoredVulns]]
 id = "GHSA-f72v-6w45-q472"
 ignoreUntil = 2027-01-31
-reason = "website/: miniflare pins undici 7.29.1 for wrangler's local dev server, which never ships."
+reason = "website/, registry/: miniflare pins undici 7.29.1 for wrangler's local dev server, which never ships."
 
 [[IgnoredVulns]]
 id = "GHSA-xjj6-f33q-929c"
 ignoreUntil = 2027-01-31
-reason = "website/: miniflare pins undici 7.29.1 for wrangler's local dev server, which never ships."
+reason = "website/, registry/: miniflare pins undici 7.29.1 for wrangler's local dev server, which never ships."

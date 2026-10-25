@@ -98,6 +98,9 @@ jobs:
         run: cargo check-deploy --require-bundle
         working-directory: .
 
+      - name: Install wrangler
+        run: npm ci --ignore-scripts
+
       # The one check that executes the glue: the publish, verify,
       # session, and governor paths against a local wrangler dev.
       - name: Local smoke
@@ -324,10 +327,22 @@ jobs:
         id: migrations
         run: cargo workflow-migrations-pending
 
-      - name: Deploy
+      - name: Install wrangler
+        id: wrangler
         if: >-
           steps.freshness.outputs.superseded != 'true' &&
           steps.migrations.outputs.pending != 'true'
+        working-directory: registry
+        run: |
+          npm ci --ignore-scripts
+          version=$(jq -er .dependencies.wrangler package.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy
+        if: >-
+          steps.freshness.outputs.superseded != 'true' &&
+          steps.migrations.outputs.pending != 'true' &&
+          steps.wrangler.outputs.version != ''
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
         with:
           apiToken: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
@@ -335,7 +350,7 @@ jobs:
           # here keeps deploy independent of account inference from the
           # token's resource scope.
           accountId: 7bd7dbea3c4c76cd396153fb0e92178f
-          # Keep deployment on the audited CLI version instead of the
-          # action's default or a moving major tag.
-          wranglerVersion: "4.151.1"
+          # The exact pin installed above: the action runs that copy
+          # and never falls back to its unpinned default.
+          wranglerVersion: ${{ steps.wrangler.outputs.version }}
           workingDirectory: registry

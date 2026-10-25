@@ -1,11 +1,11 @@
 //! Host-target tests for the launch guard (`registry/docs/runbook.md`,
-//! "Data policy"): the real command runs against a fake `npx` shim on
+//! "Data policy"): the real command runs against a fake `node` shim on
 //! `PATH` that logs every invocation and answers with a canned wrangler
 //! response, so every refusal branch - and the single pass state - is
 //! exercised hermetically.
 //!
-//! The shim shadows `npx`, not `wrangler`, because the pinned
-//! constructor spawns `npx --yes wrangler@<version>`.
+//! The shim shadows `node`, not `wrangler`, because the constructor
+//! runs the installed entry point by path through `node`.
 //!
 //! Unix-only: the shim is a shell script.
 #![cfg(unix)]
@@ -15,13 +15,18 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use xtask_registry_admin::WRANGLER;
-
 fn registry_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../registry")
 }
 
-/// The canned behavior of the fake `npx`: emit `response` on stdout
+/// How a logged call starts: the `npm ci`-installed entry point, then
+/// wrangler's own arguments.
+fn wrangler_call(arguments: &str) -> String {
+    let entry = registry_dir().join("node_modules/wrangler/bin/wrangler.js");
+    format!("{} {arguments}", entry.display())
+}
+
+/// The canned behavior of the fake `node`: emit `response` on stdout
 /// (exit 0), or fail outright.
 #[derive(Clone, Copy)]
 enum FakeWrangler<'a> {
@@ -64,9 +69,9 @@ impl Shim {
             config_database_id()
         );
         fs::write(dir.join("response-list"), list).expect("write list response");
-        let npx = dir.join("npx");
+        let node = dir.join("node");
         fs::write(
-            &npx,
+            &node,
             format!(
                 "#!/usr/bin/env bash\n\
                  printf '%s\\n' \"$*\" >>\"{log}\"\n\
@@ -79,8 +84,8 @@ impl Shim {
                 response = dir.join("response").display(),
             ),
         )
-        .expect("write npx shim");
-        fs::set_permissions(&npx, fs::Permissions::from_mode(0o755)).expect("chmod npx");
+        .expect("write node shim");
+        fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).expect("chmod node");
         Self { dir }
     }
 
@@ -107,7 +112,7 @@ impl Shim {
             .expect("run the guard")
     }
 
-    /// One line per fake-`npx` invocation, in order.
+    /// One line per fake-`node` invocation, in order.
     fn log(&self) -> Vec<String> {
         match fs::read_to_string(self.dir.join("log")) {
             Ok(text) => text.lines().map(str::to_owned).collect(),
@@ -139,13 +144,11 @@ fn passes_when_not_launched_and_queries_the_flag() {
     let log = shim.log();
     assert_eq!(log.len(), 2, "log: {log:?}");
     assert!(
-        log[0].starts_with(&format!("--yes {WRANGLER} d1 list --json")),
+        log[0].starts_with(&wrangler_call("d1 list --json")),
         "log: {log:?}"
     );
     assert!(
-        log[1].starts_with(&format!(
-            "--yes {WRANGLER} d1 execute DB --remote --json --command"
-        )),
+        log[1].starts_with(&wrangler_call("d1 execute DB --remote --json --command")),
         "log: {log:?}"
     );
     assert!(log[1].contains("key = 'launched'"), "log: {log:?}");
@@ -180,7 +183,7 @@ fn respects_the_local_mode() {
     let log = shim.log();
     assert_eq!(log.len(), 1, "log: {log:?}");
     assert!(
-        log[0].starts_with(&format!("--yes {WRANGLER} d1 execute DB --local")),
+        log[0].starts_with(&wrangler_call("d1 execute DB --local")),
         "log: {log:?}"
     );
 }

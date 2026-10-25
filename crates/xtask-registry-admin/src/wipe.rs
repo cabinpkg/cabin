@@ -28,10 +28,10 @@
 //! could be made not to run at all.  [`launch_guard::run`] is called
 //! directly, and no environment variable stands between the refusal and
 //! the first destructive call.  What remains reachable through the
-//! environment - `wrangler` through `npx`, the R2 base below - the guard
-//! does not defend against: it is a fail-safe against a launched
-//! registry and a stale config, not against whoever sets the
-//! environment.
+//! environment - `wrangler` through `node` on `PATH`, the R2 base
+//! below - the guard does not defend against: it is a fail-safe
+//! against a launched registry and a stale config, not against whoever
+//! sets the environment.
 //!
 //! Properties:
 //!

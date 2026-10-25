@@ -410,8 +410,8 @@ impl DevServers {
     }
 
     /// The registry-role instance.  `spawn_tracked` gives the tree its
-    /// own process group, so the teardown kills npx, wrangler and
-    /// workerd together instead of orphaning them on a bound port.
+    /// own process group, so the teardown kills wrangler and workerd
+    /// together instead of orphaning them on a bound port.
     ///
     /// # Errors
     ///
@@ -639,7 +639,7 @@ impl Drop for DevServers {
         .stderr(Stdio::null())
         .status();
         // The whole process group: killing the direct child alone
-        // would orphan npx/wrangler/workerd and leave the port bound.
+        // would orphan wrangler/workerd and leave the port bound.
         // The mocks are single-process groups, which kill identically.
         for slot in [
             &mut self.registry,

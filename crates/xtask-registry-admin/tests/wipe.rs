@@ -1,5 +1,5 @@
 //! Host-target tests for the wipe's own contracts: the real command
-//! runs against a fake `npx` shim on `PATH` (the same pattern as
+//! runs against a fake `node` shim on `PATH` (the same pattern as
 //! `launch_guard.rs`) and a scratch registry root reached through
 //! `CABIN_REGISTRY_DIR`.
 //!
@@ -23,7 +23,7 @@ const EMULATED: [(&str, bool); 6] = [
     ("state/v3/keep-me.json", true),
 ];
 
-/// A scratch registry root plus a fake `npx` that logs every call and
+/// A scratch registry root plus a fake `node` that logs every call and
 /// answers the two `SELECT`s the wipe makes with canned rows.
 struct World {
     dir: assert_fs::TempDir,
@@ -39,9 +39,9 @@ impl World {
         }
         let shim = dir.path().join("bin");
         fs::create_dir_all(&shim).expect("the shim directory");
-        let npx = shim.join("npx");
+        let node = shim.join("node");
         fs::write(
-            &npx,
+            &node,
             format!(
                 "#!/usr/bin/env bash\n\
                  printf '%s\\n' \"$*\" >>\"{log}\"\n\
@@ -53,8 +53,8 @@ impl World {
                 log = dir.path().join("log").display(),
             ),
         )
-        .expect("the npx shim");
-        fs::set_permissions(&npx, fs::Permissions::from_mode(0o755)).expect("chmod npx");
+        .expect("the node shim");
+        fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).expect("chmod node");
         Self { dir }
     }
 
@@ -81,7 +81,7 @@ impl World {
         command
     }
 
-    /// One line per fake-`npx` invocation, in order.
+    /// One line per fake-`node` invocation, in order.
     fn log(&self) -> Vec<String> {
         match fs::read_to_string(self.dir.path().join("log")) {
             Ok(text) => text.lines().map(str::to_owned).collect(),
