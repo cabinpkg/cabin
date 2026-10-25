@@ -613,17 +613,12 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     let (effective_index_source, index_user_chosen): (Option<cabin_core::SourceLocator>, bool) =
         match resolved_index_source.as_ref() {
             Some(source) => {
-                let initial = crate::cli::config::index_source_kind_to_locator(&source.kind);
-                let resolved = crate::cli::patch::apply_source_replacement(
-                    initial,
+                let (resolved, user_chosen) = crate::cli::config::resolve_index_locator(
+                    source,
                     &effective_config,
+                    resolution_offline,
                     request.no_patches,
                 )?;
-                crate::cli::config::enforce_offline_post_replacement(
-                    resolution_offline,
-                    &resolved,
-                )?;
-                let user_chosen = crate::cli::config::index_origin_user_chosen(source, &resolved);
                 (Some(resolved.resolved), user_chosen)
             }
             // The default hosted registry the fallback below picks

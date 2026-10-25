@@ -1491,9 +1491,10 @@ fn a_project_config_loopback_index_never_receives_the_env_token() {
 /// the user declared both the replaced source and the replacement in
 /// their own config: a resolution records the hops it walked, not
 /// which file declared each of them, so the safe answer is the only
-/// available one.  The sibling test above is the control - the same
-/// user config reaching the same server *without* a hop keeps the
-/// token.
+/// available one.  Covers `resolve` and `fetch`; the control,
+/// `a_user_config_loopback_index_still_receives_the_env_token` below,
+/// covers `fetch` only - the same user config reaching the same server
+/// *without* a hop keeps the token.
 #[test]
 fn a_user_config_source_replacement_hop_loses_the_env_token() {
     let dir = TempDir::new().unwrap();
@@ -1509,21 +1510,25 @@ fn a_user_config_source_replacement_hop_loses_the_env_token() {
         ))
         .unwrap();
 
-    let assertion = cabin()
-        .args(["fetch", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--cache-dir")
-        .arg(dir.path().join("cache"))
-        .env_remove("CABIN_NO_CONFIG")
-        .env("CABIN_CONFIG_HOME", &home)
-        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
-        .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-    assert!(
-        flat_contains(&stderr, &auth_required_for(server.url())),
-        "a replaced origin must be reached unauthenticated: {stderr}"
-    );
+    for command in ["resolve", "fetch"] {
+        let mut cmd = cabin();
+        cmd.args([command, "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"));
+        if command == "fetch" {
+            cmd.arg("--cache-dir").arg(dir.path().join("cache"));
+        }
+        let assertion = cmd
+            .env_remove("CABIN_NO_CONFIG")
+            .env("CABIN_CONFIG_HOME", &home)
+            .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            flat_contains(&stderr, &auth_required_for(server.url())),
+            "`cabin {command}` must reach a replaced origin unauthenticated: {stderr}"
+        );
+    }
 }
 
 /// The user's own config file is not the project speaking: a loopback
