@@ -607,7 +607,8 @@ a standalone workspace on a pinned nightly (`fuzz/README.md`).  `cargo fuzz-seed
 workspace and replays every target's seeds.  The crate must:
 
 - build seed archives through the real `cabin-package` staging path, so the seeds are what
-  publish emits rather than hand-written bytes;
+  publish emits rather than hand-written bytes (the extraction seeds re-wrap those files under
+  one top directory, as an upstream release archive nests them);
 - write only under `fuzz/seeds/`, apart from a private scratch directory it stages a generated
   package in;
 - replay every target `cargo fuzz list` names, so none skips CI.
