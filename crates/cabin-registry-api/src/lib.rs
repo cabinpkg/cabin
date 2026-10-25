@@ -347,7 +347,8 @@ impl RegistryApi {
         suffix: &str,
     ) -> Result<url::Url, RegistryApiError> {
         let safe = cabin_core::PackageName::new(name).is_ok_and(|parsed| {
-            parsed.is_scoped() && is_valid_registry_package_name(parsed.base_name())
+            // Without the registry grammar a refused name would also 404 a yank misleadingly.
+            parsed.is_scoped() && cabin_core::is_valid_registry_package_name(parsed.base_name())
         });
         if !safe {
             return Err(RegistryApiError::UnsafePackageName {
@@ -1006,20 +1007,6 @@ pub fn fetch_github_actions_jwt(
             message: "the runner's OIDC response carried no token value".to_owned(),
         })?;
     Ok(parsed.value)
-}
-
-/// Mirror of the hosted registry's package-name grammar
-/// (`registry/src/routes.rs`, `is_valid_name`):
-/// `^[a-z0-9][a-z0-9_-]*$`.  `PackageName`'s own grammar is looser
-/// (uppercase and `.` are legal in local-only names), so without this
-/// check a name the registry refuses would fail publish only after
-/// staging and network work - and 404 a yank misleadingly.
-fn is_valid_registry_package_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.as_bytes()[0].is_ascii_alphanumeric()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 /// Encode the publish request body:

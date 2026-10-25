@@ -213,7 +213,10 @@ are intentionally not traversed here.  Current invariants:
   time - the remote URL boundaries in `cabin-index-http` / `cabin-registry-api`.  The scope
   part uses `cabin_core::is_valid_package_scope`, the registry's GitHub-login-compatible scope
   grammar (lowercase alphanumerics plus interior `-`, at most 39 bytes) - a strict subset of the
-  component grammar.  Both are enforced by `PackageName::new` so URL-reserved characters cannot
+  component grammar.  Registry-bound names also check the package part against
+  `cabin_core::is_valid_registry_package_name`, the registry's `^[a-z0-9][a-z0-9_-]*$` (used by
+  `cabin-publish` for dependency keys and by `cabin-registry-api` at its URL boundary).  The scope
+  and component grammars are enforced by `PackageName::new` so URL-reserved characters cannot
   reach `Url::join` through any code path.  The full name string is the one canonical identity
   (manifest, index, lockfile, resolver) and is never used as a single filesystem path component:
   path sinks fold `PackageName::path_components` (scope dir + name dir for scoped names), and

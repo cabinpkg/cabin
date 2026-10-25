@@ -212,6 +212,21 @@ pub fn is_valid_package_scope(scope: &str) -> bool {
         && !scope.ends_with('-')
 }
 
+/// Validity predicate for the package part of a registry-bound name.
+///
+/// Mirrors the registry's package-name grammar (`registry/src/routes.rs`,
+/// `is_valid_name`): `^[a-z0-9][a-z0-9_-]*$`.  [`PackageName`]'s own
+/// grammar is looser (uppercase and `.` are legal in local-only names),
+/// so without this check a name the registry refuses would fail publish
+/// only after staging and network work.
+pub fn is_valid_registry_package_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.as_bytes()[0].is_ascii_alphanumeric()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+
 /// Run the shared three-step validation behind a path-safe name
 /// newtype: reject an empty value, reject any whitespace, then enforce
 /// [`is_path_safe_package_name`].  [`TargetName`] routes through this;
