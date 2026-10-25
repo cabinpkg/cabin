@@ -2,7 +2,9 @@
 //! and breaker cron legs, the strict zip-container profile, the
 //! governor's hard limits across two mid-run dev-server restarts, the
 //! admin governor endpoint, and the bounded-concurrency finale that
-//! closes the run with `smoke OK`.
+//! closes the run with `smoke OK`.  One leg postdates the shell: the
+//! real verification driver's pass over two fresh versions
+//! (`driver_pass`).
 //!
 //! The concurrency finale runs its waves on threads released by a
 //! [`Barrier`], where the shell forked subshells parked on a go-file.
@@ -15,13 +17,14 @@
 
 use std::fs;
 use std::io::Read as _;
-use std::path::Path;
-use std::process::Stdio;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
+use xtask_registry_admin::verify::{Endpoints, run_with};
 use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, wrangler};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex};
@@ -61,6 +64,39 @@ const PROFILE_VERSION: &str = "0.3.0";
 const ISO_PENDING_VERSION: &str = "0.4.0";
 const ISO_VERIFIED_VERSION: &str = "0.5.0";
 const BLOCKED_VERSION: &str = "0.6.0";
+
+/// The two versions the verification driver judges: a clean repack of
+/// the fixture, and a traversal archive.
+const DRIVER_VERIFIED_VERSION: &str = "0.12.0";
+const DRIVER_REJECTED_VERSION: &str = "0.13.0";
+
+/// The fixture's `cabin.toml` (`cargo gen-fixtures`, `withdep`) and
+/// source, which the stored repack carries at another version.
+const WITHDEP_MANIFEST: &str = "\
+[package]
+name = \"smoke/withdep\"
+version = \"0.2.0\"
+cxx-standard = \"c++20\"
+
+[dependencies]
+\"smoke/nodep\" = \"^0.1\"
+
+[target.withdep]
+type = \"library\"
+sources = [\"src/withdep.cc\"]
+interface-cxx-standard = \"c++17\"
+links = \"withdep-native\"
+";
+const WITHDEP_SOURCE: &[u8] = b"void withdep() {}\n";
+
+/// The hidden first argument that makes the smoke binary the
+/// verification driver `driver_pass` spawns: the driver's aborts
+/// exit the process, so it cannot run inside this one.
+pub const DRIVER: &str = "__verify-driver";
+
+/// The bearer the GitHub mock's Actions mint requires
+/// (`assets/github-mock.js`).
+const ACTIONS_REQUEST_TOKEN: &str = "smoke-actions-request";
 
 /// Five more verified versions with distinct bytes, never downloaded,
 /// so the concurrency leg has distinct uncached artifacts to charge.
@@ -129,6 +165,7 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     same_day_rerun(smoke, &last_backup_at)?;
     breaker_cron(smoke, inputs)?;
     zip_profile(smoke, inputs)?;
+    driver_pass(smoke, inputs)?;
     let fixtures = governor_fixtures(smoke, inputs)?;
     tiny_pools(smoke, inputs, &fixtures)?;
     admin_governor(smoke)?;
@@ -311,6 +348,135 @@ fn traversal_archive(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()>
     smoke.expect_body(r#""changed":true"#)?;
     smoke.as_publisher();
     smoke.check(&artifact, &[404])
+}
+
+/// The verification driver (`xtask_registry_admin::verify`) end to
+/// end against this Worker, where the legs above hand-build their
+/// verdicts: an inspector that cannot run leaves every pending version
+/// pending and fails the pass, and a working one verifies the clean
+/// repack and rejects the traversal archive.  Before the governor
+/// fixtures, whose pending version must stay pending: the driver
+/// judges every pending version it lists, the two earlier legs left
+/// behind included, and nothing after this reads those two.
+fn driver_pass(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
+    step("the verification driver leaves everything pending when its inspector cannot run");
+    d1_quiet(BURST_RESET)?;
+    let manifest = WITHDEP_MANIFEST.replace(FIXTURE_VERSION, DRIVER_VERIFIED_VERSION);
+    let clean = stored_zip(&[
+        ("cabin.toml", manifest.as_bytes()),
+        ("src/withdep.cc", WITHDEP_SOURCE),
+    ]);
+    let evil = min_zip("../driver");
+    publish_min_version(smoke, inputs, DRIVER_VERIFIED_VERSION, &clean)?;
+    publish_min_version(smoke, inputs, DRIVER_REJECTED_VERSION, &evil)?;
+    let ours = [
+        format!("{}@{DRIVER_VERIFIED_VERSION}", package(inputs)),
+        format!("{}@{DRIVER_REJECTED_VERSION}", package(inputs)),
+    ];
+    smoke.as_verifier();
+    let before = pending(smoke)?;
+    if !ours.iter().all(|version| before.contains(version)) {
+        bail!("the fresh versions are not pending: {before:?}");
+    }
+
+    let (passed, output) = spawn_driver(smoke, &inputs.work.join("no-such-inspector"))?;
+    if passed || !output.contains("hit operational failures and stay pending") {
+        bail!("the driver did not fail the pass on an inspector that cannot run");
+    }
+    if pending(smoke)? != before {
+        bail!("an operational failure changed a verdict");
+    }
+
+    step("the verification driver verifies the clean repack and rejects the traversal");
+    let (passed, _) = spawn_driver(smoke, inputs.verifier_bin)?;
+    if !passed {
+        bail!("the verification driver failed its pass");
+    }
+    let after = pending(smoke)?;
+    if ours.iter().any(|version| after.contains(version)) {
+        bail!("the driver left a fresh version pending: {after:?}");
+    }
+    // The publish leg's `with-dep` twin: its name advisory abstains.
+    let twin = format!("{}/with-dep@{FIXTURE_VERSION}", inputs.scope);
+    if !after.contains(&twin) {
+        bail!("the driver judged {twin}, whose confusable name must leave it pending");
+    }
+    smoke.wcheck("/api/v1/admin/versions?status=rejected", &[200])?;
+    smoke.expect_body(&format!(r#""version":"{DRIVER_REJECTED_VERSION}""#))?;
+    smoke.anonymous();
+    let served = artifact_route(inputs, DRIVER_VERIFIED_VERSION, &clean);
+    smoke.check(&served, &[200])?;
+    if smoke.body != clean {
+        bail!("the verified repack serves other bytes than were published");
+    }
+    smoke.as_publisher();
+    smoke.check(
+        &artifact_route(inputs, DRIVER_REJECTED_VERSION, &evil),
+        &[404],
+    )
+}
+
+/// `name@version` of every pending version, sorted.
+fn pending(smoke: &mut Smoke) -> Result<Vec<String>> {
+    smoke.wcheck(PENDING_LISTING, &[200])?;
+    let listing: Value =
+        serde_json::from_slice(&smoke.body).context("parse the pending listing")?;
+    let versions = listing
+        .get("versions")
+        .and_then(Value::as_array)
+        .context("the pending listing has no versions")?;
+    let mut pending: Vec<String> = versions
+        .iter()
+        .map(|entry| {
+            let field = |key| entry.get(key).and_then(Value::as_str).unwrap_or_default();
+            format!("{}@{}", field("name"), field("version"))
+        })
+        .collect();
+    pending.sort();
+    Ok(pending)
+}
+
+/// One driver pass in a child process: whether it succeeded, and its
+/// output, which is also echoed into the run's log.
+fn spawn_driver(smoke: &Smoke, inspector: &Path) -> Result<(bool, String)> {
+    let output = Command::new(std::env::current_exe().context("locating the smoke binary")?)
+        .arg(DRIVER)
+        .arg(smoke.url(Base::Registry, ""))
+        .arg(smoke.web_origin())
+        .arg(smoke.url(Base::Web, ""))
+        .arg(smoke.actions_mint_url())
+        .arg(inspector)
+        .output()
+        .context("spawning the verification driver")?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for line in text.lines() {
+        println!("    driver: {line}");
+    }
+    Ok((output.status.success(), text))
+}
+
+/// The child `spawn_driver` starts:
+/// `DRIVER <registry> <expected-api> <api> <mint-url> <inspector>`.
+///
+/// # Errors
+///
+/// A wrong argument count, or whatever the pass returns.
+pub fn driver(args: &[String]) -> Result<()> {
+    let [registry, expected_api, api, mint, inspector] = args else {
+        bail!("{DRIVER} takes five arguments");
+    };
+    run_with(Endpoints {
+        registry_origin: registry.clone(),
+        expected_api_origin: expected_api.clone(),
+        api_base: api.clone(),
+        mint_url: mint.clone(),
+        mint_token: ACTIONS_REQUEST_TOKEN.to_owned(),
+        verifier: PathBuf::from(inspector),
+    })
 }
 
 /// L1889-1967.  The isolation fixtures publish while the pools are
@@ -989,49 +1155,66 @@ fn publish_payload(inputs: &FinaleInputs<'_>, version: &str, archive: &[u8]) -> 
 
 /// `make_min_zip <out> <entry>` (L1896-1906) and the `../evil` builder
 /// (L1843-1851), which are the same hand-packed container: one stored,
-/// zero-length entry, exact EOCD arithmetic, no zip crate.  Field order
-/// is Python's `struct.pack` format verbatim, so a diff against the
-/// original is a diff of these lines.
+/// zero-length entry, exact EOCD arithmetic, no zip crate.
 fn min_zip(entry: &str) -> Vec<u8> {
-    let name = entry.as_bytes();
-    let length = u16::try_from(name.len()).unwrap_or(u16::MAX);
-    // "<IHHHHHIIIHH": signature, version 2.0, flags, method, mtime,
-    // mdate, crc32, compressed size, uncompressed size, name length,
-    // extra length.
-    let mut lfh = Vec::with_capacity(30 + name.len());
-    lfh.extend_from_slice(&0x0403_4b50_u32.to_le_bytes());
-    lfh.extend_from_slice(&20_u16.to_le_bytes());
-    lfh.extend_from_slice(&[0; 8]);
-    lfh.extend_from_slice(&[0; 12]);
-    lfh.extend_from_slice(&length.to_le_bytes());
-    lfh.extend_from_slice(&[0; 2]);
-    lfh.extend_from_slice(name);
-    // "<IHHHHHHIIIHHHHHII": signature, version made by, version needed,
-    // then the same header, then name/extra/comment lengths, disk
-    // number, internal and external attributes, and the local header's
-    // offset (zero: it is the first entry).
-    let mut cd = Vec::with_capacity(46 + name.len());
-    cd.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
-    cd.extend_from_slice(&20_u16.to_le_bytes());
-    cd.extend_from_slice(&20_u16.to_le_bytes());
-    cd.extend_from_slice(&[0; 8]);
-    cd.extend_from_slice(&[0; 12]);
-    cd.extend_from_slice(&length.to_le_bytes());
-    cd.extend_from_slice(&[0; 8]);
-    cd.extend_from_slice(&[0; 8]);
-    cd.extend_from_slice(name);
+    stored_zip(&[(entry, b"")])
+}
+
+/// The container [`min_zip`] packs, over any stored entries.  Field
+/// order is Python's `struct.pack` format verbatim, so a diff against
+/// the original is a diff of these lines.
+fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut local = Vec::new();
+    let mut cd = Vec::new();
+    for (entry, data) in entries {
+        let name = entry.as_bytes();
+        let length = u16::try_from(name.len()).unwrap_or(u16::MAX);
+        let crc = crc32fast::hash(data);
+        let bytes = size(data.len());
+        let offset = size(local.len());
+        // "<IHHHHHIIIHH": signature, version 2.0, flags, method, mtime,
+        // mdate, crc32, compressed size, uncompressed size, name length,
+        // extra length.
+        local.extend_from_slice(&0x0403_4b50_u32.to_le_bytes());
+        local.extend_from_slice(&20_u16.to_le_bytes());
+        local.extend_from_slice(&[0; 8]);
+        local.extend_from_slice(&crc.to_le_bytes());
+        local.extend_from_slice(&bytes.to_le_bytes());
+        local.extend_from_slice(&bytes.to_le_bytes());
+        local.extend_from_slice(&length.to_le_bytes());
+        local.extend_from_slice(&[0; 2]);
+        local.extend_from_slice(name);
+        local.extend_from_slice(data);
+        // "<IHHHHHHIIIHHHHHII": signature, version made by, version
+        // needed, then the same header, then name/extra/comment
+        // lengths, disk number, internal and external attributes, and
+        // the local header's offset.
+        cd.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
+        cd.extend_from_slice(&20_u16.to_le_bytes());
+        cd.extend_from_slice(&20_u16.to_le_bytes());
+        cd.extend_from_slice(&[0; 8]);
+        cd.extend_from_slice(&crc.to_le_bytes());
+        cd.extend_from_slice(&bytes.to_le_bytes());
+        cd.extend_from_slice(&bytes.to_le_bytes());
+        cd.extend_from_slice(&length.to_le_bytes());
+        cd.extend_from_slice(&[0; 8]);
+        cd.extend_from_slice(&[0; 4]);
+        cd.extend_from_slice(&offset.to_le_bytes());
+        cd.extend_from_slice(name);
+    }
     // "<IHHHHIIH": signature, this disk, the directory's disk, entries
     // here, entries total, directory size, directory offset, comment.
+    let count = u16::try_from(entries.len()).unwrap_or(u16::MAX);
     let mut eocd = Vec::with_capacity(22);
     eocd.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
     eocd.extend_from_slice(&[0; 4]);
-    eocd.extend_from_slice(&1_u16.to_le_bytes());
-    eocd.extend_from_slice(&1_u16.to_le_bytes());
+    eocd.extend_from_slice(&count.to_le_bytes());
+    eocd.extend_from_slice(&count.to_le_bytes());
     eocd.extend_from_slice(&size(cd.len()).to_le_bytes());
-    eocd.extend_from_slice(&size(lfh.len()).to_le_bytes());
+    eocd.extend_from_slice(&size(local.len()).to_le_bytes());
     eocd.extend_from_slice(&[0; 2]);
 
-    let mut zip = lfh;
+    let mut zip = local;
     zip.extend_from_slice(&cd);
     zip.extend_from_slice(&eocd);
     zip

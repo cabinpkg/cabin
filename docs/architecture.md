@@ -502,8 +502,11 @@ aliases: the ones an incident or a maintenance window needs at an operator's ter
 (`registry/docs/runbook.md`, "Verification pipeline") - it drives the `cabin-registry-verify`
 binary over every pending version and PATCHes the verdicts back.  They hold privileged
 credentials and talk to the running service, which is what separates them from the static guards
-in `xtask-registry-guard`.  Every wrangler invocation goes through one pinned constructor, so no
-command can reach an unpinned CLI.  The `verify` driver speaks its own token-plane HTTP - the
+in `xtask-registry-guard`.  `verify::run` is the workflow's entry and pins every origin to https
+before calling `verify::run_with`, which takes its origins, mint and inspector as given, for a
+caller that vouches for them: the registry smoke, against its loopback Worker.  Every wrangler
+invocation goes through one pinned constructor, so no command can reach an unpinned CLI.  The
+`verify` driver speaks its own token-plane HTTP - the
 OIDC mint and the trusted-publishing exchange/revocation included - as a deliberate exception to
 `cabin-registry-api`'s ownership of those calls: it is a self-contained port of the retired
 shell with its own documented transport ceilings (no redirects on any credentialed request,
@@ -628,7 +631,9 @@ registry role and the website role) over one local D1/R2 state, plus a local exp
 a local GitHub mock, through a fixed step sequence with per-step diagnostics.  `registry.yml`
 runs it after the Worker build on every registry-touching pull request and merge-queue run
 (the `registry` filter in `.github/path-filters.yml`), so it is the one check that executes the
-wasm32 glue before a deploy.  The crate must:
+wasm32 glue before a deploy.  One leg runs the real verification driver (`xtask-registry-admin`'s
+`verify::run_with`) in a child process against both local instances, with the GitHub mock as
+Actions' OIDC mint, where the other legs hand-build their verdicts.  The crate must:
 
 - stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
   environment;
