@@ -9,7 +9,22 @@ permissions:
   contents: read
 
 jobs:
+  # Refuses a mistaken tag, such as one on the release commit from
+  # before its squash merge. A tag ruleset, not this, stops a
+  # deliberate one: the tagged commit's own copy of this file runs.
+  on-main:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      # Spelled out: a pushed tag named origin/main would shadow it.
+      - name: Refuse a tag on a commit main does not carry
+        run: git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
   dist:
+    needs: on-main
     uses: ./.github/workflows/dist.yml
 
   release:
