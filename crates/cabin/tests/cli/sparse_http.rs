@@ -592,29 +592,15 @@ fn resolve_frozen_rejects_config_index_url() {
     assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
         .unwrap();
-    // `CABIN_CONFIG_HOME` points at an empty fixture home rather
-    // than being unset: unset, the credential store would fall back
-    // to the *platform* config home - the developer's real
-    // `credentials.toml` - which `pin_test_user_config_home_to_empty`
-    // (HOME / XDG only) does not cover on Windows.
-    let empty_home = dir.path().join("empty-config-home");
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args(["resolve", "--manifest-path"])
+    cabin_with_config()
+        .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
-        .env_remove("CABIN_NO_CONFIG")
-        .env_remove("CABIN_CONFIG")
-        .env("CABIN_CONFIG_HOME", &empty_home)
         .assert()
         .success();
 
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args(["resolve", "--frozen", "--manifest-path"])
+    cabin_with_config()
+        .args(["resolve", "--frozen", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
-        .env_remove("CABIN_NO_CONFIG")
-        .env_remove("CABIN_CONFIG")
-        .env("CABIN_CONFIG_HOME", &empty_home)
         .assert()
         .failure()
         .stderr(predicate::str::contains("--index-url"))

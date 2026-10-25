@@ -126,48 +126,13 @@ fn write_minimal_project(root: &Path) {
         .unwrap();
 }
 
-/// Pin `HOME` and `XDG_CONFIG_HOME` to deterministic temp paths
-/// that contain no Cabin config.  The user config home resolver
-/// falls back to `getpwuid_r` when `HOME` is unset, so
-/// removing `HOME` from the subprocess environment would leave a
-/// developer's real `~/.config/cabin/config.toml` reachable.
-/// Pointing both variables at empty temp paths is the robust
-/// equivalent of "no user config home" for tests that exercise
-/// config discovery.  Tests that exercise specific config-home arms
-/// override these with later `.env(...)` calls (`assert_cmd`
-/// applies env mutations in declaration order).
-///
-/// The path is wiped once per `cargo test` invocation so a
-/// stale `config.toml` written by a previous run can never leak
-/// in.  Cabin does not write into the user config home itself, so
-/// a single cleanup at the first call is sufficient - later
-/// calls see the same already-empty directory.
-fn pin_test_user_config_home_to_empty(cmd: &mut Command) {
-    static CLEAR_STALE: std::sync::Once = std::sync::Once::new();
-    let base = std::env::temp_dir().join("cabin-tests-empty-home");
-    CLEAR_STALE.call_once(|| {
-        let _ = std::fs::remove_dir_all(&base);
-    });
-    cmd.env("HOME", &base);
-    cmd.env("XDG_CONFIG_HOME", base.join("xdg-config"));
-}
-
-/// Build a `cabin` command that re-enables config discovery
-/// for a single test.  Mirrors the default test-harness
-/// helper but drops the `CABIN_NO_CONFIG=1` opt-out applied
-/// to every other integration test.  Shared by the config and
-/// patch/override test modules.
+/// [`cabin()`] with config discovery re-enabled for a single test.
+/// The user config home stays pinned to an empty directory; tests
+/// that stage a user config point `CABIN_CONFIG_HOME` at their own
+/// fixture home.
 fn cabin_with_config() -> Command {
-    let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
-    cmd.env_remove("CABIN_NO_CONFIG")
-        .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME")
-        // Strip the resolver preference override so config-discovery
-        // tests observe the `[resolver]` value they write rather than
-        // an ambient env var (which takes precedence over config).
-        .env_remove("CABIN_RESOLVER_INCOMPATIBLE_STANDARDS");
-    pin_test_user_config_home_to_empty(&mut cmd);
-    pin_test_cache_home(&mut cmd);
+    let mut cmd = cabin();
+    cmd.env_remove("CABIN_NO_CONFIG");
     cmd
 }
 
