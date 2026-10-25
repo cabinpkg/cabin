@@ -31,6 +31,9 @@ pub mod trustpub;
 pub mod user_api;
 pub mod verify;
 
+#[cfg(test)]
+mod test_db;
+
 #[cfg(target_arch = "wasm32")]
 mod backup_glue;
 #[cfg(target_arch = "wasm32")]
