@@ -21,9 +21,7 @@ pub enum CompilerKind {
     ClangCl,
     /// GNU GCC / `g++`.
     Gcc,
-    /// Microsoft Visual C++ (`cl.exe`).  Detected so Cabin can
-    /// produce a clear unsupported-backend error; the GCC/Clang
-    /// command pipeline cannot be used with this compiler.
+    /// Microsoft Visual C++ (`cl.exe`).  Drives the MSVC dialect.
     Msvc,
     /// Compiler whose `--version` output Cabin does not recognize.
     /// Capability detection treats this conservatively.

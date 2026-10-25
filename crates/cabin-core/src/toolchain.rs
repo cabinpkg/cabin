@@ -382,10 +382,10 @@ pub enum ToolchainResolutionError {
         key = kind.as_key()
     )]
     NoDefault { kind: ToolKind },
-    /// Selected compiler is recognizably unsupported (e.g.  MSVC
-    /// `cl.exe`).
+    /// A compiler slot names `link` or `lib` (the MSVC linker and
+    /// archiver) rather than a compiler driver.
     #[error(
-        "selected {label} `{spec}` is not supported by the current C++ backend; use a GCC- or Clang-like compiler driver",
+        "selected {label} `{spec}` is not a compiler driver (`link` and `lib` are the MSVC linker and archiver)",
         label = kind.human_label()
     )]
     UnsupportedCompiler { kind: ToolKind, spec: String },

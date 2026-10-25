@@ -132,8 +132,8 @@ impl<'a> Inputs<'a> {
 /// Returns [`ToolchainResolutionError`]: `ToolNotFound` when an
 /// explicitly selected tool cannot be located, `NoDefault` when a
 /// required tool (`cxx` or `ar`) has neither an explicit selection
-/// nor a resolvable default, and `UnsupportedCompiler` when the
-/// chosen compiler is one Cabin does not support.
+/// nor a resolvable default, and `UnsupportedCompiler` when a
+/// compiler slot names `link` or `lib` (the MSVC linker and archiver).
 ///
 /// # Panics
 /// Panics if resolving a required tool (`cxx` or `ar`) succeeds yet

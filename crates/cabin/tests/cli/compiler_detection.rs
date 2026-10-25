@@ -94,8 +94,8 @@ sources = ["src/main.cc"]
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("MSVC") || stderr.contains("GCC- or Clang-like"),
-        "expected MSVC unsupported error, got: {stderr}"
+        stderr.contains("MSVC"),
+        "expected MSVC error, got: {stderr}"
     );
 }
 
