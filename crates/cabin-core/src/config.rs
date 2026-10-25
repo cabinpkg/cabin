@@ -524,36 +524,15 @@ impl BuildConfiguration {
         })
     }
 
-    /// Combined JSON view used to populate the `cabin metadata`
-    /// Configuration block.
+    /// JSON `configuration` object of `cabin explain build-config --format json`.
     pub fn as_json(&self) -> serde_json::Value {
-        let compiler_wrapper =
-            self.toolchain
-                .compiler_wrapper
-                .as_ref()
-                .map_or(serde_json::Value::Null, |w| {
-                    let mut obj = serde_json::Map::new();
-                    obj.insert(
-                        "kind".to_owned(),
-                        serde_json::Value::String(w.kind.as_key().to_owned()),
-                    );
-                    obj.insert("spec".to_owned(), serde_json::Value::String(w.spec.clone()));
-                    obj.insert(
-                        "source".to_owned(),
-                        serde_json::Value::String(w.source.as_key().to_owned()),
-                    );
-                    if let Some(v) = &w.version {
-                        obj.insert("version".to_owned(), serde_json::Value::String(v.clone()));
-                    }
-                    serde_json::Value::Object(obj)
-                });
         serde_json::json!({
             "features": self.enabled_features.iter().collect::<Vec<_>>(),
             "profile": self.profile.as_json(),
             "toolchain": {
                 "tools": &self.toolchain.tools,
                 "sources": &self.toolchain.sources,
-                "compiler_wrapper": compiler_wrapper,
+                "compiler_wrapper": &self.toolchain.compiler_wrapper,
             },
             "build_flags": self.build_flags.as_json(),
             "language": &self.language,
@@ -1461,5 +1440,46 @@ mod tests {
         })
         .unwrap();
         assert_ne!(cfg_a.fingerprint, cfg_b.fingerprint);
+    }
+
+    #[test]
+    fn as_json_renders_compiler_wrapper_summary() {
+        let wrapper_json = |compiler_wrapper| {
+            let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+                package: "demo",
+                features: &Features::default(),
+                request: &SelectionRequest::default(),
+                profile: dev(),
+                toolchain: ToolchainSummary {
+                    compiler_wrapper,
+                    ..ToolchainSummary::default()
+                },
+                build_flags: ResolvedProfileFlags::default(),
+                language: LanguageStandardsSummary::default(),
+            })
+            .unwrap();
+            serde_json::to_string(&cfg.as_json()["toolchain"]["compiler_wrapper"]).unwrap()
+        };
+        let summary = |source, version: Option<&str>| CompilerWrapperSummary {
+            kind: crate::CompilerWrapperKind::from_spec(&crate::ToolSpec::parse("ccache")),
+            spec: "ccache".into(),
+            source,
+            version: version.map(Into::into),
+        };
+        assert_eq!(wrapper_json(None), "null");
+        assert_eq!(
+            wrapper_json(Some(summary(
+                crate::CompilerWrapperSource::Cli,
+                Some("4.8.0")
+            ))),
+            r#"{"kind":"ccache","spec":"ccache","source":"cli","version":"4.8.0"}"#
+        );
+        assert_eq!(
+            wrapper_json(Some(summary(
+                crate::CompilerWrapperSource::WorkspaceConfig,
+                None
+            ))),
+            r#"{"kind":"ccache","spec":"ccache","source":"workspace-config"}"#
+        );
     }
 }
