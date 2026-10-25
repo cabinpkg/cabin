@@ -429,7 +429,7 @@ struct Database {
 /// `||` is a *falsy* fallback, so an empty, null, zero or `false` `uuid`
 /// falls through to `database_id` exactly as a missing one does.  A found
 /// entry carrying neither yields the word `undefined`, which the id
-/// grammar refuses; `None` is for no such database or an unparseable
+/// grammar refuses; `None` is for no such database or an unparsable
 /// listing - the two take different refusals.
 fn listed_id(answer: &str) -> Option<String> {
     let databases: Vec<Database> = serde_json::from_str(answer).ok()?;
