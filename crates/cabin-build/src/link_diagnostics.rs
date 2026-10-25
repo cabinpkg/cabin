@@ -10,6 +10,10 @@
 //! dep *available*; `[target.X.deps]` is what gets passed
 //! to the linker.  Cabin can spot the gap precisely.
 //!
+//! The same gap surfaces one step earlier for header-only use: a
+//! compile that cannot find an included header, because a dep's
+//! include directories reach a target only through `deps`.
+//!
 //! This module is the parser + matcher.  The CLI calls
 //! [`diagnose`] with captured ninja stderr and a closure that
 //! resolves a `(package, target)` pair to its dependency picture;
@@ -56,25 +60,42 @@ pub enum LinkDiagnostic {
         target: String,
         /// Every declared name absent from `target.deps`, sorted.
         unlinked: Vec<String>,
+        /// Which action exposed the gap.
+        step: FailedStep,
     },
+}
+
+/// The failing action behind a [`LinkDiagnostic`].
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum FailedStep {
+    /// The link (or archive) action.
+    Link,
+    /// A compile that could not find an included header.
+    MissingHeader,
 }
 
 /// Top-level entry point.  Parses `stderr` from a build lowered for
 /// `dialect`, walks the captured failure(s), and consults
 /// `lookup_deps` to compute the gap.  Returns the first applicable
 /// diagnostic, or `None` if the stderr does not look like a
-/// recognizable link failure.
+/// recognizable link failure or missing-header compile failure.
 pub fn diagnose<F>(stderr: &str, dialect: Dialect, lookup_deps: F) -> Option<LinkDiagnostic>
 where
     F: Fn(&str, &str) -> Option<TargetDepInfo>,
 {
+    let (candidates, missing_header) = find_failed_target(stderr, dialect)?;
     // The path parse cannot tell a bare package dir from a scope
-    // dir, so each failure line yields up to two readings; the first
+    // dir, or the planner's `/packages/` anchor from a source dir of
+    // that name, so a failure line yields several readings; the first
     // one the workspace graph recognizes wins.
-    for failure in parse_link_failure_candidates(stderr, dialect) {
-        let Some(info) = lookup_deps(&failure.package, &failure.target) else {
+    for (step, package, target) in candidates {
+        let Some(info) = lookup_deps(&package, &target) else {
             continue;
         };
+        // Any other compile error is the user's code, not a missing dep.
+        if step == FailedStep::MissingHeader && !missing_header {
+            return None;
+        }
         let unlinked: Vec<String> = info
             .package_deps
             .difference(&info.target_deps)
@@ -85,12 +106,25 @@ where
             return None;
         }
         return Some(LinkDiagnostic::DeclaredButUnlinked {
-            package: failure.package,
-            target: failure.target,
+            package,
+            target,
             unlinked,
+            step,
         });
     }
     None
+}
+
+/// Whether a compiler output line is an "included header not found"
+/// error: Clang (`fatal error: 'x.h' file not found`), GCC
+/// (`fatal error: x.h: No such file or directory`), or MSVC
+/// (`fatal error C1083: Cannot open include file: 'x.h': No such file
+/// or directory`).
+fn is_missing_header(line: &str) -> bool {
+    (line.contains("fatal error") && line.contains("file not found"))
+        || (line.contains("fatal error:") && line.contains(": No such file or directory"))
+        || (line.contains("C1083: Cannot open include file")
+            && line.contains("No such file or directory"))
 }
 
 /// Render a diagnostic as the multi-line text cabin emits to
@@ -112,16 +146,25 @@ pub fn render(diag: &LinkDiagnostic) -> String {
         package,
         target,
         unlinked,
+        step,
     } = diag;
     let primary = unlinked.join("`, `");
     let first = &unlinked[0];
+    let (gap, role) = match step {
+        FailedStep::Link => ("does not link it.", "what actually gets linked."),
+        FailedStep::MissingHeader => (
+            "does not list it in `deps`.",
+            "what puts its headers on the include path\n\
+             and links it.",
+        ),
+    };
     let _ = write!(
         out,
         "package `{package}` declares `{primary}` in `[dependencies]`,\n\
-         but `[target.{target}]` does not link it.\n\
+         but `[target.{target}]` {gap}\n\
          \n\
          `[dependencies]` makes a package available; each target's\n\
-         `deps =` list is what actually gets linked.\n\
+         `deps =` list is {role}\n\
          \n\
          Add the dep to the target:\n\
          \n\
@@ -136,15 +179,18 @@ pub fn render(diag: &LinkDiagnostic) -> String {
 // Parsing
 // -------------------------------------------------------------
 
-/// Parse `stderr` for the first recognizable link failure.
+/// Parse `stderr` for the first recognizable failed action.
 /// Returns the failing target's candidate identities (package +
-/// target name): the bare reading first, then - when the path is
-/// deep enough - the scoped `<scope>/<name>` reading.  The caller
+/// target name) in the order [`diagnose`] tries them: per
+/// `/packages/` anchor, the bare reading first, then - when the path
+/// is deep enough - the scoped `<scope>/<name>` reading.  The caller
 /// resolves the ambiguity against the loaded workspace.
 pub fn parse_link_failure_candidates(stderr: &str, dialect: Dialect) -> Vec<LinkFailure> {
     find_failed_target(stderr, dialect)
+        .map(|(candidates, _)| candidates)
+        .unwrap_or_default()
         .into_iter()
-        .map(|(package, target)| LinkFailure { package, target })
+        .map(|(_, package, target)| LinkFailure { package, target })
         .collect()
 }
 
@@ -174,69 +220,94 @@ fn extract_target_name(filename: &str, dialect: Dialect) -> &str {
     stem.filter(|s| !s.is_empty()).unwrap_or(filename)
 }
 
+/// One `(step, package, target)` reading of a failed action's path.
+type Reading = (FailedStep, String, String);
+
 /// Find the first `FAILED:` line in ninja stderr and pull the
-/// `(package, target)` readings out of the path it points at.
+/// `(step, package, target)` readings out of the path it points at,
+/// plus whether that action's own output reports a missing header.
 ///
-/// Cabin's planner emits link-action outputs under
-/// `<build_dir>/<profile>/packages/<package>/<target>` for a bare
-/// package and `.../packages/<scope>/<name>/<target>` for a scoped
-/// one, so the segment after `/packages/` is the load-bearing
-/// signal.  Anything before `/packages/` is platform-dependent
-/// build-root noise; anything after is the package dir(s) plus the
-/// target executable or library file.  A two-component tail has one
-/// reading; a deeper tail is ambiguous (bare package with an object
-/// subdir vs scoped package), so both readings are returned, bare
-/// first.
-fn find_failed_target(stderr: &str, dialect: Dialect) -> Vec<(String, String)> {
-    for line in stderr.lines() {
-        let trimmed = line.trim_start();
-        if !trimmed.starts_with("FAILED:") {
-            continue;
-        }
+/// Cabin's planner emits link-action outputs directly in the package
+/// build dir - `<build_dir>/<profile>/packages/<package>/<target>`
+/// for a bare package and `.../packages/<scope>/<name>/<target>` for
+/// a scoped one - and compile outputs under its `obj/<target>/`
+/// subdirectory, so the segments after `/packages/` are the
+/// load-bearing signal.  Anything before `/packages/` is
+/// platform-dependent build-root noise.  A two-component tail is a
+/// bare link output; a three-component tail is ambiguous (bare
+/// package with a subdir vs scoped package), so both readings are
+/// returned, bare first; a deeper tail is an object file.
+fn find_failed_target(stderr: &str, dialect: Dialect) -> Option<(Vec<Reading>, bool)> {
+    let mut lines = stderr.lines();
+    while let Some(line) = lines.next() {
         // The rest of the line is one or more space-separated
         // output paths (ninja's `FAILED:` lists every output of
-        // the failing edge).  The link action has exactly one
-        // output - the binary or static archive - and that's
-        // the only path under `/packages/`.
-        let rest = trimmed.trim_start_matches("FAILED:").trim_start();
+        // the failing edge); only the planner's own output sits
+        // under `/packages/`.
+        let Some(rest) = line.trim_start().strip_prefix("FAILED:") else {
+            continue;
+        };
         for token in rest.split_whitespace() {
-            // Normalize Windows-style separators so a single
-            // `/packages/` probe anchors the parse on every
-            // platform.  Cabin's planner emits the same logical
+            // Normalize Windows-style separators so one split on
+            // `/` anchors the parse on every platform.  Cabin's planner emits the same logical
             // layout regardless of OS; only ninja's stderr
             // separator differs.
             let normalized = token.replace('\\', "/");
-            // Anchor on the *last* `/packages/` segment.
-            // `--build-dir` can itself contain a `packages`
-            // component (e.g. `/tmp/packages/out`), and `find`
-            // would lock onto that prefix and split off the
-            // wrong package/target pair.  The planner-owned
-            // suffix is always the last `packages` segment, so
-            // `rfind` is the load-bearing anchor.
-            if let Some(idx) = normalized.rfind("/packages/") {
-                let tail = &normalized[idx + "/packages/".len()..];
-                let mut parts = tail.splitn(4, '/');
-                let (Some(pkg), Some(target)) = (parts.next(), parts.next()) else {
-                    continue;
-                };
-                if pkg.is_empty() || target.is_empty() {
-                    continue;
-                }
-                let mut candidates = vec![(
-                    pkg.to_owned(),
-                    extract_target_name(target, dialect).to_owned(),
-                )];
-                if let Some(scoped_target) = parts.next().filter(|s| !s.is_empty()) {
-                    candidates.push((
-                        format!("{pkg}/{target}"),
-                        extract_target_name(scoped_target, dialect).to_owned(),
-                    ));
-                }
-                return candidates;
+            let parts: Vec<&str> = normalized.split('/').collect();
+            // Read every `packages` component as an anchor, the last
+            // one first: `--build-dir` can itself contain one (e.g.
+            // `/tmp/packages/out`), an object's source path can contain
+            // one after the planner's, and a package can be named one.
+            let candidates: Vec<_> = (0..parts.len())
+                .rev()
+                .filter(|&idx| parts[idx] == "packages")
+                .flat_map(|idx| readings(&parts[idx + 1..], dialect))
+                .collect();
+            if !candidates.is_empty() {
+                // The action's own output runs up to the next banner;
+                // later ones belong to other jobs of a parallel build.
+                let missing_header = lines
+                    .take_while(|line| !line.trim_start().starts_with("FAILED:"))
+                    .any(is_missing_header);
+                return Some((candidates, missing_header));
             }
         }
     }
-    Vec::new()
+    None
+}
+
+/// The `(step, package, target)` readings of the path segments after
+/// a `/packages/` anchor, see [`find_failed_target`].
+fn readings(tail: &[&str], dialect: Dialect) -> Vec<Reading> {
+    let link = |pkg: String, file: &str| {
+        (
+            FailedStep::Link,
+            pkg,
+            extract_target_name(file, dialect).to_owned(),
+        )
+    };
+    let compile = |pkg: String, target: &str| (FailedStep::MissingHeader, pkg, target.to_owned());
+    if tail.iter().any(|part| part.is_empty()) {
+        return Vec::new();
+    }
+    match *tail {
+        [] | [_] => Vec::new(),
+        [pkg, file] => vec![link(pkg.to_owned(), file)],
+        [pkg, target, file] => vec![
+            link(pkg.to_owned(), target),
+            link(format!("{pkg}/{target}"), file),
+        ],
+        _ => {
+            let mut candidates = Vec::new();
+            if tail[1] == "obj" {
+                candidates.push(compile(tail[0].to_owned(), tail[2]));
+            }
+            if tail.len() >= 5 && tail[2] == "obj" {
+                candidates.push(compile(format!("{}/{}", tail[0], tail[1]), tail[3]));
+            }
+            candidates
+        }
+    }
 }
 
 // -------------------------------------------------------------
@@ -413,10 +484,12 @@ mod tests {
             package,
             target,
             unlinked,
+            step,
         } = diag;
         assert_eq!(package, "mytest");
         assert_eq!(target, "mytest");
         assert_eq!(unlinked, vec!["zlib"]);
+        assert_eq!(step, FailedStep::Link);
     }
 
     /// A scoped package's link failure path carries two readings;
@@ -518,11 +591,132 @@ mod tests {
             package: "mytest".into(),
             target: "mytest".into(),
             unlinked: vec!["zlib".into()],
+            step: FailedStep::Link,
         };
         let out = render(&diag);
         assert!(out.contains("`mytest`"));
         assert!(out.contains("`zlib`"));
         assert!(out.contains("[target.mytest]"));
         assert!(out.contains("deps = [\"zlib\"]"));
+    }
+
+    // ---- missing-header compile failures ---------------------------
+
+    fn diagnose_compile(output: &str, dialect: Dialect) -> Option<LinkDiagnostic> {
+        diagnose(output, dialect, |pkg, target| {
+            (pkg == "app" && target == "app").then(|| deps(&["kit"], &[]))
+        })
+    }
+
+    /// Clang's wording, with the object under the package's
+    /// `obj/<target>/` subdirectory.
+    #[test]
+    fn flags_a_missing_header_in_a_bare_package_compile() {
+        let output = "FAILED: [code=1] /abs/build/dev/packages/app/obj/app/src/main.cc.o\n\
+             /usr/bin/c++ -c src/main.cc -o ...\n\
+             src/main.cc:1:10: fatal error: 'kit.h' file not found\n";
+        let diag = diagnose_compile(output, Dialect::GnuLike).unwrap();
+        assert_eq!(
+            diag,
+            LinkDiagnostic::DeclaredButUnlinked {
+                package: "app".into(),
+                target: "app".into(),
+                unlinked: vec!["kit".into()],
+                step: FailedStep::MissingHeader,
+            }
+        );
+    }
+
+    /// GCC's wording for a C source, in a scoped package's
+    /// `obj/<target>/`.
+    #[test]
+    fn flags_a_missing_header_in_a_scoped_package_compile() {
+        let output = "FAILED: build/dev/packages/acme/app/obj/demo/src/main.c.o\n\
+             src/main.c:1:10: fatal error: kit.h: No such file or directory\n";
+        let diag = diagnose(output, Dialect::GnuLike, |pkg, target| {
+            (pkg == "acme/app" && target == "demo").then(|| deps(&["kit"], &[]))
+        })
+        .unwrap();
+        let LinkDiagnostic::DeclaredButUnlinked {
+            package, target, ..
+        } = diag;
+        assert_eq!(package, "acme/app");
+        assert_eq!(target, "demo");
+    }
+
+    /// MSVC's `C1083`, with Windows separators.
+    #[test]
+    fn flags_a_missing_header_from_msvc() {
+        let output = "FAILED: build\\dev\\packages\\app\\obj\\app\\src\\main.cc.obj\n\
+             src\\main.cc(1): fatal error C1083: Cannot open include file: 'kit.h': \
+             No such file or directory\n";
+        assert!(diagnose_compile(output, Dialect::Msvc).is_some());
+    }
+
+    /// A source directory named `packages` sits after the planner's
+    /// own `/packages/` anchor and must not hide it, whether the
+    /// source tail parses as nothing or as a link output.
+    #[test]
+    fn finds_the_planner_anchor_past_a_source_dir_named_packages() {
+        for source in ["src/packages/main.cc.o", "src/packages/net/conn.cc.o"] {
+            let output = format!(
+                "FAILED: /b/dev/packages/app/obj/app/{source}\n\
+                 fatal error: 'kit.h' file not found\n"
+            );
+            assert!(
+                diagnose_compile(&output, Dialect::GnuLike).is_some(),
+                "{source}"
+            );
+        }
+    }
+
+    /// A package named `packages` sits right after the planner's own
+    /// anchor component.
+    #[test]
+    fn reads_a_package_named_packages() {
+        let output = "FAILED: /b/dev/packages/packages/obj/app/src/main.cc.o\n\
+             fatal error: 'kit.h' file not found\n";
+        let diag = diagnose(output, Dialect::GnuLike, |pkg, target| {
+            (pkg == "packages" && target == "app").then(|| deps(&["kit"], &[]))
+        });
+        assert!(diag.is_some());
+    }
+
+    /// Any other compile error is the user's code: no hint, even with
+    /// an unlisted dep.
+    #[test]
+    fn ignores_compile_failures_that_are_not_a_missing_header() {
+        let output = "FAILED: /b/dev/packages/app/obj/app/src/main.cc.o\n\
+             src/main.cc:3:1: error: expected ';' after expression\n";
+        assert!(diagnose_compile(output, Dialect::GnuLike).is_none());
+        let msvc = "FAILED: build\\dev\\packages\\app\\obj\\app\\src\\main.cc.obj\n\
+             src\\main.cc(1): fatal error C1083: Cannot open source file: 'gen.cc': \
+             No such file or directory\n";
+        assert!(diagnose_compile(msvc, Dialect::Msvc).is_none());
+    }
+
+    /// In a parallel build a missing header reported by a later
+    /// failure says nothing about the first failed action.
+    #[test]
+    fn ignores_a_missing_header_from_another_failed_action() {
+        let output = "FAILED: /b/dev/packages/app/obj/app/src/main.cc.o\n\
+             src/main.cc:3:1: error: expected ';' after expression\n\
+             FAILED: /b/dev/packages/other/obj/other/src/lib.cc.o\n\
+             src/lib.cc:1:10: fatal error: 'kit.h' file not found\n";
+        assert!(diagnose_compile(output, Dialect::GnuLike).is_none());
+    }
+
+    #[test]
+    fn render_missing_header_points_at_the_include_path() {
+        let diag = LinkDiagnostic::DeclaredButUnlinked {
+            package: "app".into(),
+            target: "app".into(),
+            unlinked: vec!["kit".into()],
+            step: FailedStep::MissingHeader,
+        };
+        let out = render(&diag);
+        assert!(out.contains("does not list it in `deps`"));
+        assert!(out.contains("include path"));
+        assert!(out.contains("deps = [\"kit\"]"));
     }
 }

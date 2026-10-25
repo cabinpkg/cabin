@@ -210,3 +210,24 @@ deps = ["util"]
         .assert()
         .success();
 }
+
+/// A dep declared in `[dependencies]` but missing from the target's
+/// `deps` leaves its headers off the include path: the compile fails
+/// on the missing header, and the build names the unlisted dep.
+#[test]
+fn missing_header_from_an_unlisted_dep_hints_at_target_deps() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_shorthand_workspace(dir.path(), "");
+    cabin()
+        .args(["build", "-p", "app", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "but `[target.app]` does not list it in `deps`",
+        ))
+        .stderr(predicate::str::contains("deps = [\"toolkit\"]"));
+}
