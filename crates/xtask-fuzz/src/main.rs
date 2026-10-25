@@ -6,6 +6,7 @@
 //!                       every target's seeds
 
 use std::fs;
+use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -27,6 +28,11 @@ const SEED_ARCHIVE: &str = "registry/tests/fixtures/smoke-withdep-0.2.0.zip";
 /// The fuzz harness's `FALLBACK_MANIFEST` (`fuzz/src/lib.rs`), staged
 /// into a seed archive of its own; the harness's test checks the copy.
 const FALLBACK_MANIFEST: &str = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n";
+
+/// The top directory the extraction seeds nest every file under, as
+/// an upstream release archive does; the harness's `SEED_PREFIX`,
+/// whose test checks the seeds against it.
+const SEED_PREFIX: &str = "pkg";
 
 /// Trees whose every `cabin.toml` seeds the manifest parser.
 const MANIFEST_TREES: &[&str] = &["examples", "ports"];
@@ -79,6 +85,17 @@ fn seeds(root: &Path) -> Result<()> {
     archives.push(("demo-1.2.3.zip".to_owned(), stage_fallback_package()?));
     write_seeds(&out.join("inspect_zip"), &archives)?;
 
+    let mut zips = Vec::new();
+    let mut tars = Vec::new();
+    for (name, archive) in &archives {
+        let files = archive_files(archive).with_context(|| format!("reading {name}"))?;
+        let stem = name.trim_end_matches(".zip");
+        zips.push((name.clone(), prefixed_zip(&files)?));
+        tars.push((format!("{stem}.tar"), prefixed_tar(&files)?));
+    }
+    write_seeds(&out.join("extract_zip"), &zips)?;
+    write_seeds(&out.join("extract_tar_gz"), &tars)?;
+
     let mut manifests = Vec::new();
     for tree in MANIFEST_TREES {
         collect_manifests(root, &root.join(tree), &mut manifests)?;
@@ -102,6 +119,56 @@ fn stage_fallback_package() -> Result<Vec<u8>> {
     )
     .context("staging the fallback package")?;
     Ok(staged.archive_bytes)
+}
+
+/// Every file of a package archive, in archive order.
+fn archive_files(archive: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(archive))?;
+    let mut files = Vec::new();
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index)?;
+        let name = String::from_utf8(entry.name_raw().to_vec())?;
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes)?;
+        files.push((name, bytes));
+    }
+    Ok(files)
+}
+
+/// `files` under [`SEED_PREFIX`] in a zip, behind the prefix's own
+/// directory entry.
+fn prefixed_zip(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    zip.add_directory(format!("{SEED_PREFIX}/"), options)?;
+    for (name, bytes) in files {
+        zip.start_file(format!("{SEED_PREFIX}/{name}"), options)?;
+        zip.write_all(bytes)?;
+    }
+    Ok(zip.finish()?.into_inner())
+}
+
+/// `files` under [`SEED_PREFIX`] in a tar, behind the prefix's own
+/// directory entry, with no timestamps or owners.
+fn prefixed_tar(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+    let mut tar = tar::Builder::new(Vec::new());
+    let mut dir = tar::Header::new_ustar();
+    dir.set_entry_type(tar::EntryType::Directory);
+    dir.set_mode(0o755);
+    dir.set_size(0);
+    tar.append_data(&mut dir, format!("{SEED_PREFIX}/"), io::empty())?;
+    for (name, bytes) in files {
+        let mut header = tar::Header::new_ustar();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_mode(0o644);
+        header.set_size(bytes.len() as u64);
+        tar.append_data(
+            &mut header,
+            format!("{SEED_PREFIX}/{name}"),
+            bytes.as_slice(),
+        )?;
+    }
+    Ok(tar.into_inner()?)
 }
 
 /// `examples/hello-c` -> `examples-hello-c`.

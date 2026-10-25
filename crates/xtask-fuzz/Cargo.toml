@@ -18,7 +18,9 @@ clap = { workspace = true }
 # Selects flate2's backend for the packager's zip writer, which the
 # workspace only unifies in when another member is built alongside.
 flate2 = { workspace = true }
+tar = { workspace = true }
 tempfile = { workspace = true }
+zip = { workspace = true }
 
 [lints]
 workspace = true

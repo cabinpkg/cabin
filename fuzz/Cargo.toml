@@ -16,14 +16,31 @@ cargo-fuzz = true
 members = ["."]
 
 [dependencies]
+cabin-artifact = { package = "cabinpkg-artifact", path = "../crates/cabin-artifact" }
 cabin-core = { package = "cabinpkg-core", path = "../crates/cabin-core" }
 cabin-fs = { package = "cabinpkg-fs", path = "../crates/cabin-fs" }
 cabin-manifest = { package = "cabinpkg-manifest", path = "../crates/cabin-manifest" }
 cabin-package = { package = "cabinpkg-package", path = "../crates/cabin-package" }
 cabin-registry-verify = { package = "cabinpkg-registry-verify", path = "../crates/cabin-registry-verify" }
+flate2 = "1"
 libfuzzer-sys = "0.4"
 serde_json = "1"
+tempfile = "3"
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+
+[[bin]]
+name = "extract_tar_gz"
+path = "fuzz_targets/extract_tar_gz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "extract_zip"
+path = "fuzz_targets/extract_zip.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "inspect_zip"

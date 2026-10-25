@@ -7,13 +7,17 @@ of a panic.
 
 | Target | Input | Property |
 |---|---|---|
+| `extract_tar_gz` | tar bytes, gzipped by the harness | the upstream materializer's extraction (symlinks skipped, with the seeds' `pkg/` prefix stripped and without), whether it accepts or refuses, leaves its archive intact, writes nothing beside its destination, and leaves only directories and singly linked regular files in it |
+| `extract_zip` | zip bytes | the same, for zip |
 | `inspect_zip` | archive bytes, listed with their own checksum and the metadata publish derives from their `cabin.toml` (or from the harness's fallback manifest when the client's reader finds none) | anything the registry verifier verifies opens in the client's zip reader as regular files with safe, portable, unique UTF-8 names, CRC-clean, with a root `cabin.toml` |
 | `inspect_zip_wrong_digest` | archive bytes, listed with another archive's checksum | never verifies |
 | `parse_manifest` | `cabin.toml` text | parsing, the publishability check, and canonical-metadata derivation never panic |
 
 `src/lib.rs` holds the shared harness. Its unit tests check that every
 seed archive verifies and that one carries the fallback manifest, so the
-`inspect_zip` property is reachable.
+`inspect_zip` property is reachable, and that every extraction seed
+extracts with its prefix stripped and without, so containment is checked
+past the extractor's own refusals.
 
 ## Running
 
@@ -43,7 +47,9 @@ it after changing an API a target calls.
 `seeds/` is generated: `cargo fuzz-seeds`, from the repository root,
 stages example packages (C and C++) and a package of the fallback
 manifest through the real packager, copies the published-archive fixture,
-and collects every `cabin.toml` under `examples/` and `ports/`. `dicts/` holds the libFuzzer dictionaries.
+re-wraps those archives' files under a `pkg/` top directory as zip and
+tar for the extraction targets, and collects every `cabin.toml` under
+`examples/` and `ports/`. `dicts/` holds the libFuzzer dictionaries.
 
 `Cargo.lock` was seeded from the root lockfile, so the shared
 dependencies (`zip`, `toml`, the deflate backend, ...) started at the

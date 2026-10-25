@@ -1,11 +1,17 @@
 //! Shared harness code for the fuzz targets in `fuzz_targets/`.
 
 use std::collections::BTreeSet;
-use std::io::{self, Cursor, Read};
+use std::fs;
+use std::io::{self, Cursor, Read, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+use cabin_artifact::{ArtifactError, SafeExtractOptions};
 use cabin_core::Checksum;
 use cabin_registry_verify::{Limits, PendingVersion, Verdict, VerifyError, inspect_bytes};
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use tempfile::TempDir;
 
 /// The manifest whose listing the harness falls back to when the
 /// client's zip reader cannot read an archive's own `cabin.toml`: an
@@ -116,9 +122,154 @@ pub fn assert_client_agrees(archive: &[u8]) {
     );
 }
 
+/// The top directory `seeds/extract_*` nest every file under, as an
+/// upstream release archive does; `cargo fuzz-seeds` writes the same,
+/// and the harness's test checks the seeds against it.
+pub const SEED_PREFIX: &str = "pkg";
+
+/// An extractor as the upstream materializer calls it.
+pub type Extract = fn(&Path, &Path, SafeExtractOptions<'_>) -> Result<(), ArtifactError>;
+
+/// `tar` gzipped, so the tar target's mutations land on the tar
+/// structure rather than on a compressed stream that no longer decodes.
+///
+/// # Panics
+///
+/// Never: the stream is in memory.
+pub fn gzip(tar: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(tar).expect("gzip into memory");
+    encoder.finish().expect("gzip into memory")
+}
+
+/// Extract `archive` the way the upstream materializer does (symlinks
+/// skipped), with [`SEED_PREFIX`] stripped and without, and require
+/// that whatever the extractor decides, it leaves its archive as it
+/// was, writes nothing beside its destination, and leaves only
+/// directories and singly linked regular files in it.  An escape needs a `..` or an absolute
+/// component; this sees one that lands a single level up, which is
+/// where the shortest such input lands.
+///
+/// # Panics
+///
+/// When an extraction breaks any of that.
+pub fn assert_extraction_contained(archive: &[u8], extract: Extract) {
+    for strip_prefix in [None, Some(SEED_PREFIX)] {
+        // Accepted or refused, the verdict is the extractor's to make.
+        let (scratch, _) = extract_in_scratch(archive, extract, strip_prefix);
+        let mut names: Vec<_> = fs::read_dir(scratch.path())
+            .expect("list the scratch directory")
+            .map(|entry| entry.expect("list the scratch directory").file_name())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            ["archive", "dest"],
+            "an extraction wrote beside its destination"
+        );
+        assert_eq!(
+            fs::read(scratch.path().join("archive")).expect("read the archive back"),
+            archive,
+            "an extraction rewrote its archive"
+        );
+        assert_files_and_dirs(&scratch.path().join("dest"));
+    }
+}
+
+/// A fresh scratch directory holding `archive` as `archive`, extracted
+/// by `extract` into its `dest`.
+fn extract_in_scratch(
+    archive: &[u8],
+    extract: Extract,
+    strip_prefix: Option<&str>,
+) -> (TempDir, Result<(), ArtifactError>) {
+    let scratch = tempfile::tempdir().expect("create a scratch directory");
+    let path = scratch.path().join("archive");
+    let dest = scratch.path().join("dest");
+    fs::write(&path, archive).expect("write the archive");
+    fs::create_dir(&dest).expect("create the destination");
+    let options = SafeExtractOptions {
+        strip_prefix,
+        skip_symlinks: true,
+    };
+    let result = extract(&path, &dest, options);
+    (scratch, result)
+}
+
+fn assert_files_and_dirs(dir: &Path) {
+    for entry in fs::read_dir(dir).expect("list an extracted directory") {
+        let path = entry.expect("list an extracted directory").path();
+        let metadata = fs::symlink_metadata(&path).expect("stat an extracted entry");
+        if metadata.is_dir() {
+            assert_files_and_dirs(&path);
+        } else {
+            assert!(
+                metadata.is_file(),
+                "an extraction left a link or special file: {path:?}"
+            );
+            // A hard link is a regular file too, and may share its
+            // bytes with one outside the destination.
+            assert_eq!(
+                metadata.nlink(),
+                1,
+                "an extraction left a hard link: {path:?}"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Containment matters past the extractor's own checks, so every
+    /// extraction seed must extract, with its prefix stripped and not.
+    #[test]
+    fn every_extraction_seed_extracts() {
+        assert_seeds_extract(
+            "extract_zip",
+            cabin_artifact::safe_extract_zip,
+            <[u8]>::to_vec,
+        );
+        assert_seeds_extract("extract_tar_gz", cabin_artifact::safe_extract_tar_gz, gzip);
+    }
+
+    /// The oracle's own regression test: `is_file` alone passes a hard
+    /// link.
+    #[test]
+    #[should_panic(expected = "an extraction left a hard link")]
+    fn a_hard_linked_file_breaks_containment() {
+        fn link_the_archive(
+            archive: &Path,
+            dest: &Path,
+            _: SafeExtractOptions<'_>,
+        ) -> Result<(), ArtifactError> {
+            fs::hard_link(archive, dest.join("alias")).unwrap();
+            Ok(())
+        }
+        assert_extraction_contained(b"", link_the_archive);
+    }
+
+    fn assert_seeds_extract(corpus: &str, extract: Extract, wrap: fn(&[u8]) -> Vec<u8>) {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("seeds")
+            .join(corpus);
+        let mut seen = 0;
+        for entry in fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let archive = wrap(&fs::read(&path).unwrap());
+            for strip_prefix in [None, Some(SEED_PREFIX)] {
+                let (_scratch, result) = extract_in_scratch(&archive, extract, strip_prefix);
+                assert!(
+                    result.is_ok(),
+                    "{} ({strip_prefix:?}): {result:?}",
+                    path.display()
+                );
+            }
+            seen += 1;
+        }
+        assert!(seen > 0, "no seeds in {}", dir.display());
+    }
 
     /// The deep target's oracle is only exercised on verified archives,
     /// so the harness must verify every seed archive the packager built.
