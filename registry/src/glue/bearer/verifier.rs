@@ -467,6 +467,12 @@ async fn apply_rejection(
                 parsed.published_at.as_str().into(),
                 revision.into(),
             ])?,
+            db.prepare(sql::REFUND_USER_STORED_BYTES).bind(&[
+                scope.into(),
+                name.into(),
+                version.into(),
+                revision.into(),
+            ])?,
         ])
         .await?;
     let row_flip = results

@@ -224,6 +224,12 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
     DELETE FROM revisions WHERE scope = 'smoke';
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
+    -- The deletes above bypass the publish batches that keep the quota
+    -- tallies exact, so recompute them (docs/runbook.md, \"Quota tallies\").
+    UPDATE users SET
+      package_count = (SELECT COUNT(*) FROM packages WHERE created_by = users.id),
+      stored_bytes = (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
+                      WHERE published_by = users.id AND verification != 'rejected');
     DELETE FROM scope_members WHERE scope_name IN
       ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
        'core', 'sm0keorg');

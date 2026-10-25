@@ -1203,6 +1203,39 @@ wrangler d1 execute DB --remote --command "
 (The `WHERE true` is load-bearing: without it `SQLite` parses the `ON`
 after a `SELECT ... FROM` as a join constraint and rejects the upsert.)
 
+## Quota tallies
+
+`users.package_count` and `users.stored_bytes` are what the publish
+preflight reads for the per-user package and storage quotas. They are
+exact by construction, not caches: each is the count of the user's
+`created_by` packages or the `archive_size` sum of the user's
+`published_by` revisions that are not rejected, and every batch that
+writes such a row adjusts the tally in the same transaction - the
+publish and revival batches add, the rejection batch refunds the row's
+publisher, and a write the batch's guards suppress counts nothing. A
+fresh schema starts both at zero over empty tables, so a wipe needs no
+backfill. Nothing should ever make them drift; this check, which reads
+every package and revision once, must return no rows:
+
+```sh
+wrangler d1 execute DB --remote --command "
+  SELECT id, package_count, stored_bytes FROM users u
+  WHERE package_count != (SELECT COUNT(*) FROM packages WHERE created_by = u.id)
+     OR stored_bytes != (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
+                         WHERE published_by = u.id AND verification != 'rejected');"
+```
+
+A row it returns is a bug to investigate first; the repair recomputes
+the tallies from the rows:
+
+```sh
+wrangler d1 execute DB --remote --command "
+  UPDATE users SET
+    package_count = (SELECT COUNT(*) FROM packages WHERE created_by = users.id),
+    stored_bytes = (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
+                    WHERE published_by = users.id AND verification != 'rejected');"
+```
+
 ## Logs
 
 `wrangler tail` (or the dashboard). One line per request:

@@ -1004,11 +1004,17 @@ serial runs without a per-user limit binding (values in
 `src/quota.rs`). Its storage cap equals the governor's default primary
 pool, so the operator tier is the one class that may fill the shared
 budget: the governor's admission and the breaker, which no class
-raises, are what bound it. At that scale the D1 rows-read allowance
-binds before any operator quota: each new publish's quota counts read
-every package and revision the account holds, and the breaker's
-15-minute cron can lag a fast bulk run on a large account, so pace
-large seeding runs against the D1 budget. The operator's own account
+raises, are what bound it. The quota counts cost D1 rows read on every
+publish, so none of them scans the account's history: total packages
+and stored bytes are exact tallies on the user row
+(`users.package_count`, `users.stored_bytes`), adjusted in the same
+batch as every package or revision write that moves them (the
+definition, drift check, and repair are in `docs/runbook.md`, "Quota
+tallies"); the created-today count is an index range bounded by the
+daily quota itself; and the `-`/`_` twin check is an expression-index
+lookup. A publish's D1 reads therefore no longer grow with the account
+or the scope; the per-package daily version count still reads the one
+package's own revisions. The operator's own account
 is seeded pre-promoted by the baseline migration, keyed by its immutable
 numeric GitHub id in the spirit of the trustpub seed, so a wipe never
 resets it to `default`. For anyone else, granting a class is a manual

@@ -686,9 +686,9 @@ mod verification {
         }
     }
 
-    /// Every count the publish handler passes is a D1 `INTEGER`
-    /// aggregate mapped through `glue::non_negative` (`i64 -> u64`, so at
-    /// most `i64::MAX`); SQLite itself raises on an `i64` `SUM` overflow.
+    /// Every count the publish handler passes is a D1 `INTEGER` - an
+    /// aggregate or a user-row tally - mapped through
+    /// `glue::non_negative` (`i64 -> u64`, so at most `i64::MAX`).
     fn any_d1_count() -> u64 {
         let n: u64 = kani::any();
         kani::assume(n <= i64::MAX as u64);
