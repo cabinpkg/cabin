@@ -101,11 +101,8 @@ pub(crate) fn explain(
     let crate::cli::workspace_prep::WorkspacePrep {
         effective_config,
         active_patches,
-        graph: initial_graph,
+        graph,
     } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
-    let patched_sources = active_patches.workspace_sources();
-    let graph =
-        crate::cli::patch::reload_for_patches(&manifest_path, initial_graph, &patched_sources)?;
 
     let lockfile_path = lockfile_path_for(&manifest_path);
     let lockfile = read_optional_lockfile(&lockfile_path)?;

@@ -84,6 +84,76 @@ version = "10.2.1"
 }
 
 #[test]
+fn inspection_commands_load_chained_patched_forks() {
+    let parent = TempDir::new().unwrap();
+    let root = parent.path().join("app");
+    write_root_manifest(
+        &root,
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = "^10"
+
+[patch]
+fmt = { path = "../fmt" }
+base = { path = "../base" }
+"#,
+    );
+    write_patched_fork(
+        parent.path(),
+        "fmt",
+        r#"[package]
+name = "fmt"
+version = "10.2.1"
+
+[dependencies]
+base = "^1"
+"#,
+    );
+    write_patched_fork(
+        parent.path(),
+        "base",
+        r#"[package]
+name = "base"
+version = "1.0.0"
+"#,
+    );
+    let manifest = root.join("cabin.toml");
+    cabin()
+        .args(["tree", "--manifest-path"])
+        .arg(&manifest)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "base v1.0.0 [normal] (patched via manifest)",
+        ));
+    cabin()
+        .args(["explain", "--manifest-path"])
+        .arg(&manifest)
+        .args(["package", "base"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "app v0.1.0 -> fmt v10.2.1 [normal] -> base v1.0.0 [normal]",
+        ));
+    let assertion = cabin()
+        .args(["metadata", "--manifest-path"])
+        .arg(&manifest)
+        .assert()
+        .success();
+    let value: serde_json::Value = serde_json::from_slice(&assertion.get_output().stdout).unwrap();
+    assert!(
+        value["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "base")
+    );
+}
+
+#[test]
 fn metadata_reports_config_supplied_patch_overriding_manifest() {
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("app");
