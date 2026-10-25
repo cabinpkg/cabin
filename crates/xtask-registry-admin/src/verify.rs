@@ -32,91 +32,61 @@
 //! render the verdict, `reject` delivers the advisory rejection the
 //! operator confirmed by hand.
 //!
-//! Which of the two failure classes a step takes is a property of the
-//! shell this replaces, not a judgment call: a download or a child
-//! process guarded by `if !` counted a failure and moved on, while
-//! every bare `$(jq …)` field read aborted the WHOLE run under
-//! `set -e`, leaving that version and every unprocessed one pending.
-//! Malformed listing data therefore stops the run rather than
-//! rejecting or skipping a package, and the split is preserved per
-//! call site.  In the same spirit `jq -r` renders a missing or null
-//! field as the literal string `null`, so an entry without a `name`
-//! goes on to verify a package called `null`; that is what the shell
-//! did.
+//! A step fails in one of two classes: a registry-archive download or a
+//! verifier child that fails counts one failure and moves on, while a
+//! field read that fails aborts the WHOLE run, leaving that version and
+//! every unprocessed one pending.  The corpus download aborts the run
+//! too, and a failed upstream download reads as an absent upstream.  Malformed listing data therefore stops
+//! the run rather than rejecting or skipping a package.  A field read
+//! renders a missing or null field as the literal string `null`, so an
+//! entry without a `name` goes on to verify a package called `null`.
 //!
-//! The verifier child inherits the whole environment, exactly as the
-//! shell's child did, minus the OIDC mint pair and any inherited
-//! `CABIN_REGISTRY_TOKEN`, all scrubbed (`capture`): the pair could
-//! mint the verdict-delivering JWT, and the token variable - never
-//! set by the workflow, but a local operator shell may export it
-//! (`registry/docs/runbook.md`) - is a credential the child has no
-//! use for.  The run's own registry token is minted at start and
-//! lives only in driver memory.  The child reads only the `VERIFY_*`
-//! caps, and removing the rest would be a change rather than a port.
-//! The publisher-controlled upstream download is the one request that
+//! The verifier child inherits the whole environment, minus the OIDC
+//! mint pair and any inherited `CABIN_REGISTRY_TOKEN`, all scrubbed
+//! (`capture`): the pair could mint the verdict-delivering JWT, and
+//! the token variable - never set by the workflow, but a local
+//! operator shell may export it (`registry/docs/runbook.md`) - is a
+//! credential the child has no use for.  The run's own registry token
+//! is minted at start and lives only in driver memory.  The
+//! publisher-controlled upstream download is the one request that
 //! never sees a credential, and it runs on its own agent so it cannot.
 //!
 //! Ceilings, each either invisible on the ephemeral runner this is
 //! scheduled on or fail-safe:
 //!
-//! - every abort exits 1, where the shell propagated `curl`'s 22/6/7
-//!   and `jq`'s 5.  Nothing reads the distinction: GitHub Actions
-//!   splits zero from non-zero, and no other consumer exists;
-//! - the shell's stderr carried `curl`'s, `jq`'s and bash's own error
-//!   lines beside the diagnostics the script itself wrote.  Only the
-//!   script's lines are reproduced, byte for byte; an abort those
-//!   tools diagnosed carries a one-line diagnostic of this crate's in
-//!   their place, and noise the run *survived* - the `[ -eq ]` and
-//!   arithmetic errors of a non-integer count - is dropped outright;
-//! - an unset `REGISTRY_ORIGIN` or `EXPECTED_API_ORIGIN` reads as
-//!   empty, where `set -u` aborted with bash's unbound-variable
-//!   message.  Same exit code, and the workflow sets both;
-//! - the upstream budget models bash's `$SECONDS`: a whole-second
-//!   clock anchored at process start, charged as the difference of two
-//!   reads of it rather than as real elapsed time, so a transfer that
-//!   straddles a second boundary is charged for it;
-//! - the CA roots are `ureq`'s compiled-in `webpki-roots`, where `curl`
-//!   read `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and the system store - the
-//!   same environment ceiling the crate's proxy handling carries
-//!   (`crate::audit`);
+//! - the upstream budget is a whole-second clock anchored when the
+//!   pass starts, charged as the difference of two reads of it rather
+//!   than as real elapsed time, so a transfer that straddles a second
+//!   boundary is charged for it;
+//! - the CA roots are `ureq`'s compiled-in `webpki-roots`, never
+//!   `SSL_CERT_FILE` or the system store - the same environment
+//!   ceiling the crate's proxy handling carries (`crate::audit`);
 //! - a redirect on the upstream download must be an absolute `https://`
-//!   URL.  `curl` resolved a relative `Location` against the URL it
-//!   came from; here that fails the download, and a failed upstream
-//!   download is "verifying without it", never a rejection;
+//!   URL: a relative `Location` fails the download, and a failed
+//!   upstream download is "verifying without it", never a rejection;
 //! - `entry.json` and the PATCH body are `serde_json`'s compact
-//!   rendering, which differs from `jq`'s for exponent-form floats,
-//!   integers outside `i64`/`u64`, and U+007F (`jq` escapes it).  Both
-//!   are re-parsed by their only consumer, and the parsed documents
-//!   are identical.  The same normalization reaches every number this
-//!   module renders: `jq` 1.7+ preserves some numeric lexemes and
-//!   canonicalizes others, varying by version and by output path, so
-//!   exact parity is not stable even against the runner's own `jq` -
+//!   rendering, which may respell an exponent-form float or an integer
+//!   outside `i64`/`u64`.  Both are re-parsed by their only consumer,
 //!   and every field this loop reads (`name`, `version`, `revision`,
 //!   `checksum`, `published_at`) the production listing types as a
 //!   string (`registry/src/glue/bearer/verifier.rs`, `AdminVersionRecord`);
-//!   `published_by` is its one integer, and nothing here reads it.
-//!   `jq`'s own input extensions - `NaN` and kin read as `null`,
-//!   lenient numeric forms like a leading zero, `+1` or `1.`, lone
-//!   surrogates replaced - abort here as unparsable;
-//! - every parse here carries `serde_json`'s 128-level recursion cap,
-//!   where `jq` read deeper.  The registry parses each metadata
-//!   document with the same cap at publish and again when the listing
-//!   embeds it (`registry/src/publish.rs`, `registry/src/glue/bearer/verifier.rs`), so
-//!   only a document within the listing wrapper's few levels of the
+//!   `published_by` is its one integer, and nothing here reads it;
+//! - every parse here carries `serde_json`'s 128-level recursion cap.
+//!   The registry parses each metadata document with the same cap at
+//!   publish and again when the listing embeds it
+//!   (`registry/src/publish.rs`, `registry/src/glue/bearer/verifier.rs`),
+//!   so only a document within the listing wrapper's few levels of the
 //!   cap can thread the needle - and it aborts the run fail-safe
-//!   (everything stays pending, the run goes red) where the shell
-//!   walked on;
-//! - the token plane's connect ceiling covers the TCP connect alone
-//!   where `curl`'s 300-second default spanned DNS, TCP and TLS, and
-//!   the upstream deadline cannot reach into DNS resolution either -
-//!   `ureq` draws those lines, a stalled resolver still lands on the
-//!   budget as elapsed charge, and the workflow's 15-minute job
-//!   timeout backstops both exactly as it did the shell;
+//!   (everything stays pending, the run goes red);
+//! - the token plane's connect ceiling covers the TCP connect alone,
+//!   never DNS or TLS, and the upstream deadline cannot reach into DNS
+//!   resolution either - `ureq` draws those lines, a stalled resolver
+//!   still lands on the budget as elapsed charge, and the workflow's
+//!   15-minute job timeout backstops both;
 //! - a run that returns through `main` - a clean finish or an abort a
 //!   tool diagnosed - drops the work directory and the corpus file,
-//!   where the shell installed no trap and left both behind.  The five
-//!   diagnostics the shell wrote itself still exit through
-//!   [`std::process::exit`], leaking them exactly as it did.
+//!   while one that ends in `abort` exits through
+//!   [`std::process::exit`] and leaves both behind.
 
 use std::fs::File;
 use std::io::{Read, Write as _};
@@ -129,14 +99,13 @@ use base64ct::{Base64UrlUnpadded, Encoding as _};
 use rand::seq::SliceRandom as _;
 use serde_json::{Map, Value};
 
-/// L52: a relative path resolved against the working directory, which
-/// the Cargo alias makes the repository root.  Deliberately not
-/// anchored to this crate's manifest directory - the shell anchored it
-/// to neither, and the binary is a build artifact of the workspace,
-/// not of the tool.
+/// A relative path resolved against the working directory, which the
+/// Cargo alias makes the repository root.  Deliberately not anchored
+/// to this crate's manifest directory: the binary is a build artifact
+/// of the workspace, not of the tool.
 const VERIFIER: &str = "target/release/cabin-registry-verify";
 
-/// L65: the aggregate seconds one run may spend on upstream archives.
+/// The aggregate seconds one run may spend on upstream archives.
 /// The admin listing is deterministically sorted, so without a
 /// per-run bound a publisher with several slow upstream hosts could
 /// pin the same early-sorting versions to the front of every pass
@@ -144,18 +113,16 @@ const VERIFIER: &str = "target/release/cabin-registry-verify";
 /// budget when it runs out.
 const BUDGET: i64 = 300;
 
-/// L175: `--max-time` for one transfer, never more than this however
-/// much budget is left.
+/// The time limit for one transfer, never more than this however much
+/// budget is left.
 const TRANSFER_CAP: i64 = 120;
 
-/// L178: `--max-filesize`, part of the documented provenance contract
-/// (`docs/manifest.md`) and the bound on runner disk.
+/// The upstream archive's size cap, part of the documented provenance
+/// contract (`docs/manifest.md`) and the bound on runner disk.
 const MAX_UPSTREAM_BYTES: u64 = 268_435_456;
 
-/// L178: `--connect-timeout 10`.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// `curl`'s default `--max-redirs`, which L177's `-L` took.
 const MAX_REDIRECTS: usize = 50;
 
 /// The verification pass, end to end.
@@ -163,13 +130,11 @@ const MAX_REDIRECTS: usize = 50;
 /// # Errors
 ///
 /// If a request, a temporary file, a child process or a field read
-/// fails - the paths the shell aborted on under `set -e` carrying the
-/// failing tool's own diagnostic.  The five diagnostics the shell
-/// wrote itself do not come back this way: they print bare and exit,
-/// so nothing prefixes them.
+/// fails.  The diagnostics `abort` writes do not come back this way:
+/// they print bare and exit, so nothing prefixes them.
 pub fn run() -> Result<()> {
-    // L2-17: the privileged token travels to exactly two origins, and
-    // neither `curl` nor `ureq` refuses cleartext on its own.
+    // The privileged token travels to exactly two origins, and `ureq`
+    // does not refuse cleartext on its own.
     let registry_origin = env("REGISTRY_ORIGIN");
     if !registry_origin.starts_with("https://") {
         abort(&format!(
@@ -222,8 +187,8 @@ pub struct Endpoints {
 ///
 /// As [`run`].
 pub fn run_with(endpoints: Endpoints) -> Result<()> {
-    // bash anchors `$SECONDS` at shell start, before the first
-    // request, and the budget below is a difference of two reads of it.
+    // Anchored before the first request: the budget below is a
+    // difference of two reads of this clock.
     let started = Instant::now();
     let Endpoints {
         registry_origin,
@@ -249,7 +214,7 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
         exchange(&agent, &minter, &api_base).context("the trusted-publishing exchange failed")?;
     let plane = Plane { agent, token };
 
-    // L19-29: one hostname, one role.  The index origin serves
+    // One hostname, one role.  The index origin serves
     // config.json and the artifacts; the admin API lives on the origin
     // config.json declares, and a mismatch fails the run so versions
     // stay pending.
@@ -261,15 +226,12 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
         abort("config.json api does not match the pinned verifier API origin");
     }
 
-    // L31-38: the count as `jq length` rendered it and `[ -eq 0 ]`
-    // compared it.  Only a count spelling the integer zero is "nothing
-    // pending"; one that is no integer at all - a float length, a
-    // multi-document listing, an empty body - fails the comparison into
-    // the false branch, so the headline still prints, the corpus is
-    // still fetched, and the loop expansion's arithmetic error then
-    // empties the walk ([`loop_indices`]).  Only `jq` itself failing -
-    // a listing that will not parse, a `versions` with no length -
-    // aborts.
+    // The count as `length` renders it.  Only a count spelling the
+    // integer zero is "nothing pending"; one that is no integer at all
+    // - a float length, a multi-document listing, an empty body - still
+    // prints the headline and fetches the corpus, and then walks
+    // nothing ([`loop_indices`]).  Only a listing that will not parse,
+    // or a `versions` with no length, aborts.
     let listing = plane
         .get(&format!("{api_base}/api/v1/admin/versions?status=pending"))
         .context("the pending listing request failed")?;
@@ -284,7 +246,7 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
         println!("{count} pending version(s)");
     }
 
-    // L40-47: the corpus for the name advisories, fetched once.  A
+    // The corpus for the name advisories, fetched once.  A
     // failed fetch fails the run - without it no advisory can run, and
     // proceeding could verify a confusable name.  Only a walk fetches
     // it: no resolution action reads it (`reject` renders no advisory,
@@ -330,7 +292,7 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
         return resolved;
     }
 
-    // L66: the listing is sorted, so the order it is walked in must
+    // The listing is sorted, so the order it is walked in must
     // not be.
     let mut order = loop_indices(&count);
     order.shuffle(&mut rand::rng());
@@ -345,7 +307,7 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
     // below exits the process, and the token should not outlive a run
     // that got this far either way.
     let _ = pass.plane.revoke(&pass.api_origin);
-    // L233-236: one version failing operationally must not starve the
+    // One version failing operationally must not starve the
     // rest, so failures are aggregated and fail the run at the end.
     if failures > 0 {
         abort(&format!(
@@ -356,19 +318,17 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
 }
 
 /// The token plane: every request that carries the privileged
-/// credential, on an agent that follows no redirect - `curl` without
-/// `-L`, so a 3xx is the answer rather than a step toward one, and the
-/// credential cannot be forwarded anywhere the pinned origins did not
-/// name.
+/// credential, on an agent that follows no redirect, so a 3xx is the
+/// answer rather than a step toward one, and the credential cannot be
+/// forwarded anywhere the pinned origins did not name.
 struct Plane {
     agent: ureq::Agent,
     token: String,
 }
 
-/// The token plane's agent.  No redirect is followed, and the connect
-/// ceiling is `curl`'s own 300-second default - `ureq` would otherwise
-/// impose a 30-second one the shell never had.  No overall timeout, for
-/// the same reason: none of the token-plane `curl` calls set one.
+/// The token plane's agent: no redirect is followed, the connect
+/// ceiling is 300 seconds rather than `ureq`'s default 30, and there is
+/// no overall timeout.
 fn plane_agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .redirects(0)
@@ -383,8 +343,7 @@ impl Plane {
             .set("authorization", &format!("Bearer {}", self.token))
     }
 
-    /// `config=$(curl -fsS …)`: the body as command substitution
-    /// captured it.
+    /// The body as [`captured_bytes`] reads it.
     fn get(&self, url: &str) -> Result<String> {
         let mut body = Vec::new();
         self.request("GET", url)
@@ -394,10 +353,9 @@ impl Plane {
         Ok(captured_bytes(&body))
     }
 
-    /// `curl -fsS -o "$path" …`: the body straight to a file, never
-    /// parsed here.  The corpus and the archive are both
-    /// publisher-influenced bytes whose only reader is the verifier
-    /// child.
+    /// The body straight to a file, never parsed here.  The corpus and
+    /// the archive are both publisher-influenced bytes whose only
+    /// parser is the verifier child; the driver only hashes the archive.
     fn download(&self, url: &str, path: &Path) -> Result<()> {
         let response = self.request("GET", url).call()?;
         let mut file = File::create(path)?;
@@ -405,14 +363,13 @@ impl Plane {
         Ok(())
     }
 
-    /// L219-223: the verdict - the one request whose credential is not
+    /// The verdict - the one request whose credential is not
     /// the plane's token: verdicts authenticate only the workflow's own
     /// OIDC JWT (`registry/src/trustpub.rs`, `VERIFIER_AUDIENCE`).  A
     /// 409 means the row changed since the listing (a republish, a
     /// competing verdict) and the next run sees the replacement.
-    /// `-o /dev/null` still drained the transfer, so a response body
-    /// that cuts out mid-way is a counted PATCH failure, never a
-    /// success line.
+    /// The response body is drained, so one that cuts out mid-way is a
+    /// counted PATCH failure, never a success line.
     fn patch(&self, url: &str, body: &str, jwt: &str) -> Result<()> {
         let response = self
             .agent
@@ -631,9 +588,9 @@ struct Pass {
 }
 
 impl Pass {
-    /// L67-230, one pending version.  The `bool` is the shell's
-    /// `failures=$((failures + 1))`: every exit from the loop body
-    /// leaves the version pending, and only some of them count.
+    /// One pending version.  The `bool` is whether it counts one
+    /// failure: every early exit leaves the version pending, and only
+    /// some of them count.
     fn version(&mut self, entry: &Value, advisories: RunAdvisories) -> Result<bool> {
         let name = field(entry, "name")?;
         let version = field(entry, "version")?;
@@ -704,7 +661,6 @@ impl Pass {
             return Ok(true);
         };
 
-        // L196-214
         let Some(result_docs) = answer(&result, "the verifier answer")? else {
             eprintln!("{name}@{version}: unknown verdict ''; leaving it pending");
             return Ok(true);
@@ -748,7 +704,7 @@ impl Pass {
         Ok(false)
     }
 
-    /// L125-188: the pinned upstream archive, when the stored metadata
+    /// The pinned upstream archive, when the stored metadata
     /// declares one.
     ///
     /// The URL is publisher-controlled, so the privileged token is
@@ -803,8 +759,6 @@ impl Pass {
         if !downloaded {
             eprintln!("{name}@{version}: upstream archive download failed; verifying without it");
         }
-        // Charged after the diagnostic, where the shell read `$SECONDS`
-        // again: the clock is what the charge is a difference of.
         self.budget -= spent(began, self.seconds());
         if downloaded {
             Ok(Upstream::Downloaded(path))
@@ -813,7 +767,7 @@ impl Pass {
         }
     }
 
-    /// L77-89, the advisory gate: the name advisories run before the
+    /// The advisory gate: the name advisories run before the
     /// download - they need no bytes, so an abstained version costs a
     /// listing entry per pass and never a re-download.  Abstain
     /// renders no verdict and is deliberately not a failure: the
@@ -865,7 +819,7 @@ impl Pass {
         }
     }
 
-    /// bash's `$SECONDS`: whole seconds since the process started.
+    /// Whole seconds since the pass started.
     fn seconds(&self) -> u64 {
         self.started.elapsed().as_secs()
     }
@@ -1078,10 +1032,9 @@ fn undeclared_digest(archive: &Path, checksum: &str) -> std::io::Result<Option<S
     Ok((format!("sha256:{digest}") != checksum).then_some(digest))
 }
 
-/// The shell's own `echo … >&2; exit 1`: printed without the `error:`
-/// prefix `main` renders, exiting where `set -e` did.  Skipping
-/// destructors is faithful - the shell installed no trap, so an aborted
-/// run left its temporary files behind.
+/// Printed without the `error:` prefix `main` renders, and exits at
+/// once: destructors are skipped, so an aborted run leaves its
+/// temporary files behind.
 fn abort(message: &str) -> ! {
     eprintln!("{message}");
     std::process::exit(1)
@@ -1093,10 +1046,9 @@ fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
 }
 
-/// bash's `$(…)`, which edits what it captures in exactly two ways: a
-/// NUL cannot live in a variable and is dropped, and every trailing
-/// newline is stripped.  A reason code ending in a newline therefore
-/// reaches the PATCH body without it.
+/// Edits a captured value in exactly two ways: every NUL is dropped,
+/// and every trailing newline is stripped.  A reason code ending in a
+/// newline therefore reaches the PATCH body without it.
 fn captured(text: &str) -> String {
     let mut text: String = text
         .chars()
@@ -1108,36 +1060,30 @@ fn captured(text: &str) -> String {
 
 /// [`captured`] over the raw bytes a body or a child's stdout arrived
 /// as: the NULs vanish from the BYTE stream before the text is read
-/// off it - `c2 00 a0` is one no-break space to bash, not two
-/// replacement characters - and only then do invalid sequences take
-/// U+FFFD, as a bash variable printed through a UTF-8 pipeline reads.
+/// off it - `c2 00 a0` is one no-break space, not two replacement
+/// characters - and only then do invalid sequences take U+FFFD.
 fn captured_bytes(bytes: &[u8]) -> String {
     let bytes: Vec<u8> = bytes.iter().copied().filter(|byte| *byte != 0).collect();
     captured(&String::from_utf8_lossy(&bytes))
 }
 
-/// `$(jq -r '.<key>' <<<"$value")` (L68-72, L90, L196).
 fn field(value: &Value, key: &str) -> Result<String> {
     Ok(captured(&raw(&index(value, key)?)))
 }
 
-/// What a captured child's stdout holds, as `jq` read it: a *stream* of
-/// JSON documents, the filter run once per document.  A capture that is
-/// empty or all whitespace is no input at all - the filter runs zero
-/// times, prints nothing, and every field read off it is the empty
-/// string, which reaches the `unknown advice ''` / `unknown verdict ''`
-/// arm and counts one failure - where a capture that will not parse is
-/// a `jq` parse error that aborts the whole run, any documents before
-/// the malformed one notwithstanding.  A child exiting 0 with nothing
-/// on stdout is the difference between those two, so the empty case
-/// cannot be folded into the parse.
+/// What a captured child's stdout holds: a *stream* of JSON documents,
+/// each read once.  A capture that is empty or all whitespace is no
+/// input at all - every field read off it is the empty string, which
+/// reaches the `unknown advice ''` / `unknown verdict ''` arm and
+/// counts one failure - where a capture that will not parse aborts the
+/// whole run, any documents before the malformed one notwithstanding.
+/// A child exiting 0 with nothing on stdout is the difference between
+/// those two, so the empty case cannot be folded into the parse.
 fn answer(text: &str, what: &str) -> Result<Option<Vec<Value>>> {
-    // jq's lexer skips one leading byte-order mark, so a BOM-prefixed
-    // response parses in the shell and must parse here.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    // "No input" is JSON's own whitespace alone: jq does not skip the
-    // wider Unicode set `str::trim` would, so an NBSP-only capture is a
-    // parse error that aborts the run, never a blank answer.
+    // "No input" is JSON's own whitespace alone, not the wider Unicode
+    // set `str::trim` would skip, so an NBSP-only capture is a parse
+    // error that aborts the run, never a blank answer.
     if text
         .bytes()
         .all(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
@@ -1151,11 +1097,11 @@ fn answer(text: &str, what: &str) -> Result<Option<Vec<Value>>> {
     Ok(Some(documents))
 }
 
-/// One `jq -r` filter over a document stream: each document's rendering
-/// on its own line, the whole captured as `$(…)` captured it.  A
-/// two-document answer therefore reads as a two-line value that matches
-/// no `case` arm, and a trailing document that renders empty vanishes
-/// into whatever its predecessors spelled.
+/// One read over a document stream: each document's rendering on its
+/// own line, the whole through [`captured`].  A two-document answer
+/// therefore reads as a two-line value that matches no arm, and a
+/// trailing document that renders empty vanishes into whatever its
+/// predecessors spelled.
 fn read_stream(documents: &[Value], read: impl Fn(&Value) -> Result<String>) -> Result<String> {
     let lines: Vec<String> = documents.iter().map(read).collect::<Result<_>>()?;
     Ok(captured(&lines.join("\n")))
@@ -1193,10 +1139,9 @@ fn kind(value: &Value) -> &'static str {
     }
 }
 
-/// `jq -r`: a string is its own text, and everything else takes jq's
-/// default *indented* rendering, because none of these reads passed
-/// `-c`.  A `null` - a missing field included - is therefore the
-/// four-character string `null`.
+/// A string is its own text, and everything else takes the *indented*
+/// JSON rendering.  A `null` - a missing field included - is therefore
+/// the four-character string `null`.
 fn raw(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
@@ -1206,15 +1151,15 @@ fn raw(value: &Value) -> String {
     }
 }
 
-/// `jq -c`, the wire form of `entry.json` and of the PATCH body.
+/// The wire form of `entry.json` and of the PATCH body.
 fn compact(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_default()
 }
 
-/// jq's `length` (L33), as `-r` printed it: `null` counts 0, a string
-/// counts codepoints, an array its elements, an object its keys, and a
-/// number is its own absolute value.  A boolean has no length, which
-/// aborts the run.
+/// jq's `length`, as text: `null` counts 0, a string counts
+/// codepoints, an array its elements, an object its keys, and a number
+/// is its own absolute value.  A boolean has no length, which aborts
+/// the run.
 fn length(value: &Value) -> Result<String> {
     Ok(match value {
         Value::Null => "0".to_owned(),
@@ -1229,9 +1174,9 @@ fn length(value: &Value) -> Result<String> {
     })
 }
 
-/// jq's `join(",")` (L94, L204): `null` elements render empty, strings
-/// render themselves, numbers and booleans render as JSON - and an
-/// element that is itself an array or an object cannot be added to the
+/// jq's `join(",")`: `null` elements render empty, strings render
+/// themselves, numbers and booleans render as JSON - and an element
+/// that is itself an array or an object cannot be added to the
 /// accumulated string, which aborts the run, as does joining anything
 /// that cannot be iterated.  An object iterates its values.
 fn join(value: &Value) -> Result<String> {
@@ -1255,8 +1200,8 @@ fn join(value: &Value) -> Result<String> {
     Ok(joined)
 }
 
-/// `.metadata.upstream.url // empty` (L157).  `//` takes its left side
-/// as absent when it is null *or* false, so a stored `url: false` reads
+/// `.metadata.upstream.url // empty`.  `//` takes its left side as
+/// absent when it is null *or* false, so a stored `url: false` reads
 /// as "no upstream" rather than as corrupt state; a `metadata` that is
 /// not indexable aborts the run.
 fn upstream_url(entry: &Value) -> Result<String> {
@@ -1267,7 +1212,7 @@ fn upstream_url(entry: &Value) -> Result<String> {
     })
 }
 
-/// L115-118.  The scoped name `<scope>/<name>` nests the artifact
+/// The scoped name `<scope>/<name>` nests the artifact
 /// directory while the filename flattens the `/` to `-` and ends in the
 /// row's packaging revision, matching the registry's read route: each
 /// revision of a version has its own URL, so this names exactly the
@@ -1277,14 +1222,14 @@ fn artifact_url(origin: &str, name: &str, version: &str, revision: &str) -> Stri
     format!("{origin}/artifacts/{name}/{stem}-{version}-{revision}.zip")
 }
 
-/// L223.  Concatenated, never percent-encoded: `$name` already carries
-/// the `/` that makes this route three segments, and a version may
-/// carry `+` and `.`.
+/// Concatenated, never percent-encoded: `name` already carries the
+/// `/` that makes this route three segments, and a version may carry
+/// `+` and `.`.
 fn verdict_url(api_origin: &str, name: &str, version: &str) -> String {
     format!("{api_origin}/api/v1/admin/versions/{name}/{version}")
 }
 
-/// The verdict body (L200-206), whose key order is the wire format:
+/// The verdict body, whose key order is the wire format:
 /// `reason` sits between the verdict and the checksum, and only a
 /// rejection carries it.
 fn verdict_body(verdict: &str, reason: Option<&str>, checksum: &str, published_at: &str) -> String {
@@ -1298,16 +1243,17 @@ fn verdict_body(verdict: &str, reason: Option<&str>, checksum: &str, published_a
     compact(&Value::Object(body))
 }
 
-/// `api_origin=$(jq -er '.api' <<<"$config")` (L25), the filter run
-/// once per document of the captured body.  `-e` makes a `null` or
-/// `false` last answer - a config.json that declares no API origin - an
-/// abort, which is fail-safe: versions stay pending.
+/// The `api` of config.json, read once per document of the captured
+/// body.  A `null` or `false` last answer - a config.json that
+/// declares no API origin - aborts, which is fail-safe: versions stay
+/// pending.
 fn declared_api_origin(config: &str) -> Result<String> {
     let Some(documents) = answer(config, "config.json")? else {
         bail!("config.json is empty");
     };
     let rendered = read_stream(&documents, |doc| Ok(raw(&index(doc, "api")?)))?;
-    // `-e` judges the LAST output value, after every document rendered.
+    // The LAST document's answer is judged, after every document
+    // rendered.
     let last = index(documents.last().unwrap_or(&Value::Null), "api")?;
     if matches!(last, Value::Null | Value::Bool(false)) {
         bail!("config.json declares no api origin");
@@ -1315,14 +1261,11 @@ fn declared_api_origin(config: &str) -> Result<String> {
     Ok(rendered)
 }
 
-/// `transfer_cap=$((upstream_budget < 120 ? upstream_budget : 120))`
-/// (L175).
 fn transfer_cap(budget: i64) -> i64 {
     budget.min(TRANSFER_CAP)
 }
 
-/// `spent=$((SECONDS - download_started))` with its `< 1` clamp
-/// (L184-185): a difference of two whole-second reads, so a transfer
+/// A difference of two whole-second reads, clamped to one: a transfer
 /// that crosses a second boundary is charged for it and one that does
 /// not still costs the clamped second.
 fn spent(began: u64, now: u64) -> i64 {
@@ -1331,17 +1274,15 @@ fn spent(began: u64, now: u64) -> i64 {
         .max(1)
 }
 
-/// `"$verifier" …` (L84, L190): stdout captured as command
-/// substitution captured it, stderr straight through to the job log,
-/// stdin and the environment inherited as the shell's child had them -
-/// minus the credentials.  The child parses publisher-controlled
-/// bytes: the request token could mint the verdict-delivering JWT,
-/// and `CABIN_REGISTRY_TOKEN` - unset in the workflow, but a local
-/// operator shell may export it for the governor tools - is a
-/// registry credential it has no use for.  The run's own registry
-/// token lives only in driver memory.  `None` is any non-zero exit, a
-/// verifier that could not be spawned included, which is what the
-/// shell's `if ! …` caught.
+/// The verifier child: stdout through [`captured_bytes`], stderr
+/// straight through to the job log, stdin and the environment
+/// inherited - minus the credentials.  The child parses
+/// publisher-controlled bytes: the request token could mint the
+/// verdict-delivering JWT, and `CABIN_REGISTRY_TOKEN` - unset in the
+/// workflow, but a local operator shell may export it for the governor
+/// tools - is a registry credential it has no use for.  The run's own
+/// registry token lives only in driver memory.  `None` is any non-zero
+/// exit, a verifier that could not be spawned included.
 fn capture(command: &mut Command) -> Option<String> {
     let output = command
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
@@ -1357,12 +1298,9 @@ fn capture(command: &mut Command) -> Option<String> {
         .then(|| captured_bytes(&output.stdout))
 }
 
-/// L177-179: `curl -fsSL --proto '=https' --proto-redir '=https'
-/// --connect-timeout 10 --max-time "$cap" --max-filesize 268435456`.
-///
 /// `ureq` has no per-hop scheme policy, so the redirect chain is walked
 /// by hand over an agent that follows none of it, and no request in the
-/// chain carries a credential.  `--max-time` bounds the whole transfer,
+/// chain carries a credential.  `cap` bounds the whole transfer,
 /// which an agent timeout alone would not: the deadline is re-derived
 /// for every hop and checked again inside the body copy, so a
 /// slow-dripping server cannot outlive the budget.
@@ -1377,9 +1315,8 @@ fn download_upstream(url: &str, path: &Path, cap: i64) -> Result<()> {
         if remaining.is_zero() {
             bail!("the upstream transfer exceeded {cap}s");
         }
-        // `--connect-timeout 10` ran INSIDE `--max-time`: a connect may
-        // never spend more than what is left of the transfer cap, so
-        // the hop's agent clamps one to the other.
+        // A connect may never spend more than what is left of the
+        // transfer cap, so the hop's agent clamps one to the other.
         let agent = ureq::AgentBuilder::new()
             .redirects(0)
             .timeout_connect(CONNECT_TIMEOUT.min(remaining))
@@ -1393,24 +1330,18 @@ fn download_upstream(url: &str, path: &Path, cap: i64) -> Result<()> {
     bail!("the upstream url redirected more than {MAX_REDIRECTS} times")
 }
 
-/// `--proto '=https' --proto-redir '=https'`: scheme matching is
-/// case-insensitive, as `curl`'s URL parser is.  The shell's own
-/// lowercase glob ran before `curl` ever saw the *stored* URL, so only
-/// a redirect hop can arrive spelled `HTTPS://` - and it must still be
+/// Scheme matching is case-insensitive.  The *stored* URL already
+/// passed a lowercase `https://` check in `Pass::upstream`, so only a
+/// redirect hop can arrive spelled `HTTPS://` - and it must still be
 /// absolute (the relative-`Location` ceiling in the module doc).
 fn is_https(url: &str) -> bool {
     url.get(..8)
         .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
 }
 
-/// `seq 0 $((count - 1))` (L66), as the GNU `seq` of the workflow's
-/// runner walked it: a valid integer count of at least one walks
-/// `0..n`, and everything else walks nothing - an empty capture
-/// evaluates as zero, any other non-integer is an arithmetic error that
-/// empties the expansion, and GNU `seq` counting from 0 to a negative
-/// limit prints nothing (BSD `seq` would count DOWN through negative
-/// `jq` indices; the workflow never ran there).  The shell carried on
-/// to the failures check either way.
+/// The walk's indices: a valid integer count of at least one walks
+/// `0..n`, and everything else - an empty count, a non-integer, zero
+/// or a negative - walks nothing.
 fn loop_indices(count: &str) -> Vec<usize> {
     let limit = if count.is_empty() {
         Some(0)
@@ -1424,7 +1355,7 @@ fn loop_indices(count: &str) -> Vec<usize> {
 }
 
 /// Where a 3xx points, which is the only reason to make another
-/// request: `curl` follows a redirect exactly when it carries a
+/// request: a redirect is followed exactly when it carries a
 /// `Location`.
 fn redirect(response: &ureq::Response) -> Option<String> {
     (300..400)
@@ -1486,20 +1417,16 @@ fn copy_capped(
 
 #[cfg(test)]
 mod tests {
-    //! Every expectation below was taken from the shell the port
-    //! replaces, replayed through `jq` 1.8.2 locally; the runner's
-    //! image carries 1.7, and the module doc's rendering ceiling owns
-    //! the drift between the two.  They live here rather than in
-    //! `tests/` because what they exercise - how one interpreter
-    //! rendered a value, and what the loop read that rendering to
-    //! mean - is not this crate's API.
+    //! These live here rather than in `tests/` because what they
+    //! exercise - how a value is rendered, and what the loop reads that
+    //! rendering to mean - is not this crate's API.
 
     use super::*;
 
-    /// Command substitution edits exactly two things, and both change
+    /// Capturing edits exactly two things, and both change
     /// what reaches a PATCH body or a URL.
     #[test]
-    fn command_substitution_drops_nuls_and_trailing_newlines() {
+    fn capturing_drops_nuls_and_trailing_newlines() {
         assert_eq!(captured("plain"), "plain");
         assert_eq!(captured("trailing\n\n\n"), "trailing");
         assert_eq!(captured("a\0b"), "ab");
@@ -1510,7 +1437,7 @@ mod tests {
 
     /// The NULs vanish from the BYTE stream before the text is read
     /// off it: a NUL splitting a UTF-8 sequence heals into the
-    /// character bash saw, never into replacement characters.
+    /// character it split, never into replacement characters.
     #[test]
     fn a_captured_body_drops_nul_bytes_before_decoding() {
         assert_eq!(captured_bytes(b"\xc2\x00\xa0"), "\u{a0}");
@@ -1519,9 +1446,9 @@ mod tests {
         assert_eq!(captured_bytes(b"\xff"), "\u{fffd}");
     }
 
-    /// `jq -r` renders a missing field and an explicit `null` alike, as
-    /// the literal `null`, and a composite takes the indented form
-    /// because none of these reads passed `-c`.
+    /// A field read renders a missing field and an explicit `null`
+    /// alike, as the literal `null`, and a composite takes the indented
+    /// form.
     #[test]
     fn a_raw_read_renders_null_as_its_own_text() {
         let entry = serde_json::json!({
@@ -1544,10 +1471,10 @@ mod tests {
     }
 
     /// A verifier that exits 0 having printed nothing is not malformed
-    /// data: `jq` over no input prints nothing, so the field read is
-    /// empty and the version counts one failure and stays pending.
-    /// Anything else it cannot parse aborts the whole run - documents
-    /// before the malformed point notwithstanding.
+    /// data: no input renders nothing, so the field read is empty and
+    /// the version counts one failure and stays pending.  Anything else
+    /// it cannot parse aborts the whole run - documents before the
+    /// malformed point notwithstanding.
     #[test]
     fn an_empty_child_answer_is_no_input_rather_than_a_parse_failure() {
         assert!(answer("", "an answer").unwrap().is_none());
@@ -1561,24 +1488,24 @@ mod tests {
         assert!(answer("garbage", "an answer").is_err());
         assert!(answer("{", "an answer").is_err());
         assert!(answer(r#"{"advice":"proceed"} garbage"#, "an answer").is_err());
-        // jq's lexer skips one leading byte-order mark (verified against
-        // jq 1.8), and a mark alone is still no input at all.
+        // One leading byte-order mark is skipped, and a mark alone is
+        // still no input at all.
         assert_eq!(
             advice("\u{feff}{\"advice\":\"proceed\"}").unwrap(),
             "proceed"
         );
         assert!(answer("\u{feff}", "an answer").unwrap().is_none());
-        // "No input" is JSON's own whitespace alone: jq reads an
-        // NBSP-only capture as a parse error (verified, exit 5), so it
-        // aborts the run rather than reading as blank.
+        // "No input" is JSON's own whitespace alone: an NBSP-only
+        // capture is a parse error, so it aborts the run rather than
+        // reading as blank.
         assert!(answer("\u{a0}", "an answer").is_err());
     }
 
-    /// `jq` runs its filter once per document of a multi-document
-    /// answer, and `$(…)` strips what a trailing empty rendering leaves
-    /// behind: a two-line advice matches no `case` arm and counts a
-    /// failure, while a trailing `""` document vanishes into the arm its
-    /// predecessor named - both exactly as the shell read them.
+    /// A multi-document answer is read once per document, and the
+    /// capture strips what a trailing empty rendering leaves behind: a
+    /// two-line advice matches no arm and counts a failure, while a
+    /// trailing `""` document vanishes into the arm its predecessor
+    /// named.
     #[test]
     fn a_multi_document_answer_reads_one_line_per_document() {
         let advice = |text: &str| {
@@ -1595,8 +1522,8 @@ mod tests {
             advice(r#"{"advice":"abstain"} {}"#).unwrap(),
             "abstain\nnull"
         );
-        // A later document that cannot be indexed is a `jq` program
-        // error mid-stream: the whole run aborts.
+        // A later document that cannot be indexed is an error
+        // mid-stream: the whole run aborts.
         assert!(advice(r#"{"advice":"proceed"} "oops""#).is_err());
     }
 
@@ -1711,8 +1638,8 @@ mod tests {
         );
     }
 
-    /// `-e` turns a config.json that declares no API origin into an
-    /// abort, which is what keeps a stripped config from being compared
+    /// A config.json that declares no API origin aborts, which is what
+    /// keeps a stripped config from being compared
     /// against the pin as the string `null`.
     #[test]
     fn a_config_without_an_api_origin_aborts() {
@@ -1726,9 +1653,10 @@ mod tests {
         assert!(declared_api_origin("not json").is_err());
         assert!(declared_api_origin(r#""str""#).is_err());
         assert!(declared_api_origin("").is_err());
-        // `-e` judges the last document's rendering, after every
-        // document printed: a two-document config renders two lines and
-        // then fails the origin comparison rather than the `-e` check.
+        // The last document's answer is judged, after every document
+        // rendered: a two-document config renders two lines and then
+        // fails the origin comparison rather than the declared-origin
+        // check.
         assert!(declared_api_origin(r#"{"api":"https://x"} {"api":null}"#).is_err());
         assert_eq!(
             declared_api_origin(r#"{"api":null} {"api":"https://x"}"#).unwrap(),
@@ -1763,12 +1691,10 @@ mod tests {
         assert!(budget <= 0, "the next version verifies without upstream");
     }
 
-    /// The walk `seq 0 $((count - 1)) | shuf` expanded to, GNU `seq`
-    /// semantics included: only a count spelling an integer of at least
-    /// one walks anything.  A float, a multi-line count off a
-    /// multi-document listing, and an empty capture all empty the
-    /// expansion, and the run then finishes clean having processed
-    /// nothing - the shell's own behavior, verified against bash.
+    /// Only a count spelling an integer of at least one walks anything.
+    /// A float, a multi-line count off a multi-document listing, and an
+    /// empty capture all walk nothing, and the run then finishes clean
+    /// having processed nothing.
     #[test]
     fn a_non_integer_count_walks_nothing() {
         assert_eq!(loop_indices("3"), [0, 1, 2]);
@@ -1781,8 +1707,8 @@ mod tests {
         assert!(loop_indices("three").is_empty());
     }
 
-    /// `--proto-redir '=https'` matches the scheme case-insensitively,
-    /// so an uppercase redirect hop is followed where a cleartext or
+    /// The redirect scheme matches case-insensitively, so an uppercase
+    /// redirect hop is followed where a cleartext or
     /// relative one fails the download.
     #[test]
     fn the_redirect_scheme_matches_case_insensitively() {
@@ -1796,7 +1722,7 @@ mod tests {
         assert!(!is_https(""));
     }
 
-    /// `--max-filesize` fires on an overstated `Content-Length` before
+    /// The size cap fires on an overstated `Content-Length` before
     /// a byte moves and on the counted bytes as they arrive, and the
     /// whole-transfer deadline lives inside the same loop.  The caps
     /// here are small stand-ins: the real 256 MiB constant reaches

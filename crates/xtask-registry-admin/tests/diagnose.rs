@@ -36,10 +36,8 @@ fn a_malformed_answer_is_an_error_not_an_empty_result() {
 }
 
 /// A service-state row is `SELECT key, value FROM meta`, so a row
-/// carrying neither is not the answer this asked for.  The shell
-/// printed `undefined: undefined` and still finished `diagnose OK`;
-/// skipping such a row would hide it even better.  The bundle reports
-/// it instead.
+/// carrying neither is not the answer this asked for.  Skipping such a
+/// row would hide it, so the bundle reports it instead.
 #[test]
 fn a_row_that_is_not_a_key_value_pair_is_an_error() {
     let rows = results(r#"[{"results":[{"name":"service_mode"}],"success":true}]"#).unwrap();
@@ -76,11 +74,10 @@ fn the_command_is_required() {
         .stdout(predicates::str::contains("cargo registry-diagnose"));
 }
 
-/// The two D1 reads differ in what an empty answer means, as the
-/// shell's two `node` snippets did: the service-state loop over an
-/// empty result printed nothing and passed, while the counts snippet
-/// hit `Object.entries(undefined)` and failed. `results` therefore
-/// hands back the empty list rather than deciding for either caller.
+/// The two D1 reads differ in what an empty answer means: the
+/// service-state loop over an empty result prints nothing and passes,
+/// while the counts section fails. `results` therefore hands back the
+/// empty list rather than deciding for either caller.
 #[test]
 fn an_empty_result_reaches_the_caller_to_judge() {
     let empty = results(r#"[{"results":[],"success":true}]"#).unwrap();

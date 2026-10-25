@@ -5,12 +5,9 @@
 //! exercised hermetically.
 //!
 //! The shim shadows `npx`, not `wrangler`, because the pinned
-//! constructor spawns `npx --yes wrangler@<version>`; that is what
-//! lets these tests carry over unchanged from the bash guard they
-//! replace.
+//! constructor spawns `npx --yes wrangler@<version>`.
 //!
-//! Unix-only: the shim is a shell script, and so are the destructive
-//! paths the guard protects.
+//! Unix-only: the shim is a shell script.
 #![cfg(unix)]
 
 use std::fs;
@@ -134,8 +131,8 @@ fn passes_when_not_launched_and_queries_the_flag() {
     let shim = Shim::new("pass-false", FakeWrangler::Respond(&meta_response("false")));
     let output = shim.run(&["--remote"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
-    // A passing guard says nothing: destructive scripts run it for its
-    // status, and a line on stdout would land in the middle of theirs.
+    // A passing guard says nothing: it is run for its status, and a
+    // line on stdout would land in the middle of its caller's output.
     assert!(output.stdout.is_empty(), "stdout: {:?}", output.stdout);
     // Exactly two wrangler calls, neither mutating: the account listing
     // for the binding/name consistency check, then the flag read.
@@ -199,7 +196,7 @@ fn refuses_when_launched() {
     let message = stderr(&output);
     assert!(message.contains("launched"), "stderr: {message}");
     assert!(message.contains("forbidden"), "stderr: {message}");
-    // `cargo registry-smoke` greps a refused wipe's output for
+    // `cargo registry-smoke` checks a refused wipe's error for
     // exactly this substring; it is load-bearing, not decoration.
     assert!(
         message.contains("meta.launched = 'true'"),
@@ -222,7 +219,7 @@ fn refuses_fail_safe_on_a_missing_row() {
 #[test]
 fn refuses_fail_safe_on_an_unexpected_value() {
     // Only the exact string 'false' passes - not casing variants, and
-    // not a trailing newline, which command substitution used to strip.
+    // not a trailing newline.
     for value in ["False", "TRUE", "yes", "", "false "] {
         let shim = Shim::new(
             &format!("refuse-value-{}", value.replace(' ', "_")),
@@ -277,9 +274,8 @@ fn rejects_an_unknown_mode_without_querying() {
 }
 
 /// A JSON boolean and a one-element array both coerce to `false`
-/// through `String()`, so the shell passed them and so does this.  D1
-/// returns TEXT today, but the guard's contract is the coercion, and
-/// narrowing it here would refuse a state the shell allowed.
+/// through `String()`, so both pass.  D1 returns TEXT today, but the
+/// guard's contract is the coercion.
 #[test]
 fn the_flag_is_read_through_javascript_string_coercion() {
     for (name, body, passes) in [

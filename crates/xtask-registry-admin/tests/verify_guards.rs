@@ -1,7 +1,6 @@
-//! The verifier's environment guards, extracted from the retired
-//! shell-vs-port differential: they run before anything is fetched, so
-//! no server is needed, and each refusal is one exact stderr line with
-//! exit 1.
+//! The verifier's environment guards: they run before anything is
+//! fetched, so no server is needed, and each refusal is one exact
+//! stderr line with exit 1.
 
 use assert_cmd::Command;
 

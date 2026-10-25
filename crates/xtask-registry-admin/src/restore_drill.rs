@@ -22,26 +22,17 @@
 //! disagreement between config and account that the launch guard
 //! exists to catch.
 //!
-//! Ceilings, where this deliberately stops short of the shell it
-//! replaces.  All are fail-closed: the drill stops where the shell
-//! carried on, never the reverse.
+//! Ceilings, all fail-closed:
 //!
 //! - a `wrangler d1 list` that does not answer with a list of
-//!   databases ends the run.  The shell piped it into `node` inside an
-//!   `if`, so an expired token, a network fault or a banner on stdout
-//!   all threw, and every one of them read as "the scratch database is
-//!   not there" - which sent it on to create one;
-//! - the sidecar must be SHA-256 and every line of it must parse.
-//!   `shasum -a 256 -c` ignores `-a` and infers the algorithm from the
-//!   digest's length, so a SHA-1 sidecar passed; it also passed a
-//!   sidecar whose one good line sat beside a malformed one.  A name
-//!   with a path separator is refused here, where `shasum` resolved it
-//!   against the working directory and reported it unreadable;
+//!   databases ends the run, rather than reading as "the scratch
+//!   database is not there" and creating one;
+//! - the sidecar must be SHA-256 and every line of it must parse, and a
+//!   name with a path separator is refused;
 //! - the teardown is attempted on every path that returns, including a
-//!   failed comparison, but not when a signal kills the process, where
-//!   the shell's `trap ... EXIT` still fired.  Attempted, not
-//!   guaranteed, in both: a delete that itself fails leaves the
-//!   database and says nothing, as the trap's `|| true` did.
+//!   failed comparison, but not when a signal kills the process.
+//!   Attempted, not guaranteed: a delete that itself fails leaves the
+//!   database and says nothing.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -76,15 +67,14 @@ const META_COUNT: &str = "SELECT COUNT(*) AS n FROM meta
       WHERE key NOT IN ('last_backup_at', 'last_backup_key')";
 
 /// One entry of `wrangler d1 list --json`.  The name is optional
-/// because the shell compared `db.name === ...` against every entry,
-/// where an entry carrying no name is simply not the one being looked
+/// because an entry carrying no name is simply not the one being looked
 /// for.
 #[derive(Deserialize)]
 struct Database {
     name: Option<String>,
 }
 
-/// The shell's `trap cleanup EXIT`.  Held across the whole drill so
+/// The scratch database's teardown.  Held across the whole drill so
 /// that a failed comparison tears the scratch database down as surely
 /// as a passing one: what the guard at the top refuses to run past is a
 /// database left behind by an earlier drill.
@@ -97,8 +87,8 @@ impl Drop for Scratch {
         if !self.created {
             return;
         }
-        // The trap's `|| true`, with both streams sent to `/dev/null`:
-        // a delete that fails leaves the database and says nothing.
+        // Both streams discarded: a delete that fails leaves the
+        // database and says nothing.
         // The teardown on the passing path is the loud one.
         let _ = wrangler(&["d1", "delete", SCRATCH, "-y"])
             .stdout(Stdio::null())
@@ -145,7 +135,7 @@ pub fn run() -> Result<()> {
     // The status, not the output: `output` decodes stdout as UTF-8
     // after the create has already succeeded, and an undecodable byte
     // there would return before the guard below exists - leaking the
-    // database the shell's `created_scratch=1` armed against.
+    // database.
     quiet(&["d1", "create", SCRATCH])?;
     let mut scratch = Scratch { created: true };
 
@@ -172,10 +162,9 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-/// The object's own name, for a key matching exactly what the shell's
-/// `^d1/[0-9]{4}-[0-9]{2}-[0-9]{2}\.sql$` matched: the whole string,
-/// the `.sql` suffix literal, and no date validation - `0000-99-99`
-/// passed there and passes here.
+/// The object's own name, for a key matching
+/// `^d1/[0-9]{4}-[0-9]{2}-[0-9]{2}\.sql$`: the whole string, the `.sql`
+/// suffix literal, and no date validation - `0000-99-99` passes.
 fn dump_name(key: &str) -> Option<&str> {
     let name = key.strip_prefix("d1/")?;
     let date = name.strip_suffix(".sql")?;
@@ -198,8 +187,8 @@ fn fetch(object: &str, file: &Path) -> Result<()> {
     loud(&["r2", "object", "get", object, "--file", file, "--remote"])
 }
 
-/// A wrangler invocation the shell did not redirect, so its own output
-/// stayed on the operator's terminal.  The download and the import are
+/// A wrangler invocation whose own output stays on the operator's
+/// terminal.  The download and the import are
 /// the drill's two slow steps, and that output is the only sign of life
 /// during them - capturing it, as the reads do, would leave the drill
 /// looking hung.
@@ -207,7 +196,7 @@ fn loud(arguments: &[&str]) -> Result<()> {
     status(&mut wrangler(arguments))
 }
 
-/// A wrangler invocation the shell sent to `/dev/null`, kept apart from
+/// A wrangler invocation with stdout discarded, kept apart from
 /// [`output`] because these are run for their exit status alone -
 /// nothing downstream reads a byte of what they print.
 fn quiet(arguments: &[&str]) -> Result<()> {
@@ -222,9 +211,8 @@ fn verify(directory: &Path, sidecar: &Path) -> Result<()> {
         std::fs::read_to_string(sidecar).with_context(|| format!("read {}", sidecar.display()))?;
     let mut checked = 0_u32;
     // `split`, not `lines`: the latter drops a `\r` before the newline,
-    // where `shasum -c` kept it as part of the filename and then failed
-    // to open that file. Accepting a CRLF sidecar it refused is the one
-    // direction this must not diverge in.
+    // where `shasum -c` keeps it as part of the filename and then fails
+    // to open that file. A CRLF sidecar it refuses must not pass here.
     for line in text.split('\n').filter(|line| !line.is_empty()) {
         let (hex, rest) = line
             .split_once(' ')
@@ -242,7 +230,7 @@ fn verify(directory: &Path, sidecar: &Path) -> Result<()> {
             bail!("a sidecar names a file outside the download: {name}");
         }
         // Streamed, because a dump is bounded only by the database it
-        // came from and `shasum` never held one whole.
+        // came from.
         let digest = std::fs::File::open(directory.join(name))
             .and_then(cabin_core::hash::hash_reader)
             .with_context(|| format!("read the file the sidecar names: {name}"))?;
@@ -269,12 +257,12 @@ fn exists() -> Result<bool> {
         .any(|database| database.name.as_deref() == Some(SCRATCH)))
 }
 
-/// One column of one remote query, as `$(...)` handed it to the shell.
+/// One column of one remote query, as one string.
 fn value(database: &str, sql: &str, column: &str) -> Result<String> {
     Ok(lines(database, sql, column)?.join("\n"))
 }
 
-/// The same read, as the `while IFS= read -r` loop saw it.
+/// The same read, one entry per line.
 fn lines(database: &str, sql: &str, column: &str) -> Result<Vec<String>> {
     Ok(column_lines(&rows(database, sql)?, column, Nullish::Empty))
 }
@@ -344,17 +332,15 @@ fn views() -> Result<()> {
     Ok(())
 }
 
-/// One row of the count table, as
-/// `printf '    %-28s live %6s  restored %6s%s\n'` laid it out: minimum
-/// widths, so an over-long name pushes the columns right rather than
-/// being truncated, and the marker carries its own leading space.
+/// One row of the count table: minimum widths, so an over-long name
+/// pushes the columns right rather than being truncated, and the marker
+/// carries its own leading space.
 fn count_line(table: &str, live: &str, restored: &str) -> String {
     let marker = if live == restored { "" } else { " <- MISMATCH" };
     format!("    {table:<28} live {live:>6}  restored {restored:>6}{marker}")
 }
 
-/// The matched-views line.  `tr '\n' ' '` ran over a here-string, so
-/// the newline it appended became the trailing space this keeps.
+/// The matched-views line, with a trailing space.
 fn views_line(views: &str) -> String {
     format!("    views match: {} ", views.replace('\n', " "))
 }
@@ -364,7 +350,7 @@ fn spot_check() -> Result<()> {
     let live_pin = value("DB", SPOT, "pin")?;
     // A NULL anywhere in the concatenation makes the whole pin NULL,
     // which reaches here as the empty string no-rows does. Both take
-    // this branch, as they did in the shell.
+    // this branch.
     if live_pin.is_empty() {
         println!("    no versions in the live database; nothing to spot-check");
         return Ok(());
@@ -373,10 +359,9 @@ fn spot_check() -> Result<()> {
     if live_pin != restored_pin {
         bail!("spot-check row differs: live {live_pin}, restored {restored_pin}");
     }
-    // The shell redirected each read into a file and ran `cmp -s`, so
-    // the comparison is over the raw bytes the read loop wrote - one
-    // trailing newline per row included, which is why the byte count
-    // below is one more than the JSON's own length.
+    // The comparison is over the raw column text - one trailing
+    // newline per row included, which is why the byte count below is
+    // one more than the JSON's own length.
     let live = column_text(&rows("DB", SPOT)?, "metadata_json", Nullish::Empty);
     let restored = column_text(&rows(SCRATCH, SPOT)?, "metadata_json", Nullish::Empty);
     if live != restored {
@@ -393,15 +378,13 @@ fn spot_check() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    //! Every expectation below was taken from the shell the port
-    //! replaces, run over the same fixtures.  They live here rather
-    //! than in `tests/` because none of what they exercise - the dump
-    //! key's grammar, the sidecar check, the two rendered lines - is
-    //! this crate's API.
+    //! These live here rather than in `tests/` because none of what
+    //! they exercise - the dump key's grammar, the sidecar check, the
+    //! two rendered lines - is this crate's API.
 
     use super::*;
 
-    /// Exactly the keys the shell's ERE matched, and no others.  The
+    /// Exactly the keys the grammar admits, and no others.  The
     /// sidecar key is the one that matters: the governor's release
     /// grammar admits it on the same shape, and a drill that imported a
     /// 64-byte checksum
@@ -410,7 +393,7 @@ mod tests {
     #[test]
     fn the_dump_key_admits_only_a_padded_date() {
         assert_eq!(dump_name("d1/2026-08-04.sql"), Some("2026-08-04.sql"));
-        // No semantic date validation, exactly as the shell had none.
+        // No semantic date validation.
         assert_eq!(dump_name("d1/0000-99-99.sql"), Some("0000-99-99.sql"));
         for refused in [
             "d1/2026-08-04.sql.sha256",
@@ -429,11 +412,11 @@ mod tests {
         }
     }
 
-    /// The count line's widths are minimums, as `printf`'s were: an
-    /// over-long name pushes the columns right rather than being cut,
-    /// and the marker carries its own leading space.
+    /// The count line's widths are minimums: an over-long name pushes
+    /// the columns right rather than being cut, and the marker carries
+    /// its own leading space.
     #[test]
-    fn the_count_line_lays_out_as_printf_laid_it_out() {
+    fn the_count_line_pads_to_minimum_widths() {
         assert_eq!(
             count_line("revisions", "12", "12"),
             "    revisions                    live     12  restored     12"
@@ -449,9 +432,6 @@ mod tests {
         );
     }
 
-    /// `tr '\n' ' '` ran over a here-string, so the newline it appended
-    /// became a trailing space.  `views.join(" ")` would not produce
-    /// it.
     #[test]
     fn the_views_line_keeps_the_trailing_space() {
         assert_eq!(
@@ -464,8 +444,8 @@ mod tests {
         );
     }
 
-    /// Every sidecar shape `shasum -a 256 -c` accepted over the one the
-    /// backup job writes, and the malformed ones it refused.
+    /// Every sidecar shape `shasum -a 256 -c` accepts over the one the
+    /// backup job writes, and the malformed ones it refuses.
     #[test]
     fn the_sidecar_check_takes_what_shasum_took() {
         let work = tempfile::tempdir().unwrap();
@@ -500,13 +480,13 @@ mod tests {
             // `shasum -c` refuses the single-space form outright.
             format!("{digest} 2026-08-04.sql\n"),
             format!("{digest}  missing.sql\n"),
-            // The shell resolved every name against the download
-            // directory; one that reaches outside it is refused here.
+            // A name that reaches outside the download directory is
+            // refused.
             format!("{digest}  d1/2026-08-04.sql\n"),
             String::new(),
             "not a checksum at all\n".to_owned(),
-            // `shasum -c` kept the `\r` as part of the filename and
-            // failed to open it; `str::lines` would drop it and accept.
+            // `shasum -c` keeps the `\r` as part of the filename and
+            // fails to open it; `str::lines` would drop it and accept.
             format!("{digest}  2026-08-04.sql\r\n"),
         ] {
             assert!(!check(&refused), "accepted {refused:?}");

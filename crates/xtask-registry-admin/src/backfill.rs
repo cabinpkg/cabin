@@ -19,18 +19,14 @@
 //! operation pools (they bill as ordinary R2 usage on the operator's
 //! account activity).
 //!
-//! Ceilings, where this deliberately stops short of the shell it
-//! replaces.  All three need a broken host or an interrupted run to
-//! reach, and no caller reads anything but zero/non-zero:
+//! Ceilings, all needing a broken host or an interrupted run to reach:
 //!
-//! - a failing wrangler ends the run with status 1, where `set -e`
-//!   ended it with wrangler's own status;
+//! - a failing wrangler ends the run with status 1, not wrangler's own
+//!   status;
 //! - the staging file is removed when the run returns, but not when a
-//!   signal kills it, where the shell's `trap ... EXIT` removed it
-//!   either way;
+//!   signal kills it;
 //! - a `stat` that fails on the blob wrangler just wrote ends the run,
-//!   where the shell printed the copy line with a blank byte count and
-//!   carried on.  The copy itself has already succeeded in both.
+//!   though the copy itself has already succeeded.
 
 use std::process::Stdio;
 
@@ -84,8 +80,7 @@ pub fn is_checksum(value: &str) -> bool {
 pub fn run() -> Result<()> {
     step("enqueueing every verified blob for the worker's drain");
     let enqueued = wrangler(&["d1", "execute", "DB", "--remote", "--command", ENQUEUE])
-        // The shell discarded stdout here and kept wrangler's
-        // diagnostics on the terminal.
+        // Stdout discarded; wrangler's diagnostics stay on the terminal.
         .stdout(Stdio::null())
         .status()
         .context("run wrangler d1 execute")?;
@@ -113,8 +108,8 @@ pub fn run() -> Result<()> {
     let mut copied = 0_u32;
     let mut present = 0_u32;
     for checksum in column_lines(&results(&answer)?, "checksum", Nullish::Printed) {
-        // The shell skipped the blank line its here-string produced for
-        // an empty enumeration, then refused anything else unexpected.
+        // An empty enumeration arrives as one blank line; anything else
+        // unexpected refuses.
         if checksum.is_empty() {
             continue;
         }

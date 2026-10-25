@@ -100,8 +100,7 @@ pub fn run() -> Result<()> {
     ]))?;
     let counts = results(&counts)?;
     // One row, always: the SELECT is a list of scalar sub-selects. No
-    // row means the answer was not the one this asks for, which the
-    // shell hit as `Object.entries(undefined)`.
+    // row means the answer was not the one this asks for.
     let row = counts.first().context("the counts query answered no row")?;
     for (key, value) in row {
         println!("    {key}: {}", display(value));
@@ -116,11 +115,8 @@ pub fn run() -> Result<()> {
                 println!("    {line}");
             }
         }
-        // The shell wrote this fallback too, but behind a `||` on a
-        // pipeline ending in `sed`, which succeeds whatever wrangler
-        // did - so the section silently vanished instead. A
-        // diagnostics bundle that drops a section without saying so is
-        // worse than one that says the token could not read it.
+        // A diagnostics bundle that drops a section without saying so
+        // is worse than one that says the token could not read it.
         Err(_) => println!("    (deployments list unavailable with this token)"),
     }
 
@@ -149,9 +145,9 @@ fn migrations_stamp() {
 /// not have to hand.  Its own `==>` heading is dropped and the rest
 /// indented, so the snapshot reads as a section of this bundle.
 ///
-/// A token that is present but does not work is an error, as the
-/// shell's `pipefail` made it: a bundle that says `diagnose OK` after a
-/// section failed is worse than no bundle.
+/// A token that is present but does not work is an error: a bundle
+/// that says `diagnose OK` after a section failed is worse than no
+/// bundle.
 fn governor_ledger() -> Result<()> {
     // The token is read from the environment by the governor itself;
     // this only decides whether the section runs at all.

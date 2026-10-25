@@ -21,8 +21,7 @@
 //! Worker.  Listing a bucket is the exception: wrangler exposes no
 //! command for it, and no bulk mode for deleting one - so the audit and
 //! the wipe's sweep call Cloudflare's R2 REST API directly with the
-//! operator's `CLOUDFLARE_API_TOKEN`, as the `curl` in the shells they
-//! replace did.
+//! operator's `CLOUDFLARE_API_TOKEN`.
 
 pub mod audit;
 pub mod backfill;
@@ -80,11 +79,9 @@ pub fn registry_dir() -> PathBuf {
 /// `CABIN_REGISTRY_DIR` overrides [`registry_dir`], which is how tests
 /// point a command at a synthetic registry root.
 ///
-/// The launch guard needs it as much as its callers do: it is reached
-/// from a working directory ABOVE the registry (`wipe.sh` runs it from
-/// a `cd ..` subshell), so a guard resolving its `wrangler.jsonc` or
-/// its wrangler working directory any other way reads a different tree
-/// than the wipe it is guarding.
+/// The launch guard needs it as much as its callers do: a guard
+/// resolving its `wrangler.jsonc` or its wrangler working directory any
+/// other way reads a different tree than the wipe it is guarding.
 #[must_use]
 pub fn registry_root() -> PathBuf {
     std::env::var_os(cabin_env::CABIN_REGISTRY_DIR)
@@ -106,11 +103,11 @@ pub fn account_id() -> Result<String> {
     declared_account_id(&text).context("CF_ACCOUNT_ID not found in wrangler.jsonc")
 }
 
-/// The account id a wrangler config declares, matched the way the
-/// shell's regex matched it: the first `"CF_ACCOUNT_ID":` followed by
-/// 32 lower-case hex digits in quotes.  A config that binds the id
-/// some other way (an expression, a separate vars file) is not one
-/// this can read, and saying so beats calling the API with a guess.
+/// The account id a wrangler config declares: the first
+/// `"CF_ACCOUNT_ID":` followed by 32 lower-case hex digits in quotes.
+/// A config that binds the id some other way (an expression, a separate
+/// vars file) is not one this can read, and saying so beats calling the
+/// API with a guess.
 #[must_use]
 pub fn declared_account_id(text: &str) -> Option<String> {
     declared(text, "CF_ACCOUNT_ID", 32, |byte| {
@@ -118,16 +115,16 @@ pub fn declared_account_id(text: &str) -> Option<String> {
     })
 }
 
-/// The D1 database id a wrangler config binds, matched the way the
-/// launch guard's regex matched it: the first `"database_id":`
-/// followed by 36 characters of lower-case hex or `-` in quotes.
+/// The D1 database id a wrangler config binds: the first
+/// `"database_id":` followed by 36 characters of lower-case hex or `-`
+/// in quotes.
 ///
-/// Ceiling, carried over deliberately: this checks the alphabet and
-/// the width, never the 8-4-4-4-12 shape, so 36 hyphens satisfy it -
-/// and it reads a commented-out binding as live, because a `//` line
-/// is still text.  The guard compares the answer against the account's
-/// own id, and two ids that agree are what it needs; a malformed one
-/// agrees with nothing.
+/// Ceiling: this checks the alphabet and the width, never the
+/// 8-4-4-4-12 shape, so 36 hyphens satisfy it - and it reads a
+/// commented-out binding as live, because a `//` line is still text.
+/// The guard compares the answer against the account's own id, and two
+/// ids that agree are what it needs; a malformed one agrees with
+/// nothing.
 #[must_use]
 pub fn declared_database_id(text: &str) -> Option<String> {
     declared(text, "database_id", 36, |byte| {
@@ -153,10 +150,7 @@ fn declared(text: &str, key: &str, width: usize, alphabet: fn(u8) -> bool) -> Op
 
 /// JavaScript's `\s`, which `str::trim_start` is not: `char::
 /// is_whitespace` trims U+0085 where the regex does not, and the regex
-/// consumes U+FEFF where `is_whitespace` does not.  Both shells matched
-/// their config ids with `\s*`, and a config-id matcher that lands on a
-/// different candidate than the shell did is exactly how the launch
-/// guard could cross-check the wrong database.
+/// consumes U+FEFF where `is_whitespace` does not.
 fn js_whitespace(character: char) -> bool {
     matches!(
         character,
@@ -179,13 +173,11 @@ pub fn wrangler(arguments: &[&str]) -> Command {
         .arg("--yes")
         .arg(WRANGLER)
         .args(arguments)
-        // The shell piped only stdout; wrangler's diagnostics went to
-        // the operator's terminal, and a caller that wants them quiet
-        // says so itself.
+        // Wrangler's diagnostics go to the operator's terminal; a
+        // caller that wants them quiet says so itself.
         .stderr(Stdio::inherit())
-        // `Command::output` would give the child no stdin at all,
-        // where every one of these ran attached to the operator's
-        // terminal.
+        // `Command::output` would give the child no stdin at all;
+        // wrangler runs attached to the operator's terminal.
         .stdin(Stdio::inherit())
         // A registry credential the operator's shell may export for
         // the governor commands; no wrangler invocation needs it.
@@ -224,18 +216,17 @@ pub fn status(command: &mut Command) -> Result<()> {
     Ok(())
 }
 
-/// One step banner, exactly the shell's `step` from `lib.sh`:
-/// `==> <label>` on stdout.
+/// One step banner: `==> <label>` on stdout.
 pub fn step(message: &str) {
     println!("==> {message}");
 }
 
-/// A D1 value as the shell's `node` printed it: a JSON string keeps its
-/// own text, an array joins its elements with `,` (which is how D1
+/// A D1 value as JavaScript's `String()` renders it: a JSON string keeps
+/// its own text, an array joins its elements with `,` (which is how D1
 /// hands back a BLOB column), anything else takes its JSON form, so
 /// `null` prints as `null`.
 ///
-/// Ceiling: a JSON object would print as JSON where JavaScript printed
+/// Ceiling: a JSON object prints as JSON where JavaScript prints
 /// `[object Object]`. D1 returns no column that way.
 #[must_use]
 pub fn display(value: &serde_json::Value) -> String {
@@ -259,11 +250,10 @@ pub fn display(value: &serde_json::Value) -> String {
 ///
 /// # Errors
 ///
-/// If the row carries neither pair. The shell printed
-/// `undefined: undefined` for such a row and carried on; a row that is
-/// not the shape the query asked for means the answer is not the one
-/// asked for, and this crate reports that rather than showing the
-/// operator a line they cannot act on.
+/// If the row carries neither pair: a row that is not the shape the
+/// query asked for means the answer is not the one asked for, and this
+/// crate reports that rather than showing the operator a line they
+/// cannot act on.
 pub fn key_value(row: &serde_json::Map<String, serde_json::Value>) -> Result<(String, String)> {
     let (Some(key), Some(value)) = (row.get("key"), row.get("value")) else {
         bail!("a key/value row carries no `key` and `value` pair");
@@ -271,35 +261,22 @@ pub fn key_value(row: &serde_json::Map<String, serde_json::Value>) -> Result<(St
     Ok((display(key), display(value)))
 }
 
-/// What each shell's `console.log` did with a column that is JSON
-/// `null` or absent, which is the only respect in which their
-/// otherwise identical read loops differ.
+/// What [`column_text`] prints for a column that is JSON `null` or
+/// absent.
 #[derive(Clone, Copy)]
 pub enum Nullish {
-    /// `console.log(row[column])`, as `backup-backfill.sh` wrote it:
-    /// `null` and a missing key print themselves.
+    /// `null` and a missing key print themselves, as `null` and
+    /// `undefined`.
     Printed,
-    /// `console.log(row[column] ?? "")`, as `restore-drill.sh` wrote
-    /// it: both become a blank line, and so does an empty string -
-    /// the three are indistinguishable downstream, which is what lets
-    /// a NULL in a `||` concatenation take the same branch as no rows
-    /// at all.
+    /// Both become a blank line, and so does an empty string - the
+    /// three are indistinguishable downstream, which is what lets a
+    /// NULL in a `||` concatenation take the same branch as no rows at
+    /// all.
     Empty,
 }
 
-/// The raw stdout of one `console.log` per row - the form the shell
-/// redirected straight into a file, NULs and all.
-///
-/// Ceiling: this is not Node's inspect text.  An array renders
-/// `["b"]` where Node wrote `[ 'b' ]`; a D1 BLOB column (an array of
-/// byte numbers) renders on one line where Node truncated it across
-/// several; and a non-integer number takes its JSON form, so `-0.0`
-/// and `1.0` render as themselves where Node printed `-0` and `1`.
-/// The last of those needs a `REAL` column, and no caller reads one -
-/// the only `REAL` in the schema is `rl_tokens`.  Otherwise every
-/// caller either matches the value against a grammar that refuses
-/// these forms, or compares two of them against each other, where the
-/// two render alike.
+/// Each row's rendered value plus a newline; a value's own newlines
+/// stay, so one row can span several lines.
 #[must_use]
 pub fn column_text(
     rows: &[serde_json::Map<String, serde_json::Value>],
@@ -319,8 +296,7 @@ pub fn column_text(
     text
 }
 
-/// The same read loop as it reached a `while IFS= read -r` loop:
-/// through `$(...)`, which strips trailing newlines and nothing else.
+/// [`column_text`] as lines, trailing newlines stripped.
 #[must_use]
 pub fn column_lines(
     rows: &[serde_json::Map<String, serde_json::Value>],
@@ -328,14 +304,12 @@ pub fn column_lines(
     nullish: Nullish,
 ) -> Vec<String> {
     let mut text = column_text(rows, column, nullish);
-    // Bash cannot hold a NUL in a variable: command substitution drops
-    // it, so `<32 hex>\0<32 hex>` reached the loop as 64 hex digits and
-    // passed the backfill's grammar. A redirection to a file keeps it,
-    // which is why only this half strips.
+    // NULs are dropped, so `sha256:<32 hex>\0<32 hex>` reaches the caller as
+    // 64 hex digits and passes the backfill's grammar; `column_text`
+    // keeps them.
     text.retain(|character| character != '\0');
-    // The here-string that fed the loop appended one newline, so an
-    // empty enumeration still yields a single blank line, and a value
-    // carrying a newline still becomes two iterations.
+    // An empty enumeration still yields a single blank line, and a
+    // value carrying a newline becomes two lines.
     text.trim_end_matches('\n')
         .split('\n')
         .map(str::to_owned)

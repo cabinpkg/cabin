@@ -25,35 +25,14 @@
 //! a rehearsal uses a session minted on that scratch deployment,
 //! never the production one.
 //!
-//! Two places where this is deliberately STRICTER than the shell it
-//! replaces, because the shell contradicted its own stated rule
-//! ("absence must be proven, never inferred from an error"):
-//!
-//! - the shell built its listing URL with
-//!   `?prefix=$(node -e '...encodeURIComponent...')`.  A command
-//!   substitution in an argument is not covered by `set -e`, so a
-//!   `node` that died for any reason expanded to the empty string and
-//!   listed the whole bucket - five arbitrary objects, none of them
-//!   the key being released, read as "affirmatively absent".  Here the
-//!   encoder is a pure function that cannot fail, and an empty prefix
-//!   is refused outright;
-//! - the shell's evidence snippets exited 1 for "affirmatively absent"
-//!   and 2 for "unparsable", but `node` also exits 1 on an uncaught
-//!   exception - so a listing like `{"result":[null]}` threw past the
-//!   `try` and was read as absence.  Here the three answers are a
-//!   `Result<bool>`: `Ok(false)` is proven absence and every other
-//!   failure is an error.  A row that is not an object with a `key`
-//!   ends the run.
-//!
-//! Ceilings, where it stops short of the shell instead.  All are
-//! fail-closed:
+//! Ceilings, all fail-closed:
 //!
 //! - a listing whose page is truncated is still read as the whole
-//!   match set, as the shell read it.  What makes one page enough is
-//!   the key grammar checked before the listing: a `blobs/sha256/`
-//!   key is fixed-length so nothing extends it, and a dump key has at
-//!   most its `.sha256` sibling, so `per_page=5` cannot overflow.  The
-//!   grammar check is part of the guard, not input hygiene;
+//!   match set.  What makes one page enough is the key grammar
+//!   checked before the listing: a `blobs/sha256/` key is fixed-length
+//!   so nothing extends it, and a dump key has at most its `.sha256`
+//!   sibling, so `per_page=5` cannot overflow.  The grammar check is
+//!   part of the guard, not input hygiene;
 //! - a proxy-only network is not reachable, the same ceiling the
 //!   crate's other HTTP clients carry.
 
@@ -125,8 +104,7 @@ struct Report {
 }
 
 /// One page of the R2 REST listing.  `key` is required: a row that
-/// does not carry one is not an answer about this key, and reading it
-/// as absence is what the shell did by accident.
+/// does not carry one is not an answer about this key.
 #[derive(Deserialize)]
 struct Page {
     success: bool,
@@ -278,8 +256,8 @@ impl Api {
         })
     }
 
-    /// The shell's `api`: the status is the verdict and the body is
-    /// read for its message either way, so a refusal is not raised.
+    /// The status is the verdict and the body is read for its message
+    /// either way, so a refusal is not raised.
     fn call(&self, body: Option<&str>) -> Result<(u16, String)> {
         let agent = crate::audit::agent();
         let request = match body {
@@ -297,9 +275,7 @@ impl Api {
             Ok(response) => {
                 let status = response.status();
                 // The status is the verdict and the body is whatever
-                // arrived, exactly as `-w '%{http_code}'` and
-                // `-o "$body"` split them: curl left the partial file
-                // in place and the callers read it. Keeping the prefix
+                // arrived, a partial one included. Keeping the prefix
                 // matters twice over - a body that fails to arrive
                 // after a mutation is already committed must not abort
                 // before the post-mutation R2 check that repairs a
@@ -316,8 +292,8 @@ impl Api {
         }
     }
 
-    /// `require_api_ok`: anything but 200 ends the run, naming what
-    /// was asked for and what came back.
+    /// Anything but 200 ends the run, naming what was asked for and
+    /// what came back.
     pub(crate) fn ok(&self, body: Option<&str>, what: &str) -> Result<String> {
         let (status, answer) = self.call(body)?;
         if status != 200 {
@@ -337,8 +313,8 @@ fn usage(api: &Api) -> Result<()> {
 
 /// The snapshot as the lines `usage` prints, without its heading.
 ///
-/// The diagnostics bundle shells this in under a heading of its own
-/// and indents it, which is why the rendering is separate from the
+/// The diagnostics bundle prints this under a heading of its own and
+/// indents it, which is why the rendering is separate from the
 /// printing.
 ///
 /// # Errors
@@ -709,7 +685,7 @@ fn confirm(variable: &str, prompt: &str, expected: &str) -> Result<()> {
     std::io::stdin()
         .read_line(&mut answer)
         .context("read the confirmation")?;
-    // `read -r answer` keeps everything but the newline.
+    // Everything but the line ending is part of the answer.
     if answer.trim_end_matches(['\n', '\r']) != expected {
         bail!("not confirmed");
     }
@@ -761,7 +737,6 @@ fn list_page(bucket: &str, prefix: &str) -> Result<Page> {
     Ok(page)
 }
 
-/// The shell's
 /// `prefix.split("/").map(encodeURIComponent).join("/")`: the
 /// separators stay separators and everything else is escaped.
 pub(crate) fn encode_prefix(prefix: &str) -> String {
@@ -788,11 +763,9 @@ fn prefix_nonempty(bucket: &str, prefix: &str) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    //! Every expectation below was taken from the shell the port
-    //! replaces, run over the same fixtures.  They live here because
-    //! none of what they exercise - the key grammars that bound the
-    //! evidence, the prefix encoder, the two renderers - is this
-    //! crate's API.
+    //! These live here because none of what they exercise - the key
+    //! grammars that bound the evidence, the prefix encoder, the two
+    //! renderers - is this crate's API.
 
     use super::*;
 
@@ -831,10 +804,7 @@ mod tests {
     }
 
     /// `prefix.split("/").map(encodeURIComponent).join("/")`: the
-    /// separators stay separators, everything else is escaped.  The
-    /// shell built this with a command substitution that expanded to
-    /// the empty string when `node` died, listing the whole bucket and
-    /// proving absence of everything; here it cannot fail.
+    /// separators stay separators, everything else is escaped.
     #[test]
     fn the_prefix_encoder_keeps_separators() {
         assert_eq!(encode_prefix("blobs/sha256/abc"), "blobs/sha256/abc");
@@ -877,7 +847,7 @@ mod tests {
     /// The sentinel matters: it must not compare equal to a coordinated
     /// mode, and it must not be mistaken for an empty answer.
     #[test]
-    fn the_service_mode_reads_as_the_shell_read_it() {
+    fn the_service_mode_renders_a_missing_row_as_a_sentinel() {
         let rows = |json: &str| results(json).unwrap();
         assert_eq!(
             rendered_mode(&rows(
@@ -903,9 +873,6 @@ mod tests {
     }
 
     /// A listing row that is not an object with a `key` ends the run.
-    /// The shell read exactly this shape as proven absence, because
-    /// `node` exits 1 on an uncaught `TypeError` just as it did for
-    /// "affirmatively absent".
     #[test]
     fn a_listing_row_without_a_key_is_not_absence() {
         let page = |body: &str| serde_json::from_str::<Page>(body);

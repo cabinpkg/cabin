@@ -11,7 +11,7 @@ use xtask_registry_admin::{declared_account_id, declared_database_id};
 /// It is matched, not parsed: the first `"CF_ACCOUNT_ID":` followed
 /// by 32 lower-case hex digits in quotes, wherever it sits.
 #[test]
-fn the_account_id_is_matched_where_the_shell_matched_it() {
+fn the_account_id_is_the_first_matching_occurrence() {
     let id = "7bd7dbea3c4c76cd396153fb0e92178f";
     for text in [
         format!(r#"{{"vars":{{"CF_ACCOUNT_ID": "{id}"}}}}"#),
@@ -50,14 +50,12 @@ fn the_audit_needs_a_cloudflare_token() {
         ));
 }
 
-/// The two config-id matchers separate whitespace exactly as
-/// JavaScript's `\s` did, not as `str::trim_start` does.  The two
-/// disagree in both directions - Rust trims U+0085 where the regex does
-/// not, and the regex consumes U+FEFF where Rust does not - and landing
-/// on a different candidate than the shell is how the launch guard
-/// could cross-check a database the config does not bind.
+/// The two config-id matchers separate whitespace as JavaScript's `\s`
+/// does, not as `str::trim_start` does.  The two disagree in both
+/// directions - Rust trims U+0085 where the regex does not, and the
+/// regex consumes U+FEFF where Rust does not.
 #[test]
-fn a_declared_id_separates_whitespace_as_javascript_did() {
+fn a_declared_id_skips_bom_but_not_next_line_whitespace() {
     let id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     for (name, space, matches) in [
         ("space", " ", true),
@@ -67,7 +65,7 @@ fn a_declared_id_separates_whitespace_as_javascript_did() {
         ("no-break space", "\u{a0}", true),
         ("byte-order mark", "\u{feff}", true),
         ("ideographic space", "\u{3000}", true),
-        // Rust's `char::is_whitespace` trims this one; `\s` never did.
+        // Rust's `char::is_whitespace` trims this one; `\s` does not.
         ("next line", "\u{85}", false),
     ] {
         let text = format!("{{\"database_id\":{space}\"{id}\"}}");
@@ -87,11 +85,10 @@ fn a_declared_id_separates_whitespace_as_javascript_did() {
 }
 
 /// The guard's matcher takes the first candidate that fits the shape,
-/// so a commented-out binding above the live one wins - exactly as the
-/// unanchored regex did.  It checks the alphabet and the width, never
-/// the 8-4-4-4-12 layout.
+/// so a commented-out binding above the live one wins.  It checks the
+/// alphabet and the width, never the 8-4-4-4-12 layout.
 #[test]
-fn the_database_id_is_matched_where_the_shell_matched_it() {
+fn the_database_id_is_the_first_candidate_that_fits_the_shape() {
     let id = "61c6b514-e91b-47a5-8898-00a3cd981c70";
     assert_eq!(
         declared_database_id(&format!(r#"{{"database_id": "{id}"}}"#)).as_deref(),

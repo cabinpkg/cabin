@@ -1,10 +1,9 @@
-//! Host-target tests for the wipe's own contracts, extracted from the
-//! retired shell-vs-port differential: the real command runs against a
-//! fake `npx` shim on `PATH` (the same pattern as `launch_guard.rs`)
-//! and a scratch registry root reached through `CABIN_REGISTRY_DIR`.
+//! Host-target tests for the wipe's own contracts: the real command
+//! runs against a fake `npx` shim on `PATH` (the same pattern as
+//! `launch_guard.rs`) and a scratch registry root reached through
+//! `CABIN_REGISTRY_DIR`.
 //!
-//! Unix-only: the shim is a shell script, and so are the destructive
-//! paths the wipe protects.
+//! Unix-only: the shim is a shell script.
 #![cfg(unix)]
 
 use std::fs;
