@@ -57,7 +57,7 @@ destination.
 ```sh
 cabin vendor --workspace
 cabin vendor -p app
-cabin vendor --exclude lldb
+cabin vendor --workspace --exclude lldb
 cabin vendor --features simd,ssl
 cabin vendor --no-default-features
 cabin vendor --no-patches
