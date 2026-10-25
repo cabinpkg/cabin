@@ -86,14 +86,17 @@ fn fetch_extracts_registry_package_into_cache() {
 
     let cache = dir.path().join("cache");
     cabin()
-        .args(["fetch", "--manifest-path"])
+        .args(["-v", "fetch", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--index-path")
         .arg(dir.path().join("index"))
         .arg("--cache-dir")
         .arg(&cache)
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "cabin: checksum matched for fmt 10.2.1 (sha256:{hex})"
+        )));
 
     // Lockfile written next to root manifest.
     let lock_path = dir.path().join("app/cabin.lock");
