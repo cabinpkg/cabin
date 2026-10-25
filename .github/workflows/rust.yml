@@ -140,12 +140,42 @@ jobs:
         env:
           RUST_BACKTRACE: "1"
 
+  # The fuzz workspace on its own pinned nightly (fuzz/README.md).
+  # `build-and-test-required` gates on it too.
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.fuzz == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache-on-failure: false
+          cache-workspaces: |
+            .
+            fuzz
+          rustflags: ""
+
+      - name: Install the fuzz workspace's nightly
+        run: rustup toolchain install
+        working-directory: fuzz
+
+      - name: Install cargo-fuzz
+        run: cargo install -q "cargo-fuzz@=0.13.2" --locked
+
+      - name: Check the fuzz targets
+        run: cargo fuzz-check
+
   # Branch protection pins this aggregate: a skipped matrix job never
   # posts per-leg names. `always()`, never `!cancelled()`: a cancelled
   # run must fail this check, not skip it to a green required check.
   # Fails closed when the gate itself failed.
   build-and-test-required:
-    needs: [changes, build-and-test]
+    needs: [changes, build-and-test, fuzz]
     if: always()
     runs-on: ubuntu-slim
     steps:
@@ -161,6 +191,12 @@ jobs:
           result: ${{ needs.build-and-test.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.rust }}
+      - name: Fail unless the fuzz check succeeded or the filters skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.fuzz.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.rust }},${{ needs.changes.outputs.fuzz }}
 
   # Verify Cabin auto-discovers the MSVC toolchain itself, with no
   # Developer Command Prompt / vcvarsall activation. This job deliberately

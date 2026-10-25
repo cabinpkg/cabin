@@ -33,6 +33,11 @@ rust:
 toml:
   - "**/*.toml"
 
+# rust.yml's fuzz job runs on `rust` (the crates it fuzzes and the
+# xtask that drives it) and on the fuzz workspace itself.
+fuzz:
+  - "fuzz/**"
+
 # website.yml: the site renders docs/ and the ports tree's pages.
 website:
   - "website/**"

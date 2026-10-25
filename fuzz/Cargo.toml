@@ -45,3 +45,8 @@ path = "fuzz_targets/parse_manifest.rs"
 test = false
 doc = false
 bench = false
+
+# The targets use libfuzzer-sys, but `cargo test` builds only the
+# library: the targets set `test = false`.
+[lints.cargo]
+unused_dependencies = "allow"

@@ -34,6 +34,12 @@ the `inspect_zip` seeds and dictionary. Replay one input with
 `cargo fuzz coverage <target> corpus/<target>`. `cargo test` here runs the
 harness's own test.
 
+`cargo fuzz-check`, from the repository root, is what CI runs: `cargo fmt`,
+`clippy`, and `test` here, and a replay of every target's seeds with its
+dictionary, so a target without either fails. It needs `cargo-fuzz`
+(`cargo install cargo-fuzz --locked`); `cargo ci` does not run it, so run
+it after changing an API a target calls.
+
 `seeds/` is generated: `cargo fuzz-seeds`, from the repository root,
 stages example packages (C and C++) and a package of the fallback
 manifest through the real packager, copies the published-archive fixture,
