@@ -21,43 +21,6 @@ If you are new to Cabin, the following pages cover the most common surfaces:
 - [Build profiles](profiles.md) - `dev`, `release`, and user- declared profiles.
 - [Environment variables](environment-variables.md) - the `CABIN_*` read, run, and test env surface.
 
-## Reference by topic
-
-### Manifest and configuration
-
-- [`cabin.toml` reference](manifest.md)
-- [Configuration files](config.md)
-- [Environment variables](environment-variables.md)
-- [Build profiles](profiles.md)
-- [Toolchains and conditional build flags](toolchains.md)
-
-### Targets and building
-
-- [Targets](targets.md)
-- [Compiler wrappers](compiler-cache.md)
-- [Testing with `cabin test`](testing.md)
-
-### Dependencies
-
-- [Dependency kinds](dependency-kinds.md)
-- [Target / platform-specific dependencies](target-dependencies.md)
-- [Features](features.md)
-- [`cabin.lock` reference](lockfile.md)
-- [Patch, override, and source replacement](patch-overrides.md)
-- [Vendoring and offline mode](vendoring-offline.md)
-- [Source artifacts](artifacts.md)
-
-### Workspaces and observability
-
-- [Workspaces](workspaces.md)
-- [Metadata, tree, and explain](metadata-tree-explain.md)
-
-### Distribution and registry interface
-
-- [Package archive and canonical metadata](package-format.md)
-- [Local JSON package index](package-index.md)
-- [CLI distribution artifacts](distribution.md)
-
 ## Quickstart
 
 ```sh
