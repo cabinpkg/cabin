@@ -22,11 +22,10 @@ rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-sha2 = { workspace = true }
 ureq = { workspace = true }
-# The deploy gate's crate owns the `migrations/*.sql` glob rule; the
-# diagnose bundle reads the stamp through the same function so the two
-# cannot drift.
+# The deploy gate's crate owns the migrations stamp; migrate, wipe and
+# diagnose compute and read it through the same functions so they
+# cannot drift from the gate.
 xtask-workflow-guard = { path = "../xtask-workflow-guard" }
 
 [dev-dependencies]

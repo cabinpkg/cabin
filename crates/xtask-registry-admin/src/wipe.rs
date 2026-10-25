@@ -62,12 +62,12 @@
 //! - **The R2 sweep drains the listing by re-fetching the first page**
 //!   until nothing matches the prefix.  Deleting drains it, so no cursor
 //!   is handled at all (opaque cursors carry URL-hostile characters).
-//! - **The stamp is refreshed from [`migration_files`]**, the deploy
-//!   gate's own glob rule, so this reading of `migrations/*.sql` cannot
+//! - **The stamp is refreshed from [`migrations_pending::stamp`]**, the
+//!   deploy gate's own reading of `migrations/*.sql`, so it cannot
 //!   drift from the gate's or from `cargo registry-migrate`'s.  Its
 //!   redirection truncated `migrations-applied` before the pipeline ran,
-//!   so a failing `cat` still left the digest of what it did deliver -
-//!   see `stamp` below.
+//!   so a failure never leaves the pre-wipe stamp in place - see
+//!   `stamp` below.
 //!
 //! Diagnostics split the way `docs/architecture.md` draws the line for a
 //! ported script, as [`crate::migrate`]'s do: every refusal the script
@@ -133,8 +133,7 @@ use std::process::Stdio;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use serde::Deserialize;
-use sha2::{Digest as _, Sha256};
-use xtask_workflow_guard::migrations_pending::migration_files;
+use xtask_workflow_guard::migrations_pending;
 
 use crate::launch_guard::{self, Mode};
 use crate::{
@@ -545,49 +544,20 @@ fn replace_id(text: &str, key: &str, id: &str) -> String {
     format!("{}{id}{}", &text[..start], &text[start + 36..])
 }
 
-/// The script's stamp pipeline - `cat migrations/*.sql` through
-/// `shasum -a 256` and `cut`, redirected into `migrations-applied` -
-/// over [`migration_files`]' reading of the glob.
+/// Writes [`migrations_pending::stamp`] into `migrations-applied`.
 ///
-/// The redirection truncated the stamp file before the pipeline ran, and
-/// `shasum` digested whatever `cat` delivered, so the file is written on
-/// every path - the empty digest of an unexpanded glob included - and
-/// only then does `pipefail` end the run.  A stamp that is never read
+/// The file is written on every path, emptied when the stamp cannot be
+/// computed, and only then does the run end: a stamp that is never read
 /// again beats one silently left describing the pre-wipe schema.
-///
-/// Ceiling: `cat` streams, so a file that failed mid-read still
-/// contributed its prefix there and contributes nothing here, and the
-/// diagnostics are this port's own.
 fn stamp(root: &Path) -> Result<()> {
-    let mut hasher = Sha256::new();
-    let mut delivered = true;
-    let files = migration_files(&root.join("migrations")).unwrap_or_else(|error| {
-        eprintln!("{error:#}");
-        delivered = false;
-        Vec::new()
-    });
-    // An unexpanded glob reached `cat` as the literal pattern, which is
-    // a file that does not exist.
-    delivered &= !files.is_empty();
-    for file in files {
-        match std::fs::read(&file) {
-            Ok(bytes) => hasher.update(bytes),
-            Err(error) => {
-                eprintln!("read {}: {error}", file.display());
-                delivered = false;
-            }
-        }
-    }
-
-    let digest = cabin_core::hash::hex_digest(&hasher.finalize());
+    let stamp = migrations_pending::stamp(root);
     let path = root.join("migrations-applied");
-    // `cut` ends its line, so the stamp file carries one.
-    std::fs::write(&path, format!("{digest}\n"))
-        .with_context(|| format!("write {}", path.display()))?;
-    if !delivered {
-        bail!("cat migrations/*.sql failed");
-    }
-    Ok(())
+    // `cut` ended its line, so the stamp file carries one.
+    let line = stamp
+        .as_ref()
+        .map_or_else(|_| String::new(), |stamp| format!("{stamp}\n"));
+    std::fs::write(&path, line).with_context(|| format!("write {}", path.display()))?;
+    stamp.map(drop)
 }
 
 /// One page of the R2 REST listing, read for its keys alone.
@@ -949,26 +919,17 @@ mod tests {
         std::fs::write(migrations.join("notes.txt"), b"notes").expect("a stray");
 
         stamp(root).expect("the stamp");
-        let mut hasher = Sha256::new();
-        hasher.update(b"onetwo");
         let stamped = || std::fs::read_to_string(root.join("migrations-applied")).expect("a stamp");
+        // `printf onetwo | shasum -a 256`.
         assert_eq!(
             stamped(),
-            format!("{}\n", cabin_core::hash::hex_digest(&hasher.finalize()))
+            "25b6746d5172ed6352966a013d93ac846e1110d5a25e8f183b5931f4688842a1\n"
         );
 
-        // An unexpanded glob: `cat` failed on the literal pattern, but
-        // the redirection had already truncated the file and `shasum`
-        // still digested the empty input it was handed.
+        // An empty selection has no stamp, and the pre-wipe one is gone.
         std::fs::remove_dir_all(&migrations).expect("an empty selection");
         std::fs::create_dir_all(&migrations).expect("the migrations directory");
-        stamp(root).expect_err("the pipeline failed");
-        assert_eq!(
-            stamped(),
-            format!(
-                "{}\n",
-                cabin_core::hash::hex_digest(&Sha256::new().finalize())
-            )
-        );
+        stamp(root).expect_err("nothing to stamp");
+        assert_eq!(stamped(), "");
     }
 }

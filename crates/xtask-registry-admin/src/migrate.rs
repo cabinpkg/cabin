@@ -41,19 +41,18 @@
 //!   and every refusal vacuous.
 //! - **`$(cat migrations-applied)` is a command substitution**, so it
 //!   drops NUL bytes and strips trailing newlines and nothing else - a
-//!   CRLF ending's `\r` survives into the comparison, as it does in
-//!   the deploy gate that reads the same file
-//!   ([`xtask_workflow_guard::migrations_pending`]).  Unlike that
-//!   gate's, this read is not inside an `if` condition, so a missing
-//!   stamp file ends the run under `set -e` instead of comparing as
-//!   empty.
+//!   CRLF ending's `\r` survives into the comparison.  The read is the
+//!   deploy gate's own [`migrations_pending::applied`].  A missing
+//!   stamp file ends the run, as it did under `set -e`: read as empty,
+//!   it would say every applied file was edited in place.
 //! - **`read -r` under default `IFS`** strips leading and trailing
 //!   spaces and tabs from the confirmation but keeps a trailing `\r`,
 //!   and returns non-zero at end of input - which `set -e` turned into
 //!   an exit, so an answer that is not newline-terminated never
 //!   reached the comparison at all.
-//! - **The migrations glob** is [`migration_files`], the deploy gate's
-//!   own rule, so the two readings of `migrations/*.sql` cannot drift.
+//! - **The migrations glob and digest** are the deploy gate's own
+//!   [`migration_files`] and [`digest`], so the two
+//!   readings of the stamp cannot drift.
 //!
 //! Diagnostics split the way `docs/architecture.md` draws the line for
 //! a ported script: every refusal the script itself wrote through
@@ -113,8 +112,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use sha2::{Digest as _, Sha256};
-use xtask_workflow_guard::migrations_pending::migration_files;
+use xtask_workflow_guard::migrations_pending::{self, digest, migration_files};
 
 use crate::launch_guard::Mode;
 use crate::{
@@ -193,7 +191,7 @@ fn remote() -> Result<()> {
     let stamp = digest(&files)?;
     or_fail(still_hashes_to_the_stamp(
         &applied_files,
-        &recorded_stamp(&root)?,
+        &migrations_pending::applied(&root)?,
     ));
 
     if pending.is_empty() {
@@ -387,46 +385,6 @@ fn confirmed(answer: &str) -> bool {
     answer.trim_matches([' ', '\t']) == "migrate"
 }
 
-/// The stamp file through `$(cat migrations-applied)`.  This one is
-/// not inside an `if` condition, so an unreadable stamp file ends the
-/// run rather than comparing as empty - which would read as "every
-/// applied file was edited in place".
-fn recorded_stamp(root: &Path) -> Result<Vec<u8>> {
-    let path = root.join("migrations-applied");
-    let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    Ok(substitute(bytes))
-}
-
-/// A command substitution's own reading of a file's bytes: NUL bytes
-/// dropped, trailing newlines stripped, everything else kept.
-fn substitute(mut bytes: Vec<u8>) -> Vec<u8> {
-    bytes.retain(|byte| *byte != 0);
-    while bytes.last() == Some(&b'\n') {
-        bytes.pop();
-    }
-    bytes
-}
-
-/// `cat <files> | shasum -a 256 | cut -d' ' -f1`, over the files in
-/// glob order.
-fn digest(files: &[PathBuf]) -> Result<String> {
-    if files.is_empty() {
-        bail!("no migrations match migrations/*.sql");
-    }
-    digest_of(files)
-}
-
-/// [`digest`] without the emptiness guard: the diagnostics bundle
-/// digests an empty tree to the empty-input digest so its stamp
-/// comparison still renders PENDING instead of aborting.
-pub(crate) fn digest_of(files: &[PathBuf]) -> Result<String> {
-    let mut hasher = Sha256::new();
-    for file in files {
-        hasher.update(std::fs::read(file).with_context(|| format!("read {}", file.display()))?);
-    }
-    Ok(cabin_core::hash::hex_digest(&hasher.finalize()))
-}
-
 /// `grep -qxF "$(basename "$file")" <<<"$applied"`: an exact
 /// whole-line match, on bytes rather than UTF-8 - the glob selects
 /// names that are not UTF-8 at all, and rendering one lossily here
@@ -599,35 +557,6 @@ one."
     }
 
     #[test]
-    fn the_digest_concatenates_in_glob_order() {
-        let temp = assert_fs::TempDir::new().expect("a scratch directory");
-        write(temp.path(), "0001_a.sql", b"one");
-        write(temp.path(), "0002_b.sql", b"two");
-        let files = migration_files(temp.path()).expect("the glob");
-        let mut hasher = Sha256::new();
-        hasher.update(b"onetwo");
-        assert_eq!(
-            digest(&files).expect("the digest"),
-            cabin_core::hash::hex_digest(&hasher.finalize())
-        );
-        // Reversing the order is a different digest, which is what the
-        // sort-order refusal protects.
-        let reversed: Vec<PathBuf> = files.iter().rev().cloned().collect();
-        assert_ne!(
-            digest(&reversed).expect("the digest"),
-            digest(&files).expect("the digest")
-        );
-    }
-
-    #[test]
-    fn an_empty_selection_has_no_digest() {
-        assert_eq!(
-            digest(&[]).expect_err("nothing to hash").to_string(),
-            "no migrations match migrations/*.sql"
-        );
-    }
-
-    #[test]
     fn a_pending_file_sorting_before_an_applied_one_refuses() {
         let applied = [PathBuf::from("migrations/0002_b.sql")];
         every_pending_sorts_after(&applied, &[PathBuf::from("migrations/0003_c.sql")])
@@ -689,14 +618,5 @@ ran. Name new migrations after every applied one."
                 .to_string(),
             "0002_b.sql is not recorded as applied after the apply; do not stamp"
         );
-    }
-
-    #[test]
-    fn the_recorded_stamp_reads_like_a_command_substitution() {
-        assert_eq!(substitute(b"abc\n\n\n".to_vec()), b"abc");
-        assert_eq!(substitute(b"ab\0c\n".to_vec()), b"abc");
-        // The `\r` of a CRLF ending survives into the comparison, so a
-        // stamp file with CRLF endings refuses rather than passing.
-        assert_eq!(substitute(b"abc\r\n".to_vec()), b"abc\r");
     }
 }

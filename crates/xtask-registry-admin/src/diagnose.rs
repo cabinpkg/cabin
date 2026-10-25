@@ -12,10 +12,10 @@
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
-// The `migrations/*.sql` glob rule lives with the deploy gate it feeds
-// (`xtask-workflow-guard`); reading the stamp through the same function
-// is what keeps this bundle's PENDING verdict aligned with the gate's.
-use xtask_workflow_guard::migrations_pending::migration_files;
+// The stamp lives with the deploy gate it feeds (`xtask-workflow-guard`);
+// asking the gate's own question is what keeps this bundle's PENDING
+// verdict aligned with the gate's.
+use xtask_workflow_guard::migrations_pending;
 
 use crate::{display, key_value, output, registry_dir, repo_root, results, step, wrangler};
 
@@ -71,7 +71,7 @@ pub fn run() -> Result<()> {
             "    CONFIG CHECK FAILED - run cargo check-deploy from the repository root for detail"
         );
     }
-    migrations_stamp()?;
+    migrations_stamp();
 
     step("service state (meta; docs/runbook.md \"Budget breaker and service mode\")");
     let state = output(&mut wrangler(&[
@@ -131,26 +131,18 @@ pub fn run() -> Result<()> {
 /// Whether the applied-migrations stamp still matches the migrations,
 /// which is what gates deploys (`registry.yml`, "Skip until changed D1
 /// migrations are applied by hand").
-fn migrations_stamp() -> Result<()> {
-    let registry = registry_dir();
-    let files = migration_files(&registry.join("migrations"))?;
-    let stamp = crate::migrate::digest_of(&files)?;
-
-    // An unreadable stamp file is a mismatch, not an abort: the shell
-    // compared against an empty command substitution and carried on
-    // reporting. `$(cat ...)` strips trailing newlines and nothing
-    // else, and `registry.yml`'s deploy gate compares the same way, so
-    // trimming any wider would claim "current" while deploys stay
-    // blocked.
-    let applied = registry.join("migrations-applied");
-    let recorded = std::fs::read_to_string(&applied).unwrap_or_default();
-    if stamp == recorded.trim_end_matches('\n') {
+fn migrations_stamp() {
+    // A read failure is PENDING, not an abort, exactly as the gate reads it.
+    let current = migrations_pending::current(&registry_dir()).unwrap_or_else(|error| {
+        eprintln!("{error:#}");
+        false
+    });
+    if current {
         println!("    migrations stamp: current (deploys unblocked)");
     } else {
         println!("    migrations stamp: PENDING - deploys stay skipped until");
         println!("    cargo registry-migrate --remote (or a wipe) lands and is committed");
     }
-    Ok(())
 }
 
 /// The governor's usage snapshot, which needs a token the operator may
