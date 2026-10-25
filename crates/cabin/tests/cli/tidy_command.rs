@@ -1,21 +1,10 @@
 use super::*;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 
 /// Sentinel that the bundled fake tidy recognizes: a source
 /// file whose contents contain this marker triggers a
 /// non-zero exit and a fake clang-tidy diagnostic on stderr.
 const FAIL_MARKER: &str = "// CABIN-TIDY-FAIL";
-
-/// Process-wide lock for tests that rely on
-/// `CABIN_FAKE_TIDY_RECORD`: env vars are process-global
-/// and cargo runs tests in parallel.
-fn tidy_record_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
 
 /// A stand-in compiler that exists on every host (the bundled fake
 /// ninja binary).  The tidy planner resolves a toolchain only to
@@ -71,7 +60,6 @@ fn normalize(s: &str) -> String {
 
 #[test]
 fn clean_project_tidies_successfully() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
@@ -88,7 +76,6 @@ fn clean_project_tidies_successfully() {
 /// those files; tidy must match its surface.
 #[test]
 fn tidy_analyses_test_and_example_sources() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -133,7 +120,6 @@ deps = ["demo"]
 
 #[test]
 fn tidy_skips_gated_target_but_errors_when_everything_is_gated() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -206,7 +192,6 @@ required-features = ["ssl"]
 
 #[test]
 fn compile_database_is_generated_at_profile_root() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
@@ -231,7 +216,6 @@ fn compile_database_is_generated_at_profile_root() {
 
 #[test]
 fn dash_p_is_the_compile_database_directory() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let record = dir.path().join("argv.log");
@@ -262,7 +246,6 @@ fn dash_p_is_the_compile_database_directory() {
 
 #[test]
 fn custom_build_dir_is_the_compile_database_directory() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let record = dir.path().join("argv.log");
@@ -286,7 +269,6 @@ fn custom_build_dir_is_the_compile_database_directory() {
 
 #[test]
 fn fix_flag_is_passed_to_tidy_driver() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let record = dir.path().join("argv.log");
@@ -313,7 +295,6 @@ fn fix_mode_clamps_jobs_to_one() {
     // in `--fix` mode; preserve the policy here.  Verbose
     // mode prints the override notice so the user can see
     // why their `--jobs 4` was dropped.
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let record = dir.path().join("argv.log");
@@ -342,7 +323,6 @@ fn fix_mode_clamps_jobs_to_one() {
 
 #[test]
 fn jobs_flag_is_passed_to_tidy_driver_in_check_mode() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let record = dir.path().join("argv.log");
@@ -405,11 +385,10 @@ fn no_files_succeeds_with_message() {
 
 #[test]
 fn fail_marker_causes_non_zero_exit_and_preserves_diagnostic() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
     dir.child("src/main.cc")
-        .write_str("// CABIN-TIDY-FAIL\nint main() {}\n")
+        .write_str(&format!("{FAIL_MARKER}\nint main() {{}}\n"))
         .unwrap();
 
     let assertion = cabin_with_fake_tidy()
@@ -417,7 +396,6 @@ fn fail_marker_causes_non_zero_exit_and_preserves_diagnostic() {
         .arg("tidy")
         .assert()
         .failure();
-    let _ = FAIL_MARKER;
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
         stderr.contains("fake-clang-tidy diagnostic"),
@@ -427,7 +405,6 @@ fn fail_marker_causes_non_zero_exit_and_preserves_diagnostic() {
 
 #[test]
 fn exclude_path_skips_named_file() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
@@ -459,7 +436,6 @@ fn exclude_path_skips_named_file() {
 
 #[test]
 fn repeated_exclude_accumulates() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
@@ -492,7 +468,6 @@ fn repeated_exclude_accumulates() {
 
 #[test]
 fn vcs_ignored_files_are_skipped_by_default() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
@@ -527,7 +502,6 @@ fn vcs_ignored_files_are_skipped_by_default() {
 
 #[test]
 fn no_ignore_vcs_includes_gitignored_files() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
@@ -562,7 +536,6 @@ fn no_ignore_vcs_includes_gitignored_files() {
 
 #[test]
 fn build_and_cache_directories_are_not_checked() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     // Drop fake artifacts under directories that source
@@ -608,7 +581,6 @@ fn build_and_cache_directories_are_not_checked() {
 
 #[test]
 fn custom_build_directory_is_not_checked() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     dir.child("out/dev/scratch.cc")
@@ -663,7 +635,6 @@ fn missing_tidy_produces_actionable_error() {
 
 #[test]
 fn cabin_tidy_env_override_routes_through_named_binary() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
@@ -690,7 +661,6 @@ fn clang_tidy_config_survives_unmodified_after_tidy() {
     // sources.  The integration here is the negative
     // assertion that Cabin does not interfere with
     // clang-tidy's own config story.
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let cfg_path = dir.path().join(".clang-tidy");
@@ -712,7 +682,6 @@ fn clang_tidy_config_survives_unmodified_after_tidy() {
 
 #[test]
 fn quiet_mode_suppresses_cabin_status_but_not_tidy_output() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
@@ -734,7 +703,6 @@ fn quiet_mode_suppresses_cabin_status_but_not_tidy_output() {
 
 #[test]
 fn verbose_mode_lists_selected_package_and_file_count() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
@@ -760,7 +728,6 @@ fn verbose_mode_lists_selected_package_and_file_count() {
 
 #[test]
 fn very_verbose_lists_command_line() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
@@ -786,7 +753,6 @@ fn very_verbose_lists_command_line() {
 
 #[test]
 fn nested_workspace_member_is_not_walked_from_outer_root() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -846,7 +812,6 @@ sources = ["src/main.cc"]
 
 #[test]
 fn unrelated_versioned_dependency_does_not_block_selected_package() {
-    let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
