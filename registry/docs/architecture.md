@@ -1396,10 +1396,11 @@ by itself.
 Every authenticated response carries the debug header
 `x-cabin-registry-generation` from `meta.registry_generation`, so a client
 talking to a freshly wiped (pre-launch) registry is immediately visible
-(see [`runbook.md`](runbook.md)) - except the trusted-publishing
-`DELETE`, whose 204 and kind-guard 401 both go unstamped on purpose:
-its refusal must stay header-identical to the unauthenticated 401, or
-the stamp becomes a token-validity oracle on that route.
+(see [`runbook.md`](runbook.md)) - except the trusted-publishing and
+session-token self-revocation `DELETE`s, whose 204 and kind-guard 401
+both go unstamped on purpose: the refusal must stay header-identical
+to the unauthenticated 401, or the stamp becomes a token-validity
+oracle on those routes.
 
 ## Why 503, not 402
 

@@ -931,7 +931,7 @@ pub struct ReconcileRequest {
 /// byte counts only ever grow); ledger entries the set does not name
 /// are reported (candidate orphans or leaked reservations), never
 /// released - a decrease needs proof the object is gone, which is the
-/// operator's explicit release (`docs/runbook.md`, "Governor ledger").
+/// operator's explicit release (`docs/runbook.md`, "The cost governor").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReconcileReport {
     /// Keys newly recorded as committed (ledger was missing them).
@@ -1027,7 +1027,7 @@ pub fn reconcile(
 /// Clears the primary-pool storage ledger and the daily fairness
 /// windows. The caller owns the guard: this is the pre-launch registry
 /// wipe's companion and must never run against a launched registry
-/// (`docs/runbook.md`, "Wipe procedure"). The `backup` and `dump`
+/// (`docs/runbook.md`, "Wipe procedure (pre-launch only)"). The `backup` and `dump`
 /// storage rows survive on purpose - the wipe never touches the BACKUP
 /// bucket, and their objects keep billing. The monthly `op_windows`
 /// survive too: they mirror R2 operations Cloudflare already metered

@@ -21,7 +21,7 @@ struct LiveBlobRecord {
 /// construction - the governor adds and settles, but a ledger entry D1
 /// does not name is only reported here (a candidate orphan or leaked
 /// reservation), and releasing it is the operator's explicit,
-/// evidence-backed action (`docs/runbook.md`, "Governor ledger").
+/// evidence-backed action (`docs/runbook.md`, "The cost governor").
 pub(super) async fn reconcile_governor(env: &Env, db: &D1Database) {
     // Operator visibility: one summary line per pass, so `wrangler
     // tail` shows the ledger next to the analytics-based evaluation.
@@ -63,7 +63,7 @@ pub(super) async fn reconcile_governor(env: &Env, db: &D1Database) {
             if !report.unreferenced.is_empty() || !report.mismatched.is_empty() {
                 console_error!(
                     "governor ledger divergence: {} unreferenced entr(ies), {} byte \
-                     mismatch(es); see docs/runbook.md, \"Governor ledger\"",
+                     mismatch(es); see docs/runbook.md, \"The cost governor\"",
                     report.unreferenced.len(),
                     report.mismatched.len()
                 );
@@ -294,7 +294,7 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     Ok(())
 }
 
-/// How many versions have sat `pending` for over an hour. The cutoff is
+/// How many revisions have sat `pending` for over an hour. The cutoff is
 /// rendered by `SQLite` in the same ISO 8601 shape `published_at` is
 /// stored in (`%fZ` gives the fractional seconds and the `Z` the JS
 /// clock writes), so the comparison stays lexicographic.
