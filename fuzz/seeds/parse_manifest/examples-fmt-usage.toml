@@ -1,0 +1,12 @@
+[package]
+name = "fmt-usage"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"cabin-ports/fmt" = "=12.2.0"
+
+[target.fmt-usage]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["cabin-ports/fmt"]

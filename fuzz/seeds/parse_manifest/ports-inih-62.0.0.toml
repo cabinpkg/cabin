@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/benhoyt/inih/archive/refs/tags/r62.tar.gz"
+checksum = "sha256:9c15fa751bb8093d042dae1b9f125eb45198c32c6704cd5481ccde460d4f8151"
+format = "tar.gz"
+strip-prefix = "inih-r62"
+[package]
+name = "cabin-ports/inih"
+version = "62.0.0"
+
+# inih's C core is a single translation unit: ini.c plus the ini.h
+# header at the archive root. The cpp/ directory's INIReader is a
+# separate, optional C++ convenience API and is intentionally not
+# built - consumers wanting it can vendor it. The library compiles
+# with a strict C compiler using its in-header defaults (INI_API
+# expands to nothing for static builds) and needs no defines or
+# extra link libraries.
+[target.inih]
+type = "library"
+sources = ["ini.c"]
+include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
+links = "inih"

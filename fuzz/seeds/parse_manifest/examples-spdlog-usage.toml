@@ -1,0 +1,12 @@
+[package]
+name = "spdlog-usage"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"cabin-ports/spdlog" = "=1.17.0"
+
+[target.spdlog-usage]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["cabin-ports/spdlog"]

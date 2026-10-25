@@ -1,0 +1,6 @@
+# cargo-fuzz needs nightly for the sanitizer flags; run it from this
+# directory so this file, not the root one, selects the toolchain.
+[toolchain]
+channel = "nightly-2026-08-21"
+profile = "minimal"
+components = ["clippy", "llvm-tools", "rustfmt"]

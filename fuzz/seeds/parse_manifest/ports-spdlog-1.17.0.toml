@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.tar.gz"
+checksum = "sha256:d8862955c6d74e5846b3f580b1605d2428b11d97a410d86e2fb13e857cd3a744"
+format = "tar.gz"
+strip-prefix = "spdlog-1.17.0"
+[package]
+name = "cabin-ports/spdlog"
+version = "1.17.0"
+
+# spdlog is consumed in its upstream-default header-only form. The
+# opt-in compiled variant (src/*.cpp with SPDLOG_COMPILED_LIB) is
+# intentionally not offered: it requires every consumer TU to see
+# the same SPDLOG_COMPILED_LIB define, and Cabin propagates include
+# dirs across dependency edges but not defines. The bundled {fmt}
+# copy under include/spdlog/fmt/bundled is used for the same reason
+# (external fmt needs SPDLOG_FMT_EXTERNAL in consumer TUs).
+[target.spdlog]
+type = "header-only"
+include-dirs = ["include"]
+# Upstream builds with C++11 by default and declares the header-only
+# interface accordingly so newer floors are not imposed on
+# consumers.
+interface-cxx-standard = "c++11"
+
+# Upstream links Threads::Threads INTERFACE on the header-only
+# target: spdlog's default sinks take std::mutex locks and the async
+# logger spawns std::thread workers. On Unix that is the pthread
+# library (folded into libc since glibc 2.34, where the extra
+# -lpthread is a harmless no-op); Windows uses Win32 primitives and
+# needs nothing.
+[target.'cfg(family = "unix")'.profile]
+link-libs = ["pthread"]

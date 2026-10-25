@@ -2626,6 +2626,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtask-fuzz"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "cabinpkg-core",
+ "cabinpkg-package",
+ "clap",
+ "flate2",
+ "tempfile",
+]
+
+[[package]]
 name = "xtask-port-publish"
 version = "0.17.0"
 dependencies = [

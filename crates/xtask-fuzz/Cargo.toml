@@ -1,0 +1,24 @@
+[package]
+name = "xtask-fuzz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: seed corpora for the fuzz targets in fuzz/"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation").
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+cabin-core = { workspace = true }
+cabin-package = { workspace = true }
+clap = { workspace = true }
+# Selects flate2's backend for the packager's zip writer, which the
+# workspace only unifies in when another member is built alongside.
+flate2 = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+# The dependency edge makes `netlib` available and enables its
+# `tls` feature.  Enabling a feature never links anything by
+# itself: the target below still names both libraries explicitly.
+[dependencies]
+netlib = { path = "../netlib", features = ["tls"] }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["netlib:net", "netlib:tls"]

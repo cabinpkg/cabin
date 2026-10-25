@@ -1,0 +1,12 @@
+[package]
+name = "tinyxml2-usage"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"cabin-ports/tinyxml2" = "=11.0.0"
+
+[target.tinyxml2-usage]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["cabin-ports/tinyxml2"]

@@ -1,0 +1,22 @@
+[package.upstream]
+url = "https://github.com/leethomason/tinyxml2/archive/refs/tags/11.0.0.tar.gz"
+checksum = "sha256:5556deb5081fb246ee92afae73efd943c889cef0cafea92b0b82422d6a18f289"
+format = "tar.gz"
+strip-prefix = "tinyxml2-11.0.0"
+[package]
+name = "cabin-ports/tinyxml2"
+version = "11.0.0"
+
+# tinyxml2 is a single C++ translation unit plus its header. The
+# repository's `xmltest.cpp` is the upstream test harness, not part
+# of the library, so it is intentionally not built. The library
+# compiles with a strict C++ compiler and needs no defines or extra
+# link libraries.
+[target.tinyxml2]
+type = "library"
+sources = ["tinyxml2.cpp"]
+include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c++17 is what this port has always compiled as.
+cxx-standard = "c++17"
+links = "tinyxml2"

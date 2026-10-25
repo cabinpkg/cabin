@@ -1,0 +1,14 @@
+[package]
+name = "library-and-app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.greet]
+type = "library"
+sources = ["src/greet.cc"]
+include-dirs = ["include"]
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["greet"]

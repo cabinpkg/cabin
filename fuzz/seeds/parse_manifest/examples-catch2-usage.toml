@@ -1,0 +1,19 @@
+[package]
+name = "catch2-usage"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+# Only the test target references Catch2, so `cabin build`
+# compiles nothing from it until `cabin test` needs it.
+[dependencies]
+"cabin-ports/catch2" = "=3.15.1"
+
+[target.calc]
+type = "library"
+sources = ["src/calc.cc"]
+include-dirs = ["include"]
+
+[target.calc_catch2]
+type = "test"
+sources = ["tests/calc_catch2.cc"]
+deps = ["calc", "cabin-ports/catch2"]
