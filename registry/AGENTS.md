@@ -67,6 +67,10 @@ From the repository root, the static guards no local gate runs for you
 (CI does): `cargo check-sql`,
 `cargo check-r2`, `cargo check-deploy` (CI runs the latter with
 `--require-bundle` against a built Worker, and also the publish-fixture
-conformance test — `README.md`, "Development"). For changes to dispatch,
-routing, or another end-to-end surface, also run the local smoke test:
+conformance test — `README.md`, "Development"). CI also model-checks the
+TLA+ lifecycle specification in `proofs/` (its `README.md` has the
+command and the action-to-code map); a change to the publish, revival,
+verdict, read-gate, or stored-bytes statements must keep it faithful.
+For changes to dispatch, routing, or another end-to-end surface, also
+run the local smoke test:
 `CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke`.

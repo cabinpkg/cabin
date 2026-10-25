@@ -820,6 +820,14 @@ the in-tree `cabin` binary and packages real fixture pairs, which the
 through the full server-side validation path, so the client's canonical
 output and the server's schema cannot silently drift.
 
+The concurrent lifecycle - publish, respin, verdict, rejection, revival,
+and the stored-bytes accounting across the preflight reads, the guarded
+D1 batches, and the separate R2 and ledger writes - is modeled in TLA+
+under [`proofs/`](../proofs/README.md), and CI model-checks the finite
+configurations recorded there (the `tlc` job in `registry.yml`). The
+model's README maps each action to the statement it abstracts and
+states what the check does and does not establish.
+
 ## Name fidelity
 
 **Threat model.** Scoped names already remove the classic registry

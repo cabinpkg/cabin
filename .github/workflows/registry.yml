@@ -111,7 +111,7 @@ jobs:
   # Every validation job feeds it: a conformance or proof failure must
   # block the merge, and with it the deploy the merged push performs.
   registry-build:
-    needs: [changes, registry-build-work, conformance, kani]
+    needs: [changes, registry-build-work, conformance, kani, tlc]
     if: always() && github.event_name != 'push'
     runs-on: ubuntu-slim
     steps:
@@ -137,6 +137,12 @@ jobs:
         uses: ./.github/actions/required-gate
         with:
           result: ${{ needs.kani.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.registry }}
+      - name: Fail unless tlc succeeded or the filter skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.tlc.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.registry }}
 
@@ -202,6 +208,37 @@ jobs:
 
       - name: Verify every proof harness
         run: cargo kani
+
+  # Model-checks the TLA+ specification of the publish/verification
+  # lifecycle (registry/proofs) with the pinned TLC release; the runner's
+  # default JDK runs it. An exhaustive check must finish: the timeout
+  # fails the job, never passes it.
+  tlc:
+    needs: changes
+    if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: registry/proofs
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the pinned TLA+ tools
+        run: curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --output tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+
+      - name: Verify the TLA+ tools digest
+        run: sha256sum --check tla2tools.jar.sha256
+
+      - name: Check the lifecycle model (respins and revivals)
+        run: java -XX:+UseParallelGC -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycle.cfg RegistryLifecycle.tla
+
+      - name: Check the lifecycle model (shared blob)
+        run: java -XX:+UseParallelGC -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycleShared.cfg RegistryLifecycle.tla
 
   # Ships the Worker on a registry-relevant main push. Validation ran
   # pre-merge (Merge Queue), so only the change gate runs here. No
