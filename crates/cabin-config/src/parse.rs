@@ -257,15 +257,10 @@ fn parsed_build_from_raw(raw: RawBuild) -> Result<ParsedBuild, ConfigParseError>
 /// the same final type so consumers downstream see one
 /// validated shape.
 fn parsed_build_jobs(value: i64) -> Result<cabin_core::BuildJobs, ConfigParseError> {
-    if value <= 0 {
-        return Err(ConfigParseError::InvalidBuildJobs {
-            value: value.to_string(),
-        });
-    }
-    let positive = u32::try_from(value).map_err(|_| ConfigParseError::InvalidBuildJobs {
+    let jobs = u32::try_from(value).map_err(|_| ConfigParseError::InvalidBuildJobs {
         value: value.to_string(),
     })?;
-    cabin_core::BuildJobs::new(positive).map_err(|_| ConfigParseError::InvalidBuildJobs {
+    cabin_core::BuildJobs::new(jobs).map_err(|_| ConfigParseError::InvalidBuildJobs {
         value: value.to_string(),
     })
 }

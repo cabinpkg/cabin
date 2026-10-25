@@ -505,8 +505,9 @@ fn display_chain(chain: &[String]) -> String {
 /// [`ProfileResolutionError::CustomMissingInherits`]).
 ///
 /// # Panics
-/// Panics if the inheritance walk somehow produces an empty chain, which cannot
-/// happen because the selected name is always pushed before the loop can break.
+/// Panics if the inheritance walk somehow produces an empty chain or a
+/// non-built-in root, which cannot happen because the selected name is always
+/// pushed before the loop can break and the loop only breaks at a built-in.
 /// The two `unreachable!` arms (a built-in with `inherits`, or a custom profile
 /// without it) are likewise excluded up front by `validate_definitions`.
 pub fn resolve_profile(
@@ -536,12 +537,6 @@ pub fn resolve_profile(
             match (cursor.as_builtin(), &def.inherits) {
                 (Some(_), None) => break,
                 (None, Some(parent)) => {
-                    if !definitions.contains_key(parent) && parent.as_builtin().is_none() {
-                        return Err(ProfileResolutionError::UnknownInheritedProfile {
-                            profile: cursor.as_str().to_owned(),
-                            parent: parent.as_str().to_owned(),
-                        });
-                    }
                     cursor = parent.clone();
                     continue;
                 }
@@ -568,12 +563,10 @@ pub fn resolve_profile(
     chain.reverse();
 
     let root_name = chain.first().expect("chain is non-empty after walk");
-    let builtin = root_name
+    let defaults = root_name
         .as_builtin()
-        .ok_or_else(|| ProfileResolutionError::UnknownProfile {
-            name: root_name.as_str().to_owned(),
-        })?;
-    let defaults = builtin.defaults();
+        .expect("the walk only stops at a built-in")
+        .defaults();
 
     let mut debug = defaults.debug;
     let mut opt_level = defaults.opt_level;
