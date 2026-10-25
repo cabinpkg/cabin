@@ -151,6 +151,20 @@ in the same change and follow the architecture document.
   or PR until the current PR has no blocking review findings, is green,
   squash-merged, and the local default branch is updated. Independent PRs may
   overlap in time only when they do not overlap in scope.
+- Before starting implementation and before opening or enqueueing a PR,
+  inspect all open PRs, including those in the merge queue, for potential
+  conflicts in files, behavior, interfaces, and dependencies. Account for
+  the latest default branch and queued PR order. Resolve or sequence
+  conflicting work rather than allowing incompatible changes to proceed.
+- Recheck affected open and queued PRs after relevant merges. For PRs under
+  your control, proactively resolve confirmed conflicts, rerun relevant
+  checks, and obtain a fresh review before re-enqueueing. Do not modify
+  PRs owned by other sessions or contributors without coordination.
+- Track the merge-queue outcome of PRs you manage. If a PR is removed
+  because of conflicts or failed checks, investigate and fix the cause
+  before retrying. Do not update queued branches solely because the
+  default branch advanced; the merge queue validates the combined result.
+  Never treat an enqueued PR as merged.
 - Before opening or updating a PR, run the relevant checks and report their
   results. Fix failures caused by the change.
 - Open a PR as one cohesive commit; its subject becomes the PR title. Once a
