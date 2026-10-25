@@ -25,17 +25,16 @@ pub(crate) fn expand_workspace_members(
     // to one entry.
     let mut included: BTreeSet<PathBuf> = BTreeSet::new();
     for pattern in members {
-        let dirs = expand_member_pattern(workspace_dir, pattern)?;
+        let mut dirs = expand_pattern(workspace_dir, pattern, "workspace.members")?;
+        dirs.retain(|dir| dir.join("cabin.toml").is_file());
+        if dirs.is_empty() {
+            return Err(WorkspaceError::WorkspaceMemberMissing {
+                pattern: pattern.clone(),
+                root: workspace_dir.to_path_buf(),
+            });
+        }
         for dir in dirs {
-            let manifest = dir.join("cabin.toml");
-            if !manifest.is_file() {
-                return Err(WorkspaceError::WorkspaceMemberMissing {
-                    pattern: pattern.clone(),
-                    root: workspace_dir.to_path_buf(),
-                });
-            }
-            let canonical_dir = canonicalize(&dir)?;
-            included.insert(canonical_dir);
+            included.insert(canonicalize(&dir)?);
         }
     }
 
@@ -48,12 +47,7 @@ pub(crate) fn expand_workspace_members(
     let mut excluded: BTreeSet<PathBuf> = BTreeSet::new();
     let canonical_root = canonicalize(workspace_dir)?;
     for pattern in exclude {
-        if pattern.is_empty() {
-            return Err(WorkspaceError::UnsupportedWorkspacePattern {
-                pattern: pattern.clone(),
-            });
-        }
-        let dirs = expand_exclude_pattern(workspace_dir, pattern)?;
+        let dirs = expand_pattern(workspace_dir, pattern, "workspace.exclude")?;
         let mut hit_any = false;
         for dir in dirs {
             // We only canonicalize existing dirs; missing exclude
@@ -257,86 +251,29 @@ pub(super) fn validate_workspace_pattern(
     Ok(())
 }
 
-/// Resolve a `[workspace.members]` pattern to a list of directories
-/// containing `cabin.toml`.  The supported syntaxes are:
+/// Resolve a `[workspace.members]` or `[workspace.exclude]` pattern
+/// to a sorted list of candidate paths.  The supported syntaxes are:
 ///
 /// - exact relative path (`tools/hello`)
 /// - single-`*` glob in the final component (`packages/*`)
-pub(super) fn expand_member_pattern(
+///
+/// A glob whose prefix directory is missing expands to nothing
+/// because exclude is lenient: an exclude pattern may legitimately
+/// match directories that do not contain a `cabin.toml`.  The caller
+/// requires each member pattern to hit a manifest and each exclude
+/// pattern to hit at least one declared member.
+fn expand_pattern(
     workspace_dir: &Path,
     pattern: &str,
+    field: &'static str,
 ) -> Result<Vec<PathBuf>, WorkspaceError> {
-    validate_workspace_pattern("workspace.members", pattern)?;
-
-    if !pattern.contains('*') {
-        let dir = workspace_dir.join(pattern);
-        return Ok(vec![dir]);
-    }
-
-    // Single trailing `/*` only.
-    let Some(trimmed) = pattern.strip_suffix("/*") else {
-        return Err(WorkspaceError::UnsupportedWorkspacePattern {
-            pattern: pattern.to_owned(),
-        });
-    };
-    if trimmed.contains('*') {
-        return Err(WorkspaceError::UnsupportedWorkspacePattern {
-            pattern: pattern.to_owned(),
-        });
-    }
-
-    let prefix_dir = if trimmed.is_empty() {
-        workspace_dir.to_path_buf()
-    } else {
-        workspace_dir.join(trimmed)
-    };
-    if !prefix_dir.is_dir() {
-        return Err(WorkspaceError::WorkspaceMemberMissing {
-            pattern: pattern.to_owned(),
-            root: workspace_dir.to_path_buf(),
-        });
-    }
-
-    let entries = std::fs::read_dir(&prefix_dir).map_err(|source| WorkspaceError::Io {
-        path: prefix_dir.clone(),
-        source,
-    })?;
-    let mut out = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|source| WorkspaceError::Io {
-            path: prefix_dir.clone(),
-            source,
-        })?;
-        let path = entry.path();
-        if path.is_dir() && path.join("cabin.toml").is_file() {
-            out.push(path);
-        }
-    }
-    if out.is_empty() {
-        return Err(WorkspaceError::WorkspaceMemberMissing {
-            pattern: pattern.to_owned(),
-            root: workspace_dir.to_path_buf(),
-        });
-    }
-    out.sort();
-    Ok(out)
-}
-
-/// Resolve a `[workspace.exclude]` pattern.  Same grammar as
-/// `expand_member_pattern`, but more lenient about empty matches:
-/// The pattern may legitimately match directories that do not
-/// contain a `cabin.toml`.  The caller validates that the overall
-/// pattern hit at least one declared member.
-pub(super) fn expand_exclude_pattern(
-    workspace_dir: &Path,
-    pattern: &str,
-) -> Result<Vec<PathBuf>, WorkspaceError> {
-    validate_workspace_pattern("workspace.exclude", pattern)?;
+    validate_workspace_pattern(field, pattern)?;
 
     if !pattern.contains('*') {
         return Ok(vec![workspace_dir.join(pattern)]);
     }
 
+    // Single trailing `/*` only.
     let Some(trimmed) = pattern.strip_suffix("/*") else {
         return Err(WorkspaceError::UnsupportedWorkspacePattern {
             pattern: pattern.to_owned(),
