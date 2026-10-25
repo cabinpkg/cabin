@@ -21,7 +21,7 @@
         "@fontsource-variable/cabin": "^5.3.0",
         "@fontsource/ibm-plex-mono": "^5.3.0",
         "@github/combobox-nav": "^3.0.2",
-        "@lucide/astro": "^1.57.0",
+        "@lucide/astro": "^1.59.0",
         "fuse.js": "^7.5.0",
         "katex": "^0.19.1",
         "markdown-it": "^15.0.3",
@@ -32,20 +32,20 @@
     },
     "devDependencies": {
         "@astrojs/check": "^0.9.10",
-        "@astrojs/markdown-remark": "^7.3.2",
+        "@astrojs/markdown-remark": "^7.3.3",
         "@astrojs/sitemap": "^3.7.4",
         "@biomejs/biome": "2.5.15",
         "@tailwindcss/typography": "^0.5.20",
         "@tailwindcss/vite": "^4.3.3",
         "@types/node": "26.6.5",
         "@types/semver": "^7.8.0",
-        "astro": "^7.3.8",
+        "astro": "^7.4.0",
         "parse5": "^8.0.1",
         "rehype-autolink-headings": "^7.1.0",
         "rehype-slug": "^6.0.0",
         "tailwindcss": "4.3.3",
         "typescript": "^6.0.3",
-        "wrangler": "^4.151.0"
+        "wrangler": "^4.151.1"
     },
     "packageManager": "npm@11.17.0"
 }
