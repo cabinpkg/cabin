@@ -124,7 +124,9 @@ pub struct StagedPackage {
 /// ([`validate::load_and_validate_with_project`]), source-tree
 /// enumeration ([`archive::collect_package_files`],
 /// [`archive::ensure_manifest_included`]), and archive construction
-/// ([`archive::build_zip`]).  When the on-disk manifest carries
+/// ([`archive::build_zip`]), and returns
+/// [`PackageError::SourceMissing`] for a target source the archive
+/// would not contain.  When the on-disk manifest carries
 /// `{ workspace = true }` markers - standard fields or dependency
 /// entries - rewriting them into the resolved literals yields
 /// [`PackageError::Io`] if the manifest cannot be re-read,
@@ -153,6 +155,7 @@ pub fn stage_with_project(
     let files =
         archive::collect_package_files(&validated.package_root, staging_exclude.as_deref())?;
     archive::ensure_manifest_included(&files)?;
+    ensure_declared_sources_included(&validated.package, &files)?;
     ensure_declared_patches_included(&validated.package, &files)?;
 
     let manifest_substitute = resolve_manifest_substitute(&validated, workspace_dep_requirements)?;
@@ -170,6 +173,31 @@ pub fn stage_with_project(
         metadata,
         package: validated.package,
     })
+}
+
+/// A target's declared source the walk did not collect - absent, or
+/// under a directory packaging skips, such as `build/`, where it still
+/// builds from the source tree - could only ever reach the registry's
+/// verifier as a `missing_source` rejection, so it fails here instead.
+fn ensure_declared_sources_included(
+    package: &cabin_core::Package,
+    files: &[archive::PackageFile],
+) -> Result<(), PackageError> {
+    for target in &package.targets {
+        for source in &target.sources {
+            let entry = archive::source_entry(source);
+            if !files
+                .iter()
+                .any(|file| entry.as_deref() == Some(file.rel_path.as_str()))
+            {
+                return Err(PackageError::SourceMissing {
+                    target: target.name.to_string(),
+                    path: source.to_string(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A `[package.upstream]` `patches` entry names a file inside the
@@ -523,6 +551,45 @@ fmt = { workspace = true, features = ["color"] }
             dir.child("patches/0001-fix.patch")
                 .write_str("--- a/src/lib.cc\n+++ b/src/lib.cc\n@@ -1,1 +1,1 @@\n-x\n+y\n")
                 .unwrap();
+        }
+    }
+
+    #[test]
+    fn staging_requires_declared_sources_in_the_archive() {
+        // `build/` exists on disk, so its source builds locally, but the
+        // walk skips it; a `./` spelling names the archived file.
+        for (standard, ext) in [
+            ("c-standard = \"c17\"", "c"),
+            ("cxx-standard = \"c++17\"", "cc"),
+        ] {
+            let dir = TempDir::new().unwrap();
+            for source in [format!("build/gen.{ext}"), format!("src/lib.{ext}")] {
+                dir.child(source)
+                    .write_str("int demo(void) { return 0; }\n")
+                    .unwrap();
+            }
+            let stage = |source: &str| {
+                dir.child("cabin.toml")
+                    .write_str(&format!(
+                        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n{standard}\n\n\
+                         [target.demo]\ntype = \"library\"\nsources = [\"{source}\"]\n"
+                    ))
+                    .unwrap();
+                stage_with_project(
+                    &dir.path().join("cabin.toml"),
+                    None,
+                    None,
+                    &cabin_core::WorkspaceDepRequirements::default(),
+                )
+            };
+            stage(&format!("./src/lib.{ext}")).expect("an archived source stages");
+            match stage(&format!("build/gen.{ext}")) {
+                Err(PackageError::SourceMissing { target, path }) => {
+                    assert_eq!(target, "demo");
+                    assert_eq!(path, format!("build/gen.{ext}"));
+                }
+                other => panic!("expected SourceMissing, got {other:?}"),
+            }
         }
     }
 

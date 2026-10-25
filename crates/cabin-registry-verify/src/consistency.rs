@@ -24,8 +24,6 @@
 //! it, so an archive whose manifest carries a bare dependency key can
 //! only ever reject as `dependency_mismatch`.
 
-use camino::Utf8Path;
-
 use cabin_package::metadata::canonical_metadata;
 
 use crate::scan::Contents;
@@ -80,7 +78,7 @@ pub(crate) fn check(
     // sources (the parser enforces it), so they check nothing.
     for target in &package.targets {
         for source in &target.sources {
-            match archive_path(source) {
+            match cabin_package::archive::source_entry(source) {
                 Some(path) if files.contains_key(&path) => {}
                 // A source path that does not reduce to a plain
                 // relative path cannot name an archive entry;
@@ -150,37 +148,6 @@ const CHECK_ORDER: &[&str] = &[
     "checksum",
 ];
 
-/// Reduce a manifest source path to the forward-slash relative form
-/// the scan records for archive entries.  The scan's paths are fully
-/// normalized (no `.` or `..` - `classify_path` rejects them), so a
-/// manifest source must be normalized the same way to compare: `.`
-/// dropped, and an internal `..` resolved against the preceding
-/// component (`src/../main.cc` -> `main.cc`).  `cabin package`
-/// accepts such a source and archives the resolved file, so the
-/// verifier must not read it as absent.  Returns `None` only for a
-/// path that cannot name a safe archive entry (a root, a prefix, or
-/// a `..` that escapes) - `validate_publishable` already rejects
-/// those, so the caller treats `None` as "absent".
-fn archive_path(source: &Utf8Path) -> Option<String> {
-    use camino::Utf8Component;
-    let mut parts: Vec<&str> = Vec::new();
-    for component in source.components() {
-        match component {
-            Utf8Component::Normal(name) => parts.push(name),
-            Utf8Component::CurDir => {}
-            // Within-root is guaranteed upstream, so an internal
-            // `..` always has a component to cancel; a `..` with
-            // nothing to pop would escape and cannot name an entry.
-            Utf8Component::ParentDir if parts.pop().is_some() => {}
-            _ => return None,
-        }
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    Some(parts.join("/"))
-}
-
 fn field_reason(key: &str) -> Reason {
     match key {
         "name" => Reason::NameMismatch,
@@ -220,30 +187,6 @@ mod tests {
             "links",
         ] {
             assert_eq!(field_reason(key), Reason::MetadataMismatch, "key: {key}");
-        }
-    }
-
-    #[test]
-    fn archive_path_normalizes_like_the_scan() {
-        for (source, expected) in [
-            ("src/main.cc", Some("src/main.cc")),
-            ("./src/main.cc", Some("src/main.cc")),
-            ("src/./main.cc", Some("src/main.cc")),
-            // Internal `..` resolves - `cabin package` accepts and
-            // archives the resolved file.
-            ("src/../main.cc", Some("main.cc")),
-            ("a/b/../c.cc", Some("a/c.cc")),
-            ("main.cc", Some("main.cc")),
-            // Cannot name a safe archive entry (upstream rejects
-            // these anyway).
-            ("../escape.cc", None),
-            (".", None),
-        ] {
-            assert_eq!(
-                archive_path(Utf8Path::new(source)).as_deref(),
-                expected,
-                "source: {source}"
-            );
         }
     }
 }
