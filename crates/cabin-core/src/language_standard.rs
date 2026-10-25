@@ -995,7 +995,7 @@ pub fn imposes_requirement(
 
 /// Token prefixes that select a language standard inside an
 /// escape-hatch flag list.
-pub const STANDARD_FLAG_PREFIXES: [&str; 3] = ["-std=", "--std=", "/std:"];
+const STANDARD_FLAG_PREFIXES: [&str; 3] = ["-std=", "--std=", "/std:"];
 
 /// A first-class standard declaration conflicting with an explicit
 /// standard flag in the same package's manifest-derived flags.

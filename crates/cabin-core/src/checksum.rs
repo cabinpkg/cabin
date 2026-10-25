@@ -85,20 +85,6 @@ impl Checksum {
         crate::hash::hash_reader(reader).map(|hex| Self::from_hex(&hex))
     }
 
-    /// Stream `reader` into `writer` while hashing the bytes in the
-    /// same pass (the shared [`crate::hash::hash_copy`] primitive),
-    /// so a torn copy surfaces as a checksum mismatch.
-    ///
-    /// # Errors
-    /// Returns the first non-interrupted [`std::io::Error`] from
-    /// reading `reader` or writing `writer`.
-    pub fn of_copy<R: std::io::Read, W: std::io::Write>(
-        reader: R,
-        writer: W,
-    ) -> std::io::Result<Self> {
-        crate::hash::hash_copy(reader, writer).map(|hex| Self::from_hex(&hex))
-    }
-
     /// Wrap a digest freshly rendered by [`crate::hash`], which only
     /// produces 64 lowercase hex characters.
     fn from_hex(hex: &str) -> Self {
@@ -216,11 +202,6 @@ mod tests {
             "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         );
         assert_eq!(Checksum::of_reader(Cursor::new(b"abc")).unwrap(), expected);
-
-        let mut copied = Vec::new();
-        let copy = Checksum::of_copy(Cursor::new(b"abc"), &mut copied).unwrap();
-        assert_eq!(copy, expected);
-        assert_eq!(copied, b"abc");
     }
 
     #[test]
@@ -230,10 +211,6 @@ mod tests {
         assert!(crate::registry::is_valid_packaging_revision(
             parsed.revision_id()
         ));
-        assert_eq!(
-            Some(parsed.revision_id()),
-            crate::registry::packaging_revision_from_sha256_hex(parsed.hex()),
-        );
     }
 
     #[test]

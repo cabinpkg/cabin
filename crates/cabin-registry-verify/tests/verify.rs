@@ -301,12 +301,11 @@ fn hand_pending(dir: &TempDir, entries: &[Entry], manifest: &str) -> (PathBuf, P
 }
 
 /// The revision id the registry records beside a checksum: its
-/// leading hex prefix, derived through the same helper the registry
-/// and the client use.
+/// leading 16 hex characters.  Deliberately not
+/// `Checksum::revision_id`, the method `inspect` checks against, so a
+/// regression there cannot hide behind a matching fixture.
 fn revision_of(checksum_hex: &str) -> String {
-    cabin_core::registry::packaging_revision_from_sha256_hex(checksum_hex)
-        .expect("test checksums are sha256 hex")
-        .to_owned()
+    checksum_hex[..16].to_owned()
 }
 
 fn assert_rejected(archive: &std::path::Path, pending: &PendingVersion, reason: Reason) {

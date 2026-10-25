@@ -587,13 +587,6 @@ impl<'de> Deserialize<'de> for UpstreamProvenance {
     }
 }
 
-impl<'de> Deserialize<'de> for UpstreamCopy {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = RawCopy::deserialize(deserializer)?;
-        Self::new(raw.from, raw.to).map_err(D::Error::custom)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
