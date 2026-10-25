@@ -1,24 +1,15 @@
-//! The session-authenticated surface, `registry/scripts/smoke.sh`
-//! L806-996: the logout CSRF pair, the claim flow end to end against
-//! the GitHub mock, membership management, the owner gate's
-//! byte-identical 403, and the generation header - plus the
-//! claim-initiation fetch-metadata gate, which postdates the shell and
-//! so carries no `L` anchor.  (The shell's token create round-trip
-//! died with the legacy token plane.)
+//! The session-authenticated surface: the logout CSRF pair, the claim
+//! flow end to end against the GitHub mock, membership management, the
+//! owner gate's byte-identical 403, and the generation header - plus
+//! the claim-initiation fetch-metadata gate.
 //!
 //! Every request here rides the session cookie the session leg minted,
-//! so the cookie arrives as a parameter rather than being re-derived -
-//! the shell had restored `$session_cookie` to the real one at L796,
-//! and this span never swaps it again.
+//! so the cookie arrives as a parameter rather than being re-derived.
 //!
-//! The buffer subtleties the checks depend on are spelled out at the
-//! sites the shell spelled them: the owner gate copies the first 403
-//! body before the second request overwrites it, and L994 redirects the
-//! *header* block into `$body`.  One shell detail is deliberately not
-//! reproduced: `session_request` carried no `-D`, so it left the header
-//! block alone, where the port writes both buffers.  Nothing between
-//! L806 and L1169 reads a header block a `session_request` would have
-//! clobbered, so the two are indistinguishable here.
+//! The buffer subtleties the checks depend on are spelled out at their
+//! sites: the owner gate copies the first 403 body before the second
+//! request overwrites it, and the generation-header check lands the
+//! *header* block in the body buffer.
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
@@ -29,16 +20,16 @@ use crate::legs::session::{csrf_headers, session_request};
 use crate::step;
 use crate::text::{capture, contains, first_line, grep_lines, status_line_is, strip_name, text};
 
-/// L907-908: the claim's frozen proof, read straight out of the local
+/// The claim's frozen proof, read straight out of the local
 /// database because no route exposes it.
 const PROOF_QUERY: &str =
     "SELECT proof_provider, proof_account_id FROM scopes WHERE name = 'smoke'";
 
-/// The whole span, in the shell's order.
+/// The whole span.
 ///
 /// # Errors
 ///
-/// The first failed check, worded as the shell's `fail` worded it.
+/// The first failed check.
 pub fn run(smoke: &mut Smoke, session_cookie: &str, github_port: u16) -> Result<()> {
     logout(smoke, session_cookie)?;
     claim_initiation_intent(smoke)?;
@@ -55,7 +46,6 @@ pub fn run(smoke: &mut Smoke, session_cookie: &str, github_port: u16) -> Result<
     generation_header(smoke)
 }
 
-/// L829-840.
 fn logout(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     step("logout requires the csrf pair and clears the session cookie");
     session_request(smoke, cookie, "POST", "/api/v1/user/logout", 403, &[], None)?;
@@ -79,10 +69,9 @@ fn logout(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     Ok(())
 }
 
-/// The fetch-metadata gate on claim initiation, which has no shell
-/// ancestor: `smoke.sh` predates it.  A refusal must seal nothing - a
-/// sealed cookie would leave `/callback/claim` reachable with a state
-/// the victim's browser is carrying.
+/// The fetch-metadata gate on claim initiation.  A refusal must seal
+/// nothing - a sealed cookie would leave `/callback/claim` reachable
+/// with a state the victim's browser is carrying.
 fn claim_initiation_intent(smoke: &mut Smoke) -> Result<()> {
     step("starting a claim needs a same-origin or user-typed navigation");
     for site in ["cross-site", "same-site"] {
@@ -120,14 +109,13 @@ fn refuse_claim_start(smoke: &mut Smoke, headers: &[(String, String)], what: &st
     Ok(())
 }
 
-/// L883-894.
 fn claim_cookie_scope(smoke: &mut Smoke) -> Result<()> {
     step("the claim-state cookie is scoped to the claim callback");
     let url = smoke.url(Base::Web, "/claim/smoke");
     smoke.http("GET", &url, &user_initiated(), None)?;
     let block = text(&smoke.headers).into_owned();
-    // `$(grep ... || true)`: the capture keeps each line's trailing CR,
-    // which every diagnostic below carries.
+    // The capture keeps each line's trailing CR, which every
+    // diagnostic below carries.
     let line = grep_lines(&block, "set-cookie: cabin_claim_state=").join("\n");
     if line.is_empty() {
         bail!(
@@ -146,10 +134,9 @@ fn claim_cookie_scope(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// L896-902.  With the drift toggle on, `/users/smoke` names account
-/// 999 while the authenticated `/user` is account 0; 'smoke' is still
-/// unclaimed, so the id-equality binding is the only thing refusing
-/// here.
+/// With the drift toggle on, `/users/smoke` names account 999 while the
+/// authenticated `/user` is account 0; 'smoke' is still unclaimed, so
+/// the id-equality binding is the only thing refusing here.
 fn drifted_self_claim(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     step("a self-claim is refused when /users/<scope> is another account");
     drift(smoke, github_port, "on")?;
@@ -157,8 +144,8 @@ fn drifted_self_claim(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     drift(smoke, github_port, "off")
 }
 
-/// L904-915.  The mock `/user` answers login 'Smoke'; the grant
-/// compares it lowercased.
+/// The mock `/user` answers login 'Smoke'; the grant compares it
+/// lowercased.
 fn self_claim(smoke: &mut Smoke) -> Result<()> {
     step("a self-claim grants the scope, frozen to the account's numeric id");
     claim_scope(smoke, "smoke", "granted")?;
@@ -174,7 +161,7 @@ fn self_claim(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// L917-924.  A plain member, a membership naming a different user than
+/// A plain member, a membership naming a different user than
 /// the authenticated one, and a membership naming a different
 /// organization than `/users/<scope>` resolves must all refuse.
 fn org_claims(smoke: &mut Smoke) -> Result<()> {
@@ -185,21 +172,19 @@ fn org_claims(smoke: &mut Smoke) -> Result<()> {
     claim_scope(smoke, "swaporg", "denied")
 }
 
-/// L926-934.  Both are fully grantable in the mock (like statedrift),
-/// so nothing but the name-fidelity checks can be what refused them.
+/// Both are fully grantable in the mock (like statedrift), so nothing
+/// but the name-fidelity checks can be what refused them.
 fn reserved_scopes(smoke: &mut Smoke) -> Result<()> {
     step("reserved and skeleton-confusable scopes refuse uniformly");
     claim_scope(smoke, "core", "denied")?;
     claim_scope(smoke, "sm0keorg", "denied")
 }
 
-/// L936-937.
 fn permanent_claims(smoke: &mut Smoke) -> Result<()> {
     step("claims are permanent: a re-claim refuses even the owning account");
     claim_scope(smoke, "smoke", "denied")
 }
 
-/// L939-953.
 fn unmatched_state(smoke: &mut Smoke) -> Result<()> {
     step("a claim callback without a valid matching state is refused");
     let url = smoke.url(Base::Web, "/callback/claim");
@@ -233,7 +218,6 @@ fn unmatched_state(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// L956-979.
 fn members(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     step("scope owners list, add, and remove members");
     let list = "/api/v1/user/scopes/smoke/members";
@@ -297,7 +281,6 @@ fn members(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     smoke.expect_body(r#""changed":false"#)
 }
 
-/// L981-983.
 fn last_owner(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     step("the last owner cannot be removed");
     let path = "/api/v1/user/scopes/smoke/members/0/remove";
@@ -305,15 +288,13 @@ fn last_owner(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     smoke.expect_body("last owner")
 }
 
-/// L985-991.
 fn owner_gate(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     step("the owner gate is one uniform 403 for foreign and unclaimed scopes");
     let foreign = "/api/v1/user/scopes/foreign/members";
     session_request(smoke, cookie, "GET", foreign, 403, &[], None)?;
     smoke.expect_body("not an owner")?;
-    // `cp "$body" "$mock_dir/owner-403.json"`: the copy is taken before
-    // the next request overwrites the buffer, and the comparison is
-    // `cmp -s` - byte identity, never parsed equality.
+    // The copy is taken before the next request overwrites the buffer,
+    // and the comparison is byte identity, never parsed equality.
     let expected = smoke.body.clone();
     session_request(
         smoke,
@@ -333,14 +314,13 @@ fn owner_gate(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     Ok(())
 }
 
-/// L993-996.
 fn generation_header(smoke: &mut Smoke) -> Result<()> {
     step("authenticated responses carry the generation header");
     let url = smoke.url(Base::Registry, "/config.json");
     let auth = smoke.auth.clone();
-    // `-o /dev/null -D "$body"`: the header block lands in the *body*
-    // buffer, which is what the assertion reads, and the header buffer
-    // keeps what the last `-D "$headers"` request left in it.
+    // The header block lands in the *body* buffer, which is what the
+    // assertion reads, and the header buffer keeps what the previous
+    // request left in it.
     let stale = std::mem::take(&mut smoke.headers);
     smoke.http("GET", &url, &auth, None)?;
     smoke.body = std::mem::replace(&mut smoke.headers, stale);
@@ -350,11 +330,11 @@ fn generation_header(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-/// `claim_scope <scope> <granted|denied>` (L847-881): drive the claim
-/// flow - initiate, capture the sealed state cookie and the authorize
-/// redirect's state, then complete the callback (the mock exchanges any
-/// code).  Neither hop follows the redirect: the 302 *is* the subject,
-/// and the next request is made by hand from what it carried.
+/// Drive the claim flow to `granted` or `denied` - initiate, capture
+/// the sealed state cookie and the authorize redirect's state, then
+/// complete the callback (the mock exchanges any code).  Neither hop
+/// follows the redirect: the 302 *is* the subject, and the next request
+/// is made by hand from what it carried.
 fn claim_scope(smoke: &mut Smoke, scope: &str, expected: &str) -> Result<()> {
     let url = smoke.url(Base::Web, &format!("/claim/{scope}"));
     smoke.http("GET", &url, &user_initiated(), None)?;
@@ -411,9 +391,8 @@ fn claim_scope(smoke: &mut Smoke, scope: &str, expected: &str) -> Result<()> {
     Ok(())
 }
 
-/// The GitHub mock's drift toggle (L900, L902), which is neither dev
-/// role and so takes its address rather than a base.  `curl -f` had no
-/// message of its own: the shell exited on curl's status.
+/// The GitHub mock's drift toggle, which is neither dev role and so
+/// takes its address rather than a base.
 fn drift(smoke: &mut Smoke, github_port: u16, state: &str) -> Result<()> {
     let url = format!("http://127.0.0.1:{github_port}/__drift/{state}");
     let status = smoke.http("POST", &url, &[], None)?;
@@ -450,18 +429,14 @@ fn refuses(block: &str) -> bool {
     !grep_lines(block, "location: /dashboard/?claim=denied").is_empty()
 }
 
-/// The `location` value as
-/// `grep -i '^location: ' | sed 's/^[^:]*: //' | tr -d '\r'` produced
-/// it: every matching line, so a duplicated header can never equal the
-/// single expected value.
+/// The `location` value with CRs dropped: every matching line, so a
+/// duplicated header can never equal the single expected value.
 pub(crate) fn location_value(block: &str) -> String {
     joined(grep_lines(block, "location: ").into_iter().map(strip_name))
 }
 
-/// The claim-state cookie's value as
-/// `grep -i '^set-cookie: cabin_claim_state=' | sed
-/// 's/^[^:]*: cabin_claim_state=\([^;]*\);.*/\1/' | tr -d '\r'`
-/// produced it.
+/// The claim-state cookie's value from every matching line, CRs
+/// dropped.
 fn claim_state_value(block: &str) -> String {
     joined(
         grep_lines(block, "set-cookie: cabin_claim_state=")
@@ -470,8 +445,8 @@ fn claim_state_value(block: &str) -> String {
     )
 }
 
-/// `| tr -d '\r'` over a multi-line capture: the lines join with a
-/// newline first, exactly as the command substitution saw them.
+/// CRs dropped from a multi-line capture: the lines join with a
+/// newline first.
 fn joined<'a>(lines: impl Iterator<Item = &'a str>) -> String {
     lines.collect::<Vec<_>>().join("\n").replace('\r', "")
 }

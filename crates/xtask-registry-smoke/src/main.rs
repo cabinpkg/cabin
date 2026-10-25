@@ -13,10 +13,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            // The shell's `fail`: `FAIL: <msg>` on stderr, exit 1 -
-            // never the `error:` shape the other xtask binaries use,
-            // because the prefix is observable output the original
-            // defined.
+            // `FAIL: <msg>` on stderr, exit 1.
             eprintln!("FAIL: {err:#}");
             ExitCode::FAILURE
         }

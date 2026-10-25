@@ -1,18 +1,15 @@
 //! The request plumbing the whole run shares: the two dev bases, the
 //! credential state, and the two response buffers.
 //!
-//! The shell kept `$body` and `$headers` as two temporary files that
-//! nearly every request overwrote, and several assertions read a buffer
-//! an *earlier* request wrote (`L994` even redirects the header block
-//! into `$body`).  They are modeled here as two fields on one value,
-//! written at exactly the points the shell wrote them; no method
-//! returns a response, because a per-request response object would
-//! quietly fix the staleness the checks depend on.
+//! The two buffers are fields on one value that nearly every request
+//! overwrites, and several assertions read a buffer an *earlier*
+//! request wrote.  No method returns a response, because a per-request
+//! response object would quietly fix the staleness the checks depend
+//! on.
 //!
-//! `curl_args` - the shell's one mutable credential array - becomes
-//! [`Smoke::auth`], a list of extra request headers: empty is
-//! anonymous, one `Authorization` entry is a token, and the session
-//! legs push their own `Cookie` and CSRF headers.
+//! The credential state is [`Smoke::auth`], a list of extra request
+//! headers: empty is anonymous, one `Authorization` entry is a token,
+//! and the session legs push their own `Cookie` and CSRF headers.
 
 use std::fmt::Write as _;
 use std::io::Read as _;
@@ -33,8 +30,8 @@ pub enum Base {
 /// `config.json` api field and the quota details all embed.
 const WEB_ORIGIN: &str = "https://cabinpkg.com";
 
-/// What `curl` labels a `--data-binary` body when the caller names no
-/// type of its own.  Preserved because the routes see it.
+/// The type a body is sent with when the caller names none of its own
+/// (`curl --data-binary`'s default), which the routes see.
 const FORM_CONTENT_TYPE: &str = "application/x-www-form-urlencoded";
 
 /// The run's shared state: where the two dev instances are, which
@@ -46,12 +43,12 @@ pub struct Smoke {
     github_base: String,
     token: String,
     /// The last response body, as raw bytes - never a `String`: the
-    /// byte-identity comparisons (`cmp -s`) and the zip reads both run
+    /// byte-identity comparisons and the zip reads both run
     /// over this buffer.
     pub body: Vec<u8>,
-    /// The last response's header block, as `curl -D` wrote it.
+    /// The last response's header block, in `curl -D` form.
     pub headers: Vec<u8>,
-    /// The shell's `curl_args`: extra headers on every `check`/`request`.
+    /// Extra headers on every `check`/`request`.
     pub auth: Vec<(String, String)>,
 }
 
@@ -59,17 +56,12 @@ impl Smoke {
     #[must_use]
     pub fn new(port: u16, web_port: u16, github_port: u16, token: String) -> Self {
         Self {
-            // Neither `curl` carried `-L`, so a redirect is the answer
-            // and never a step on the way to one; the assertions are
-            // over the 3xx itself.
+            // A redirect is the answer and never a step on the way to
+            // one; the assertions are over the 3xx itself.
             //
-            // No connection reuse: every `curl` was its own process,
-            // so no connection ever outlived its request.  Pooling
-            // would be this port's own invention.
             // The five-minute ceiling exists only to turn a wedged
-            // local dev server into a loud failure naming its URL;
-            // curl ran with no timeout, and no healthy leg comes
-            // within an order of magnitude of it.
+            // local dev server into a loud failure naming its URL; no
+            // healthy leg comes within an order of magnitude of it.
             agent: ureq::AgentBuilder::new()
                 .redirects(0)
                 .max_idle_connections(0)
@@ -100,7 +92,7 @@ impl Smoke {
         format!("{base}{path}")
     }
 
-    /// The shell's `curl_args=()`: the anonymous state.
+    /// The anonymous state.
     pub fn anonymous(&mut self) {
         self.auth.clear();
     }
@@ -200,16 +192,13 @@ impl Smoke {
     /// hatch for the legs that need their own method, headers or range.
     ///
     /// `headers` are the only extra headers sent: an empty list sends
-    /// none, which is what the shell's `${arr[@]+"${arr[@]}"}` guard
-    /// bought it under `set -u` (an empty expansion, not an
-    /// empty-valued header).
+    /// none, not an empty-valued header.
     ///
     /// # Errors
     ///
     /// If the request cannot be made at all, or its body cannot be
     /// read.  A non-2xx status is an answer, not an error: it is
-    /// returned as the status, exactly as `curl -w '%{http_code}'`
-    /// reported it.
+    /// returned as the status.
     pub fn http(
         &mut self,
         method: &str,
@@ -217,9 +206,8 @@ impl Smoke {
         headers: &[(String, String)],
         body: Option<&[u8]>,
     ) -> Result<u16> {
-        // Every one of the shell's ~500 requests paid a forked curl's
-        // startup (~30 ms), and the local dev servers have never been
-        // driven faster than that, so the pacing is part of the
+        // The local dev servers have never been driven faster than one
+        // request every ~30 ms, so the pacing is part of the
         // environment the run was written for, not an optimization to
         // strip.
         std::thread::sleep(std::time::Duration::from_millis(25));
@@ -261,8 +249,7 @@ impl Smoke {
     ///
     /// # Errors
     ///
-    /// If the status is none of `expected`, worded as the shell worded
-    /// it.
+    /// If the status is none of `expected`.
     pub fn check_at(&mut self, at: Base, path: &str, expected: &[u16]) -> Result<()> {
         let url = self.url(at, path);
         let auth = self.auth.clone();
@@ -288,8 +275,8 @@ impl Smoke {
         self.check_at(Base::Web, path, expected)
     }
 
-    /// `request_at`: `curl -X <method> --data-binary` with the current
-    /// credential; the body lands in [`Smoke::body`].
+    /// Sends `data` as a `method` request with the current credential;
+    /// the response body lands in [`Smoke::body`].
     ///
     /// # Errors
     ///
@@ -331,8 +318,7 @@ impl Smoke {
     /// If the body does not contain it.
     pub fn expect_body(&self, fixed: &str) -> Result<()> {
         let needle = fixed.as_bytes();
-        // grep -qF '' matches anything with a line in it; the shell
-        // never passes an empty needle, and `windows(0)` would panic.
+        // No leg passes an empty needle, and `windows(0)` would panic.
         let found = needle.is_empty()
             || self
                 .body
@@ -360,13 +346,13 @@ fn bearer(token: &str) -> Vec<(String, String)> {
     vec![("Authorization".to_owned(), format!("Bearer {token}"))]
 }
 
-/// The shell's `printf '    %s -> %s\n'`: four leading spaces, and
-/// `<method> <path>` or a bare path as the subject.
+/// Four leading spaces, and `<method> <path>` or a bare path as the
+/// subject.
 fn ok_line(subject: &str, status: u16) -> String {
     format!("    {subject} -> {status}")
 }
 
-/// The `fail` wording for an unexpected status, byte for byte.
+/// The failure wording for an unexpected status.
 fn mismatch(subject: &str, status: u16, expected: &[u16], body: &[u8]) -> String {
     format!(
         "{subject} returned {status}, expected one of: {} (body: {})",
@@ -375,7 +361,7 @@ fn mismatch(subject: &str, status: u16, expected: &[u16], body: &[u8]) -> String
     )
 }
 
-/// `"$*"` over the expected statuses: space separated.
+/// The expected statuses, space separated.
 fn statuses(expected: &[u16]) -> String {
     expected
         .iter()
@@ -384,18 +370,18 @@ fn statuses(expected: &[u16]) -> String {
         .join(" ")
 }
 
-/// The header block as `curl -D` wrote it: the status line, then every
+/// The header block in `curl -D` form: the status line, then every
 /// header line, CRLF throughout, terminated by a blank line.  The
 /// assertions over it are line-wise, anchored and duplicate-sensitive
 /// (`grep -i '^www-authenticate:'` must see a second copy), so it stays
 /// raw text rather than a map.
 ///
-/// Two fidelity ceilings, neither observable here: `ureq` reports
-/// header names lowercased and does not expose the wire ORDER across
-/// different names, so lines are grouped by name in first-appearance
-/// order with each name's duplicates in order; and a header whose value
-/// is not UTF-8 is dropped.  Every assertion in the run is `grep -i`
-/// over ASCII headers.
+/// Two limits, neither observable here: `ureq` reports header names
+/// lowercased and does not expose the wire ORDER across different
+/// names, so lines are grouped by name in first-appearance order with
+/// each name's duplicates in order; and a header whose value is not
+/// UTF-8 is dropped.  Every assertion in the run is `grep -i` over
+/// ASCII headers.
 fn header_block(response: &ureq::Response) -> Vec<u8> {
     let mut block = format!(
         "{} {} {}\r\n",

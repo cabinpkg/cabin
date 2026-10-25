@@ -1,28 +1,13 @@
 //! The packaging-revision respin, the yank cycle, the source viewer's
-//! ranged session reads and the two service-mode gates -
-//! `registry/scripts/smoke.sh` L1333-1598.
+//! ranged session reads and the two service-mode gates.
 //!
-//! The leg ends one line before Phase 10's first `step`: its last
-//! statements build the `0.2.1` fixtures the shared-blob flow consumes,
-//! which is why [`run`] returns them rather than printing anything.
+//! Its last statements build the `0.2.1` fixtures the shared-blob leg
+//! consumes, which is why [`run`] returns them rather than printing
+//! anything.
 //!
-//! Three shell helpers are defined inside this span and stay private
-//! here - `row_downloads` (L1420), `source_range` (L1436) and
-//! `source_header` (L1448) - alongside private copies of two the span
-//! only *uses*: `session_request` (L758) and `await_row_downloads`
-//! (L1224).  Phase 10's `stored_bytes` (L1583) lives in its own leg
-//! with its own private copy of the query.
-//!
-//! Every literal `sleep` is preserved: the two here (L1495, L1565)
-//! precede assertions that a counter did **not** move, and in-process
-//! HTTP is faster than the forked `curl` they were tuned against.
-//!
-//! `$headers` is written on every request, as [`Smoke::http`] writes
-//! it, where the shell's `check_at`/`request_at`/`session_request` left
-//! it alone; no assertion in this span reads a header block an earlier
-//! request wrote, so the two never diverge observably.  `$body` is a
-//! different matter - the artifact download at L1401 wrote neither
-//! buffer, so `download` puts the previous body back.
+//! The two `sleep`s here precede assertions that a counter did **not**
+//! move; trimming them turns those into races that pass for the wrong
+//! reason.
 
 use std::thread::sleep;
 use std::time::Duration;
@@ -39,66 +24,51 @@ use crate::step;
 use crate::text::capture;
 
 /// What earlier legs leave behind that this span reads.  The paths are
-/// the shell's own variables (L685-692) rather than rebuilt here; `rev`
-/// is not among them because it is the leading 16 hex of `old_hash`,
-/// which L1335 recomputes anyway.
+/// passed in rather than rebuilt here; `rev` is not among them because
+/// it is recomputed from the archive.
 pub struct RevisionInputs<'a> {
-    /// `$scope`, `$name`, `$version` (L681-683).
     pub scope: &'a str,
-    /// `$name`.
     pub name: &'a str,
-    /// `$version`.
     pub version: &'a str,
-    /// `$fixture_archive`: the frozen `smoke-withdep-0.2.0.zip` bytes.
+    /// The frozen `smoke-withdep-0.2.0.zip` bytes.
     pub fixture_archive: &'a [u8],
-    /// `$fixture_metadata`: the frozen canonical metadata document.
+    /// The frozen canonical metadata document.
     pub fixture_metadata: &'a [u8],
-    /// `$publish_path` (L685).
     pub publish_path: &'a str,
-    /// `$package_path` (L686).
     pub package_path: &'a str,
-    /// `$artifact_path` (L689).
     pub artifact_path: &'a str,
-    /// `$work/publish.bin`, the framed first publish (L1013).
+    /// The framed first publish.
     pub publish_bin: &'a [u8],
-    /// `$work/verdict-verified.json`, the verdict Phase 8 built (L1152).
+    /// The verdict the publish leg built.
     pub verdict_verified: &'a [u8],
-    /// `$session_cookie`, the minted session (L756).
+    /// The minted session.
     pub session_cookie: &'a str,
-    /// `$token`, the publisher's bearer credential - presented here
-    /// only to prove the source route refuses it (L1433).
+    /// The publisher's bearer credential - presented here only to prove
+    /// the source route refuses it.
     pub token: &'a str,
 }
 
-/// The `0.2.1` fixtures L1590-1598 builds for Phase 10.
+/// The `0.2.1` fixtures built for the shared-blob leg.
 pub struct RevisionOutputs {
-    /// `$version2`.
     pub version2: String,
-    /// `$publish2_path`.
     pub publish2_path: String,
-    /// `$artifact2_path`: identical bytes, so the same revision id.
+    /// Identical bytes, so the same revision id.
     pub artifact2_path: String,
-    /// `$verdict2_path`.
     pub verdict2_path: String,
-    /// `$work/publish2.bin`.
     pub publish2_bin: Vec<u8>,
 }
 
-/// `printf '{"yanked":true}'` (L1379) - no trailing newline.  Phase 10
-/// replays these exact bytes at L1667.
+/// The shared-blob leg replays these exact bytes.
 pub const YANKED: &[u8] = br#"{"yanked":true}"#;
 
-/// `printf '{"yanked":false}'` (L1391).
 pub const UNYANKED: &[u8] = br#"{"yanked":false}"#;
 
-/// The whole span, in the shell's order.
+/// The whole span.
 ///
 /// # Errors
 ///
-/// The first failed check, worded as the shell's `fail` worded it.
+/// The first failed check.
 pub fn run(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
-    // `$source_path` is only named from L1416, but the yank leg spells
-    // the same triple out at L1394.
     let source_path = format!(
         "/api/v1/user/source/{}/{}/{}",
         inputs.scope, inputs.name, inputs.version
@@ -114,7 +84,6 @@ pub fn run(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<RevisionOut
     second_version(inputs)
 }
 
-/// L1333-1377.
 fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     step("tampered re-publish needs the new-revision opt-in");
     let tampered = tamper_zip(inputs.fixture_archive, 1);
@@ -137,9 +106,6 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     // same version, pending like any other first publish - and
     // invisible to reads until it is verified, so what the registry
     // serves cannot move.
-    //
-    // L1348 is the one site in this span that redirected the result
-    // table to `/dev/null`.
     d1_quiet(RESET_PUBLISH_BUCKET)?;
     let opt_in = format!("{}?new-revision=true", inputs.publish_path);
     smoke.wrequest("PUT", &opt_in, &body, &[201])?;
@@ -178,7 +144,6 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L1378-1399.
 fn yank_cycle(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
     step("yank and un-yank walk the state transitions");
     let yank_path = format!("{}/yank", inputs.publish_path);
@@ -203,7 +168,6 @@ fn yank_cycle(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str)
     smoke.expect_body(r#""yanked":false"#)
 }
 
-/// L1400-1414.
 fn artifact_checksum(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     step("published artifact downloads with the published checksum");
     let artifact = download(smoke, Base::Registry, inputs.artifact_path)?;
@@ -228,7 +192,6 @@ fn artifact_checksum(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<(
     uniform_401_with(smoke, Base::Registry, "GET", &unrevisioned, &auth, None)
 }
 
-/// L1415-1500.
 fn source_viewer(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
     step("the source route serves session-ranged reads of the verified archive");
     let size = inputs.fixture_archive.len();
@@ -260,7 +223,7 @@ fn source_viewer(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
     Ok(())
 }
 
-/// L1427-1434: no credential and a bearer token both answer the session
+/// No credential and a bearer token both answer the session
 /// plane's plain 401, so the route never accepts the machine plane's
 /// credential.
 fn source_credentials(
@@ -285,8 +248,8 @@ fn source_credentials(
     Ok(())
 }
 
-/// L1453-1462: the range policy - required (400 when absent), single,
-/// bounded, capped at 4 MiB (416 otherwise).
+/// The range policy - required (400 when absent), single, bounded,
+/// capped at 4 MiB (416 otherwise).
 fn range_policy(
     smoke: &mut Smoke,
     inputs: &RevisionInputs<'_>,
@@ -315,7 +278,6 @@ fn range_policy(
     source_header(smoke, &format!(r"^content-range: bytes \*/{size}$"))
 }
 
-/// L1464-1487.
 fn range_reads(
     smoke: &mut Smoke,
     inputs: &RevisionInputs<'_>,
@@ -350,14 +312,14 @@ fn range_reads(
     )
 }
 
-/// L1501-1520.  The dev vars pin `SERVICE_MODE_TTL_SECS` to 0, so the
-/// running worker sees the flipped mode immediately instead of after
-/// the 60 s cache TTL.
+/// The dev vars pin `SERVICE_MODE_TTL_SECS` to 0, so the running worker
+/// sees the flipped mode immediately instead of after the 60 s cache
+/// TTL.
 fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
     step("writes answer 503 while writes_blocked; reads stay open");
     d1("
   UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';
-  UPDATE meta SET value = 'forced by smoke.sh' WHERE key = 'service_mode_reason';")?;
+  UPDATE meta SET value = 'forced by the smoke test' WHERE key = 'service_mode_reason';")?;
     smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[503])?;
     smoke.expect_body("registry_over_budget")?;
     let yank_path = format!("{}/yank", inputs.publish_path);
@@ -460,7 +422,6 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     Ok(())
 }
 
-/// L1521-1568.
 fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
     step("reads answer 503 while reads_blocked; the exempt planes stay open");
     d1("
@@ -519,8 +480,7 @@ fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
 }
 
 /// The read-side refusal envelope and its `Retry-After`, asserted twice
-/// (L1530-1533, L1545-1548) with only the wording of the header failure
-/// differing.
+/// with only the wording of the header failure differing.
 fn over_budget(smoke: &Smoke, missing: &str) -> Result<()> {
     smoke.expect_body("registry_over_budget")?;
     smoke.expect_body("read budget")?;
@@ -530,7 +490,6 @@ fn over_budget(smoke: &Smoke, missing: &str) -> Result<()> {
     Ok(())
 }
 
-/// L1569-1575.
 fn restore_normal(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     step("restoring service_mode reopens writes");
     d1("
@@ -557,9 +516,9 @@ fn shared_bucket(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// L1576-1598: the reject -> blob reclaim -> quota refund -> republish
-/// flow's fixtures.  `0.2.1` carries the exact archive `0.2.0`
-/// published, so this version's first revision carries the same id.
+/// The reject -> blob reclaim -> quota refund -> republish flow's
+/// fixtures.  `0.2.1` carries the exact archive `0.2.0` published, so
+/// this version's first revision carries the same id.
 fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
     // The PUTs above consumed the publish bucket's full burst; give the
     // next leg its own by resetting the user's bucket columns.
@@ -586,7 +545,7 @@ fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
     })
 }
 
-/// `/api/v1/admin/versions/$scope/$name/<version>`, the verdict route
+/// `/api/v1/admin/versions/<scope>/<name>/<version>`, the verdict route
 /// this span patches at three versions.
 fn verdict_path(inputs: &RevisionInputs<'_>, version: &str) -> String {
     format!(
@@ -595,15 +554,14 @@ fn verdict_path(inputs: &RevisionInputs<'_>, version: &str) -> String {
     )
 }
 
-/// `-H "Range: bytes=-22"`, the suffix read every session-plane source
+/// `Range: bytes=-22`, the suffix read every session-plane source
 /// probe in this span asks for.
 fn suffix_range() -> Vec<(String, String)> {
     vec![("Range".to_owned(), "bytes=-22".to_owned())]
 }
 
-/// `session_request <method> <path> <expected> [curl args...]`
-/// (L758-767): the minted session's cookie plus whatever the caller
-/// adds, and a status that must match exactly.
+/// The minted session's cookie plus whatever the caller adds, and a
+/// status that must match exactly.
 fn session_request(
     smoke: &mut Smoke,
     inputs: &RevisionInputs<'_>,
@@ -626,10 +584,8 @@ fn session_request(
     Ok(())
 }
 
-/// `source_range <range-or-empty> <expected>` (L1436-1447).  An empty
-/// range sends **no** `Range` header at all - the shell's
-/// `${range_args[@]+...}` guard, which is not the same as an
-/// empty-valued header.
+/// An empty range sends **no** `Range` header at all, which is not the
+/// same as an empty-valued header.
 fn source_range(
     smoke: &mut Smoke,
     inputs: &RevisionInputs<'_>,
@@ -658,8 +614,7 @@ fn source_range(
     Ok(())
 }
 
-/// `source_header <pattern>` (L1448-1451): the last response must carry
-/// the header.
+/// The last response must carry the header.
 ///
 /// Every pattern this span passes is `^<literal>$` whose only
 /// metacharacters are the two anchors and, once, an escaped `\*`, so
@@ -678,16 +633,17 @@ fn source_header(smoke: &Smoke, pattern: &str) -> Result<()> {
     )
 }
 
-/// `tr -d '\r' <"$headers" | grep -qi '^<line>$'`.
+/// Whether the header block, CRs dropped, has `line` as a whole line,
+/// case-insensitively.
 fn header_line(block: &[u8], line: &str) -> bool {
     header_text(block)
         .lines()
         .any(|found| found.eq_ignore_ascii_case(line))
 }
 
-/// `tr -d '\r' <"$headers" | grep -i '^[a-z-]*:' | head -20`: the
-/// header lines only, so the status line and the terminating blank
-/// stay out of the diagnostic.
+/// The first 20 header lines, CRs dropped: the header lines only, so
+/// the status line and the terminating blank stay out of the
+/// diagnostic.
 fn header_diagnostic(block: &[u8]) -> String {
     header_text(block)
         .lines()
@@ -697,8 +653,8 @@ fn header_diagnostic(block: &[u8]) -> String {
         .join("\n")
 }
 
-/// Whether `^[a-z-]*:` matches under `grep -i`: the run of letters and
-/// hyphens starting the line is immediately followed by a colon.
+/// Whether `^[a-z-]*:` matches case-insensitively: the run of letters
+/// and hyphens starting the line is immediately followed by a colon.
 fn names_a_header(line: &str) -> bool {
     line.find(|ch: char| !ch.is_ascii_alphabetic() && ch != '-')
         .is_some_and(|at| line[at..].starts_with(':'))
@@ -708,10 +664,8 @@ fn header_text(block: &[u8]) -> String {
     String::from_utf8_lossy(block).replace('\r', "")
 }
 
-/// `curl -sS -o <file>`: the bytes are the caller's, and both shared
-/// buffers keep what the previous request left in them - L1401 wrote
-/// the body to its own file and carried no `-D`, so `$headers` stayed
-/// whatever the previous request left there too.
+/// The bytes are the caller's, and both shared buffers keep what the
+/// previous request left in them.
 fn download(smoke: &mut Smoke, at: Base, path: &str) -> Result<Vec<u8>> {
     let url = smoke.url(at, path);
     let auth = smoke.auth.clone();
@@ -723,11 +677,11 @@ fn download(smoke: &mut Smoke, at: Base, path: &str) -> Result<Vec<u8>> {
     Ok(std::mem::replace(&mut smoke.body, previous_body))
 }
 
-/// `listing_entry` (L704-716), narrowed: this caller reads only
+/// `session::listing_entry`, narrowed: this caller reads only
 /// `checksum` and `published_at`, so the entry is handed back whole
 /// rather than projected onto the six-field `PendingVersion` shape the
-/// verifier legs need as bytes.  Every failure the node program had -
-/// unparsable listing, no such entry - is the one `fail` wording.
+/// verifier legs need as bytes.  Both failures - unparsable listing,
+/// no such entry - share one wording.
 fn listing_entry(body: &[u8], name: &str, version: &str) -> Result<Value> {
     serde_json::from_slice::<Value>(body)
         .ok()
@@ -744,13 +698,11 @@ fn listing_entry(body: &[u8], name: &str, version: &str) -> Result<Value> {
         .with_context(|| format!("the pending listing has no {name}@{version}"))
 }
 
-/// The verdict L1366-1372's `node -e` wrote, byte for byte:
-/// `JSON.stringify` over an object literal, so insertion order and
-/// compact separators.
+/// The respin's rejection verdict, in this field order with compact
+/// separators.
 ///
-/// Ceiling: JavaScript drops a key whose value is `undefined` where
-/// this writes `null`.  Both are a verdict the route refuses, and no
-/// admin listing entry omits either field.
+/// A missing field is written as `null`, a verdict the route refuses;
+/// no admin listing entry omits either field.
 fn verdict_respin(entry: &Value) -> String {
     format!(
         r#"{{"verdict":"rejected","reason":"smoke respin","checksum":{},"published_at":{}}}"#,
@@ -765,29 +717,27 @@ fn json_field(entry: &Value, key: &str) -> String {
         .map_or_else(|| "null".to_owned(), Value::to_string)
 }
 
-/// L1347-1348 and L1579-1580, which reset the publish bucket's burst.
+/// Resets the publish bucket's burst.
 const RESET_PUBLISH_BUCKET: &str = "
   UPDATE users SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke');";
 
 /// The version row's download counter, for the never-counted
-/// assertions (L1420-1427).
+/// assertions.
 const DOWNLOADS_SQL: &str = "SELECT downloads FROM versions
      WHERE scope = 'smoke' AND name = 'withdep' AND version = '0.2.0'";
 
-/// `row_downloads` (L1420).
+/// The version row's download counter.
 ///
 /// # Errors
 ///
-/// If wrangler fails, or the row the `node` program indexed into is
-/// absent - where it threw and took the pipeline down with it.
+/// If wrangler fails, or the row is absent.
 pub fn row_downloads() -> Result<String> {
     scalar(DOWNLOADS_SQL, "downloads")
 }
 
-/// `await_row_downloads <expected>` (L1224-1237): 20 attempts half a
-/// second apart, and the exact count is the point - a deferred
-/// increment still in flight would make the flat-counter assertions
-/// pass for the wrong reason.
+/// 20 attempts half a second apart, and the exact count is the point -
+/// a deferred increment still in flight would make the flat-counter
+/// assertions pass for the wrong reason.
 ///
 /// # Errors
 ///
@@ -805,8 +755,7 @@ pub fn await_row_downloads(expected: &str) -> Result<()> {
     bail!("smoke/withdep@0.2.0 downloads never reached {expected} (last: {last})")
 }
 
-/// One `--json` read rendered as its `console.log(out[0].results[0].<column>)`
-/// rendered it.
+/// The first row's `column` of one `--json` read, as display text.
 fn scalar(sql: &str, column: &str) -> Result<String> {
     scalar_of(&d1_json(sql)?, column)
 }
@@ -843,8 +792,8 @@ mod tests {
         assert!(!header_line(block, "cache-control"));
     }
 
-    /// The diagnostic keeps only header lines: `grep -i '^[a-z-]*:'`
-    /// never matches the status line.
+    /// The diagnostic keeps only header lines: `^[a-z-]*:` never
+    /// matches the status line.
     #[test]
     fn the_diagnostic_drops_the_status_line() {
         assert!(names_a_header("content-length: 22"));
