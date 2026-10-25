@@ -279,26 +279,20 @@ pub enum WorkspaceError {
     },
 
     #[error(
-        "{origin} package `{package}` at {path} sets `{field} = {{ workspace = true }}`, but {origin} package manifests must declare literal standard values",
+        "registry package `{package}` at {path} sets `{field} = {{ workspace = true }}`, but registry package manifests must declare literal standard values",
         path = path.display()
     )]
     ExternalPackageDeclaresWorkspaceStandard {
-        /// Always `"registry"` today; the field keeps the
-        /// diagnostic wording pinned to the manifest's origin.
-        origin: &'static str,
         package: String,
         field: &'static str,
         path: PathBuf,
     },
 
     #[error(
-        "{origin} package `{package}` at {path} declares `{dep_name} = {{ workspace = true }}`, but {origin} package manifests must declare literal dependency requirements",
+        "registry package `{package}` at {path} declares `{dep_name} = {{ workspace = true }}`, but registry package manifests must declare literal dependency requirements",
         path = path.display()
     )]
     ExternalPackageDeclaresWorkspaceDependency {
-        /// Always `"registry"` today; the field keeps the
-        /// diagnostic wording pinned to the manifest's origin.
-        origin: &'static str,
         package: String,
         dep_name: String,
         path: PathBuf,

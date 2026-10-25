@@ -433,17 +433,29 @@ struct RegistryLookup<'a> {
     /// name -> canonical manifest path (registry entries plus
     /// patches); the loader resolves versioned deps through this.
     by_name: HashMap<&'a str, PathBuf>,
-    /// Canonical manifest path -> expected package name, so loading
-    /// can compare the actual manifest contents against what the
+    /// Canonical manifest path -> the pinned entry, so loading can
+    /// compare the actual manifest contents against what the
     /// resolver pinned.
-    canonical_names: HashMap<PathBuf, &'a PackageName>,
-    /// Canonical manifest path -> expected version.
-    canonical_versions: HashMap<PathBuf, &'a semver::Version>,
-    canonical_paths: HashSet<PathBuf>,
-    /// Canonical manifest paths that came from `patches` - these
-    /// stay `PackageKind::Local` even though they also appear in
-    /// the maps above.
-    patch_canonical_paths: HashSet<PathBuf>,
+    entries: HashMap<PathBuf, RegistryEntry<'a>>,
+}
+
+struct RegistryEntry<'a> {
+    name: &'a PackageName,
+    version: &'a semver::Version,
+    /// Came from `patches`: stays `PackageKind::Local`.
+    is_patch: bool,
+}
+
+impl RegistryLookup<'_> {
+    /// Whether `manifest_path` came from an untrusted registry
+    /// archive: the one predicate behind the registry-only guards and
+    /// `PackageKind::Registry`.  Patches are user-controlled local
+    /// working copies, so they never count.
+    fn is_registry(&self, manifest_path: &Path) -> bool {
+        self.entries
+            .get(manifest_path)
+            .is_some_and(|entry| !entry.is_patch)
+    }
 }
 
 fn build_registry_lookup<'a>(
@@ -451,23 +463,24 @@ fn build_registry_lookup<'a>(
     patches: &'a [PatchedPackageSource],
 ) -> Result<RegistryLookup<'a>, WorkspaceError> {
     let mut by_name: HashMap<&str, PathBuf> = HashMap::new();
-    let mut canonical_names: HashMap<PathBuf, &PackageName> = HashMap::new();
-    let mut canonical_versions: HashMap<PathBuf, &semver::Version> = HashMap::new();
-    let mut canonical_paths: HashSet<PathBuf> = HashSet::new();
-    let mut patch_canonical_paths: HashSet<PathBuf> = HashSet::new();
+    let mut entries: HashMap<PathBuf, RegistryEntry<'a>> = HashMap::new();
     for entry in registry {
         let canonical = canonicalize(&entry.manifest_path)?;
         by_name.insert(entry.name.as_str(), canonical.clone());
-        canonical_names.insert(canonical.clone(), &entry.name);
-        canonical_versions.insert(canonical.clone(), &entry.version);
-        canonical_paths.insert(canonical);
+        entries.insert(
+            canonical,
+            RegistryEntry {
+                name: &entry.name,
+                version: &entry.version,
+                is_patch: false,
+            },
+        );
     }
-    // Defensively reject overlap between patches and the registry
-    // list so a caller bug never silently flips Local to Registry
-    // mid-graph.
+    // Reject overlap so a caller bug never turns a registry package
+    // into a trusted local patch.
     for entry in patches {
         let canonical = canonicalize(&entry.manifest_path)?;
-        if canonical_paths.contains(&canonical) {
+        if entries.contains_key(&canonical) {
             return Err(WorkspaceError::PatchConflictsWithRegistry {
                 package: entry.name.as_str().to_owned(),
                 path: canonical,
@@ -480,18 +493,16 @@ fn build_registry_lookup<'a>(
                 second: canonical,
             });
         }
-        canonical_names.insert(canonical.clone(), &entry.name);
-        canonical_versions.insert(canonical.clone(), &entry.version);
-        canonical_paths.insert(canonical.clone());
-        patch_canonical_paths.insert(canonical);
+        entries.insert(
+            canonical,
+            RegistryEntry {
+                name: &entry.name,
+                version: &entry.version,
+                is_patch: true,
+            },
+        );
     }
-    Ok(RegistryLookup {
-        by_name,
-        canonical_names,
-        canonical_versions,
-        canonical_paths,
-        patch_canonical_paths,
-    })
+    Ok(RegistryLookup { by_name, entries })
 }
 
 /// Assemble the initial load queue: every primary manifest plus the
@@ -570,27 +581,20 @@ fn validate_registry_pin(
     manifest_path: &Path,
     registry: &RegistryLookup<'_>,
 ) -> Result<(), WorkspaceError> {
-    let Some(expected_version) = registry.canonical_versions.get(manifest_path) else {
+    let Some(expected) = registry.entries.get(manifest_path) else {
         return Ok(());
     };
-    let expected_name = registry.canonical_names.get(manifest_path).copied();
-    let version_ok = &package.version == *expected_version;
-    let name_ok = expected_name.is_none_or(|n| n.as_str() == package.name.as_str());
-    if !name_ok {
+    if expected.name.as_str() != package.name.as_str() {
         return Err(WorkspaceError::RegistryPackageNameMismatch {
-            name: expected_name
-                .map(|n| n.as_str().to_owned())
-                .unwrap_or_default(),
+            name: expected.name.as_str().to_owned(),
             actual_name: package.name.as_str().to_owned(),
             path: manifest_path.to_path_buf(),
         });
     }
-    if !version_ok {
+    if &package.version != expected.version {
         return Err(WorkspaceError::RegistryPackageMismatch {
-            name: expected_name
-                .map(|n| n.as_str().to_owned())
-                .unwrap_or_default(),
-            version: expected_version.to_string(),
+            name: expected.name.as_str().to_owned(),
+            version: expected.version.to_string(),
             actual_name: package.name.as_str().to_owned(),
             actual_version: package.version.to_string(),
             path: manifest_path.to_path_buf(),
@@ -610,26 +614,20 @@ fn validate_registry_pin(
 /// published archives marker-free, so this guard only fires on
 /// hand-crafted inputs.
 ///
-/// The origin classification mirrors [`link_workspace_packages`]:
-/// patches take precedence and stay local (a patched working copy
-/// is user-controlled, so it resolves markers like any other local
-/// manifest), then registry entries.
+/// Patches are not registry-origin (see
+/// [`RegistryLookup::is_registry`]): a patched working copy is
+/// user-controlled, so it resolves markers like any other local
+/// manifest.
 fn reject_external_workspace_markers(
     package: &cabin_core::Package,
     manifest_path: &Path,
     registry: &RegistryLookup<'_>,
 ) -> Result<(), WorkspaceError> {
-    if registry.patch_canonical_paths.contains(manifest_path) {
+    if !registry.is_registry(manifest_path) {
         return Ok(());
     }
-    let origin = if registry.canonical_paths.contains(manifest_path) {
-        "registry"
-    } else {
-        return Ok(());
-    };
     if let Some(field) = package.language.workspace_marker_field() {
         return Err(WorkspaceError::ExternalPackageDeclaresWorkspaceStandard {
-            origin,
             package: package.name.as_str().to_owned(),
             field,
             path: manifest_path.to_path_buf(),
@@ -641,7 +639,6 @@ fn reject_external_workspace_markers(
         .find(|dep| matches!(dep.source, DependencySource::Workspace))
     {
         return Err(WorkspaceError::ExternalPackageDeclaresWorkspaceDependency {
-            origin,
             package: package.name.as_str().to_owned(),
             dep_name: dep.name.as_str().to_owned(),
             path: manifest_path.to_path_buf(),
@@ -685,13 +682,10 @@ fn resolve_dep_paths(
     // `PackageKind::Local` package and honor its compiler/linker flags -
     // build-time code execution one dependency hop away.
     //
-    // This must match the `PackageKind::Registry` classification in
-    // [`link_workspace_packages`]: patches take precedence and stay
-    // `Local`, so a patched fork that happens to replace a registry
-    // entry is still user-controlled and may legitimately declare
-    // path deps.
-    let parent_is_registry = ctx.registry.canonical_paths.contains(manifest_path)
-        && !ctx.registry.patch_canonical_paths.contains(manifest_path);
+    // Patches are not registry-origin: a patched fork that happens to
+    // replace a registry entry is still user-controlled and may
+    // legitimately declare path deps.
+    let parent_is_registry = ctx.registry.is_registry(manifest_path);
     let mut dep_paths: Vec<DepPath> = Vec::with_capacity(package.dependencies.len());
     for dep in &package.dependencies {
         // Skip dependencies that are not in this command's
@@ -871,14 +865,12 @@ fn link_workspace_packages(
                 ignore_interface_standard: dep.ignore_interface_standard,
             });
         }
-        let kind = if registry.patch_canonical_paths.contains(&pkg.manifest_path) {
-            // Patches resolve to local working copies; treat them
-            // exactly like a path dep so downstream consumers
-            // (build planner, lockfile, metadata view) do not
-            // see a "registry" package that lives on the user's
-            // filesystem.
-            PackageKind::Local
-        } else if registry.canonical_paths.contains(&pkg.manifest_path) {
+        // Patches resolve to local working copies; treat them
+        // exactly like a path dep so downstream consumers
+        // (build planner, lockfile, metadata view) do not
+        // see a "registry" package that lives on the user's
+        // filesystem.
+        let kind = if registry.is_registry(&pkg.manifest_path) {
             PackageKind::Registry
         } else {
             PackageKind::Local
