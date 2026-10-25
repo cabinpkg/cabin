@@ -1,85 +1,13 @@
-//! The registry-deploy wait, ported one-to-one from the `run:` body of
-//! the "Wait for a registry deploy containing this SHA" step of
-//! `.github/workflows/ports-publish.yml`.
-//!
-//! ```text
-//! L1  deploy_step() {
-//! L2    gh api "repos/$GITHUB_REPOSITORY/actions/runs/$1/jobs?per_page=100" \
-//! L3      --jq '[.jobs[] | select(.name == "deploy-registry") | .steps[] |
-//! L3        select(.name == "Deploy") | .conclusion][0]'
-//! L4  }
-//! L5  for _ in $(seq 1 90); do
-//! L6    git fetch --quiet origin main || true
-//! L7    if candidates=$(gh api \
-//! L8      "<runs>?branch=main&status=success&per_page=100" \
-//! L9      --jq '.workflow_runs[] | "\(.id) \(.head_sha)"'); then
-//! L10     while read -r rid rsha; do
-//! L11       [ -n "$rid" ] || continue
-//! L12       git merge-base --is-ancestor "$GITHUB_SHA" "$rsha" 2>/dev/null || continue
-//! L13       if [ "$(deploy_step "$rid" || echo transient)" = "success" ]; then
-//! L14         echo "registry deploy $rid (head $rsha) contains this SHA"
-//! L15         exit 0
-//! L16       fi
-//! L17     done <<< "$candidates"
-//! L18   fi
-//! L19   if ! runs=$(gh api \
-//! L20     "<runs>?head_sha=$GITHUB_SHA" --jq '.workflow_runs'); then
-//! L21     echo "transient API error listing Registry runs; retrying"
-//! L22     sleep 40
-//! L23     continue
-//! L24   fi
-//! L25   if [ "$(printf '%s' "$runs" | jq 'length')" -eq 0 ]; then
-//! L26     echo "no Registry run for this SHA; the deployed worker is already current"
-//! L27     exit 0
-//! L28   fi
-//! L29   conclusion=$(printf '%s' "$runs" | jq -r '.[0].conclusion')
-//! L30   if [ "$conclusion" = "failure" ] || [ "$conclusion" = "cancelled" ]; then
-//! L31     if ! pending=$(gh api \
-//! L32       "<runs>?branch=main&per_page=100" \
-//! L33       --jq '.workflow_runs[] | select(.status != "completed") | .head_sha'); then
-//! L34       echo "transient API error listing pending Registry runs; retrying"
-//! L35       sleep 40
-//! L36       continue
-//! L37     fi
-//! L38     descendant_pending=false
-//! L39     while read -r psha; do
-//! L40       [ -n "$psha" ] || continue
-//! L41       if git merge-base --is-ancestor "$GITHUB_SHA" "$psha" 2>/dev/null; then
-//! L42         descendant_pending=true
-//! L43         break
-//! L44       fi
-//! L45     done <<< "$pending"
-//! L46     if [ "$descendant_pending" = true ]; then
-//! L47       echo "Registry run ... may still deploy; waiting"
-//! L48       sleep 40
-//! L49       continue
-//! L50     fi
-//! L51     echo "Registry run ... against a stale worker" >&2
-//! L52     exit 1
-//! L53   fi
-//! L54   sleep 40
-//! L55 done
-//! L56 echo "timed out waiting for a registry deploy containing this SHA" >&2
-//! L57 exit 1
-//! ```
-//!
-//! `<runs>` abbreviates
-//! `repos/$GITHUB_REPOSITORY/actions/workflows/registry.yml/runs`, and
-//! the two elided messages are spelled out where the port echoes them.
-//! The block's own comments moved to the code they explain; the step's
-//! leading comment, which is outside the `run:` body, stays in the
-//! workflow.
-//!
-//! Four deliberate post-port behavior changes (2026-08-15, run
-//! 31904670113; job-skip arm 2026-08-19; no-run arm 2026-10-20):
+//! The registry-deploy wait: the "Wait for a registry deploy
+//! containing this SHA" step of `.github/workflows/ports-publish.yml`.
 //!
 //! - A same-SHA Registry run whose `deploy-registry` JOB itself
 //!   concluded `skipped` - the workflow's change gate found no
 //!   registry-relevant files in the push, so the deploy job's own
-//!   `if` skipped it - answers 0 immediately,
-//!   like L26's no-run arm: the gate is a deterministic property of
-//!   the commit (a rerun re-answers the same), such a run can never
-//!   deploy, and the deployed Worker is already current for this SHA.
+//!   `if` skipped it - answers 0 immediately: the gate is a
+//!   deterministic property of the commit (a rerun re-answers the
+//!   same), such a run can never deploy, and the deployed Worker is
+//!   already current for this SHA.
 //!   See `SameShaDeploy`.  SAFETY INVARIANT this arm leans on, pinned
 //!   here because the gate lives in `.github/path-filters.yml`: every
 //!   path that can change the Worker's accepted schema or the publish
@@ -94,22 +22,20 @@
 //!   client-changing push publish against a Worker whose conformance
 //!   never ran for it.
 //! - A same-SHA Registry run that succeeded with its Deploy step
-//!   *skipped* now takes the failure path's pending-descendant exit
+//!   *skipped* takes the failure path's pending-descendant exit
 //!   instead of idling into the hour ceiling - see
 //!   `SameShaDeploy`.  During the pre-launch deploy freeze
 //!   (a D1 migration awaiting its by-hand apply skips every Deploy)
-//!   the original had no terminal answer at all; an operator now
-//!   reruns the workflow once the deploy lands.
+//!   an operator reruns the workflow once the deploy lands.
 //! - A terminal Stop (either arm) requires a CONFIRMED absence: an
-//!   iteration only Stops when its own `git fetch` succeeded (the
-//!   status is read where L6 discarded it - a failed fetch folds
-//!   every ancestor check to false) and its candidate scan was not
-//!   blind, and `poll` demands two CONSECUTIVE such iterations, so a
-//!   sampling race - a deploy landing between the candidate and
-//!   pending listings, a head pushed after the fetch - resolves on
-//!   the second pass.  Anything less retries, where the original's
-//!   failure arm would exit 1 from a possibly-blind iteration.
-//! - L25's no-run arm no longer exits 0. `registry.yml` runs on
+//!   iteration only Stops when its own `git fetch` succeeded (a
+//!   failed fetch folds every ancestor check to false) and its
+//!   candidate scan was not blind, and `poll` demands two
+//!   CONSECUTIVE such iterations, so a sampling race - a deploy
+//!   landing between the candidate and pending listings, a head
+//!   pushed after the fetch - resolves on the second pass.  Anything
+//!   less retries.
+//! - An empty same-SHA listing waits. `registry.yml` runs on
 //!   every main push and the dispatched SHA is a main push, so an
 //!   empty same-SHA listing means the push run is not registered
 //!   yet (the seconds after a merge-queue fast-forward, or API lag),
@@ -120,74 +46,48 @@
 //!   the merge queue's same-SHA `merge_group` run skips the deploy
 //!   job by event and would otherwise read as the change-gate skip
 //!   above.
-//!
-//! The remaining inherited properties, preserved rather than fixed.
-//! Each was pinned by running the original under `bash -e`, GitHub's
-//! default `run:` shell (`-e` on, `-u` and `-o pipefail` off):
-//!
-//! - **Every stdout line is the workflow's log contract**, byte for
-//!   byte, `echo`'s newline included. The two `>&2` lines are the only
-//!   ones the step reads as a failure.
-//! - **A failing `gh` never fails the step.** L7 and L19/L31 put the
-//!   substitution in a condition, where `set -e` is suppressed: L7
-//!   takes the else path with an empty capture, L19/L31 take their
-//!   transient branch. L13 folds its own failure into the captured text
-//!   through `|| echo transient`, so a `gh` that *prints and then
-//!   fails* captures `success\ntransient`, which correctly loses the
-//!   comparison - hence the append rather than a replace.
-//! - **Fields come from `read`.** The herestring appends a newline, so
-//!   an empty capture still runs one iteration with empty fields; the
-//!   `[ -n "$rid" ]` guard, not the loop, is what makes an empty list a
-//!   no-op. `read -r rid rsha` folds every extra field into `rsha`.
+//! - **A failing `gh` never fails the step.** A failed candidate
+//!   listing skips the scan, and a failed same-SHA or pending listing
+//!   takes its transient branch. A failed deploy-step lookup appends
+//!   `transient` to whatever it already printed, so a `gh` that
+//!   *prints and then fails* captures `success\ntransient`, which
+//!   correctly loses the comparison - hence the append rather than a
+//!   replace.
 //! - **`merge-base --is-ancestor` answers only true or false.** Exit 1
 //!   (not an ancestor) and exit 128 (an unknown revision, a shallow
-//!   clone) both fold to false in a condition, and its stderr was
-//!   discarded.
-//! - **An empty `runs` capture retries rather than exits.** `jq` prints
-//!   nothing for empty input, `[ "" -eq 0 ]` writes an
-//!   `integer expected` diagnostic and answers false, and the
-//!   conclusion then reads empty - neither `failure` nor `cancelled` -
-//!   so the iteration falls through to L54. A `[]` list conversely
-//!   reads `0` and exits 0, and `jq -r '.[0].conclusion'` over `[]`
-//!   prints `null`, which retries.
-//! - **L29 is the one substitution outside any condition**, so a `jq`
-//!   that fails there - the malformed capture L25 just survived, a
-//!   missing binary - killed the step under `set -e` where every other
-//!   tool failure fell into a branch.
+//!   clone) both fold to false, and its stderr is discarded.
+//! - **An empty `runs` capture waits rather than exits.** `jq` prints
+//!   nothing for empty input, which is not an integer, so the list
+//!   reads as non-empty with a diagnostic, and the conclusion then
+//!   reads empty - neither `failure` nor `cancelled` - so the
+//!   iteration falls through to the wait.
+//! - **A failing conclusion query fails the step.** A `jq` that fails
+//!   there - the malformed capture the length check just survived, a
+//!   missing binary - exits 1 with only its own diagnostic, where
+//!   every other tool failure falls into a branch.
 //! - **Timing is fixed**: 90 iterations, and every path that continues
 //!   waits 40 seconds exactly once - every transient/retry branch and
-//!   the fall-through alike - so the wait is hoisted to the loop's tail
-//!   here instead of being repeated at each `continue`. The ceiling is
-//!   90 waits and then L56.
+//!   the fall-through alike - so the wait sits at the loop's tail
+//!   rather than at each `continue`. The ceiling is 90 waits and then
+//!   the timeout.
 //! - **`$GITHUB_SHA` and `$GITHUB_REPOSITORY` read as empty when
-//!   unset** (`-u` is off) and are spliced into URLs and arguments
-//!   as-is.
+//!   unset** and are spliced into URLs and arguments as-is.
 //!
 //! Stated ceilings:
 //!
 //! - **`jq` and `gh` stay child processes.** The `--jq` projections run
-//!   inside `gh` and this port passes the same argv, so no JSON is
-//!   parsed here; the two standalone `jq` invocations spawn the same
-//!   way. Reimplementing either in Rust would be a divergence risk for
-//!   no gain.
-//! - **Diagnostic wording.** Where the original's own stderr came from
-//!   `bash` - the `integer expected` complaint, a `command not found`
-//!   for a missing `gh`, `jq` or `git` - this port writes its own
-//!   wording. The control flow is identical in each case; the workflow
-//!   reads the step's status, and its log carries the `echo`'d lines
-//!   unchanged.
+//!   inside `gh`, so no JSON is parsed here; the standalone `jq`
+//!   invocations spawn the same way. Reimplementing either in Rust
+//!   would be a divergence risk for no gain.
 //! - **Captured bytes are read as UTF-8, lossily.** `gh` emits
-//!   JSON-derived UTF-8; a byte the shell would have passed through
-//!   becomes U+FFFD here, in a run id or head SHA that could not have
-//!   matched anything anyway. The `runs` capture is kept as raw bytes,
-//!   since it is only piped back into `jq`.
-//! - **`[ x -eq 0 ]` narrows to a decimal parse.** `bash` evaluates
-//!   both sides as arithmetic, which also accepts `0x10`, `1+1` and
-//!   variable names; `jq 'length'` emits a plain decimal count or
-//!   nothing at all.
-//! - **L29's exit status collapses to 1.** The shell died with `jq`'s
-//!   own code - parse failures vary by jq version, a missing binary is
-//!   127 - and nothing downstream reads more than pass or fail.
+//!   JSON-derived UTF-8; an invalid byte becomes U+FFFD here, in a run
+//!   id or head SHA that could not have matched anything anyway. The
+//!   `runs` capture is kept as raw bytes, since it is only piped back
+//!   into `jq`.
+//! - **A failing conclusion query's exit status collapses to 1.**
+//!   `jq`'s own code - parse failures vary by jq version, a missing
+//!   binary is 127 - is not propagated, and nothing downstream reads
+//!   more than pass or fail.
 //! - **The context is read once**, at startup, rather than at each
 //!   splice: nothing this step spawns can change its own environment.
 
@@ -195,32 +95,29 @@ use std::io::Write as _;
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Duration;
 
-/// L5 and the `sleep 40` every continuing path shares.
+/// The loop's ceiling and the wait every continuing path shares.
 const ITERATIONS: usize = 90;
 const WAIT: Duration = Duration::from_secs(40);
 
-/// L21, L34 and L56, byte for byte; `echo` adds the newline.
 const TRANSIENT_RUNS: &str = "transient API error listing Registry runs; retrying";
 const TRANSIENT_PENDING: &str = "transient API error listing pending Registry runs; retrying";
-// Post-port (not one of the script's echoes): see the terminal
-// confirmation in `iteration`.
+// See the terminal confirmation in `iteration`.
 const TRANSIENT_SCAN: &str = "could not confirm that no deploy containing this SHA has landed \
      (a transient fetch or API failure); retrying";
-// Post-port (not one of the script's echoes): L26's arm, now a wait
-// with its own ceiling in iterations - see the module doc.
+// The empty same-SHA listing's wait, with its own ceiling in
+// iterations - see the module doc.
 const NO_RUN_PATIENCE: usize = 5;
 const NO_RUN_YET: &str = "no Registry run listed for this SHA yet (a main push registers one within \
      seconds); waiting";
 const NO_RUN_STOP: &str = "no Registry run for this SHA was listed; not publishing against an \
      unverified worker (every main push registers a run - one deleted by retention needs a fresh \
      main push, then a re-dispatch)";
-// Post-port (not one of the script's echoes): the change-gated
-// same-SHA run shape - see `SameShaDeploy::JobSkipped`.
+// The change-gated same-SHA run shape - see `SameShaDeploy::JobSkipped`.
 const JOB_SKIPPED: &str = "Registry run for this SHA skipped its registry jobs (no \
      registry-relevant changes); the deployed worker is already current";
 const TIMED_OUT: &str = "timed out waiting for a registry deploy containing this SHA";
 
-/// L9, L3, L20 and L33's projections, which run inside `gh`.
+/// Projections that run inside `gh`.
 const CANDIDATES_JQ: &str = r#".workflow_runs[] | "\(.id) \(.head_sha)""#;
 const DEPLOY_STEP_JQ: &str = r#"[.jobs[] | select(.name == "deploy-registry") | .steps[] | select(.name == "Deploy") | .conclusion][0]"#;
 /// The job's own conclusion and its Deploy step's, in one projection:
@@ -231,8 +128,8 @@ const DEPLOY_OUTCOME_JQ: &str = r#"[.jobs[] | select(.name == "deploy-registry")
 const RUNS_JQ: &str = ".workflow_runs";
 const PENDING_JQ: &str = r#".workflow_runs[] | select(.status != "completed") | .head_sha"#;
 
-/// The default `IFS` blanks `read` splits and trims on. A line never
-/// carries the third one, `\n`.
+/// The blanks a captured line is split and trimmed on. A line never
+/// carries `\n`.
 const IFS: [char; 2] = [' ', '\t'];
 
 /// Wait for a successful `main` Registry deploy whose head contains
@@ -247,8 +144,7 @@ pub fn run() -> ExitCode {
     ))
 }
 
-/// `${VAR}` with `-u` off: an unset - or, here, a non-UTF-8 - name
-/// reads as the empty string the original spliced in.
+/// An unset - or non-UTF-8 - variable reads as the empty string.
 fn context(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
 }
@@ -270,24 +166,24 @@ impl Output for Console {
     }
 }
 
-/// What one iteration decided, in the original's terms: the line it
-/// echoed and the stream it echoed to.
+/// What one iteration decided: the line it prints and the stream it
+/// prints to.
 #[derive(Debug, PartialEq, Eq)]
 enum Report {
-    /// `echo ...` then `continue` (L21, L34, L47).
+    /// A stdout line, then another iteration.
     Retry(String),
-    /// `echo ...; exit 0` (L14, L26).
+    /// A stdout line, then exit 0.
     Done(String),
-    /// `echo ... >&2; exit 1` (L51).
+    /// A stderr line, then exit 1.
     Stop(String),
-    /// L29's death under `set -e`: the failing tool already wrote its
-    /// own diagnostic, and the step said nothing of its own.
+    /// A failed conclusion query: the failing tool already wrote its
+    /// own diagnostic, and the step says nothing of its own.
     Die,
 }
 
 impl Report {
-    /// Writes the line and answers with the exit the original took, or
-    /// `None` where it went round again.
+    /// Writes the line and answers with the exit code, or `None` where
+    /// the loop goes round again.
     fn emit(&self, output: &mut dyn Output) -> Option<u8> {
         match self {
             Self::Retry(line) => {
@@ -307,17 +203,16 @@ impl Report {
     }
 }
 
-/// L5..L57: the loop, its ceiling and the timeout below it.
+/// The loop, its ceiling and the timeout below it.
 ///
 /// A `Stop` is terminal only when two CONSECUTIVE iterations conclude
-/// it (post-port).  One iteration samples the world piecewise - fetch,
-/// candidate listing, same-SHA run, pending listing - so a deploy that
-/// lands between two samplings, or a head pushed after the fetch
-/// (unknown revisions fold `merge-base` to false), can read as a
-/// confirmed absence.  The second iteration re-takes every sample from
-/// its own fresh fetch, so any such race resolves to Done or Retry
-/// there; the first Stop just waits, as silently as the L54
-/// fall-through.
+/// it.  One iteration samples the world piecewise - fetch, candidate
+/// listing, same-SHA run, pending listing - so a deploy that lands
+/// between two samplings, or a head pushed after the fetch (unknown
+/// revisions fold `merge-base` to false), can read as a confirmed
+/// absence.  The second iteration re-takes every sample from its own
+/// fresh fetch, so any such race resolves to Done or Retry there; the
+/// first Stop just waits, as silently as the fall-through.
 fn poll(shell: &mut dyn Shell, output: &mut dyn Output, sha: &str, repository: &str) -> u8 {
     let mut provisional_stop = false;
     for n in 0..ITERATIONS {
@@ -339,16 +234,14 @@ fn poll(shell: &mut dyn Shell, output: &mut dyn Output, sha: &str, repository: &
     1
 }
 
-/// One pass of L6..L54, the `n`th of the loop. `None` is the
-/// fall-through at L54, which waits without saying anything.
+/// The loop's `n`th pass. `None` is the fall-through, which waits
+/// without saying anything.
 fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Option<Report> {
-    // L6, with its status READ where the original discarded it
-    // (post-port): a failed fetch leaves fresh heads unknown to the
-    // local clone, so every `merge-base --is-ancestor` below answers
-    // false (exit 128 folds to false) and a landed deploy is
-    // indistinguishable from a missing one.  The terminal
-    // confirmation at the bottom refuses to Stop on such an
-    // iteration.  stderr stays inherited, as `|| true` left it.
+    // A failed fetch leaves fresh heads unknown to the local clone,
+    // so every `merge-base --is-ancestor` below answers false (exit
+    // 128 folds to false) and a landed deploy is indistinguishable
+    // from a missing one.  The terminal confirmation at the bottom
+    // refuses to Stop on such an iteration.
     let (fetched, _) = shell.capture(&["git", "fetch", "--quiet", "origin", "main"], &[]);
 
     let scan_blind = match landed_deploy(shell, sha, repository) {
@@ -357,7 +250,6 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
         Landed::Miss => false,
     };
 
-    // L19.
     let (listed, runs) = shell.capture(
         &[
             "gh",
@@ -377,10 +269,10 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
     }
     let runs = crate::substitute(runs);
 
-    // Post-port: an empty listing is a push run not registered yet,
-    // never a deploy that is unnecessary (module doc).  Wait for it;
-    // past the patience a Stop needs the same verified absence as
-    // the arms below, then `poll`'s second consecutive pass.
+    // An empty listing is a push run not registered yet, never a
+    // deploy that is unnecessary (module doc).  Wait for it; past the
+    // patience a Stop needs the same verified absence as the arms
+    // below, then `poll`'s second consecutive pass.
     if empty_list(shell, &runs) {
         return Some(if n < NO_RUN_PATIENCE {
             Report::Retry(NO_RUN_YET.to_owned())
@@ -390,28 +282,26 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
             Report::Stop(NO_RUN_STOP.to_owned())
         });
     }
-    // L29: the block's one substitution outside any condition, so a jq
-    // that fails here killed the step under `set -e` (measured: the
-    // same malformed capture that L25 survived in its condition). jq's
-    // own diagnostic passes through on the inherited stderr.
+    // The one tool failure that fails the step rather than falling
+    // into a branch, the malformed capture the length check survived
+    // included. jq's own diagnostic passes through on the inherited
+    // stderr.
     let (ran, conclusion) = shell.capture(&["jq", "-r", ".[0].conclusion"], &runs);
     if !ran {
         return Some(Report::Die);
     }
     let conclusion = text(conclusion);
-    // Post-port changes (2026-08-15, run 31904670113; job-skip arm
-    // 2026-08-19): a same-SHA run that SUCCEEDED without deploying
-    // takes one of two exits the original lacked (it fell through to
-    // the wait here, idling the publish job into its hour ceiling).
-    // A `deploy-registry` JOB that itself concluded `skipped` is the
-    // change gate deciding this push touched nothing
+    // A same-SHA run that SUCCEEDED without deploying takes one of
+    // two exits rather than idling the publish job into its hour
+    // ceiling.  A `deploy-registry` JOB that itself concluded
+    // `skipped` is the change gate deciding this push touched nothing
     // registry-relevant - deterministic for the commit, so no deploy
     // can ever come and the deployed Worker is already current: exit
-    // 0 at once.  A job that ran but skipped its
-    // Deploy STEP (superseded, or a D1 migration awaiting its by-hand
-    // apply - the pre-launch deploy freeze) takes the same
-    // pending-descendant exit the failure path takes, with the reason
-    // named.  A query failure keeps the old safe answer (wait).
+    // 0 at once.  A job that ran but skipped its Deploy STEP
+    // (superseded, or a D1 migration awaiting its by-hand apply - the
+    // pre-launch deploy freeze) takes the same pending-descendant exit
+    // the failure path takes, with the reason named.  A query failure
+    // keeps the safe answer (wait).
     let same_sha = if conclusion == "success" {
         same_sha_deploy(shell, repository, &runs)
     } else {
@@ -425,7 +315,7 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
         return None;
     }
 
-    // L31. Terminal only when nothing pending could still satisfy the
+    // Terminal only when nothing pending could still satisfy the
     // ancestor gate: a queued or in-progress run whose head contains
     // this SHA (a rerun, or main already carrying the fix) delivers the
     // deploy on a later iteration, while failing here would strand this
@@ -444,8 +334,6 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
         return Some(Report::Retry(TRANSIENT_PENDING.to_owned()));
     }
 
-    // L39..L45. `any` stops at the first match, where the original
-    // broke out of the loop.
     let pending = text(pending);
     let descendant_pending = pending.split('\n').any(|line| {
         let head = line.trim_matches(IFS);
@@ -492,15 +380,14 @@ enum Landed {
     Blind,
 }
 
-/// L7..L18: list the successful main runs and scan them for a deploy
+/// List the successful main runs and scan them for a deploy
 /// containing this SHA.
 fn landed_deploy(shell: &mut dyn Shell, sha: &str, repository: &str) -> Landed {
-    // L7. per_page=100: successive skipped-Deploy successes (a
-    // migration awaiting its by-hand apply green-lights every
-    // subsequent run) must not push the qualifying run out of the
-    // scanned window - a buried qualifying candidate reads as a clean
-    // miss, which a confirmed Stop would trust and fast-fail on where
-    // the original merely idled.
+    // per_page=100: successive skipped-Deploy successes (a migration
+    // awaiting its by-hand apply green-lights every subsequent run)
+    // must not push the qualifying run out of the scanned window - a
+    // buried qualifying candidate reads as a clean miss, which a
+    // confirmed Stop would trust and fast-fail on.
     let (listed, candidates) = shell.capture(
         &[
             "gh",
@@ -531,8 +418,7 @@ enum SameShaDeploy {
     /// The job ran but its Deploy step concluded `skipped`:
     /// superseded, or the pre-launch deploy freeze.
     StepSkipped,
-    /// Anything else, a failed query included: keep the pre-change
-    /// behavior (wait).
+    /// Anything else, a failed query included: wait.
     Other,
 }
 
@@ -572,9 +458,9 @@ fn same_sha_deploy(shell: &mut dyn Shell, repository: &str, runs: &[u8]) -> Same
     }
 }
 
-/// L10..L17: the successful runs, in the order the API listed them,
-/// until one whose head contains this SHA carries a Deploy step that
-/// ran and succeeded.  A candidate lookup that failed to run sets
+/// The successful runs, in the order the API listed them, until one
+/// whose head contains this SHA carries a Deploy step that ran and
+/// succeeded.  A candidate lookup that failed to run sets
 /// `blind` - the caller must not conclude a terminal Stop from an
 /// iteration that may have missed a landed deploy.  A lookup that ran
 /// and answered non-success is a clean miss, not blindness.
@@ -593,9 +479,8 @@ fn scan(
         if !shell.condition(&["git", "merge-base", "--is-ancestor", sha, head]) {
             continue;
         }
-        // L13's `|| echo transient` appends to whatever the call
-        // already printed, so a partial answer can never read as
-        // `success`.
+        // `transient` is appended to whatever the call already
+        // printed, so a partial answer can never read as `success`.
         let (ran, mut conclusion) = shell.capture(
             &[
                 "gh",
@@ -619,7 +504,7 @@ fn scan(
     None
 }
 
-/// L25. `jq` prints nothing for empty input, where `[` diagnoses a
+/// `jq` prints nothing for empty input, which is diagnosed as a
 /// non-integer and answers false - the iteration then reads an empty
 /// conclusion and waits.
 fn empty_list(shell: &mut dyn Shell, runs: &[u8]) -> bool {
@@ -631,15 +516,14 @@ fn empty_list(shell: &mut dyn Shell, runs: &[u8]) -> bool {
     count == 0
 }
 
-/// `printf '%s' "$runs" | jq ...`, captured. The pipeline's status is
-/// `jq`'s and nothing reads it (`pipefail` is off), so only the text
-/// comes back.
+/// `runs` piped through `jq`, captured. Nothing reads `jq`'s status,
+/// so only the text comes back.
 fn jq(shell: &mut dyn Shell, runs: &[u8], argv: &[&str]) -> String {
     let (_, output) = shell.capture(argv, runs);
     text(output)
 }
 
-/// A capture as the port compares it: `$(...)`'s byte rules, then the
+/// A capture as it is compared: `substitute`'s byte rules, then the
 /// lossy decode the module documents as a ceiling.
 fn text(captured: Vec<u8>) -> String {
     String::from_utf8_lossy(&crate::substitute(captured)).into_owned()
@@ -653,9 +537,9 @@ fn jobs_url(repository: &str, run_id: &str) -> String {
     format!("repos/{repository}/actions/runs/{run_id}/jobs?per_page=100")
 }
 
-/// `read -r rid rsha`: leading and trailing blanks dropped, the first
-/// field split off at a run of blanks, and every remaining field left
-/// in the second - a line carrying extras keeps them all there.
+/// Leading and trailing blanks dropped, the first field split off at
+/// a run of blanks, and every remaining field left in the second - a
+/// line carrying extras keeps them all there.
 fn read_two(line: &str) -> (&str, &str) {
     let line = line.trim_matches(IFS);
     match line.split_once(IFS) {
@@ -668,18 +552,16 @@ fn read_two(line: &str) -> (&str, &str) {
 /// is what lets the 90-iteration ceiling be checked without waiting an
 /// hour for it.
 trait Shell {
-    /// `$(argv)` with `stdin` on the standard input: stdout captured
-    /// raw, stderr inherited, and the status the original's `if` and
-    /// `||` read.
+    /// `argv` with `stdin` on the standard input: stdout captured raw,
+    /// stderr inherited, and whether it succeeded.
     fn capture(&mut self, argv: &[&str], stdin: &[u8]) -> (bool, Vec<u8>);
-    /// `argv 2>/dev/null` in a condition: the status alone.
+    /// `argv` with stderr discarded: the status alone.
     fn condition(&mut self, argv: &[&str]) -> bool;
-    /// `sleep 40`.
+    /// One `WAIT`.
     fn wait(&mut self);
 }
 
-/// The production shell: real child processes, found on `PATH` exactly
-/// as the workflow's `gh`, `git` and `jq` were.
+/// The production [`Shell`]: real child processes, found on `PATH`.
 struct Spawn;
 
 impl Shell for Spawn {
@@ -692,16 +574,14 @@ impl Shell for Spawn {
             .spawn()
         {
             Ok(child) => child,
-            // The shell's status 127, which every caller here reads as
-            // a failed call.
+            // Every caller here reads a spawn failure as a failed call.
             Err(error) => {
                 eprintln!("{}: {error}", argv[0]);
                 return (false, Vec::new());
             }
         };
         if let Some(mut pipe) = child.stdin.take() {
-            // The pipeline discards `printf`'s status, a short write
-            // against an early-exiting `jq` included.
+            // A short write against an early-exiting `jq` is ignored.
             let _ = pipe.write_all(stdin);
         }
         match child.wait_with_output() {
@@ -824,7 +704,7 @@ mod tests {
     const FETCH_OK: (&str, bool, &str) = ("git fetch", true, "");
 
     #[test]
-    fn reports_use_the_original_streams_and_exit_codes() {
+    fn reports_pick_their_stream_and_exit_code() {
         let mut output = FakeOutput::default();
         assert_eq!(Report::Retry("retry".to_owned()).emit(&mut output), None);
         assert_eq!(Report::Done("done".to_owned()).emit(&mut output), Some(0));
@@ -835,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn the_urls_and_projections_match_the_originals() {
+    fn the_urls_and_projections_are_spelled_exactly() {
         assert_eq!(
             runs_url("o/r", "head_sha=abc&branch=main"),
             "repos/o/r/actions/workflows/registry.yml/runs?head_sha=abc&branch=main"
@@ -869,8 +749,8 @@ mod tests {
 
     #[test]
     fn a_deploy_step_that_prints_then_fails_is_not_a_success() {
-        // `$(deploy_step ... || echo transient)` concatenates, so the
-        // capture is `success\ntransient` and loses the comparison.
+        // The appended `transient` makes the capture
+        // `success\ntransient`, which loses the comparison.
         let mut shell =
             Fake::answering(&[ONE_CANDIDATE, ("jobs?per_page=100", false, "success\n")])
                 .descending_from(&["head77"]);
@@ -893,8 +773,8 @@ mod tests {
 
     #[test]
     fn an_empty_candidate_list_runs_one_field_less_iteration() {
-        // The herestring's newline gives `read` one pass with empty
-        // fields; the `[ -n "$rid" ]` guard is what makes it a no-op.
+        // An empty capture still yields one empty line; the empty
+        // run-id guard is what makes it a no-op.
         let mut shell = Fake::answering(&[("status=success", true, "")]);
         iteration(&mut shell, "abc", "o/r", 0);
         assert_eq!(shell.called("merge-base"), 0);
@@ -919,8 +799,8 @@ mod tests {
         assert_eq!(read_two(""), ("", ""));
     }
 
-    /// The original's L26 exited 0 here; a main push always registers
-    /// a Registry run, so an empty listing is a run not yet registered.
+    /// A main push always registers a Registry run, so an empty
+    /// listing is a run not yet registered.
     #[test]
     fn no_registry_run_for_this_sha_waits() {
         let mut shell = Fake::answering(&[("head_sha=", true, "[]"), ("jq length", true, "0\n")]);
@@ -965,8 +845,7 @@ mod tests {
     }
 
     /// A listing that stays empty past the patience fails closed in
-    /// minutes: neither the original's exit 0 nor an idle into the
-    /// hour ceiling.
+    /// minutes rather than idling into the hour ceiling.
     #[test]
     fn a_registry_run_still_missing_past_the_patience_stops() {
         let mut shell = Fake::answering(&[
@@ -1001,16 +880,16 @@ mod tests {
 
     #[test]
     fn an_unparsable_length_reads_as_non_empty_and_waits() {
-        // `jq` prints nothing for empty input; `[ "" -eq 0 ]` answers
-        // false, and the conclusion then reads empty, so the iteration
-        // falls through to the wait.
+        // `jq` prints nothing for empty input, which is not an
+        // integer, and the conclusion then reads empty, so the
+        // iteration falls through to the wait.
         let mut shell = Fake::answering(&[("head_sha=", true, ""), ("jq ", true, "")]);
         assert_eq!(iteration(&mut shell, "abc", "o/r", 0), None);
     }
 
     #[test]
     fn a_failing_conclusion_query_kills_the_step() {
-        // L29 is the one substitution `set -e` still guards: the same
+        // The one tool failure that fails the step: the same
         // malformed capture the length check just survived.
         let mut shell = Fake::answering(&[
             ("head_sha=", true, "not json"),
@@ -1249,7 +1128,7 @@ mod tests {
         assert_eq!(shell.waits, 0);
     }
 
-    /// A deploy-step query failure keeps the old safe answer: wait.
+    /// A deploy-step query failure keeps the safe answer: wait.
     #[test]
     fn a_failed_deploy_step_query_on_a_success_run_waits() {
         let mut shell = Fake::answering(&[

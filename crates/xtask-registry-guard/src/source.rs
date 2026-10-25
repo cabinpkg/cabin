@@ -17,10 +17,9 @@ pub struct Source {
 
 /// Every file under `dir`, sorted by reported path.
 ///
-/// A symlink to a file is listed and read through, like the `find` walk
-/// this replaces; a symlink to a directory is neither descended into nor
-/// listed (`find` does not descend one, and listing it would hand a
-/// directory to `read`), and a dangling one is skipped. A guard that
+/// A symlink to a file is listed and read through; a symlink to a
+/// directory is neither descended into nor listed (listing it would hand
+/// a directory to `read`), and a dangling one is skipped. A guard that
 /// aborts on an ordinary symlink reports no violations at all, which is
 /// the one outcome it must never produce - but a link the process cannot
 /// resolve at all is not "dangling", it is unknown, and refusing is the
@@ -73,8 +72,8 @@ fn resolves_to_a_file(path: &Path, relative: &str) -> Result<bool> {
 pub fn rust_sources(dir: &Path, prefix: &str) -> Result<Vec<Source>> {
     Ok(walk(dir, prefix)?
         .into_iter()
-        // Byte-wise on the reported path: `find -name '*.rs'` matched a
-        // leading-dot name too, which `Path::extension` would not.
+        // Byte-wise on the reported path, so a leading-dot name matches
+        // too, which `Path::extension` would not.
         .filter(|source| source.relative.as_bytes().ends_with(b".rs"))
         .collect())
 }

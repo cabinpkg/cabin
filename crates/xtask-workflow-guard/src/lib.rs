@@ -18,8 +18,8 @@ pub mod await_deploy;
 pub mod migrations_pending;
 pub mod superseded;
 
-/// The bytes `$(...)` yields for a captured command: command
-/// substitution drops NUL bytes and strips every trailing newline.
+/// A captured command's stdout with NUL bytes dropped and every
+/// trailing newline stripped.
 pub(crate) fn substitute(mut stdout: Vec<u8>) -> Vec<u8> {
     stdout.retain(|byte| *byte != 0);
     while stdout.last() == Some(&b'\n') {
@@ -28,9 +28,9 @@ pub(crate) fn substitute(mut stdout: Vec<u8>) -> Vec<u8> {
     stdout
 }
 
-/// The guards' positive answers are all one `echo "..." >> "$GITHUB_OUTPUT"`,
-/// so the redirect's failure shapes live here once: an unset or empty
-/// `GITHUB_OUTPUT` fails the step, exactly where the shell's `>> ""` did.
+/// The guards' positive answers are all one line appended to
+/// `$GITHUB_OUTPUT`, so its failure shapes live here once: an unset or
+/// empty `GITHUB_OUTPUT` fails the step.
 pub(crate) fn append_github_output(line: &str) -> Result<()> {
     let path = std::env::var("GITHUB_OUTPUT").unwrap_or_default();
     if path.is_empty() {
@@ -63,8 +63,7 @@ mod tests {
     #[test]
     fn substitution_drops_nul_bytes() {
         assert_eq!(substitute(b"a\0b\n".to_vec()), b"ab");
-        // A capture of nothing but NULs is empty, so it compares
-        // exactly as the shell's empty substitution did.
+        // A capture of nothing but NULs is empty.
         assert!(substitute(b"\0\0".to_vec()).is_empty());
     }
 }

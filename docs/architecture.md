@@ -626,10 +626,9 @@ adapter.  The crate must:
 One ceiling comes with being a cargo target inside the workspace it checks: `cargo ci --hook` has
 to resolve and build `xtask-ci` before the adapter runs at all, so a workspace that does not
 compile - or a stale lockfile under `--locked` - fails the hook before it can turn that into a
-block decision.  The shell adapter it replaces was already running when the inner gate hit the
-same failure, and converted it.  A hook that cannot build is still visible (the agent reports the
-hook error), but it does not block the stop, so a red workspace is the one state where the gate
-must be run by hand.
+block decision.  A hook that cannot build is still visible (the agent reports the hook error), but
+it does not block the stop, so a red workspace is the one state where the gate must be run by
+hand.
 
 The crate is also the shared child-process layer for the other xtask crates that run long-lived
 children: the signal-safe teardown (`spawn_tracked`/`reap`/`kill_group`, the teardown-time file
@@ -723,18 +722,17 @@ on a tag build it refuses a tag that is not the workspace version, so every matr
 archive runs on its own target before the release attests it.  The crate must:
 
 - keep the archive names and formats a cargo-binstall contract: `tar -cJf` on Unix and
-  `Compress-Archive` on Windows stay child processes carrying the shell's exact argv, because
-  `crates/cabin/Cargo.toml` declares `pkg-fmt = "txz"` and compressing in Rust would change the
-  published bytes for no gain;
+  `Compress-Archive` on Windows stay child processes, because `crates/cabin/Cargo.toml` declares
+  `pkg-fmt = "txz"` and compressing in Rust would change the published bytes for no gain;
 - refuse a tag name with any character outside `[A-Za-z0-9._+-]` before staging anything: the
   Windows leg splices the version into the PowerShell command string it runs, so a crafted tag
   would otherwise execute on that runner;
 - read no `GITHUB_*` context and write no `$GITHUB_ENV` - that is `xtask-workflow-guard`'s
   reserved surface, so the run's version context arrives as arguments and the answer leaves on
   stdout for the step to record;
-- build and test on every runner in the matrix, Windows included, which is why the
-  `RUNNER_OS` branches are `cfg!(windows)` at the entry point and a threaded argument below it;
-- keep every `--ref-*`/`--sha` flag required but empty-tolerant: the workflow forwards
+- build and test on every runner in the matrix, Windows included, which is why the OS
+  branches are `cfg!(windows)` at the entry point and a threaded argument below it;
+- keep every `--ref-*`/`--sha` flag empty-tolerant: the workflow forwards
   `$GITHUB_*` values that may legitimately be empty, and a set-but-empty value is a value.
 
 ### `cabin-publish`

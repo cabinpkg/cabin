@@ -29,9 +29,9 @@ impl Surfaces {
 
 /// The surfaces a list of changed paths touches.
 ///
-/// The prefixes are matched at the start of each path, as the shell's
-/// `grep -qE '^(...)'` matched them per line: a `crates/` nested
-/// deeper (`registry/crates/x`) is deliberately not a Rust change.
+/// The prefixes are matched at the start of each path: a `crates/`
+/// nested deeper (`registry/crates/x`) is deliberately not a Rust
+/// change.
 #[must_use]
 pub fn surfaces(changed: &[String]) -> Surfaces {
     let any = |prefixes: &[&str]| {
@@ -66,7 +66,7 @@ mod tests {
     }
 
     #[test]
-    fn the_rust_surface_matches_what_the_shell_matched() {
+    fn the_rust_surface_is_matched_by_anchored_prefixes() {
         for path in [
             "crates/cabin/src/lib.rs",
             "examples/hello-c/cabin.toml",
@@ -79,8 +79,8 @@ mod tests {
             assert!(of(&[path]).rust, "{path} should be a Rust change");
         }
         for path in [
-            // Anchored at the start, as the shell's `^` was: a nested
-            // `crates/` belongs to another workspace.
+            // Anchored at the start: a nested `crates/` belongs to
+            // another workspace.
             "registry/crates/x/src/lib.rs",
             "registry/src/lib.rs",
             "website/src/pages/index.astro",

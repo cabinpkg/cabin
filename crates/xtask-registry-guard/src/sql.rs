@@ -10,23 +10,18 @@
 //! lexical scan rather than a line match, so no comment can hide a call
 //! or fake one and no multi-line spelling slips through.
 //!
-//! Three diagnostic details differ from the Perl guard this replaces,
-//! none of them changing which call sites are accepted:
+//! Diagnostics:
 //!
-//! - a violation names the line its call starts on. The Perl computed
-//!   that line from `@-` *after* normalizing the argument's whitespace,
-//!   which silently reset the offsets, so any call whose argument
-//!   contained whitespace was reported on an unrelated line;
-//! - within each pass, violations come out sorted by path rather than in
-//!   `find`'s directory order. The passes themselves keep their order:
-//!   each literal pattern over the whole tree, then the lexical scan;
+//! - a violation names the line its call starts on;
+//! - within each pass, violations come out sorted by path. The passes
+//!   themselves keep their order: each literal pattern over the whole
+//!   tree, then the lexical scan;
 //! - bytes that are not valid UTF-8 are rendered lossily rather than
 //!   emitted raw, in an echoed argument and in a literal-pattern match
 //!   alike.
 //!
-//! The governor carve-outs below are also tightened: the Perl matched
-//! any path ENDING in `src/governor.rs`, so a nested `src/x/src/governor.rs`
-//! inherited them.  This matches the reported path exactly.
+//! The governor carve-outs below match the reported path exactly, so a
+//! nested `src/x/src/governor.rs` does not inherit them.
 //!
 //! ponytail: a lexical scan, not a Rust parser, so it has no receiver
 //! types - an unrelated `prepare`/`exec` method on some other receiver
@@ -80,10 +75,8 @@ impl Method {
 ///
 /// # Errors
 ///
-/// Fails when `registry_dir/src` cannot be read.  Unlike the shell
-/// guard this replaces - whose `find` error drained into an empty
-/// argument list and a silent pass - an unreadable source tree refuses
-/// rather than reporting nothing.
+/// Fails when `registry_dir/src` cannot be read: an unreadable source
+/// tree refuses rather than reporting nothing.
 pub fn check(registry_dir: &Path) -> Result<Vec<String>> {
     let src = registry_dir.join("src");
     let mut violations = Vec::new();

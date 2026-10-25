@@ -14,15 +14,11 @@
 //! `--require-bundle` (CI, after the Worker build step) makes a missing
 //! bundle a failure instead of a skip.
 //!
-//! Three refusals are stricter than the node guard this replaces, none
-//! of them accepting a config node rejected: a lifecycle key
-//! (`deleted_classes`, `new_sqlite_classes`, `new_classes`,
-//! `renamed_classes`) that is present but not an array is refused by
-//! name instead of being coerced by JS (`?? []` only substitutes for
-//! null, so a string flowed into `.length`, and an object made `.find`
-//! throw); a migration tag that is not a string is refused instead of
-//! being compared by JSON rendering; and both refusals name what is
-//! wrong rather than surfacing a coercion artifact.
+//! A lifecycle key (`deleted_classes`, `new_sqlite_classes`,
+//! `new_classes`, `renamed_classes`) that is present but not an array
+//! is refused by name instead of being coerced, and a migration tag
+//! that is not a string is refused instead of being compared by JSON
+//! rendering.
 //!
 //! ponytail: the export check is a lexical scan of the bundle's
 //! `export{...}` lists; worker-build changing its output shape would
@@ -190,9 +186,8 @@ fn array<'a>(value: &'a Value, key: &str) -> &'a [Value] {
     value.get(key).and_then(Value::as_array).map_or(&[], |a| a)
 }
 
-/// Whether `value` is JS-truthy, which is what the node guard this
-/// replaces tested `script_name` with: `null`, `""`, `0` and `false` all
-/// read as "not set".
+/// Whether `value` is JS-truthy: `null`, `""`, `0` and `false` all read
+/// as "not set".
 fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
@@ -203,13 +198,11 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
-/// The keys whose value must be an array when present at all.
+/// The keys whose value must be an array when present; `null` reads as
+/// absent.
 ///
-/// The node guard reached them through `?? []`, which only substitutes
-/// for `null` and `undefined`: a string, a number or an object flowed
-/// straight into `.length` / `.includes` / `.find` and either coerced
-/// silently or threw. Refusing outright is stricter in every direction
-/// and cannot fail open.
+/// Anything else is refused outright rather than coerced, which cannot
+/// fail open.
 const ARRAY_VALUED: [&str; 4] = [
     "deleted_classes",
     "new_sqlite_classes",
@@ -370,10 +363,9 @@ fn validate_durable_objects(config: &Value, failures: &mut Vec<String>) -> Vec<S
     );
     let migrations = array(config, "migrations");
     require_array_valued(migrations, failures);
-    // A missing or null tag is the empty tag (the node guard spelled
-    // that `m.tag ?? ""`), and a tag that is not a string at all is
-    // malformed - refusing it keeps the uniqueness comparison below on
-    // plain strings, where it means what it says.
+    // A missing or null tag is the empty tag, and a tag that is not a
+    // string at all is malformed - refusing it keeps the uniqueness
+    // comparison below on plain strings, where it means what it says.
     let tags: Vec<&str> = migrations
         .iter()
         .map(|migration| {

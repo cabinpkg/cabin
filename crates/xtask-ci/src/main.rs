@@ -92,10 +92,9 @@ fn run_hook() -> ExitCode {
         Err(_) => bytes.extend_from_slice(b"error: the gate panicked\n"),
         Ok(Ok(())) => {}
     }
-    // Replayed as bytes, as the shell's `cat "$log" >&2` replayed them:
-    // a stray invalid byte in compiler output must not corrupt - let
-    // alone drop - everything around it.  The lossy copy below is for
-    // the line-oriented marker scan only.
+    // Replayed as bytes: a stray invalid byte in compiler output must
+    // not corrupt - let alone drop - everything around it.  The lossy
+    // copy below is for the line-oriented marker scan only.
     {
         use std::io::Write as _;
         let _ = std::io::stderr().write_all(&bytes);
@@ -383,20 +382,16 @@ fn git(root: &std::path::Path, args: &[&str]) -> Result<Vec<String>> {
         .collect())
 }
 
-/// `command -v` as a yes/no answer: any regular file named `program`
-/// on PATH.  Bash prefers an executable match but falls back to a
-/// non-executable regular file (directories never count), so
-/// executability must NOT be required here: a broken - even
-/// non-executable - installation made the shell attempt `cargo
-/// nextest` and fail red, and must do the same here rather than
-/// silently falling back to `cargo test`.  Deliberately not "runs
-/// `--version` successfully" either: probing by execution would let a
-/// transient failure downgrade a red gate the same way.
+/// Whether any regular file named `program` is on PATH (directories
+/// never count).  Executability must NOT be required here: a broken -
+/// even non-executable - installation must attempt `cargo nextest`
+/// and fail red rather than silently falling back to `cargo test`.
+/// Deliberately not "runs `--version` successfully" either: probing
+/// by execution would let a transient failure downgrade a red gate
+/// the same way.
 ///
-/// Relative and empty PATH entries resolve against `root`, because
-/// the shell had already `cd`-ed there when its `command -v` ran -
-/// the gate's answer must not depend on which subdirectory it was
-/// invoked from.
+/// Relative and empty PATH entries resolve against `root`: the gate's
+/// answer must not depend on which subdirectory it was invoked from.
 fn which(program: &str, root: &std::path::Path) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
         return false;

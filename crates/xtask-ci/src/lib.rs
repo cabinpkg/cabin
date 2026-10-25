@@ -19,24 +19,18 @@
 //! keeping the gate's `-D warnings` builds out of `target/` also stops
 //! them from invalidating ordinary iteration builds.
 //!
-//! Ceilings, where this stops short of the shell it replaces:
+//! Ceilings:
 //!
 //! - the teardown is Unix-only.  Every phase - plus, in hook mode,
-//!   the serial steps, as in the shell's hook, where the whole inner
-//!   gate was one process group - runs in its own process group and a
+//!   the serial steps - runs in its own process group and a
 //!   `SIGTERM`/`SIGINT`/`SIGHUP` tears the groups down; on a non-Unix
 //!   host the children are ordinary processes and a cancelled gate
 //!   can orphan them;
 //! - a teardown signal arriving while a tracked child is being
 //!   spawned stays pending until the spawn returns, because the
-//!   spawn-and-record pair runs under a signal mask.  Bash recorded
-//!   its jobs at fork time and could cancel a child stuck before
-//!   `exec`; here a stalled `exec` defers the cancellation for as
-//!   long as it stalls - deferred, not lost;
-//! - `nproc` honored `OMP_NUM_THREADS`, which the standard library's
-//!   parallelism probe does not, so [`cores::effective`] reads those
-//!   variables itself rather than quietly using more of a host than
-//!   the operator asked for.
+//!   spawn-and-record pair runs under a signal mask, so a stalled
+//!   `exec` defers the cancellation for as long as it stalls -
+//!   deferred, not lost.
 
 pub mod cores;
 pub mod hook;
@@ -50,13 +44,12 @@ use anyhow::{Context, Result, bail};
 
 /// The repository this gate checks.
 ///
-/// Resolved at RUNTIME through git, as the shell resolved it from its
-/// own location: the gate checks the tree it is invoked in, which is
-/// what makes it correct inside a `git worktree`.  Taking the crate's
-/// compile-time manifest directory instead would pin every run to
-/// whichever checkout the binary happened to be built in - a copied or
-/// worktree-shared binary would then check the wrong tree and report
-/// its verdict about someone else's changes.
+/// Resolved at RUNTIME through git: the gate checks the tree it is
+/// invoked in, which is what makes it correct inside a `git worktree`.
+/// Taking the crate's compile-time manifest directory instead would
+/// pin every run to whichever checkout the binary happened to be built
+/// in - a copied or worktree-shared binary would then check the wrong
+/// tree and report its verdict about someone else's changes.
 ///
 /// # Errors
 ///
@@ -122,17 +115,15 @@ impl Gate {
 
     /// An anonymous scratch file for a child's output, as a (writer,
     /// reader) pair.  `NamedTempFile` creates it exclusively under a
-    /// random name with mode 0600 (exactly `mktemp`); `reopen` gives
-    /// the reader an INDEPENDENT file description, because it must
-    /// not share the writer's cursor - a grandchild still holding
-    /// the write end after the reaped child exits would otherwise
-    /// have its position moved by the replay's seek, as `cat`'s
-    /// separate open never did.  Dropping the `TempPath` unlinks the
-    /// file right away, so no path is left for a squatter to attack
-    /// and an unlinked log cannot outlive the gate on any exit
-    /// path - the shell needed `rm` traps for that.  A FAILED
-    /// unlink is ignored, as the shell's `rm -f ... || true`
-    /// ignored it; the straggler is an unreadable 0600 file.
+    /// random name with mode 0600; `reopen` gives the reader an
+    /// INDEPENDENT file description, because it must not share the
+    /// writer's cursor - a grandchild still holding the write end
+    /// after the reaped child exits would otherwise have its
+    /// position moved by the replay's seek.  Dropping the `TempPath`
+    /// unlinks the file right away, so no path is left for a
+    /// squatter to attack and an unlinked log cannot outlive the
+    /// gate on any exit path.  A FAILED unlink is ignored; the
+    /// straggler is an unreadable 0600 file.
     fn log() -> Result<(std::fs::File, std::fs::File)> {
         let file = tempfile::NamedTempFile::new().context("create a scratch log file")?;
         let reader = file.reopen().context("reopen the scratch log file")?;
@@ -142,8 +133,7 @@ impl Gate {
     }
 
     /// Everything a finished child wrote to its log, as bytes: one
-    /// invalid byte in compiler output must not drop the whole replay
-    /// (the shell used `cat`).
+    /// invalid byte in compiler output must not drop the whole replay.
     fn replay(log: &mut std::fs::File) -> Vec<u8> {
         use std::io::{Read as _, Seek as _};
         let mut output = Vec::new();
@@ -167,10 +157,8 @@ impl Gate {
 
     /// A serial step: announced, run in the foreground, and fatal.
     ///
-    /// Tracked for teardown only in hook mode, which is the shell's
-    /// exact split: its hook ran the whole inner gate as one killable
-    /// process group, but the script itself enabled job control only
-    /// for the parallel phases - a serial step stayed in the
+    /// Tracked for teardown only in hook mode, where the whole gate
+    /// must stay killable.  Otherwise a serial step stays in the
     /// foreground group, where moving it would trade the terminal's
     /// signal delivery for a `SIGTTIN`/`SIGTTOU` stop the gate would
     /// then wait on forever.
@@ -207,8 +195,7 @@ impl Gate {
     }
 
     /// A check, backgrounded as a phase when the machine has cores to
-    /// spare and run in the foreground otherwise.  Written once either
-    /// way, as the shell's `launch` was.
+    /// spare and run in the foreground otherwise.
     ///
     /// # Errors
     ///
@@ -308,7 +295,7 @@ impl Drop for Gate {
 /// without the reset every child inherits blocked TERM/INT/HUP and is
 /// permanently immune to the very teardown the mask protects - found
 /// empirically, and invisible to `ps`, which reports the mask as
-/// clear.  Bash gave its children a clean mask the same way.
+/// clear.
 #[cfg(unix)]
 fn group(command: &mut Command) -> &mut Command {
     use std::os::unix::process::CommandExt as _;
@@ -330,9 +317,8 @@ fn group(command: &mut Command) -> &mut Command {
 }
 
 /// Spawns a child in its own process group and records it for the
-/// teardown handler, with the teardown signals blocked across both:
-/// bash registered the job at fork time, so its trap never saw a
-/// child the kill loop could miss, and neither may ours.
+/// teardown handler, with the teardown signals blocked across both,
+/// so the handler never sees a child its kill loop could miss.
 ///
 /// Public for the other xtask crates that manage long-running
 /// children (the registry smoke test's dev servers and mocks); the
@@ -372,12 +358,11 @@ pub fn kill_group(child: &mut Child) {
 /// while the teardown handler could still signal it: first a wait
 /// that does NOT reap (`WNOWAIT` - the child stays a zombie, and a
 /// zombie's pid cannot be recycled), then the real reap and the
-/// table removal together under the signal mask.  This is the
-/// guarantee bash's job table gave the shell: reaped jobs leave it,
-/// so a recycled pid is not signaled.  The one exception is the
-/// fallback below for a failed `waitid`, which accepts the old
-/// reap-to-forget window rather than waiting masked for the child's
-/// whole runtime.
+/// table removal together under the signal mask, so a recycled pid
+/// is not signaled.  The one exception is the fallback below for a
+/// failed `waitid`, which accepts the window between the reap and the
+/// table removal rather than waiting masked for the child's whole
+/// runtime.
 ///
 /// # Errors
 ///
@@ -515,32 +500,28 @@ mod teardown {
 
     /// A cancelled gate must not orphan its phases: without this, a
     /// process-directed signal leaves cargo and npm running.  The exit
-    /// code is the conventional 128 + signal, as the shell's traps
-    /// used.
+    /// code is the conventional 128 + signal.
     extern "C" fn handle(signal: libc::c_int) {
         // `arm` masks the other teardown signals for the handler's
         // whole run, so this never nests.  The ordering below - kill
         // everything first, reap and clear after - is still the safe
         // shape on its own: a slot leaves the table only once its
         // group is dead AND reaped, never while the pid could still
-        // name a live child (bash's kill loop left the job table
-        // intact the same way).
+        // name a live child.
         for slot in &GROUPS {
             let pid = slot.load(Ordering::SeqCst);
             if pid != 0 {
                 // Negative pid: the whole process group; the direct
-                // pid as the fallback, as the shell's
-                // `kill -- "-$pid" || kill "$pid"` fell back.
+                // pid as the fallback.
                 if unsafe { libc::kill(-pid.cast_signed(), libc::SIGTERM) } != 0 {
                     unsafe { libc::kill(pid.cast_signed(), libc::SIGTERM) };
                 }
             }
         }
-        // The shell's traps `wait`ed, so a cancelled gate never exits
+        // Every group is waited for, so a cancelled gate never exits
         // while its children still run (`waitpid` is on the
-        // async-signal-safe list).  A child that ignores SIGTERM
-        // hangs this, which is the exposure the shell's `wait`
-        // accepted too.
+        // async-signal-safe list).  A child that ignores SIGTERM hangs
+        // this - an accepted exposure.
         for slot in &GROUPS {
             let pid = slot.load(Ordering::SeqCst);
             if pid != 0 {
@@ -564,8 +545,8 @@ mod teardown {
                 unsafe { libc::rename(from, to) };
             }
         }
-        // 128 + signal is the convention the shell's traps used, but
-        // the hook adapter's contract outranks it.
+        // 128 + signal is the convention, but the hook adapter's
+        // contract outranks it.
         let code = if HOOKED.load(Ordering::SeqCst) {
             0
         } else {

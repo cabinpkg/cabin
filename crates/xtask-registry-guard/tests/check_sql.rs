@@ -231,8 +231,7 @@ fn the_governor_carve_outs_do_not_follow_the_file_name() {
     fs::create_dir_all(&nested).expect("create scratch src/nested/");
     fs::write(nested.join("governor.rs"), "store.exec(CONSUME_OPS, &[])?;")
         .expect("write the call site");
-    // Not even a nested `src/` prefix, which the Perl guard's suffix
-    // match would have accepted.
+    // Not even under a nested `src/` prefix.
     let deep = dir.path().join("src/nested/src");
     fs::create_dir_all(&deep).expect("create scratch src/nested/src/");
     fs::write(deep.join("governor.rs"), "store.exec(CONSUME_OPS, &[])?;")
@@ -260,7 +259,7 @@ fn a_violation_names_its_call_site() {
 }
 
 /// The reported line is the line of the call, even when the argument
-/// wraps - the case the Perl guard this replaces got wrong.
+/// wraps.
 #[test]
 fn a_wrapped_call_is_reported_on_its_own_line() {
     let dir = scratch("glue.rs", "db.prepare(\n    dynamic_sql,\n)\n.run();");

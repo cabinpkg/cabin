@@ -1,6 +1,5 @@
-//! The workflow guards' live contracts, extracted from the retired
-//! shell-vs-port differentials: each case spawns the real binary in a
-//! scratch working directory and asserts what it left in
+//! The workflow guards' live contracts: each case spawns the real
+//! binary in a scratch working directory and asserts what it left in
 //! `$GITHUB_OUTPUT`, which is the only channel `registry.yml` reads.
 
 use std::fmt::Write as _;

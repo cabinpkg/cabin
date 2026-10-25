@@ -188,9 +188,7 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
     ),
     ("unparsable_config", r#""vars": {"#, r#""vars": {{"#),
     (
-        // `?? []` only substitutes for null/undefined, so the node guard
-        // this replaces measured `.length` on whatever was there. A
-        // non-array value refuses outright now.
+        // A non-array value refuses outright.
         "stringy_deleted_classes",
         r#""migrations": [{ "tag": "v1", "new_sqlite_classes": ["Governor"] }]"#,
         r#""migrations": [{ "tag": "v1", "new_sqlite_classes": ["Governor"] },
@@ -350,9 +348,8 @@ fn a_block_comment_is_stripped() {
     assert!(guard_accepts(&config, Some(BUNDLE_WITH_GOVERNOR), true));
 }
 
-/// An empty `script_name` is not a foreign class: the node guard read it
-/// as falsy, and skipping the checks for it would be the fail-open
-/// direction.
+/// An empty `script_name` is not a foreign class: skipping the checks
+/// for it would be the fail-open direction.
 #[test]
 fn an_empty_script_name_is_still_a_local_class() {
     let config = real_config().replace(
