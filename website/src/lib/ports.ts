@@ -130,8 +130,7 @@ export async function loadPortsFromDir(
 
 // A migrated port: the committed manifest already carries the
 // canonical scoped identity and a complete [package.upstream] block,
-// so nothing is converted.  The manifest has no description, license,
-// or homepage fields, so those stay null and their UI sections hide.
+// so nothing is converted.
 async function loadPackageRecord(
     manifestPath: string,
     portName: string,
@@ -230,14 +229,7 @@ async function loadPackageRecord(
     return {
         name,
         version,
-        description: null,
-        edition: null,
-        license: null,
-        metadata: { package: {} },
         manifest: extractManifestInfo(parsed, manifestPath),
-        published_at: null,
-        readme: null,
-        repository: null,
         upstream: { version, archiveUrl: parsedUrl.toString(), checksum },
     };
 }

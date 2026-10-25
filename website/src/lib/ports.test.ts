@@ -153,10 +153,6 @@ format = "tar.gz"
             fmt.manifest.dependencies.map(({ name, req }) => ({ name, req })),
             [{ name: "cabin-ports/zlib", req: "^1.3" }],
         );
-        // The manifest carries no display metadata; those fields stay
-        // null so their UI sections hide.
-        assert.equal(fmt.description, null);
-        assert.equal(fmt.license, null);
         assert.ok(records.some((r) => r.name === "cabin-ports/zlib"));
     } finally {
         await rm(dir, { recursive: true, force: true });

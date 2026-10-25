@@ -12,14 +12,7 @@ function record(version: string): PackageRecord {
     return {
         name: "cabin-ports/zlib",
         version,
-        description: null,
-        edition: null,
-        license: null,
-        metadata: { package: {} },
         manifest: { dependencies: [], features: null },
-        published_at: null,
-        readme: null,
-        repository: null,
         upstream: null,
     };
 }

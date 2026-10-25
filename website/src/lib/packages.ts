@@ -1,13 +1,7 @@
 import semver from "semver";
-import { formatEdition, stringifyValue } from "./format.ts";
+import { stringifyValue } from "./format.ts";
 import { loadPortsAsPackageRecords } from "./ports.ts";
-import type {
-    NormalizedPackageMetadata,
-    PackageLinks,
-    PackageRecord,
-    PackageSearchIndexItem,
-} from "./types.ts";
-import { parseHttpUrl } from "./url.ts";
+import type { PackageRecord, PackageSearchIndexItem } from "./types.ts";
 
 export type { PackageRecord };
 
@@ -76,12 +70,6 @@ export function comparePackageVersions(
         if (semverCompare !== 0) {
             return semverCompare;
         }
-    }
-
-    const publishedCompare =
-        dateToTime(second.published_at) - dateToTime(first.published_at);
-    if (publishedCompare !== 0) {
-        return publishedCompare;
     }
 
     const stringCompare = String(second.version).localeCompare(
@@ -248,25 +236,10 @@ export function getPackageVersionHref(
     return `/packages/${encodeURIComponent(parts.group)}/${encodeURIComponent(parts.name)}/${encodeURIComponent(version)}`;
 }
 
-export function normalizePackageMetadata(
-    metadata: unknown,
-): NormalizedPackageMetadata {
-    const record = isRecord(metadata) ? metadata : {};
-
-    return {
-        links: getPackageLinks(record.package),
-    };
-}
-
-export { formatEdition };
-
 function toPackageSearchIndexItem(pack: PackageRecord): PackageSearchIndexItem {
     return {
         name: pack.name,
         version: pack.version,
-        description: pack.description ?? "",
-        edition: stringifyValue(pack.edition),
-        published_at: stringifyValue(pack.published_at),
         href: getPackageHrefOrNull(pack.name),
     };
 }
@@ -290,35 +263,4 @@ function getPackageHrefOrNull(packageName: string): string | null {
     } catch {
         return null;
     }
-}
-
-const PACKAGE_LINK_KEYS = ["homepage", "documentation", "repository"] as const;
-
-function getPackageLinks(value: unknown): PackageLinks {
-    if (!isRecord(value)) {
-        return {};
-    }
-
-    const links: PackageLinks = {};
-    for (const key of PACKAGE_LINK_KEYS) {
-        const url = getSafeExternalUrl(value[key]);
-        if (url) {
-            links[key] = url;
-        }
-    }
-
-    return links;
-}
-
-function getSafeExternalUrl(value: unknown): string | undefined {
-    return parseHttpUrl(value)?.toString();
-}
-
-function dateToTime(value: unknown): number {
-    const time = Date.parse(stringifyValue(value));
-    return Number.isFinite(time) ? time : 0;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

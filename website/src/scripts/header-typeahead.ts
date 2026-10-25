@@ -211,12 +211,7 @@ async function loadPackageSuggest(): Promise<SuggestFn> {
         search.suggestions(query, limit).map((pack) => ({
             href: pack.href,
             title: pack.name,
-            meta: [
-                pack.version ? `v${pack.version}` : "",
-                pack.description.trim(),
-            ]
-                .filter(Boolean)
-                .join(" - "),
+            meta: pack.version ? `v${pack.version}` : "",
         }));
 }
 

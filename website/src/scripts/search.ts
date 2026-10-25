@@ -1,6 +1,5 @@
 import { SEARCH_PATH, SITE_NAME } from "../lib/constants";
 import { debounce } from "../lib/debounce";
-import { formatEdition, formatRelativeTime } from "../lib/format";
 import { fetchPackageIndex } from "../lib/packageIndex";
 import { createPackageSearch } from "../lib/packageSearch";
 import { getPaginationItems, type PaginationItem } from "../lib/pagination";
@@ -162,22 +161,6 @@ function createPackageCard(pack: PackageListItem): Node {
 
     setField(card, "name", pack.name);
     setField(card, "version", pack.version);
-    setField(card, "published", formatRelativeTime(pack.published_at));
-
-    const edition = card.querySelector('[data-package-field="edition"]');
-    if (edition) {
-        const editionLabel = formatEdition(pack.edition);
-        edition.textContent = editionLabel;
-        edition.classList.toggle("hidden", !editionLabel);
-    }
-
-    const description = card.querySelector(
-        '[data-package-field="description"]',
-    );
-    if (description) {
-        description.textContent = pack.description;
-        description.classList.toggle("hidden", !pack.description);
-    }
 
     return card;
 }
