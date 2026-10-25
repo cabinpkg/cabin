@@ -568,9 +568,9 @@ fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
 fn parameterless_callback(smoke: &mut Smoke) -> Result<()> {
     step("a parameterless callback redirects to the denied page");
     headers_only(smoke, Base::Web, "/callback")?;
-    if grep_lines(&text(&smoke.headers), "location: /login/denied").is_empty() {
+    if grep_lines(&text(&smoke.headers), "location: /login/denied/").is_empty() {
         bail!(
-            "/callback refusal is not /login/denied: {}",
+            "/callback refusal is not /login/denied/: {}",
             capture(&smoke.headers)
         );
     }

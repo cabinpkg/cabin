@@ -1,5 +1,5 @@
 // The account-age refusal is the one sign-in refusal the registry
-// annotates: /login/denied?reason=account-age&eligible=<YYYY-MM-DD>,
+// annotates: /login/denied/?reason=account-age&eligible=<YYYY-MM-DD>,
 // the first UTC date on which the whole day is eligible
 // (registry/docs/architecture.md, "Two credential planes"). Anyone can
 // craft the URL, so the date is validated to the exact shape the

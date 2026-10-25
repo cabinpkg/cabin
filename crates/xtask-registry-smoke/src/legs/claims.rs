@@ -108,7 +108,7 @@ fn refuse_claim_start(smoke: &mut Smoke, headers: &[(String, String)], what: &st
     smoke.http("GET", &url, headers, None)?;
     let block = text(&smoke.headers).into_owned();
     let location = location_value(&block);
-    if location != "/dashboard?claim=denied" {
+    if location != "/dashboard/?claim=denied" {
         bail!("a {what} claim start answered '{location}', expected the uniform denial");
     }
     if !claim_state_value(&block).is_empty() {
@@ -394,7 +394,7 @@ fn claim_scope(smoke: &mut Smoke, scope: &str, expected: &str) -> Result<()> {
     smoke.http("GET", &url, &headers, None)?;
     let block = text(&smoke.headers).into_owned();
     let location = location_value(&block);
-    if location != format!("/dashboard?claim={expected}") {
+    if location != format!("/dashboard/?claim={expected}") {
         bail!("/callback/claim for {scope} answered '{location}', expected claim={expected}");
     }
     // The claim-state cookie is one-shot: cleared on every outcome.
@@ -444,10 +444,10 @@ fn user_initiated() -> Vec<(String, String)> {
     fetch_metadata("none", "navigate", None)
 }
 
-/// `grep -qi '^location: /dashboard?claim=denied'`: `?` is a literal in
-/// a basic regular expression, so the whole pattern is a prefix.
+/// Whether a header line starts (case-insensitively) with the uniform
+/// claim denial's `location`.
 fn refuses(block: &str) -> bool {
-    !grep_lines(block, "location: /dashboard?claim=denied").is_empty()
+    !grep_lines(block, "location: /dashboard/?claim=denied").is_empty()
 }
 
 /// The `location` value as
@@ -576,11 +576,11 @@ mod tests {
     #[test]
     fn the_refusal_prefix_is_case_insensitive_and_anchored() {
         assert!(refuses(
-            "HTTP/1.1 302 Found\r\nLocation: /dashboard?claim=denied\r\n\r\n"
+            "HTTP/1.1 302 Found\r\nLocation: /dashboard/?claim=denied\r\n\r\n"
         ));
         assert!(!refuses(
-            "HTTP/1.1 302 Found\r\nlocation: /dashboard?claim=granted\r\n\r\n"
+            "HTTP/1.1 302 Found\r\nlocation: /dashboard/?claim=granted\r\n\r\n"
         ));
-        assert!(!refuses("x-echo: location: /dashboard?claim=denied\r\n"));
+        assert!(!refuses("x-echo: location: /dashboard/?claim=denied\r\n"));
     }
 }
