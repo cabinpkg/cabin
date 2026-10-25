@@ -15,7 +15,7 @@ use crate::text::{capture, first_line, grep_lines, status_line_is, text};
 
 /// The three roundtrips, in an order that keeps reruns green: only the
 /// `fresh-old` sign-in writes an identity row (github id 4), and a
-/// rerun then takes the existing-user path to the same `/dashboard`.
+/// rerun then takes the existing-user path to the same `/dashboard/`.
 /// The mock's `/user` is restored on the way out.
 ///
 /// # Errors
@@ -36,7 +36,7 @@ pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     signin_mode(smoke, github_port, "fresh-young")?;
     let block = callback_roundtrip(smoke)?;
     let location = location_value(&block);
-    let Some(date) = location.strip_prefix("/login/denied?reason=account-age&eligible=") else {
+    let Some(date) = location.strip_prefix("/login/denied/?reason=account-age&eligible=") else {
         bail!("a young account's sign-in answered '{location}', expected the account-age refusal");
     };
     let dated = date.len() == 10
@@ -109,8 +109,8 @@ fn callback_roundtrip(smoke: &mut Smoke) -> Result<String> {
 /// A granted sign-in: the dashboard redirect carrying a session cookie.
 fn expect_dashboard(smoke: &Smoke, block: &str, what: &str) -> Result<()> {
     let location = location_value(block);
-    if location != "/dashboard" {
-        bail!("{what} answered '{location}', expected /dashboard");
+    if location != "/dashboard/" {
+        bail!("{what} answered '{location}', expected /dashboard/");
     }
     if session_cookies(block).is_empty() {
         bail!("{what} set no session cookie: {}", capture(&smoke.headers));

@@ -425,7 +425,7 @@ The exact response shapes live in `src/user_api.rs` (host-tested). The
 `Authorization` header is never read on this plane, and unauthenticated
 requests get a plain 401 envelope - never a redirect (redirecting is the
 frontend's job) and never the Bearer challenge. `/callback` redirects to
-the website's `/dashboard` on success and `/login/denied` on every refusal;
+the website's `/dashboard/` on success and `/login/denied/` on every refusal;
 only the account-age refusal (below) carries a query naming its reason and
 the first eligible UTC date. All targets are fixed relative paths, never
 derived from request input (the open-redirect guard).
@@ -448,7 +448,7 @@ derived from request input (the open-redirect guard).
   account creation, and additionally requires the GitHub account to be
   at least 30 days old (`src/signup.rs`, a throwaway-account speed
   bump, judged from the profile's `created_at`): a younger account is
-  refused with `/login/denied?reason=account-age&eligible=<date>`, the
+  refused with `/login/denied/?reason=account-age&eligible=<date>`, the
   first UTC date on which the whole day is eligible. Returning users
   are never re-checked, and a new account whose profile lacks a
   parseable `created_at` fails closed into the uniform refusal. Write authorization is per

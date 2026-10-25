@@ -226,16 +226,17 @@ pub fn match_web_route(path: &str) -> Option<WebRoute<'_>> {
 /// a refused one, and where `/callback/claim` sends it after a granted
 /// and a refused claim. All are relative paths rendered by the website;
 /// they are never derived from request input, so neither callback can be
-/// turned into an open redirect.
-pub const POST_LOGIN_REDIRECT: &str = "/dashboard";
-pub const LOGIN_DENIED_REDIRECT: &str = "/login/denied";
+/// turned into an open redirect. Each keeps the trailing slash the
+/// website serves its pages under, which saves the browser a second hop.
+pub const POST_LOGIN_REDIRECT: &str = "/dashboard/";
+pub const LOGIN_DENIED_REDIRECT: &str = "/login/denied/";
 /// The sign-up account-age refusal ([`crate::signup`]) is the one
 /// refusal that names its reason: this prefix is completed by the
 /// first eligible UTC date - server-computed, digits and hyphens
 /// only, never request input.
-pub const LOGIN_DENIED_ACCOUNT_AGE_PREFIX: &str = "/login/denied?reason=account-age&eligible=";
-pub const CLAIM_GRANTED_REDIRECT: &str = "/dashboard?claim=granted";
-pub const CLAIM_DENIED_REDIRECT: &str = "/dashboard?claim=denied";
+pub const LOGIN_DENIED_ACCOUNT_AGE_PREFIX: &str = "/login/denied/?reason=account-age&eligible=";
+pub const CLAIM_GRANTED_REDIRECT: &str = "/dashboard/?claim=granted";
+pub const CLAIM_DENIED_REDIRECT: &str = "/dashboard/?claim=denied";
 
 /// A matched session-plane route: the JSON user API under
 /// `/api/v1/user`, session-cookie authenticated on the website origin.

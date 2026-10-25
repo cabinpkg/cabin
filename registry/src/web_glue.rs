@@ -326,10 +326,10 @@ fn github_api_base(env: &Env) -> String {
 /// only allowlisted ids, and - when the id has no Cabin account yet -
 /// hold account creation to the sign-up age gate ([`crate::signup`]).
 /// The access token is used for that one `/user` call and dropped.
-/// Every refusal is the same redirect to the website's `/login/denied`
+/// Every refusal is the same redirect to the website's `/login/denied/`
 /// page with no account details, except the age refusal, which appends
 /// the first eligible UTC date for the page to render; success
-/// redirects to `/dashboard`. All targets are fixed relative paths
+/// redirects to `/dashboard/`. All targets are fixed relative paths
 /// ([`crate::routes::POST_LOGIN_REDIRECT`]), never derived from request
 /// input, so the callback cannot be turned into an open redirect.
 async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
@@ -1433,7 +1433,7 @@ fn redirect_response(status: u16, location: &str, cookies: &[String]) -> worker:
 }
 
 /// The uniform sign-in refusal: a redirect to the website's
-/// `/login/denied` page with no account details.
+/// `/login/denied/` page with no account details.
 fn denied(cookies: &[String]) -> worker::Result<Response> {
     redirect_response(302, LOGIN_DENIED_REDIRECT, cookies)
 }
