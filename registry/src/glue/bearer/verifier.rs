@@ -506,7 +506,7 @@ async fn delete_blob_if_unreferenced(
     if references.n > 0 {
         return Ok(());
     }
-    let key = format!("blobs/sha256/{}", crate::checksum::hex(checksum));
+    let key = crate::checksum::blob_key(checksum);
     // No live reference also means nothing needs a backup copy any
     // more: retire the queue row first (before the delete, so it can
     // never linger past the primary object), or a blob whose copy

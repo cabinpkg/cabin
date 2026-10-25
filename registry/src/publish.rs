@@ -379,6 +379,14 @@ fn is_valid_publish_name(scope: &str, name: &str) -> bool {
     crate::routes::is_valid_scope(scope) && crate::routes::is_valid_name(name)
 }
 
+/// The canonical per-revision archive path a package document's
+/// `source` block carries, relative to the document; the local file
+/// registry writes the same layout.
+#[must_use]
+pub fn source_path(scope: &str, name: &str, version: &str, revision: &str) -> String {
+    format!("../../artifacts/{scope}/{name}/{scope}-{name}-{version}-{revision}.zip")
+}
+
 /// Validates the metadata frame against the request URL's `scope` /
 /// `name` / `version` segments and the archive's computed
 /// `revision` (its digest's leading hex prefix - the caller hashes
@@ -418,14 +426,11 @@ pub fn validate_metadata(
         return Err(UNSUPPORTED_SCHEMA);
     }
     let canonical_name = format!("{url_scope}/{url_name}");
-    let canonical_source_path = format!(
-        "../../artifacts/{url_scope}/{url_name}/{url_scope}-{url_name}-{url_version}-{revision}.zip"
-    );
     if parsed.name != canonical_name
         || parsed.version != url_version
         || parsed.source.kind != "archive"
         || parsed.source.format != "zip"
-        || parsed.source.path != canonical_source_path
+        || parsed.source.path != source_path(url_scope, url_name, url_version, revision)
     {
         return Err(IDENTITY_MISMATCH);
     }

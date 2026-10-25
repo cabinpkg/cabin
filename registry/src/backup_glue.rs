@@ -476,7 +476,7 @@ async fn backup_one(
             console_error!("backup drain: deleting a queue row failed");
         }
     };
-    let Some(hex) = row.key.strip_prefix("blobs/sha256/") else {
+    let Some(hex) = row.key.strip_prefix(crate::checksum::BLOB_KEY_PREFIX) else {
         console_error!("backup drain: malformed queue key {}", row.key);
         delete_row(row.key.clone()).await;
         return true;

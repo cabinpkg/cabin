@@ -476,7 +476,7 @@ async fn persist_new_revision(
     db: &D1Database,
     new: &NewRevision<'_>,
 ) -> worker::Result<Persist> {
-    let key = format!("blobs/sha256/{}", crate::checksum::hex(new.checksum));
+    let key = crate::checksum::blob_key(new.checksum);
     let bucket = env.bucket("BLOBS")?;
     match governor_client::decide(env, &consume_one(OpPool::BPublish)).await {
         Gate::Allowed => {}
@@ -656,7 +656,7 @@ async fn revive_rejected_revision(
     db: &D1Database,
     new: &NewRevision<'_>,
 ) -> worker::Result<Persist> {
-    let key = format!("blobs/sha256/{}", crate::checksum::hex(new.checksum));
+    let key = crate::checksum::blob_key(new.checksum);
     let bucket = env.bucket("BLOBS")?;
     // The unconditional put is one Class A op plus a storage
     // reservation; the reservation is idempotent when the ledger
@@ -756,7 +756,7 @@ async fn revive_rejected_revision(
 /// replication no longer rides retries: the verified-backup queue is
 /// durable on its own.
 async fn heal_blobs_on_retry(env: &Env, checksum: &str, archive: &[u8]) -> worker::Result<()> {
-    let key = format!("blobs/sha256/{}", crate::checksum::hex(checksum));
+    let key = crate::checksum::blob_key(checksum);
     let bucket = env.bucket("BLOBS")?;
     heal_blob_if_reclaimed(env, &bucket, &key, archive).await
 }
