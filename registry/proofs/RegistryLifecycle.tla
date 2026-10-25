@@ -527,7 +527,8 @@ AnsweredWithoutCommitWritesNothing ==
 -----------------------------------------------------------------------------
 (* Witness traps: each is the negation of a behavior the model must reach, *)
 (* so TLC must report it violated, and the printed trace is the witness    *)
-(* (RegistryLifecycle_witness.cfg; README.md "Non-vacuity").               *)
+(* (RegistryLifecycle_witness.cfg, and RegistryLifecycleShared_witness.cfg *)
+(* for NoSharedBlob; README.md "Non-vacuity").                             *)
 
 \* a revision becomes verified and is served
 NoVerified == \A v \in Versions : Current(v) = 0

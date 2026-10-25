@@ -55,7 +55,7 @@ crates/
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
-  xtask-registry-guard/ repository tool: static guards over the registry Worker's sources
+  xtask-registry-guard/ repository tool: guards over the registry Worker's sources, build and proofs
   xtask-registry-smoke/ repository tool: the registry smoke test against local wrangler dev
   xtask-workflow-guard/ repository tool: guards over a GitHub Actions run's own context
   cabin-publish/     publish-workflow orchestration
@@ -651,21 +651,23 @@ wasm32 glue before a deploy.  The crate must:
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the static guards `registry.yml` runs on every registry-touching pull request (the
 `registry` filter in `.github/path-filters.yml`), reached through the
-`cargo check-sql`, `cargo check-r2`, `cargo check-deploy` and `cargo check-kani-report` aliases.
-They read the committed `registry/` tree - and, for the deploy guard, the bundle `worker-build`
-just produced, and for the Kani guard, the report the proof job saved (Kani passes a harness
-with a `kani::cover!` it never satisfies, so the guard fails one) - and nothing else: no
-credentials, no network, no mutation, which is what separates them from the operator tooling
-that has all three.  The two source guards are lexical rather than syntactic, regression
-tripwires that force diff review at a seam (`registry/docs/architecture.md`, "Why no ORM" and
-"The cost governor"); the deploy guard parses `wrangler.jsonc` structurally and scans the
-bundle lexically.  Each states its own ceiling in its module documentation.  The crate must:
+`cargo check-sql`, `cargo check-r2`, `cargo check-deploy`, `cargo check-kani-report` and
+`cargo check-tlc-witnesses` aliases.  They read the committed `registry/` tree - and, for the
+deploy guard, the bundle `worker-build` just produced, for the Kani guard, the report the proof
+job saved (Kani passes a harness with a `kani::cover!` it never satisfies, so the guard fails
+one), and for the witness guard, the pinned TLC it runs on the committed specification - and
+nothing else: no credentials, no network, no mutation, which is what separates them from the
+operator tooling that has all three.  The two source guards are lexical rather than syntactic,
+regression tripwires that force diff review at a seam (`registry/docs/architecture.md`, "Why no
+ORM" and "The cost governor"); the deploy guard parses `wrangler.jsonc` structurally and scans
+the bundle lexically.  Each states its own ceiling in its module documentation.  The crate must:
 
-- never acquire a credential, open a socket, or write outside a caller-supplied directory;
+- never acquire a credential, open a socket, or write outside a caller-supplied directory or a
+  private scratch directory (the witness guard runs TLC in one);
 - keep the comment/string blanker in one place - two drifting copies of what makes the scans
   evasion-resistant would be an evasion vector of their own;
-- report violations as data and leave printing and exit codes to the binary, so the guards stay
-  testable without spawning a process.
+- report violations as data and leave printing and exit codes to the binary, so every guard but
+  the witness guard stays testable without spawning a process.
 
 ### `xtask-workflow-guard`
 

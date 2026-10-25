@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use xtask_registry_guard::{deploy, kani, r2, registry_dir, sql};
+use xtask_registry_guard::{deploy, kani, r2, registry_dir, sql, tlc};
 
 /// Static guards over the hosted registry Worker's sources, build and
 /// proofs.  Each
@@ -41,6 +41,17 @@ enum Guard {
         /// The report `cargo kani` printed.
         report: PathBuf,
     },
+    /// TLC reports every trap of each witness configuration violated.
+    CheckTlcWitnesses {
+        /// The pinned `tla2tools.jar`.
+        #[arg(long)]
+        jar: PathBuf,
+        /// The specification the configurations check.
+        spec: PathBuf,
+        /// The witness configurations.
+        #[arg(required = true)]
+        configs: Vec<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -58,9 +69,9 @@ fn main() -> ExitCode {
 fn run(cli: &Cli) -> Result<bool> {
     let directory = cli.registry_dir.clone().unwrap_or_else(registry_dir);
 
-    let (violations, remedy) = match cli.guard {
+    let (violations, remedy) = match &cli.guard {
         Guard::CheckDeploy { require_bundle } => {
-            let report = deploy::check(&directory, require_bundle);
+            let report = deploy::check(&directory, *require_bundle);
             for note in &report.notes {
                 println!("{note}");
             }
@@ -74,7 +85,7 @@ fn run(cli: &Cli) -> Result<bool> {
             println!("deploy config OK");
             return Ok(true);
         }
-        Guard::CheckKaniReport { ref report } => (
+        Guard::CheckKaniReport { report } => (
             kani::check(
                 &std::fs::read_to_string(report)
                     .with_context(|| format!("reading {}", report.display()))?,
@@ -92,6 +103,17 @@ fn run(cli: &Cli) -> Result<bool> {
             "error: R2 bucket acquisition outside the pinned \
              governor-admitting functions",
         ),
+        Guard::CheckTlcWitnesses { jar, spec, configs } => {
+            let mut violations = Vec::new();
+            for config in configs {
+                violations.extend(tlc::check(jar, spec, config)?);
+            }
+            (
+                violations,
+                "error: a witness trap was not violated; the model may no \
+                 longer reach the behavior it negates",
+            )
+        }
     };
     for violation in &violations {
         println!("{violation}");

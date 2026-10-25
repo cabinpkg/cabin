@@ -15,7 +15,9 @@ rules.
 CI runs the configurations marked below on every registry-relevant change
 (`.github/workflows/registry.yml`, job `tlc`, feeding the required
 `registry-build` aggregate). A missing tool, a digest mismatch, a
-violation, or the job timeout fails the check.
+violation, or the job timeout fails the check. The job then runs each
+witness trap alone, where the reverse holds: a trap TLC does not report
+violated fails it ("Non-vacuity").
 
 ## Running it
 
@@ -273,16 +275,23 @@ what the `tlc` job's 30-minute timeout is sized against.
 
 `RegistryLifecycle_witness.cfg` lists traps: each is the negation of a
 behavior the model must be able to reach, so TLC must report it
-**violated**, and the printed trace is the witness. TLC stops at the first
-violation, so to see one particular witness keep only its line (and for
-`NoSharedBlob` use two versions, one checksum, and `Malicious = {}`).
-Every trap was run alone against the final model; the depths are as the
-multi-worker search printed them (not necessarily the shortest) and the
-action sequences are the printed traces:
+**violated**, and the printed trace is the witness.
+`RegistryLifecycleShared_witness.cfg` holds `NoSharedBlob`, which needs two
+versions sharing one checksum. TLC stops at the first violation, so the
+`tlc` job runs each trap alone, and fails if TLC does not report one
+violated. From the repository root:
 
 ```sh
-java -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycle_witness.cfg RegistryLifecycle.tla
+cargo check-tlc-witnesses --jar registry/proofs/tla2tools.jar \
+  registry/proofs/RegistryLifecycle.tla \
+  registry/proofs/RegistryLifecycle_witness.cfg \
+  registry/proofs/RegistryLifecycleShared_witness.cfg
 ```
+
+To see one witness's trace, keep only its line in a copy of the
+configuration. The depths below are as the multi-worker search printed
+them (not necessarily the shortest), and the action sequences are the
+printed traces:
 
 | Trap | Witnessed behavior | Depth | Trace |
 | --- | --- | --- | --- |
