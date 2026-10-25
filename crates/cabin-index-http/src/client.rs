@@ -163,9 +163,12 @@ impl HttpClient {
     /// carried a token (a tokenless 403 stays a
     /// [`IndexHttpError::ServerError`]); a 503 whose envelope carries
     /// the `registry_over_budget` code maps to
-    /// [`IndexHttpError::RegistryOverBudget`] with the response's
-    /// `Retry-After` seconds when usable (the registry's read-side
-    /// budget breaker), while any other 503 stays a
+    /// [`IndexHttpError::RegistryOverBudget`] (the registry's read-side
+    /// budget breaker) and a 429 whose envelope carries the
+    /// `read_rate_limited` code maps to
+    /// [`IndexHttpError::ReadRateLimited`] (the governor's per-caller
+    /// fairness refusal), both with the response's `Retry-After`
+    /// seconds when usable, while any other 503 or 429 stays a
     /// [`IndexHttpError::ServerError`].  Returns
     /// [`IndexHttpError::Transport`] when reading the body fails,
     /// when the body exceeds the 64 MiB cap, or on a `ureq` transport
@@ -237,56 +240,45 @@ impl HttpClient {
                     origin: origin_for_error(url),
                 })
             }
-            // The registry's read-side budget breaker
-            // (`registry/docs/architecture.md`, "Billing model and the
-            // budget breaker"): reads are refused service-wide until the
-            // budget window resets.  It answers `503`, not the `402` it
-            // used before ("Why 503, not 402"), and `503` is a status
-            // Cloudflare's own edge and runtime also emit - so the
-            // envelope `code`, not the status, is what identifies the
-            // breaker.  Without it this stays the generic server error
-            // it was before the breaker existed, rather than blaming a
-            // platform outage on the registry's budget.  `Retry-After`
-            // (delta seconds) rides on the refusal and is read before
-            // the body consumes the response; a missing or non-numeric
-            // value (an HTTP date, say) degrades to no hint, mirroring
-            // the publish-side mapping in `cabin-registry-api`.
-            Err(ureq::Error::Status(503, response)) => {
+            // The registry's two coded read refusals, each bound to its
+            // own status (`registry/docs/architecture.md`):
+            //
+            // - `503` + `registry_over_budget` is the read-side budget
+            //   breaker ("Billing model: the governor and the
+            //   breaker"): reads are refused service-wide until the
+            //   budget window resets.  It answers `503`, not the `402`
+            //   it used before ("Why 503, not 402").
+            // - `429` + `read_rate_limited` is the governor's per-caller
+            //   fairness refusal ("The cost governor"): with public
+            //   reads every caller - tokened or anonymous - has a daily
+            //   cache-miss window.
+            //
+            // `503` is a status Cloudflare's own edge and runtime also
+            // emit, so the envelope `code`, not the status, is what
+            // identifies a refusal.  Without it either status stays the
+            // generic server error it was before the refusal existed,
+            // rather than blaming a platform outage on the registry's
+            // budget.  `Retry-After` (delta seconds) carries the reset
+            // and is read before the body consumes the response; a
+            // missing or non-numeric value (an HTTP date, say) degrades
+            // to no hint, mirroring the publish-side mapping in
+            // `cabin-registry-api`.
+            Err(ureq::Error::Status(status @ (429 | 503), response)) => {
                 let retry_after_secs = response
                     .header("Retry-After")
                     .and_then(|value| value.trim().parse::<u64>().ok());
-                Err(
-                    if envelope_code(response).as_deref() == Some(OVER_BUDGET_CODE) {
-                        IndexHttpError::RegistryOverBudget { retry_after_secs }
-                    } else {
-                        IndexHttpError::ServerError {
-                            name: package.to_owned(),
-                            status: 503,
-                        }
-                    },
-                )
-            }
-            // The governor's per-caller fairness refusal
-            // (`registry/docs/architecture.md`, "The cost governor"):
-            // with public reads every caller - tokened or anonymous -
-            // has a daily cache-miss window, and its coded `429`
-            // carries the reset in `Retry-After`. Same discipline as
-            // the breaker arm above: the envelope code identifies the
-            // refusal, any other 429 stays a generic server error.
-            Err(ureq::Error::Status(429, response)) => {
-                let retry_after_secs = response
-                    .header("Retry-After")
-                    .and_then(|value| value.trim().parse::<u64>().ok());
-                Err(
-                    if envelope_code(response).as_deref() == Some(READ_RATE_LIMITED_CODE) {
+                Err(match (status, envelope_code(response).as_deref()) {
+                    (429, Some(READ_RATE_LIMITED_CODE)) => {
                         IndexHttpError::ReadRateLimited { retry_after_secs }
-                    } else {
-                        IndexHttpError::ServerError {
-                            name: package.to_owned(),
-                            status: 429,
-                        }
+                    }
+                    (503, Some(OVER_BUDGET_CODE)) => {
+                        IndexHttpError::RegistryOverBudget { retry_after_secs }
+                    }
+                    _ => IndexHttpError::ServerError {
+                        name: package.to_owned(),
+                        status,
                     },
-                )
+                })
             }
             Err(ureq::Error::Status(status, _)) => Err(IndexHttpError::ServerError {
                 name: package.to_owned(),
@@ -934,9 +926,10 @@ mod tests {
     /// edge and the Workers runtime emit bare 503s of their own, and a
     /// platform outage must not be reported as the registry's budget.
     /// A different code, a near-miss code, no entry, no code, an
-    /// unparsable body, and a body past the read cap all stay the
-    /// generic server error - as does the breaker's old 402, which has
-    /// no mapping left.
+    /// unparsable body, a body past the read cap, and the governor's
+    /// code all stay the generic server error - as do the breaker's old
+    /// 402, which has no mapping left, and a 429 carrying the breaker's
+    /// code.
     #[test]
     fn get_bytes_keeps_uncoded_503s_and_the_old_402_generic() {
         for (status, body) in [
@@ -963,6 +956,16 @@ mod tests {
             // own, so only a rejecting (not truncating) cap keeps this
             // generic.
             (503, padded_envelope(MAX_ERROR_BODY_BYTES + 1)),
+            // Each code is bound to its own status: the other
+            // refusal's code does not cross over.
+            (
+                503,
+                r#"{"errors":[{"detail":"nope","code":"read_rate_limited"}]}"#.to_owned(),
+            ),
+            (
+                429,
+                r#"{"errors":[{"detail":"nope","code":"registry_over_budget"}]}"#.to_owned(),
+            ),
             (
                 402,
                 r#"{"errors":[{"detail":"over budget","code":"registry_over_budget"}]}"#.to_owned(),
