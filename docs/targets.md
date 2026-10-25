@@ -103,6 +103,11 @@ Common fields:
   the qualified candidates - and one with none has nothing a bare name could link; both cases
   require the qualified spelling.
 
+  `[dependencies]` only makes a package available; declaring it does not add it to any target's
+  dependency graph.  When a target's compile fails on a missing header, or its link fails, the
+  build names the package's declared dependencies that the target does not list in a `help:`
+  note.
+
   Any of these references may be wrapped in the table form `{ name = "fmt", public = true }` to
   declare the edge **public** - meaning this target's public headers include headers of that
   dependency.  String entries are private edges.  The flag is declarative today; see
