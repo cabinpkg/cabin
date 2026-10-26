@@ -701,10 +701,12 @@ publish: it answers whether `origin/main` already carries a commit after `$GITHU
 the caller's `--relevant-to` list in `.github/path-filters.yml` (a commit matching none of those
 paths cannot change what the run ships, so it does not supersede it), and
 records `superseded=true` in `$GITHUB_OUTPUT` when it does, which is what stops a late-finishing
-older run from deploying over a newer one.  `cargo workflow-migrations-pending` is the same for
+older run from deploying over a newer one.  `cargo workflow-migrations-pending` is
 `registry.yml`'s migrations gate: it recomputes the stamp over `registry/migrations/*.sql` and
-records `pending=true` when `registry/migrations-applied` no longer matches, which is what keeps
-a deploy from activating Worker code built for a schema the operator has not applied by hand.
+fails the deploy job, with an error annotation naming the by-hand recovery, when
+`registry/migrations-applied` no longer matches or cannot be compared, which is what keeps a
+deploy from activating Worker code built for a schema the operator has not applied by hand
+without a blocked deploy reading as a green one.
 `cargo workflow-await-deploy` is `ports-publish.yml`'s deploy wait: it
 polls (90 times, 40 seconds apart) for a successful `main` Registry run whose head contains
 `$GITHUB_SHA` and whose Deploy step actually ran, and answers 0 as soon as one lands or as soon

@@ -1,6 +1,7 @@
 //! The workflow guards' live contracts: each case spawns the real
-//! binary in a scratch working directory and asserts what it left in
-//! `$GITHUB_OUTPUT`, which is the only channel `registry.yml` reads.
+//! binary in a scratch working directory and asserts the exit status
+//! and what it left in `$GITHUB_OUTPUT`, the two channels
+//! `registry.yml` reads.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -237,63 +238,68 @@ fn stamp() -> String {
         })
 }
 
-/// `migrations-pending` appends `pending=true` (preserving earlier
-/// lines) when the committed migrations no longer match the stamp,
-/// writes nothing when they do, and fails only when a pending answer
-/// has no `$GITHUB_OUTPUT` to land in.
-#[test]
-fn migrations_pending_answers_through_github_output() {
-    let scratch = assert_fs::TempDir::new().unwrap();
-    stamp_corpus(scratch.path(), "not-the-stamp\n");
-    let output = scratch.path().join("out");
-    fs::write(&output, "written-earlier=kept\n").unwrap();
+/// The one `::error` annotation a blocked gate prints, or `None`.
+fn blocked_annotation(run: &Output) -> Option<String> {
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let mut lines = stdout.lines();
+    let line = lines
+        .next()?
+        .strip_prefix("::error title=Registry deploy blocked::")?;
+    assert_eq!(lines.next(), None, "one annotation line: {run:?}");
+    Some(line.to_owned())
+}
+
+/// Runs `migrations-pending` in `root` with a writable `$GITHUB_OUTPUT`,
+/// so a gate that answered there instead of failing would exit 0, and
+/// returns the run and whether it wrote that file.
+fn migrations_gate(root: &Path) -> (Output, bool) {
+    let output = root.join("out");
     let run = guard(
-        scratch.path(),
+        root,
         &["migrations-pending"],
         &[("GITHUB_OUTPUT", &output.to_string_lossy())],
     );
-    assert!(run.status.success(), "{run:?}");
-    assert_eq!(
-        fs::read_to_string(&output).unwrap(),
-        "written-earlier=kept\npending=true\n"
-    );
-
-    let current = assert_fs::TempDir::new().unwrap();
-    stamp_corpus(current.path(), &format!("{}\n", stamp()));
-    let untouched = current.path().join("out");
-    fs::write(&untouched, "written-earlier=kept\n").unwrap();
-    let run = guard(
-        current.path(),
-        &["migrations-pending"],
-        &[("GITHUB_OUTPUT", &untouched.to_string_lossy())],
-    );
-    assert!(run.status.success(), "{run:?}");
-    assert_eq!(
-        fs::read_to_string(&untouched).unwrap(),
-        "written-earlier=kept\n"
-    );
-
-    // No GITHUB_OUTPUT at all: only the pending answer has nowhere to
-    // land, so only the pending corpus fails.
-    let run = guard(scratch.path(), &["migrations-pending"], &[]);
-    assert!(!run.status.success(), "{run:?}");
-    let run = guard(current.path(), &["migrations-pending"], &[]);
-    assert!(run.status.success(), "{run:?}");
+    (run, output.exists())
 }
 
-/// A stamp file that cannot be read keeps deploys blocked rather than
-/// failing open.
+/// `migrations-pending` passes silently when the committed migrations
+/// match the stamp, and otherwise fails the step with one error
+/// annotation naming the cause and the by-hand recovery, so a blocked
+/// deploy job goes red instead of reading as a deploy that happened.
 #[test]
-fn a_missing_stamp_file_is_pending() {
+fn migrations_pending_blocks_the_deploy_until_the_stamp_matches() {
+    let current = assert_fs::TempDir::new().unwrap();
+    stamp_corpus(current.path(), &format!("{}\n", stamp()));
+    let (run, wrote) = migrations_gate(current.path());
+    assert!(run.status.success(), "{run:?}");
+    assert!(run.stdout.is_empty() && !wrote, "{run:?}");
+
+    let pending = assert_fs::TempDir::new().unwrap();
+    stamp_corpus(pending.path(), "not-the-stamp\n");
+    let (run, wrote) = migrations_gate(pending.path());
+    assert!(!run.status.success() && !wrote, "{run:?}");
+    let annotation = blocked_annotation(&run).expect("a blocked-deploy annotation");
+    assert!(annotation.contains("no longer matches"), "{annotation}");
+    assert!(
+        annotation.contains("cargo registry-migrate --remote"),
+        "{annotation}"
+    );
+}
+
+/// A stamp file that cannot be read blocks the deploy too, naming the
+/// read failure and a repair rather than a migrate run that would
+/// refuse the same state.
+#[test]
+fn an_unreadable_stamp_blocks_the_deploy() {
     let scratch = assert_fs::TempDir::new().unwrap();
     stamp_corpus(scratch.path(), "");
     fs::remove_file(scratch.path().join("registry/migrations-applied")).unwrap();
-    let output = scratch.path().join("out");
-    let run = guard(
-        scratch.path(),
-        &["migrations-pending"],
-        &[("GITHUB_OUTPUT", &output.to_string_lossy())],
+    let (run, wrote) = migrations_gate(scratch.path());
+    assert!(!run.status.success() && !wrote, "{run:?}");
+    let annotation = blocked_annotation(&run).expect("a blocked-deploy annotation");
+    assert!(annotation.contains("cannot compare"), "{annotation}");
+    assert!(
+        annotation.contains("Repair what the error names"),
+        "{annotation}"
     );
-    assert!(run.status.success(), "{run:?}");
-    assert_eq!(fs::read_to_string(&output).unwrap(), "pending=true\n");
 }

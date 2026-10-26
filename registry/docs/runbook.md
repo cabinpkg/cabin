@@ -127,13 +127,21 @@ activation), so check `node_modules/.bin/wrangler deployments list` and run
 the smoke checks below; `node_modules/.bin/wrangler deploy` from this directory stays
 the manual fallback. The CI deploy token is scoped to Workers
 Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
-remain manual steps in this runbook. For exactly that reason the
-auto-deploy stays skipped while `migrations/` content disagrees with
-the `migrations-applied` stamp. `cargo registry-migrate --remote`, run
+remain manual steps in this runbook. For exactly that reason a
+`deploy-registry` run ends one of three ways. It **deploys**: its
+Deploy step ran and succeeded. It is **superseded**: main already
+carries a newer registry-relevant commit, so it skips Deploy and stays
+green, and that commit's run owns the deploy. Or it is **blocked**:
+`migrations/` content disagrees with the `migrations-applied` stamp
+(or the gate cannot compare them), so the job fails red, deploying
+nothing, with a `Registry deploy blocked` error annotation naming the
+recovery; nothing in CI applies a migration. A blocked run never
+deploys. `cargo registry-migrate --remote`, run
 from the repository root, is the one honest way to move both: it
 applies pending migration files, verifies D1 reports nothing left
 pending, and only then refreshes the stamp (land the change like any
-other). It refuses the state where
+other: its main push deploys, and rerunning a blocked run afterwards
+finds it superseded and turns it green). It refuses the state where
 nothing is pending yet the files differ from the stamp - that means an
 already-applied file was edited in place, which D1 (tracking applied
 migrations by filename) would never replay; pre-launch that edit ships
@@ -786,7 +794,7 @@ npm ci --ignore-scripts
 
 # 3. Merge through the merge queue; its build (smoke included) +
 #    conformance runs gate the merge, and the main push runs
-#    deploy-registry (skipped while
+#    deploy-registry (red, deploying nothing, while
 #    the migrations stamp is pending - cargo registry-migrate).
 #    Watch it land:
 node_modules/.bin/wrangler deployments list

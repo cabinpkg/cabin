@@ -24,9 +24,10 @@
 //! - A same-SHA Registry run that succeeded with its Deploy step
 //!   *skipped* takes the failure path's pending-descendant exit
 //!   instead of idling into the hour ceiling - see
-//!   `SameShaDeploy`.  During the pre-launch deploy freeze
-//!   (a D1 migration awaiting its by-hand apply skips every Deploy)
-//!   an operator reruns the workflow once the deploy lands.
+//!   `SameShaDeploy`.  Only the freshness guard skips that step (a
+//!   migration awaiting its by-hand apply fails the job instead), so
+//!   the stop means the newer run owning the deploy failed; an
+//!   operator reruns this workflow once a deploy lands.
 //! - A terminal Stop (either arm) requires a CONFIRMED absence: an
 //!   iteration only Stops when its own `git fetch` succeeded (a
 //!   failed fetch can leave a fresh head unknown, so its ancestor
@@ -298,10 +299,9 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
     // registry-relevant - deterministic for the commit, so no deploy
     // can ever come and the deployed Worker is already current: exit
     // 0 at once.  A job that ran but skipped its Deploy STEP
-    // (superseded, or a D1 migration awaiting its by-hand apply - the
-    // pre-launch deploy freeze) takes the same pending-descendant exit
-    // the failure path takes, with the reason named.  A query failure
-    // keeps the safe answer (wait).
+    // (superseded by a newer registry-relevant commit) takes the same
+    // pending-descendant exit the failure path takes, with the reason
+    // named.  A query failure keeps the safe answer (wait).
     let same_sha = if conclusion == "success" {
         same_sha_deploy(shell, repository, &runs)
     } else {
@@ -356,10 +356,10 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
         return Some(Report::Retry(TRANSIENT_SCAN.to_owned()));
     }
     Some(Report::Stop(if deploy_skipped {
-        "Registry run for this SHA succeeded but skipped its Deploy (superseded, or a D1 \
-         migration awaits its by-hand apply) and no pending run can deliver a deploy containing \
-         it; not publishing against a possibly-stale worker - rerun this workflow once the \
-         deploy lands (registry/docs/runbook.md)"
+        "Registry run for this SHA succeeded but skipped its Deploy (superseded by a newer \
+         registry-relevant commit) and no pending run can deliver a deploy containing it; not \
+         publishing against a possibly-stale worker - rerun this workflow once the deploy lands \
+         (registry/docs/runbook.md)"
             .to_owned()
     } else {
         format!(
@@ -383,11 +383,10 @@ enum Landed {
 /// List the successful main runs and scan them for a deploy
 /// containing this SHA.
 fn landed_deploy(shell: &mut dyn Shell, sha: &str, repository: &str) -> Landed {
-    // per_page=100: successive skipped-Deploy successes (a migration
-    // awaiting its by-hand apply green-lights every subsequent run)
-    // must not push the qualifying run out of the scanned window - a
-    // buried qualifying candidate reads as a clean miss, which a
-    // confirmed Stop would trust and fast-fail on.
+    // per_page=100: successive skipped-Deploy successes (a burst of
+    // superseded runs) must not push the qualifying run out of the
+    // scanned window - a buried qualifying candidate reads as a clean
+    // miss, which a confirmed Stop would trust and fast-fail on.
     let (listed, candidates) = shell.capture(
         &[
             "gh",
@@ -415,8 +414,8 @@ enum SameShaDeploy {
     /// answered false to its `if`, so this push can never deploy and
     /// the deployed Worker is already current.
     JobSkipped,
-    /// The job ran but its Deploy step concluded `skipped`:
-    /// superseded, or the pre-launch deploy freeze.
+    /// The job ran but its Deploy step concluded `skipped`: a newer
+    /// registry-relevant commit superseded it.
     StepSkipped,
     /// Anything else, a failed query included: wait.
     Other,
@@ -952,9 +951,8 @@ mod tests {
         assert_eq!(iteration(&mut shell, "abc", "o/r", 0), Some(stale));
     }
 
-    /// The deploy-freeze fast-fail: a same-SHA run that SUCCEEDED
-    /// with its Deploy step skipped (superseded, or a D1 migration
-    /// awaiting its by-hand apply) can never green-light this SHA,
+    /// The superseded fast-fail: a same-SHA run that SUCCEEDED with
+    /// its Deploy step skipped can never green-light this SHA,
     /// and with nothing pending the wait would only idle into its
     /// hour ceiling - stop immediately, with the reason.
     #[test]
@@ -1164,7 +1162,7 @@ mod tests {
 
     #[test]
     fn a_stop_needs_two_consecutive_iterations() {
-        // The freeze shape, stable across iterations: the first Stop
+        // The superseded shape, stable across iterations: the first Stop
         // is provisional, the second - after a fresh fetch and fresh
         // listings - is terminal.
         let mut shell = Fake::answering(&[

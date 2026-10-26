@@ -278,7 +278,8 @@ jobs:
     concurrency:
       group: deploy-registry
       # Queue burst deploys instead of cancelling all but the newest
-      # pending one; stale runs skip their Deploy step and stay green.
+      # pending one; superseded runs skip their Deploy step and stay
+      # green, every other run deploys or fails.
       queue: max
       cancel-in-progress: false
 
@@ -316,33 +317,31 @@ jobs:
         run: cargo workflow-superseded --relevant-to registry
 
       # Changed D1 migrations must be applied by hand before the Worker
-      # ships (registry/docs/runbook.md): the deploy token cannot apply
-      # them, and activating Worker code built for the new schema first
-      # would break the live database. registry/migrations-applied is
-      # the operator's stamp of what the live database runs; deploys
-      # stay blocked until it matches the migrations' content again.
-      # Content, not filenames: the pre-launch wipe policy edits
-      # migrations in place.
-      - name: Skip until changed D1 migrations are applied by hand
-        id: migrations
+      # ships (registry/docs/runbook.md, "Deploy skew"): the deploy
+      # token cannot apply them, and activating Worker code built for
+      # the new schema first would break the live database.
+      # registry/migrations-applied is the operator's stamp of what the
+      # live database runs; until it matches the migrations' content
+      # again this step fails the job with the recovery as an error
+      # annotation. Content, not filenames: the pre-launch wipe policy
+      # edits migrations in place.
+      - name: Block the deploy until changed D1 migrations are applied by hand
+        if: steps.freshness.outputs.superseded != 'true'
         run: cargo workflow-migrations-pending
 
       - name: Install wrangler
         id: wrangler
-        if: >-
-          steps.freshness.outputs.superseded != 'true' &&
-          steps.migrations.outputs.pending != 'true'
+        if: steps.freshness.outputs.superseded != 'true'
         working-directory: registry
         run: |
           npm ci --ignore-scripts
           version=$(jq -er .dependencies.wrangler package.json)
+          # An empty pin must fail here, not skip Deploy green.
+          test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Deploy
-        if: >-
-          steps.freshness.outputs.superseded != 'true' &&
-          steps.migrations.outputs.pending != 'true' &&
-          steps.wrangler.outputs.version != ''
+        if: steps.freshness.outputs.superseded != 'true'
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
         with:
           apiToken: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
