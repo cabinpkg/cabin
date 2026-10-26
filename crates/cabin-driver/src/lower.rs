@@ -395,11 +395,16 @@ fn lower_archive_msvc(archive: &ArchiveAction) -> Vec<String> {
 }
 
 fn lower_link_msvc(link: &LinkAction) -> Vec<String> {
-    // `<driver> /nologo <inputs...> <lib>.lib... /Fe<exe> [/link <ldflags...>]`.
+    // `<driver> /nologo <inputs...> <lib>.lib... /Fe<exe> /link /SUBSYSTEM:CONSOLE <ldflags...>`.
     // cl.exe consumes object and `.lib` inputs positionally and
     // forwards `/link` options to the linker, so system libraries are
     // spelled `<name>.lib` and passed as positional inputs after the
-    // archives rather than as GNU `-l<name>` flags.
+    // archives rather than as GNU `-l<name>` flags.  link.exe infers the
+    // subsystem before it searches archives, so when only an archive
+    // member defines `main` (Boost.Test's) and nothing else pulls that
+    // member in, the link fails with LNK1561 unless the subsystem is
+    // named.  CMake and Meson name it for every console executable too;
+    // a later `/SUBSYSTEM` in ldflags still wins.
     let mut command = vec![link.linker.to_string(), "/nologo".to_owned()];
     for input in &link.inputs {
         command.push(input.to_string());
@@ -408,10 +413,9 @@ fn lower_link_msvc(link: &LinkAction) -> Vec<String> {
         command.push(format!("{lib}.lib"));
     }
     command.push(format!("/Fe{}", link.output));
-    if !link.arguments.is_empty() {
-        command.push("/link".to_owned());
-        command.extend(link.arguments.iter().cloned());
-    }
+    command.push("/link".to_owned());
+    command.push("/SUBSYSTEM:CONSOLE".to_owned());
+    command.extend(link.arguments.iter().cloned());
     command
 }
 
@@ -997,7 +1001,7 @@ mod tests {
                 Utf8PathBuf::from("C:/build/main.obj"),
                 Utf8PathBuf::from("C:/build/foo.lib"),
             ],
-            arguments: strs(&["/SUBSYSTEM:CONSOLE"]),
+            arguments: strs(&["/DEBUG"]),
             link_libs: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
         });
@@ -1012,12 +1016,15 @@ mod tests {
                 "/FeC:/build/app.exe",
                 "/link",
                 "/SUBSYSTEM:CONSOLE",
+                "/DEBUG",
             ])
         );
     }
 
     #[test]
-    fn msvc_link_without_ldflags_omits_link_separator() {
+    fn msvc_link_names_the_console_subsystem_without_ldflags() {
+        // `main` may come from an archive member, which link.exe has not
+        // searched yet when it infers the subsystem (LNK1561).
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
             output: Utf8PathBuf::from("C:/build/app.exe"),
@@ -1034,6 +1041,8 @@ mod tests {
                 "/nologo",
                 "C:/build/main.obj",
                 "/FeC:/build/app.exe",
+                "/link",
+                "/SUBSYSTEM:CONSOLE",
             ])
         );
     }
@@ -1091,6 +1100,8 @@ mod tests {
                 "C:/build/main.obj",
                 "user32.lib",
                 "/FeC:/build/app.exe",
+                "/link",
+                "/SUBSYSTEM:CONSOLE",
             ])
         );
     }

@@ -450,7 +450,13 @@ the example packages that need no outbound network on a `windows-2025-vs2026` ru
 - **Command mapping.** `cl /nologo /utf-8 /std:c++17 /EHsc /O2 /Z7 /showIncludes /D ... /I ... /c
   /Tp<src> /Fo<obj>` for compiles (Ninja consumes `/showIncludes` via `deps = msvc`); `lib /nologo
   /OUT:<lib> <objs>` for archives; `ml64 /nologo /c /D ... /I ... /Fo <obj> <src>` for assembly;
-  `cl /nologo <inputs> /Fe<exe> /link <ldflags>` for links.
+  `cl /nologo <inputs> /Fe<exe> /link /SUBSYSTEM:CONSOLE <ldflags>` for links.  Naming the
+  subsystem lets `main` come from a static library: `link.exe` infers the subsystem before it
+  searches archives, so a `main` that only an archive member defines, with nothing else pulling
+  that member in, otherwise fails with LNK1561.
+  Every executable therefore links as a console program, as CMake and Meson default to.  A
+  `WinMain` executable passes `/SUBSYSTEM:WINDOWS` in `ldflags`, which comes later and wins but
+  applies to every executable in the package.
   `/utf-8` pins the source and execution character sets to UTF-8, matching the GCC/Clang default -
   without it `cl` interprets sources in the machine's active code page, and UTF-8-requiring headers
   (such as {fmt}'s) fail to compile.  `cabin check`
