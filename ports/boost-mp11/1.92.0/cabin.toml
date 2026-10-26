@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/mp11/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:a5754dc5ff9e7ff34119983889530e3ab8d8fb43ce2b4fea9c18673044df45d9"
+format = "tar.gz"
+strip-prefix = "mp11-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-mp11"
+version = "1.92.0"
+
+[target.boost_mp11]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"

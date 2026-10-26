@@ -1,0 +1,18 @@
+[package.upstream]
+url = "https://github.com/boostorg/describe/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:4ef61ea2ca967b803e171f4756e03e201680d5dd19d014324f9a848e0d06863b"
+format = "tar.gz"
+strip-prefix = "describe-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-describe"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-mp11" = "=1.92.0"
+
+[target.boost_describe]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [{ name = "cabin-ports/boost-mp11", public = true }]

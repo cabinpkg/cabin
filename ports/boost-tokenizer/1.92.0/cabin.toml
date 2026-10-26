@@ -1,0 +1,28 @@
+[package.upstream]
+url = "https://github.com/boostorg/tokenizer/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:8af32d9ded353a1354aede74308b5e4842ef734b07aa86b103d027306ed7590d"
+format = "tar.gz"
+strip-prefix = "tokenizer-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-tokenizer"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_tokenizer]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

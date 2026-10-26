@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/container_hash/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:f88aabbbc2f163db5eea65662b26e5af2bde0a0bff065c645b7347ed6a71a566"
+format = "tar.gz"
+strip-prefix = "container_hash-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-container-hash"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-describe" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+
+[target.boost_container_hash]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-describe", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+]

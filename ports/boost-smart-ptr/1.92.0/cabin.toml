@@ -1,0 +1,26 @@
+[package.upstream]
+url = "https://github.com/boostorg/smart_ptr/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:49994bb3d97b81fc877df3ae04595d922857939f65fd568019e7a2053dee648f"
+format = "tar.gz"
+strip-prefix = "smart_ptr-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-smart-ptr"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_smart_ptr]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]

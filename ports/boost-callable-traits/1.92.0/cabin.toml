@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/callable_traits/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:7a0645801da3a750bb5291af428e1787b8d83ab27298bf54fe79679fdc401203"
+format = "tar.gz"
+strip-prefix = "callable_traits-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-callable-traits"
+version = "1.92.0"
+
+[target.boost_callable_traits]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"

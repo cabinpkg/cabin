@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/hof/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:9408db06bc069cff2bacb5e72c14c55e3c127322ec210ad03708bee7ed7558dd"
+format = "tar.gz"
+strip-prefix = "hof-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-hof"
+version = "1.92.0"
+
+[target.boost_hof]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"

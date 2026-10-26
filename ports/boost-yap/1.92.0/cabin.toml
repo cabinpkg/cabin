@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/yap/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:e86071098a06fa2faea1549aba5a77617c52adc50be2e5adae24dddc7243e183"
+format = "tar.gz"
+strip-prefix = "yap-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-yap"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-hana" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+
+[target.boost_yap]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-hana", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+]

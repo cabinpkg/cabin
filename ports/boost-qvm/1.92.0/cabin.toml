@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/qvm/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:4e7c96b0c7a4a44a3f41fa92e2c7a8fd663d1eb331b26d0cec810a3185ad5dc7"
+format = "tar.gz"
+strip-prefix = "qvm-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-qvm"
+version = "1.92.0"
+
+[target.boost_qvm]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"

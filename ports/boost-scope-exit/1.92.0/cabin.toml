@@ -1,0 +1,28 @@
+[package.upstream]
+url = "https://github.com/boostorg/scope_exit/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:f40580cba6de47195f686e8da70298097acf93aecf98fd52e37e2da4de3789c4"
+format = "tar.gz"
+strip-prefix = "scope_exit-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-scope-exit"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+
+[target.boost_scope_exit]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+]

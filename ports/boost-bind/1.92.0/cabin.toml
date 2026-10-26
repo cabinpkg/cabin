@@ -1,0 +1,22 @@
+[package.upstream]
+url = "https://github.com/boostorg/bind/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:63b4d0f508cea880638f332f2f2c5f9581c8f3e751dd4a385635386ceb5bd72d"
+format = "tar.gz"
+strip-prefix = "bind-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-bind"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+
+[target.boost_bind]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+]

@@ -1,0 +1,26 @@
+[package.upstream]
+url = "https://github.com/boostorg/conversion/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:73b84054f89acd439739e403b8a8acac409805e7889d7f3b127f65b08e4ff68e"
+format = "tar.gz"
+strip-prefix = "conversion-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-conversion"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_conversion]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]

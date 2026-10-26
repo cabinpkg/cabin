@@ -1,0 +1,28 @@
+[package.upstream]
+url = "https://github.com/boostorg/hana/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:93ede285b530027c4b74f0eb0141e021182b2aa20bd0f693bc7e26d807bce699"
+format = "tar.gz"
+strip-prefix = "hana-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-hana"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-tuple" = "=1.92.0"
+
+[target.boost_hana]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-tuple", public = true },
+]

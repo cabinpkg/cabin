@@ -1,0 +1,28 @@
+[package.upstream]
+url = "https://github.com/boostorg/dynamic_bitset/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:33565219647035b9e58d76662f0b8919e0eedb8dad5e180d4f35f2244fd4d104"
+format = "tar.gz"
+strip-prefix = "dynamic_bitset-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-dynamic-bitset"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_dynamic_bitset]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]

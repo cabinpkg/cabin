@@ -1,0 +1,31 @@
+[package.upstream]
+url = "https://github.com/boostorg/safe_numerics/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:dc7cd0e8538ddac4844a1ed77cff839123a08a5af8f833ebfe22ffca4ec41718"
+format = "tar.gz"
+strip-prefix = "safe_numerics-boost-1.92.0"
+patches = ["patches/0001-include-exception.patch"]
+
+[package]
+name = "cabin-ports/boost-safe-numerics"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-logic" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+
+[target.boost_safe_numerics]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-logic", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+]

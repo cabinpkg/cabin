@@ -1,0 +1,30 @@
+[package.upstream]
+url = "https://github.com/boostorg/static_string/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:7a02f012eeb384d804605b76949e4f16e925e50731ba2d4b3a0074db1b959a4f"
+format = "tar.gz"
+strip-prefix = "static_string-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-static-string"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_static_string]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

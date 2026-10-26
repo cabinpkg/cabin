@@ -1,0 +1,10 @@
+--- a/include/boost/safe_numerics/checked_result_operations.hpp
++++ b/include/boost/safe_numerics/checked_result_operations.hpp
+@@ -20,6 +20,7 @@
+ // integer type is an "extended" integer.
+ 
+ #include <cassert>
++#include <exception> // std::terminate
+ 
+ #include <boost/logic/tribool.hpp>
+ 

@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/openmethod/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:f90aa5be04ed7603fedd1db1c4890315a477a45c2897b01090426e2666aa78a7"
+format = "tar.gz"
+strip-prefix = "openmethod-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-openmethod"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-dynamic-bitset" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+
+[target.boost_openmethod]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++17"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-dynamic-bitset", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+]

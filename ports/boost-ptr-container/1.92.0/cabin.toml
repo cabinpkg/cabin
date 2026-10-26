@@ -1,0 +1,42 @@
+[package.upstream]
+url = "https://github.com/boostorg/ptr_container/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:b2d9b4a94146311aa60d1ad7f0d3ad1b9d7a6462c043b04611c5c7ecfa459f5e"
+format = "tar.gz"
+strip-prefix = "ptr_container-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-ptr-container"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-array" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-circular-buffer" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-unordered" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_ptr_container]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-array", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-circular-buffer", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-unordered", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

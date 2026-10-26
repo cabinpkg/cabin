@@ -1,0 +1,18 @@
+[package.upstream]
+url = "https://github.com/boostorg/type_traits/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:ee6c4d3d993f9138d9a77c57c3d91111aafed79add4f09f4e0a7effcfcdc0cae"
+format = "tar.gz"
+strip-prefix = "type_traits-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-type-traits"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+
+[target.boost_type_traits]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [{ name = "cabin-ports/boost-config", public = true }]

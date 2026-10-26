@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/tuple/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:65e12b544e09142407ee1653d49643951a40895a3c07c93cd6d907599623fcd4"
+format = "tar.gz"
+strip-prefix = "tuple-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-tuple"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_tuple]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

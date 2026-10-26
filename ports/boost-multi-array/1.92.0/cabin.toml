@@ -1,0 +1,36 @@
+[package.upstream]
+url = "https://github.com/boostorg/multi_array/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:94db0d8475d9f5a7645519a9bac1988e9fa0f7c46b5c54bc512ee543893520f1"
+format = "tar.gz"
+strip-prefix = "multi_array-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-multi-array"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-array" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-functional" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_multi_array]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-array", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-functional", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

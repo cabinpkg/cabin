@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/predef/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:4c870bcf7f547f3e3d1db26700b078a33f87c4c8232cd1c8d89ec82be6b54130"
+format = "tar.gz"
+strip-prefix = "predef-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-predef"
+version = "1.92.0"
+
+[target.boost_predef]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
