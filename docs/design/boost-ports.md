@@ -74,6 +74,7 @@ Each patch is the smallest correction that makes the port correct under Cabin.
 | `boost-pfr` | exclude clang from a GCC < 8 alignment workaround in `offset_based_getter.hpp` | clang defines `__GNUC__` as 4, so on non-x86_64 hosts (arm64 macOS and Linux) the C++14 field getter capped alignment at 4 and read `double` and `long long` fields at the wrong offsets |
 | `boost-safe-numerics` | `checked_result_operations.hpp` includes `<exception>` | it calls `std::terminate` without the include, which fails on libc++ |
 | `boost-sort` | `common/util/algorithm.hpp` and `common/scheduler.hpp` include `<cstdint>` | the headers use `uint32_t` and friends without the include, which fails on libstdc++ |
+| `boost-sort` | `common/util/traits.hpp` includes `<string>` | the header uses `std::string` without the include, which fails on MSVC |
 
 ### Consumer tests
 

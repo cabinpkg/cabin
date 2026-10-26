@@ -1,0 +1,10 @@
+--- a/include/boost/sort/common/util/traits.hpp
++++ b/include/boost/sort/common/util/traits.hpp
+@@ -14,6 +14,7 @@
+ 
+ #include <functional>
+ #include <iterator>
++#include <string>
+ #include <type_traits>
+ 
+ namespace boost
