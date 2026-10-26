@@ -37,10 +37,11 @@ the registry remains closed to allowlisted maintainers:
 | R2 buckets | `cabin-registry-blobs`, `cabin-registry-backup` |
 
 **The disposable/permanent data boundary is temporal, not spatial.** Until
-launch (`meta.launched` = `'false'`), the database and the primary blob
-data are wiped and recreated instead of migrated whenever the storage
-format changes (the backup bucket is append-only and never wiped); from
-launch onward the data is permanent and never wiped. The launch guard in
+launch (`meta.launched` = `'false'`), the database, the primary blob
+data, and the whole backup bucket are wiped and recreated instead of
+migrated whenever the storage format changes; from launch onward the
+data is permanent and never wiped, and the backup bucket keeps its
+append-only retention. The launch guard in
 `cargo registry-wipe` enforces the boundary, and flipping the flag is a
 launch-checklist item ([`docs/runbook.md`](docs/runbook.md), "Launch
 checklist").

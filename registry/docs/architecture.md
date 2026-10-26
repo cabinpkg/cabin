@@ -1306,10 +1306,12 @@ recovery"):
   retires the row without copying, and rows older than an hour raise
   the backup-health alert. `cargo registry-backup-backfill` is the
   manual recovery path; it deliberately leaves queue rows for the drain to
-  settle. No code path deletes from
+  settle. No Worker code path deletes from
   the backup bucket's `blobs/sha256/` namespace, so the replicated
   blobs are append-only: a deletion in the primary - malicious or
-  accidental - cannot propagate. (The `d1/` dump namespace is pruned
+  accidental - cannot propagate. (The pre-launch operator wipe empties
+  the whole bucket; the launch guard forbids it once the registry
+  launches.) (The `d1/` dump namespace is pruned
   by its own job's validation and retention, below.)
 - **Nightly D1 dump (RPO <= 24 h).** A second cron schedule drives the
   D1 REST export endpoint from the Worker itself and streams the

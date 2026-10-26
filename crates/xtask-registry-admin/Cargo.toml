@@ -32,6 +32,7 @@ xtask-workflow-guard = { path = "../xtask-workflow-guard" }
 assert_cmd = { workspace = true }
 assert_fs = { workspace = true }
 predicates = { workspace = true }
+tiny_http = { workspace = true }
 
 [lints]
 workspace = true

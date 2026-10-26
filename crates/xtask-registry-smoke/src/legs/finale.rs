@@ -637,10 +637,9 @@ fn source_reads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     smoke.expect_body("registry_over_budget")
 }
 
-/// The pre-launch ledger wipe clears the primary storage rows while the
-/// backup and dump rows survive - the registry wipe never touches the
-/// BACKUP bucket, so their objects keep billing - and the monthly op
-/// windows survive too: they mirror R2 operations Cloudflare already
+/// The pre-launch ledger wipe clears the storage rows of every pool -
+/// the registry wipe empties both buckets - while the monthly op
+/// windows survive: they mirror R2 operations Cloudflare already
 /// metered this month, so zeroing them would re-mint a month of
 /// allowance for spend that already happened.
 fn admin_governor(smoke: &mut Smoke) -> Result<()> {
@@ -696,7 +695,7 @@ fn admin_reconcile(smoke: &mut Smoke) -> Result<()> {
         br#"{"reconcile":true,"wipe":true}"#,
         &[400],
     )?;
-    // A second wipe re-empties the primary rows so the cron leg below
+    // A second wipe re-empties the storage rows so the cron leg below
     // still proves the scheduled pass rebuilds them on its own.
     smoke.wrequest("POST", GOVERNOR, br#"{"wipe":true}"#, &[200])?;
     smoke.expect_body(r#""ok":true"#)
@@ -1206,10 +1205,11 @@ fn wiped_the_right_rows(body: &[u8]) -> bool {
     let Ok(snapshot) = serde_json::from_slice::<Value>(body) else {
         return false;
     };
-    if rows(&snapshot, "storage").any(|row| pool(row) == Some("primary")) {
-        return false;
-    }
-    if !rows(&snapshot, "storage").any(|row| pool(row) == Some("backup")) {
+    if snapshot
+        .get("storage")
+        .and_then(Value::as_array)
+        .is_none_or(|storage| !storage.is_empty())
+    {
         return false;
     }
     // The exhausted ordinary-read counter must survive the wipe: the
@@ -1609,21 +1609,27 @@ mod tests {
     }"#;
 
     #[test]
-    fn the_wipe_snapshot_keeps_the_op_windows() {
-        // Before the wipe: the primary rows are still there.
+    fn the_wipe_snapshot_is_empty_storage_and_kept_op_windows() {
+        // Before the wipe: the primary and backup rows are still there.
         assert!(!wiped_the_right_rows(SNAPSHOT.as_bytes()));
-        let wiped = SNAPSHOT.replace(r#"{"pool": "primary", "state": "committed"}, "#, "");
+        let wiped = SNAPSHOT.replace(
+            r#"[{"pool": "primary", "state": "committed"}, {"pool": "backup"}]"#,
+            "[]",
+        );
         assert!(wiped_the_right_rows(wiped.as_bytes()));
-        // A wipe that also zeroed the metered month, and one that
-        // dropped the backup rows, both fail.
+        // A wipe that left any pool's rows - the backup ones included -
+        // fails, and so does one that zeroed the metered month.
+        assert!(!wiped_the_right_rows(
+            SNAPSHOT
+                .replace(r#"{"pool": "primary", "state": "committed"}, "#, "")
+                .as_bytes()
+        ));
         assert!(!wiped_the_right_rows(
             wiped.replace("\"used\": 7", "\"used\": 0").as_bytes()
         ));
-        assert!(!wiped_the_right_rows(
-            wiped.replace("{\"pool\": \"backup\"}", "").as_bytes()
-        ));
         // A body that is not a snapshot at all is the same failure.
         assert!(!wiped_the_right_rows(b"<html>"));
+        assert!(!wiped_the_right_rows(br#"{"ops": []}"#));
     }
 
     #[test]

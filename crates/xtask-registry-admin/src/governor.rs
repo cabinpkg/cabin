@@ -33,6 +33,10 @@
 //!   so nothing extends it, and a dump key has at most its `.sha256`
 //!   sibling, so `per_page=5` cannot overflow.  The grammar check is
 //!   part of the guard, not input hygiene;
+//! - the wipe's emptiness checks read one page too, and need no
+//!   grammar: only a successful empty last page passes, so one listed
+//!   key - in the primary's `blobs/`, or anywhere in the backup -
+//!   already disproves emptiness;
 //! - a proxy-only network is not reachable, the same ceiling the
 //!   crate's other HTTP clients carry.
 
@@ -104,16 +108,109 @@ struct Report {
 }
 
 /// One page of the R2 REST listing.  `key` is required: a row that
-/// does not carry one is not an answer about this key.
+/// does not carry one is not an answer about this key.  The API leaves
+/// `result_info` out of a listing's last page, and a `null` is not that.
 #[derive(Deserialize)]
 struct Page {
     success: bool,
     result: Vec<Object>,
+    #[serde(default, deserialize_with = "crate::audit::present")]
+    result_info: Option<PageInfo>,
 }
 
 #[derive(Deserialize)]
 struct Object {
     key: String,
+}
+
+#[derive(Deserialize)]
+struct PageInfo {
+    is_truncated: Option<bool>,
+}
+
+/// Cloudflare's API, which the evidence checks list through.
+pub(crate) const API_BASE: &str = "https://api.cloudflare.com/client/v4";
+
+/// This account's buckets through the R2 REST object API: the evidence
+/// checks here and the registry wipe's sweep both go through it.
+pub(crate) struct Buckets {
+    agent: ureq::Agent,
+    url: String,
+    token: String,
+}
+
+impl Buckets {
+    /// `base` is the API root that `accounts/<id>/r2/buckets` hangs off.
+    pub(crate) fn new(base: &str, account: &str, token: String) -> Self {
+        Self {
+            agent: crate::audit::agent(),
+            url: format!("{base}/accounts/{account}/r2/buckets"),
+            token,
+        }
+    }
+
+    /// The keys of one listing page under `prefix` - the whole bucket
+    /// when it is empty - at most `per_page` of them.  An unsuccessful
+    /// or malformed answer is an error, never an empty page, and so is an
+    /// empty page whose metadata does not say the listing ended: only a
+    /// successful empty last page proves nothing is there, and the API
+    /// marks the last page by leaving the metadata out.
+    pub(crate) fn keys(&self, bucket: &str, prefix: &str, per_page: u16) -> Result<Vec<String>> {
+        let mut url = format!("{}/{bucket}/objects?per_page={per_page}", self.url);
+        if !prefix.is_empty() {
+            url = format!("{url}&prefix={}", encode_prefix(prefix));
+        }
+        let body = crate::audit::get(&self.agent, &url, &self.token)
+            .with_context(|| format!("listing {bucket} failed"))?;
+        let page: Page = serde_json::from_str(&body)
+            .with_context(|| format!("unexpected R2 list response: {body}"))?;
+        let unfinished = page
+            .result_info
+            .is_some_and(|info| info.is_truncated != Some(false));
+        if !page.success || (page.result.is_empty() && unfinished) {
+            bail!("unexpected R2 list response: {body}");
+        }
+        Ok(page.result.into_iter().map(|object| object.key).collect())
+    }
+
+    /// Deletes one key, reading only the status, so the sweep proves each
+    /// delete by listing again.  A key with a `.` or `..` segment is
+    /// refused unsent: URL parsing resolves those segments, and the
+    /// request would reach another path of the API - another key, or the
+    /// bucket itself.
+    pub(crate) fn delete(&self, bucket: &str, key: &str) -> Result<()> {
+        if key
+            .split('/')
+            .any(|segment| segment == "." || segment == "..")
+        {
+            bail!(
+                "{key} in {bucket} has a dot segment, which no registry writer produces and no \
+                 API URL carries verbatim: investigate it, and never delete it through wrangler \
+                 or the REST API"
+            );
+        }
+        self.agent
+            .delete(&format!(
+                "{}/{bucket}/objects/{}",
+                self.url,
+                encode_prefix(key)
+            ))
+            .set("Authorization", &format!("Bearer {}", self.token))
+            .call()
+            .with_context(|| format!("deleting {key} from {bucket} failed"))?;
+        Ok(())
+    }
+}
+
+/// The deployed account's [`Buckets`].  The token is required, not
+/// optional: the callers are evidence gates, and a check that did not
+/// run is not evidence.
+fn deployed_buckets() -> Result<Buckets> {
+    let token = std::env::var("CLOUDFLARE_API_TOKEN").unwrap_or_default();
+    if token.is_empty() {
+        bail!("CLOUDFLARE_API_TOKEN is required for the R2 evidence check");
+    }
+    Ok(Buckets::new(API_BASE, &account_id()?, token))
 }
 
 /// Which pool a release names, and the bucket its evidence comes from.
@@ -414,8 +511,8 @@ fn compare(api: &Api) -> Result<()> {
     println!("D1 verified:    {verified_bytes} B in {verified_objects} blob(s)");
     println!(
         "    (the backup pool may legitimately exceed the verified view: the BACKUP\n    \
-         bucket is append-only and keeps history; cargo registry-backup-audit,\n    \
-         from the repository root, audits it)"
+         bucket keeps history only the pre-launch wipe deletes; cargo\n    \
+         registry-backup-audit, from the repository root, audits it)"
     );
     println!("dump ledger:    {dump_bytes} B in {dump_objects} object(s)");
     println!(
@@ -514,6 +611,7 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
         bail!("{}", pool.shape());
     }
     let bucket = pool.bucket();
+    let buckets = deployed_buckets()?;
 
     if pool == Pool::Backup {
         // Deleting from the append-only BACKUP bucket is an incident
@@ -538,7 +636,7 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
     }
 
     step(&format!("evidence: {key} must be absent from {bucket}"));
-    if key_exists(bucket, key)? {
+    if key_exists(&buckets, bucket, key)? {
         bail!(
             "{key} still exists in {bucket}; a release for a live object would make the \
              ledger understate reality"
@@ -579,7 +677,7 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
     // is closed from the other side: re-check, and if the key came back
     // the ledger is repaired immediately instead of waiting for a cron.
     step("post-release verification: the key is still absent");
-    if key_exists(bucket, key)? {
+    if key_exists(&buckets, bucket, key)? {
         eprintln!("WARNING: {key} reappeared in {bucket} inside the release window.");
         match pool {
             Pool::Primary => {
@@ -608,13 +706,14 @@ fn wipe(api: &Api) -> Result<()> {
     // the prompt sat waiting still refuses.
     confirm(
         cabin_env::CABIN_GOVERNOR_WIPE_YES,
-        "About to WIPE the governor ledger's primary rows (pre-launch only). Type \
+        "About to WIPE the governor ledger's storage rows (pre-launch only). Type \
          \"governor-wipe\" to confirm: ",
         "governor-wipe",
     )?;
 
     step("launch guard");
     crate::launch_guard::run(crate::launch_guard::Mode::Remote)?;
+    let buckets = deployed_buckets()?;
 
     // A delayed publisher (request in flight since before the registry
     // wipe) could still land a put after the emptiness check below.
@@ -634,43 +733,66 @@ fn wipe(api: &Api) -> Result<()> {
         }
     }
 
-    // The ledger wipe is the registry wipe's step 7: with primary blobs
-    // still present, wiping the ledger would undercount objects that
-    // keep billing (reconciliation cannot see them - the wiped D1 no
-    // longer references them).
-    step(&format!("evidence: {PRIMARY} carries no blobs/ objects"));
-    if prefix_nonempty(PRIMARY, "blobs/")? {
-        bail!("{PRIMARY} still holds blobs/ objects; finish the registry wipe first");
+    reset(api, &buckets, publishers != 0)
+}
+
+/// The ledger wipe itself, bracketed by proof that both buckets are
+/// empty.  It is the registry wipe's companion: an object left in
+/// either bucket keeps billing while the reset ledger no longer counts
+/// it, and reconciliation cannot find it again - the wiped D1 no longer
+/// references it.
+fn reset(api: &Api, buckets: &Buckets, coordinate: bool) -> Result<()> {
+    step(&format!(
+        "evidence: {PRIMARY} carries no blobs/ objects and {BACKUP} no objects at all"
+    ));
+    if let Some(left) = leftover(buckets)? {
+        bail!(
+            "{left}; the registry wipe empties both buckets - finish it, or remove what a \
+             writer added since, first (docs/runbook.md, \"Post-wipe re-provisioning\")"
+        );
     }
-    if publishers != 0 {
+    if coordinate {
         // The breaker cron can restore the mode during the R2 checks
         // above; re-check immediately before the wipe posts, exactly
         // like the release path.
         require_coordination(true)?;
     }
 
-    step("wiping the governor's primary rows and fairness windows");
+    step("wiping the governor's storage rows and fairness windows");
     api.ok(Some(r#"{"wipe":true}"#), "the ledger wipe")?;
 
     // The emptiness check races a concurrent writer by nature; re-check
     // after the wipe so an interleaved write cannot leave the fresh
     // ledger silently undercounting.
-    step(&format!(
-        "post-wipe verification: {PRIMARY} still carries no blobs/ objects"
-    ));
-    if prefix_nonempty(PRIMARY, "blobs/")? {
-        eprintln!("WARNING: blobs/ objects appeared in {PRIMARY} during the wipe window;");
+    step("post-wipe verification: both buckets are still empty");
+    if let Some(left) = leftover(buckets)? {
+        eprintln!("WARNING: {left}, which appeared during the wipe window - the fresh ledger");
         eprintln!(
-            "finish the registry wipe, investigate the writer, and re-run \
-             cargo registry-governor wipe"
+            "does not count it.  Stop the writer, delete the object, and re-run \
+             cargo registry-governor wipe (docs/runbook.md, \"Post-wipe re-provisioning\")"
         );
         bail!("the wipe window closed over an appearing object");
     }
     println!(
-        "governor wipe OK (backup, dump, and the monthly op windows survive\n\
-         on purpose; docs/runbook.md, \"The cost governor\")"
+        "governor wipe OK (every storage pool and the daily fairness windows are reset;\n\
+         the monthly op windows survive on purpose; docs/runbook.md, \"The cost governor\")"
     );
     Ok(())
+}
+
+/// The first object where the registry wipe leaves none - a `blobs/`
+/// key in the primary, any key at all in the backup - or `None` once
+/// both listings come back empty.
+fn leftover(buckets: &Buckets) -> Result<Option<String>> {
+    for (bucket, prefix) in [(PRIMARY, "blobs/"), (BACKUP, "")] {
+        let keys = buckets
+            .keys(bucket, prefix, 5)
+            .context("cannot prove emptiness")?;
+        if let Some(key) = keys.first() {
+            return Ok(Some(format!("{bucket} still holds {key}")));
+        }
+    }
+    Ok(None)
 }
 
 /// An interactive confirmation, skipped when its escape hatch is set
@@ -710,33 +832,6 @@ fn count(sql: &str) -> Result<u64> {
         .context("the count query answered no n")
 }
 
-/// One page of a bucket listing under `prefix`.
-///
-/// The token is required, not optional: the callers are evidence
-/// gates, and a check that did not run is not evidence.
-fn list_page(bucket: &str, prefix: &str) -> Result<Page> {
-    let token = std::env::var("CLOUDFLARE_API_TOKEN").unwrap_or_default();
-    if token.is_empty() {
-        bail!("CLOUDFLARE_API_TOKEN is required for the R2 evidence check");
-    }
-    if prefix.is_empty() {
-        bail!("an empty prefix would list the whole bucket and prove nothing");
-    }
-    let account = account_id()?;
-    let url = format!(
-        "https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets/{bucket}/objects\
-         ?prefix={}&per_page=5",
-        encode_prefix(prefix)
-    );
-    let body = crate::audit::get(&crate::audit::agent(), &url, &token)?;
-    let page: Page = serde_json::from_str(&body)
-        .with_context(|| format!("unexpected R2 list response: {body}"))?;
-    if !page.success {
-        bail!("unexpected R2 list response: {body}");
-    }
-    Ok(page)
-}
-
 /// `prefix.split("/").map(encodeURIComponent).join("/")`: the
 /// separators stay separators and everything else is escaped.
 pub(crate) fn encode_prefix(prefix: &str) -> String {
@@ -750,15 +845,11 @@ pub(crate) fn encode_prefix(prefix: &str) -> String {
 /// Whether the exact key exists.  `Ok(false)` is proven absence; every
 /// failure is an error, because absence inferred from a failed check
 /// is what lets a release understate the ledger.
-fn key_exists(bucket: &str, key: &str) -> Result<bool> {
-    let page = list_page(bucket, key).context("cannot prove absence")?;
-    Ok(page.result.iter().any(|object| object.key == key))
-}
-
-/// Whether at least one object lives under the prefix.
-fn prefix_nonempty(bucket: &str, prefix: &str) -> Result<bool> {
-    let page = list_page(bucket, prefix).context("cannot prove emptiness")?;
-    Ok(!page.result.is_empty())
+fn key_exists(buckets: &Buckets, bucket: &str, key: &str) -> Result<bool> {
+    let keys = buckets
+        .keys(bucket, key, 5)
+        .context("cannot prove absence")?;
+    Ok(keys.iter().any(|listed| listed == key))
 }
 
 #[cfg(test)]
@@ -869,6 +960,92 @@ mod tests {
         );
         for mode in ["__MISSING__", "null", "undefined", "normal", ""] {
             assert!(!COORDINATED.contains(&mode), "{mode} passed as coordinated");
+        }
+    }
+
+    fn mock_api(mock: &crate::r2_mock::Mock) -> Api {
+        Api {
+            endpoint: format!("{}/api/v1/admin/governor", mock.url),
+            token: "token".to_owned(),
+        }
+    }
+
+    fn posts(mock: &crate::r2_mock::Mock) -> usize {
+        let state = mock.state();
+        state
+            .log
+            .iter()
+            .filter(|line| line.starts_with("POST"))
+            .count()
+    }
+
+    /// The reset posts only once both buckets are proven empty: one
+    /// primary `blobs/` key, one backup key under any prefix, or a
+    /// listing that proves nothing refuses before the POST.  Repeating a
+    /// reset over empty buckets is harmless.
+    #[test]
+    fn the_reset_posts_only_while_both_buckets_are_proven_empty() {
+        use crate::r2_mock::{Mock, State};
+        let mock = Mock::start(State::holding(&[(PRIMARY, "unrelated/kept")]));
+        reset(&mock_api(&mock), &mock.buckets(), false).expect("an empty pair resets");
+        reset(&mock_api(&mock), &mock.buckets(), false).expect("and resets again");
+        assert_eq!(posts(&mock), 2);
+
+        for left in [
+            (PRIMARY, "blobs/sha256/aa"),
+            (BACKUP, "blobs/sha256/aa"),
+            (BACKUP, "d1/2026-10-26.sql.sha256"),
+            (BACKUP, "rehearsal/notes.txt"),
+        ] {
+            let mock = Mock::start(State::holding(&[left]));
+            let error = reset(&mock_api(&mock), &mock.buckets(), false).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("{} still holds {}", left.0, left.1)),
+                "{error:#}"
+            );
+            assert_eq!(posts(&mock), 0, "{left:?} was reset over");
+        }
+
+        for (status, body) in [
+            (500, "boom"),
+            (200, r#"{"success":false,"result":[]}"#),
+            (
+                200,
+                r#"{"success":true,"result":[],"result_info":{"is_truncated":true}}"#,
+            ),
+        ] {
+            let mock = Mock::start(State {
+                list_answer: Some((status, body.to_owned())),
+                ..State::default()
+            });
+            let error = reset(&mock_api(&mock), &mock.buckets(), false).unwrap_err();
+            assert!(
+                format!("{error:#}").contains("cannot prove emptiness"),
+                "{error:#}"
+            );
+            assert_eq!(posts(&mock), 0, "{body} was read as empty");
+        }
+    }
+
+    /// A writer landing inside the reset window - after the evidence,
+    /// before the post-check - fails the run, because the fresh ledger
+    /// does not count what it wrote.
+    #[test]
+    fn an_object_appearing_during_the_reset_fails_it() {
+        use crate::r2_mock::{Mock, State};
+        for (bucket, key) in [(BACKUP, "d1/2026-10-27.sql"), (PRIMARY, "blobs/sha256/aa")] {
+            let mock = Mock::start(State {
+                on_post: Some((bucket.to_owned(), key.to_owned())),
+                ..State::default()
+            });
+            let error = reset(&mock_api(&mock), &mock.buckets(), false).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "the wipe window closed over an appearing object"
+            );
+            assert_eq!(posts(&mock), 1);
         }
     }
 

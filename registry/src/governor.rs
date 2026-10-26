@@ -469,19 +469,20 @@ const OBJECT_KEYS: &str = "SELECT key, bytes, state FROM objects WHERE pool = ?1
 const PRUNE_PRINCIPAL_WINDOWS: &str = "DELETE FROM principal_windows WHERE window < ?1";
 
 // The operator-triggered ledger wipe (pre-launch only, guarded by the
-// caller on `meta.launched`). Deliberately **primary-storage-only**:
-// the registry wipe deletes the primary blobs, so those rows restart
-// from zero and reconciliation rebuilds whatever the fresh registry
-// accrues - but the BACKUP bucket is never wiped, so its `backup` and
-// `dump` rows must survive or the ledger would understate objects that
-// keep billing. The monthly `op_windows` are NOT wiped: they count R2
+// caller on `meta.launched`). The registry wipe empties both buckets -
+// the primary blobs and the whole BACKUP bucket - so every storage row,
+// `primary`, `backup` and `dump` alike, restarts from zero; the operator
+// command proves both buckets empty before and after posting it, so the
+// ledger never understates an object that still bills. Reconciliation
+// rebuilds whatever the fresh registry accrues. The monthly
+// `op_windows` are NOT wiped: they count R2
 // operations Cloudflare has already metered this month, reconciliation
 // cannot rebuild them (R2 exposes no per-pool op counter), and zeroing
 // them mid-month would re-mint a full month of Class A/B allowance on
 // top of the ops that already ran. Daily `principal_windows` are
 // fairness-only (they never grant pool allowance) and roll forward on
 // their own, so clearing them is harmless.
-const WIPE_PRIMARY_OBJECTS: &str = "DELETE FROM objects WHERE pool = 'primary'";
+const WIPE_OBJECTS: &str = "DELETE FROM objects";
 const WIPE_PRINCIPAL_WINDOWS: &str = "DELETE FROM principal_windows";
 
 // ---------------------------------------------------------------------
@@ -1024,21 +1025,21 @@ pub fn reconcile(
     Ok(report)
 }
 
-/// Clears the primary-pool storage ledger and the daily fairness
-/// windows. The caller owns the guard: this is the pre-launch registry
-/// wipe's companion and must never run against a launched registry
-/// (`docs/runbook.md`, "Wipe procedure (pre-launch only)"). The `backup` and `dump`
-/// storage rows survive on purpose - the wipe never touches the BACKUP
-/// bucket, and their objects keep billing. The monthly `op_windows`
-/// survive too: they mirror R2 operations Cloudflare already metered
-/// this month and are not reconstructable, so zeroing them would mint
-/// fresh monthly allowance for spend that already happened.
+/// Clears the storage ledger of every pool - `primary`, `backup` and
+/// `dump` - and the daily fairness windows. The caller owns the guard:
+/// this is the pre-launch registry wipe's companion, which empties both
+/// buckets, and must never run against a launched registry
+/// (`docs/runbook.md`, "Wipe procedure (pre-launch only)"). The monthly
+/// `op_windows` survive on purpose: they mirror R2 operations
+/// Cloudflare already metered this month and are not reconstructable,
+/// so zeroing them would mint fresh monthly allowance for spend that
+/// already happened.
 ///
 /// # Errors
 ///
 /// Storage-level failure.
 pub fn wipe(store: &mut impl Store) -> Result<(), String> {
-    store.exec(WIPE_PRIMARY_OBJECTS, &[])?;
+    store.exec(WIPE_OBJECTS, &[])?;
     store.exec(WIPE_PRINCIPAL_WINDOWS, &[])?;
     Ok(())
 }
@@ -1744,9 +1745,11 @@ mod tests {
     }
 
     #[test]
-    fn wipe_clears_primary_storage_but_keeps_op_windows_backup_and_dump() {
+    fn wipe_clears_every_storage_pool_and_the_fairness_windows_but_keeps_op_windows() {
         let mut store = Sqlite::new();
         let limits = small_limits();
+        // Every storage pool full, one op pool exhausted, and one
+        // principal at its daily fairness cap in another op pool.
         allowed(
             &mut store,
             &limits,
@@ -1754,31 +1757,36 @@ mod tests {
         );
         allowed(&mut store, &limits, &commit(StoragePool::Backup, "k", 50));
         allowed(&mut store, &limits, &commit(StoragePool::Dump, "d", 30));
-        allowed(
-            &mut store,
-            &limits,
-            &consume_as(OpPool::BOrdinary, 5, "1", 5),
-        );
-        refused(&mut store, &limits, &reserve(StoragePool::Primary, "b", 1));
+        allowed(&mut store, &limits, &consume(OpPool::BOrdinary, 5));
+        allowed(&mut store, &limits, &consume_as(OpPool::BSource, 2, "1", 2));
+        for pool in [StoragePool::Primary, StoragePool::Backup, StoragePool::Dump] {
+            refused(&mut store, &limits, &reserve(pool, "more", 1));
+        }
+        refused(&mut store, &limits, &consume_as(OpPool::BSource, 1, "1", 2));
+
         wipe(&mut store).expect("wipe runs");
-        // The primary storage rows are gone - the registry wipe deleted
-        // those blobs - so primary capacity is free again.
+
+        // Every storage row is gone - the registry wipe emptied both
+        // buckets - so each pool's full capacity is free again.
         let snapshot = usage(&mut store).expect("usage reads");
-        assert!(snapshot.storage.iter().all(|row| row.pool != "primary"));
+        assert!(snapshot.storage.is_empty(), "{:?}", snapshot.storage);
         allowed(
             &mut store,
             &limits,
             &reserve(StoragePool::Primary, "b", 100),
         );
-        // The backup and dump rows survive - the BACKUP bucket is never
-        // wiped, so their objects keep billing.
-        assert_eq!(pool_bytes(&mut store, StoragePool::Backup), 50);
-        assert_eq!(pool_bytes(&mut store, StoragePool::Dump), 30);
-        // The monthly op window survives too: the 5 ordinary reads were
-        // real R2 operations Cloudflare already metered this month, and
+        allowed(&mut store, &limits, &commit(StoragePool::Backup, "k2", 50));
+        allowed(&mut store, &limits, &commit(StoragePool::Dump, "d2", 30));
+        // The daily fairness window restarted, so the capped principal
+        // is admitted again...
+        allowed(&mut store, &limits, &consume_as(OpPool::BSource, 2, "1", 2));
+        // ...but the monthly op windows survive: those operations were
+        // real R2 spend Cloudflare already metered this month, and
         // reconciliation cannot rebuild op counters, so the wipe must
-        // not re-mint their allowance. The pool stays exhausted until
-        // the month rolls forward.
+        // not re-mint their allowance. The source pool counts on from
+        // 2, and the ordinary pool stays exhausted until the month
+        // rolls forward.
+        assert_eq!(pool_used(&mut store, OpPool::BSource), 4);
         assert_eq!(pool_used(&mut store, OpPool::BOrdinary), 5);
         refused(&mut store, &limits, &consume(OpPool::BOrdinary, 1));
     }

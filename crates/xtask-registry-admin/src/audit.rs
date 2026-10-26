@@ -5,10 +5,10 @@
 //! pools against the bucket's actual contents.
 //!
 //! It never deletes anything: the deployed BACKUP bucket's `blobs/`
-//! namespace is append-only (the nightly job prunes its own `d1/`
-//! dumps), and an object the current verified set does not name may be
-//! legitimate history (a pre-wipe backup, an older restore's blobs), so
-//! cleanup is an operator decision made per object with
+//! namespace is append-only outside the pre-launch wipe (the nightly
+//! job prunes its own `d1/` dumps), and an object the current verified
+//! set does not name may be legitimate history (an older restore's
+//! blobs), so cleanup is an operator decision made per object with
 //! `wrangler r2 object delete` plus `cargo registry-governor release`,
 //! never a bulk sweep.
 //!
@@ -77,8 +77,12 @@ struct Page {
     result_info: Option<PageInfo>,
 }
 
-fn present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<PageInfo>, D::Error> {
-    PageInfo::deserialize(value).map(Some)
+/// `deserialize_with` for an R2 listing's `result_info`, so only a
+/// missing key reads as `None`.
+pub(crate) fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    value: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(value).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -355,7 +359,7 @@ fn audit(
     report.section(
         "backup blobs beyond the current verified set",
         &extras,
-        "append-only history (pre-wipe backups, older restores); not deleted by tooling",
+        "append-only history (such as older restores); only the pre-launch wipe deletes it",
         false,
     );
 
@@ -676,8 +680,8 @@ mod tests {
 
     /// The one section that reports without failing.  The BACKUP bucket's
     /// `blobs/` namespace is append-only, so a blob the current verified
-    /// set does not name is history (a pre-wipe backup, an older
-    /// restore) - reported because it holds ledger allowance, never a
+    /// set does not name is history (an older restore, say) - reported
+    /// because it holds ledger allowance, never a
     /// reason to fail a run or to delete anything.
     #[test]
     fn history_beyond_the_verified_set_is_reported_but_not_a_failure() {
@@ -695,7 +699,7 @@ mod tests {
         );
         assert_eq!(
             report.lines[3],
-            "    append-only history (pre-wipe backups, older restores); not deleted by tooling"
+            "    append-only history (such as older restores); only the pre-launch wipe deletes it"
         );
     }
 
@@ -770,7 +774,7 @@ mod tests {
                 "    a truncated or overwritten copy; re-copy via \
                  cargo registry-backup-backfill (repository root) after deleting it",
                 "backup blobs beyond the current verified set: 1",
-                "    append-only history (pre-wipe backups, older restores); not deleted by tooling",
+                "    append-only history (such as older restores); only the pre-launch wipe deletes it",
                 "dumps without a validating sidecar: 0",
                 "sidecars without their dump: 0",
                 "keys outside the blobs/ and d1/ layouts: 0",

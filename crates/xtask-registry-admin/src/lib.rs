@@ -33,15 +33,19 @@ pub mod restore_drill;
 pub mod verify;
 pub mod wipe;
 
+#[cfg(test)]
+mod r2_mock;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
 /// The BACKUP bucket, which more than one command reaches: the
-/// backfill writes to it and the audit reads it.  Its `blobs/`
-/// namespace is append-only (`registry/docs/runbook.md`, "Disaster
-/// recovery"), so nothing here ever deletes from it.
+/// backfill writes to it, the audit and the governor's evidence checks
+/// read it, and the pre-launch wipe empties it.  Outside that wipe its
+/// `blobs/` namespace is append-only (`registry/docs/runbook.md`,
+/// "Disaster recovery"), so nothing else here deletes from it.
 pub const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
 /// The PRIMARY blob bucket, which more than one command reaches: the
