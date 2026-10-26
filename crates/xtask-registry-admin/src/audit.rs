@@ -53,12 +53,6 @@ const VERIFIED: &str = "
 
 const QUEUE_DEPTH: &str = "SELECT COUNT(*) AS n FROM backup_pending";
 
-const UNDERSTATED: &str = concat!(
-    "    the ledger understates the bucket - it must stay an upper bound;",
-    " run cargo registry-backup-backfill from the repository root (backup pool)",
-    " and investigate dumps",
-);
-
 /// One object of the bucket listing.
 #[derive(Deserialize)]
 struct Object {
@@ -297,7 +291,7 @@ fn audit(
     snapshot: Option<&Snapshot>,
     show_keys: bool,
 ) -> Result<Report> {
-    let blobs = blob_map(listing);
+    let blobs = by_key(listing, BLOBS);
     let sizes: HashMap<&str, u64> = blobs.iter().copied().collect();
     let depth = display(
         queue
@@ -368,23 +362,29 @@ fn audit(
     // The governor's view, when a token was available: the ledger must
     // never understate the bucket (upper bound of reality).
     if let Some(snapshot) = snapshot {
-        ledger(&mut report, snapshot, listing, &blobs);
+        ledger(
+            &mut report,
+            snapshot,
+            &by_key(listing, "d1/"),
+            &blobs,
+            &depth,
+        );
     }
 
     Ok(report)
 }
 
-/// The `blobs/` namespace: one entry per key, in first-seen order,
+/// The keys under `prefix`: one entry per key, in first-seen order,
 /// carrying the last size listed for it.  A
 /// bucket cannot list a key twice, so this only decides what the audit
 /// reports if the API ever repeats one across pages - and there it
 /// keeps the count and the byte total honest.
-fn blob_map(listing: &[Object]) -> Vec<(&str, u64)> {
+fn by_key<'a>(listing: &'a [Object], prefix: &str) -> Vec<(&'a str, u64)> {
     let mut order: Vec<&str> = Vec::new();
     let mut sizes: HashMap<&str, u64> = HashMap::new();
     for object in listing
         .iter()
-        .filter(|object| object.key.starts_with(BLOBS))
+        .filter(|object| object.key.starts_with(prefix))
     {
         if sizes.insert(object.key.as_str(), object.size).is_none() {
             order.push(object.key.as_str());
@@ -461,28 +461,76 @@ fn layout(report: &mut Report, listing: &[Object]) {
 /// contents.  The ledger is an upper bound of reality, so understating
 /// it is the failure; overstating it is the append-only history the
 /// section above already reported.
-fn ledger(report: &mut Report, snapshot: &Snapshot, listing: &[Object], blobs: &[(&str, u64)]) {
-    let (backup_bytes, backup_objects) = pool(snapshot, "backup");
-    let (dump_bytes, dump_objects) = pool(snapshot, "dump");
-    let blob_bytes: u64 = blobs.iter().map(|(_, size)| size).sum();
-    let (d1_count, d1_bytes) = listing
-        .iter()
-        .filter(|object| object.key.starts_with("d1/"))
-        .fold((0_usize, 0_u64), |(count, bytes), object| {
-            (count + 1, bytes + object.size)
-        });
-    report.lines.push(format!(
-        "backup pool ledger: {backup_bytes} B / {backup_objects} object(s); \
-         bucket blobs/: {blob_bytes} B / {} object(s)",
-        blobs.len()
-    ));
-    report.lines.push(format!(
-        "dump pool ledger:   {dump_bytes} B / {dump_objects} object(s); \
-         bucket d1/:    {d1_bytes} B / {d1_count} object(s)"
-    ));
-    if backup_bytes < blob_bytes || dump_bytes < d1_bytes {
-        report.lines.push(UNDERSTATED.to_owned());
-        report.failed = true;
+///
+/// Bytes and objects are separate bounds, each checked per pool: the
+/// ledger holds one row per `(pool, key)`, so fewer ledger objects than
+/// listed objects names an R2 object no row accounts for, however
+/// generously the other rows' byte counts cover the total.
+///
+/// The listing precedes the snapshot, and every Worker write reserves
+/// before its put, so an in-flight drain copy or dump is already in the
+/// ledger the snapshot reads.  A pool can still read short honestly,
+/// so each shortfall's remedy says to rerun before investigating: a
+/// `cargo registry-backup-backfill` copy reaches the backup pool only
+/// when the drain retires its queue row, and an operator release
+/// (either pool) or a dump-job delete (prune or invalid-dump removal)
+/// between the two reads drops a row whose object the listing still
+/// saw.  The totals are aggregate, so a pass is not per-key proof: a
+/// leaked reservation can offset an object no row names.
+fn ledger(
+    report: &mut Report,
+    snapshot: &Snapshot,
+    dumps: &[(&str, u64)],
+    blobs: &[(&str, u64)],
+    depth: &str,
+) {
+    for (name, prefix, listed, remedy) in [
+        (
+            "backup",
+            "blobs/",
+            blobs,
+            format!(
+                "backfilled copies reach the ledger only as the drain retires their queue rows \
+                 (queue depth is {depth}), and an operator release between the listing and the \
+                 snapshot reads short honestly, so rerun once the queue is empty and no release \
+                 is in flight; a gap that outlasts both is real: run cargo \
+                 registry-backup-backfill from the repository root and investigate"
+            ),
+        ),
+        (
+            "dump",
+            "d1/",
+            dumps,
+            "a dump-job delete or an operator release between the listing and the snapshot \
+             reads short honestly, so rerun once none is in flight; a gap that outlasts it is \
+             real: investigate"
+                .to_owned(),
+        ),
+    ] {
+        let (ledger_bytes, ledger_objects) = pool(snapshot, name);
+        let bytes: u64 = listed.iter().map(|(_, size)| size).sum();
+        let objects = listed.len() as u64;
+        report.lines.push(format!(
+            "{:<20}{ledger_bytes} B / {ledger_objects} object(s); {:<15}{bytes} B / {objects} \
+             object(s)",
+            format!("{name} pool ledger:"),
+            format!("bucket {prefix}:"),
+        ));
+        let short: Vec<&str> = [
+            ("bytes", ledger_bytes < bytes),
+            ("objects", ledger_objects < objects),
+        ]
+        .into_iter()
+        .filter_map(|(measure, understated)| understated.then_some(measure))
+        .collect();
+        if !short.is_empty() {
+            report.lines.push(format!(
+                "    the {name} pool ledger understates the bucket in {} - it must stay an \
+                 upper bound in bytes and in objects alike; {remedy}",
+                short.join(" and ")
+            ));
+            report.failed = true;
+        }
     }
 }
 
@@ -603,8 +651,8 @@ mod tests {
             &serde_json::json!([{ "checksum": format!("sha256:{checksum}"), "size": 100 }]),
             0,
             Some(&snapshot(&serde_json::json!([
-                { "pool": "backup", "state": "live", "bytes": 1000, "objects": 5 },
-                { "pool": "dump", "state": "live", "bytes": 1000, "objects": 5 },
+                { "pool": "backup", "state": "committed", "bytes": 1000, "objects": 5 },
+                { "pool": "dump", "state": "committed", "bytes": 1000, "objects": 5 },
             ]))),
             false,
         );
@@ -703,12 +751,15 @@ mod tests {
         );
     }
 
-    /// The ledger is an upper bound of the bucket, so understating either
-    /// pool is a failure; overstating it is the append-only history above.
+    /// The ledger is an upper bound of the bucket in bytes and in objects,
+    /// each pool and each measure on its own: understating any one fails
+    /// and names itself, whatever the others hold - generous bytes never
+    /// cover a missing object row.  Overstating is the append-only history
+    /// above.
     #[test]
     fn a_ledger_that_understates_the_bucket_fails() {
         let checksum = "c".repeat(64);
-        let understated = |backup: u64, dump: u64| {
+        let audited = |storage: serde_json::Value| {
             run(
                 &[
                     (&format!("blobs/sha256/{checksum}"), 100),
@@ -716,29 +767,88 @@ mod tests {
                     ("d1/2026-01-01.sql.sha256", 64),
                 ],
                 &serde_json::json!([{ "checksum": format!("sha256:{checksum}"), "size": 100 }]),
-                0,
-                Some(&snapshot(&serde_json::json!([
-                    { "pool": "backup", "state": "live", "bytes": backup, "objects": 1 },
-                    { "pool": "dump", "state": "live", "bytes": dump, "objects": 2 },
-                ]))),
+                3,
+                Some(&snapshot(&storage)),
                 false,
             )
         };
-        assert!(!understated(100, 84).failed, "an exact ledger is a bound");
-        assert!(understated(99, 84).failed, "the backup pool understates");
-        assert!(understated(100, 83).failed, "the dump pool understates");
+        let understated = |backup: (u64, u64), dump: (u64, u64)| {
+            audited(serde_json::json!([
+                { "pool": "backup", "state": "committed", "bytes": backup.0, "objects": backup.1 },
+                { "pool": "dump", "state": "committed", "bytes": dump.0, "objects": dump.1 },
+            ]))
+        };
+        let short = |report: &Report| -> Vec<String> {
+            report
+                .lines
+                .iter()
+                .filter_map(|line| {
+                    let (pool, rest) = line
+                        .strip_prefix("    the ")?
+                        .split_once(" pool ledger understates the bucket in ")?;
+                    Some(format!("{pool} {}", rest.split_once(" - ")?.0))
+                })
+                .collect()
+        };
+
+        // An in-flight sidecar is a reservation: a pool's bound sums
+        // its reserved and committed rows.
+        let exact = audited(serde_json::json!([
+            { "pool": "backup", "state": "committed", "bytes": 100, "objects": 1 },
+            { "pool": "dump", "state": "committed", "bytes": 20, "objects": 1 },
+            { "pool": "dump", "state": "reserved", "bytes": 64, "objects": 1 },
+        ]));
         assert!(
-            !understated(1000, 1000).failed,
+            !exact.failed,
+            "an exact ledger is a bound: {:?}",
+            exact.lines
+        );
+        for (backup, dump, measures) in [
+            ((99, 1), (84, 2), &["backup bytes"][..]),
+            ((1000, 0), (84, 2), &["backup objects"]),
+            ((100, 1), (83, 2), &["dump bytes"]),
+            ((100, 1), (1000, 1), &["dump objects"]),
+            (
+                (99, 0),
+                (83, 1),
+                &["backup bytes and objects", "dump bytes and objects"],
+            ),
+        ] {
+            let report = understated(backup, dump);
+            assert!(report.failed, "{measures:?}");
+            assert_eq!(short(&report), measures);
+        }
+        // Each pool names its own honest-lag causes, the backup pool
+        // with the queue depth that would explain a backfill lag.
+        let both = understated((0, 0), (0, 0));
+        let line = |pool: &str| {
+            both.lines
+                .iter()
+                .find(|line| line.starts_with(&format!("    the {pool} pool")))
+                .cloned()
+                .unwrap_or_default()
+        };
+        for (pool, causes) in [
+            ("backup", ["queue depth is 3", "an operator release"]),
+            ("dump", ["a dump-job delete", "an operator release"]),
+        ] {
+            let line = line(pool);
+            for cause in causes {
+                assert!(line.contains(cause), "{pool}: {line}");
+            }
+        }
+        assert!(
+            !understated((1000, 9), (1000, 9)).failed,
             "an overstating ledger is the history section's business"
         );
     }
 
     /// A key the listing repeats is one object, carrying the last size
-    /// listed for it, in the `blobs/` view and the sidecar set.  Only
-    /// those two collapse: the dump count and the `d1/` ledger are plain
-    /// filters, so they count the repeat.  Nothing in R2 lists a key
-    /// twice today; this is what keeps a paging quirk from inventing an
-    /// orphan sidecar or failing an exact ledger.
+    /// listed for it, in the `blobs/` and `d1/` views and the sidecar
+    /// set; only the dump retention count is a plain filter that counts
+    /// the repeat.  Nothing in R2 lists a key twice today; this is what
+    /// keeps a paging quirk from inventing an orphan sidecar or failing
+    /// an exact ledger.
     #[test]
     fn a_repeated_key_is_one_object_carrying_its_last_size() {
         let checksum = "0123456789abcdef".repeat(4);
@@ -757,8 +867,8 @@ mod tests {
             &serde_json::json!([{ "checksum": format!("sha256:{checksum}"), "size": 100 }]),
             0,
             Some(&snapshot(&serde_json::json!([
-                { "pool": "backup", "state": "live", "bytes": 1000, "objects": 5 },
-                { "pool": "dump", "state": "live", "bytes": 1000, "objects": 5 },
+                { "pool": "backup", "state": "committed", "bytes": 1000, "objects": 5 },
+                { "pool": "dump", "state": "committed", "bytes": 1000, "objects": 5 },
             ]))),
             false,
         );
@@ -780,7 +890,7 @@ mod tests {
                 "keys outside the blobs/ and d1/ layouts: 0",
                 "dumps retained: 1 (retention keeps 30 dailies + 12 monthly firsts)",
                 "backup pool ledger: 1000 B / 5 object(s); bucket blobs/: 57 B / 2 object(s)",
-                "dump pool ledger:   1000 B / 5 object(s); bucket d1/:    148 B / 3 object(s)",
+                "dump pool ledger:   1000 B / 5 object(s); bucket d1/:    84 B / 2 object(s)",
             ]
         );
     }

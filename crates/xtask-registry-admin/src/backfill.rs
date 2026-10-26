@@ -10,7 +10,9 @@
 //! existence head finds the copy, settles the governor's backup ledger
 //! at the observed size, and deletes the row), so every copy made
 //! here - and every pre-queue verified blob - is absorbed, ledger
-//! included, within one breaker cron pass.  Deleting or skipping rows
+//! included, at up to 50 rows per breaker cron pass, so until the queue
+//! drains the backup audit can honestly read the backup pool short of
+//! these copies.  Deleting or skipping rows
 //! here would leave the governor's backup ledger understating reality.
 //!
 //! Requires `CLOUDFLARE_API_TOKEN` in the environment.  Idempotent:
