@@ -1,0 +1,43 @@
+[package.upstream]
+url = "https://github.com/boostorg/random/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:ab23a7f7088d68622d143c4aed5cc5ce76744f83fdba4a85db7caded084bd0ff"
+format = "tar.gz"
+strip-prefix = "random-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-random"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-dynamic-bitset" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+# On Windows src/random_device.cpp links Advapi32 through an
+# unconditional auto-link pragma that BOOST_ALL_NO_LIB does not affect.
+[target.boost_random]
+type = "library"
+sources = ["src/random_device.cpp"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_random"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-dynamic-bitset", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

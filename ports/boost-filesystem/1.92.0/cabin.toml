@@ -1,0 +1,106 @@
+[package.upstream]
+url = "https://github.com/boostorg/filesystem/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:40789a21ec8105cfe788edd8eb90bf4be25ba300836b699e048d3c147e3b95dd"
+format = "tar.gz"
+strip-prefix = "filesystem-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-filesystem"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-atomic" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-scope" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+# std::atomic_ref needs C++20, so the sources use boost::atomic_ref
+# (BOOST_FILESYSTEM_NO_CXX20_ATOMIC_REF), as upstream's CMake does
+# whenever its std::atomic_ref probe fails.
+[target.boost_filesystem]
+type = "library"
+sources = [
+  "src/codecvt_error_category.cpp",
+  "src/directory.cpp",
+  "src/exception.cpp",
+  "src/operations.cpp",
+  "src/path.cpp",
+  "src/path_traits.cpp",
+  "src/portability.cpp",
+  "src/unique_path.cpp",
+  "src/utf8_codecvt_facet.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_FILESYSTEM_SOURCE", "BOOST_FILESYSTEM_NO_CXX20_ATOMIC_REF"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_filesystem"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-atomic", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-scope", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]
+
+[target.'cfg(os = "windows")'.sources]
+boost_filesystem = ["src/windows_file_codecvt.cpp"]
+
+# Upstream's CMake turns each passing config/has_*.cpp probe into a
+# BOOST_FILESYSTEM_HAS_* define; these are the results on glibc 2.28+
+# and on macOS.  The *at APIs and fdopendir(O_NOFOLLOW) back
+# remove_all's protection against symlink races.  A missing define
+# only selects a slower or less capable fallback.
+[target.'cfg(os = "linux")'.profile]
+defines = [
+  "BOOST_FILESYSTEM_HAS_DIRENT_D_TYPE",
+  "BOOST_FILESYSTEM_HAS_FALLOCATE",
+  "BOOST_FILESYSTEM_HAS_FDOPENDIR_NOFOLLOW",
+  "BOOST_FILESYSTEM_HAS_INIT_PRIORITY",
+  "BOOST_FILESYSTEM_HAS_POSIX_AT_APIS",
+  "BOOST_FILESYSTEM_HAS_STATX",
+  "BOOST_FILESYSTEM_HAS_STAT_ST_BLKSIZE",
+  "BOOST_FILESYSTEM_HAS_STAT_ST_MTIM",
+]
+
+[target.'cfg(os = "macos")'.profile]
+defines = [
+  "BOOST_FILESYSTEM_HAS_DIRENT_D_TYPE",
+  "BOOST_FILESYSTEM_HAS_FDOPENDIR_NOFOLLOW",
+  "BOOST_FILESYSTEM_HAS_INIT_PRIORITY",
+  "BOOST_FILESYSTEM_HAS_POSIX_AT_APIS",
+  "BOOST_FILESYSTEM_HAS_STAT_ST_BIRTHTIMESPEC",
+  "BOOST_FILESYSTEM_HAS_STAT_ST_BLKSIZE",
+  "BOOST_FILESYSTEM_HAS_STAT_ST_MTIMESPEC",
+]
+
+# Upstream's Windows defines, less the warning-only _CRT/_SCL ones, and
+# BCryptGenRandom for unique_path().
+[target.'cfg(os = "windows")'.profile]
+defines = [
+  "BOOST_FILESYSTEM_HAS_BCRYPT",
+  "BOOST_USE_WINDOWS_H",
+  "NOMINMAX",
+  "WIN32_LEAN_AND_MEAN",
+  "_WIN32_WINNT=0x0A00",
+]
+link-libs = ["bcrypt"]

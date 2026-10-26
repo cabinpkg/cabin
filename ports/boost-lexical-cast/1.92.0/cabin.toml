@@ -1,0 +1,26 @@
+[package.upstream]
+url = "https://github.com/boostorg/lexical_cast/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:c5c2a1b5641a41b48d3896528984b0cb33a8b1b4643feab39d983ab2b23f142b"
+format = "tar.gz"
+strip-prefix = "lexical_cast-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-lexical-cast"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_lexical_cast]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]

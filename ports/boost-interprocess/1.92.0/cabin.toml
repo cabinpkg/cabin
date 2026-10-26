@@ -1,0 +1,41 @@
+[package.upstream]
+url = "https://github.com/boostorg/interprocess/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:4f84906c1fa93cb630383d571838ae3059a19871e1c45a7a9f4a71edfaf1dff1"
+format = "tar.gz"
+strip-prefix = "interprocess-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-interprocess"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container" = "=1.92.0"
+"cabin-ports/boost-intrusive" = "=1.92.0"
+"cabin-ports/boost-move" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+[target.boost_interprocess]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container", public = true },
+  { name = "cabin-ports/boost-intrusive", public = true },
+  { name = "cabin-ports/boost-move", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]
+
+# shm_open and the process-shared pthread objects live in librt and
+# libpthread before glibc 2.34; upstream's CMake links rt.
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["rt", "pthread"]
+
+# The registry and event-log calls behind the boot timestamp that
+# names the emulated shared memory directory.  Upstream's CMake also
+# links ole32, oleaut32 and psapi, which no 1.92.0 header calls.
+[target.'cfg(os = "windows")'.profile]
+link-libs = ["advapi32"]

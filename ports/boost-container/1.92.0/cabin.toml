@@ -1,0 +1,47 @@
+[package.upstream]
+url = "https://github.com/boostorg/container/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:aa5823d6b5eaac5a56af6b4ea90e9560f9659d3237e62db7e54f434a5611ae7f"
+format = "tar.gz"
+strip-prefix = "container-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-container"
+version = "1.92.0"
+
+# These C++-only headers are included by the C++ sources alone, never by
+# src/alloc_lib.c, so the edges are exempt from requiring a C interface.
+[dependencies]
+"cabin-ports/boost-assert" = { version = "=1.92.0", ignore-interface-standard = true }
+"cabin-ports/boost-config" = { version = "=1.92.0", ignore-interface-standard = true }
+"cabin-ports/boost-intrusive" = { version = "=1.92.0", ignore-interface-standard = true }
+"cabin-ports/boost-move" = { version = "=1.92.0", ignore-interface-standard = true }
+
+# src/alloc_lib.c #includes the two dlmalloc_*.c files, so they are not
+# listed.
+[target.boost_container]
+type = "library"
+sources = [
+  "src/alloc_lib.c",
+  "src/dlmalloc.cpp",
+  "src/global_resource.cpp",
+  "src/monotonic_buffer_resource.cpp",
+  "src/pool_resource.cpp",
+  "src/synchronized_pool_resource.cpp",
+  "src/unsynchronized_pool_resource.cpp",
+]
+include-dirs = ["include"]
+c-standard = "c11"
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_container"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-intrusive", public = true },
+  { name = "cabin-ports/boost-move", public = true },
+]
+
+# Strict -std=c11 hides glibc's MAP_ANONYMOUS, and dlmalloc keys its
+# own _GNU_SOURCE and HAVE_MREMAP on the non-strict `linux` macro.
+[target.'cfg(os = "linux")'.profile]
+defines = ["_GNU_SOURCE", "HAVE_MREMAP=1"]
