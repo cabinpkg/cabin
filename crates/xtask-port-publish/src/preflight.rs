@@ -568,11 +568,21 @@ fn probe_manifest(conversion: &PortConversion) -> String {
     // Each consumer's standards must satisfy the joined interface
     // requirements of the targets it links.  `c11` / `c++17` are the
     // floor; a package declaring a stricter interface raises them
-    // (`plan::probe_standards`).
+    // (`plan::probe_standards`).  cl.exe has no `/std:` flag below
+    // C11 / C++14 and Cabin refuses to stand another standard in, so
+    // an MSVC host probes a lower declared floor at C11 / C++14.
+    let msvc = cfg!(target_env = "msvc");
     let c = conversion
         .probe_standards
         .c
-        .map_or("c11", cabin_core::CStandard::as_str);
+        .map_or(cabin_core::CStandard::C11, |c| {
+            if msvc {
+                c.max(cabin_core::CStandard::C11)
+            } else {
+                c
+            }
+        })
+        .as_str();
     let consumers = probe_consumers(conversion);
     // A package with no C++-consumable target gets no `cxx-standard`:
     // declaring one the probe never compiles would be noise, and the
@@ -584,7 +594,14 @@ fn probe_manifest(conversion: &PortConversion) -> String {
         let cxx = conversion
             .probe_standards
             .cxx
-            .map_or("c++17", cabin_core::CxxStandard::as_str);
+            .map_or(cabin_core::CxxStandard::Cxx17, |cxx| {
+                if msvc {
+                    cxx.max(cabin_core::CxxStandard::Cxx14)
+                } else {
+                    cxx
+                }
+            })
+            .as_str();
         format!("cxx-standard = \"{cxx}\"\n")
     } else {
         String::new()

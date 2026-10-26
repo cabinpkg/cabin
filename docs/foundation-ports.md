@@ -232,6 +232,9 @@ available with the package's *default* features: one gated behind a non-default
 `required-features` entry still publishes, but the probe does not compile it, because the probe
 enables no extra features.  A target declaring `interface-cxx-standard = "none"` is linked by a C
 consumer and the rest by a C++ one, so a package mixing the two is probed from both languages.
+Each probe compiles at the lowest standard the linked targets' declared interfaces accept (`c11` /
+`c++17` when they declare none), except that an MSVC host raises a floor below C11 / C++14 to
+those: `cl.exe` has no `/std:` flag for C99 or C++11.
 
 Both modes run the complete local preflight first: fetch or reuse every pinned upstream archive
 (SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard safe
