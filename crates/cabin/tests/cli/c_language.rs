@@ -471,6 +471,51 @@ deps = ["clib"]
 }
 
 #[test]
+fn executable_takes_main_from_a_c_library() {
+    // link.exe infers the subsystem before it searches archives, and
+    // nothing else pulls in the member defining `main`, so this link
+    // failed with LNK1561 on MSVC.
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "entry"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.entry]
+type = "library"
+sources = ["src/entry.c"]
+
+[target.app]
+type = "executable"
+sources = ["src/app.cc"]
+deps = ["entry"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/entry.c")
+        .write_str(
+            "#include <stdio.h>\nint app_value(void);\nint main(void) { printf(\"app %d\\n\", app_value()); return 0; }\n",
+        )
+        .unwrap();
+    dir.child("src/app.cc")
+        .write_str("extern \"C\" int app_value() { return 42; }\n")
+        .unwrap();
+    let assertion = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(stdout.contains("app 42"), "stdout = {stdout}");
+}
+
+#[test]
 fn cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order() {
     // A workspace with two test targets - one C, one C++ -
     // must run in `(package, target)` ascending order
