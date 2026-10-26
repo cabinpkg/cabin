@@ -371,30 +371,3 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 7bd7dbea3c4c76cd396153fb0e92178f
         run: cargo registry-confirm-deploy "$DEPLOY_TAG"
-
-  # TEMPORARY probe (removed before merge): runs the confirmation with
-  # no Cloudflare credentials, which must fail red with the annotation.
-  probe-confirm-deploy:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          cache: false
-          rustflags: ""
-      - name: Install wrangler
-        working-directory: registry
-        run: npm ci --ignore-scripts
-      - name: Build the deploy confirmation
-        run: cargo build --locked -p xtask-registry-admin
-      - name: Probe an unconfirmable deploy
-        run: |
-          set +e -u
-          out=$(cargo registry-confirm-deploy probe.1)
-          status=$?
-          printf '%s\n' "$out"
-          echo "::notice title=probe::exit=$status"
-          test "$status" -ne 0 && grep -q '^::error title=Registry deploy unconfirmed::' <<<"$out"
