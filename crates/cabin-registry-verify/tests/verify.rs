@@ -1409,6 +1409,67 @@ fn provenance_zip_package_verifies() {
     assert_eq!(verdict, Verdict::Verified);
 }
 
+/// A `[package] include` list drops the rest of the upstream tree
+/// from the expected side too, so a package that ships only the listed
+/// paths of a larger upstream archive verifies - including the listed
+/// `patches` directory, which the upstream tree never contains.
+#[test]
+fn upstream_files_outside_include_are_not_expected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", UPSTREAM_LIB_CC),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+            ("lib-1.0/doc/manual.html", "<p>large docs</p>"),
+        ],
+    );
+    dir.child("pkg/cabin.toml")
+        .write_str(&format!(
+            "[package]\n\
+             name = \"demo\"\n\
+             version = \"1.2.3\"\n\
+             cxx-standard = \"c++20\"\n\
+             include = [\"include\", \"patches\", \"src\"]\n\
+             \n\
+             [package.upstream]\n\
+             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+             checksum = \"sha256:{hex}\"\n\
+             format = \"tar.gz\"\n\
+             strip-prefix = \"lib-1.0\"\n\
+             patches = [\"patches/0001-fix.patch\"]\n\
+             \n\
+             [target.demo]\n\
+             type = \"library\"\n\
+             sources = [\"src/lib.cc\"]\n\
+             interface-cxx-standard = \"c++17\"\n",
+        ))
+        .unwrap();
+    dir.child("pkg/src/lib.cc")
+        .write_str(PATCHED_LIB_CC)
+        .unwrap();
+    dir.child("pkg/include/lib.h")
+        .write_str(UPSTREAM_LIB_H)
+        .unwrap();
+    dir.child("pkg/doc/manual.html")
+        .write_str("<p>large docs</p>")
+        .unwrap();
+    dir.child("pkg/patches/0001-fix.patch")
+        .write_str(UPSTREAM_PATCH)
+        .unwrap();
+    let staged = cabin_package::stage_with_project(
+        dir.child("pkg/cabin.toml").path(),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    )
+    .unwrap();
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    let verdict = inspect(&archive, &pending, &Limits::default(), Some(&upstream)).unwrap();
+    assert_eq!(verdict, Verdict::Verified);
+}
+
 /// Names the packaging policy excludes (`.git`, `cabin.lock`) and an
 /// upstream root `cabin.toml` do not break verification: the
 /// expected tree is collected under the same include/exclude walk

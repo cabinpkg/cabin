@@ -399,6 +399,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         interface_cxx_standard,
         gnu_extensions,
         upstream,
+        include,
     } = package;
 
     let package_name = PackageName::new(name)?;
@@ -459,6 +460,16 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         conditional: conditional_build_flags,
     };
     let upstream_model = upstream_from_raw(upstream)?;
+    // The same canonical relative spelling archive entries use, so an
+    // entry compares against walked paths byte for byte.
+    if let Some(value) = include
+        .iter()
+        .find(|value| !cabin_core::upstream::is_safe_archive_path(value))
+    {
+        return Err(ManifestError::InvalidInclude {
+            value: value.clone(),
+        });
+    }
     Ok(Package::with_config(cabin_core::PackageConfigInput {
         name: package_name,
         version: parsed_version,
@@ -473,7 +484,8 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_language(language)
     .with_compiler_wrapper(compiler_wrapper)
     .with_patches(patches)
-    .with_upstream(upstream_model))
+    .with_upstream(upstream_model)
+    .with_include(include.into_iter().map(camino::Utf8PathBuf::from).collect()))
 }
 
 /// Validate an optional `[package.upstream]` table into the typed

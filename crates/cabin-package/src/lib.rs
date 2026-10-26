@@ -123,7 +123,8 @@ pub struct StagedPackage {
 /// [`PackageError`] from validation
 /// ([`validate::load_and_validate_with_project`]), source-tree
 /// enumeration ([`archive::collect_package_files`],
-/// [`archive::ensure_manifest_included`]), and archive construction
+/// [`archive::ensure_manifest_included`],
+/// [`archive::ensure_include_matched`]), and archive construction
 /// ([`archive::build_zip`]), and returns
 /// [`PackageError::SourceMissing`] for a target source the archive
 /// would not contain.  When the on-disk manifest carries
@@ -152,9 +153,13 @@ pub fn stage_with_project(
         }
         None => None,
     };
-    let files =
-        archive::collect_package_files(&validated.package_root, staging_exclude.as_deref())?;
+    let files = archive::collect_package_files(
+        &validated.package_root,
+        staging_exclude.as_deref(),
+        &validated.package.include,
+    )?;
     archive::ensure_manifest_included(&files)?;
+    archive::ensure_include_matched(&files, &validated.package.include)?;
     ensure_declared_sources_included(&validated.package, &files)?;
     ensure_declared_patches_included(&validated.package, &files)?;
 

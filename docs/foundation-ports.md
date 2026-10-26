@@ -129,7 +129,11 @@ therefore assembled by exactly what verifies:
 
 Every step is declarative: no commands run, and the only inputs are the pinned archive and the
 port's own committed files - its `cabin.toml` and its declared patches.  The result is an ordinary
-Cabin package directory, which is what the publisher packages and uploads.
+Cabin package directory, which is what the publisher packages and uploads.  A port whose upstream
+archive carries documentation or test trees consumers never build lists the paths they need in
+[`[package] include`](manifest.md#package) (for example `include = ["include", "src"]`, plus
+`"patches"` when it declares patches), which keeps the rest out of the published archive; the
+verifier expects only those paths.
 
 ## Cache layout
 

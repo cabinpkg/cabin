@@ -2242,6 +2242,7 @@ fn target_dep_cycle_within_package_is_reported() {
         compiler_wrapper: Default::default(),
         patches: Default::default(),
         upstream: None,
+        include: Vec::new(),
     };
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();

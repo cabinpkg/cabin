@@ -658,7 +658,8 @@ checks, in order:
    `patches` in order - byte-exact unified diffs, using the patch bytes shipped inside the
    published archive itself, so verification needs exactly two inputs: the pinned upstream
    archive and the published package - collects the resulting tree under
-   `cabin package`'s include / exclude policy, and requires the published archive's entries to
+   `cabin package`'s include / exclude policy (with the archived manifest's `[package] include`),
+   and requires the published archive's entries to
    match the expected tree byte for byte - except the root `cabin.toml`, which is the publisher's
    manifest, never upstream's, and the declared patch files themselves, which are
    publisher-authored transformation inputs rather than products of the upstream tree (and are

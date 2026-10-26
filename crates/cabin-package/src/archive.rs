@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
-use camino::{Utf8Component, Utf8Path};
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, System, ZipWriter};
 
@@ -61,6 +61,11 @@ pub struct PackageFile {
 /// living inside the package source tree does not leak into the
 /// next archive.
 ///
+/// A non-empty `include` (the manifest's `[package] include`) keeps
+/// only the root manifest and the files at or below a listed path,
+/// matched by exact spelling.  The walk never enters a directory
+/// outside the list, so nothing inside one can refuse the package.
+///
 /// The returned list is sorted lexicographically by `rel_path` so
 /// archive output is deterministic without callers having to sort
 /// again.
@@ -74,9 +79,10 @@ pub struct PackageFile {
 pub fn collect_package_files(
     root: &Path,
     exclude_dir: Option<&Path>,
+    include: &[Utf8PathBuf],
 ) -> Result<Vec<PackageFile>, PackageError> {
     let mut out = Vec::new();
-    walk(root, root, exclude_dir, &mut out)?;
+    walk(root, root, exclude_dir, include, &mut out)?;
     out.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
     reject_case_conflicts(&out)?;
     Ok(out)
@@ -161,6 +167,29 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
     Ok(())
 }
 
+/// Reject an `include` entry no collected file is at or below: it
+/// would silently ship a package without the files it was meant to
+/// carry (a header-only target declares no sources to catch it).
+/// Staging-only - the verifier's upstream tree legitimately lacks a
+/// listed `patches/` directory and the root manifest.
+///
+/// # Errors
+/// Returns [`PackageError::IncludeMatchedNothing`] for the first such
+/// entry.
+pub fn ensure_include_matched(
+    files: &[PackageFile],
+    include: &[Utf8PathBuf],
+) -> Result<(), PackageError> {
+    match include.iter().find(|entry| {
+        !files
+            .iter()
+            .any(|file| below(&file.rel_path, entry.as_str()))
+    }) {
+        Some(entry) => Err(PackageError::IncludeMatchedNothing(entry.to_string())),
+        None => Ok(()),
+    }
+}
+
 /// Build a deterministic `.zip` for `files`, following the strict
 /// registry archive profile (see `docs/remote-registry.md`).
 ///
@@ -223,10 +252,27 @@ fn zip_write_error(source: zip::result::ZipError) -> PackageError {
     PackageError::ArchiveWrite(std::io::Error::other(source))
 }
 
+/// Whether `path` is `base` or lies below it, by whole components.
+fn below(path: &str, base: &str) -> bool {
+    path.strip_prefix(base)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Whether the walk keeps `rel` under a non-empty `include`: the root
+/// manifest, anything at or below a listed path, and a directory on
+/// the way down to one.
+fn included(rel: &str, is_dir: bool, include: &[Utf8PathBuf]) -> bool {
+    rel == ROOT_MANIFEST_NAME
+        || include
+            .iter()
+            .any(|entry| below(rel, entry.as_str()) || (is_dir && below(entry.as_str(), rel)))
+}
+
 fn walk(
     root: &Path,
     dir: &Path,
     exclude_dir: Option<&Path>,
+    include: &[Utf8PathBuf],
     out: &mut Vec<PackageFile>,
 ) -> Result<(), PackageError> {
     let read = fs::read_dir(dir).map_err(|source| PackageError::Io {
@@ -254,6 +300,9 @@ fn walk(
             path: path.clone(),
             source,
         })?;
+        if !include.is_empty() && !included(&rel_str(root, &path), file_type.is_dir(), include) {
+            continue;
+        }
         if file_type.is_symlink() {
             return Err(PackageError::SymlinkNotSupported(rel_str(root, &path)));
         }
@@ -265,7 +314,7 @@ fn walk(
                 continue;
             }
             reject_non_portable(root, &path, name)?;
-            walk(root, &path, exclude_dir, out)?;
+            walk(root, &path, exclude_dir, include, out)?;
         } else if file_type.is_file() {
             if EXCLUDED_FILE_NAMES.contains(&name)
                 || name.eq_ignore_ascii_case(CREDENTIALS_FILE_NAME)
@@ -358,10 +407,50 @@ mod tests {
         dir.child("cabin.toml").write_str("x").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
         dir.child("include/example.h").write_str("z").unwrap();
-        let files = collect_package_files(dir.path(), None).unwrap();
+        let files = collect_package_files(dir.path(), None, &[]).unwrap();
         assert_eq!(
             paths(&files),
             vec!["cabin.toml", "include/example.h", "src/main.cc"]
+        );
+    }
+
+    /// `include` keeps the root manifest and the files at or below
+    /// each listed path, matching whole components, and never descends
+    /// elsewhere - so an unlisted symlink cannot refuse the package.
+    #[test]
+    fn include_keeps_only_listed_paths() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("include/a.h").write_str("a").unwrap();
+        dir.child("include/sub/b.h").write_str("b").unwrap();
+        dir.child("includes/c.h").write_str("c").unwrap();
+        dir.child("src/x.cc").write_str("x").unwrap();
+        dir.child("src/y.cc").write_str("y").unwrap();
+        dir.child("doc/manual.html").write_str("d").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("manual.html", dir.child("doc/link").path()).unwrap();
+        let include = [Utf8PathBuf::from("include"), Utf8PathBuf::from("src/x.cc")];
+        let files = collect_package_files(dir.path(), None, &include).unwrap();
+        assert_eq!(
+            paths(&files),
+            vec!["cabin.toml", "include/a.h", "include/sub/b.h", "src/x.cc"]
+        );
+    }
+
+    /// An entry no file matches - here a case variant, which a
+    /// case-insensitive host would still resolve - fails instead of
+    /// shipping a package without its headers.
+    #[test]
+    fn include_entry_matching_nothing_is_refused() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("include/a.h").write_str("a").unwrap();
+        let include = [Utf8PathBuf::from("Include")];
+        let files = collect_package_files(dir.path(), None, &include).unwrap();
+        let err = ensure_include_matched(&files, &include).unwrap_err();
+        assert!(
+            matches!(&err, PackageError::IncludeMatchedNothing(entry) if entry == "Include"),
+            "{err:?}"
         );
     }
 
@@ -380,7 +469,8 @@ mod tests {
         dir.child("myoutput/stale.json")
             .write_str("old metadata")
             .unwrap();
-        let files = collect_package_files(dir.path(), Some(&dir.path().join("myoutput"))).unwrap();
+        let files =
+            collect_package_files(dir.path(), Some(&dir.path().join("myoutput")), &[]).unwrap();
         let names = paths(&files);
         assert!(names.contains(&"cabin.toml"));
         assert!(names.contains(&"src/main.cc"));
@@ -399,7 +489,7 @@ mod tests {
         let elsewhere = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str("x").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
-        let files = collect_package_files(dir.path(), Some(elsewhere.path())).unwrap();
+        let files = collect_package_files(dir.path(), Some(elsewhere.path()), &[]).unwrap();
         assert_eq!(paths(&files), vec!["cabin.toml", "src/main.cc"]);
     }
 
@@ -417,7 +507,7 @@ mod tests {
         dir.child("node_modules/foo/index.js")
             .write_str("ignore")
             .unwrap();
-        let files = collect_package_files(dir.path(), None).unwrap();
+        let files = collect_package_files(dir.path(), None, &[]).unwrap();
         let names = paths(&files);
         assert!(names.contains(&"cabin.toml"));
         assert!(names.contains(&"src/main.cc"));
@@ -447,7 +537,7 @@ mod tests {
             .unwrap();
         dir.child(".DS_Store").write_str("ignore").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
-        let files = collect_package_files(dir.path(), None).unwrap();
+        let files = collect_package_files(dir.path(), None, &[]).unwrap();
         let names = paths(&files);
         assert!(names.contains(&"cabin.toml"));
         assert!(names.contains(&"src/main.cc"));
@@ -469,7 +559,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str("x").unwrap();
         std::os::unix::fs::symlink("cabin.toml", dir.path().join("link")).unwrap();
-        let err = collect_package_files(dir.path(), None).unwrap_err();
+        let err = collect_package_files(dir.path(), None, &[]).unwrap_err();
         match err {
             PackageError::SymlinkNotSupported(p) => assert_eq!(p, "link"),
             other => panic!("expected SymlinkNotSupported, got {other:?}"),
@@ -551,7 +641,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str("x").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
-        let files = collect_package_files(dir.path(), None).unwrap();
+        let files = collect_package_files(dir.path(), None, &[]).unwrap();
         let bytes_a = build_zip(&files, None).unwrap();
         let bytes_b = build_zip(&files, None).unwrap();
         assert_eq!(bytes_a, bytes_b, "archives must be byte-identical");
@@ -568,7 +658,7 @@ mod tests {
         dir.child("src/main.cc")
             .write_str("int main() {}\n")
             .unwrap();
-        let files = collect_package_files(dir.path(), None).unwrap();
+        let files = collect_package_files(dir.path(), None, &[]).unwrap();
         let bytes = build_zip(&files, None).unwrap();
 
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
@@ -587,7 +677,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str("x").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
-        let files = collect_package_files(dir.path(), None).unwrap();
+        let files = collect_package_files(dir.path(), None, &[]).unwrap();
         let bytes = build_zip(&files, None).unwrap();
 
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
@@ -623,7 +713,7 @@ mod tests {
             let dir = TempDir::new().unwrap();
             dir.child("cabin.toml").write_str("x").unwrap();
             fs::write(dir.path().join(name), b"x").unwrap();
-            let err = collect_package_files(dir.path(), None).unwrap_err();
+            let err = collect_package_files(dir.path(), None, &[]).unwrap_err();
             match err {
                 PackageError::NonPortablePath { path, detail: got } => {
                     assert!(path.contains(name), "unexpected path `{path}` for {name:?}");

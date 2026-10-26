@@ -42,6 +42,11 @@ pub enum ManifestError {
         source: semver::Error,
     },
 
+    #[error(
+        "invalid `[package] include` entry {value:?}: expected a forward-slash relative path with no `.` or `..` components"
+    )]
+    InvalidInclude { value: String },
+
     #[error("invalid `[package.upstream]`: {source}")]
     Upstream {
         #[source]

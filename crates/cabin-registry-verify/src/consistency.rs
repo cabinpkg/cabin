@@ -30,8 +30,8 @@ use crate::scan::Contents;
 use crate::{PendingVersion, Reason, VerifyError};
 
 /// Check the embedded manifest and the archive hash against the
-/// listing entry.  `Ok(Some(reason))` is a rejection; `Ok(None)`
-/// means every check passed.
+/// listing entry.  `Ok(Err(reason))` is a rejection; `Ok(Ok(package))`
+/// means every check passed and carries the parsed manifest.
 ///
 /// # Errors
 ///
@@ -44,7 +44,7 @@ pub(crate) fn check(
     files: &Contents,
     pending: &PendingVersion,
     archive: &cabin_core::Checksum,
-) -> Result<Option<Reason>, VerifyError> {
+) -> Result<Result<cabin_core::Package, Reason>, VerifyError> {
     let stored = pending
         .metadata
         .as_object()
@@ -57,16 +57,16 @@ pub(crate) fn check(
     // manifest is self-contained and the plain parse is the whole
     // job.
     let Ok(text) = std::str::from_utf8(manifest) else {
-        return Ok(Some(Reason::ManifestInvalid));
+        return Ok(Err(Reason::ManifestInvalid));
     };
     let Ok(parsed) = cabin_manifest::parse_manifest_str(text) else {
-        return Ok(Some(Reason::ManifestInvalid));
+        return Ok(Err(Reason::ManifestInvalid));
     };
     let Some(package) = parsed.package else {
-        return Ok(Some(Reason::ManifestInvalid));
+        return Ok(Err(Reason::ManifestInvalid));
     };
     if cabin_package::validate::validate_publishable(&package).is_err() {
-        return Ok(Some(Reason::ManifestInvalid));
+        return Ok(Err(Reason::ManifestInvalid));
     }
 
     // Every source a target explicitly declares must be present in
@@ -84,7 +84,7 @@ pub(crate) fn check(
                 // relative path cannot name an archive entry;
                 // `validate_publishable` already rejected escaping or
                 // absolute ones, so this is the archive missing it.
-                _ => return Ok(Some(Reason::MissingSource)),
+                _ => return Ok(Err(Reason::MissingSource)),
             }
         }
     }
@@ -92,13 +92,13 @@ pub(crate) fn check(
     // Name, version, and archive bytes must agree with the listing
     // row the verdict will bind to.
     if package.name.as_str() != pending.name {
-        return Ok(Some(Reason::NameMismatch));
+        return Ok(Err(Reason::NameMismatch));
     }
     if package.version.to_string() != pending.version {
-        return Ok(Some(Reason::VersionMismatch));
+        return Ok(Err(Reason::VersionMismatch));
     }
     if pending.checksum != *archive {
-        return Ok(Some(Reason::ChecksumMismatch));
+        return Ok(Err(Reason::ChecksumMismatch));
     }
 
     // Re-derive the entire canonical document through the exact seam
@@ -126,11 +126,11 @@ pub(crate) fn check(
     }
     for key in keys {
         if expected.get(key) != stored.get(key) {
-            return Ok(Some(field_reason(key)));
+            return Ok(Err(field_reason(key)));
         }
     }
 
-    Ok(None)
+    Ok(Ok(package))
 }
 
 /// Fields with specific reason codes are compared first, in this

@@ -3,7 +3,7 @@
 `cabin package` and `cabin publish --dry-run` run the same staging pipeline:
 
 1. Validate the package's `cabin.toml`.
-2. Walk the source tree under a fixed include / exclude policy.
+2. Walk the source tree under the include / exclude policy.
 3. Build a deterministic `.zip` archive whose root holds `cabin.toml`.
 4. Compute the archive's SHA-256 digest.
 5. Generate canonical per-version JSON metadata in the same shape a Cabin file registry serves to
@@ -149,6 +149,13 @@ list of generated / dependency / VCS artifacts:
 
 Cabin matches directory names anywhere in the tree.  Nested submodules and build trees stay out of
 the archive.
+
+A manifest can narrow the walk with [`[package] include`](manifest.md#package): the archive then
+holds the root `cabin.toml` plus only the files at or below a listed path, matched by whole path
+components and exact spelling (`include` matches neither `includes/` nor `Include/`).  The walk
+never enters a directory outside the list, so nothing inside one can refuse the package, while the
+exclusions above still apply inside it.  An entry that matches no file, and a list that leaves out
+a declared source or patch, fail staging.
 
 A `.cabinignore` file format is **not** part of the current local archive format and should not be
 implemented opportunistically.
