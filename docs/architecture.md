@@ -483,9 +483,10 @@ Actions workflow (through `cargo registry-verify`), never by users.  The crate m
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
 publishes every committed foundation port as an ordinary registry package under the
 `cabin-ports` scope (see [`foundation-ports.md`](foundation-ports.md), "Publishing ports as
-registry packages").  Every committed port is a package directory (a single `cabin.toml` with a
-complete `[package.upstream]`), published verbatim and staged through
-`cabin-artifact::materialize_upstream` - the same pipeline the registry verifier replays.  It
+registry packages").  Every committed port is a package directory (a `cabin.toml` with a complete
+`[package.upstream]`, plus its declared patches), published verbatim and staged through
+`cabin-artifact::materialize_upstream` - the same pipeline the registry verifier replays; its
+consumer `tests/` is never published.  It
 composes existing layers instead of duplicating them: `cabin-artifact` for materialization,
 `cabin-package` + `cabin-publish` +
 `cabin-registry-file` for staging and the temporary preflight registry, and the real `cabin`

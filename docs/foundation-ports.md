@@ -33,7 +33,7 @@ dependency field.
 ## Anatomy of a foundation port
 
 A port is an ordinary Cabin package directory: one `cabin.toml`, plus a `patches/` subdirectory
-when it declares any.
+when it declares any and a `tests/` consumer test when it has one.
 
 ```
 ports/<name>/<version>/
@@ -42,6 +42,8 @@ ports/<name>/<version>/
                    upstream sources described as Cabin targets
   patches/    - optional unified-diff files declared by
                    [package.upstream].patches
+  tests/      - optional consumer test the preflight probe
+                   compiles and runs; never published
 ```
 
 The manifest publishes **verbatim**, so its committed bytes are the published bytes - a comment
@@ -244,17 +246,16 @@ publication order.  Each port is built through a generated probe package that de
 just-published version, so the build consumes the registry artifact itself - resolution, checksum,
 archived manifest, source materialization, and compilation of every compiled library target.
 Exercising a port's *API* (including its headers, calling its symbols) needs per-library
-knowledge a generic converter does not have, so that knowledge is committed beside the ports: a
-probe consumer compiles `port-tests/<name>/<version>/main.cc` (or `main.c` for the C consumer)
-when the port has one, and an empty `main` otherwise; a file under `port-tests/` that no probe
-compiles (a stale version, a misspelled directory, or `main.c` for a port with no C consumer)
-fails the preflight rather than being skipped.  `--dry-run` then runs every probe, and a non-zero
-exit fails the preflight, so a consumer test is an ordinary program that returns non-zero on
-failure.  `--publish` builds the probes but never runs them: running upstream code in the job
-that holds the trusted-publishing OIDC token would hand that code the token, so running them is
-the pull-request dry-run's job.  The tests sit outside `ports/` (in `port-tests/` beside it)
-because they are never published: editing one changes no archive bytes.  The ports pull-request
-dry-run runs on Linux, macOS, and Windows.
+knowledge a generic converter does not have, so that knowledge is committed in the port: a probe
+consumer compiles the port's `tests/main.cc` (or `tests/main.c` for the C consumer) when it has
+one, and an empty `main` otherwise; any other file in `tests/` (a misspelled name, or `main.c` for
+a port with no C consumer) fails the preflight rather than being skipped.  `--dry-run` then runs
+every probe, and a non-zero exit fails the preflight, so a consumer test is an ordinary program
+that returns non-zero on failure.  `--publish` builds the probes but never runs them: running
+upstream code in the job that holds the trusted-publishing OIDC token would hand that code the
+token, so running them is the pull-request dry-run's job.  Packaging copies only the manifest and
+its declared patches from the port directory, so `tests/` is never published: editing a test
+changes no archive bytes.  The ports pull-request dry-run runs on Linux, macOS, and Windows.
 
 ```console
 $ cargo build -p cabinpkg
@@ -273,8 +274,8 @@ uploading every package again.  It never skips a version based on the public ind
 (not yet verified) revisions are hidden there - and instead relies on the registry's idempotency
 rule: re-publishing byte-identical bytes is a no-op.  Every upload
 passes `--new-revision`, because a change that has been merged to `main` *is* the deliberate
-respin (see [Packaging revisions](#packaging-revisions)) - which is why editing a port
-directory changes the published bytes; an unchanged tree still produces byte-identical
+respin (see [Packaging revisions](#packaging-revisions)) - which is why editing a port's
+manifest or patches changes the published bytes; an unchanged tree still produces byte-identical
 archives, so a rerun stays a no-op either way.
 
 ### Publish automation
@@ -336,8 +337,7 @@ port should be retired.  The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from `"cabin-ports/<name>"` to the appropriate
    `path` / `version` / `workspace` form pointing at the new upstream-maintained package.
-2. Delete the `ports/<name>/<version>/` directory and its `port-tests/<name>/<version>/`
-   consumer test.
+2. Delete the `ports/<name>/<version>/` directory.
 3. Update `ports/README.md`
    to remove the entry from the "Available ports" list.
 4. Note the retirement in the relevant release notes.

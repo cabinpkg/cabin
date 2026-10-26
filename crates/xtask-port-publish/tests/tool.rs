@@ -412,7 +412,7 @@ fn consumer_tests_run_in_the_dry_run_and_never_in_the_publish_run() {
     // Relative to the probe's inherited working directory, so no host
     // path has to survive a C string literal and the ANSI code page.
     let marker = dir.child("ran");
-    dir.child("port-tests/zlib/1.3.1/main.cc")
+    dir.child("ports/zlib/1.3.1/tests/main.cc")
         .write_str(
             "#include <cstdio>\nint main() {\n    std::FILE* f = std::fopen(\"ran\", \"w\");\n    \
              if (f) std::fclose(f);\n    return 3;\n}\n",
