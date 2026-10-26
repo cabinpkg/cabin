@@ -1,0 +1,54 @@
+[package.upstream]
+url = "https://github.com/boostorg/contract/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:785c2f202ac656e59cd7d52bd247a079e0bba1dfc41b68ba67efa6b98e960036"
+format = "tar.gz"
+strip-prefix = "contract-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-contract"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-any" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-exception" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-function-types" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-thread" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+# Upstream's CMake compiles src/contract.cpp, but its headers use that
+# archive only when every consumer defines BOOST_CONTRACT_STATIC_LINK,
+# which a port cannot propagate.  A consumer that defines nothing gets
+# upstream's header-only mode, which the library supports for a single
+# program with only static libraries - every Cabin link - so the port
+# ships that mode alone and nothing can mix it with the compiled one.
+[target.boost_contract]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-any", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-exception", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-function-types", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-thread", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

@@ -1,0 +1,73 @@
+[package.upstream]
+url = "https://github.com/boostorg/wave/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:2d93e784bf4cb3d2357d4ec26c86a4f13372ea1ee08c0e0ee22e65ad3f631319"
+format = "tar.gz"
+strip-prefix = "wave-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-wave"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-filesystem" = "=1.92.0"
+"cabin-ports/boost-format" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-lexical-cast" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-multi-index" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-pool" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-serialization" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-spirit" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+# Every source defines BOOST_WAVE_SOURCE itself.  With threading on (the
+# default wherever BOOST_HAS_THREADS), the headers make Spirit.Classic
+# thread-safe through Boost.Thread, which boost-spirit links.
+[target.boost_wave]
+type = "library"
+sources = [
+  "src/cpplexer/re2clex/aq.cpp",
+  "src/cpplexer/re2clex/cpp_re.cpp",
+  "src/instantiate_cpp_exprgrammar.cpp",
+  "src/instantiate_cpp_grammar.cpp",
+  "src/instantiate_cpp_literalgrs.cpp",
+  "src/instantiate_defined_grammar.cpp",
+  "src/instantiate_has_include_grammar.cpp",
+  "src/instantiate_predef_macros.cpp",
+  "src/instantiate_re2c_lexer.cpp",
+  "src/instantiate_re2c_lexer_str.cpp",
+  "src/token_ids.cpp",
+  "src/wave_config_constant.cpp",
+]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_wave"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-filesystem", public = true },
+  { name = "cabin-ports/boost-format", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-lexical-cast", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-multi-index", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-pool", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-serialization:boost_serialization", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-spirit", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

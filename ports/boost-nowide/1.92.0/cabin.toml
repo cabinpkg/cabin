@@ -1,0 +1,40 @@
+[package.upstream]
+url = "https://github.com/boostorg/nowide/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:7dae2aebc794a1e3b0f95940c5c203b326f4e8fcea4eb8d23db60a665ea8534e"
+format = "tar.gz"
+strip-prefix = "nowide-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-nowide"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-filesystem" = "=1.92.0"
+
+# Upstream's large-file probe passes on every supported host, so
+# BOOST_NOWIDE_NO_LFS stays undefined.  BOOST_NOWIDE_HAS_INIT_PRIORITY
+# only affects the Windows console streams built by GCC or Clang.
+[target.boost_nowide]
+type = "library"
+sources = [
+  "src/console_buffer.cpp",
+  "src/cstdio.cpp",
+  "src/cstdlib.cpp",
+  "src/filebuf.cpp",
+  "src/iostream.cpp",
+  "src/stat.cpp",
+]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_nowide"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-filesystem", public = true },
+]
+
+# CommandLineToArgvW, behind boost::nowide::args.  Upstream relies on
+# CMake's default MSVC link libraries, which include shell32.
+[target.'cfg(os = "windows")'.profile]
+link-libs = ["shell32"]

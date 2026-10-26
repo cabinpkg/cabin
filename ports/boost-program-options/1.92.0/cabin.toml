@@ -1,0 +1,57 @@
+[package.upstream]
+url = "https://github.com/boostorg/program_options/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:dd07c28e75ceec90a514494a5318c9d6c84308d036b6e24a91503fa344a57cd4"
+format = "tar.gz"
+strip-prefix = "program_options-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-program-options"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-any" = "=1.92.0"
+"cabin-ports/boost-bind" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-lexical-cast" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-tokenizer" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_program_options]
+type = "library"
+sources = [
+  "src/cmdline.cpp",
+  "src/config_file.cpp",
+  "src/convert.cpp",
+  "src/options_description.cpp",
+  "src/parsers.cpp",
+  "src/positional_options.cpp",
+  "src/split.cpp",
+  "src/utf8_codecvt_facet.cpp",
+  "src/value_semantic.cpp",
+  "src/variables_map.cpp",
+  "src/winmain.cpp",
+]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_program_options"
+deps = [
+  { name = "cabin-ports/boost-any", public = true },
+  { name = "cabin-ports/boost-bind", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-lexical-cast", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-tokenizer", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

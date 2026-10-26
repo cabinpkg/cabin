@@ -1,0 +1,131 @@
+[package.upstream]
+url = "https://github.com/boostorg/serialization/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:23c0696f9081dc54a888843dc9cda96b851dff532ec9d5a510595da65afa0fbc"
+format = "tar.gz"
+strip-prefix = "serialization-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-serialization"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-array" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-move" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-spirit" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+"cabin-ports/boost-variant" = "=1.92.0"
+"cabin-ports/boost-variant2" = "=1.92.0"
+
+# Upstream's CMake builds two libraries, kept apart here:
+# boost_serialization, and boost_wserialization (the wide-character
+# archives), which depends on it.  A package with two library targets
+# is referenced as `cabin-ports/boost-serialization:boost_serialization`.
+# Every source defines BOOST_ARCHIVE_SOURCE, BOOST_WARCHIVE_SOURCE or
+# BOOST_SERIALIZATION_SOURCE itself, except src/stl_port.cpp, which
+# compiles to nothing outside STLport.
+[target.boost_serialization]
+type = "library"
+sources = [
+  "src/archive_exception.cpp",
+  "src/basic_archive.cpp",
+  "src/basic_iarchive.cpp",
+  "src/basic_iserializer.cpp",
+  "src/basic_oarchive.cpp",
+  "src/basic_oserializer.cpp",
+  "src/basic_pointer_iserializer.cpp",
+  "src/basic_pointer_oserializer.cpp",
+  "src/basic_serializer_map.cpp",
+  "src/basic_text_iprimitive.cpp",
+  "src/basic_text_oprimitive.cpp",
+  "src/basic_xml_archive.cpp",
+  "src/binary_iarchive.cpp",
+  "src/binary_oarchive.cpp",
+  "src/codecvt_null.cpp",
+  "src/extended_type_info.cpp",
+  "src/extended_type_info_no_rtti.cpp",
+  "src/extended_type_info_typeid.cpp",
+  "src/polymorphic_binary_iarchive.cpp",
+  "src/polymorphic_binary_oarchive.cpp",
+  "src/polymorphic_iarchive.cpp",
+  "src/polymorphic_oarchive.cpp",
+  "src/polymorphic_text_iarchive.cpp",
+  "src/polymorphic_text_oarchive.cpp",
+  "src/polymorphic_xml_iarchive.cpp",
+  "src/polymorphic_xml_oarchive.cpp",
+  "src/stl_port.cpp",
+  "src/text_iarchive.cpp",
+  "src/text_oarchive.cpp",
+  "src/utf8_codecvt_facet.cpp",
+  "src/void_cast.cpp",
+  "src/xml_archive_exception.cpp",
+  "src/xml_grammar.cpp",
+  "src/xml_iarchive.cpp",
+  "src/xml_oarchive.cpp",
+]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_serialization"
+deps = [
+  { name = "cabin-ports/boost-array", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-move", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-spirit", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+  { name = "cabin-ports/boost-variant", public = true },
+  { name = "cabin-ports/boost-variant2", public = true },
+]
+
+[target.boost_wserialization]
+type = "library"
+sources = [
+  "src/basic_text_wiprimitive.cpp",
+  "src/basic_text_woprimitive.cpp",
+  "src/binary_wiarchive.cpp",
+  "src/binary_woarchive.cpp",
+  "src/polymorphic_text_wiarchive.cpp",
+  "src/polymorphic_text_woarchive.cpp",
+  "src/polymorphic_xml_wiarchive.cpp",
+  "src/polymorphic_xml_woarchive.cpp",
+  "src/text_wiarchive.cpp",
+  "src/text_woarchive.cpp",
+  "src/xml_wgrammar.cpp",
+  "src/xml_wiarchive.cpp",
+  "src/xml_woarchive.cpp",
+]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_wserialization"
+deps = [{ name = "boost_serialization", public = true }]
