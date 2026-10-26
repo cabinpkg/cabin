@@ -1,0 +1,11 @@
+diff --git a/src/main.cpp b/src/main.cpp
+deleted file mode 100644
+index ea448f1ca640b4412761758b16775a2c9f95a205..0000000000000000000000000000000000000000
+--- a/src/main.cpp
++++ /dev/null
+@@ -1,5 +0,0 @@
+-#include "demo.h"
+-
+-int main() {
+-    return demo();
+-}

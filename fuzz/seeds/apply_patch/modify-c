@@ -1,0 +1,11 @@
+diff --git a/src/demo.c b/src/demo.c
+index 520e1fb6cdfcbaffe2d6ac2d9f7ae582a0e84e37..28eb3fbee3616f5abd3495600b4d14bb51f578c5 100644
+--- a/src/demo.c
++++ b/src/demo.c
+@@ -1,5 +1,5 @@
+ #include "demo.h"
+ 
+ int demo(void) {
+-    return 0;
++    return 1;
+ }

@@ -32,14 +32,21 @@
 //!   wrapped in comments), laundering unverified code past
 //!   verification whenever the file is also reachable as a build
 //!   input.  With every line held to the grammar, nothing before the
-//!   first mandatory `@@` hunk header can open a comment or string
-//!   literal: safe paths ban `"`, `*`, `?`, and `\` and admit no empty
-//!   component (so no `//` either), the `-p1` prefixes are exactly `a`
-//!   and `b`, and the header timestamp alphabet excludes those bytes
-//!   too.  A naked `@@` is unlexable in C and C++, so the first hunk
-//!   header always lands as raw code.  The hunk heading after `@@`
+//!   first mandatory `@@` hunk header can open a comment or leave a
+//!   string literal open: safe paths ban `"`, `*`, `?`, and `\` and
+//!   admit no empty component (so no `//` either), the `-p1` prefixes
+//!   are exactly `a` and `b`, and the header timestamp alphabet
+//!   excludes those bytes too.  A path git quoted is a string literal,
+//!   opened after a space, that closes on its line: its decoded bytes
+//!   obey the same ban, so its only escapes are ones C reads alike.
+//!   Nothing there opens a splice, a raw string, or a directive
+//!   either, so a compiler reaches the first hunk header as code, and
+//!   `@@` is no C or C++ token.  A construct that discards tokens - a
+//!   macro's arguments, or an ignored attribute's - can still swallow
+//!   it, but only with code crafted around the diff, in the manifest's
+//!   `defines` or a patch's visible hunk.  The hunk heading after `@@`
 //!   stays free text (git puts enclosing-function context there) - it
-//!   sits *after* that unlexable token, so it can never hide it.
+//!   sits *after* the header, so it can never hide it.
 //!
 //! Every failure except a real filesystem fault is deterministic
 //! given the patch bytes and the tree, which is what lets the

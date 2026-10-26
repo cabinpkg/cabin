@@ -1,0 +1,9 @@
+--- a/src/demo.c
++++ b/src/demo.c
+@@ -1,5 +1,5 @@
+ #include "demo.h"
+ 
+ int demo(void) {
+-    return 0;
++    return 1;
+ }

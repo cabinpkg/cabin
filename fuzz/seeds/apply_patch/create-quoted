@@ -1,0 +1,7 @@
+diff --git "a/src/caf\303\251.c" "b/src/caf\303\251.c"
+new file mode 100644
+index 0000000000000000000000000000000000000000..ad5bde075336ef787eabb301cdca98e45afc2e36
+--- /dev/null
++++ "b/src/caf\303\251.c"
+@@ -0,0 +1 @@
++int cafe(void) { return 3; }

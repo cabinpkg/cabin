@@ -1,0 +1,7 @@
+diff --git a/src/extra.c b/src/extra.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1cee98caca793d331625c82c7041ebd72759095
+--- /dev/null
++++ b/src/extra.c
+@@ -0,0 +1 @@
++int extra(void) { return 2; }
