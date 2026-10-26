@@ -724,9 +724,10 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 - never touch the live registry service and never perform the mutation it gates - it reads
   committed repository state (git history, `registry/migrations/*.sql`) and the run's own
   context, and only decides whether the mutation may proceed;
-- state each guard's failure direction in its module documentation - the freshness guard's
-  `rev-list`, when it errors, answers "not superseded" and leaves the step green, and anything
-  that quietly widens or narrows that has to be a deliberate, documented change.
+- state each guard's failure direction in its module documentation - the freshness guard fails
+  its step on any question it cannot answer (a failed fetch or `rev-list`, a malformed
+  `$GITHUB_SHA`, an unusable filter list) rather than guessing either answer, and anything that
+  quietly widens or narrows that has to be a deliberate, documented change.
 
 ### `xtask-dist`
 
