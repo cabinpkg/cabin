@@ -22,11 +22,11 @@ directory.
 
 - Treat package names as exactly two non-empty slash-separated segments:
   `<group>/<name>`. A foundation port directory named `<name>` has the real
-  registry identity `cabin-ports/<lowercase-name>` and routes under
-  `/packages/cabin-ports/<lowercase-name>`; version routes append
+  registry identity `cabin-ports/<name>`, spelled exactly as the directory, and
+  routes under `/packages/cabin-ports/<name>`; version routes append
   `/<upstream-version>`.
 - Consumer snippets must quote the scoped dependency key and require the
-  upstream version: `"cabin-ports/<lowercase-name>" = "=<upstream-version>"`.
+  upstream version: `"cabin-ports/<name>" = "=<upstream-version>"`.
   Display and require that upstream version verbatim. Packaging revisions stay
   separate from versions and must not appear in version strings or
   requirements. See `../docs/foundation-ports.md`.

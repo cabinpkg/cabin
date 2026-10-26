@@ -185,6 +185,26 @@ format = "tar.gz"
     }
 });
 
+test("a mixed-case port directory fails the build", async () => {
+    // Even with a lowercase manifest name: two directories differing
+    // only in case must never both publish as one package.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const packageDir = join(dir, "CJSON", "1.0.0");
+        await mkdir(packageDir, { recursive: true });
+        await writeFile(
+            join(packageDir, "cabin.toml"),
+            packageManifest("cabin-ports/cjson", "1.0.0"),
+        );
+        await assert.rejects(
+            () => loadPortsFromDir(dir),
+            /Port directory "CJSON" .* is not a valid package name/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
 test("a symlinked port directory fails the build", async () => {
     // The publisher refuses one (plan.rs::read_sorted_dirs) because a
     // link sources published metadata from outside the committed tree.
@@ -369,11 +389,11 @@ test("a version that is not valid SemVer fails the build", async () => {
 });
 
 test("scopedPackageName rejects names outside the registry grammar", () => {
-    assert.equal(scopedPackageName("cJSON", "test"), "cabin-ports/cjson");
     assert.equal(
         scopedPackageName("nlohmann_json", "test"),
         "cabin-ports/nlohmann_json",
     );
+    assert.throws(() => scopedPackageName("cJSON", "test"));
     assert.throws(() => scopedPackageName("-leading-dash", "test"));
     assert.throws(() => scopedPackageName("dotted.name", "test"));
     assert.throws(() => scopedPackageName("", "test"));

@@ -179,7 +179,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         // source the build reads - never from what the build happened
         // to emit, so losing route generation (the latest pages or the
         // per-version ones) is a failure instead of a shrunken
-        // expectation. Lowercasing and the manifest-only filter mirror
+        // expectation. The manifest-only filter mirrors
         // src/lib/ports.ts; each page must carry its own package's
         // install snippet, not just any snippet.
         const portsDirectory = path.resolve("..", "ports");
@@ -189,14 +189,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
                 .map((entry) => entry.name)
                 .sort();
         const expectations = [];
-        for (const port of await subdirectories(portsDirectory)) {
-            const name = port.toLowerCase();
+        for (const name of await subdirectories(portsDirectory)) {
             const versions = [];
             for (const version of await subdirectories(
-                path.join(portsDirectory, port),
+                path.join(portsDirectory, name),
             )) {
                 const published = await stat(
-                    path.join(portsDirectory, port, version, "cabin.toml"),
+                    path.join(portsDirectory, name, version, "cabin.toml"),
                 ).then(
                     // isFile mirrors ports.ts: a directory named
                     // cabin.toml is not a publishable version.

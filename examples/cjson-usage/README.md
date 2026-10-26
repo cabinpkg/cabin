@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/cjson` registry package,
 published from the curated
-[`ports/cJSON/1.7.18/`](../../ports/cJSON/1.7.18/)
+[`ports/cjson/1.7.18/`](../../ports/cjson/1.7.18/)
 package directory.  The program links against cJSON, parses a small JSON
 document, and prints a field plus `cJSON_Version()`.
 
