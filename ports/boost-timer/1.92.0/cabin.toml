@@ -1,0 +1,27 @@
+[package.upstream]
+url = "https://github.com/boostorg/timer/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:ed0646a2da652c2b1aa52b7410c383b1aac06e90dbc885505c8b5ec70d851003"
+format = "tar.gz"
+strip-prefix = "timer-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-timer"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+
+[target.boost_timer]
+type = "library"
+sources = ["src/auto_timers_construction.cpp", "src/cpu_timer.cpp"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_timer"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+]

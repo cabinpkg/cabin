@@ -1,0 +1,68 @@
+[package.upstream]
+url = "https://github.com/boostorg/iostreams/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:e472d918eae777d2256a59c0cebde6ab7a25b4f8d27b7bcc6799923b95316af9"
+format = "tar.gz"
+strip-prefix = "iostreams-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-iostreams"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-numeric-conversion" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-random" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-regex" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+"cabin-ports/zlib" = "^1.3"
+
+# The devices (file_descriptor, mapped_file) and the zlib and gzip
+# filters, built against cabin-ports/zlib; only src/zlib.cpp includes
+# zlib.h, so that edge is private.  The bzip2, lzma and zstd filters
+# (src/bzip2.cpp, src/lzma.cpp, src/zstd.cpp) are left out: those
+# libraries have no ports.  Every source defines BOOST_IOSTREAMS_SOURCE
+# itself.
+[target.boost_iostreams]
+type = "library"
+sources = [
+  "src/file_descriptor.cpp",
+  "src/gzip.cpp",
+  "src/mapped_file.cpp",
+  "src/zlib.cpp",
+]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_iostreams"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-numeric-conversion", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-random", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-regex", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+  "cabin-ports/zlib",
+]

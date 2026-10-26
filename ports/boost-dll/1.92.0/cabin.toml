@@ -1,0 +1,46 @@
+[package.upstream]
+url = "https://github.com/boostorg/dll/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:35cc3608a66650d5df575ee970e5949483823f910e438028e3941f73ac6b84fa"
+format = "tar.gz"
+strip-prefix = "dll-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-dll"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-filesystem" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+# Upstream's default boost_dll target uses Boost.Filesystem.  Its C++17
+# alternative, BOOST_DLL_USE_STD_FS (std::filesystem), is a consumer
+# opt-in, so it does not raise the floor.
+[target.boost_dll]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-filesystem", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]
+
+# dlopen, dlsym and dladdr live in libdl before glibc 2.34; upstream's
+# CMake links CMAKE_DL_LIBS.
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["dl"]

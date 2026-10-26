@@ -1,0 +1,63 @@
+[package.upstream]
+url = "https://github.com/boostorg/url/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:3fbb82108f02c63481ed62f041ae469872c70e7ac6e1d812e83171e88930ca01"
+format = "tar.gz"
+strip-prefix = "url-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-url"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-align" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-variant2" = "=1.92.0"
+
+# Upstream globs src/**/*.cpp; these are its 19 files.
+[target.boost_url]
+type = "library"
+sources = [
+  "src/decode_view.cpp",
+  "src/detail/decode.cpp",
+  "src/detail/except.cpp",
+  "src/detail/format_args.cpp",
+  "src/detail/normalize.cpp",
+  "src/detail/pattern.cpp",
+  "src/detail/pct_format.cpp",
+  "src/detail/replacement_field_rule.cpp",
+  "src/detail/vformat.cpp",
+  "src/error.cpp",
+  "src/grammar/ci_string.cpp",
+  "src/grammar/detail/recycled.cpp",
+  "src/grammar/error.cpp",
+  "src/grammar/string_view_base.cpp",
+  "src/ipv4_address.cpp",
+  "src/ipv6_address.cpp",
+  "src/parse_path.cpp",
+  "src/parse_query.cpp",
+  "src/pct_string_view.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_URL_SOURCE"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_url"
+deps = [
+  { name = "cabin-ports/boost-align", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-variant2", public = true },
+]

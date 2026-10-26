@@ -1,0 +1,30 @@
+[package.upstream]
+url = "https://github.com/boostorg/charconv/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:f28f2e6781ac5109a16fa1b458164c87655dc3cbdc53439d7c1a1edbd39de68c"
+format = "tar.gz"
+strip-prefix = "charconv-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-charconv"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+
+# BOOST_CHARCONV_HAS_QUADMATH stays undefined: the __float128 overloads
+# need GCC's libquadmath, an external library a port cannot declare.
+[target.boost_charconv]
+type = "library"
+sources = ["src/from_chars.cpp", "src/to_chars.cpp"]
+include-dirs = ["include"]
+defines = ["BOOST_CHARCONV_SOURCE"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_charconv"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+]

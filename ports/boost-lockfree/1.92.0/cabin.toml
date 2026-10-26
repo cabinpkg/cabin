@@ -1,0 +1,34 @@
+[package.upstream]
+url = "https://github.com/boostorg/lockfree/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:7bab3a224709bb70ccc90775d550737ec67c27b77a9d8b84d306380b18fc235f"
+format = "tar.gz"
+strip-prefix = "lockfree-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-lockfree"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-align" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-atomic" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-parameter" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_lockfree]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-align", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-atomic", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-parameter", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]

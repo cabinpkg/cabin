@@ -1,0 +1,57 @@
+[package.upstream]
+url = "https://github.com/boostorg/stacktrace/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:f333661f01d5d57eeb539dd2b98030ec6846d4e117386e6d9d2b9c85ea09f8bf"
+format = "tar.gz"
+strip-prefix = "stacktrace-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-stacktrace"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+# Upstream's default boost_stacktrace when neither libbacktrace nor
+# addr2line is enabled: the capture and dump code (src/dump.cpp) plus
+# the basic backend (src/basic.cpp, dladdr) on Unix and the windbg
+# backend (src/windbg.cpp, DbgEng) on Windows, as one archive.  The
+# other upstream backends are left out: noop, windbg_cached and these
+# define the same symbols, so a consumer could link only one; backtrace
+# needs libbacktrace; addr2line runs an external program; and
+# from_exception interposes __cxa_allocate_exception, which every
+# consumer that throws would pull from this archive.  Consumers use the
+# archive by defining BOOST_STACKTRACE_LINK; otherwise the headers are
+# header-only.
+[target.boost_stacktrace]
+type = "library"
+sources = ["src/dump.cpp"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_stacktrace"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]
+
+[target.'cfg(family = "unix")'.sources]
+boost_stacktrace = ["src/basic.cpp"]
+
+[target.'cfg(os = "windows")'.sources]
+boost_stacktrace = ["src/windbg.cpp"]
+
+# dladdr, which lives in libdl before glibc 2.34.
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["dl"]
+
+[target.'cfg(os = "windows")'.profile]
+link-libs = ["dbgeng", "ole32"]

@@ -1,0 +1,58 @@
+[package.upstream]
+url = "https://github.com/boostorg/chrono/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:d0a77a26df5edb589bd77fee7296555c34206fb6a07497896d7590fdf850fd92"
+format = "tar.gz"
+strip-prefix = "chrono-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-chrono"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-move" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-ratio" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+[target.boost_chrono]
+type = "library"
+sources = [
+  "src/chrono.cpp",
+  "src/process_cpu_clocks.cpp",
+  "src/thread_clock.cpp",
+]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_chrono"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-move", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-ratio", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]
+
+# clock_gettime and pthread_getcpuclockid; upstream's Jamfile links
+# both on Linux.
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["rt", "pthread"]

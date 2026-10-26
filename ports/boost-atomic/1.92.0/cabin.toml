@@ -1,0 +1,57 @@
+[package.upstream]
+url = "https://github.com/boostorg/atomic/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:bbd9b7d8498407409da9c50f719399134c70ef0ac2a4c9acec31010faf55b026"
+format = "tar.gz"
+strip-prefix = "atomic-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-atomic"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-align" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+# Upstream adds src/find_address_sse2.cpp and src/find_address_sse41.cpp
+# on x86 when per-source -msse* flags work, which a port cannot pass.
+# Both stay out with BOOST_ATOMIC_USE_SSE2/SSE41 undefined: lock_pool.cpp
+# then uses its generic address search, the configuration upstream
+# builds on every non-x86 host.  Defining only USE_SSE2 breaks
+# lock_pool.cpp wherever the compiler already targets SSE4.1, as Apple
+# clang does by default on x86_64.
+[target.boost_atomic]
+type = "library"
+sources = ["src/lock_pool.cpp"]
+include-dirs = ["include"]
+defines = ["BOOST_ATOMIC_SOURCE"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_atomic"
+deps = [
+  { name = "cabin-ports/boost-align", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]
+
+# lock_pool.cpp's preprocessor iteration includes lock_pool_init*.ipp
+# by bare name, so src/ joins the package's own (private) include path,
+# as upstream's CMake does.
+[profile]
+include-dirs = ["src"]
+
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["pthread"]
+
+# WaitOnAddress, called by the headers' wait/notify operations.  Their
+# auto-link pragma for it is off under boost-config's BOOST_ALL_NO_LIB.
+[target.'cfg(os = "windows")'.profile]
+link-libs = ["synchronization"]

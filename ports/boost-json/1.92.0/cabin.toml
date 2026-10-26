@@ -1,0 +1,43 @@
+[package.upstream]
+url = "https://github.com/boostorg/json/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:8a47f71f3807d5f24ab1e28f1e0ff12b0f4a82f6f76b0beb9caf57ebff08a8d8"
+format = "tar.gz"
+strip-prefix = "json-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-json"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-describe" = "=1.92.0"
+"cabin-ports/boost-endian" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+# src/src.cpp includes boost/json/src.hpp, which defines
+# BOOST_JSON_SOURCE.
+[target.boost_json]
+type = "library"
+sources = ["src/src.cpp"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_json"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-describe", public = true },
+  { name = "cabin-ports/boost-endian", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]
