@@ -144,8 +144,7 @@ pub(super) fn clean_protected_source_paths(graph: &cabin_workspace::PackageGraph
         for target in &pkg.package.targets {
             paths.extend(
                 target
-                    .sources
-                    .iter()
+                    .declared_sources()
                     .map(|source| pkg.manifest_dir.join(source)),
             );
             paths.extend(

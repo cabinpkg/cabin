@@ -125,6 +125,34 @@ packages (see [`testing.md`](testing.md)).  An ordinary target referencing a dev
 dev-only target referencing one outside `cabin test`'s activation - fails with a diagnostic naming
 the `[dev-dependencies]` policy.
 
+### Platform-conditional sources
+
+A target compiles some sources only on particular hosts through `[target.'cfg(...)'.sources]`
+tables.  Each key names a target of the same package, and its value lists the sources that target
+adds when the predicate matches the host:
+
+```toml
+[target.thread]
+type = "library"
+sources = ["src/future.cc"]
+
+[target.'cfg(family = "windows")'.sources]
+thread = ["src/win32/thread.cc"]
+
+[target.'cfg(family = "unix")'.sources]
+thread = ["src/pthread/thread.cc"]
+```
+
+The build compiles the target's `sources` plus the list of every matching table, in manifest
+order.  Predicates may test only the platform keys (`os`, `arch`, `family`, `env`, `abi`, `target`;
+see [the `cfg` grammar](target-dependencies.md#supported-cfg-grammar)), because a target's sources
+must not depend on its features or the detected compiler.  A table that names an unknown target, or
+a `header-only` one, is a manifest error.
+
+Only the build selects by host.  Everything else treats every conditional list as declared:
+`cabin package` archives the files, the registry verifier requires them, and the language-standard
+checks count them.  A manifest therefore loads, packages, and verifies identically on every host.
+
 ## Default-build vs. explicit selection
 
 `cabin build` enumerates every `library`, `header-only`, and `executable` target in the selected

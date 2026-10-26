@@ -309,6 +309,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         language_standards: &language_standards,
         standard_flag_conflicts: &standard_flag_conflicts,
         build_dir: build_dir.clone(),
+        platform: TargetPlatform::current(),
         profile: profile.clone(),
         selected: Some(tidy_selectors),
         selected_packages: Some(&resolved_selection.packages),
@@ -562,6 +563,7 @@ mod tests {
             required_features: Vec::new(),
             language: Default::default(),
             links: None,
+            conditional_sources: Vec::new(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),

@@ -162,8 +162,8 @@ openssl = { version = "", system = true }
     assert.equal(info.dependencies[0].req, "");
 });
 
-test("cfg toolchain and profile tables pass without dependencies", () => {
-    // The other two RawConditionalTargetTable fields are real
+test("cfg toolchain, profile, and sources tables pass without dependencies", () => {
+    // The other three RawConditionalTargetTable fields are real
     // manifest surface, not unknown keys.
     const info = extract(`
 [target.'cfg(os = "linux")'.profile]
@@ -171,6 +171,9 @@ cxxflags = ["-O2"]
 
 [target.'cfg(os = "linux")'.toolchain]
 cxx = "clang++"
+
+[target.'cfg(os = "linux")'.sources]
+thread = ["src/pthread/thread.cpp"]
 `);
     assert.deepEqual(info.dependencies, []);
 });

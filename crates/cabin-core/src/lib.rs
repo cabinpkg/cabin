@@ -80,10 +80,10 @@ pub use language_standard::{
     interface_c, interface_cxx, parse_interface_c, parse_interface_cxx, resolve_language_standards,
 };
 pub use model::{
-    Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,
-    SystemDependency, Target, TargetDep, TargetKind, TargetName, WorkspaceDepRequirements,
-    is_path_safe_package_name, is_valid_package_scope, is_valid_registry_package_name,
-    validate_links_identity,
+    ConditionalSources, Dependency, DependencyKind, DependencySource, Package, PackageConfigInput,
+    PackageName, SystemDependency, Target, TargetDep, TargetKind, TargetName,
+    WorkspaceDepRequirements, is_path_safe_package_name, is_valid_package_scope,
+    is_valid_registry_package_name, validate_links_identity,
 };
 pub use patch::{
     PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind, PatchValidationError,

@@ -184,7 +184,7 @@ fn ensure_declared_sources_included(
     files: &[archive::PackageFile],
 ) -> Result<(), PackageError> {
     for target in &package.targets {
-        for source in &target.sources {
+        for source in target.declared_sources() {
             let entry = archive::source_entry(source);
             if !files
                 .iter()
@@ -590,6 +590,35 @@ fmt = { workspace = true, features = ["color"] }
                 }
                 other => panic!("expected SourceMissing, got {other:?}"),
             }
+        }
+    }
+
+    /// A source only another platform compiles must still ship: the
+    /// archive is staged once and built on every host.
+    #[test]
+    fn staging_requires_every_platform_conditional_source() {
+        let dir = TempDir::new().unwrap();
+        dir.child("src/lib.c")
+            .write_str("int demo(void) { return 0; }\n")
+            .unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nc-standard = \"c17\"\n\n\
+                 [target.demo]\ntype = \"library\"\nsources = [\"src/lib.c\"]\n\n\
+                 [target.'cfg(os = \"windows\")'.sources]\ndemo = [\"src/win32.c\"]\n",
+            )
+            .unwrap();
+        match stage_with_project(
+            &dir.path().join("cabin.toml"),
+            None,
+            None,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        ) {
+            Err(PackageError::SourceMissing { target, path }) => {
+                assert_eq!(target, "demo");
+                assert_eq!(path, "src/win32.c");
+            }
+            other => panic!("expected SourceMissing, got {other:?}"),
         }
     }
 

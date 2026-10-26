@@ -87,6 +87,10 @@ pub struct PlanRequest<'a> {
     pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
     /// Absolute path under which all build outputs are placed.
     pub build_dir: PathBuf,
+    /// The host, against which `[target.'cfg(...)'.sources]` select
+    /// the sources each target compiles (Cabin builds only for the
+    /// host).
+    pub platform: cabin_core::TargetPlatform,
     /// Resolved build profile.  Drives compile flags and the per-
     /// profile output directory.
     pub profile: ResolvedProfile,
@@ -420,8 +424,8 @@ fn emit_actions(
             continue;
         }
 
-        let mut prepared: Vec<PreparedSource> = Vec::with_capacity(target.sources.len());
-        for source in &target.sources {
+        let mut prepared: Vec<PreparedSource> = Vec::new();
+        for source in target.sources_for(&req.platform) {
             let language =
                 classify_source(source).ok_or_else(|| BuildError::UnrecognizedSourceExtension {
                     target: format_target_id(tid, req.graph),

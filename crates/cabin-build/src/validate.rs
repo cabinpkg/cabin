@@ -110,7 +110,7 @@ pub fn collect_requested_standards<S: BuildHasher>(
             }
             // A missing effective standard is a manifest-load error;
             // this over-approximation simply skips such sources.
-            for source in &target.sources {
+            for source in target.declared_sources() {
                 match classify_source(source) {
                     Some(SourceLanguage::C) => {
                         if let Some(resolved) = effective_c(&resolved, target) {
@@ -630,6 +630,7 @@ mod tests {
                     ..Default::default()
                 },
                 links: None,
+                conditional_sources: Vec::new(),
             };
             let package = Package::new(
                 PackageName::new(name).unwrap(),
@@ -704,6 +705,7 @@ mod tests {
                 ..Default::default()
             },
             links: None,
+            conditional_sources: Vec::new(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),

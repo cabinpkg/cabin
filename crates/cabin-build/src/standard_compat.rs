@@ -820,7 +820,6 @@ fn requirement_origin(
 
 fn has_sources_of(target: &Target, language: SourceLanguage) -> bool {
     target
-        .sources
-        .iter()
+        .declared_sources()
         .any(|source| classify_source(source) == Some(language))
 }

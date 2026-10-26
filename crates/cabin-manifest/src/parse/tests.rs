@@ -3706,3 +3706,84 @@ fn package_upstream_rejects_unknown_copy_fields() {
     );
     assert!(err.to_string().contains("unknown field"), "{err:?}");
 }
+
+#[test]
+fn conditional_sources_attach_to_the_named_target() {
+    let manifest = r#"
+            [package]
+            name = "thread"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+
+            [target.thread]
+            type = "library"
+            sources = ["src/future.cc"]
+
+            [target.'cfg(family = "windows")'.sources]
+            thread = ["src/win32/thread.cc"]
+
+            [target.'cfg(family = "unix")'.sources]
+            thread = ["src/pthread/thread.cc"]
+        "#;
+    let package = parse_project(manifest);
+    let target = &package.targets[0];
+    assert_eq!(target.sources, vec![Utf8PathBuf::from("src/future.cc")]);
+    let conditional: Vec<(String, Vec<Utf8PathBuf>)> = target
+        .conditional_sources
+        .iter()
+        .map(|c| (c.condition.to_string(), c.sources.clone()))
+        .collect();
+    assert_eq!(
+        conditional,
+        [
+            (
+                r#"family = "windows""#.to_owned(),
+                vec![Utf8PathBuf::from("src/win32/thread.cc")]
+            ),
+            (
+                r#"family = "unix""#.to_owned(),
+                vec![Utf8PathBuf::from("src/pthread/thread.cc")]
+            ),
+        ]
+    );
+}
+
+#[test]
+fn conditional_sources_need_a_compiled_target_and_a_platform_condition() {
+    let base = r#"
+            [package]
+            name = "lib"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.lib]
+            type = "library"
+            sources = ["lib.c"]
+
+            [target.headers]
+            type = "header-only"
+            include-dirs = ["include"]
+            interface-c-standard = "c11"
+        "#;
+    let err = parse_project_err(&format!(
+        "{base}\n[target.'cfg(os = \"linux\")'.sources]\nmissing = [\"linux.c\"]\n"
+    ));
+    assert!(
+        matches!(&err, ManifestError::ConditionalSourcesUnknownTarget { target, .. } if target == "missing"),
+        "{err:?}"
+    );
+    let err = parse_project_err(&format!(
+        "{base}\n[target.'cfg(os = \"linux\")'.sources]\nheaders = [\"linux.c\"]\n"
+    ));
+    assert!(
+        matches!(&err, ManifestError::HeaderOnlyDeclaresSources { target } if target == "headers"),
+        "{err:?}"
+    );
+    let err = parse_project_err(&format!(
+        "{base}\n[target.'cfg(feature = \"simd\")'.sources]\nlib = [\"simd.c\"]\n"
+    ));
+    assert!(
+        matches!(err, ManifestError::ConditionalSourcesNotPlatformOnly { .. }),
+        "{err:?}"
+    );
+}

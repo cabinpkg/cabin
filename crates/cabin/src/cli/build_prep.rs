@@ -607,6 +607,7 @@ pub(crate) fn plan_prepared(
         language_standards: &prepared.language_standards,
         standard_flag_conflicts: &prepared.prep.standard_flag_conflicts,
         build_dir: prepared.build_dir.clone(),
+        platform: cabin_core::TargetPlatform::current(),
         profile: prepared.profile.clone(),
         selected,
         selected_packages: Some(&prepared.resolved_selection.packages),

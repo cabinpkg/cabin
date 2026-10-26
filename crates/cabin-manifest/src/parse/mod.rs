@@ -19,8 +19,8 @@ use self::profile::{
     toolchain_decl_from_raw_ref,
 };
 use self::target::{
-    RawConditionalTarget, is_cfg_expression, parse_conditional_target_entry, parse_target_table,
-    target_from_raw,
+    RawConditionalTarget, attach_conditional_sources, is_cfg_expression,
+    parse_conditional_target_entry, parse_target_table, target_from_raw,
 };
 
 /// A `cabin.toml` after parsing.
@@ -314,6 +314,11 @@ fn reject_unsupported_target_conditions(
         if !references_feature && !references_compiler {
             continue;
         }
+        if !cond_target.sources.is_empty() {
+            return Err(ManifestError::ConditionalSourcesNotPlatformOnly {
+                condition: cond_target.condition.to_string(),
+            });
+        }
         let table: &'static str = if !cond_target.deps.is_empty() {
             "dependencies"
         } else if !cond_target.dev_deps.is_empty() {
@@ -414,6 +419,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     for (target_name, raw_target) in targets {
         target_models.push(target_from_raw(target_name, raw_target)?);
     }
+    attach_conditional_sources(&mut target_models, &conditional_targets)?;
     validate_language_standard_coverage(&target_models, language)?;
 
     let (dep_models, system_models) =
@@ -522,8 +528,7 @@ fn validate_language_standard_coverage(
         ];
         for (language, field, declared) in checks {
             let compiles = target
-                .sources
-                .iter()
+                .declared_sources()
                 .any(|source| cabin_core::classify_source(source) == Some(language));
             if compiles && !declared {
                 return Err(ManifestError::MissingLanguageStandard {

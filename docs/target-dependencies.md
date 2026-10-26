@@ -45,6 +45,9 @@ defines = ["USE_EPOLL"]
 ldflags = ["-static"]
 ```
 
+A `[target.'cfg(...)'.sources]` table adds sources to a named target on matching hosts; see
+[Platform-conditional sources](targets.md#platform-conditional-sources).
+
 Conditional `[toolchain]` tables follow the same workspace-root- only rule as the unconditional
 `[toolchain]` table.  Conditional profile flag tables are per-package, like the rest of
 `[profile]`.  `[target.'cfg(...)'.profile]` applies to every selected profile when the predicate
@@ -109,9 +112,9 @@ C/C++ `#if` bridge: a feature condition gates Cabin's own build-flag layers (`de
 
 **`feature` is accepted on flag tables only** - i.e. inside `[target.'cfg(...)'.profile]`.  A
 `cfg(...)` that references `feature` is **rejected** when it gates a `dependencies`,
-`dev-dependencies`, or `toolchain` table, because feature resolution itself walks the dependency
-graph: a feature-gated dependency would be circular, and the dependency/toolchain evaluation paths
-run before features are known.  Use `[features]` with `dep:<name>` / `<dep>/<feature>` entries to
+`dev-dependencies`, `toolchain`, or `sources` table, because feature resolution itself walks the
+dependency graph: a feature-gated dependency would be circular, the dependency/toolchain evaluation
+paths run before features are known, and a target's sources must not depend on its features.  Use `[features]` with `dep:<name>` / `<dep>/<feature>` entries to
 gate optional dependencies on features instead.
 
 ### Compiler conditions
@@ -141,9 +144,9 @@ versions are `19.x`), so a standalone `cxx_version` condition is legal but almos
 `all(...)` with the matching family check.
 
 **Compiler conditions are accepted on flag tables only** - the same placement rule as `feature`.
-They are **rejected** when they gate `dependencies`, `dev-dependencies`, or `toolchain`: dependency
-resolution and toolchain selection run before any compiler has been detected, and the toolchain case
-would be circular. Compiler-wrapper selection is unconditional manifest build configuration under
+They are **rejected** when they gate `dependencies`, `dev-dependencies`, `toolchain`, or `sources`:
+dependency resolution and toolchain selection run before any compiler has been detected, the
+toolchain case would be circular, and a target's sources must not depend on the detected compiler. Compiler-wrapper selection is unconditional manifest build configuration under
 `[build]`; there is no target-conditional wrapper form.
 
 Adding more keys requires a spec-level decision because it widens the public manifest grammar and
