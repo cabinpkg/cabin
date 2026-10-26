@@ -1,0 +1,45 @@
+[package.upstream]
+url = "https://github.com/boostorg/gil/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:6d20dbc568efeb0336c1cf4e988a50ad028eb0837b6b7dc85356d46a32955f66"
+format = "tar.gz"
+strip-prefix = "gil-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-gil"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-filesystem" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-variant2" = "=1.92.0"
+
+# The io extension's jpeg, png, raw and tiff backends include libjpeg,
+# libpng, LibRaw and libtiff headers, which a consumer must supply, as
+# with upstream's CMake target; bmp, pnm and targa are self-contained.
+[target.boost_gil]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-filesystem", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-variant2", public = true },
+]

@@ -1,0 +1,50 @@
+[package.upstream]
+url = "https://github.com/boostorg/type_erasure/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:580c1c9d190b64c1afb4aedb2353442d9e6b3bac0d86e21eb5d8c0152963df2e"
+format = "tar.gz"
+strip-prefix = "type_erasure-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-type-erasure"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-thread" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+"cabin-ports/boost-vmd" = "=1.92.0"
+
+# src/dynamic_binding.cpp defines BOOST_TYPE_ERASURE_SOURCE itself.
+[target.boost_type_erasure]
+type = "library"
+sources = ["src/dynamic_binding.cpp"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_type_erasure"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-thread", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+  { name = "cabin-ports/boost-vmd", public = true },
+]

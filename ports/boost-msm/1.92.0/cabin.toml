@@ -1,0 +1,59 @@
+[package.upstream]
+url = "https://github.com/boostorg/msm/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:dc868fe0c4381a02f3afb83d562c56c9dfbdb38d727cdad99a2cf51889df3c64"
+format = "tar.gz"
+strip-prefix = "msm-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-msm"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-any" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-bind" = "=1.92.0"
+"cabin-ports/boost-circular-buffer" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-json" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-parameter" = "=1.92.0"
+"cabin-ports/boost-phoenix" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-proto" = "=1.92.0"
+"cabin-ports/boost-serialization" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+
+# The backmp11 back end (boost/msm/backmp11/) needs C++17 and the
+# PlantUML front end (boost/msm/front/puml/) C++20, so their consumers
+# compile at that standard themselves.
+[target.boost_msm]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-any", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-bind", public = true },
+  { name = "cabin-ports/boost-circular-buffer", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-json", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-parameter", public = true },
+  { name = "cabin-ports/boost-phoenix", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-proto", public = true },
+  { name = "cabin-ports/boost-serialization:boost_serialization", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+]

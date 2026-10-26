@@ -1,0 +1,91 @@
+[package.upstream]
+url = "https://github.com/boostorg/locale/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:78d1091559daf640703b6717a0743c305c7a66d0f38ec7f5ff5b60f42b7d5d9c"
+format = "tar.gz"
+strip-prefix = "locale-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-locale"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-charconv" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-thread" = "=1.92.0"
+
+# The backends follow upstream's CMake defaults without ICU, which has
+# no port (so no src/icu/ and no BOOST_LOCALE_WITH_ICU): the std backend
+# everywhere, POSIX plus iconv on Linux and macOS, and WinAPI on
+# Windows, where src/std/std_backend.cpp also needs src/win32/lcid.cpp.
+[target.boost_locale]
+type = "library"
+sources = [
+  "src/encoding/codepage.cpp",
+  "src/shared/date_time.cpp",
+  "src/shared/format.cpp",
+  "src/shared/formatting.cpp",
+  "src/shared/generator.cpp",
+  "src/shared/iconv_codecvt.cpp",
+  "src/shared/ids.cpp",
+  "src/shared/localization_backend.cpp",
+  "src/shared/message.cpp",
+  "src/shared/mo_lambda.cpp",
+  "src/std/codecvt.cpp",
+  "src/std/collate.cpp",
+  "src/std/converter.cpp",
+  "src/std/numeric.cpp",
+  "src/std/std_backend.cpp",
+  "src/util/codecvt_converter.cpp",
+  "src/util/default_locale.cpp",
+  "src/util/encoding.cpp",
+  "src/util/gregorian.cpp",
+  "src/util/info.cpp",
+  "src/util/locale_data.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_LOCALE_SOURCE"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_locale"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-charconv", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-thread", public = true },
+]
+
+[target.'cfg(any(os = "linux", os = "macos"))'.sources]
+boost_locale = [
+  "src/posix/codecvt.cpp",
+  "src/posix/collate.cpp",
+  "src/posix/converter.cpp",
+  "src/posix/numeric.cpp",
+  "src/posix/posix_backend.cpp",
+]
+
+[target.'cfg(os = "windows")'.sources]
+boost_locale = [
+  "src/win32/collate.cpp",
+  "src/win32/converter.cpp",
+  "src/win32/lcid.cpp",
+  "src/win32/numeric.cpp",
+  "src/win32/win_backend.cpp",
+]
+
+# glibc has iconv built in.
+[target.'cfg(os = "linux")'.profile]
+defines = ["BOOST_LOCALE_NO_WINAPI_BACKEND", "BOOST_LOCALE_WITH_ICONV"]
+
+[target.'cfg(os = "macos")'.profile]
+defines = ["BOOST_LOCALE_NO_WINAPI_BACKEND", "BOOST_LOCALE_WITH_ICONV"]
+link-libs = ["iconv"]
+
+[target.'cfg(os = "windows")'.profile]
+defines = ["BOOST_LOCALE_NO_POSIX_BACKEND"]

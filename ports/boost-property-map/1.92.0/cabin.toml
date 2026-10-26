@@ -1,0 +1,46 @@
+[package.upstream]
+url = "https://github.com/boostorg/property_map/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:d70ae1e8d2cd1e10e76a056f2b9cfcd27d6634fe5dcf6032fc4cd267e2b856ab"
+format = "tar.gz"
+strip-prefix = "property_map-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-property-map"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-any" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-lexical-cast" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_property_map]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-any", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-lexical-cast", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

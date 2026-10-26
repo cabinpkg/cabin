@@ -111,7 +111,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 
 | Module | Package | Commit | Kind | Std | Direct deps | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `accumulators` | `boost-accumulators` | `6bd97b3843f3488af28c18aa9d0f06275b6c6c75` | header-only | c++11 | 19 | not_started | waits on compiled `atomic`, `chrono`, `container`, `filesystem`, `serialization`, `thread` |
+| `accumulators` | `boost-accumulators` | `6bd97b3843f3488af28c18aa9d0f06275b6c6c75` | header-only | c++14 | 19 | locally_validated |  |
 | `algorithm` | `boost-algorithm` | `fd1cf19c0f84c483b3310c34fd600fe8b2725ccc` | header-only | c++11 | 16 | locally_validated |  |
 | `align` | `boost-align` | `440281d63d1c0b7c7fde63ded67b4860b57d5756` | header-only | c++98 | 3 | locally_validated |  |
 | `any` | `boost-any` | `3312581e774129462e06bbdc752b919dca37e85c` | header-only | c++11 | 4 | locally_validated |  |
@@ -136,7 +136,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `container` | `boost-container` | `f74270de43714edccf17b33eca454348d47402b7` | compiled | c++14 | 4 | locally_validated | `alloc_lib.c` is C, so its four C++-only edges carry `ignore-interface-standard` |
 | `container_hash` | `boost-container-hash` | `2698b43803c012601e6bb1a6116e83767b97986c` | header-only | c++11 | 3 | locally_validated |  |
 | `context` | `boost-context` | `cc1b9e02cd530d6607becc984e1e5bfa4f7b3600` | compiled |  | 7 | not_started | needs assembly sources (`.S`, MSVC `.asm`) chosen per architecture and ABI |
-| `contract` | `boost-contract` | `723fe65e41c1c942e6b7637c3bdc72e283d7beca` | compiled |  | 15 | not_started |  |
+| `contract` | `boost-contract` | `723fe65e41c1c942e6b7637c3bdc72e283d7beca` | compiled | c++14 | 15 | locally_validated | ported header-only: upstream's mode for consumers that do not define `BOOST_CONTRACT_STATIC_LINK` |
 | `conversion` | `boost-conversion` | `71b14ad1dae1d2be91ad310007c749ca93dc2e72` | header-only | c++11 | 4 | locally_validated |  |
 | `convert` | `boost-convert` | `6dd61f248aba9e895346bc1c3bacc2ad007bcc9c` | header-only | c++14 | 11 | not_started | needs `[package] include` (through `math`) |
 | `core` | `boost-core` | `a90a31934fe8bcb6e6be6dfea77b80492c7b6c81` | header-only | c++98 | 3 | locally_validated |  |
@@ -161,7 +161,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `functional` | `boost-functional` | `6a573e4b8333ee63ee62ce95558c3667348db233` | header-only | c++11 | 9 | locally_validated |  |
 | `fusion` | `boost-fusion` | `017a8399fd62e81cf11ecea8c4063d055088458e` | header-only | c++11 | 10 | locally_validated |  |
 | `geometry` | `boost-geometry` | `90c27ef0bf9d1700f553b85f890f43461eced529` | header-only | c++14 | 28 | not_started | needs `[package] include` (through `math`) |
-| `gil` | `boost-gil` | `8420c6c4e949087df84f2748419cf53fa2f49c9b` | header-only | c++14 | 12 | not_started | waits on compiled `atomic`, `filesystem` |
+| `gil` | `boost-gil` | `8420c6c4e949087df84f2748419cf53fa2f49c9b` | header-only | c++14 | 12 | locally_validated | the jpeg/png/raw/tiff io backends need libraries the consumer supplies |
 | `graph` | `boost-graph` | `fc5dac2c552f945846449fd123a9b8335d5c063a` | compiled |  | 41 | not_started | needs `[package] include` (through `math`) |
 | `graph_parallel` | `boost-graph-parallel` | `f91d58beb1b685005ee15899c8bce8b025cb7e85` | compiled |  | 25 | not_started | needs MPI (see `mpi`) |
 | `hana` | `boost-hana` | `bc49ee25638e59d977edff5737b4e6bf12c1e5ea` | header-only | c++14 | 5 | locally_validated |  |
@@ -169,7 +169,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `heap` | `boost-heap` | `a43cc4b7e7dfa51b4f1c163f3bf29cd785047bd1` | header-only | c++14 | 9 | locally_validated |  |
 | `histogram` | `boost-histogram` | `5e9b7b162e8a2801b77ccf199dedea88fa44325c` | header-only | c++14 | 7 | not_started | needs `[package] include` (through `math`) |
 | `hof` | `boost-hof` | `63ac019fca325038bfb4f56db17fbb281d2b5f49` | header-only | c++11 | 0 | locally_validated |  |
-| `icl` | `boost-icl` | `7de3f55655984e22f843238f7bd795fea3a5e08d` | header-only | c++11 | 14 | not_started | waits on compiled `container` |
+| `icl` | `boost-icl` | `7de3f55655984e22f843238f7bd795fea3a5e08d` | header-only | c++14 | 14 | locally_validated |  |
 | `integer` | `boost-integer` | `e513075061f125c631a420e8960e0c606bd4b810` | header-only | c++98 | 5 | locally_validated |  |
 | `interprocess` | `boost-interprocess` | `79d5b935c51b302cefbcf8c8182fd584d586b39a` | header-only | c++14 | 6 | locally_validated |  |
 | `intrusive` | `boost-intrusive` | `b089da5af88981d6e87392680b0b68fd30be0b12` | header-only | c++98 | 3 | locally_validated |  |
@@ -182,7 +182,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `leaf` | `boost-leaf` | `e8fe60e0cc48a559199c3a2cac64ec8579dc6a67` | header-only | c++11 | 0 | locally_validated |  |
 | `lexical_cast` | `boost-lexical-cast` | `35d8af6ce21fa7a163b68a2fb27437d3fb737232` | header-only | c++14 | 4 | locally_validated |  |
 | `local_function` | `boost-local-function` | `258aeaa6c1a9618c02ca4e4af2890e70833035f0` | header-only | c++11 | 7 | locally_validated |  |
-| `locale` | `boost-locale` | `94f4d99619e54e11dbb3117bad7af0cca76fd51c` | compiled |  | 7 | not_started |  |
+| `locale` | `boost-locale` | `94f4d99619e54e11dbb3117bad7af0cca76fd51c` | compiled | c++14 | 7 | locally_validated | std, POSIX (iconv) and Windows backends; ICU has no port |
 | `lockfree` | `boost-lockfree` | `9a06cd191f3226d4b77a1bc304df991ab470246f` | header-only | c++14 | 8 | locally_validated |  |
 | `log` | `boost-log` | `f0d196ee03609d8cea8448bc4ad5889d52d9e4a0` | compiled |  | 36 | not_started | needs assembly sources (through `context`) |
 | `logic` | `boost-logic` | `9b8703a2d6623405323b892f1d126a6b17ca1651` | header-only | c++98 | 2 | locally_validated |  |
@@ -193,16 +193,16 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `mpi` | `boost-mpi` | `536921fe649e4a712bc266f472602c0a1d185236` | compiled |  | 17 | not_started | needs an MPI implementation: a system dependency, which ports may not declare |
 | `mpl` | `boost-mpl` | `9d1f81ffeb055ea1ce0d96370bf07c40a2843878` | header-only | c++98 | 6 | locally_validated |  |
 | `mqtt5` | `boost-mqtt5` | `0e08e614a4c00e35e7bcf7b9d0f9009712fb4d34` | header-only | c++17 | 11 | not_started | needs assembly sources (through `context`) |
-| `msm` | `boost-msm` | `56d843170ef32cdab1471c467431d9cecbc0b073` | header-only | c++11 | 19 | not_started | waits on compiled `atomic`, `chrono`, `container`, `json`, `serialization`, `thread` |
+| `msm` | `boost-msm` | `56d843170ef32cdab1471c467431d9cecbc0b073` | header-only | c++14 | 19 | locally_validated |  |
 | `multi_array` | `boost-multi-array` | `a31951fd81aaf02530f3819681b0b79250cde79f` | header-only | c++11 | 9 | locally_validated |  |
 | `multi_index` | `boost-multi-index` | `b6a0722f11cd96bf5f12809efe9ae6b46fe0b5b6` | header-only | c++11 | 13 | locally_validated |  |
 | `multiprecision` | `boost-multiprecision` | `ce3db86f748eb78f01cd4893295c1aed6520b381` | header-only | c++14 | 9 | not_started | needs `[package] include` (through `math`) |
 | `mysql` | `boost-mysql` | `466675d89aaac199118c5ff65676fc9a552ce273` | header-only | c++11 | 16 | not_started | needs OpenSSL: a system dependency, which ports may not declare |
-| `nowide` | `boost-nowide` | `e45509e57f2c2b2afa08b6df538d6933fac60fcd` | compiled |  | 2 | not_started |  |
+| `nowide` | `boost-nowide` | `e45509e57f2c2b2afa08b6df538d6933fac60fcd` | compiled | c++14 | 2 | locally_validated |  |
 | `numeric~conversion` | `boost-numeric-conversion` | `d1b479f7a4aa54d8ffb93d8dc4ee0c24670210d8` | header-only | c++11 | 7 | locally_validated |  |
 | `numeric~interval` | `boost-interval` | `2939307e2797fda9df945ab25ab5d6b258d776d4` | header-only | c++98 | 3 | locally_validated |  |
 | `numeric~odeint` | `boost-odeint` | `485a46baa908df8569756ae80d72b0861427788c` | header-only | c++14 | 17 | not_started | needs `[package] include` (through `math`) |
-| `numeric~ublas` | `boost-ublas` | `1e660d66d2bcc6e7afddbb0d0c91507f4c252bf1` | header-only | c++11 | 12 | not_started | waits on compiled `atomic`, `chrono`, `container`, `filesystem`, `serialization`, `thread` |
+| `numeric~ublas` | `boost-ublas` | `1e660d66d2bcc6e7afddbb0d0c91507f4c252bf1` | header-only | c++14 | 12 | locally_validated | the `compute` edge is dropped (Dependencies) |
 | `openmethod` | `boost-openmethod` | `79b6f7ff73876267f094aced56e681495fa42e73` | header-only | c++17 | 7 | locally_validated |  |
 | `optional` | `boost-optional` | `c0648f5f2d7b7d8e59c6e2c1d203f34c7aec129e` | header-only | c++11 | 5 | locally_validated |  |
 | `outcome` | `boost-outcome` | `8580f7690fae0f99e408c32faf50a51949a08043` | header-only | c++14 | 5 | locally_validated |  |
@@ -211,16 +211,16 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `parser` | `boost-parser` | `202b991f982f0d27e5f0f2a93acabc9dad7c8288` | header-only | c++17 | 4 | locally_validated |  |
 | `pfr` | `boost-pfr` | `401385c240027423acbb1eb6dea2abe0043db5aa` | header-only | c++14 | 0 | locally_validated |  |
 | `phoenix` | `boost-phoenix` | `8913607a3788cb82d48ed461ea59c919b7bad3df` | header-only | c++11 | 13 | locally_validated |  |
-| `poly_collection` | `boost-poly-collection` | `8adeacb3f4ad35379391e2f85ea74e2d42d71b8a` | header-only | c++11 | 8 | not_started | waits on compiled `atomic`, `chrono`, `container`, `thread`, `type_erasure` |
+| `poly_collection` | `boost-poly-collection` | `8adeacb3f4ad35379391e2f85ea74e2d42d71b8a` | header-only | c++14 | 8 | locally_validated |  |
 | `polygon` | `boost-polygon` | `8ba35b57c1436c4b36f7544aadd78c2b24acc7db` | header-only | c++98 | 1 | locally_validated |  |
 | `pool` | `boost-pool` | `740c8076f9d02f0216e8f3dbb15d2fd80f67d7f4` | header-only | c++98 | 6 | locally_validated |  |
 | `predef` | `boost-predef` | `e1211a4ca467bb6512e99025772ca25afa8d6159` | header-only | c++98 | 0 | locally_validated |  |
 | `preprocessor` | `boost-preprocessor` | `cd1b1bd03900b68505822cfa25cb16851bd6caf1` | header-only | c++98 | 0 | locally_validated |  |
 | `process` | `boost-process` | `696b785c77352491ebe0e7c4a8dc348bbc9d5d53` | compiled |  | 18 | not_started | needs assembly sources (through `context`) |
-| `program_options` | `boost-program-options` | `ae25c112b7032d288df90be95e10876ece30bee3` | compiled |  | 12 | not_started |  |
-| `property_map` | `boost-property-map` | `e50f16089854fe0a987f8b10d65c19e69021ff78` | header-only | c++11 | 14 | not_started | waits on compiled `container` |
+| `program_options` | `boost-program-options` | `ae25c112b7032d288df90be95e10876ece30bee3` | compiled | c++14 | 12 | locally_validated |  |
+| `property_map` | `boost-property-map` | `e50f16089854fe0a987f8b10d65c19e69021ff78` | header-only | c++14 | 14 | locally_validated |  |
 | `property_map_parallel` | `boost-property-map-parallel` | `d63b8a0153f622f30a480bf24a48983cc8a6f0fc` | header-only | c++14 | 12 | not_started | needs MPI (see `mpi`) |
-| `property_tree` | `boost-property-tree` | `7a7b02b09d38c542ff84d10c14eafdabc21105f1` | header-only | c++11 | 13 | not_started | waits on compiled `atomic`, `chrono`, `container`, `serialization`, `thread` |
+| `property_tree` | `boost-property-tree` | `7a7b02b09d38c542ff84d10c14eafdabc21105f1` | header-only | c++14 | 13 | locally_validated |  |
 | `proto` | `boost-proto` | `ecdc3411943314c0082d76c128141dab24a9cbc5` | header-only | c++11 | 9 | locally_validated |  |
 | `ptr_container` | `boost-ptr-container` | `43d147a4bd1c05a0e669698e2f6137e94eccfe32` | header-only | c++11 | 12 | locally_validated |  |
 | `python` | `boost-python` | `ed1e5e9be00558ffe1196ab72eb0053e0e27d0c4` | compiled |  | 20 | not_started | needs the Python SDK: a system dependency, which ports may not declare |
@@ -234,25 +234,25 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `safe_numerics` | `boost-safe-numerics` | `777e0be5ec763d0333a717c5e421a4f7c5e5bdc9` | header-only | c++14 | 6 | locally_validated |  |
 | `scope` | `boost-scope` | `c979d5e11b43cc36d5d5b8883e5b8a243478794f` | header-only | c++11 | 4 | locally_validated |  |
 | `scope_exit` | `boost-scope-exit` | `60baaae454b2da887a31cf939e22015b6263c9e4` | header-only | c++11 | 5 | locally_validated |  |
-| `serialization` | `boost-serialization` | `91c265be640294fbac4190b5084f9570f06f72ba` | compiled |  | 22 | not_started |  |
+| `serialization` | `boost-serialization` | `91c265be640294fbac4190b5084f9570f06f72ba` | compiled | c++14 | 22 | locally_validated | two targets: reference `boost-serialization:boost_serialization` or `:boost_wserialization` |
 | `signals2` | `boost-signals2` | `e9fc828dd873cc1939a976ad39a585fa57f6c0ff` | header-only | c++11 | 16 | locally_validated |  |
 | `smart_ptr` | `boost-smart-ptr` | `6e945160d788b8efdfc49ba4af1f8797cacd7c97` | header-only | c++11 | 4 | locally_validated |  |
 | `sort` | `boost-sort` | `48c424bee18ee2d886f83571cc592f0319b501e3` | header-only | c++11 | 4 | locally_validated |  |
-| `spirit` | `boost-spirit` | `64be6b02c5713cd175fbd2463e812cdcc8fc5941` | header-only | c++11 | 28 | not_started | waits on compiled `atomic`, `chrono`, `container`, `thread` |
+| `spirit` | `boost-spirit` | `64be6b02c5713cd175fbd2463e812cdcc8fc5941` | header-only | c++14 | 28 | locally_validated |  |
 | `stacktrace` | `boost-stacktrace` | `4f8cabb87fb35044d5df44ae44cbf57904c65189` | compiled | c++14 | 6 | locally_validated | consumers define `BOOST_STACKTRACE_LINK`; basic (POSIX) and windbg (Windows) backends |
-| `statechart` | `boost-statechart` | `e930707f777489543a03114e5fcc3213876e0ed5` | header-only | c++11 | 11 | not_started | waits on compiled `atomic`, `chrono`, `container`, `thread` |
+| `statechart` | `boost-statechart` | `e930707f777489543a03114e5fcc3213876e0ed5` | header-only | c++14 | 11 | locally_validated |  |
 | `static_assert` | `boost-static-assert` | `858097c08ebb53faaf1fba3201c0a76a96e49584` | header-only | c++98 | 1 | locally_validated |  |
 | `static_string` | `boost-static-string` | `2ff9d3535e853f4913e85e7fea28f84b04ea5d81` | header-only | c++11 | 6 | locally_validated |  |
 | `stl_interfaces` | `boost-stl-interfaces` | `48375e95648bed776a2f6d34148185daf2cdce96` | header-only | c++14 | 3 | locally_validated |  |
 | `system` | `boost-system` | `bc7c00fa67501ceadfde8e920835502340e8b899` | header-only | c++11 | 7 | locally_validated |  |
 | `test` | `boost-test` | `380722343f4edbda1bfb00c92836986d48297dd3` | compiled | c++14 | 17 | locally_validated | `boost_unit_test_framework` only: the other two libraries define competing `main`s |
-| `thread` | `boost-thread` | `608459ab7c50092f6d91dbbe48caf349ec16ed3b` | compiled |  | 24 | not_started |  |
+| `thread` | `boost-thread` | `608459ab7c50092f6d91dbbe48caf349ec16ed3b` | compiled | c++14 | 24 | locally_validated |  |
 | `throw_exception` | `boost-throw-exception` | `0924b53b40d1da33301f94fb97518f5a7df31e9b` | header-only | c++98 | 2 | locally_validated |  |
 | `timer` | `boost-timer` | `b7f65f09a0975f26cb294eebd8b17e91a5beff3f` | compiled | c++14 | 3 | locally_validated |  |
 | `tokenizer` | `boost-tokenizer` | `743082f58e964e7cef353a9678edaae055691ca0` | header-only | c++11 | 5 | locally_validated |  |
 | `tti` | `boost-tti` | `03734c54a51b6372ac3296d2fe5103b7360bcd3f` | header-only | c++98 | 5 | locally_validated |  |
 | `tuple` | `boost-tuple` | `704830d883825357a83e49a2aed2a07e734a74bb` | header-only | c++98 | 3 | locally_validated |  |
-| `type_erasure` | `boost-type-erasure` | `5281f14d3cb59f978c8cb6cbb90ce92dde4e3e13` | compiled |  | 14 | not_started |  |
+| `type_erasure` | `boost-type-erasure` | `5281f14d3cb59f978c8cb6cbb90ce92dde4e3e13` | compiled | c++14 | 14 | locally_validated |  |
 | `type_index` | `boost-type-index` | `af648a10037497055d6f0823e22cf7e394e38458` | header-only | c++11 | 3 | locally_validated |  |
 | `type_traits` | `boost-type-traits` | `e6275ccf01c9cf8775ef0cb6188bd58f3b167a0f` | header-only | c++98 | 1 | locally_validated |  |
 | `typeof` | `boost-typeof` | `06748a1d65182a2dacfb9e0aa5dfc6230353b66d` | header-only | c++11 | 1 | locally_validated |  |
@@ -264,7 +264,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `variant` | `boost-variant` | `e8cb128f997ff639cb678adfcb4a9e14ad9d84e1` | header-only | c++11 | 12 | locally_validated |  |
 | `variant2` | `boost-variant2` | `dde1a3ac91d6986bae27b7f740689804d56cff61` | header-only | c++11 | 3 | locally_validated |  |
 | `vmd` | `boost-vmd` | `34cad2c1a574d445812c7c2432d3a5a5c843b412` | header-only | c++98 | 1 | locally_validated |  |
-| `wave` | `boost-wave` | `240769e26ccc5e0e667bc7387fc62223a837828d` | compiled |  | 18 | not_started |  |
+| `wave` | `boost-wave` | `240769e26ccc5e0e667bc7387fc62223a837828d` | compiled | c++14 | 18 | locally_validated |  |
 | `winapi` | `boost-winapi` | `094612ee33a8dce960cd075537266fdb4788d059` | header-only | c++98 | 2 | locally_validated |  |
-| `xpressive` | `boost-xpressive` | `09002924ba85a6f4c82a3260915c4ef535a8f60d` | header-only | c++11 | 20 | not_started | waits on compiled `container` |
+| `xpressive` | `boost-xpressive` | `09002924ba85a6f4c82a3260915c4ef535a8f60d` | header-only | c++14 | 20 | locally_validated |  |
 | `yap` | `boost-yap` | `2d44666933c2993c992a3fc348776ba62cafad6b` | header-only | c++14 | 3 | locally_validated |  |

@@ -1,0 +1,44 @@
+[package.upstream]
+url = "https://github.com/boostorg/ublas/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:dd48375d46196d37f61e64b20b3f66e50078baaed88cc091eafa8d657e138067"
+format = "tar.gz"
+strip-prefix = "ublas-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-ublas"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-interval" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-serialization" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+
+# No compute edge: only boost/numeric/ublas/opencl.hpp and opencl/ include
+# Boost.Compute, and they need the OpenCL SDK, which no port provides.
+# The tensor extension (boost/numeric/ublas/tensor.hpp) needs C++17, so a
+# tensor consumer compiles at C++17 itself.
+[target.boost_numeric_ublas]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-interval", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-serialization:boost_serialization", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+]
