@@ -50,12 +50,12 @@ website:
 
 # registry.yml: the registry workspace, its crates/ path-deps, and
 # the xtask guards built from the root workspace.
-# SAFETY: keep this a superset of `ports` minus `ports/**` and
-# ports-publish's own workflow file - ports-publish's deploy wait
-# treats a job-skipped Registry run as already-deployed
-# (crates/xtask-workflow-guard/src/await_deploy.rs), which stays
-# sound only for entries that cannot change the Worker's accepted
-# schema or the publish client; those two change neither.
+# SAFETY: keep this a superset of `ports` minus `ports/**`,
+# `port-tests/**`, and ports-publish's own workflow file -
+# ports-publish's deploy wait treats a job-skipped Registry run as
+# already-deployed (crates/xtask-workflow-guard/src/await_deploy.rs),
+# which stays sound only for entries that cannot change the Worker's
+# accepted schema or the publish client; those three change neither.
 registry:
   - "registry/**"
   - "crates/**"
@@ -68,10 +68,12 @@ registry:
   - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
-# ports-publish.yml: ports/ are what it publishes; the publisher and
-# the cabin client build from the root workspace.
+# ports-publish.yml: ports/ are what it publishes, port-tests/ are
+# its probes' consumer tests; the publisher and the cabin client
+# build from the root workspace.
 ports:
   - "ports/**"
+  - "port-tests/**"
   - "crates/**"
   - "Cargo.toml"
   - "Cargo.lock"

@@ -55,6 +55,9 @@ pub struct Options {
     pub work_dir: PathBuf,
     /// `cabin` binary for the preflight builds.
     pub cabin: PathBuf,
+    /// Committed consumer tests the preflight probes compile
+    /// (`<tests_dir>/<name>/<version>/main.cc` or `main.c`).
+    pub tests_dir: PathBuf,
 }
 
 /// Run the tool.
@@ -94,6 +97,10 @@ pub fn run(options: &Options) -> Result<()> {
         cache_dir: &options.cache_dir,
         work_dir: &options.work_dir,
         cabin: &options.cabin,
+        tests_dir: &options.tests_dir,
+        // Probes run upstream code, so they never run beside the
+        // publish job's OIDC token; the PR dry-run runs them.
+        run_probes: options.mode == Mode::DryRun,
     })?;
 
     match &options.mode {

@@ -400,6 +400,65 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
     run("rerun over the same work dir");
 }
 
+/// A committed consumer test runs in the dry run, where its failure
+/// fails the preflight, and is only built in the publish run, where
+/// executing it beside the trusted-publishing token would hand that
+/// token to upstream code.
+#[test]
+fn consumer_tests_run_in_the_dry_run_and_never_in_the_publish_run() {
+    require_build_tools();
+    let dir = TempDir::new().unwrap();
+    let (ports, cache) = zlib_only(&dir);
+    // Relative to the probe's inherited working directory, so no host
+    // path has to survive a C string literal and the ANSI code page.
+    let marker = dir.child("ran");
+    dir.child("port-tests/zlib/1.3.1/main.cc")
+        .write_str(
+            "#include <cstdio>\nint main() {\n    std::FILE* f = std::fopen(\"ran\", \"w\");\n    \
+             if (f) std::fclose(f);\n    return 3;\n}\n",
+        )
+        .unwrap();
+    let run = |mode: &str, work: &str, index_url: Option<&str>| {
+        let mut command = scrubbed(tool());
+        command
+            .current_dir(dir.path())
+            .arg(mode)
+            .arg("--ports-dir")
+            .arg(&ports)
+            .arg("--cache-dir")
+            .arg(&cache)
+            .arg("--work-dir")
+            .arg(dir.child(work).path())
+            .arg("--cabin")
+            .arg(cabin_binary());
+        if let Some(url) = index_url {
+            command
+                .arg("--index-url")
+                .arg(url)
+                .env("CABIN_REGISTRY_TOKEN", "cabin_testtoken1234");
+        }
+        command.output().unwrap()
+    };
+
+    let registry = FakeRegistry::start();
+    let published = run("--publish", "publish-work", Some(&registry.url));
+    assert!(
+        published.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&published.stderr)
+    );
+    assert!(!marker.path().exists(), "the publish run executed a probe");
+
+    let dry = run("--dry-run", "dry-work", None);
+    let stderr = String::from_utf8_lossy(&dry.stderr);
+    assert!(!dry.status.success(), "a failing consumer test must fail");
+    assert!(stderr.contains("preflight probe `port-probe`"), "{stderr}");
+    assert!(
+        marker.path().exists(),
+        "the dry run never executed the probe"
+    );
+}
+
 /// Fake remote registry: `config.json` + empty package reads on the
 /// sparse index, and a publish API recording every PUT.
 struct FakeRegistry {

@@ -232,6 +232,9 @@ available with the package's *default* features: one gated behind a non-default
 `required-features` entry still publishes, but the probe does not compile it, because the probe
 enables no extra features.  A target declaring `interface-cxx-standard = "none"` is linked by a C
 consumer and the rest by a C++ one, so a package mixing the two is probed from both languages.
+Each probe compiles at the lowest standard the linked targets' declared interfaces accept (`c11` /
+`c++17` when they declare none), except that an MSVC host raises a floor below C11 / C++14 to
+those: `cl.exe` has no `/std:` flag for C99 or C++11.
 
 Both modes run the complete local preflight first: fetch or reuse every pinned upstream archive
 (SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard safe
@@ -239,11 +242,19 @@ materialization pipeline (extraction, `strip-prefix`, copy steps, patches),
 package each port, publish it into a temporary file registry, and build every port against the generated packages in
 publication order.  Each port is built through a generated probe package that depends on the
 just-published version, so the build consumes the registry artifact itself - resolution, checksum,
-archived manifest, source materialization, and compilation of every compiled library target.  The
-probe deliberately stops there: exercising a port's *API* (including its headers, calling its
-symbols) needs per-library knowledge a generic converter does not have, and is what the
-per-port packages under `examples/` - covered by the CLI integration tests over the same
-upstream sources - are for.
+archived manifest, source materialization, and compilation of every compiled library target.
+Exercising a port's *API* (including its headers, calling its symbols) needs per-library
+knowledge a generic converter does not have, so that knowledge is committed beside the ports: a
+probe consumer compiles `port-tests/<name>/<version>/main.cc` (or `main.c` for the C consumer)
+when the port has one, and an empty `main` otherwise; a file under `port-tests/` that no probe
+compiles (a stale version, a misspelled directory, or `main.c` for a port with no C consumer)
+fails the preflight rather than being skipped.  `--dry-run` then runs every probe, and a non-zero
+exit fails the preflight, so a consumer test is an ordinary program that returns non-zero on
+failure.  `--publish` builds the probes but never runs them: running upstream code in the job
+that holds the trusted-publishing OIDC token would hand that code the token, so running them is
+the pull-request dry-run's job.  The tests sit outside `ports/` (in `port-tests/` beside it)
+because they are never published: editing one changes no archive bytes.  The ports pull-request
+dry-run runs on Linux, macOS, and Windows.
 
 ```console
 $ cargo build -p cabinpkg
@@ -251,7 +262,8 @@ $ cargo port-publish --dry-run
 $ cargo port-publish --publish --index-url https://registry.cabinpkg.com
 ```
 
-`--dry-run` stops after the preflight.  `--publish` performs the same preflight and then uploads
+`--dry-run` stops after the preflight.  `--publish` performs the same preflight (building, not
+running, the probes) and then uploads
 every package through the registry API in publication order, in consecutive batches of 50 (sized
 for the operator quota class's publish rate): each batch is one `cabin publish` invocation, which
 under GitHub Actions exchanges for its own trusted-publishing token and revokes it, best-effort, on
@@ -324,7 +336,8 @@ port should be retired.  The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from `"cabin-ports/<name>"` to the appropriate
    `path` / `version` / `workspace` form pointing at the new upstream-maintained package.
-2. Delete the `ports/<name>/<version>/` directory.
+2. Delete the `ports/<name>/<version>/` directory and its `port-tests/<name>/<version>/`
+   consumer test.
 3. Update `ports/README.md`
    to remove the entry from the "Available ports" list.
 4. Note the retirement in the relevant release notes.
