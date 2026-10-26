@@ -1,0 +1,60 @@
+[package.upstream]
+url = "https://github.com/boostorg/beast/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:de6f1308125438d238d7d53d2b9be8eddc11db17977baf87e2a2e7fc1dd9ea29"
+format = "tar.gz"
+strip-prefix = "beast-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-beast"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-asio" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-bind" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-endian" = "=1.92.0"
+"cabin-ports/boost-intrusive" = "=1.92.0"
+"cabin-ports/boost-logic" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-static-string" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+# Upstream's header-only boost_beast.  boost/beast/ssl.hpp,
+# boost/beast/ssl/ and boost/beast/websocket/ssl.hpp include Asio's SSL
+# headers, which need OpenSSL; it has no port, so they compile only for
+# a consumer that supplies OpenSSL itself.
+[target.boost_beast]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-asio", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-bind", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-endian", public = true },
+  { name = "cabin-ports/boost-intrusive", public = true },
+  { name = "cabin-ports/boost-logic", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-static-string", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]

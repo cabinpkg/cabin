@@ -4,3 +4,7 @@ locale = "en-us"
 [default.extend-words]
 # `/Fo` is the MSVC `cl.exe` object-output flag.
 Fo = "Fo"
+
+[default.extend-identifiers]
+# `secur32` is the Windows security-support import library.
+secur32 = "secur32"

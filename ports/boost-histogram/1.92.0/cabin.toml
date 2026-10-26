@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/histogram/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:f31cda3232008145ea2fc974f63d20d52350835553db3cb870baf44944edc992"
+format = "tar.gz"
+strip-prefix = "histogram-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-histogram"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-math" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-variant2" = "=1.92.0"
+
+# No serialization edge: only the opt-in <boost/histogram/serialization.hpp>
+# includes Boost.Serialization, as in upstream's CMake target.
+[target.boost_histogram]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-math", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-variant2", public = true },
+]

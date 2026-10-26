@@ -1,0 +1,40 @@
+[package.upstream]
+url = "https://github.com/boostorg/units/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:e25cd2b93951d036d746ef52d1d4d1b5a3c7e0b57672df18d639237756e2b5bd"
+format = "tar.gz"
+strip-prefix = "units-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-units"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-lambda" = "=1.92.0"
+"cabin-ports/boost-math" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+
+[target.boost_units]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-lambda", public = true },
+  { name = "cabin-ports/boost-math", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+]

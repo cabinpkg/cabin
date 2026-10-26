@@ -1,0 +1,74 @@
+[package.upstream]
+url = "https://github.com/boostorg/geometry/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:aeacb5806df277ad9afc1376480b93d167f8231b7da0598e71617290fe41ee3c"
+format = "tar.gz"
+strip-prefix = "geometry-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-geometry"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-algorithm" = "=1.92.0"
+"cabin-ports/boost-any" = "=1.92.0"
+"cabin-ports/boost-array" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-function-types" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-graph" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-lexical-cast" = "=1.92.0"
+"cabin-ports/boost-math" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-multiprecision" = "=1.92.0"
+"cabin-ports/boost-numeric-conversion" = "=1.92.0"
+"cabin-ports/boost-polygon" = "=1.92.0"
+"cabin-ports/boost-qvm" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-rational" = "=1.92.0"
+"cabin-ports/boost-serialization" = "=1.92.0"
+"cabin-ports/boost-thread" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-tokenizer" = "=1.92.0"
+"cabin-ports/boost-tuple" = "=1.92.0"
+"cabin-ports/boost-variant" = "=1.92.0"
+"cabin-ports/boost-variant2" = "=1.92.0"
+
+[target.boost_geometry]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-algorithm", public = true },
+  { name = "cabin-ports/boost-any", public = true },
+  { name = "cabin-ports/boost-array", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-function-types", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-graph", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-lexical-cast", public = true },
+  { name = "cabin-ports/boost-math", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-multiprecision", public = true },
+  { name = "cabin-ports/boost-numeric-conversion", public = true },
+  { name = "cabin-ports/boost-polygon", public = true },
+  { name = "cabin-ports/boost-qvm", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-rational", public = true },
+  { name = "cabin-ports/boost-serialization:boost_serialization", public = true },
+  { name = "cabin-ports/boost-thread", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-tokenizer", public = true },
+  { name = "cabin-ports/boost-tuple", public = true },
+  { name = "cabin-ports/boost-variant", public = true },
+  { name = "cabin-ports/boost-variant2", public = true },
+]

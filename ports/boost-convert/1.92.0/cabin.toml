@@ -1,0 +1,42 @@
+[package.upstream]
+url = "https://github.com/boostorg/convert/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:0506d7abb052a9b20c2e08f2fce315c418dc9e5c8a580e6f5944113051b00911"
+format = "tar.gz"
+strip-prefix = "convert-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-convert"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-function-types" = "=1.92.0"
+"cabin-ports/boost-lexical-cast" = "=1.92.0"
+"cabin-ports/boost-math" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-parameter" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-spirit" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+# boost/convert/charconv.hpp needs C++17 (`#error` below it), so a
+# charconv-converter consumer compiles at C++17 itself.
+[target.boost_convert]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-function-types", public = true },
+  { name = "cabin-ports/boost-lexical-cast", public = true },
+  { name = "cabin-ports/boost-math", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-parameter", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-spirit", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

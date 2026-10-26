@@ -1,0 +1,90 @@
+[package.upstream]
+url = "https://github.com/boostorg/process/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:036ed9f1bf07c3a77e3e17040592e7ebf88b3e167ce9f91e5857d631ed34b6be"
+format = "tar.gz"
+strip-prefix = "process-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-process"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-algorithm" = "=1.92.0"
+"cabin-ports/boost-asio" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-filesystem" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-move" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-tokenizer" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+# Process v2, upstream's compiled library, on Boost.Filesystem (the
+# default; BOOST_PROCESS_USE_STD_FS would change the ABI).  Upstream's
+# CMake lists every source on every platform; each guards itself.
+[target.boost_process]
+type = "library"
+sources = [
+  "src/detail/environment_posix.cpp",
+  "src/detail/environment_win.cpp",
+  "src/detail/last_error.cpp",
+  "src/detail/process_handle_windows.cpp",
+  "src/detail/throw_error.cpp",
+  "src/detail/utf8.cpp",
+  "src/environment.cpp",
+  "src/error.cpp",
+  "src/ext/cmd.cpp",
+  "src/ext/cwd.cpp",
+  "src/ext/env.cpp",
+  "src/ext/exe.cpp",
+  "src/ext/proc_info.cpp",
+  "src/pid.cpp",
+  "src/posix/close_handles.cpp",
+  "src/shell.cpp",
+  "src/windows/default_launcher.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_PROCESS_SOURCE"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_process"
+deps = [
+  { name = "cabin-ports/boost-algorithm", public = true },
+  { name = "cabin-ports/boost-asio", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-filesystem", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-move", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-tokenizer", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]
+
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["pthread"]
+
+# The headers include <windows.h> ahead of Asio's <winsock2.h>, so the
+# sources build with WIN32_LEAN_AND_MEAN, as upstream's Jamfile does.  A
+# consumer that includes these headers before any Asio header needs the
+# define too, as upstream's tests set it; a port cannot propagate it.
+[target.'cfg(os = "windows")'.profile]
+defines = ["WIN32_LEAN_AND_MEAN"]
+link-libs = ["advapi32", "ntdll", "shell32", "user32", "ws2_32"]

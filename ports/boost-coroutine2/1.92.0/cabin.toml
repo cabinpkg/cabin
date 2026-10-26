@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/coroutine2/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:12872795f9ec43996d50d6bba1bd92e3d2ac7357f45ee8b1ae18524775c89722"
+format = "tar.gz"
+strip-prefix = "coroutine2-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-coroutine2"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-context" = "=1.92.0"
+
+[target.boost_coroutine2]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-context", public = true },
+]

@@ -1,0 +1,43 @@
+[package.upstream]
+url = "https://github.com/boostorg/math/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:aa84eec67402a51cb98172ece53b82f0500e95a80656de109074a71920cd2c48"
+format = "tar.gz"
+strip-prefix = "math-boost-1.92.0"
+
+# The full release tree (doc/, test/, reporting/) is 30.6 MB compressed,
+# above the registry's 16 MiB archive cap; consumers need only the headers.
+[package]
+name = "cabin-ports/boost-math"
+version = "1.92.0"
+include = ["LICENSE", "include"]
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-lexical-cast" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-random" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+# Header-only, as upstream builds it by default.  The legacy C99/TR1
+# libraries (src/tr1) are not built, so <boost/math/tr1.hpp> has nothing
+# to link against.  boost/math/bindings (gmpfrxx, mpreal, NTL) and
+# boost/math/optimization/cma_es.hpp (Eigen) need libraries with no port.
+[target.boost_math]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-lexical-cast", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-random", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]
