@@ -1,0 +1,50 @@
+[package.upstream]
+url = "https://github.com/boostorg/range/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:b8f11b8d35a18c5ea0d822102e5ae977d1a84e3842a8fe11c397425488415ec2"
+format = "tar.gz"
+strip-prefix = "range-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-range"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-array" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-conversion" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-regex" = "=1.92.0"
+"cabin-ports/boost-tuple" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_range]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-array", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-conversion", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-regex", public = true },
+  { name = "cabin-ports/boost-tuple", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

@@ -1,0 +1,36 @@
+[package.upstream]
+url = "https://github.com/boostorg/lambda/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:6d07bc0b427947d1ba37011eb31aa1e78be808945e3dd6329700b48fad822503"
+format = "tar.gz"
+strip-prefix = "lambda-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-lambda"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-tuple" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_lambda]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-tuple", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

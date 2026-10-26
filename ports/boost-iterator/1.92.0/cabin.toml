@@ -1,0 +1,38 @@
+[package.upstream]
+url = "https://github.com/boostorg/iterator/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:5f07301876b74af4387b4e7d8f3d01172978c9c321ca403791307de24a5b775d"
+format = "tar.gz"
+strip-prefix = "iterator-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-iterator"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_iterator]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

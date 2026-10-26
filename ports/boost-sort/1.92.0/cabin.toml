@@ -1,0 +1,30 @@
+[package.upstream]
+url = "https://github.com/boostorg/sort/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:b25005996555c9ed7b6c2bb0cdd42bd0fbed4b73ae59a6bf2c4527d7b89f6578"
+format = "tar.gz"
+strip-prefix = "sort-boost-1.92.0"
+patches = [
+  "patches/0001-include-cstdint.patch",
+  "patches/0002-include-string.patch",
+]
+
+[package]
+name = "cabin-ports/boost-sort"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_sort]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]
