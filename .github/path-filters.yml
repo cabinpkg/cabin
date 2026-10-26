@@ -5,8 +5,8 @@
 # always() aggregates that fail closed on a failed gate - and
 # `cargo workflow-superseded --relevant-to <filter>`,
 # which scopes the deploy and publish freshness guards. Keep entries
-# double-quoted on comment-free lines (the guard's strict parser
-# otherwise warns and falls back to unscoped supersession), and keep
+# double-quoted on comment-free lines (in the lists the guards read,
+# the strict parser otherwise fails the steps they gate), and keep
 # the lists coarse. Each workflow's gate list ends with the CI files
 # it consumes - its own workflow file, the shared gate workflow, any
 # local action, and this filter file - so an edit to any of them

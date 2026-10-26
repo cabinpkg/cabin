@@ -64,7 +64,8 @@ fn guard(dir: &Path, arguments: &[&str], environment: &[(&str, &str)]) -> Output
     let mut command = Command::new(env!("CARGO_BIN_EXE_xtask-workflow-guard"));
     command.current_dir(dir).args(arguments);
     pin_git_environment(&mut command);
-    command.env_remove("GITHUB_OUTPUT");
+    // A CI runner sets both for the test process itself.
+    command.env_remove("GITHUB_OUTPUT").env_remove("GITHUB_SHA");
     for &(name, value) in environment {
         command.env(name, value);
     }
@@ -151,11 +152,58 @@ fn superseded_answers_through_github_output() {
     assert!(!unwritten.exists(), "and writes nothing");
 }
 
+/// A question the guard cannot answer fails the step and writes
+/// nothing, whichever answer the gated deploy would have read from an
+/// empty `$GITHUB_OUTPUT`: an unset SHA (which git would otherwise
+/// read as `HEAD..origin/main`), a malformed one, and a well-formed
+/// SHA the clone does not contain, where `rev-list` itself exits 128
+/// with an empty stdout.
+#[test]
+fn superseded_fails_closed_when_the_range_cannot_be_walked() {
+    let scratch = assert_fs::TempDir::new().unwrap();
+    let work = cloned_pair(scratch.path());
+    let first = push_commit(&work, "registry/src/lib.rs", "first");
+    push_commit(&work, "registry/src/lib.rs", "second");
+
+    let answered = scratch.path().join("answered");
+    let run = guard(
+        &work,
+        &["superseded"],
+        &[
+            ("GITHUB_SHA", &first),
+            ("GITHUB_OUTPUT", &answered.to_string_lossy()),
+        ],
+    );
+    assert!(run.status.success(), "{run:?}");
+    assert_eq!(fs::read_to_string(&answered).unwrap(), "superseded=true\n");
+
+    let unknown = "0123456789abcdef0123456789abcdef01234567";
+    for (case, sha) in [
+        ("unset", None),
+        ("malformed", Some("HEAD")),
+        ("abbreviated", Some(&first[..12])),
+        ("unknown", Some(unknown)),
+    ] {
+        let unwritten = scratch.path().join(case);
+        let output = unwritten.to_string_lossy();
+        let mut environment = vec![("GITHUB_OUTPUT", output.as_ref())];
+        environment.extend(sha.map(|sha| ("GITHUB_SHA", sha)));
+        let run = guard(&work, &["superseded"], &environment);
+        assert!(!run.status.success(), "{case}: {run:?}");
+        assert!(!unwritten.exists(), "{case}: writes nothing");
+        assert!(
+            String::from_utf8_lossy(&run.stderr)
+                .contains("cannot tell whether this run is superseded"),
+            "{case}: {run:?}"
+        );
+    }
+}
+
 /// With `--relevant-to`, only newer commits matching that filter's
 /// list in `.github/path-filters.yml` supersede: an irrelevant newer
 /// commit writes nothing, a relevant one writes `superseded=true`,
-/// and a list the file does not carry falls back to unscoped
-/// supersession with a warning.
+/// and a list the file does not carry fails the step rather than
+/// guessing a scope.
 #[test]
 fn superseded_scoping_reads_the_shared_filter_file() {
     let scratch = assert_fs::TempDir::new().unwrap();
@@ -198,21 +246,17 @@ fn superseded_scoping_reads_the_shared_filter_file() {
     assert!(run.status.success(), "{run:?}");
     assert_eq!(fs::read_to_string(&output).unwrap(), "superseded=true\n");
 
-    let fallback = scratch.path().join("fallback");
+    let unscoped = scratch.path().join("unscoped");
     let run = guard(
         &work,
         &["superseded", "--relevant-to", "no-such-filter"],
         &[
             ("GITHUB_SHA", &first),
-            ("GITHUB_OUTPUT", &fallback.to_string_lossy()),
+            ("GITHUB_OUTPUT", &unscoped.to_string_lossy()),
         ],
     );
-    assert!(run.status.success(), "{run:?}");
-    assert_eq!(
-        fs::read_to_string(&fallback).unwrap(),
-        "superseded=true\n",
-        "an unusable list falls back to any-newer-commit"
-    );
+    assert!(!run.status.success(), "an unusable list fails: {run:?}");
+    assert!(!unscoped.exists(), "and writes nothing");
     assert!(
         String::from_utf8_lossy(&run.stderr).contains("no usable `no-such-filter` list"),
         "{run:?}"
