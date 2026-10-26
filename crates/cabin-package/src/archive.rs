@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
+use camino::{Utf8Component, Utf8Path};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, System, ZipWriter};
 
@@ -118,6 +119,30 @@ fn reject_case_conflicts(files: &[PackageFile]) -> Result<(), PackageError> {
         }
     }
     Ok(())
+}
+
+/// The archive entry a target's declared `source` names, in the
+/// forward-slash relative form the walk records: `.` dropped and an
+/// internal `..` resolved against the component before it
+/// (`src/../main.cc` -> `main.cc`), since staging archives the
+/// resolved file.  The registry verifier matches sources to entries
+/// through this same function.  `None` for a path that names no entry
+/// inside the root (a root, a prefix, or an escaping `..`), which
+/// `validate::validate_publishable` already rejects.
+pub fn source_entry(source: &Utf8Path) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for component in source.components() {
+        match component {
+            Utf8Component::Normal(name) => parts.push(name),
+            Utf8Component::CurDir => {}
+            Utf8Component::ParentDir if parts.pop().is_some() => {}
+            _ => return None,
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("/"))
 }
 
 /// Reject the archive if `cabin.toml` is not at its root.  Practically
@@ -302,6 +327,26 @@ mod tests {
     use super::*;
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
+
+    #[test]
+    fn source_entry_resolves_a_source_to_its_entry() {
+        for (source, expected) in [
+            ("src/main.cc", Some("src/main.cc")),
+            ("./src/main.cc", Some("src/main.cc")),
+            ("src/./main.cc", Some("src/main.cc")),
+            ("src/../main.cc", Some("main.cc")),
+            ("a/b/../c.c", Some("a/c.c")),
+            ("main.c", Some("main.c")),
+            ("../escape.cc", None),
+            (".", None),
+        ] {
+            assert_eq!(
+                source_entry(Utf8Path::new(source)).as_deref(),
+                expected,
+                "source: {source}"
+            );
+        }
+    }
 
     fn paths(files: &[PackageFile]) -> Vec<&str> {
         files.iter().map(|f| f.rel_path.as_str()).collect()

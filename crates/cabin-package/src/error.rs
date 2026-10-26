@@ -41,6 +41,13 @@ pub enum PackageError {
     ArchiveMissingManifest,
 
     #[error(
+        "target {target:?} declares source `{path}` but the package archive would not contain it; \
+         check its spelling and case, and that it is not under a directory packaging skips \
+         (`build`, `dist`, ...)"
+    )]
+    SourceMissing { target: String, path: String },
+
+    #[error(
         "manifest declares upstream patch `{path}` but the package archive would not contain it; \
          add the file or drop the `[package.upstream]` `patches` entry"
     )]

@@ -210,7 +210,10 @@ Symlink / hard-link / unsupported file-type errors are raised later, during arch
 - `refusing to package `<path>` because only regular files and directories are supported`
 
 If the archive enumeration yields no `cabin.toml` at the root the run fails with `package archive
-would not contain cabin.toml`.
+would not contain cabin.toml`.  Every target source must be a file the enumeration collected, so a
+source that is absent, or that sits under an excluded directory such as `build/`, fails staging with
+`target "<name>" declares source <path> but the package archive would not contain it` instead of
+publishing a version the registry verifier rejects as `missing_source`.
 
 ## Canonical metadata
 
