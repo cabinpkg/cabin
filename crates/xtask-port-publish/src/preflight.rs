@@ -13,9 +13,17 @@
 //! was packaged from.  The probe references the dependency the way
 //! the published target set allows: the bare-package shorthand when
 //! the package exposes exactly one library-like target, explicit
-//! `package:target` selectors otherwise.
+//! `package:target` selectors otherwise.  A probe consumer's source
+//! is the port's committed consumer test
+//! (`port-tests/<name>/<version>/main.cc` or `main.c`) when one
+//! exists, so the build exercises the port's API, and an empty `main`
+//! otherwise.  A dry-run then runs every probe, which must exit
+//! successfully; `--publish` only builds them, keeping upstream code
+//! from running beside the job's OIDC token.
 
+use std::collections::BTreeSet;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -39,6 +47,11 @@ pub struct PreflightRequest<'a> {
     pub work_dir: &'a Path,
     /// `cabin` binary used for the preflight builds.
     pub cabin: &'a Path,
+    /// Committed consumer tests, mirroring the ports layout
+    /// (`<tests_dir>/<name>/<version>/main.cc`).
+    pub tests_dir: &'a Path,
+    /// Whether to run each built probe as well.
+    pub run_probes: bool,
 }
 
 /// Where the preflight left its outputs.
@@ -59,7 +72,8 @@ pub struct PreflightReport {
 /// # Errors
 /// Returns the first failure: archive fetch or checksum mismatch,
 /// preparation, staging or publish-lint rejection, file-registry
-/// write, or a probe build exiting non-zero.
+/// write, or a probe build (or, with `run_probes`, run) exiting
+/// non-zero.
 pub fn preflight(request: &PreflightRequest<'_>) -> Result<PreflightReport> {
     // The tool owns everything under `run/` and nothing else; a
     // reused work dir therefore cannot trip the file registry's
@@ -68,6 +82,7 @@ pub fn preflight(request: &PreflightRequest<'_>) -> Result<PreflightReport> {
     if run_dir.exists() {
         fs::remove_dir_all(&run_dir).with_context(|| format!("clearing {}", run_dir.display()))?;
     }
+    ensure_consumer_tests_used(request.tests_dir, request.conversions)?;
     let registry_dir = run_dir.join("registry");
     let sources_dir = run_dir.join("src");
     let ports_cache = request.cache_dir.join("ports");
@@ -385,30 +400,118 @@ fn build_probe_against_registry(
     fs::create_dir_all(&probe_dir).with_context(|| format!("creating {}", probe_dir.display()))?;
     fs::write(probe_dir.join("cabin.toml"), probe_manifest(conversion))
         .with_context(|| format!("writing probe manifest into {}", probe_dir.display()))?;
-    for source in probe_sources(conversion) {
-        fs::write(probe_dir.join(source), "int main() { return 0; }\n")
-            .with_context(|| format!("writing probe source into {}", probe_dir.display()))?;
+    for consumer in probe_consumers(conversion) {
+        fs::write(
+            probe_dir.join(consumer.source),
+            probe_source(request.tests_dir, conversion, consumer.source)?,
+        )
+        .with_context(|| format!("writing probe source into {}", probe_dir.display()))?;
     }
 
-    let status = Command::new(request.cabin)
-        .arg("build")
-        .arg("--manifest-path")
-        .arg(probe_dir.join("cabin.toml"))
-        .arg("--index-path")
-        .arg(registry_dir)
-        .arg("--cache-dir")
-        .arg(run_dir.join("cache"))
-        .arg("--build-dir")
-        .arg(probe_dir.join("build"))
-        .arg("--offline")
-        .status()
-        .with_context(|| format!("running {} build", request.cabin.display()))?;
+    let cabin = |command: &[&str]| {
+        Command::new(request.cabin)
+            .args(command)
+            .arg("--manifest-path")
+            .arg(probe_dir.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(registry_dir)
+            .arg("--cache-dir")
+            .arg(run_dir.join("cache"))
+            .arg("--build-dir")
+            .arg(probe_dir.join("build"))
+            .arg("--offline")
+            .status()
+            .with_context(|| format!("running {} {}", request.cabin.display(), command[0]))
+    };
+    let status = cabin(&["build"])?;
     if !status.success() {
         bail!(
             "preflight build of {} {} against the generated registry failed ({status})",
             conversion.scoped_name.as_str(),
             conversion.published_version
         );
+    }
+    if request.run_probes {
+        for consumer in probe_consumers(conversion) {
+            let status = cabin(&["run", "--bin", consumer.target])?;
+            if !status.success() {
+                bail!(
+                    "preflight probe `{}` of {} {} failed ({status})",
+                    consumer.target,
+                    conversion.scoped_name.as_str(),
+                    conversion.published_version
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A probe consumer's source: the port's committed consumer test for
+/// that language when one exists, an empty `main` otherwise.
+fn probe_source(tests_dir: &Path, conversion: &PortConversion, source: &str) -> Result<Vec<u8>> {
+    let test = consumer_test_path(tests_dir, conversion, source)?;
+    if test.is_file() {
+        fs::read(&test).with_context(|| format!("reading {}", test.display()))
+    } else {
+        Ok(b"int main() { return 0; }\n".to_vec())
+    }
+}
+
+/// `<tests_dir>/<port dir>/<version dir>/<source>`: the consumer test
+/// mirrors the committed port directory it exercises.
+fn consumer_test_path(
+    tests_dir: &Path,
+    conversion: &PortConversion,
+    source: &str,
+) -> Result<PathBuf> {
+    let version_dir = &conversion.committed_dir;
+    let name_dir = version_dir
+        .parent()
+        .ok_or_else(|| anyhow!("{} has no port directory", version_dir.display()))?;
+    let (Some(name), Some(version)) = (name_dir.file_name(), version_dir.file_name()) else {
+        bail!(
+            "{} is not a ports/<name>/<version> directory",
+            version_dir.display()
+        );
+    };
+    Ok(tests_dir.join(name).join(version).join(source))
+}
+
+/// Every file under the tests dir must be a source some probe consumer
+/// compiles: a misnamed, orphaned, or wrong-language test would
+/// otherwise fall back to the empty `main` without a word.
+fn ensure_consumer_tests_used(tests_dir: &Path, conversions: &[PortConversion]) -> Result<()> {
+    let mut expected = BTreeSet::new();
+    for conversion in conversions {
+        for consumer in probe_consumers(conversion) {
+            expected.insert(consumer_test_path(tests_dir, conversion, consumer.source)?);
+        }
+    }
+    let mut pending = vec![tests_dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Err(err) if err.kind() == io::ErrorKind::NotFound && dir == tests_dir => return Ok(()),
+            entries => entries.with_context(|| format!("reading {}", dir.display()))?,
+        };
+        for entry in entries {
+            let entry = entry.with_context(|| format!("reading {}", dir.display()))?;
+            let path = entry.path();
+            // Finder's `.DS_Store` and editor dotfiles are not tests.
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if entry.file_type()?.is_dir() {
+                pending.push(path);
+            } else if !expected.contains(&path) {
+                bail!(
+                    "{} is not a consumer test any port's probe compiles: expected \
+                     <port dir>/<version>/main.cc (main.c only for a target declaring \
+                     `interface-cxx-standard = \"none\"`) naming a committed port",
+                    path.display()
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -450,14 +553,6 @@ fn probe_consumers(conversion: &PortConversion) -> Vec<ProbeConsumer<'_>> {
         });
     }
     consumers
-}
-
-/// The probe sources to write beside the generated manifest.
-fn probe_sources(conversion: &PortConversion) -> Vec<&'static str> {
-    probe_consumers(conversion)
-        .iter()
-        .map(|consumer| consumer.source)
-        .collect()
 }
 
 /// The probe package's manifest.  The exact requirement names the
@@ -551,6 +646,52 @@ mod tests {
             library_like_target_keys: target_keys.iter().map(|k| (*k).to_owned()).collect(),
             sole_library_target: target_keys.len() == 1,
         }
+    }
+
+    fn probe_sources(conversion: &PortConversion) -> Vec<&'static str> {
+        probe_consumers(conversion)
+            .iter()
+            .map(|consumer| consumer.source)
+            .collect()
+    }
+
+    /// The committed consumer test replaces the empty `main` for its
+    /// language only, looked up under the port's own `<name>/<version>`.
+    #[test]
+    fn a_committed_consumer_test_replaces_the_empty_main() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let tests_dir = dir.path().join("port-tests");
+        fs::create_dir_all(tests_dir.join("zlib/1.3.1")).unwrap();
+        fs::write(tests_dir.join("zlib/1.3.1/main.cc"), "// zlib test\n").unwrap();
+        fs::create_dir_all(tests_dir.join("zlib/1.3.0")).unwrap();
+        fs::write(tests_dir.join("zlib/1.3.0/main.c"), "// other version\n").unwrap();
+
+        let conversion = conversion(&["z"]);
+        assert_eq!(
+            probe_source(&tests_dir, &conversion, "main.cc").unwrap(),
+            b"// zlib test\n"
+        );
+        assert_eq!(
+            probe_source(&tests_dir, &conversion, "main.c").unwrap(),
+            b"int main() { return 0; }\n"
+        );
+    }
+
+    /// A test no probe compiles fails the preflight instead of being
+    /// skipped - here one left behind under a version no port has.
+    #[test]
+    fn an_unused_consumer_test_is_refused() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let tests_dir = dir.path().join("port-tests");
+        let conversions = [conversion(&["z"])];
+        fs::create_dir_all(tests_dir.join("zlib/1.3.1")).unwrap();
+        fs::write(tests_dir.join("zlib/1.3.1/main.cc"), "").unwrap();
+        ensure_consumer_tests_used(&tests_dir, &conversions).unwrap();
+
+        fs::create_dir_all(tests_dir.join("zlib/1.3.0")).unwrap();
+        fs::write(tests_dir.join("zlib/1.3.0/main.cc"), "").unwrap();
+        let err = ensure_consumer_tests_used(&tests_dir, &conversions).unwrap_err();
+        assert!(err.to_string().contains("1.3.0"), "{err}");
     }
 
     /// The committed-patch resolver is the only barrier between a

@@ -15,9 +15,10 @@
 //!   the filter file itself) must stay in `registry.yml`'s `registry`
 //!   filter, so the only pushes that reach this arm - ports-publish
 //!   ran, the registry jobs skipped - are ones touching nothing but
-//!   the ports tree or ports-publish's own workflow file, neither of
-//!   which any Worker or client code reads.  A `ports` filter entry
-//!   absent from the `registry` filter (other than `ports/**` and
+//!   the ports tree, its consumer tests, or ports-publish's own
+//!   workflow file, none of which any Worker or client code reads.  A
+//!   `ports` filter entry absent from the `registry` filter (other
+//!   than `ports/**`, `port-tests/**`, and
 //!   `.github/workflows/ports-publish.yml`) would let a
 //!   client-changing push publish against a Worker whose conformance
 //!   never ran for it.

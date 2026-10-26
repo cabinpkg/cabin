@@ -57,12 +57,21 @@ jobs:
 
   dry-run:
     # Pull requests, plus manual dispatch from a non-main ref (which
-    # must never publish). --dry-run runs the identical preflight the
-    # publish path runs: stage every port into a temporary file
-    # registry and build every port against it.
+    # must never publish). --dry-run runs the publish path's preflight
+    # (stage every port into a temporary file registry and build every
+    # port's probe against it), then runs each probe, on each platform
+    # the ports must support.
     needs: changes
     if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.ports == 'true') || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.exchange-check)) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-26
+          - windows-2025-vs2026
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,12 +96,18 @@ jobs:
           key: ports-archives-${{ hashFiles('ports/**/cabin.toml') }}
           restore-keys: ports-archives-
 
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
       - name: Build cabin and the publisher
         run: cargo build --locked -p cabinpkg -p xtask-port-publish
 
+      # The default shell: Git Bash's `link.exe` would shadow MSVC's.
       - name: Run the publisher dry-run
-        run: |
-          cargo port-publish --dry-run --cache-dir "$RUNNER_TEMP/cabin-cache"
+        env:
+          CABIN_CACHE_DIR: ${{ runner.temp }}/cabin-cache
+        run: cargo port-publish --dry-run
 
   publish:
     # The repository guard keeps forks from spending a long preflight
