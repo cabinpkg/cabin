@@ -1,0 +1,30 @@
+[package.upstream]
+url = "https://github.com/boostorg/pool/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:b82782bbb6a1936fda1706126b1a7d05a80fb0b6497b2502db6c75e008541f93"
+format = "tar.gz"
+strip-prefix = "pool-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-pool"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-integer" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+
+[target.boost_pool]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-integer", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+]

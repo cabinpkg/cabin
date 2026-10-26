@@ -1,0 +1,30 @@
+[package.upstream]
+url = "https://github.com/boostorg/function_types/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:d22c02921bd7308ccb7ed1a970a11cca5c04283503e4a64b9c46f86e4aea303b"
+format = "tar.gz"
+strip-prefix = "function_types-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-function-types"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_function_types]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

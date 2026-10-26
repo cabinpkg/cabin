@@ -1,0 +1,28 @@
+[package.upstream]
+url = "https://github.com/boostorg/tti/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:95284873b0f4931d3924207fa34f24faed1b76fc8af5a74b4d82ba76241012c4"
+format = "tar.gz"
+strip-prefix = "tti-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-tti"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-function-types" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_tti]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-function-types", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

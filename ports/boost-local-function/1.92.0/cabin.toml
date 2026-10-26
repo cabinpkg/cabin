@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/local_function/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:6019e8f1d4248796fe823295aff53a19b492911b5f302eb8e5cb2e423242fbb4"
+format = "tar.gz"
+strip-prefix = "local_function-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-local-function"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-scope-exit" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_local_function]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-scope-exit", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]
