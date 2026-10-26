@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/array/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:0e9d38d0b2ae167e2484a8f5211daa92cdf1c82c9992459d6dd5ab5dd6c14672"
+format = "tar.gz"
+strip-prefix = "array-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-array"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_array]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]

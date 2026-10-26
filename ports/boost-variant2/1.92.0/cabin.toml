@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/variant2/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:3137ec23fdfa5c7d67e31b5227b8ffd0dd918dec8f2fb9b6cebcb998f65c7180"
+format = "tar.gz"
+strip-prefix = "variant2-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-variant2"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+
+[target.boost_variant2]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+]
