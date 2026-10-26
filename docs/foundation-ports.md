@@ -342,6 +342,4 @@ port should be retired.  The retirement steps are:
 1. Switch downstream `[dependencies]` entries from `"cabin-ports/<name>"` to the appropriate
    `path` / `version` / `workspace` form pointing at the new upstream-maintained package.
 2. Delete the `ports/<name>/<version>/` directory.
-3. Update `ports/README.md`
-   to remove the entry from the "Available ports" list.
-4. Note the retirement in the relevant release notes.
+3. Note the retirement in the relevant release notes.

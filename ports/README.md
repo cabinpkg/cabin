@@ -79,44 +79,6 @@ entire port removes the whole `ports/<name>/` directory.
 - A foundation port should be **retired** once its upstream project ships and maintains a native
   `cabin.toml`.
 
-## Available ports
-
-- `boost-*/1.92.0/` - Boost 1.92.0, one port per library (`boost-config`, `boost-core`, ...); the
-  [Boost ledger](../docs/design/boost-ports.md) lists every library, its rules, and its status.
-- [`catch2/3.15.1/`](catch2/3.15.1/) - the Catch2 modern C++ test framework (upstream
-  amalgamation, default main plus a `custom-main` feature), version 3.15.1.
-- [`cJSON/1.7.18/`](cJSON/1.7.18/) - the cJSON ultralightweight JSON parser, version 1.7.18.
-- [`CLI11/2.6.2/`](CLI11/2.6.2/) - the CLI11 command line parser for C++11 and beyond
-  (header-only), version 2.6.2.
-- [`fmt/12.2.0/`](fmt/12.2.0/) - the {fmt} fast and safe C++ formatting library, version 12.2.0.
-- [`googletest/1.17.0/`](googletest/1.17.0/) - Google's C++ testing framework (GoogleTest library
-  only, no gtest_main / GoogleMock), version 1.17.0.
-- [`inih/62.0.0/`](inih/62.0.0/) - the inih simple INI file parser in C (C core only; upstream tag
-  r62 spelled as SemVer), version 62.0.0.
-- [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends
-  on `"cabin-ports/zlib"` and places its prebuilt `pnglibconf.h` with a
-  `[[package.upstream.copy]]` step.
-- [`miniz/3.1.2/`](miniz/3.1.2/) - the miniz single-file zlib-replacement compression library
-  (upstream amalgamated release zip), version 3.1.2.
-- [`nlohmann_json/3.12.0/`](nlohmann_json/3.12.0/) - JSON for Modern C++ (header-only), version
-  3.12.0.
-- [`picohttpparser/2026.4.6/`](picohttpparser/2026.4.6/) - the picohttpparser tiny HTTP
-  request/response parser in C (commit-pinned, date-versioned - upstream publishes no releases),
-  snapshot 2026.4.6.
-- [`spdlog/1.17.0/`](spdlog/1.17.0/) - the spdlog fast C++ logging library (header-only form),
-  version 1.17.0.
-- [`sqlite3/3.53.2/`](sqlite3/3.53.2/) - the SQLite self-contained SQL database engine
-  (amalgamation), version 3.53.2.
-- [`stb/2026.4.15/`](stb/2026.4.15/) - the stb single-file public domain libraries (header-only;
-  commit-pinned, date-versioned - stb publishes no releases), snapshot 2026.4.15.
-- [`tinyxml2/11.0.0/`](tinyxml2/11.0.0/) - the tinyxml2 small, efficient C++ XML parser, version
-  11.0.0.
-- [`uthash/2.4.0/`](uthash/2.4.0/) - the uthash hash table and container macros for C structures
-  (header-only), version 2.4.0.
-- [`xxhash/0.8.3/`](xxhash/0.8.3/) - the xxHash extremely fast non-cryptographic hash algorithm,
-  version 0.8.3.
-- [`zlib/1.3.1/`](zlib/1.3.1/) - the zlib compression library, version 1.3.1.
-
 ## Publishing ports as `cabin-ports/*` registry packages
 
 `cargo port-publish` publishes every port here, verbatim, under the `cabin-ports` scope.  Its
