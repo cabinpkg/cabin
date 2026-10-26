@@ -6,5 +6,5 @@ locale = "en-us"
 Fo = "Fo"
 
 [default.extend-identifiers]
-# `secur32` is the Windows security-support import library.
+# `secur32` is the Windows security-support import library (maintainer-approved in #2052).
 secur32 = "secur32"
