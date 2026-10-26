@@ -1,0 +1,26 @@
+[package.upstream]
+url = "https://github.com/boostorg/scope/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:2f38a24ba28830332b102966e6bb78e41bbcf68a21568a124f1bb4966855b08b"
+format = "tar.gz"
+strip-prefix = "scope-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-scope"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_scope]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/exception/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:de05c78a802510faa1ce54c47a3421d6350cb88d2d09686e6c05bbc7db3c861d"
+format = "tar.gz"
+strip-prefix = "exception-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-exception"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-tuple" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_exception]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-tuple", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

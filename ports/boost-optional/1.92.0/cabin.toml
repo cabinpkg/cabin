@@ -1,0 +1,28 @@
+[package.upstream]
+url = "https://github.com/boostorg/optional/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:6d914b02c45cea2294768c151589f5855e33d11d3491c613cee3382e27963a96"
+format = "tar.gz"
+strip-prefix = "optional-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-optional"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_optional]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

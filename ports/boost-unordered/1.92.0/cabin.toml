@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/unordered/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:cc2eac1c597c221f20d166273825bba3581e64b75c295e97eb67bd5444d4bef0"
+format = "tar.gz"
+strip-prefix = "unordered-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-unordered"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_unordered]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]
