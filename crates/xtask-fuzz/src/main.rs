@@ -141,7 +141,9 @@ fn seeds(root: &Path) -> Result<()> {
     }
 
     let mut archives = Vec::new();
+    let mut specs = Vec::new();
     for dir in SEED_PACKAGES {
+        specs.push((seed_name(dir), package_spec(&root.join(dir))?));
         let manifest = root.join(dir).join("cabin.toml");
         let staged = cabin_package::stage_with_project(
             &manifest,
@@ -170,12 +172,38 @@ fn seeds(root: &Path) -> Result<()> {
     write_seeds(&out.join("extract_tar_gz"), &tars)?;
 
     write_seeds(&out.join("apply_patch"), &patch_seeds()?)?;
+    write_seeds(&out.join("package_round_trip"), &specs)?;
 
     let mut manifests = Vec::new();
     for tree in MANIFEST_TREES {
         collect_manifests(root, &root.join(tree), &mut manifests)?;
     }
     write_seeds(&out.join("parse_manifest"), &manifests)
+}
+
+/// The package in `dir` as the round-trip target reads one: its
+/// `cabin.toml`, then each other file the packager collects as a NUL,
+/// its path, a newline, and its contents.
+fn package_spec(dir: &Path) -> Result<Vec<u8>> {
+    let files = cabin_package::archive::collect_package_files(dir, None)
+        .with_context(|| format!("listing {}", dir.display()))?;
+    let manifest = dir.join("cabin.toml");
+    let mut spec =
+        fs::read(&manifest).with_context(|| format!("reading {}", manifest.display()))?;
+    for file in files.iter().filter(|file| file.rel_path != "cabin.toml") {
+        let bytes = fs::read(&file.abs_path)
+            .with_context(|| format!("reading {}", file.abs_path.display()))?;
+        ensure!(
+            !bytes.contains(&0),
+            "{} holds a NUL byte",
+            file.abs_path.display()
+        );
+        spec.push(0);
+        spec.extend(file.rel_path.as_bytes());
+        spec.push(b'\n');
+        spec.extend(bytes);
+    }
+    Ok(spec)
 }
 
 /// A C package of [`FALLBACK_MANIFEST`], staged through the packager
