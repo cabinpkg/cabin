@@ -1,6 +1,7 @@
 //! Operator commands against the hosted registry Worker
 //! (`registry/`), run by hand from the repository root - or, for
-//! [`verify`], by the `registry-verify` workflow.
+//! [`verify`], by the `registry-verify` workflow, and for
+//! [`confirm_deploy`], by the registry workflow's deploy job.
 //!
 //! Crate boundaries: these hold the operator's own credentials and talk
 //! to the live service, which is what separates them from the static
@@ -9,12 +10,13 @@
 //!
 //! The disclosure rule the commands keep (`docs/architecture.md`,
 //! "`xtask-registry-admin`") is written for an operator reading their
-//! own terminal, and [`verify`] is the one command whose audience is
-//! neither an operator nor a private one: it runs unattended and its
-//! output is a public CI log.  It prints package names and versions,
-//! which the admin API already discloses to any verify-scope holder,
-//! plus the verdicts and reason codes its own verifier run computes -
-//! and never the token, the corpus, or archive bytes.
+//! own terminal, and [`verify`] and [`confirm_deploy`] are the commands
+//! whose audience is neither an operator nor a private one: they run
+//! unattended and their output is a public CI log.  `verify` prints
+//! package names and versions, which the admin API already discloses to
+//! any verify-scope holder, plus the verdicts and reason codes its own
+//! verifier run computes - and never the token, the corpus, or archive
+//! bytes; `confirm_deploy` prints Worker version ids and the run's tag.
 //!
 //! D1 and the R2 object commands go through the pinned `wrangler`
 //! ([`wrangler`]), the only supported path to them from outside the
@@ -25,6 +27,7 @@
 
 pub mod audit;
 pub mod backfill;
+pub mod confirm_deploy;
 pub mod diagnose;
 pub mod governor;
 pub mod launch_guard;
