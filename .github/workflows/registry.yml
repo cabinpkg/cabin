@@ -354,3 +354,47 @@ jobs:
           # and never falls back to its unpinned default.
           wranglerVersion: ${{ steps.wrangler.outputs.version }}
           workingDirectory: registry
+
+  # TEMPORARY PR probe, removed before merge: the freshness guard on a
+  # real runner, against this branch's binary and main's.
+  probe-superseded:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+      - name: Probe the guard
+        run: |
+          set -uo pipefail
+          git fetch -q origin main
+          older=$(git rev-parse 7ae2a211b)
+          tip=$(git rev-parse origin/main)
+          unknown=0123456789abcdef0123456789abcdef01234567
+          git worktree add -q "$RUNNER_TEMP/main" origin/main
+          failed=0
+          check() {
+            local name=$1 dir=$2 want=$3 expected=$4 sha=$5
+            shift 5
+            local out="$RUNNER_TEMP/out-$name"
+            (cd "$dir" && GITHUB_SHA="$sha" GITHUB_OUTPUT="$out" cargo workflow-superseded "$@")
+            local rc=$? got
+            got=$(cat "$out" 2>/dev/null || echo '<none>')
+            echo "::notice title=probe $name::exit=$rc output=$got"
+            if { [ "$want" = ok ] && [ "$rc" -ne 0 ]; } || { [ "$want" = fail ] && [ "$rc" -eq 0 ]; } || [ "$got" != "$expected" ]; then
+              echo "::error title=probe $name::wanted $want with output $expected"
+              failed=1
+            fi
+          }
+          check branch-older "$PWD" ok superseded=true "$older" --relevant-to registry
+          check branch-tip "$PWD" ok '<none>' "$tip" --relevant-to registry
+          check branch-unknown "$PWD" fail '<none>' "$unknown" --relevant-to registry
+          check branch-no-list "$PWD" fail '<none>' "$older" --relevant-to no-such-filter
+          check main-unknown "$RUNNER_TEMP/main" ok '<none>' "$unknown" --relevant-to registry
+          check main-no-list "$RUNNER_TEMP/main" ok superseded=true "$older" --relevant-to no-such-filter
+          exit "$failed"
