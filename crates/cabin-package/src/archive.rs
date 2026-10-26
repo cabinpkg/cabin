@@ -294,7 +294,16 @@ fn walk(
         let path = entry.path();
         let name_os = entry.file_name();
         let Some(name) = name_os.to_str() else {
-            return Err(PackageError::NonUtf8Path { path });
+            // No `include` entry can name a non-UTF-8 component, so the
+            // entry refuses the package only inside a listed directory.
+            if include.is_empty()
+                || include
+                    .iter()
+                    .any(|entry| below(&rel_str(root, dir), entry.as_str()))
+            {
+                return Err(PackageError::NonUtf8Path { path });
+            }
+            continue;
         };
         let file_type = entry.file_type().map_err(|source| PackageError::Io {
             path: path.clone(),
@@ -435,6 +444,26 @@ mod tests {
             paths(&files),
             vec!["cabin.toml", "include/a.h", "include/sub/b.h", "src/x.cc"]
         );
+    }
+
+    /// A non-UTF-8 name outside every listed path is skipped like any
+    /// other unlisted entry, while one inside a listed directory still
+    /// refuses the package.  Linux only: APFS refuses such names.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn include_skips_unlisted_non_utf8_names() {
+        use std::os::unix::ffi::OsStrExt;
+        let bad = std::ffi::OsStr::from_bytes(b"bad\xff");
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("include/a.h").write_str("a").unwrap();
+        fs::write(dir.path().join(bad), "z").unwrap();
+        let include = [Utf8PathBuf::from("include")];
+        let files = collect_package_files(dir.path(), None, &include).unwrap();
+        assert_eq!(paths(&files), vec!["cabin.toml", "include/a.h"]);
+        fs::write(dir.path().join("include").join(bad), "z").unwrap();
+        let err = collect_package_files(dir.path(), None, &include).unwrap_err();
+        assert!(matches!(err, PackageError::NonUtf8Path { .. }), "{err:?}");
     }
 
     /// An entry no file matches - here a case variant, which a

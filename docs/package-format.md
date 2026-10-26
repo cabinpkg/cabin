@@ -153,8 +153,8 @@ the archive.
 A manifest can narrow the walk with [`[package] include`](manifest.md#package): the archive then
 holds the root `cabin.toml` plus only the files at or below a listed path, matched by whole path
 components and exact spelling (`include` matches neither `includes/` nor `Include/`).  The walk
-never enters a directory outside the list, so nothing inside one can refuse the package, while the
-exclusions above still apply inside it.  An entry that matches no file, and a list that leaves out
+never enters a directory outside the list and skips every unlisted entry, so nothing outside the
+listed paths can refuse the package, while the exclusions above still apply inside them.  An entry that matches no file, and a list that leaves out
 a declared source or patch, fail staging.
 
 A `.cabinignore` file format is **not** part of the current local archive format and should not be
