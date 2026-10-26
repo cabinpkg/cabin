@@ -3,6 +3,7 @@ url = "https://github.com/boostorg/sort/archive/refs/tags/boost-1.92.0.tar.gz"
 checksum = "sha256:b25005996555c9ed7b6c2bb0cdd42bd0fbed4b73ae59a6bf2c4527d7b89f6578"
 format = "tar.gz"
 strip-prefix = "sort-boost-1.92.0"
+patches = ["patches/0001-include-cstdint.patch"]
 
 [package]
 name = "cabin-ports/boost-sort"
