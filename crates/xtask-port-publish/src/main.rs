@@ -94,9 +94,6 @@ fn options(cli: Cli) -> Result<(Options, Option<tempfile::TempDir>)> {
     let ports_dir = cli.ports_dir.unwrap_or_else(default_ports_dir);
     let options = Options {
         mode,
-        // Consumer tests mirror the ports tree they sit beside, so a
-        // scratch ports directory never picks up the repository's.
-        tests_dir: ports_dir.join("..").join("port-tests"),
         ports_dir,
         cache_dir: match cli.cache_dir {
             Some(dir) => dir,

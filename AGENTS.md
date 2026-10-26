@@ -93,9 +93,10 @@ in the same change and follow the architecture document.
 - `--target` is reserved for future platform/toolchain triples. Do not use it
   for manifest-target selection. The build-output flag is `--build-dir`;
   `--target-dir` is not an alias.
-- A port directory is published verbatim, so every edit, including a comment,
-  changes archive bytes. Compare its published digest before editing and do
-  not fold a port correction into unrelated work. Follow
+- A port directory, except its unpublished `tests/`, is published verbatim, so
+  every edit, including a comment, changes archive bytes. Compare its published
+  digest before editing and do not fold a port correction into unrelated work.
+  Follow
   `docs/foundation-ports.md` "Packaging revisions" for which corrections may
   respin as a packaging revision and which need a new upstream version; the
   temporary-registry preflight cannot validate this distinction.

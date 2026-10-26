@@ -5,8 +5,9 @@ C/C++ libraries - libraries that do not yet ship a native `cabin.toml` - to Cabi
 
 Every `<name>/<version>/` directory is a single `cabin.toml` carrying the canonical scoped identity
 (`cabin-ports/<name>`) and a complete `[package.upstream]` block, plus its `patches/` when it
-declares any.  It publishes verbatim: editing a byte here - a comment included - changes the
-published archive.  See [`docs/foundation-ports.md`](../docs/foundation-ports.md).
+declares any and a `tests/` consumer test when it has one.  The manifest and patches publish
+verbatim: editing a byte of them - a comment included - changes the published archive.  `tests/`
+is never published.  See [`docs/foundation-ports.md`](../docs/foundation-ports.md).
 
 Ports reach consumers as published `cabin-ports/*` registry packages; nothing in this directory is
 consumed from a user's manifest directly.  To publish one, the tool downloads the archive, verifies
