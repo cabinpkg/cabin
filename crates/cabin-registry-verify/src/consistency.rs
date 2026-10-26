@@ -77,7 +77,7 @@ pub(crate) fn check(
     // version consumers cannot build.  Header-only targets declare no
     // sources (the parser enforces it), so they check nothing.
     for target in &package.targets {
-        for source in &target.sources {
+        for source in target.declared_sources() {
             match cabin_package::archive::source_entry(source) {
                 Some(path) if files.contains_key(&path) => {}
                 // A source path that does not reduce to a plain

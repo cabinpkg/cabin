@@ -456,6 +456,7 @@ mod tests {
             required_features: Vec::new(),
             language: Default::default(),
             links: None,
+            conditional_sources: Vec::new(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),
@@ -498,6 +499,7 @@ mod tests {
             required_features: Vec::new(),
             language: Default::default(),
             links: None,
+            conditional_sources: Vec::new(),
         };
         let alpha = Package::new(
             PackageName::new("alpha").unwrap(),

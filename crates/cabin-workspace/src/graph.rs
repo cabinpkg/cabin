@@ -346,6 +346,7 @@ mod consumer_standards_tests {
             required_features: Vec::new(),
             language,
             links: None,
+            conditional_sources: Vec::new(),
         }
     }
 

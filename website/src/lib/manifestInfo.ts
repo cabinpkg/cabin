@@ -172,7 +172,7 @@ function conditionedDependencies(
             continue;
         }
         // The parser's cfg-table shape is deny_unknown_fields with
-        // exactly these four keys; anything else - notably
+        // exactly these five keys; anything else - notably
         // `system-dependencies`, since a conditional system dep is
         // spelled `system = true` inside the `dependencies` table -
         // is a publisher rejection, not data to drop.
@@ -378,14 +378,15 @@ const DEPENDENCY_TABLE_KEYS = new Set([
 ]);
 
 // The full `[target.'cfg(...)']` surface (the parser's
-// RawConditionalTargetTable): toolchain and profile are real fields
-// this page has no use for, so they pass silently rather than
-// failing manifests that publish.
+// RawConditionalTargetTable): toolchain, profile, and sources are
+// real fields this page has no use for, so they pass silently rather
+// than failing manifests that publish.
 const CONDITIONAL_TARGET_KEYS = new Set([
     "dependencies",
     "dev-dependencies",
     "toolchain",
     "profile",
+    "sources",
 ]);
 
 // The dependency-name grammar (cabin-core model.rs

@@ -1,6 +1,7 @@
 use crate::error::ManifestError;
 use crate::raw::{RawDependency, RawStandardField, RawTarget};
-use cabin_core::{Condition, Target, TargetKind, TargetName};
+use cabin_core::{Condition, ConditionalSources, Target, TargetKind, TargetName};
+use camino::Utf8PathBuf;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -82,7 +83,36 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         required_features,
         language,
         links,
+        conditional_sources: Vec::new(),
     })
+}
+
+/// Fold each `[target.'cfg(...)'.sources]` table onto the targets it
+/// names, in manifest order.
+pub(super) fn attach_conditional_sources(
+    targets: &mut [Target],
+    conditional_targets: &[RawConditionalTarget],
+) -> Result<(), ManifestError> {
+    for cond_target in conditional_targets {
+        for (name, sources) in &cond_target.sources {
+            let Some(target) = targets.iter_mut().find(|t| t.name.as_str() == name) else {
+                return Err(ManifestError::ConditionalSourcesUnknownTarget {
+                    condition: cond_target.condition.to_string(),
+                    target: name.clone(),
+                });
+            };
+            if target.kind.is_header_only() {
+                return Err(ManifestError::HeaderOnlyDeclaresSources {
+                    target: name.clone(),
+                });
+            }
+            target.conditional_sources.push(ConditionalSources {
+                condition: cond_target.condition.clone(),
+                sources: sources.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Raw shape of one `[target.'cfg(...)'.<...>]` entry, after we
@@ -97,6 +127,8 @@ pub(super) struct RawConditionalTarget {
     pub(super) toolchain: Option<crate::raw::RawToolchain>,
     pub(super) profile: Option<crate::raw::RawProfileFlags>,
     pub(super) named_profiles: Vec<(cabin_core::ProfileName, crate::raw::RawProfileFlags)>,
+    /// Target name -> sources added on matching hosts.
+    pub(super) sources: BTreeMap<String, Vec<Utf8PathBuf>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +142,8 @@ struct RawConditionalTargetTable {
     toolchain: Option<crate::raw::RawToolchain>,
     #[serde(default)]
     profile: Option<toml::Table>,
+    #[serde(default)]
+    sources: BTreeMap<String, Vec<Utf8PathBuf>>,
 }
 
 /// Whether a `[target.<NAME>]` entry name should be interpreted
@@ -147,6 +181,7 @@ pub(super) fn parse_conditional_target_entry(
         toolchain: typed.toolchain,
         profile,
         named_profiles,
+        sources: typed.sources,
     })
 }
 

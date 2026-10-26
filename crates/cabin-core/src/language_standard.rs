@@ -973,8 +973,7 @@ pub fn imposes_requirement(
     language: SourceLanguage,
 ) -> bool {
     let has_sources = target
-        .sources
-        .iter()
+        .declared_sources()
         .any(|s| classify_source(s) == Some(language));
     let target_declares = match language {
         SourceLanguage::C => {
@@ -1200,8 +1199,7 @@ pub fn find_interface_standard_contradictions(
         }
         let compiles = |language: SourceLanguage| {
             target
-                .sources
-                .iter()
+                .declared_sources()
                 .any(|s| classify_source(s) == Some(language))
         };
         if compiles(SourceLanguage::C) {
@@ -1347,6 +1345,7 @@ mod tests {
             required_features: Vec::new(),
             language,
             links: None,
+            conditional_sources: Vec::new(),
         }
     }
 
@@ -2192,6 +2191,7 @@ mod tests {
                         ..Default::default()
                     },
                     links: None,
+                    conditional_sources: Vec::new(),
                 },
             ],
             Vec::new(),

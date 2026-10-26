@@ -195,7 +195,7 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
     }
 
     for target in &package.targets {
-        for source in &target.sources {
+        for source in target.declared_sources() {
             ensure_within_root(source.as_std_path()).map_err(|path| {
                 PackageError::SourceEscapesPackageRoot {
                     target: target.name.as_str().to_owned(),

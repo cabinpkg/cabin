@@ -881,6 +881,23 @@ fn manifest_declaring_an_absent_source_is_rejected() {
     assert_rejected(&archive, &pending, Reason::MissingSource);
 }
 
+/// The verifier never evaluates a predicate: a source only another
+/// platform compiles must be archived too, or that platform's
+/// consumers get a verified version they cannot build.
+#[test]
+fn manifest_missing_a_platform_conditional_source_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let manifest = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
+                    [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\n\
+                    [target.'cfg(os = \"windows\")'.sources]\ndemo = [\"src/win.cc\"]\n";
+    let bytes = assemble(&[
+        Entry::deflated("cabin.toml", manifest.as_bytes()),
+        Entry::deflated("src/lib.cc", b"int demo() { return 0; }\n"),
+    ]);
+    let (archive, pending) = hostile_pending(&dir, &bytes);
+    assert_rejected(&archive, &pending, Reason::MissingSource);
+}
+
 #[test]
 fn missing_manifest_is_rejected() {
     let dir = TempDir::new().unwrap();

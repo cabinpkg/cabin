@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::build_flags::ProfileSettings;
 use crate::compiler_wrapper::CompilerWrapperRequest;
+use crate::condition::{Condition, ConditionContext, TargetPlatform};
 use crate::config::Features;
 use crate::error::ValidationError;
 use crate::language_standard::LanguageStandardSettings;
@@ -690,9 +691,45 @@ pub struct Target {
     /// the kind gate, and per-package claim uniqueness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub links: Option<String>,
+    /// Sources added on the platforms a `[target.'cfg(...)'.sources]`
+    /// table names, in manifest order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditional_sources: Vec<ConditionalSources>,
+}
+
+/// One `[target.'cfg(...)'.sources]` entry: sources a target compiles
+/// only on hosts where `condition` holds.  The condition is
+/// platform-only; the parser rejects feature and compiler leaves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConditionalSources {
+    pub condition: Condition,
+    pub sources: Vec<Utf8PathBuf>,
 }
 
 impl Target {
+    /// Every source the target declares, whatever its condition:
+    /// what validation, packaging, and verification must cover so a
+    /// manifest means the same thing on every host.
+    pub fn declared_sources(&self) -> impl Iterator<Item = &Utf8PathBuf> {
+        self.sources
+            .iter()
+            .chain(self.conditional_sources.iter().flat_map(|c| &c.sources))
+    }
+
+    /// The sources the target compiles on `platform`.
+    pub fn sources_for<'a>(
+        &'a self,
+        platform: &'a TargetPlatform,
+    ) -> impl Iterator<Item = &'a Utf8PathBuf> {
+        let ctx = ConditionContext::platform_only(platform);
+        self.sources.iter().chain(
+            self.conditional_sources
+                .iter()
+                .filter(move |c| c.condition.evaluate(&ctx))
+                .flat_map(|c| &c.sources),
+        )
+    }
+
     /// The subset of this target's `required-features` that is not
     /// in `enabled`, in declaration order.  Empty when the target
     /// is buildable under the given feature set.
@@ -1333,6 +1370,7 @@ mod tests {
             required_features: Vec::new(),
             language: LanguageStandardSettings::default(),
             links: None,
+            conditional_sources: Vec::new(),
         }
     }
 

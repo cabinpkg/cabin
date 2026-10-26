@@ -811,7 +811,7 @@ pub fn explain_target(
     let (pkg_idx, target) = hits[0];
     let pkg = &graph.packages[pkg_idx];
     let mut languages: BTreeSet<&'static str> = BTreeSet::new();
-    for source in &target.sources {
+    for source in target.declared_sources() {
         if let Some(lang) = cabin_core::classify_source(source) {
             languages.insert(lang.as_key());
         }
@@ -1407,6 +1407,7 @@ mod tests {
             required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
             links: None,
+            conditional_sources: Vec::new(),
         };
         graph.packages[2].package.targets.push(target);
         let exp = explain_target(&graph, &[2], "util").unwrap();
@@ -1432,6 +1433,7 @@ mod tests {
             required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
             links: None,
+            conditional_sources: Vec::new(),
         };
         graph.packages[1].package.targets.push(lib_target);
         let err = explain_target(&graph, &[1], "missing").unwrap_err();

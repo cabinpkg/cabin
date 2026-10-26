@@ -50,7 +50,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`json-cli/`](json-cli) | A JSON round trip on the header-only `cabin-ports/nlohmann_json` package: parse a document, read typed values, emit a derived summary. |
 | [`sqlite-todo/`](sqlite-todo) | An in-memory todo list on the `cabin-ports/sqlite3` package: DDL/DML through `sqlite3_exec`, then a prepare/step/finalize query loop. |
 | [`png-info/`](png-info) | An in-memory PNG encode/decode roundtrip on the `cabin-ports/libpng` package, pushing real image data across the transitive `libpng -> zlib` C package edge. |
-| [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
+| [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines and sources: one C++ source that compiles a different macro, and one C source per platform, on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually
 

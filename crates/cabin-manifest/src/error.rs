@@ -83,6 +83,16 @@ pub enum ManifestError {
     )]
     HeaderOnlyDeclaresSources { target: String },
 
+    #[error(
+        "`[target.{condition:?}.sources]` names {target:?}, which is not a target of this package"
+    )]
+    ConditionalSourcesUnknownTarget { condition: String, target: String },
+
+    #[error(
+        "`[target.{condition:?}.sources]` may only test the platform (`os`, `arch`, `family`, `env`, `abi`, `target`); a target's sources must not depend on features or the detected compiler"
+    )]
+    ConditionalSourcesNotPlatformOnly { condition: String },
+
     // -----------------------------------------------------------------
     // Dependency-kind errors.
     // -----------------------------------------------------------------

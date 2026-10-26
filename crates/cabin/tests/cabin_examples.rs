@@ -108,7 +108,7 @@ fn hello_cpp_builds_and_runs() {
 
 #[test]
 fn platform_cfg_builds_and_runs() {
-    require_cxx_build_tools();
+    require_c_and_cxx_build_tools();
     let dir = copy_example("platform-cfg");
     let output = cabin()
         .args(["run", "--manifest-path"])
@@ -120,19 +120,26 @@ fn platform_cfg_builds_and_runs() {
         .get_output()
         .clone();
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    // The `[target.'cfg(...)']` condition resolves against the host
-    // platform, so each OS compiles its own define and prints it -
-    // exercising the per-platform define path end to end (MSVC `/D`
-    // on Windows, GCC/Clang `-D` elsewhere).
+    // The `[target.'cfg(...)']` conditions resolve against the host
+    // platform, so each OS compiles its own define and its own C
+    // source and prints both - exercising the per-platform define
+    // path (MSVC `/D` on Windows, GCC/Clang `-D` elsewhere) and source
+    // selection end to end.  The two C sources define one symbol, so
+    // compiling the other platform's too would fail the link.
     let expected = if cfg!(windows) {
-        "Hello from Cabin on Windows"
+        [
+            "Hello from Cabin on Windows",
+            "Compiled src/platform_windows.c",
+        ]
     } else {
-        "Hello from Cabin on Unix"
+        ["Hello from Cabin on Unix", "Compiled src/platform_unix.c"]
     };
-    assert!(
-        stdout.contains(expected),
-        "platform-cfg run: stdout = {stdout}, expected to contain {expected:?}"
-    );
+    for expected in expected {
+        assert!(
+            stdout.contains(expected),
+            "platform-cfg run: stdout = {stdout}, expected to contain {expected:?}"
+        );
+    }
 }
 
 #[test]

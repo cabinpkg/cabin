@@ -135,6 +135,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         required_features: Vec::new(),
         language: language_for_sources(sources),
         links: None,
+        conditional_sources: Vec::new(),
     }
 }
 
@@ -158,6 +159,7 @@ fn target_with_includes(
         required_features: Vec::new(),
         language: language_for_sources(sources),
         links: None,
+        conditional_sources: Vec::new(),
     }
 }
 
@@ -230,6 +232,7 @@ fn plan_request<'a>(
         language_standards: &NO_LANGUAGE_STANDARDS,
         standard_flag_conflicts: &NO_FLAG_CONFLICTS,
         build_dir: PathBuf::from(build_dir),
+        platform: cabin_core::TargetPlatform::current(),
         profile: dev_profile(),
         selected: None,
         selected_packages: None,
@@ -331,6 +334,45 @@ fn plans_single_executable() {
         Utf8PathBuf::from("/abs/proj/build/dev/packages/hello/obj/hello/src/main.cc.o")
     );
     assert!(cc.arguments.iter().any(|a| a == "-std=c++17"));
+}
+
+/// `[target.'cfg(...)'.sources]` lists compile only on a host their
+/// condition matches; the unconditional list always compiles.
+#[test]
+fn conditional_sources_compile_only_on_a_matching_host() {
+    let mut hello = target("hello", TargetKind::Executable, &["src/main.cc"], &[]);
+    for (condition, source) in [
+        (r#"cfg(family = "unix")"#, "src/posix.cc"),
+        (r#"cfg(family = "windows")"#, "src/win32.cc"),
+    ] {
+        hello
+            .conditional_sources
+            .push(cabin_core::ConditionalSources {
+                condition: cabin_core::Condition::parse_cfg(condition).unwrap(),
+                sources: vec![Utf8PathBuf::from(source)],
+            });
+    }
+    let package = Package::new(pkg_name("hello"), version(), vec![hello], Vec::new()).unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain();
+    for (family, compiled) in [("unix", "src/posix.cc"), ("windows", "src/win32.cc")] {
+        let mut request = plan_request(&graph, &tc, "/abs/proj/build");
+        request.platform.family = family.to_owned();
+        let bg = plan(&request).unwrap();
+        let files: Vec<&Utf8Path> = bg
+            .compile_commands
+            .iter()
+            .map(|c| c.file.as_path())
+            .collect();
+        assert_eq!(
+            files,
+            [
+                Utf8Path::new("/abs/proj/src/main.cc"),
+                Utf8Path::new("/abs/proj").join(compiled).as_path()
+            ],
+            "{family}"
+        );
+    }
 }
 
 #[test]

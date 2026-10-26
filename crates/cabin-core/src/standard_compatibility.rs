@@ -393,8 +393,7 @@ pub fn dependency_attributes(
 
     let has_sources_of = |language: SourceLanguage| {
         target
-            .sources
-            .iter()
+            .declared_sources()
             .any(|source| classify_source(source) == Some(language))
     };
 

@@ -519,6 +519,7 @@ mod tests {
             required_features: Vec::new(),
             language: Default::default(),
             links: None,
+            conditional_sources: Vec::new(),
         }
     }
 
