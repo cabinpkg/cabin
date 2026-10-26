@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/decimal/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:943b4ae7982e76894c6aca5158c1fbd4a5170472870b98df15b9d77f7534ce22"
+format = "tar.gz"
+strip-prefix = "decimal-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-decimal"
+version = "1.92.0"
+
+[target.boost_decimal]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"

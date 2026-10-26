@@ -1,0 +1,18 @@
+[package.upstream]
+url = "https://github.com/boostorg/polygon/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:a87bd8a6390fd03800cdb38dd25610054f7703f4713b409f09bd369b5916f002"
+format = "tar.gz"
+strip-prefix = "polygon-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-polygon"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+
+[target.boost_polygon]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [{ name = "cabin-ports/boost-config", public = true }]

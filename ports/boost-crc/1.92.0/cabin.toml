@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/crc/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:c41b93fdde01afec96c39e4c4e6d3bf8734a62ecec9c4875699e0f73c3b0144e"
+format = "tar.gz"
+strip-prefix = "crc-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-crc"
+version = "1.92.0"
+
+[target.boost_crc]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"

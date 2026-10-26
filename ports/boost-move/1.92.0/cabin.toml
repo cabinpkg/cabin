@@ -1,0 +1,18 @@
+[package.upstream]
+url = "https://github.com/boostorg/move/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:7e50df59f1e5ba7614a762255a58142a7c2eccb8fa23c59a8a27789f25cad762"
+format = "tar.gz"
+strip-prefix = "move-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-move"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+
+[target.boost_move]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [{ name = "cabin-ports/boost-config", public = true }]

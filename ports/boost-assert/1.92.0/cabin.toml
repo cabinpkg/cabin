@@ -1,0 +1,18 @@
+[package.upstream]
+url = "https://github.com/boostorg/assert/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:8d49fc69df12e8fbc0e7fe3c4ede45044747199ccdeaf66c2aebb146becc54aa"
+format = "tar.gz"
+strip-prefix = "assert-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-assert"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+
+[target.boost_assert]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [{ name = "cabin-ports/boost-config", public = true }]

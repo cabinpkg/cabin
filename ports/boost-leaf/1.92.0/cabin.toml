@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/leaf/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:df77798f6515fba8410fcd4b194d383bad5b872aea8462129c715dc54300fe8a"
+format = "tar.gz"
+strip-prefix = "leaf-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-leaf"
+version = "1.92.0"
+
+[target.boost_leaf]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"

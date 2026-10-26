@@ -1,0 +1,15 @@
+[package.upstream]
+url = "https://github.com/boostorg/pfr/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:8209971b8a799dfb367ddb16f32343715c11579859dbc635c249aa8aeab7b66a"
+format = "tar.gz"
+strip-prefix = "pfr-boost-1.92.0"
+patches = ["patches/0001-exclude-clang-from-gcc7-alignment-workaround.patch"]
+
+[package]
+name = "cabin-ports/boost-pfr"
+version = "1.92.0"
+
+[target.boost_pfr]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"

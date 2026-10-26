@@ -122,6 +122,7 @@ export const DOCS_NAV: DocsNavSection[] = [
                 label: "Standard compatibility preference mode",
                 slug: "design/standard-compatibility/preference-mode",
             },
+            { label: "Boost foundation ports", slug: "design/boost-ports" },
         ],
     },
 ];

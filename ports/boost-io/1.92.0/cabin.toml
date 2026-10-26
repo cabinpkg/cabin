@@ -1,0 +1,18 @@
+[package.upstream]
+url = "https://github.com/boostorg/io/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:a42279650f8a79f93a24fbda0b968e519224efdff91e4177407a4ee8b9d9ee57"
+format = "tar.gz"
+strip-prefix = "io-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-io"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+
+[target.boost_io]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [{ name = "cabin-ports/boost-config", public = true }]

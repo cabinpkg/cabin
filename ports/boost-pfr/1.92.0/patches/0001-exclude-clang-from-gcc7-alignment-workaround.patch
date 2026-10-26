@@ -1,0 +1,11 @@
+--- a/include/boost/pfr/detail/offset_based_getter.hpp
++++ b/include/boost/pfr/detail/offset_based_getter.hpp
+@@ -42,7 +42,7 @@
+ template <typename... Ts>
+ struct tuple_of_aligned_storage<sequence_tuple::tuple<Ts...>> {
+   using type = sequence_tuple::tuple<internal_aligned_storage<sizeof(Ts),
+-#if defined(__GNUC__) && __GNUC__ < 8 && !defined(__x86_64__) && !defined(__CYGWIN__)
++#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 8 && !defined(__x86_64__) && !defined(__CYGWIN__)
+       // Before GCC-8 the `alignof` was returning the optimal alignment rather than the minimal one.
+       // We have to adjust the alignment because otherwise we get the wrong offset.
+       (alignof(Ts) > 4 ? 4 : alignof(Ts))
