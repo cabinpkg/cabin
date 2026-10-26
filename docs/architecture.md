@@ -607,8 +607,9 @@ runs, fuzzes every target on the corpus the previous run kept and minimizes it. 
 
 - build seed archives through the real `cabin-package` staging path, so the seeds are what
   publish emits rather than hand-written bytes (the extraction seeds re-wrap those files under
-  one top directory, as an upstream release archive nests them), and seed patches through
-  `git diff`, which writes the upstream patches a port declares;
+  one top directory, as an upstream release archive nests them), seed patches through
+  `git diff`, which writes the upstream patches a port declares, and list a round-trip seed's
+  files with the packager's own walk;
 - write only under `fuzz/seeds/` and `fuzz/corpus/`, apart from cargo-fuzz's `fuzz/artifacts/` and
   private scratch directories (the generated package it stages, the trees it diffs, the
   campaign's logs and merge);

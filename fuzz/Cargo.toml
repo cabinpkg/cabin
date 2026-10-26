@@ -64,6 +64,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "package_round_trip"
+path = "fuzz_targets/package_round_trip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "parse_manifest"
 path = "fuzz_targets/parse_manifest.rs"
 test = false

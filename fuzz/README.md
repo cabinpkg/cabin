@@ -12,14 +12,16 @@ of a panic.
 | `extract_zip` | zip bytes | the same, for zip |
 | `inspect_zip` | archive bytes, listed with their own checksum and the metadata publish derives from their `cabin.toml` (or from the harness's fallback manifest when the client's reader finds none) | anything the registry verifier verifies opens in the client's zip reader as regular files with safe, portable, unique UTF-8 names, CRC-clean, with a root `cabin.toml` |
 | `inspect_zip_wrong_digest` | archive bytes, listed with another archive's checksum | never verifies |
+| `package_round_trip` | a package's `cabin.toml`, then its other files, each a NUL, its path, a newline, and its contents, written to a scratch directory and staged through the packager | a package that stages, unless it declares an upstream or exceeds an extraction cap `cabin package` leaves to consumers, verifies as listed with the metadata staging produced, opens in the client's zip reader as `inspect_zip` requires, and fetches through the client to exactly the archive's files, each the package's own file at that path |
 | `parse_manifest` | `cabin.toml` text | parsing, the publishability check, and canonical-metadata derivation never panic |
 
 `src/lib.rs` holds the shared harness. Its unit tests check that every
 seed archive verifies and that one carries the fallback manifest, so the
 `inspect_zip` property is reachable, that every extraction seed
 extracts with its prefix stripped and without, so containment is checked
-past the extractor's own refusals, and that every patch seed applies, so
-the grammar property is reached.
+past the extractor's own refusals, that every patch seed applies, so the
+grammar property is reached, and that every package seed stages, so the
+round trip runs.
 
 ## Running
 
@@ -60,12 +62,12 @@ fuzzing that target locally.
 
 `seeds/` is generated: `cargo fuzz-seeds`, from the repository root,
 stages example packages (C and C++) and a package of the fallback
-manifest through the real packager, copies the published-archive fixture,
-re-wraps those archives' files under a `pkg/` top directory as zip and
-tar for the extraction targets, writes the patch seeds with `git diff`
-against a copy of the harness's tree, and collects every `cabin.toml`
-under `examples/` and `ports/`. `dicts/` holds the libFuzzer
-dictionaries.
+manifest through the real packager, writes the example packages' files
+as round-trip specs, copies the published-archive fixture, re-wraps
+those archives' files under a `pkg/` top directory as zip and tar for
+the extraction targets, writes the patch seeds with `git diff` against
+a copy of the harness's tree, and collects every `cabin.toml` under
+`examples/` and `ports/`. `dicts/` holds the libFuzzer dictionaries.
 
 `Cargo.lock` was seeded from the root lockfile, so the shared
 dependencies (`zip`, `toml`, the deflate backend, ...) started at the

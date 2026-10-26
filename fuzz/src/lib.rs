@@ -4,11 +4,14 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Cursor, Read, Write};
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use cabin_artifact::{ArtifactError, PatchInput, SafeExtractOptions};
+use cabin_artifact::{
+    ArtifactCache, ArtifactError, FetchEntry, FetchOptions, FetchPlan, FetchSource, PatchInput,
+    SafeExtractOptions,
+};
 use cabin_core::Checksum;
-use cabin_registry_verify::{Limits, PendingVersion, Verdict, VerifyError, inspect_bytes};
+use cabin_registry_verify::{Limits, PendingVersion, Reason, Verdict, VerifyError, inspect_bytes};
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use tempfile::TempDir;
@@ -42,6 +45,15 @@ pub fn inspect_as_listed(archive: &[u8], checksum: Checksum) -> Result<Verdict, 
         .unwrap_or_else(|| {
             metadata_of(FALLBACK_MANIFEST, &checksum).expect("the fallback manifest is publishable")
         });
+    inspect_listed_with(archive, checksum, metadata)
+}
+
+/// Inspect `archive` as the registry lists it with `metadata`.
+fn inspect_listed_with(
+    archive: &[u8],
+    checksum: Checksum,
+    metadata: serde_json::Value,
+) -> Result<Verdict, VerifyError> {
     let pending = PendingVersion {
         name: metadata["name"].as_str().unwrap_or_default().to_owned(),
         version: metadata["version"].as_str().unwrap_or_default().to_owned(),
@@ -85,10 +97,12 @@ fn metadata_of(manifest: &str, checksum: &Checksum) -> Option<serde_json::Value>
 /// header, under a safe, portable, unique relative path, decompressing
 /// to bytes that match its CRC, with `cabin.toml` at the root.
 ///
+/// Returns the entry names.
+///
 /// # Panics
 ///
 /// When any of those promises is broken.
-pub fn assert_client_agrees(archive: &[u8]) {
+pub fn assert_client_agrees(archive: &[u8]) -> BTreeSet<String> {
     let mut zip = zip::ZipArchive::new(Cursor::new(archive))
         .expect("a verified archive opens in the client's zip reader");
     let mut names = BTreeSet::new();
@@ -120,6 +134,125 @@ pub fn assert_client_agrees(archive: &[u8]) {
         names.contains("cabin.toml"),
         "a verified archive has no root cabin.toml"
     );
+    names
+}
+
+/// Stage the package `spec` describes through the packager and, when it
+/// stages within the extraction caps, check that the registry verifier
+/// verifies it as publish lists it and the client fetches back exactly
+/// the archive's files, each the package's own.
+/// `spec` is the package's `cabin.toml`, then `\0`-separated files, each
+/// a safe relative path, a newline, and its contents. Returns whether
+/// the checks ran.
+///
+/// # Panics
+///
+/// When a staged package fails any of those checks, or a scratch
+/// directory cannot be created.
+pub fn assert_package_round_trips(spec: &[u8]) -> bool {
+    let Some((scratch, root)) = write_package(spec) else {
+        return false;
+    };
+    let Ok(staged) = cabin_package::stage_with_project(
+        &root.join("cabin.toml"),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    ) else {
+        return false;
+    };
+    // The verifier also needs the pinned upstream archive, which a spec
+    // cannot carry.
+    if staged.package.upstream.is_some() {
+        return false;
+    }
+    let archive = staged.archive_bytes;
+    // Listed with the metadata publish uploads.
+    let metadata = serde_json::to_value(&staged.metadata).expect("staged metadata is JSON");
+    let verdict = inspect_listed_with(&archive, staged.checksum.clone(), metadata)
+        .expect("the verifier judges a package");
+    // `cabin package` leaves the extraction caps to their consumers
+    // (docs/package-format.md), so a package past one is out of scope.
+    if let Verdict::Rejected(reasons) = &verdict
+        && let [Reason::PathTooLong | Reason::TooManyEntries | Reason::DecompressedTooLarge] =
+            reasons.as_slice()
+    {
+        return false;
+    }
+    assert_eq!(
+        verdict,
+        Verdict::Verified,
+        "the verifier rejects a package the packager staged"
+    );
+    let names = assert_client_agrees(&archive);
+    let fetched = cabin_artifact::fetch(
+        &FetchPlan {
+            entries: vec![FetchEntry {
+                name: staged.name,
+                version: staged.version,
+                checksum: staged.checksum,
+                source: FetchSource::InMemoryArchive(archive),
+            }],
+        },
+        &ArtifactCache::new(scratch.path().join("cache")),
+        FetchOptions::default(),
+    )
+    .expect("the client fetches a package the verifier verified");
+    let source = &fetched.packages[0].source_dir;
+    let mut extracted = BTreeSet::new();
+    list_files(source, "", &mut extracted);
+    assert_eq!(
+        extracted, names,
+        "the client extracts other files than the archive holds"
+    );
+    for name in &names {
+        // Staging rewrites only workspace markers, which a standalone
+        // package cannot carry, so the manifest compares too.
+        let packed = fs::read(source.join(name)).expect("read an extracted file");
+        assert!(
+            fs::read(root.join(name)).is_ok_and(|own| own == packed),
+            "a fetched file is not the package's own: {name:?}"
+        );
+    }
+    true
+}
+
+/// The package `spec` describes, under `pkg/` in a scratch directory;
+/// `None` for a spec the harness cannot write as files.
+fn write_package(spec: &[u8]) -> Option<(TempDir, PathBuf)> {
+    let scratch = tempfile::tempdir().expect("create a scratch directory");
+    let root = scratch.path().join("pkg");
+    fs::create_dir(&root).expect("create a scratch directory");
+    let mut records = spec.split(|byte| *byte == 0);
+    fs::write(root.join("cabin.toml"), records.next()?).expect("write a scratch file");
+    for record in records {
+        let split = record
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .unwrap_or(record.len());
+        let path = std::str::from_utf8(&record[..split]).ok()?;
+        if path.is_empty() || !cabin_fs::path::is_safe_relative_path(Path::new(path)) {
+            return None;
+        }
+        let file = root.join(path);
+        fs::create_dir_all(file.parent()?).ok()?;
+        fs::write(&file, record.get(split + 1..).unwrap_or_default()).ok()?;
+    }
+    Some((scratch, root))
+}
+
+/// The files under `dir`, by path relative to it.
+fn list_files(dir: &Path, prefix: &str, out: &mut BTreeSet<String>) {
+    for entry in fs::read_dir(dir).expect("list an extracted directory") {
+        let entry = entry.expect("list an extracted directory");
+        let name = entry.file_name().into_string().expect("a UTF-8 file name");
+        let rel = format!("{prefix}{name}");
+        if entry.file_type().expect("stat an extracted entry").is_dir() {
+            list_files(&entry.path(), &format!("{rel}/"), out);
+        } else {
+            out.insert(rel);
+        }
+    }
 }
 
 /// The top directory `seeds/extract_*` nest every file under, as an
@@ -470,6 +603,33 @@ mod tests {
     #[should_panic(expected = "an accepted patch can open a raw string literal")]
     fn a_raw_string_prefix_breaks_the_grammar() {
         assert_lexable_head(b"--- R\"(a/x\n@@ -1 +1 @@\n");
+    }
+
+    /// The round-trip checks run only on a package that stages, so every
+    /// package seed must.
+    #[test]
+    fn every_package_seed_round_trips() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds/package_round_trip");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            assert!(
+                assert_package_round_trips(&std::fs::read(&path).unwrap()),
+                "{} does not stage",
+                path.display()
+            );
+            seen += 1;
+        }
+        assert!(seen > 0, "no package seeds in {}", dir.display());
+    }
+
+    /// A path past the extraction cap stages but is out of the round
+    /// trip's scope, not a crash.
+    #[test]
+    fn a_package_past_an_extraction_cap_is_skipped() {
+        let mut spec = b"[package]\nname = \"demo\"\nversion = \"1.2.3\"\n\0".to_vec();
+        spec.extend(format!("{}/{}.h\nx", "a".repeat(130), "b".repeat(130)).bytes());
+        assert!(!assert_package_round_trips(&spec));
     }
 
     /// The deep target's oracle is only exercised on verified archives,
