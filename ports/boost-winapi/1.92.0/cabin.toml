@@ -1,0 +1,22 @@
+[package.upstream]
+url = "https://github.com/boostorg/winapi/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:09993abc4ba7b8238e9068983cda9db12b0e3ee39c8aed8e21162e98d0a3ad4e"
+format = "tar.gz"
+strip-prefix = "winapi-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-winapi"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+
+[target.boost_winapi]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+]

@@ -1,0 +1,26 @@
+[package.upstream]
+url = "https://github.com/boostorg/any/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:335090455387b06b356bbc317d4949f6e7455165942bd7f50dbfe9cab96d624a"
+format = "tar.gz"
+strip-prefix = "any-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-any"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+
+[target.boost_any]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+]

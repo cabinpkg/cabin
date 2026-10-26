@@ -1,0 +1,18 @@
+[package.upstream]
+url = "https://github.com/boostorg/vmd/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:c70c625ce08c7418e1940770de0aa5733e0cf3309cab77088f0568924ac3f757"
+format = "tar.gz"
+strip-prefix = "vmd-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-vmd"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+
+[target.boost_vmd]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [{ name = "cabin-ports/boost-preprocessor", public = true }]

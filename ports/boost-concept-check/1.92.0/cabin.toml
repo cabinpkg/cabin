@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/concept_check/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:8dbd2385b0045eddb4c0f071f3c9740c1e61fa3c4cb50d29e139b4b05f55b7e8"
+format = "tar.gz"
+strip-prefix = "concept_check-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-concept-check"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_concept_check]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

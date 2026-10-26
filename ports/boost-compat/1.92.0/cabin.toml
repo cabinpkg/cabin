@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/compat/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:5c75932af3b259abce882b203e6bd2ce5de7e7630e1fea24494fcb4e7da43c41"
+format = "tar.gz"
+strip-prefix = "compat-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-compat"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+[target.boost_compat]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]

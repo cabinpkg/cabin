@@ -1,0 +1,26 @@
+[package.upstream]
+url = "https://github.com/boostorg/uuid/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:a5fca6d0499b7e47e7bbdf59afb1aaf6876d7788b27c3c6b2bbacfc795234e35"
+format = "tar.gz"
+strip-prefix = "uuid-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-uuid"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_uuid]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]
