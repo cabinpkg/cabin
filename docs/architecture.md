@@ -211,7 +211,7 @@ are intentionally not traversed here.  Current invariants:
   `cabin_core::is_valid_package_base_name` (`^[a-z0-9][a-z0-9_-]*$`); the scope is
   `cabin_core::is_valid_package_scope`, the GitHub-login-compatible grammar (lowercase
   alphanumerics plus interior `-`, at most 39 bytes).  Names are compared exactly, never
-  case-folded; `cabin new` / `cabin init` lowercase only a default name they derive from a
+  case-folded; the only lowercasing is `cabin new` / `cabin init` deriving a default name from a
   directory.  The registry worker mirrors both grammars
   (`registry/src/routes.rs`), pinned by a parity test.  `cabin_core::is_path_safe_name` is the
   separate, looser *component* grammar (ASCII alphanumerics plus `_-.`, non-empty, not `.`/`..`,

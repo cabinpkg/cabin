@@ -99,9 +99,10 @@ publishing.
 
 When `--name` is omitted, the package name is derived from the final path component, lowercased
 (`cabin new path/to/hello-world` produces `hello-world`; `cabin new Boa` creates the directory
-`Boa` with the package `boa`).  If the lowercased component is still not a valid name (it is empty,
-contains `.` or other characters outside the grammar, or starts with `_` or `-`), Cabin falls back
-to the literal name `cabin-package`.
+`Boa` with the package `boa`); this is the only place Cabin lowercases a package name.  If the
+lowercased component is still not a valid name (it is empty, contains `.` or other characters
+outside the grammar, or starts with `_` or `-`), Cabin falls back to the literal name
+`cabin-package`.
 
 Pass `--name <name>` to override the derived name.  The override is used verbatim: `--name Boa` is
 rejected with a suggestion of `boa`, as is any other name outside the grammar.

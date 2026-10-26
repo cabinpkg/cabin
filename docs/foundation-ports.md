@@ -48,11 +48,11 @@ ports/<name>/<version>/
 
 The manifest publishes **verbatim**, so its committed bytes are the published bytes - a comment
 edit changes the published archive.  Its identity must agree with the directory layout: `<name>/`
-fixes `[package].name` at `cabin-ports/<lowercase name>` and `<version>/` fixes
-`[package].version`.  A port may declare only unconditional registry dependencies: no
-`system = true`, no path or workspace sources, and no `cfg(...)` dependency table, because
-publication ordering reads the declared edges without evaluating conditions.  The publisher
-refuses each of these with a message naming it.
+fixes `[package].name` at exactly `cabin-ports/<name>`, so the directory is itself a valid package
+name, and `<version>/` fixes `[package].version`.  A port may declare only unconditional registry
+dependencies: no `system = true`, no path or workspace sources, and no `cfg(...)` dependency
+table, because publication ordering reads the declared edges without evaluating conditions.  The
+publisher refuses each of these with a message naming it.
 
 ### Provenance
 
@@ -182,9 +182,9 @@ publisher owns and clears that whole scratch root).
 | Diagnostic | Trigger |
 | --- | --- |
 | ``must publish under the `cabin-ports` scope`` | `[package].name` carries a different scope, or none. |
-| ``disagrees with its `<name>/` directory`` | `[package].name` does not fold onto the port directory's name. |
+| ``disagrees with its `<name>/` directory`` | `[package].name` is not `cabin-ports/<name>` for the port directory's name. |
 | ``disagrees with its `<version>/` directory`` | `[package].version` does not equal the version directory's name. |
-| `does not lowercase to a canonical registry package name` | The port directory's name is not `[a-z0-9][a-z0-9_-]*` after lowercasing. |
+| ``package directory `<name>/` `` | The port directory's name is not a valid package name (`[a-z0-9][a-z0-9_-]*`); the message suggests the lowercase spelling when that alone fixes it. |
 | `declares no [package.upstream] provenance` | The manifest has no provenance table; every port is materialized from a pinned upstream archive. |
 | `declares the system dependency` | A dependency sets `system = true`; a port resolving through host pkg-config would make its published build host-dependent. |
 | `depends on ... through a non-registry source` | A dependency uses a path or workspace source. |
@@ -192,7 +192,6 @@ publisher owns and clears that whole scratch root).
 | `under a cfg-conditional table` | A dependency sits in a `[target.'cfg(...)'.dependencies]` table; ordering does not evaluate conditions. |
 | `which no committed port version satisfies` | A declared requirement matches no version published in the same run. |
 | `inter-port dependency cycle among` | The declared edges do not form a DAG. |
-| `both publish as` | Two port directories fold onto one published name. |
 | `is not a regular file` / `is a symlinked directory` | A manifest or port directory is a symlink; published bytes must be the committed files. |
 | `is (or crosses) a symlink` | A declared patch path resolves through a symlink. |
 | `no cached archive for ... and downloads are disabled` | A hermetic (cache-only) staging run found no archive matching the declared SHA-256. |
@@ -209,10 +208,11 @@ workspace crate that is not part of the shipped `cabin` binary) publishes every 
 an ordinary registry package under the **`cabin-ports`** scope, verbatim from the manifest
 committed in it.  The rules that manifest must meet:
 
-- **Identity.**  `cabin-ports/<lowercase name>`, declared by the manifest itself; the publisher
-  refuses one that does not fold onto its directory, which is what keeps the mixed-case
-  directories coherent (`cJSON/` must declare `cabin-ports/cjson`, `CLI11/` must declare
-  `cabin-ports/cli11`).  The published version is the upstream version, verbatim.
+- **Identity.**  `cabin-ports/<name>`, declared by the manifest itself, with `<name>` spelled
+  exactly as the port directory (`cjson/` declares `cabin-ports/cjson`; the upstream `cJSON`
+  spelling stays in the upstream URL and sources).  The publisher refuses a directory that is not
+  a valid package name and a manifest that declares any other name.  The published version is the
+  upstream version, verbatim.
 - **Target keys.**  A target key directly determines its artifact stem, so a port states the
   intended native artifact name directly: `cabin-ports/zlib` keys its sole library target `z`
   (producing `libz.a` / `z.lib`), `cabin-ports/googletest` keys its target `gtest`.  No target

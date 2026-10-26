@@ -66,10 +66,6 @@ export async function loadPortsFromDir(
 
     const records: PackageRecord[] = [];
     const seen = new Set<string>();
-    // Two distinct port directory names must not fold onto one scoped
-    // name (cJSON/ next to cjson/ would silently merge under
-    // cabin-ports/cjson) - the publisher rejects that, so must we.
-    const scopedOwners = new Map<string, string>();
 
     for (const portName of await listDirectories(portsDir)) {
         const portDir = join(portsDir, portName);
@@ -100,13 +96,6 @@ export async function loadPortsFromDir(
                 portName,
                 version,
             );
-            const owner = scopedOwners.get(record.name);
-            if (owner !== undefined && owner !== portName) {
-                throw new Error(
-                    `Ports "${owner}" and "${portName}" both publish as "${record.name}"; published names must stay distinct.`,
-                );
-            }
-            scopedOwners.set(record.name, portName);
             const key = `${record.name}@${record.version}`;
             if (seen.has(key)) {
                 throw new Error(
@@ -260,19 +249,16 @@ function parseProvenanceUrl(archiveUrl: string, context: string): URL {
 }
 
 // The publisher's identity rule (xtask-port-publish::plan::
-// scoped_package_name): lowercase the port name and require the
-// canonical registry grammar `[a-z0-9][a-z0-9_-]*`, so cJSON becomes
-// cabin-ports/cjson and a name the registry would reject fails the
-// build here instead of publishing a page for a package that cannot
-// exist.
+// scoped_package_name): the directory is spelled exactly as the
+// package name, so a name the registry would reject fails the build
+// here instead of publishing a page for a package that cannot exist.
 export function scopedPackageName(portName: string, context: string): string {
-    const lower = portName.toLowerCase();
-    if (!/^[a-z0-9][a-z0-9_-]*$/.test(lower)) {
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(portName)) {
         throw new Error(
-            `Port name "${portName}" in ${context} does not lowercase to a canonical registry package name ([a-z0-9][a-z0-9_-]*).`,
+            `Port directory "${portName}" in ${context} is not a valid package name ([a-z0-9][a-z0-9_-]*).`,
         );
     }
-    return `${REGISTRY_SCOPE}/${lower}`;
+    return `${REGISTRY_SCOPE}/${portName}`;
 }
 
 // Committed regular directories only, matching the publisher

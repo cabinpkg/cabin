@@ -112,29 +112,14 @@ pub struct DeclaredRequirement {
     pub default_active: bool,
 }
 
-/// The scoped registry name for a port: `cabin-ports/<lowercase>`.
+/// The scoped registry name for a port: `cabin-ports/<name>`, with
+/// the directory spelled exactly as the package name.
 ///
 /// # Errors
-/// Returns an error when the lowercased name does not satisfy the
-/// canonical registry grammar (`[a-z0-9][a-z0-9_-]*`), which the
-/// hosted registry and the publish gates both enforce.
+/// Returns an error when the directory name is not a valid package
+/// name (`[a-z0-9][a-z0-9_-]*`).
 fn scoped_package_name(port_name: &str) -> Result<PackageName> {
-    let lower = port_name.to_lowercase();
-    let canonical = lower
-        .bytes()
-        .next()
-        .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-        && lower
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
-    if !canonical {
-        bail!(
-            "port name `{port_name}` does not lowercase to a canonical registry package name \
-             (`[a-z0-9][a-z0-9_-]*`)"
-        );
-    }
-    PackageName::new(format!("{REGISTRY_SCOPE}/{lower}"))
-        .map_err(|err| anyhow!("scoped name for port `{port_name}` is invalid: {err}"))
+    Ok(PackageName::new(format!("{REGISTRY_SCOPE}/{port_name}"))?)
 }
 
 /// Scan `ports_dir` and return every committed port in publication
@@ -143,26 +128,18 @@ fn scoped_package_name(port_name: &str) -> Result<PackageName> {
 ///
 /// # Errors
 /// Returns an error when the directory cannot be read, any port fails
-/// to load, published names collide, or the inter-port dependency
-/// graph has a cycle.
+/// to load, or the inter-port dependency graph has a cycle.
 pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
     let packages = discover_ports(ports_dir)?;
     if packages.is_empty() {
         bail!("no ports found under {}", ports_dir.display());
     }
 
-    let mut scoped_by_dir: BTreeMap<String, PackageName> = BTreeMap::new();
-    let mut conversions = Vec::new();
-    for package_dir in packages {
-        let conversion = load_package(&package_dir)?;
-        let dir_name = dir_name(package_dir.parent().unwrap_or(&package_dir))?;
-        scoped_by_dir
-            .entry(dir_name)
-            .or_insert_with(|| conversion.scoped_name.clone());
-        conversions.push(conversion);
-    }
+    let conversions = packages
+        .iter()
+        .map(|package_dir| load_package(package_dir))
+        .collect::<Result<Vec<_>>>()?;
 
-    ensure_distinct_scoped_names(&scoped_by_dir)?;
     ensure_requirements_satisfiable(&conversions)?;
     order_by_dependencies(conversions)
 }
@@ -518,23 +495,6 @@ fn dir_name(dir: &Path) -> Result<String> {
         .ok_or_else(|| anyhow!("{} has no UTF-8 directory name", dir.display()))
 }
 
-/// Two distinct port directory names must not fold onto one scoped
-/// name (`cJSON/` next to `cjson/` would silently merge under
-/// `cabin-ports/cjson`).
-fn ensure_distinct_scoped_names(scoped_by_dir: &BTreeMap<String, PackageName>) -> Result<()> {
-    let mut scoped_owners: BTreeMap<&str, &str> = BTreeMap::new();
-    for (port_name, scoped) in scoped_by_dir {
-        if let Some(previous) = scoped_owners.insert(scoped.as_str(), port_name) {
-            bail!(
-                "ports `{previous}` and `{port_name}` both publish as `{}`; published names \
-                 must stay distinct",
-                scoped.as_str()
-            );
-        }
-    }
-    Ok(())
-}
-
 /// Every declared requirement must be satisfiable by a version
 /// published in the same run, or the preflight (and every consumer)
 /// would fail resolution later with a worse error.  An unsatisfiable
@@ -704,17 +664,12 @@ fn order_by_dependencies(conversions: Vec<PortConversion>) -> Result<Vec<PortCon
 mod tests {
     use super::*;
     #[test]
-    fn scoped_names_lowercase_under_the_ports_scope() {
-        assert_eq!(
-            scoped_package_name("cJSON").unwrap().as_str(),
-            "cabin-ports/cjson"
-        );
+    fn scoped_names_spell_the_directory_exactly() {
         assert_eq!(
             scoped_package_name("nlohmann_json").unwrap().as_str(),
             "cabin-ports/nlohmann_json"
         );
-        // `.` is valid in a local package name but not in the
-        // registry grammar, so the publisher refuses it up front.
+        assert!(scoped_package_name("cJSON").is_err());
         assert!(scoped_package_name("foo.bar").is_err());
     }
 
@@ -1317,6 +1272,23 @@ mod tests {
             format!("{err:#}").contains("non-registry source"),
             "{err:#}"
         );
+    }
+
+    /// A mixed-case directory is refused even when its manifest
+    /// declares the lowercase name, so no two directories can differ
+    /// only in case and publish as one package.
+    #[test]
+    fn a_mixed_case_package_directory_is_refused() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "CJSON",
+            "1.0.0",
+            &package_manifest("cabin-ports/cjson", "1.0.0", ""),
+        );
+        let err = format!("{:#}", load_conversions(dir.path()).unwrap_err());
+        assert!(err.contains("package directory `CJSON/`"), "{err}");
+        assert!(err.contains("did you mean \"cabin-ports/cjson\"?"), "{err}");
     }
 
     #[test]

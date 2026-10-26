@@ -2,7 +2,7 @@
 
 A small command-line app that combines three `cabin-ports/*` registry packages in one binary:
 
-- [`cabin-ports/cli11`](../../ports/CLI11) parses `--name` / `--count` flags.
+- [`cabin-ports/cli11`](../../ports/cli11) parses `--name` / `--count` flags.
 - [`cabin-ports/fmt`](../../ports/fmt) formats the greeting lines.
 - [`cabin-ports/spdlog`](../../ports/spdlog) logs what the app is about to do.
 
