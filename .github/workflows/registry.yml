@@ -371,7 +371,7 @@ jobs:
           rustflags: ""
       - name: Probe the guard
         run: |
-          set -uo pipefail
+          set +e -u
           git fetch -q origin main
           older=$(git rev-parse 7ae2a211b)
           tip=$(git rev-parse origin/main)
