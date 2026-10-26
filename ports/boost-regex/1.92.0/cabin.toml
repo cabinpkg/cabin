@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/regex/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:dbf86a09bc840aea69333f6b1f0bef870de6ac7b78a5e3a4c8eb4dbc6310bbae"
+format = "tar.gz"
+strip-prefix = "regex-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-regex"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_regex]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

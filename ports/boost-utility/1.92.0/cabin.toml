@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/utility/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:41ef0d92840b0db9249f20ac17bbe1eca0ec1f35dd5261920a255475820b7c19"
+format = "tar.gz"
+strip-prefix = "utility-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-utility"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_utility]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

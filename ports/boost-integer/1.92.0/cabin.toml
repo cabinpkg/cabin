@@ -1,0 +1,28 @@
+[package.upstream]
+url = "https://github.com/boostorg/integer/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:7fe0276ba5177ed64b323aca453df42e9576a673c661a4fe27e3c3b821f9b8b7"
+format = "tar.gz"
+strip-prefix = "integer-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-integer"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_integer]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

@@ -1,0 +1,32 @@
+[package.upstream]
+url = "https://github.com/boostorg/circular_buffer/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:0845c8f06fe5a40ef5955360f37054bd8bb856d2ecd4ae5daa8c04252358e34e"
+format = "tar.gz"
+strip-prefix = "circular_buffer-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-circular-buffer"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-move" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_circular_buffer]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-move", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]

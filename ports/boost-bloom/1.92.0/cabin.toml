@@ -1,0 +1,30 @@
+[package.upstream]
+url = "https://github.com/boostorg/bloom/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:549f1de63e84a1ef4a33fe3c3433968ff30465a636fd907020f50f6b48255cff"
+format = "tar.gz"
+strip-prefix = "bloom-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-bloom"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container-hash" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_bloom]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container-hash", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]
