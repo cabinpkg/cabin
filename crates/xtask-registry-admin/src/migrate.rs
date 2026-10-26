@@ -7,15 +7,15 @@
 //!   cargo registry-migrate --remote   apply to the live database, then stamp
 //! ```
 //!
-//! The CI deploy stays skipped while `migrations/` disagrees with
-//! `migrations-applied`, and the stamp must only ever be refreshed
-//! after the live database really runs the files' content.  Only
-//! `--remote` touches the stamp: it attests the LIVE schema, and a
-//! local apply proves nothing about production.  The applied set is
-//! read from D1's own bookkeeping (the `d1_migrations` table, by
-//! filename), so this refuses every state a stamp refresh would
-//! wrongly certify: an already-applied file edited in place (D1 never
-//! replays it), and a recorded applied migration whose file was
+//! The CI deploy job fails, deploying nothing, while `migrations/`
+//! disagrees with `migrations-applied`, and the stamp must only ever
+//! be refreshed after the live database really runs the files'
+//! content.  Only `--remote` touches the stamp: it attests the LIVE
+//! schema, and a local apply proves nothing about production.  The
+//! applied set is read from D1's own bookkeeping (the `d1_migrations`
+//! table, by filename), so this refuses every state a stamp refresh
+//! would wrongly certify: an already-applied file edited in place (D1
+//! never replays it), and a recorded applied migration whose file was
 //! renamed or removed (its effects live on in the schema while the
 //! files pretend otherwise).  Both route through [`crate::wipe`]
 //! pre-launch (drop, recreate, apply from zero); post-launch, schema
@@ -183,7 +183,7 @@ fn remote() -> Result<()> {
     println!("remote migrate OK (stamp {stamp})");
     println!();
     println!("Follow-ups:");
-    println!("  - commit the migrations-applied change; the CI deploy stays skipped");
+    println!("  - commit the migrations-applied change; the CI deploy job stays blocked");
     println!("    until it reaches main (docs/runbook.md, \"Integrated topology\")");
     Ok(())
 }

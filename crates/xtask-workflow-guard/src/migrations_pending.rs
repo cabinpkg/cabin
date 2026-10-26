@@ -1,5 +1,6 @@
-//! The migrations deploy gate: the "Skip until changed D1 migrations
-//! are applied by hand" step of `.github/workflows/registry.yml`.
+//! The migrations deploy gate: the "Block the deploy until changed D1
+//! migrations are applied by hand" step of
+//! `.github/workflows/registry.yml`.
 //!
 //! This module owns the stamp: [`stamp`], [`digest`], [`applied`] and
 //! [`current`] are also how `cargo registry-migrate`,
@@ -7,11 +8,15 @@
 //! (`xtask-registry-admin`) compute and read it, so no two readings of
 //! the stamp can drift.
 //!
-//! - **Every failure reads as "pending", never as an error.** An
-//!   empty, missing or unreadable `migrations/`, an unreadable
-//!   migration, or an unreadable `migrations-applied` leaves a
-//!   diagnostic on stderr and records `pending=true`. Nothing can fail
-//!   the step except the `$GITHUB_OUTPUT` write.
+//! - **Anything but a matching stamp fails the step.** A stamp that no
+//!   longer matches the migrations, and every state in which the gate
+//!   cannot establish the comparison - an empty, missing or unreadable
+//!   `migrations/`, an unreadable migration, an unreadable
+//!   `migrations-applied` - prints one `::error` annotation naming the
+//!   cause and the by-hand recovery and exits 1, so the deploy job goes
+//!   red instead of green with its Deploy step skipped: a deploy that
+//!   did not happen never reads as one that did. The gate never applies
+//!   a migration or touches the stamp; a matching stamp prints nothing.
 //! - **The glob's selection and order.** `*.sql` skips dotfiles, is
 //!   case-sensitive, matches bytes rather than UTF-8, matches a
 //!   directory (whose read then fails), and sorts in byte order.
@@ -20,24 +25,28 @@
 //!   bytes and every trailing newline; whatever else it holds (a CRLF
 //!   ending included) must equal the stamp's lowercase hex bytes
 //!   exactly.
-//! - **The `$GITHUB_OUTPUT` write is reachable only in the pending
-//!   case**, so an unset `$GITHUB_OUTPUT` fails the step there and
-//!   nowhere else.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use sha2::{Digest as _, Sha256};
 
-const OUTPUT_LINE: &str = "pending=true\n";
+const APPLY: &str = "Apply the changed migrations by hand from the repository root with \
+     `cargo registry-migrate --remote`, which applies the pending files, confirms D1 reports \
+     nothing left pending, and only then refreshes the stamp; land that stamp change through a \
+     PR, whose main push deploys and supersedes this run (pre-launch, an edited already-applied \
+     migration ships through `cargo registry-wipe` instead)";
+const REPAIR: &str = "Repair what the error names through a PR, whose main push reruns this gate \
+     and supersedes this run";
+const NEVER: &str = "Never edit the stamp by hand. registry/docs/runbook.md, \"Deploy skew\"";
 
-/// Answer whether the committed D1 migrations still match the stamp
-/// the operator recorded in `registry/migrations-applied`, recording
-/// `pending=true` in `$GITHUB_OUTPUT` when they do not.
+/// Pass when the committed D1 migrations still match the stamp the
+/// operator recorded in `registry/migrations-applied`.
 ///
 /// # Errors
 ///
-/// Only when `$GITHUB_OUTPUT` is unusable in the pending case.
+/// When they do not, or when the comparison cannot be made: the
+/// deploy it gates is blocked.
 pub fn run() -> Result<()> {
     run_in(Path::new("."))
 }
@@ -45,12 +54,24 @@ pub fn run() -> Result<()> {
 /// The whole gate against one repository root; [`run`] passes the
 /// working directory.
 fn run_in(base: &Path) -> Result<()> {
-    match current(&base.join("registry")) {
+    let (cause, recovery) = match current(&base.join("registry")) {
         Ok(true) => return Ok(()),
-        Ok(false) => {}
-        Err(error) => eprintln!("{error:#}"),
-    }
-    crate::append_github_output(OUTPUT_LINE)
+        Ok(false) => (
+            "registry/migrations/ no longer matches the registry/migrations-applied stamp, so \
+             the live D1 schema may predate this Worker"
+                .to_owned(),
+            APPLY,
+        ),
+        Err(error) => (
+            format!(
+                "the gate cannot compare registry/migrations/ with its stamp ({error:#}), so \
+                 the live D1 schema is unknown"
+            ),
+            REPAIR,
+        ),
+    };
+    println!("::error title=Registry deploy blocked::{cause}. {recovery}. {NEVER}.");
+    bail!("deploy blocked: {cause}")
 }
 
 /// Whether `<registry>/migrations-applied` records the stamp of

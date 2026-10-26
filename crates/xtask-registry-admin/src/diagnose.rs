@@ -125,10 +125,10 @@ pub fn run() -> Result<()> {
 }
 
 /// Whether the applied-migrations stamp still matches the migrations,
-/// which is what gates deploys (`registry.yml`, "Skip until changed D1
-/// migrations are applied by hand").
+/// which is what gates deploys (`registry.yml`, "Block the deploy until
+/// changed D1 migrations are applied by hand").
 fn migrations_stamp() {
-    // A read failure is PENDING, not an abort, exactly as the gate reads it.
+    // A read failure is PENDING, not an abort: the gate blocks on it too.
     let current = migrations_pending::current(&registry_dir()).unwrap_or_else(|error| {
         eprintln!("{error:#}");
         false
@@ -136,7 +136,7 @@ fn migrations_stamp() {
     if current {
         println!("    migrations stamp: current (deploys unblocked)");
     } else {
-        println!("    migrations stamp: PENDING - deploys stay skipped until");
+        println!("    migrations stamp: PENDING - deploy jobs fail, deploying nothing, until");
         println!("    cargo registry-migrate --remote (or a wipe) lands and is committed");
     }
 }

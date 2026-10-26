@@ -28,9 +28,9 @@ pub(crate) fn substitute(mut stdout: Vec<u8>) -> Vec<u8> {
     stdout
 }
 
-/// The guards' positive answers are all one line appended to
-/// `$GITHUB_OUTPUT`, so its failure shapes live here once: an unset or
-/// empty `GITHUB_OUTPUT` fails the step.
+/// A guard's positive answer is one line appended to `$GITHUB_OUTPUT`,
+/// so its failure shapes live here once: an unset or empty
+/// `GITHUB_OUTPUT` fails the step.
 pub(crate) fn append_github_output(line: &str) -> Result<()> {
     let path = std::env::var("GITHUB_OUTPUT").unwrap_or_default();
     if path.is_empty() {

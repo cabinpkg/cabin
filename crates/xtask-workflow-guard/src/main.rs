@@ -25,8 +25,8 @@ enum Command {
         #[arg(long, value_name = "FILTER")]
         relevant_to: Option<String>,
     },
-    /// Record `pending=true` in `$GITHUB_OUTPUT` when the committed D1
-    /// migrations no longer match the stamp in
+    /// Fail, with an error annotation naming the by-hand recovery, unless
+    /// the committed D1 migrations match the stamp in
     /// registry/migrations-applied (`cargo workflow-migrations-pending`).
     MigrationsPending,
     /// Wait for a successful main Registry deploy whose head contains
@@ -45,8 +45,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// The guards answer in `$GITHUB_OUTPUT` and exit 0; `await-deploy`
-/// carries an exit status of its own, which is the step's answer.
+/// `superseded` answers in `$GITHUB_OUTPUT`; `migrations-pending` and
+/// `await-deploy` answer with the exit status, which is the step's
+/// verdict.
 fn run(command: &Command) -> Result<ExitCode> {
     match command {
         Command::Superseded { relevant_to } => {

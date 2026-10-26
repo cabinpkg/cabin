@@ -134,9 +134,12 @@ with the alias when the canonical metadata format changes intentionally.
 This directory is a standalone Cargo workspace, excluded from the root
 workspace: `cargo build`/`cargo test` at the repository root never touch it.
 CI gates `.github/workflows/registry.yml`'s jobs on registry-relevant
-changes (the `registry` filter in `.github/path-filters.yml`); a green
-run on `main` also deploys the Worker (its `deploy-registry` job). That
-deploy never applies D1 migrations; those stay manual (docs/runbook.md).
+changes (the `registry` filter in `.github/path-filters.yml`); a run on
+`main` also deploys the Worker (its `deploy-registry` job), unless a
+newer registry-relevant commit superseded it (green, Deploy step
+skipped, the newer run deploys) or unapplied D1 migrations block it
+(red). That deploy never applies D1 migrations; those stay manual
+(docs/runbook.md, "Deploy skew").
 
 ## First-time provisioning
 
