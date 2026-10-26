@@ -468,11 +468,17 @@ fn assembly_syntax_must_match_the_toolchain_dialect() {
         tc.cxx.path = Utf8PathBuf::from(cxx);
         let mut request = plan_request(&graph, &tc, "/abs/proj/build");
         request.dialect = dialect;
-        let err = plan(&request).unwrap_err();
+        let bg = plan(&request).unwrap();
+        let err = crate::validate_planned_standards(&bg).unwrap_err();
         assert!(
             matches!(err, BuildError::AssemblyNeedsToolchain { .. }),
             "{source}: {err}"
         );
+        // `cabin check` assembles nothing, so the source does not gate
+        // checking the package that lists it.
+        let checked =
+            crate::into_check_graph(bg, &[PathBuf::from("/abs/proj/build/dev/packages/ctx")]);
+        crate::validate_planned_standards(&checked).unwrap();
     }
 }
 

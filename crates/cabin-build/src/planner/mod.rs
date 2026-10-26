@@ -695,12 +695,14 @@ fn emit_actions(
                         "MSVC's `cl.exe`, beside which `ml64.exe` is installed",
                     ),
                 };
-                return Err(BuildError::AssemblyNeedsToolchain {
+                standard_violations.push(StandardViolation::AssemblyNeedsToolchain {
                     target: format_target_id(tid, req.graph),
                     path: asm.abs_source.clone(),
                     syntax,
                     needs,
+                    object: asm.object.clone(),
                 });
+                continue;
             };
             actions.push(BuildAction::Assemble(AssembleAction {
                 assembler,

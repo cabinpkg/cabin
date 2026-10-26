@@ -251,8 +251,9 @@ pub fn validate_toolchain_standards(
 /// dropped from the compile database.
 ///
 /// # Errors
-/// Returns [`BuildError::StandardUnsupportedOnMsvcDialect`] or
-/// [`BuildError::StandardFlagConflict`] for the first surviving
+/// Returns [`BuildError::StandardUnsupportedOnMsvcDialect`],
+/// [`BuildError::StandardFlagConflict`], or
+/// [`BuildError::AssemblyNeedsToolchain`] for the first surviving
 /// violation.
 pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), BuildError> {
     match graph.standard_violations.first() {
@@ -271,6 +272,18 @@ pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), Build
                 target: target.clone(),
             })
         }
+        Some(crate::StandardViolation::AssemblyNeedsToolchain {
+            target,
+            path,
+            syntax,
+            needs,
+            ..
+        }) => Err(BuildError::AssemblyNeedsToolchain {
+            target: target.clone(),
+            path: path.clone(),
+            syntax,
+            needs,
+        }),
         Some(crate::StandardViolation::FlagConflict { conflict, .. }) => {
             Err(BuildError::StandardFlagConflict(Box::new(conflict.clone())))
         }
