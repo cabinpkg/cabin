@@ -26,9 +26,13 @@ int main() {
     if (!boost::read_graphviz(dot, g, dp, "node_id")) return 1;
     if (boost::num_vertices(g) != 4 || boost::num_edges(g) != 4 || g[0].name != "a") return 2;
 
+    // An iterator_property_map, not a raw pointer: MSVC's permissive
+    // lookup resolves `get` on an `int*` map to boost::detail::get.
     std::vector<int> dist(boost::num_vertices(g));
-    boost::dijkstra_shortest_paths(g, boost::vertex(0, g),
-                                   boost::weight_map(boost::get(&Edge::weight, g)).distance_map(&dist[0]));
+    boost::dijkstra_shortest_paths(
+        g, boost::vertex(0, g),
+        boost::weight_map(boost::get(&Edge::weight, g))
+            .distance_map(boost::make_iterator_property_map(dist.begin(), boost::get(boost::vertex_index, g))));
     for (std::size_t v = 0; v < dist.size(); ++v) {
         const std::string& n = g[v].name;
         const int want = n == "a" ? 0 : n == "b" ? 3 : n == "c" ? 1 : 8;
