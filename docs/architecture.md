@@ -205,23 +205,25 @@ are intentionally not traversed here.  Current invariants:
   the workspace: registry entries are required only for packages reachable from the selected
   closure, so unrelated workspace members' versioned deps are silently skipped during loading rather
   than being materialized into the package graph.
-- `PackageName` accepts a bare `name` or a scoped `<scope>/<name>` with exactly one `/`.
-  `cabin_core::is_path_safe_package_name` is the single authoritative *component* grammar: ASCII
-  alphanumerics plus `_-.`, non-empty, not `.`/`..`, no leading dot.  It covers filesystem path
-  components, sparse-HTTP URL path segments, and Windows-reserved filename characters in one rule,
-  guarding bare names, the package part of a scoped name, `TargetName`, and - one URL segment at a
-  time - the remote URL boundaries in `cabin-index-http` / `cabin-registry-api`.  The scope
-  part uses `cabin_core::is_valid_package_scope`, the registry's GitHub-login-compatible scope
-  grammar (lowercase alphanumerics plus interior `-`, at most 39 bytes) - a strict subset of the
-  component grammar.  Registry-bound names also check the package part against
-  `cabin_core::is_valid_registry_package_name`, the registry's `^[a-z0-9][a-z0-9_-]*$` (used by
-  `cabin-publish` for dependency keys and by `cabin-registry-api` at its URL boundary).  The scope
-  and component grammars are enforced by `PackageName::new` so URL-reserved characters cannot
-  reach `Url::join` through any code path.  The full name string is the one canonical identity
-  (manifest, index, lockfile, resolver) and is never used as a single filesystem path component:
-  path sinks fold `PackageName::path_components` (scope dir + name dir for scoped names), and
-  filename/pkg-config/linker sinks use `base_name()` or the flattened `artifact_stem()`.  The
-  diagnostic emitted on rejection echoes the offending name and describes the grammar.
+- `PackageName` accepts a bare `name` or a scoped `<scope>/<name>` with exactly one `/`, and is the
+  one package-name grammar for every identity boundary (manifests, dependency keys, workspace
+  members, lockfiles, indexes, both registry kinds, CLI package arguments).  The package part is
+  `cabin_core::is_valid_package_base_name` (`^[a-z0-9][a-z0-9_-]*$`); the scope is
+  `cabin_core::is_valid_package_scope`, the GitHub-login-compatible grammar (lowercase
+  alphanumerics plus interior `-`, at most 39 bytes).  Names are compared exactly, never
+  case-folded; `cabin new` / `cabin init` lowercase only a default name they derive from a
+  directory.  The registry worker mirrors both grammars
+  (`registry/src/routes.rs`), pinned by a parity test.  `cabin_core::is_path_safe_name` is the
+  separate, looser *component* grammar (ASCII alphanumerics plus `_-.`, non-empty, not `.`/`..`,
+  no leading `.` or `-`): it covers filesystem path components, sparse-HTTP URL path segments,
+  and Windows-reserved filename characters in one rule, and guards `TargetName`, system-dependency
+  names (pkg-config modules such as `glib-2.0`), and - one URL segment at a time - the remote URL
+  boundary in `cabin-index-http`.  Both package grammars are subsets of it.  The full name string
+  is the one canonical identity (manifest, index, lockfile, resolver) and is never used as a
+  single filesystem path component: path sinks fold `PackageName::path_components` (scope dir +
+  name dir for scoped names), and filename/linker sinks use `base_name()` or the flattened
+  `artifact_stem()`.  The diagnostic emitted on rejection names the grammar and, when
+  lowercasing alone would make the name valid, suggests that spelling.
 - `cabin_workspace::standards` implements the effective-requirement recursion `R_L` of
   `docs/design/standard-compatibility/spec.md` (D10) over an already-resolved target graph: one
   topological pass per language over the public-edge subgraph, `O(|V| + |E|)` per language (spec

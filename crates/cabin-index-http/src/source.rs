@@ -257,7 +257,7 @@ fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
     let safe = components
         .by_ref()
         .take(2)
-        .all(cabin_core::is_path_safe_package_name)
+        .all(cabin_core::is_path_safe_name)
         && components.next().is_none();
     if !safe {
         return Err(IndexHttpError::UnsafePackageName {
@@ -953,7 +953,7 @@ mod tests {
     /// A leading `-` is rejected so the name cannot be parsed as
     /// a flag by any argv-driven tool the planner threads it into
     /// (`pkg-config`, the linker, `clap` short-option splitting).
-    /// The check lives in `cabin-core::is_path_safe_package_name`,
+    /// The check lives in `cabin-core::is_path_safe_name`,
     /// so this is the boundary regression test that pins the
     /// behavior at the sparse-HTTP fetch entry too.
     #[test]

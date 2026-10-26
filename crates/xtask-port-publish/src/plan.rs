@@ -1330,7 +1330,7 @@ mod tests {
         );
         let err = load_conversions(dir.path()).unwrap_err();
         assert!(
-            format!("{err:#}").contains("canonical registry package name"),
+            format!("{err:#}").contains("\"cabin-ports/foo.bar\" is not valid"),
             "{err:#}"
         );
     }

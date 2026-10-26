@@ -29,6 +29,11 @@ zlib    = { version = ">=1.2", system = true }
 fmt     = { version = "^9.0",  system = true }
 ```
 
+The key is the `pkg-config` module name, probed verbatim.  It is not a package name: module names
+keep their upstream spelling (`glib-2.0`, `SDL2`), so the key follows the path-safe grammar (ASCII
+letters, digits, `_`, `-`, and `.`, not starting with `.` or `-`) rather than the lowercase
+package-name grammar.
+
 Every declared `system = true` dependency is required.  There is no `required` field; declaring
 `required` on any dependency entry is rejected with a clear "unknown field" diagnostic.
 

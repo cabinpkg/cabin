@@ -71,7 +71,12 @@ pub(crate) struct FmtArgs {
     /// Format the named workspace package.  Repeat the flag to
     /// select multiple packages.  Errors when a name is not a
     /// workspace member.
-    #[arg(long = "package", short = 'p', value_name = "PACKAGE")]
+    #[arg(
+        long = "package",
+        short = 'p',
+        value_name = "PACKAGE",
+        value_parser = crate::cli::parse_package_name
+    )]
     pub package: Vec<String>,
 
     /// Format `[workspace.default-members]`.  Errors when the

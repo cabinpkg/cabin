@@ -499,16 +499,21 @@ fn parse_system_dependencies(
     package: &str,
     version: &str,
     raw_table: BTreeMap<String, RawIndexSystemDependency>,
-) -> Result<BTreeMap<PackageName, IndexSystemDependency>, IndexError> {
-    let mut deps: BTreeMap<PackageName, IndexSystemDependency> = BTreeMap::new();
+) -> Result<BTreeMap<String, IndexSystemDependency>, IndexError> {
+    let mut deps: BTreeMap<String, IndexSystemDependency> = BTreeMap::new();
     for (sys_name, raw_sys) in raw_table {
-        let validated = validated_package_name(&sys_name)?;
+        cabin_core::validate_system_dependency_name(&sys_name).map_err(|err| {
+            IndexError::InvalidPackageName {
+                package: package.to_owned(),
+                message: err.to_string(),
+            }
+        })?;
         // Same platform-only invariant as package dependencies:
         // system-dependency activation never sees toolchain
         // detection, so a compiler-conditioned gate is rejected.
         reject_compiler_condition(package, version, &sys_name, raw_sys.target.as_ref())?;
         deps.insert(
-            validated,
+            sys_name,
             IndexSystemDependency {
                 version: raw_sys.version,
                 dependency_kind: raw_sys.dependency_kind,
@@ -1069,12 +1074,49 @@ mod tests {
             .versions
             .get(&semver::Version::parse("0.1.0").unwrap())
             .unwrap();
-        let dep = meta
-            .system_dependencies
-            .get(&PackageName::new("openssl").unwrap())
-            .unwrap();
+        let dep = meta.system_dependencies.get("openssl").unwrap();
         assert_eq!(dep.version, ">=3");
         assert_eq!(dep.dependency_kind, DependencyKind::Dev);
+    }
+
+    /// Index system-dependency keys are pkg-config module names, so an
+    /// upstream spelling outside the package grammar still loads, while
+    /// a package-dependency key in that spelling does not.
+    #[test]
+    fn system_dependency_keys_keep_the_pkg_config_grammar() {
+        let entry = |deps: &str| {
+            let dir = TempDir::new().unwrap();
+            dir.child("demo.json")
+                .write_str(&format!(
+                    r#"{{"schema": 1, "name": "demo", "versions": {{"0.1.0": {deps}}}}}"#
+                ))
+                .unwrap();
+            load_index(dir.path())
+        };
+        let index = entry(
+            r#"{"dependencies": {}, "system-dependencies": {"glib-2.0": {"version": ">=2"}, "SDL2": {"version": ">=2"}}}"#,
+        )
+        .unwrap();
+        let meta = index
+            .package(&PackageName::new("demo").unwrap())
+            .unwrap()
+            .versions
+            .get(&semver::Version::parse("0.1.0").unwrap())
+            .unwrap();
+        assert!(meta.system_dependencies.contains_key("glib-2.0"));
+        assert!(meta.system_dependencies.contains_key("SDL2"));
+
+        let err = entry(r#"{"dependencies": {"acme/SDL2": {"version": "^2"}}}"#).unwrap_err();
+        assert!(
+            matches!(err, IndexError::InvalidPackageName { .. }),
+            "{err:?}"
+        );
+        let err = entry(r#"{"dependencies": {}, "system-dependencies": {"-lz": {"version": ""}}}"#)
+            .unwrap_err();
+        assert!(
+            matches!(err, IndexError::InvalidPackageName { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]

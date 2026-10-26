@@ -150,6 +150,62 @@ fn fetch_unknown_package_errors_without_versioned_deps() {
         .stderr(predicate::str::contains("not a member"));
 }
 
+/// The resolver identifies its root by name, so a pure workspace
+/// refuses an index that carries or depends on the synthetic
+/// `cabin/workspace` root rather than resolving either to the root.
+#[test]
+fn resolve_pure_workspace_refuses_an_index_naming_the_synthetic_root() {
+    // (member dependency, index package, that package's dependencies)
+    let cases = [
+        ("cabin/workspace", "cabin/workspace", "{}"),
+        ("acme/a", "acme/a", r#"{ "cabin/workspace": "*" }"#),
+    ];
+    for (dependency, indexed, indexed_deps) in cases {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str("[workspace]\nmembers = [\"packages/app\"]\n")
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(&format!(
+                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+                 [dependencies]\n\"{dependency}\" = \"^1\"\n"
+            ))
+            .unwrap();
+        dir.child(format!("index/{indexed}.json"))
+            .write_str(&format!(
+                r#"{{
+                    "schema": 1,
+                    "name": "{indexed}",
+                    "versions": {{
+                        "1.0.0": {{
+                            "dependencies": {indexed_deps},
+                            "yanked": false,
+                            "revision": "0000000000000000",
+                            "revisions": {{
+                                "0000000000000000": {{
+                                    "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                                    "published-at": "2026-01-01T00:00:00Z",
+                                    "source": {{ "type": "archive", "path": "unfetched.zip", "format": "zip" }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }}"#
+            ))
+            .unwrap();
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"))
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "the package index carries or depends on `cabin/workspace`",
+            ));
+    }
+}
+
 /// Blocking 2: `cabin resolve` over a pure-workspace root
 /// (no `[package]`) collects member versioned deps and writes a
 /// lockfile.  An earlier baseline failed with "pure-workspace

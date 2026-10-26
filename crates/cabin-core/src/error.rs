@@ -16,9 +16,10 @@ pub enum ValidationError {
     PackageNameContainsWhitespace(String),
 
     #[error(
-        "package name {0:?} is not valid; package names must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must be non-empty, must not start with `.` or `-`, and must not be `.` or `..`; registry packages are named `<scope>/<name>` with exactly one `/`"
+        "package name {0:?} is not valid; a package name is `<name>` or `<scope>/<name>`, where `<name>` matches `[a-z0-9][a-z0-9_-]*` (lowercase ASCII letters, ASCII digits, `_`, and `-`, starting with a letter or digit){hint}",
+        hint = lowercase_hint(.0)
     )]
-    UnsafePackageName(String),
+    InvalidPackageName(String),
 
     #[error(
         "package name {0:?} is not valid; a scoped package name is `<scope>/<name>` with exactly one `/`"
@@ -26,7 +27,8 @@ pub enum ValidationError {
     PackageNameTooManySlashes(String),
 
     #[error(
-        "package scope {scope:?} in {name:?} is not valid; scopes must consist only of ASCII lowercase letters, ASCII digits, and `-`, must not start or end with `-`, and must be at most 39 characters"
+        "package scope {scope:?} in {name:?} is not valid; scopes must consist only of ASCII lowercase letters, ASCII digits, and `-`, must not start or end with `-`, and must be at most 39 characters{hint}",
+        hint = lowercase_hint(name)
     )]
     InvalidPackageScope { name: String, scope: String },
 
@@ -43,6 +45,11 @@ pub enum ValidationError {
 
     #[error("duplicate target name: {0:?}")]
     DuplicateTargetName(String),
+
+    #[error(
+        "system dependency name {0:?} is not valid; a pkg-config module name must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must not start with `.` or `-`, and must not be `.` or `..`"
+    )]
+    InvalidSystemDependencyName(String),
 
     #[error(
         "invalid `links` value {0:?}; a native-library identity must be non-empty and consist only of ASCII letters, ASCII digits, `.`, `_`, `+`, and `-`"
@@ -119,4 +126,15 @@ pub enum ValidationError {
         "target {target:?} requires unknown feature {feature:?}; `required-features` entries must name features declared in this package's `[features]` table"
     )]
     UnknownRequiredFeature { target: String, feature: String },
+}
+
+/// `; did you mean "boa"?` when lowercasing alone makes `name` a valid
+/// package name.  Only a suggestion: package names are never folded.
+fn lowercase_hint(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower != name && crate::PackageName::new(lower.as_str()).is_ok() {
+        format!("; did you mean {lower:?}?")
+    } else {
+        String::new()
+    }
 }

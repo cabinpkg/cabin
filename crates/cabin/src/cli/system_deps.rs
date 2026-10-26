@@ -150,16 +150,11 @@ fn probe_dep(
     if verbosity == Verbosity::VeryVerbose {
         reporter.aux_very_verbose(format_args!(
             "cabin: probing `{}` for package `{}` (version = {:?})",
-            dep.name.as_str(),
-            pkg_name,
-            dep.version,
+            dep.name, pkg_name, dep.version,
         ));
     }
-    // pkg-config module names have no `/`: a scoped system-dep name
-    // probes the module named by its base name; the full name stays
-    // the manifest-facing identity in diagnostics above.
     let request = SystemDependencyProbeRequest {
-        name: dep.name.base_name(),
+        name: &dep.name,
         version_requirement: &dep.version,
         tool,
     };
@@ -192,9 +187,7 @@ fn format_probe_error(
     // `cabin-diagnostics::render` can pick it up upstream.
     let message = format!(
         "package `{}` failed to probe system dependency `{}`: {}",
-        pkg_name,
-        dep.name.as_str(),
-        err,
+        pkg_name, dep.name, err,
     );
     anyhow::Error::new(err).context(message)
 }
@@ -416,7 +409,7 @@ mod tests {
 
     fn zlib_dep() -> SystemDependency {
         SystemDependency {
-            name: cabin_core::PackageName::new("zlib").unwrap(),
+            name: "zlib".to_owned(),
             version: String::new(),
             kind: cabin_core::DependencyKind::Normal,
             condition: None,

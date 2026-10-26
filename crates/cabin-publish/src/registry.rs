@@ -141,10 +141,11 @@ pub fn require_scoped_name(
     Ok(())
 }
 
-/// The publish gate for non-canonical dependency keys, fired beside
+/// The publish gate for bare dependency keys, fired beside
 /// [`require_scoped_name`] in every publish workflow: the staged
 /// metadata's `dependencies` and `dev-dependencies` maps key on
-/// canonical `<scope>/<name>` registry names.  Dev-dependency keys
+/// scoped `<scope>/<name>` registry names.  The keys come from
+/// validated `PackageName`s, so only the scope can be missing.  Dev-dependency keys
 /// denote registry packages too (they resolve when building the
 /// package's own tests), so one grammar covers both maps;
 /// `system-dependencies` is deliberately not checked - its keys name
@@ -164,7 +165,7 @@ pub fn require_scoped_dependency_names(
         ("dev-dependencies", &metadata.dev_dependencies),
     ];
     for (table, entries) in tables {
-        if let Some(name) = entries.keys().find(|name| !is_canonical_registry_key(name)) {
+        if let Some(name) = entries.keys().find(|name| !name.contains('/')) {
             return Err(PublishError::InvalidDependencyName {
                 table,
                 name: name.clone(),
@@ -173,19 +174,6 @@ pub fn require_scoped_dependency_names(
         }
     }
     Ok(())
-}
-
-/// The hosted registry's scope and package-name grammars
-/// (`registry/src/routes.rs`), whose mirrors `cabin-core` owns.
-/// `PackageName`'s own grammar is looser - uppercase and `.` are
-/// legal in local-only names - so a plain scoped check would let a
-/// key the registry refuses fail publish only after staging and
-/// network work.
-fn is_canonical_registry_key(key: &str) -> bool {
-    key.split_once('/').is_some_and(|(scope, name)| {
-        cabin_core::is_valid_package_scope(scope)
-            && cabin_core::is_valid_registry_package_name(name)
-    })
 }
 
 /// Run the standard-compatibility lints against a staged package and
@@ -340,9 +328,9 @@ mod tests {
     }
 
     /// The registry dependency maps key on canonical scoped names:
-    /// both file workflows reject a bare or non-canonical key in
-    /// `[dependencies]` and `[dev-dependencies]` alike, while system
-    /// dependencies are exempt (their keys name system packages).
+    /// both file workflows reject a bare key in `[dependencies]` and
+    /// `[dev-dependencies]` alike, while system dependencies are
+    /// exempt (their keys name system packages).
     #[test]
     fn file_registry_workflows_reject_non_canonical_dependency_names() {
         let dir = TempDir::new().unwrap();
@@ -358,29 +346,19 @@ mod tests {
                 new_revision: false,
             }
         };
-        // Bare, and scoped-but-local spellings the hosted grammar
-        // refuses (uppercase, `.`): `PackageName` accepts them all,
-        // so the gate must not.
-        for key in ["zlib", "madler/Zlib", "madler/z.lib"] {
-            let body = format!(
-                "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
-                 [dependencies]\n\"{key}\" = \"^1.3\"\n"
-            );
-            let err = publish_to_file_registry(workflow(&body)).unwrap_err();
-            assert!(
-                matches!(
-                    &err,
-                    PublishError::InvalidDependencyName { table, name, .. }
-                        if *table == "dependencies" && name == key
-                ),
-                "key: {key}, err: {err}"
-            );
-            let err = dry_run_against_file_registry(workflow(&body)).unwrap_err();
-            assert!(
-                matches!(err, PublishError::InvalidDependencyName { .. }),
-                "key: {key}"
-            );
-        }
+        let body = "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
+                    [dependencies]\nzlib = \"^1.3\"\n";
+        let err = publish_to_file_registry(workflow(body)).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                PublishError::InvalidDependencyName { table, name, .. }
+                    if *table == "dependencies" && name == "zlib"
+            ),
+            "err: {err}"
+        );
+        let err = dry_run_against_file_registry(workflow(body)).unwrap_err();
+        assert!(matches!(err, PublishError::InvalidDependencyName { .. }));
         let err = publish_to_file_registry(workflow(
             "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
              [dev-dependencies]\ncatch2 = \"^3\"\n",

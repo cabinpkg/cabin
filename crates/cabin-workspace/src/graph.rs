@@ -294,36 +294,19 @@ pub enum PackageKind {
 }
 
 /// Synthesize a root identity for resolving over a pure-workspace
-/// root (no `[package]`).  The name is a deterministic
-/// `__workspace_<dirname>` value the resolver uses for diagnostic
-/// output only; nothing else relies on it being canonical.  Lives
-/// here because it is derived purely from a [`PackageGraph`]'s
-/// `root_dir`, keeping the synthetic-root naming rule out of the CLI.
+/// root (no `[package]`).  The resolver uses it for diagnostic output
+/// only, but it must not name a package the resolution reaches, or the
+/// resolver would read that package as the root.  Every valid name is
+/// one some registry could publish, so it lives under `cabin`, a scope
+/// the hosted registry reserves (`registry/src/names.rs`), and the
+/// resolve path refuses any other index that carries or depends on it.
 ///
 /// # Panics
-/// Panics only if the constructed name were rejected by
-/// `PackageName::new`, which cannot happen: `sanitized` always begins
-/// with the literal `__workspace_` prefix (so it is non-empty) and
-/// every appended character is ASCII alphanumeric, `_`, or `-`.
-pub fn synthetic_root_identity(graph: &PackageGraph) -> (cabin_core::PackageName, semver::Version) {
-    let dirname = graph
-        .root_dir
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("workspace");
-    let mut sanitized = String::with_capacity(dirname.len() + 12);
-    sanitized.push_str("__workspace_");
-    for c in dirname.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
-            sanitized.push(c);
-        } else {
-            sanitized.push('_');
-        }
-    }
+/// Never: the name is a valid literal.
+pub fn synthetic_root_identity() -> (cabin_core::PackageName, semver::Version) {
     let name =
-        cabin_core::PackageName::new(sanitized).expect("synthesized name is non-empty and ASCII");
-    let version = semver::Version::new(0, 0, 0);
-    (name, version)
+        cabin_core::PackageName::new("cabin/workspace").expect("literal is a valid package name");
+    (name, semver::Version::new(0, 0, 0))
 }
 
 #[cfg(test)]

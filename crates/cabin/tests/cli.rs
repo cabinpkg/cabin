@@ -664,11 +664,41 @@ fn new_rejects_name_with_whitespace() {
         .args(["new", "bad", "--name", "foo bar"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("invalid package name"));
+        .stderr(predicate::str::contains("must not contain whitespace"));
     assert!(
         !target.exists(),
         "directory should be cleaned up on validation failure"
     );
+}
+
+/// A name inferred from the directory is lowercased; the directory
+/// keeps its spelling.
+#[test]
+fn new_lowercases_a_mixed_case_directory_name() {
+    let parent = TempDir::new().expect("tempdir should be created");
+    cabin()
+        .current_dir(parent.path())
+        .args(["new", "Boa"])
+        .assert()
+        .success();
+    let manifest = fs::read_to_string(parent.path().join("Boa").join("cabin.toml")).unwrap();
+    assert!(manifest.contains(r#"name = "boa""#), "{manifest}");
+    assert!(manifest.contains("[target.boa]"), "{manifest}");
+}
+
+/// An explicit `--name` is never lowercased: it is rejected with the
+/// lowercase spelling as the suggestion.
+#[test]
+fn new_rejects_a_mixed_case_explicit_name() {
+    let parent = TempDir::new().expect("tempdir should be created");
+    cabin()
+        .current_dir(parent.path())
+        .args(["new", "dir", "--name", "Boa"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("`[a-z0-9][a-z0-9_-]*`"))
+        .stderr(predicate::str::contains(r#"did you mean "boa"?"#));
+    assert!(!parent.path().join("dir").exists());
 }
 
 #[test]

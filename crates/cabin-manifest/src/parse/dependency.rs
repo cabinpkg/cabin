@@ -221,9 +221,8 @@ pub(super) fn system_dependency_from_raw_table(
 
     let version = version
         .ok_or_else(|| ManifestError::SystemDependencyMissingVersion { name: name.clone() })?;
-    let package_name = PackageName::new(name)?;
     Ok(SystemDependency {
-        name: package_name,
+        name,
         version,
         kind,
         condition,

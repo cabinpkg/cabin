@@ -175,6 +175,23 @@ fn explain_package_marks_selected_root() {
     assert_eq!(value["source"]["kind"], "workspace-member");
 }
 
+/// The package queries match names exactly, so a spelling outside the
+/// package grammar gets the grammar diagnostic, not a lookup miss.
+#[test]
+fn explain_package_queries_refuse_mixed_case_names() {
+    let dir = TempDir::new().unwrap();
+    write_app_with_path_dep(dir.path());
+    for query in ["package", "source", "build-config"] {
+        cabin()
+            .args(["explain", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .args([query, "App"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(r#"did you mean "app"?"#));
+    }
+}
+
 #[test]
 fn explain_package_traces_dep_path_from_root() {
     let dir = TempDir::new().unwrap();

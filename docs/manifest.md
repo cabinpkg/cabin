@@ -56,7 +56,7 @@ deps = ["greet", "fmt"]
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `name` | string | yes | Package name: a bare `name` or a scoped `<scope>/<name>` with exactly one `/`.  Each part must be non-empty, contain no whitespace, consist only of ASCII letters, digits, `_`, `-`, and `.`, not start with `.` or `-`, and not be `.` or `..`; the scope part is stricter (lowercase letters, digits, and interior `-` only, at most 39 characters - a claimable GitHub login).  Registry packages are always scoped; bare names are local-only and rejected by `cabin publish`. |
+| `name` | string | yes | Package name: a bare `<name>` or a scoped `<scope>/<name>` with exactly one `/`.  `<name>` matches `[a-z0-9][a-z0-9_-]*`: lowercase ASCII letters, digits, `_`, and `-`, starting with a letter or digit.  The scope has its own grammar: lowercase letters, digits, and interior `-` only, at most 39 characters (a claimable GitHub login).  Uppercase and `.` are rejected, and names are compared exactly, never case-folded.  Registry packages are always scoped; bare names are local-only and rejected by `cabin publish`. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
 | `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`; `c90` is an alias of `c89`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++26`; `c++03` is an alias of `c++98`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
@@ -117,7 +117,8 @@ verified - its versions stay pending until an operator intervenes.
 
 The table key (`<name>`) is the target name.  Target names must be non-empty, must not contain
 whitespace, must consist only of ASCII letters, digits, `_`, `-`, and `.`, must not start with `.`
-or `-`, must not be `.` or `..`, and must be unique within the manifest.
+or `-`, must not be `.` or `..`, and must be unique within the manifest.  This grammar is separate
+from, and looser than, the package-name grammar.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
@@ -200,13 +201,14 @@ Each entry declares a package-level dependency.  The dependency value is either:
 registry packages, named like any other (`"cabin-ports/zlib" = "=1.3.1"`).
 
 The dependency *key* (`greet`, `fmt`, `spdlog` above) must equal the depended-on package's
-`[package].name` (path deps) or the registry package name (version deps).  Registry
-dependency keys are always the canonical scoped `<scope>/<name>` name (lowercase throughout, the
-registry grammars): `cabin publish` rejects a bare or non-canonical versioned dependency key in
-`[dependencies]` or `[dev-dependencies]` (dev-dependency keys denote registry packages too - they
-resolve when building the package's own tests), and the hosted registry enforces the same rule
-server-side.  System dependencies (`system = true`) are exempt: their keys name system packages,
-not registry packages (see [`system-dependencies.md`](system-dependencies.md)).
+`[package].name` (path deps) or the registry package name (version deps), and follows the
+package-name grammar.  Registry dependency keys are always the scoped `<scope>/<name>` name:
+`cabin publish` rejects a bare versioned dependency key in `[dependencies]` or
+`[dev-dependencies]` (dev-dependency keys denote registry packages too - they resolve when
+building the package's own tests), and the hosted registry enforces the same rule server-side.
+System dependencies (`system = true`) are exempt: their keys name pkg-config modules, not
+packages, and keep a path-safe grammar that allows uppercase and `.` (`glib-2.0`, `SDL2`; see
+[`system-dependencies.md`](system-dependencies.md)).
 
 ### `ignore-interface-standard`
 
@@ -356,6 +358,8 @@ The parser and downstream tools reject manifests when:
 
 - the manifest contains neither `[package]` nor `[workspace]`
 - `[package].name` / `[package].version` is missing or invalid
+- a package name or dependency key is outside the package-name grammar (the diagnostic suggests the
+  lowercase spelling when that alone would make it valid)
 - a name is empty or contains whitespace
 - a target's `type` is unknown
 - the same target name appears twice

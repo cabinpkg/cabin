@@ -263,7 +263,7 @@ pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) ->
     }
     let mut system_dependencies: BTreeMap<String, SystemDependencyEntry> = BTreeMap::new();
     for sd in &package.system_dependencies {
-        system_dependencies.insert(sd.name.as_str().to_owned(), SystemDependencyEntry::from(sd));
+        system_dependencies.insert(sd.name.clone(), SystemDependencyEntry::from(sd));
     }
 
     let name = package.name.as_str().to_owned();
@@ -529,7 +529,7 @@ mod tests {
     fn metadata_preserves_system_dependency_kind() {
         let mut proj = package("fmt", "10.2.1", Vec::new());
         proj.system_dependencies.push(SystemDependency {
-            name: pkg("openssl"),
+            name: "openssl".to_owned(),
             version: ">=3".to_owned(),
             kind: cabin_core::DependencyKind::Dev,
             condition: None,

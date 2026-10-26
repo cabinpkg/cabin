@@ -197,7 +197,7 @@ pub(super) fn parse_workspace_dep_source(
     // key, and the package-name grammar excludes quotes and
     // backslashes, so plain quoting is enough.
     let manifest = format!(
-        "[package]\nname = \"__workspace_root__\"\nversion = \"0.0.0\"\n[dependencies]\n\"{name}\" = \"{}\"\n",
+        "[package]\nname = \"workspace\"\nversion = \"0.0.0\"\n[dependencies]\n\"{name}\" = \"{}\"\n",
         req.replace('"', "\\\""),
     );
     let parsed = cabin_manifest::parse_manifest_str(&manifest).map_err(|source| {
