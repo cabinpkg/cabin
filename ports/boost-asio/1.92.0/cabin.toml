@@ -1,0 +1,45 @@
+[package.upstream]
+url = "https://github.com/boostorg/asio/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:9aff35259a81bc08cf7a4498cec06e8e35a645a54b917ae16c3e5884fd260ecb"
+format = "tar.gz"
+strip-prefix = "asio-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-asio"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-align" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-context" = "=1.92.0"
+"cabin-ports/boost-date-time" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+
+# Upstream's CMake `boost_asio`: the core, deadline_timer, and spawn on
+# Boost.Context.  The SSL headers (boost/asio/ssl.hpp, boost/asio/ssl/)
+# need OpenSSL, which has no port, so there is no OpenSSL dependency and
+# they compile only for a consumer that supplies OpenSSL itself.
+[target.boost_asio]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-align", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-context", public = true },
+  { name = "cabin-ports/boost-date-time", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+]
+
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["pthread"]
+
+# The libraries the headers name in `#pragma comment(lib)`, spelled out
+# for toolchains that ignore the pragma: Winsock, and bcrypt for
+# connect_pipe's random pipe names.
+[target.'cfg(os = "windows")'.profile]
+link-libs = ["bcrypt", "mswsock", "ws2_32"]

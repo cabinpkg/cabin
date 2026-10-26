@@ -1,0 +1,102 @@
+[package.upstream]
+url = "https://github.com/boostorg/fiber/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:d5d404ce9468596c76d4107ac9d082db1508dcdd587a3eec04d19c59e53e57d1"
+format = "tar.gz"
+strip-prefix = "fiber-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-fiber"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-algorithm" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-context" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-filesystem" = "=1.92.0"
+"cabin-ports/boost-format" = "=1.92.0"
+"cabin-ports/boost-intrusive" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+
+# Upstream's CMake builds two libraries, kept apart here: boost_fiber,
+# and boost_fiber_numa (NUMA topology, thread pinning and a NUMA-aware
+# work-stealing scheduler), which alone needs algorithm, filesystem and
+# format.  The headers read BOOST_FIBERS_SOURCE, not CMake's other
+# spelling BOOST_FIBER_SOURCE.  A package with two library targets is
+# referenced as `cabin-ports/boost-fiber:boost_fiber`.
+[target.boost_fiber]
+type = "library"
+sources = [
+  "src/algo/algorithm.cpp",
+  "src/algo/round_robin.cpp",
+  "src/algo/shared_work.cpp",
+  "src/algo/work_stealing.cpp",
+  "src/barrier.cpp",
+  "src/condition_variable.cpp",
+  "src/context.cpp",
+  "src/fiber.cpp",
+  "src/future.cpp",
+  "src/mutex.cpp",
+  "src/properties.cpp",
+  "src/recursive_mutex.cpp",
+  "src/recursive_timed_mutex.cpp",
+  "src/scheduler.cpp",
+  "src/timed_mutex.cpp",
+  "src/waker.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_FIBERS_SOURCE"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_fiber"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-context", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-intrusive", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+]
+
+[target.boost_fiber_numa]
+type = "library"
+sources = ["src/numa/algo/work_stealing.cpp"]
+include-dirs = ["include"]
+defines = ["BOOST_FIBERS_SOURCE"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_fiber_numa"
+deps = [
+  { name = "boost_fiber", public = true },
+  { name = "cabin-ports/boost-algorithm", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-context", public = true },
+  { name = "cabin-ports/boost-filesystem", public = true },
+  { name = "cabin-ports/boost-format", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+]
+
+# NUMA sources as upstream's CMake picks them: the Linux and Windows
+# implementations there, and elsewhere (macOS included) the portable
+# stubs that throw "not supported".
+[target.'cfg(os = "linux")'.sources]
+boost_fiber_numa = [
+  "src/numa/linux/pin_thread.cpp",
+  "src/numa/linux/topology.cpp",
+]
+
+[target.'cfg(os = "windows")'.sources]
+boost_fiber_numa = [
+  "src/numa/windows/pin_thread.cpp",
+  "src/numa/windows/topology.cpp",
+]
+
+[target.'cfg(not(any(os = "linux", os = "windows")))'.sources]
+boost_fiber_numa = ["src/numa/pin_thread.cpp", "src/numa/topology.cpp"]
+
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["pthread"]

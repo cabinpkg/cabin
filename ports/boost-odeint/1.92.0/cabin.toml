@@ -1,0 +1,52 @@
+[package.upstream]
+url = "https://github.com/boostorg/odeint/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:c276c520fda27f0958702091266042cb73b5b553d4eefc5116a954663aa551ea"
+format = "tar.gz"
+strip-prefix = "odeint-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-odeint"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-math" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-multi-array" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-ublas" = "=1.92.0"
+"cabin-ports/boost-units" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+# No mpi or compute edge: only boost/numeric/odeint/external/mpi/ and
+# external/compute/ include them, and they need the MPI and OpenCL SDKs,
+# which no port provides.  The other external/ adaptors (Eigen, Thrust,
+# MKL, ...) likewise need libraries with no port.
+[target.boost_numeric_odeint]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-math", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-multi-array", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-ublas", public = true },
+  { name = "cabin-ports/boost-units", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

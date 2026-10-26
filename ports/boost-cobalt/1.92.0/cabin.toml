@@ -1,0 +1,104 @@
+[package.upstream]
+url = "https://github.com/boostorg/cobalt/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:e3ca8bb83a581d35644a2b0cd2c3b2fd1818cae7b336373b7df4c7dae014257c"
+format = "tar.gz"
+strip-prefix = "cobalt-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-cobalt"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-asio" = "=1.92.0"
+"cabin-ports/boost-callable-traits" = "=1.92.0"
+"cabin-ports/boost-circular-buffer" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-container" = "=1.92.0"
+"cabin-ports/boost-context" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-endian" = "=1.92.0"
+"cabin-ports/boost-intrusive" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-static-string" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-variant2" = "=1.92.0"
+
+# Upstream's CMake builds boost_cobalt and boost_cobalt_io; a package
+# with two library targets is referenced as
+# `cabin-ports/boost-cobalt:boost_cobalt`.  boost_cobalt_io_ssl
+# (src/io/ssl.cpp) needs OpenSSL, which has no port, so it is left out.
+# With no PMR macro defined the headers pick std::pmr, the choice
+# upstream's CMake makes wherever <memory_resource> compiles, so the
+# library and its consumers agree without a define.  Upstream supports
+# Clang 14, GCC 10 and MSVC 19.30 (VS 2022) or later; GCC 10 also needs
+# -fcoroutines, which a port cannot pass, so here GCC starts at 11.
+[target.boost_cobalt]
+type = "library"
+sources = [
+  "src/channel.cpp",
+  "src/detail/exception.cpp",
+  "src/detail/util.cpp",
+  "src/error.cpp",
+  "src/main.cpp",
+  "src/this_thread.cpp",
+  "src/thread.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_COBALT_SOURCE"]
+cxx-standard = "c++20"
+interface-cxx-standard = "c++20"
+links = "boost_cobalt"
+deps = [
+  { name = "cabin-ports/boost-asio", public = true },
+  { name = "cabin-ports/boost-callable-traits", public = true },
+  { name = "cabin-ports/boost-circular-buffer", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-container", public = true },
+  { name = "cabin-ports/boost-context", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-endian", public = true },
+  { name = "cabin-ports/boost-intrusive", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-static-string", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-variant2", public = true },
+]
+
+[target.boost_cobalt_io]
+type = "library"
+sources = [
+  "src/io/acceptor.cpp",
+  "src/io/datagram_socket.cpp",
+  "src/io/endpoint.cpp",
+  "src/io/file.cpp",
+  "src/io/pipe.cpp",
+  "src/io/random_access_file.cpp",
+  "src/io/read.cpp",
+  "src/io/resolver.cpp",
+  "src/io/seq_packet_socket.cpp",
+  "src/io/serial_port.cpp",
+  "src/io/signal_set.cpp",
+  "src/io/sleep.cpp",
+  "src/io/socket.cpp",
+  "src/io/steady_timer.cpp",
+  "src/io/stream_file.cpp",
+  "src/io/stream_socket.cpp",
+  "src/io/system_timer.cpp",
+  "src/io/write.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_COBALT_IO_SOURCE"]
+cxx-standard = "c++20"
+interface-cxx-standard = "c++20"
+links = "boost_cobalt_io"
+deps = [{ name = "boost_cobalt", public = true }]
+
+# Winsock, mswsock and bcrypt on Windows come from boost-asio.
+[target.'cfg(os = "linux")'.profile]
+link-libs = ["pthread"]

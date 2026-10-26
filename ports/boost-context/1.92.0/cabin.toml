@@ -1,0 +1,82 @@
+[package.upstream]
+url = "https://github.com/boostorg/context/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:d18e24462d8414c6f98abd6bce877dad94b8d50afa230693ce295289a3519597"
+format = "tar.gz"
+strip-prefix = "context-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-context"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-mp11" = "=1.92.0"
+"cabin-ports/boost-pool" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+
+# The fcontext implementation, upstream's default: src/fcontext.cpp plus
+# the make/jump/ontop assembly for the platform, as upstream's CMake
+# picks it.  The ucontext and winfib alternatives (src/continuation.cpp,
+# src/fiber.cpp) would need consumers to define BOOST_USE_UCONTEXT or
+# BOOST_USE_WINFIB, which a port cannot propagate.
+#
+# The MASM sources declare `PROC BOOST_CONTEXT_EXPORT FRAME`, so a static
+# build defines BOOST_CONTEXT_EXPORT empty, as upstream's CMake does.
+[target.boost_context]
+type = "library"
+sources = ["src/fcontext.cpp"]
+include-dirs = ["include"]
+defines = ["BOOST_CONTEXT_SOURCE", "BOOST_CONTEXT_EXPORT="]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_context"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-mp11", public = true },
+  { name = "cabin-ports/boost-pool", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+]
+
+[target.'cfg(family = "unix")'.sources]
+boost_context = ["src/posix/stack_traits.cpp"]
+
+[target.'cfg(all(os = "linux", arch = "x86_64"))'.sources]
+boost_context = [
+  "src/asm/jump_x86_64_sysv_elf_gas.S",
+  "src/asm/make_x86_64_sysv_elf_gas.S",
+  "src/asm/ontop_x86_64_sysv_elf_gas.S",
+]
+
+[target.'cfg(all(os = "linux", arch = "aarch64"))'.sources]
+boost_context = [
+  "src/asm/jump_arm64_aapcs_elf_gas.S",
+  "src/asm/make_arm64_aapcs_elf_gas.S",
+  "src/asm/ontop_arm64_aapcs_elf_gas.S",
+]
+
+# Upstream's universal-binary stubs pick the architecture from the
+# compiler's target macros.
+[target.'cfg(os = "macos")'.sources]
+boost_context = [
+  "src/asm/jump_combined_sysv_macho_gas.S",
+  "src/asm/make_combined_sysv_macho_gas.S",
+  "src/asm/ontop_combined_sysv_macho_gas.S",
+]
+
+# x64 MSVC only.  `arch` is the Cabin binary's architecture, not the
+# compiler's, so Windows ignores it: an arm64 Cabin driving an x64
+# cl/ml64 still needs these.  A native arm64 MSVC toolchain would need
+# the armasm sources, which Cabin cannot assemble.
+[target.'cfg(os = "windows")'.sources]
+boost_context = [
+  "src/asm/jump_x86_64_ms_pe_masm.asm",
+  "src/asm/make_x86_64_ms_pe_masm.asm",
+  "src/asm/ontop_x86_64_ms_pe_masm.asm",
+  "src/windows/stack_traits.cpp",
+]

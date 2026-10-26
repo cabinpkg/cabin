@@ -1,0 +1,213 @@
+[package.upstream]
+url = "https://github.com/boostorg/log/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:536f1eea0d3b41224a5965cfec49595c30ecfb61eded37cdc01a19f29d904bbe"
+format = "tar.gz"
+strip-prefix = "log-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-log"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-align" = "=1.92.0"
+"cabin-ports/boost-asio" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-atomic" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-date-time" = "=1.92.0"
+"cabin-ports/boost-exception" = "=1.92.0"
+"cabin-ports/boost-filesystem" = "=1.92.0"
+"cabin-ports/boost-function-types" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-interprocess" = "=1.92.0"
+"cabin-ports/boost-intrusive" = "=1.92.0"
+"cabin-ports/boost-io" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-move" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-optional" = "=1.92.0"
+"cabin-ports/boost-parameter" = "=1.92.0"
+"cabin-ports/boost-phoenix" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-property-tree" = "=1.92.0"
+"cabin-ports/boost-proto" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-regex" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-spirit" = "=1.92.0"
+"cabin-ports/boost-system" = "=1.92.0"
+"cabin-ports/boost-thread" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-type-index" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+"cabin-ports/boost-winapi" = "=1.92.0"
+"cabin-ports/boost-xpressive" = "=1.92.0"
+
+# Upstream's CMake builds two libraries: boost_log, and boost_log_setup
+# (the settings parsers and filter/formatter factories), which depends
+# on it, so a dependent names one, e.g.
+# `cabin-ports/boost-log:boost_log`.  No source defines its library's
+# BUILDING_THE_LIB macro, so each target does.  The CMake defaults hold
+# except where a port cannot follow them:
+# src/dump_ssse3.cpp and src/dump_avx2.cpp need per-source ISA flags, so
+# src/dump.cpp's generic code serves every host; the Windows event log
+# backend needs mc.exe to generate its message header, so it is built
+# without (BOOST_LOG_WITHOUT_EVENT_LOG, as upstream does when mc.exe is
+# missing), and including <boost/log/sinks/event_log_backend.hpp> on
+# Windows declares a sink that does not link.
+[target.boost_log]
+type = "library"
+sources = [
+  "src/attribute_name.cpp",
+  "src/attribute_set.cpp",
+  "src/attribute_value_set.cpp",
+  "src/code_conversion.cpp",
+  "src/core.cpp",
+  "src/date_time_format_parser.cpp",
+  "src/default_attribute_names.cpp",
+  "src/default_sink.cpp",
+  "src/dump.cpp",
+  "src/event.cpp",
+  "src/exceptions.cpp",
+  "src/format_parser.cpp",
+  "src/global_logger_storage.cpp",
+  "src/named_scope.cpp",
+  "src/named_scope_format_parser.cpp",
+  "src/once_block.cpp",
+  "src/permissions.cpp",
+  "src/process_id.cpp",
+  "src/process_name.cpp",
+  "src/record_ostream.cpp",
+  "src/severity_level.cpp",
+  "src/spirit_encoding.cpp",
+  "src/syslog_backend.cpp",
+  "src/text_file_backend.cpp",
+  "src/text_multifile_backend.cpp",
+  "src/text_ostream_backend.cpp",
+  "src/thread_id.cpp",
+  "src/thread_specific.cpp",
+  "src/threadsafe_queue.cpp",
+  "src/timer.cpp",
+  "src/timestamp.cpp",
+  "src/trivial.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_LOG_BUILDING_THE_LIB"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_log"
+deps = [
+  { name = "cabin-ports/boost-align", public = true },
+  { name = "cabin-ports/boost-asio", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-atomic", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-date-time", public = true },
+  { name = "cabin-ports/boost-exception", public = true },
+  { name = "cabin-ports/boost-filesystem", public = true },
+  { name = "cabin-ports/boost-function-types", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-interprocess", public = true },
+  { name = "cabin-ports/boost-intrusive", public = true },
+  { name = "cabin-ports/boost-io", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-move", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-optional", public = true },
+  { name = "cabin-ports/boost-parameter", public = true },
+  { name = "cabin-ports/boost-phoenix", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-property-tree", public = true },
+  { name = "cabin-ports/boost-proto", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-regex", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-spirit", public = true },
+  { name = "cabin-ports/boost-system", public = true },
+  { name = "cabin-ports/boost-thread", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-type-index", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+  { name = "cabin-ports/boost-winapi", public = true },
+  { name = "cabin-ports/boost-xpressive", public = true },
+]
+
+[target.boost_log_setup]
+type = "library"
+sources = [
+  "src/setup/default_filter_factory.cpp",
+  "src/setup/default_formatter_factory.cpp",
+  "src/setup/filter_parser.cpp",
+  "src/setup/formatter_parser.cpp",
+  "src/setup/init_from_settings.cpp",
+  "src/setup/init_from_stream.cpp",
+  "src/setup/matches_relation_factory.cpp",
+  "src/setup/parser_utils.cpp",
+  "src/setup/settings_parser.cpp",
+]
+include-dirs = ["include"]
+defines = ["BOOST_LOG_SETUP_BUILDING_THE_LIB"]
+cxx-standard = "c++14"
+interface-cxx-standard = "c++14"
+links = "boost_log_setup"
+deps = [{ name = "boost_log", public = true }]
+
+[target.'cfg(family = "unix")'.sources]
+boost_log = [
+  "src/posix/ipc_reliable_message_queue.cpp",
+  "src/posix/object_name.cpp",
+]
+
+[target.'cfg(os = "windows")'.sources]
+boost_log = [
+  "src/windows/debug_output_backend.cpp",
+  "src/windows/ipc_reliable_message_queue.cpp",
+  "src/windows/ipc_sync_wrappers.cpp",
+  "src/windows/is_debugger_present.cpp",
+  "src/windows/light_rw_mutex.cpp",
+  "src/windows/mapped_shared_memory.cpp",
+  "src/windows/object_name.cpp",
+]
+
+# Upstream's private defines common to both libraries.  The sources
+# include their private headers by bare name from src/, as upstream's
+# CMake puts src/ on the private include path.
+[profile]
+defines = [
+  "BOOST_LOG_USE_BOOST_REGEX",
+  "BOOST_SPIRIT_USE_PHOENIX_V3=1",
+  "BOOST_THREAD_DONT_USE_CHRONO=1",
+  "__STDC_CONSTANT_MACROS",
+]
+include-dirs = ["src"]
+
+# BOOST_LOG_USE_NATIVE_SYSLOG is the result of upstream's native syslog
+# probe on glibc and macOS.
+[target.'cfg(os = "linux")'.profile]
+defines = ["BOOST_LOG_USE_NATIVE_SYSLOG", "_XOPEN_SOURCE=600"]
+link-libs = ["pthread", "rt"]
+
+[target.'cfg(os = "macos")'.profile]
+defines = ["BOOST_LOG_USE_NATIVE_SYSLOG"]
+
+# secur32 serves the IPC object names' GetUserNameExW; ws2_32 and
+# mswsock serve the syslog backend's UDP socket.
+[target.'cfg(os = "windows")'.profile]
+defines = [
+  "BOOST_LOG_WITHOUT_EVENT_LOG",
+  "BOOST_USE_WINDOWS_H",
+  "NOMINMAX",
+  "SECURITY_WIN32",
+  "WIN32_LEAN_AND_MEAN",
+  "_CRT_SECURE_NO_DEPRECATE",
+  "_CRT_SECURE_NO_WARNINGS",
+  "_SCL_SECURE_NO_DEPRECATE",
+  "_SCL_SECURE_NO_WARNINGS",
+]
+link-libs = ["advapi32", "mswsock", "secur32", "ws2_32"]
