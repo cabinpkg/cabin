@@ -1,0 +1,24 @@
+[package.upstream]
+url = "https://github.com/boostorg/interval/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:8cca133571b9fadb2d9c2e5ae11050ad2be7596851d7569bf32629c193ebbe6b"
+format = "tar.gz"
+strip-prefix = "interval-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-interval"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-detail" = "=1.92.0"
+"cabin-ports/boost-logic" = "=1.92.0"
+
+[target.boost_numeric_interval]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-detail", public = true },
+  { name = "cabin-ports/boost-logic", public = true },
+]
