@@ -138,8 +138,10 @@ changes (the `registry` filter in `.github/path-filters.yml`); a run on
 `main` also deploys the Worker (its `deploy-registry` job), unless a
 newer registry-relevant commit superseded it (green, Deploy step
 skipped, the newer run deploys) or unapplied D1 migrations block it
-(red). That deploy never applies D1 migrations; those stay manual
-(docs/runbook.md, "Deploy skew").
+(red). A deploy that exits 0 still fails the job unless Cloudflare then
+shows the run's tagged version serving all traffic. That deploy never
+applies D1 migrations; those stay manual (docs/runbook.md, "Deploy
+skew").
 
 ## First-time provisioning
 

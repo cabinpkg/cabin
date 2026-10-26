@@ -267,7 +267,7 @@ jobs:
 
   # Ships the Worker on a registry-relevant main push. Validation ran
   # pre-merge (Merge Queue), so only the change gate runs here. No
-  # build step of its own: `wrangler deploy` runs wrangler.jsonc's
+  # Worker build step of its own: `wrangler deploy` runs wrangler.jsonc's
   # build.command. D1 migrations stay manual - the deploy token cannot
   # apply them (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
@@ -275,11 +275,13 @@ jobs:
     needs: changes
     runs-on: ubuntu-latest
     environment: production
+    env:
+      DEPLOY_TAG: ${{ github.run_id }}.${{ github.run_attempt }}
     concurrency:
       group: deploy-registry
       # Queue burst deploys instead of cancelling all but the newest
       # pending one; superseded runs skip their Deploy step and stay
-      # green, every other run deploys or fails.
+      # green, every other run deploys and confirms it, or fails.
       queue: max
       cancel-in-progress: false
 
@@ -340,6 +342,11 @@ jobs:
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # Compiled before the token reaches any step's env.
+      - name: Build the deploy confirmation
+        if: steps.freshness.outputs.superseded != 'true'
+        run: cargo build --locked -p xtask-registry-admin
+
       - name: Deploy
         if: steps.freshness.outputs.superseded != 'true'
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
@@ -353,3 +360,14 @@ jobs:
           # and never falls back to its unpinned default.
           wranglerVersion: ${{ steps.wrangler.outputs.version }}
           workingDirectory: registry
+          # Tags the version with this run attempt for the check below.
+          command: deploy --tag ${{ env.DEPLOY_TAG }}
+
+      # A zero exit from `wrangler deploy` does not say which version
+      # serves; this requires the tagged one at 100%.
+      - name: Confirm the deployed version
+        if: steps.freshness.outputs.superseded != 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 7bd7dbea3c4c76cd396153fb0e92178f
+        run: cargo registry-confirm-deploy "$DEPLOY_TAG"

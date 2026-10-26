@@ -506,8 +506,13 @@ holding the commands that act on the live registry, reached through their own `c
 aliases: the ones an incident or a maintenance window needs at an operator's terminal, plus
 `verify`, which the `registry-verify` workflow runs unattended
 (`registry/docs/runbook.md`, "Verification pipeline") - it drives the `cabin-registry-verify`
-binary over every pending version and PATCHes the verdicts back.  They hold privileged
-credentials and talk to the running service, which is what separates them from the static guards
+binary over every pending version and PATCHes the verdicts back - and `confirm-deploy`, which
+`registry.yml`'s deploy job runs after `wrangler deploy`: it passes only once Cloudflare's latest
+deployment routes all traffic to the one version the Deploy step tagged with the run attempt,
+because a zero exit from the deploy says which API calls succeeded, not which version serves.
+It reads the control plane's deployment record, not an edge response: the Worker reports no
+version, and `/healthz` and the generation header read the same from every version.  They hold
+privileged credentials and talk to the running service, which is what separates them from the static guards
 in `xtask-registry-guard`.  `verify::run` is the workflow's entry and pins every origin to https
 before calling `verify::run_with`, which takes its origins, mint and inspector as given, for a
 caller that vouches for them: the registry smoke, against its loopback Worker.  Every wrangler
@@ -527,12 +532,13 @@ exact answer statuses where the shared client is deliberately laxer.  The crate 
   `backup::dump_object_key`'s `d1/<date>.sql`.  The audit is the deliberate exception, because an
   operator cannot act on a divergence without the keys naming it, and those keys are content
   checksums: `--keys` prints them on request, and a listing the audit cannot paginate carries the
-  page body into its error either way.  Neither is shareable output.  `verify` is the one
-  command whose output is not an operator's terminal but a CI log, so its disclosure ceiling is
-  drawn there instead: it prints package names and versions - what any holder of a
-  `verify`-scope token already reads from the admin listing - plus the verdicts and reason
-  codes its own verifier run computes, and never the token, the name corpus, or a byte of
-  either archive;
+  page body into its error either way.  Neither is shareable output.  `verify` and
+  `confirm-deploy` are the commands whose output is not an operator's terminal but a CI log, so
+  their disclosure ceiling is drawn there instead: `verify` prints package names and versions -
+  what any holder of a `verify`-scope token already reads from the admin listing - plus the
+  verdicts and reason codes its own verifier run computes, and never the token, the name corpus,
+  or a byte of either archive; `confirm-deploy` prints Worker version ids and the run's own tag,
+  and never the token;
 - treat an answer they cannot parse as a failure.  An empty result set is not one: it is an
   answer about the database, and each read judges its own — the service-state read prints no
   rows, the counts read refuses;

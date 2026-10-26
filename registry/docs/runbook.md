@@ -129,7 +129,10 @@ the manual fallback. The CI deploy token is scoped to Workers
 Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
 remain manual steps in this runbook. For exactly that reason a
 `deploy-registry` run ends one of three ways. It **deploys**: its
-Deploy step ran and succeeded. It is **superseded**: main already
+Deploy step ran and succeeded, and `cargo registry-confirm-deploy`
+then read Cloudflare's latest deployment routing all traffic to the
+one version Deploy tagged with the run attempt (`wrangler deploy
+--tag <run id>.<attempt>`). It is **superseded**: main already
 carries a newer registry-relevant commit, so it skips Deploy and stays
 green, and that commit's run owns the deploy. Or it is **blocked**:
 `migrations/` content disagrees with the `migrations-applied` stamp
@@ -148,6 +151,15 @@ migrations by filename) would never replay; pre-launch that edit ships
 through `cargo registry-wipe` (which reapplies from zero and refreshes
 the stamp itself), post-launch it must become a new migration file.
 Hand-refreshing the stamp bypasses those checks; don't.
+
+A Deploy step that exits 0 without its tagged version then serving
+all traffic fails the job with a `Registry deploy unconfirmed` error
+annotation instead of counting as a deploy. Rerun the job: it
+redeploys under a fresh tag, or stays green if a newer commit
+superseded it meanwhile. The confirmation reads the control plane, not
+an edge response (no request tells one version from another:
+`/healthz` and the generation header read the same from all of them),
+so the smoke checks below remain the edge-side check.
 
 Because the stamp covers migration *content*, an applied file's
 comments are frozen with its SQL: a rename elsewhere in the repository
