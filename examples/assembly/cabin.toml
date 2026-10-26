@@ -1,0 +1,20 @@
+[package]
+name = "assembly"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.assembly]
+type = "executable"
+sources = ["src/main.c"]
+# Target defines reach the assembler too: the assembly returns this value.
+defines = ["CABIN_ANSWER=42"]
+
+# GNU assembly (`.S`) goes through the GCC/Clang driver and MASM
+# (`.asm`) through MSVC's `ml64.exe`, so each host assembles the file
+# its toolchain understands.  `answer.S` covers x86_64 and aarch64
+# itself; `answer.asm` is x64 code, which every `ml64` emits.
+[target.'cfg(family = "unix")'.sources]
+assembly = ["src/answer.S"]
+
+[target.'cfg(os = "windows")'.sources]
+assembly = ["src/answer.asm"]

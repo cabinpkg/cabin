@@ -17,6 +17,11 @@
 //! | `.c` | [`SourceLanguage::C`] |
 //! | `.cc`, `.cpp`, `.cxx`, `.c++`, `.C` | [`SourceLanguage::Cxx`] |
 //!
+//! Assembly sources are assembled rather than compiled, so they have
+//! no language standard and [`classify_assembly`] classifies them
+//! separately: `.S` is [`AssemblySyntax::Gnu`], `.asm` is
+//! [`AssemblySyntax::Masm`].
+//!
 //! Headers (`.h`, `.hh`, `.hpp`) are not classified here - they
 //! are not compiled as standalone translation units.  Anything
 //! outside the table above returns `None` so callers can surface
@@ -85,6 +90,26 @@ pub fn classify_source(path: &Utf8Path) -> Option<SourceLanguage> {
     }
 }
 
+/// Assembler syntax of an assembly source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssemblySyntax {
+    /// Preprocessed GNU assembly (`.S`), assembled by the GCC/Clang
+    /// driver.
+    Gnu,
+    /// MASM (`.asm`), assembled by the `ml64.exe` beside `cl.exe`.
+    Masm,
+}
+
+/// Classify an assembly source by its filename extension, or `None`
+/// for anything else (including every [`classify_source`] extension).
+pub fn classify_assembly(path: &Utf8Path) -> Option<AssemblySyntax> {
+    match path.extension()? {
+        "S" => Some(AssemblySyntax::Gnu),
+        "asm" => Some(AssemblySyntax::Masm),
+        _ => None,
+    }
+}
+
 /// Pick the link-driver language for a target whose objects
 /// span the supplied set of source languages.
 ///
@@ -96,17 +121,17 @@ pub fn classify_source(path: &Utf8Path) -> Option<SourceLanguage> {
 /// translation unit that uses C++; the C driver omits that
 /// runtime, which is correct for pure-C link lines.
 ///
-/// Returns [`SourceLanguage::C`] for an empty input - that is
-/// the conservative choice for an empty link line, but in
-/// practice the planner rejects executables with no objects
-/// before this is consulted.
+/// Returns [`SourceLanguage::Cxx`] for an empty input - an
+/// executable built only from assembly - because the C++ driver is
+/// the one Cabin always validates (and the one that assembled the
+/// objects on GNU); the C compiler may be an unchecked host default.
 ///
 /// The slice form (rather than a generic `IntoIterator`) keeps
 /// the predicate cheap to call on the per-target language
 /// manifests the planner already collects, and lets callers
 /// reason about the input by reading the call site directly.
 pub fn link_driver_language(languages: &[SourceLanguage]) -> SourceLanguage {
-    if languages.contains(&SourceLanguage::Cxx) {
+    if languages.is_empty() || languages.contains(&SourceLanguage::Cxx) {
         SourceLanguage::Cxx
     } else {
         SourceLanguage::C
@@ -176,6 +201,7 @@ mod tests {
             link_driver_language(&[SourceLanguage::Cxx, SourceLanguage::C]),
             SourceLanguage::Cxx
         );
+        assert_eq!(link_driver_language(&[]), SourceLanguage::Cxx);
     }
 
     #[test]

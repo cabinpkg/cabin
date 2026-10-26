@@ -1,6 +1,7 @@
 //! Compiler command-line dialects and their artifact conventions.
 
-use cabin_core::CompilerKind;
+use cabin_core::{AssemblySyntax, CompilerKind};
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// A compiler command-line family.  Selected from the detected C++
 /// compiler and threaded through planning and Ninja generation so
@@ -71,6 +72,38 @@ impl Dialect {
         match self {
             Dialect::GnuLike => stem.to_owned(),
             Dialect::Msvc => format!("{stem}.exe"),
+        }
+    }
+
+    /// The assembler for `syntax` sources given the C++ compiler the
+    /// dialect was detected from, or `None` when that toolchain cannot
+    /// assemble the syntax.  The GCC/Clang driver assembles GNU `.S`
+    /// itself; MASM goes through the `ml64.exe` Visual Studio installs
+    /// beside `cl.exe` (and not beside `clang-cl`).
+    #[must_use]
+    pub fn assembler(self, syntax: AssemblySyntax, compiler: &Utf8Path) -> Option<Utf8PathBuf> {
+        match (self, syntax) {
+            (Dialect::GnuLike, AssemblySyntax::Gnu) => Some(compiler.to_path_buf()),
+            // shortcut: x64 MSVC only - an arm64 host needs `armasm64`
+            // and its own argv once Cabin builds there.
+            (Dialect::Msvc, AssemblySyntax::Masm)
+                if compiler
+                    .file_stem()
+                    .is_some_and(|stem| stem.eq_ignore_ascii_case("cl")) =>
+            {
+                Some(compiler.with_file_name("ml64.exe"))
+            }
+            _ => None,
+        }
+    }
+
+    /// How Ninja should discover what an assembly source includes, or
+    /// `None` when the assembler cannot report it (`ml64`).
+    #[must_use]
+    pub fn assemble_deps(self) -> Option<NinjaDeps> {
+        match self {
+            Dialect::GnuLike => Some(NinjaDeps::Gcc),
+            Dialect::Msvc => None,
         }
     }
 

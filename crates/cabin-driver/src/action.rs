@@ -21,6 +21,8 @@ use cabin_core::{LanguageStandard, OptLevel};
 pub enum BuildAction {
     /// Compile (or syntax-check) one C/C++ translation unit.
     Compile(CompileAction),
+    /// Assemble one assembly source.
+    Assemble(AssembleAction),
     /// Archive object files into a static library.
     Archive(ArchiveAction),
     /// Link object files and static archives into an executable.
@@ -119,6 +121,31 @@ pub struct CompileArguments {
     /// include block.  The user writes these in the active dialect
     /// (language-neutral first, then language-specific).
     pub extra_flags: Vec<String>,
+}
+
+/// Assemble one assembly source into an object file: GNU syntax
+/// (`.S`) through the GCC/Clang driver, which preprocesses it first,
+/// and MASM (`.asm`) through `ml64.exe`.  Only defines and include
+/// dirs apply; the standard, optimization, and escape-hatch flags are
+/// C/C++ compiler arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssembleAction {
+    /// Assembler executable: the C++ compiler driver on the GNU/Clang
+    /// dialect, `ml64.exe` on MSVC.
+    pub assembler: Utf8PathBuf,
+    /// Absolute path of the assembly source.
+    pub source: Utf8PathBuf,
+    /// Object file to produce.
+    pub object: Utf8PathBuf,
+    /// Header-dependency file the GNU/Clang driver's preprocessing
+    /// pass writes; the MSVC lowering ignores it.
+    pub depfile: Option<Utf8PathBuf>,
+    /// Include search directories (`-I` / `/I`).
+    pub include_dirs: Vec<Utf8PathBuf>,
+    /// Preprocessor defines, without any prefix.
+    pub defines: Vec<String>,
+    /// Human-readable description (`AS foo.o`).
+    pub description: String,
 }
 
 /// Archive object files into a static library.

@@ -13,7 +13,9 @@ use camino::Utf8PathBuf;
 use cabin_core::{CStandard, CxxStandard};
 use cabin_core::{LanguageStandard, OptLevel, SourceLanguage};
 
-use crate::action::{ArchiveAction, BuildAction, CompileAction, CompileMode, LinkAction};
+use crate::action::{
+    ArchiveAction, AssembleAction, BuildAction, CompileAction, CompileMode, LinkAction,
+};
 use crate::dialect::Dialect;
 
 /// A fully-lowered action: the backend artifact the Ninja writer
@@ -54,6 +56,8 @@ pub enum LoweredActionKind {
     /// Parse + semantic-check a C++ translation unit.  Produces no
     /// object file; a stamp output records success.
     SyntaxCheckCpp,
+    /// Assemble a single assembly source to an object file.
+    Assemble,
     /// Archive a set of object files into a static library.
     ArchiveStaticLibrary,
     /// Link object files plus static archives into an executable.
@@ -69,6 +73,7 @@ pub enum LoweredActionKind {
 pub fn lower(dialect: Dialect, action: &BuildAction) -> LoweredAction {
     match action {
         BuildAction::Compile(compile) => lower_compile(dialect, compile),
+        BuildAction::Assemble(assemble) => lower_assemble(dialect, assemble),
         BuildAction::Archive(archive) => lower_archive(dialect, archive),
         BuildAction::Link(link) => lower_link(dialect, link),
     }
@@ -204,6 +209,29 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
         }
     }
     out
+}
+
+fn lower_assemble_gnu(assemble: &AssembleAction) -> Vec<String> {
+    // The driver preprocesses a `.S` input by its extension before
+    // assembling it, so defines and include dirs apply as for C.
+    let mut command = vec![assemble.assembler.to_string()];
+    if let Some(depfile) = &assemble.depfile {
+        command.push("-MD".to_owned());
+        command.push("-MF".to_owned());
+        command.push(depfile.to_string());
+    }
+    for define in &assemble.defines {
+        command.push(format!("-D{define}"));
+    }
+    for include in &assemble.include_dirs {
+        command.push("-I".to_owned());
+        command.push(include.to_string());
+    }
+    command.push("-c".to_owned());
+    command.push(assemble.source.to_string());
+    command.push("-o".to_owned());
+    command.push(assemble.object.to_string());
+    command
 }
 
 fn lower_archive_gnu(archive: &ArchiveAction) -> Vec<String> {
@@ -387,9 +415,48 @@ fn lower_link_msvc(link: &LinkAction) -> Vec<String> {
     command
 }
 
+fn lower_assemble_msvc(assemble: &AssembleAction) -> Vec<String> {
+    let mut command = vec![
+        assemble.assembler.to_string(),
+        "/nologo".to_owned(),
+        "/c".to_owned(),
+    ];
+    for define in &assemble.defines {
+        command.push(format!("/D{define}"));
+    }
+    for include in &assemble.include_dirs {
+        command.push("/I".to_owned());
+        command.push(include.to_string());
+    }
+    command.push("/Fo".to_owned());
+    command.push(assemble.object.to_string());
+    command.push(assemble.source.to_string());
+    command
+}
+
 // ---------------------------------------------------------------
-// Archive / link dispatch.
+// Assemble / archive / link dispatch.
 // ---------------------------------------------------------------
+
+fn lower_assemble(dialect: Dialect, assemble: &AssembleAction) -> LoweredAction {
+    let command = match dialect {
+        Dialect::GnuLike => lower_assemble_gnu(assemble),
+        Dialect::Msvc => lower_assemble_msvc(assemble),
+    };
+    // `ml64` reports no included files; docs/targets.md notes that an
+    // edited MASM `INCLUDE` file does not re-assemble.
+    let depfile = dialect
+        .assemble_deps()
+        .and_then(|_| assemble.depfile.clone());
+    LoweredAction {
+        kind: LoweredActionKind::Assemble,
+        inputs: vec![assemble.source.clone()],
+        outputs: vec![assemble.object.clone()],
+        depfile,
+        command,
+        description: assemble.description.clone(),
+    }
+}
 
 fn lower_archive(dialect: Dialect, archive: &ArchiveAction) -> LoweredAction {
     let command = match dialect {
@@ -454,6 +521,58 @@ mod tests {
             },
             description: "CXX /abs/build/main.o".to_owned(),
         }
+    }
+
+    /// GNU assembly tracks `#include`d headers through a depfile;
+    /// `ml64` reports none, so MSVC lowers without one.
+    #[test]
+    fn assemble_lowers_per_dialect() {
+        let assemble = |assembler: &str| {
+            BuildAction::Assemble(AssembleAction {
+                assembler: Utf8PathBuf::from(assembler),
+                source: Utf8PathBuf::from("/abs/src/jump.S"),
+                object: Utf8PathBuf::from("/abs/build/jump.o"),
+                depfile: Some(Utf8PathBuf::from("/abs/build/jump.o.d")),
+                include_dirs: vec![Utf8PathBuf::from("/abs/include")],
+                defines: strs(&["FOO=1"]),
+                description: "AS /abs/build/jump.o".to_owned(),
+            })
+        };
+        let gnu = lower(Dialect::GnuLike, &assemble("/usr/bin/g++"));
+        assert_eq!(gnu.kind, LoweredActionKind::Assemble);
+        assert_eq!(gnu.depfile, Some(Utf8PathBuf::from("/abs/build/jump.o.d")));
+        assert_eq!(
+            gnu.command,
+            strs(&[
+                "/usr/bin/g++",
+                "-MD",
+                "-MF",
+                "/abs/build/jump.o.d",
+                "-DFOO=1",
+                "-I",
+                "/abs/include",
+                "-c",
+                "/abs/src/jump.S",
+                "-o",
+                "/abs/build/jump.o",
+            ])
+        );
+        let msvc = lower(Dialect::Msvc, &assemble("C:/vs/ml64.exe"));
+        assert_eq!(msvc.depfile, None);
+        assert_eq!(
+            msvc.command,
+            strs(&[
+                "C:/vs/ml64.exe",
+                "/nologo",
+                "/c",
+                "/DFOO=1",
+                "/I",
+                "/abs/include",
+                "/Fo",
+                "/abs/build/jump.o",
+                "/abs/src/jump.S",
+            ])
+        );
     }
 
     #[test]

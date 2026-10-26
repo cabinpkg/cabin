@@ -65,6 +65,7 @@ fn primary_output(action: &BuildAction) -> &Utf8Path {
             CompileMode::Object => &c.object,
             CompileMode::SyntaxOnly { stamp } => stamp,
         },
+        BuildAction::Assemble(a) => &a.object,
         BuildAction::Archive(a) => &a.output,
         BuildAction::Link(l) => &l.output,
     }
@@ -371,6 +372,106 @@ fn conditional_sources_compile_only_on_a_matching_host() {
                 Utf8Path::new("/abs/proj").join(compiled).as_path()
             ],
             "{family}"
+        );
+    }
+}
+
+/// An assembly source becomes an `Assemble` action on the assembler
+/// its syntax needs - the C driver for `.S`, the `ml64.exe` beside
+/// `cl.exe` for `.asm` - carries the target's defines, and joins the
+/// archive beside the C++ objects.
+#[test]
+fn assembly_sources_assemble_into_the_target_archive() {
+    for (source, dialect, cxx, assembler) in [
+        (
+            "src/jump.S",
+            Dialect::GnuLike,
+            "/usr/bin/g++",
+            "/usr/bin/g++",
+        ),
+        (
+            "src/jump.asm",
+            Dialect::Msvc,
+            "/vs/bin/cl.exe",
+            "/vs/bin/ml64.exe",
+        ),
+    ] {
+        let mut lib = target("ctx", TargetKind::Library, &["src/ctx.cc", source], &[]);
+        lib.defines = vec!["CTX_EXPORT=".to_owned()];
+        let package = Package::new(pkg_name("ctx"), version(), vec![lib], Vec::new()).unwrap();
+        let graph = single_package_graph(package, "/abs/proj");
+        let mut tc = toolchain_with_cc();
+        tc.cxx.path = Utf8PathBuf::from(cxx);
+        let mut request = plan_request(&graph, &tc, "/abs/proj/build");
+        request.dialect = dialect;
+        let bg = plan(&request).unwrap();
+        let assemble = bg
+            .actions
+            .iter()
+            .find_map(|a| match a {
+                BuildAction::Assemble(a) => Some(a),
+                _ => None,
+            })
+            .expect("assemble action present");
+        assert_eq!(assemble.assembler, assembler, "{source}");
+        assert_eq!(assemble.source, Utf8Path::new("/abs/proj").join(source));
+        assert_eq!(assemble.defines, ["CTX_EXPORT="]);
+        let archive = bg
+            .actions
+            .iter()
+            .find_map(|a| match a {
+                BuildAction::Archive(a) => Some(a),
+                _ => None,
+            })
+            .expect("archive action present");
+        assert_eq!(archive.inputs.len(), 2, "{source}");
+        assert!(archive.inputs.contains(&assemble.object), "{source}");
+        // `compile_commands.json` lists only the C++ translation unit.
+        assert_eq!(bg.compile_commands.len(), 1, "{source}");
+    }
+}
+
+/// An executable built only from assembly links with the validated
+/// C++ driver, never the possibly-unchecked default C compiler.
+#[test]
+fn assembly_only_executable_links_with_the_cxx_driver() {
+    let exe = target("ctx", TargetKind::Executable, &["src/main.S"], &[]);
+    let package = Package::new(pkg_name("ctx"), version(), vec![exe], Vec::new()).unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain_with_cc();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/proj/build")).unwrap();
+    let link = bg
+        .actions
+        .iter()
+        .find_map(|a| match a {
+            BuildAction::Link(l) => Some(l),
+            _ => None,
+        })
+        .expect("link action present");
+    assert_eq!(link.linker, tc.cxx.path);
+}
+
+/// A syntax the active toolchain cannot assemble fails planning
+/// rather than handing the file to the wrong tool - including MASM
+/// under `clang-cl`, which has no `ml64.exe` beside it.
+#[test]
+fn assembly_syntax_must_match_the_toolchain_dialect() {
+    for (source, dialect, cxx) in [
+        ("src/jump.S", Dialect::Msvc, "/vs/bin/cl.exe"),
+        ("src/jump.asm", Dialect::GnuLike, "/usr/bin/g++"),
+        ("src/jump.asm", Dialect::Msvc, "/llvm/bin/clang-cl.exe"),
+    ] {
+        let lib = target("ctx", TargetKind::Library, &["src/ctx.c", source], &[]);
+        let package = Package::new(pkg_name("ctx"), version(), vec![lib], Vec::new()).unwrap();
+        let graph = single_package_graph(package, "/abs/proj");
+        let mut tc = toolchain_with_cc();
+        tc.cxx.path = Utf8PathBuf::from(cxx);
+        let mut request = plan_request(&graph, &tc, "/abs/proj/build");
+        request.dialect = dialect;
+        let err = plan(&request).unwrap_err();
+        assert!(
+            matches!(err, BuildError::AssemblyNeedsToolchain { .. }),
+            "{source}: {err}"
         );
     }
 }

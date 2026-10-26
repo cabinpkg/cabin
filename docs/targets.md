@@ -25,7 +25,7 @@ external linting.  Cabin accepts C++ sources in any target kind, including `exec
 
 `header-only` libraries declare `include-dirs` instead of `sources`; declaring `sources` on a
 `header-only` target is rejected at manifest-load time.  The other kinds all carry a `sources` list
-of `.c` and/or C++ source files.
+of `.c` and/or C++ source files, optionally with [assembly sources](#assembly-sources).
 
 ### C/C++ source languages
 
@@ -44,12 +44,29 @@ The planner then:
 - compiles C++ sources with the **C++ compiler driver** (`c++` / `clang++` / `g++`) and the target's
   effective C++ standard (required);
 - chooses the **link driver** by walking the target's own objects plus every transitively reachable
-  library object: if any object came from a C++ source, link with the C++ driver; otherwise link
-  with the C driver.  Pure-C executables therefore stay off the C++ runtime; mixed targets inherit
-  the C++ runtime as required.
+  library object: if any object came from a C++ source, or none came from a C or C++ source
+  (assembly only), link with the C++ driver; otherwise link with the C driver.  Pure-C executables
+  therefore stay off the C++ runtime; mixed targets inherit the C++ runtime as required.
 
 Sources whose extension is not recognized produce an explicit `unrecognized extension` build error
 so a misnamed file never silently picks the wrong compiler.
+
+### Assembly sources
+
+A target may also list assembly sources, which Cabin assembles rather than compiles:
+
+| Extension | Syntax                     | Assembler                                         |
+| --------- | -------------------------- | ------------------------------------------------- |
+| `.S`      | GNU assembly, preprocessed | the GCC or Clang driver that compiles C++         |
+| `.asm`    | MASM                       | `ml64.exe` from the directory holding `cl.exe` (x64 MSVC; not `clang-cl`) |
+
+Only the target's defines and include dirs reach the assembler: standards, optimization, and the
+escape-hatch flags (`cflags` / `cxxflags`, `CPPFLAGS` / `CFLAGS` / `CXXFLAGS`) are compiler flags.
+Each syntax assembles only on its own toolchain, so a portable target lists its assembly in
+[platform-conditional sources](#platform-conditional-sources), and a source the active toolchain
+cannot assemble is a build error.  `cabin check` skips assembly sources, and `compile_commands.json` lists only C and
+C++ translation units.  `ml64` reports no included files, so editing a file a MASM source pulls in
+with `INCLUDE` does not re-assemble it; the GNU driver tracks `#include`s like a C compile.
 
 There is no `language = "c"` / `language = "cpp"` switch on a package or target.  Per-target build
 behavior is decided by per-source classification (`.c` -> C, `.cc` / `.cpp` / `.cxx` -> C++) plus
