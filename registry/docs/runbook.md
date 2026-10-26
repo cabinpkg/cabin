@@ -18,7 +18,9 @@ infrastructure cutover.
 - **Pre-launch (`meta.launched` = `'false'`): disposable.** When the
   storage format changes incompatibly - `metadata_json` shape, R2 key
   layout, reshaped D1 columns - the registry is wiped and recreated
-  (`cargo registry-wipe`) rather than migrated. The schema ships as a
+  (`cargo registry-wipe`) rather than migrated - the database, the
+  primary blobs, and the whole backup bucket, whose backups of
+  disposable data are disposable too. The schema ships as a
   single from-zero baseline (`migrations/0001_init.sql`) edited in
   place: while the data is disposable, no ALTER TABLE history
   accretes.
@@ -28,7 +30,8 @@ infrastructure cutover.
   hand, as a launch-checklist item (see "Launch checklist"), and every
   destructive maintenance path checks it first and refuses while it is
   `'true'` (the launch guard, `cargo registry-launch-guard`, run from
-  the repository root).
+  the repository root). The wipe is then forbidden, and the backup
+  bucket keeps its normal retention ("Disaster recovery").
 
 ## Zone security prerequisite
 
@@ -241,7 +244,24 @@ smoke test). What it does, in order:
    named `cabin-registry` are the same database (a stale binding could
    otherwise have the flag read one database while `d1 delete` removes
    another), then reads `meta.launched` through the binding.
-2. Deletes and recreates the database
+2. Empties both buckets through the R2 REST API, before the database
+   goes: every `blobs/`-prefixed object in `cabin-registry-blobs`, then
+   every object in `cabin-registry-backup` - archived blobs, D1 dumps,
+   sidecars, and anything else the dedicated bucket holds (list, delete
+   per key, and list again until a listing comes back empty;
+   `wrangler r2 object delete` removes exactly one object and has no
+   prefix or bulk mode, which is why the wipe drives the API directly).
+   A failed or malformed listing, a refused delete (the API's rate
+   limit, about 1,200 requests per five minutes, included - a bucket of
+   more than a thousand-odd objects can take a second run), or a key
+   still listed after its delete answered success stops the run - and since
+   the database and its flag still exist, re-running the command
+   resumes the sweep. The buckets themselves, their bindings, and every
+   other Cloudflare resource stay. The backup bucket is emptied only
+   here, pre-launch: once `meta.launched` is `'true'` the guard refuses,
+   and the bucket's append-only retention is all that ever happens to
+   it ("Disaster recovery").
+3. Deletes and recreates the database
    (`wrangler d1 delete cabin-registry -y` / `wrangler d1 create
    cabin-registry`) and bakes the new id into BOTH the `DB` binding's
    `database_id` and `vars.D1_DATABASE_ID` in `wrangler.jsonc`
@@ -250,16 +270,11 @@ smoke test). What it does, in order:
    (the nightly dump exports whatever database `D1_DATABASE_ID` names -
    a stale value backs up the wrong, deleted database). Commit that
    change.
-3. Applies all migrations from zero
+4. Applies all migrations from zero
    (`wrangler d1 migrations apply DB --remote`) and refreshes the
    `migrations-applied` deploy-gate stamp - the recreated database now
    runs exactly the files' content. Commit the stamp with the
    `wrangler.jsonc` change.
-4. Deletes every `blobs/`-prefixed object from `cabin-registry-blobs`
-   through the R2 REST API (list by prefix, delete per key -
-   `wrangler r2 object delete` removes exactly one object and has no
-   prefix or bulk mode, which is why the wipe drives the API
-   directly). The BACKUP bucket is never wiped.
 5. Bumps `meta.registry_generation` to one more than the pre-wipe value
    read in step 1 (every authenticated response except a token
    self-revocation echoes it as `x-cabin-registry-generation`, so
@@ -267,26 +282,28 @@ smoke test). What it does, in order:
 6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings.
 7. Resets the governor ledger - a manual follow-up the command reminds
-   you of: the ledger still accounts for the deleted primary blobs
-   (conservative, so nothing overspends, but admission runs against
-   ghosts). Sign in and mint a login-session token; because it carries
-   `publish`, block writes first ("Post-wipe re-provisioning" gives the
-   exact ordering and drain wait), then run `cargo registry-governor
-   wipe` (from the repository root) with it
+   you of: the ledger still accounts for every deleted object in all
+   three storage pools (conservative, so nothing overspends, but
+   admission runs against ghosts). Sign in and mint a login-session
+   token; because it carries `publish`, block writes first ("Post-wipe
+   re-provisioning" gives the exact ordering and drain wait), then run
+   `cargo registry-governor wipe` (from the repository root) with it
    (`CABIN_REGISTRY_TOKEN` plus
-   `CLOUDFLARE_API_TOKEN` in the environment): it re-runs the launch
-   guard, proves the primary bucket really carries no `blobs/` objects
-   (an interrupted sweep would otherwise leave the fresh ledger
-   undercounting objects that keep billing), asks for a typed
-   confirmation, and only then posts the wipe; the endpoint refuses on
-   its own unless `meta.launched` reads exactly `'false'`, mirroring
-   this command's guard. The wipe clears the primary storage
-   rows and the daily fairness windows only - the `backup` and `dump`
-   entries survive (the BACKUP bucket is never wiped and its objects
-   keep billing), and the monthly operation windows survive too: they
-   mirror R2 operations Cloudflare already metered this month and
-   cannot be rebuilt, so zeroing them would re-mint a month of
-   allowance for spend that already happened ("The cost governor").
+   `CLOUDFLARE_API_TOKEN` in the environment): after a typed
+   confirmation it re-runs the launch guard, proves the primary bucket
+   carries no `blobs/` object and the backup bucket no object at all,
+   posts the wipe, and proves both empty again - an object left by an
+   interrupted sweep, or written since by a stale writer or the nightly
+   dump, would keep billing while the fresh ledger no longer counts it,
+   so the command refuses before the wipe and fails loudly after it.
+   The endpoint refuses on its own unless `meta.launched` reads exactly
+   `'false'`, mirroring this command's guard. The wipe clears the
+   storage rows of all three pools - `primary`, `backup`, and `dump` -
+   and the daily fairness windows; the monthly operation windows
+   survive: they mirror R2 operations Cloudflare already metered this
+   month and cannot be rebuilt, so zeroing them would re-mint a month
+   of allowance for spend that already happened ("The cost
+   governor").
 
 `cargo registry-wipe --local` is the same idea for the local `.wrangler/`
 state (guard, drop the emulated D1/R2/Durable Object/cache state - the
@@ -296,10 +313,11 @@ test uses it to assert the refusal branch, and a re-run of the smoke
 test wants it first so the governor ledger and the emulated edge cache
 start empty.
 
-If a remote wipe is interrupted between the delete and the end, the
-guard cannot read the half-provisioned database and refuses the re-run;
-finish by hand with the remaining steps ("First-time provisioning" has
-the same commands).
+A remote wipe that stops during the sweeps (step 2) has not touched the
+database: fix the cause and re-run it. If one is interrupted between the
+database delete and the end, the guard cannot read the half-provisioned
+database and refuses the re-run; finish by hand with the remaining
+steps ("First-time provisioning" has the same commands).
 
 Tokens live in the dropped database, so a wipe revokes everything; users
 re-authenticate afterward (`docs/remote-registry.md`).
@@ -324,6 +342,16 @@ through the trusted-publishing exchange - the governor wipe in step 4
 refuses while any live publish token exists - and a run left polling
 in its deploy wait would publish the moment step 1's push unfreezes
 the deploy, before the governor gate has run. Re-enable it in step 5.
+The backup bucket has writers no disabled workflow or blocked write
+stops, so quiesce them too: dispatch no `registry-verify` run and let an
+in-flight one finish (a verdict queues a backup copy), confirm the queue
+is drained (`SELECT COUNT(*) FROM backup_pending` answers 0), and keep
+the window clear of the 03:00 UTC nightly dump, which the Worker's cron
+writes into the bucket on its own - from the wipe through step 4, which
+must run before the next dump lands in the emptied bucket. Anything a
+writer slips in anyway - the dump, or a publish landing between the
+wipe's sweeps and its database drop, while the old Worker still
+serves - makes step 4 refuse rather than undercount.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp; the deploy gate opens on that push.
@@ -350,7 +378,14 @@ the deploy, before the governor gate has run. Re-enable it in step 5.
    carries `publish`, so **block writes first**, wait out the in-flight
    window (~5 minutes: the 60 s mode cache plus in-flight upload time),
    then run the wipe under `writes_blocked` - the gate clears on the
-   blocked-writes path ("Budget breaker and service mode").
+   blocked-writes path ("Budget breaker and service mode"). If it
+   refuses because a bucket still holds an object, or fails because one
+   appeared during the reset, find the writer, delete the object
+   (`node_modules/.bin/wrangler r2 object delete <bucket>/<key>
+   --remote`), and run it again; a re-run over empty buckets is
+   harmless. Never do that for a key with a `.` or `..` path segment:
+   no registry writer produces one, and its delete URL resolves to
+   another path of the API - the bucket's own, at worst.
 5. Re-enable ports-publish (`gh workflow enable ports-publish.yml`),
    prove the trusted-publishing binding with an `exchange-check`
    dispatch (exchange + immediate revocation, publishes nothing), then
@@ -631,11 +666,12 @@ typed confirmation (the backup blobs are append-only, so a gone
 backup object is an incident, not maintenance). Never drive the raw
 endpoint by hand - it cannot check R2 or the service mode for you.
 The endpoint's remaining action,
-`{"wipe":true}` (`cargo registry-governor wipe`), clears the
-primary storage rows and the daily fairness windows (backup, dump, and
-the monthly operation windows all survive - the operation counters
-mirror already-metered R2 spend and cannot be rebuilt) and only works
-pre-launch (see "Wipe procedure").
+`{"wipe":true}` (`cargo registry-governor wipe`), clears the storage
+rows of all three pools and the daily fairness windows (the monthly
+operation windows survive - the operation counters mirror
+already-metered R2 spend and cannot be rebuilt) and only works
+pre-launch, between the command's proofs that both buckets are empty
+(see "Wipe procedure").
 
 **Analytics divergence.** The breaker cron's R2 numbers audit the
 governor: if observed Class A/B operations or storage run well ahead
@@ -1027,7 +1063,8 @@ is rehearsed (see "Rehearsal" below).
   record, so a crash anywhere between verdict and copy is retried
   rather than lost. Nothing in the service ever deletes from the
   backup bucket's `blobs/sha256/` namespace - the primary's reclaim
-  paths do not propagate - so the replicated blobs are append-only,
+  paths do not propagate, and only the pre-launch registry wipe
+  empties the bucket - so the replicated blobs are append-only,
   and a malicious or accidental deletion in the primary cannot reach
   them. (The `d1/` namespace is different: the nightly job itself
   deletes invalid dumps and prunes past retention - that is its own
@@ -1041,10 +1078,11 @@ is rehearsed (see "Rehearsal" below).
   `cargo registry-backup-audit`, run from the repository root, is the
   read-only inverse: it lists the
   bucket and reports verified blobs missing a copy, blobs beyond the
-  current verified set (append-only history from before a wipe or an
-  older restore - reported because each holds backup-pool allowance,
-  never deleted by tooling; removing one is a per-object operator
-  decision paired with `cargo registry-governor release`), dumps without a
+  current verified set (append-only history, such as an older
+  restore's blobs - reported because each holds backup-pool allowance;
+  no tooling but the pre-launch wipe deletes them, and removing one is
+  a per-object operator decision paired with `cargo registry-governor
+  release`), dumps without a
   validating sidecar, sidecars without their dump, and - given
   `CABIN_REGISTRY_TOKEN` - the governor's backup and dump pools
   against the bucket's actual contents.

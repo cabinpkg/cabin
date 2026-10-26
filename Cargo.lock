@@ -2748,6 +2748,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tiny_http",
  "ureq",
  "xtask-workflow-guard",
 ]

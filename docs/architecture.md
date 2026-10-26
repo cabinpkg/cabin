@@ -564,9 +564,9 @@ exact answer statuses where the shared client is deliberately laxer.  The crate 
   an error and never an empty answer.  The key grammar checked before the listing is part of that
   guard rather than input hygiene: it bounds how many objects can share the key as a prefix, which
   is what makes a single page proof;
-- never delete from the BACKUP bucket.  Its `blobs/` namespace is append-only, so an object the
-  current verified set does not name is reported as history for an operator to judge per object,
-  never swept;
+- never delete from the BACKUP bucket outside the pre-launch wipe.  Its `blobs/` namespace is
+  append-only, so an object the current verified set does not name is reported as history for an
+  operator to judge per object, never swept;
 - refresh the `migrations-applied` stamp only from a live apply that really ran.  `migrate`
   reads the applied set from D1's own bookkeeping rather than from the files, and every refusal
   it makes - a recorded migration whose file is gone, an applied file edited in place, a pending
@@ -577,13 +577,16 @@ exact answer statuses where the shared client is deliberately laxer.  The crate 
   refusals carry a `FAIL:` prefix; only an incidental failure - a wrangler spawn, an unreadable
   file - reports through this crate's `error:` channel instead;
 - keep the pre-launch reset whole, and pre-launch only.  `wipe` runs the launch guard after its
-  confirmation prompt and before the first destructive call, drops and recreates the database,
-  bakes the recreated id into both sites of `wrangler.jsonc` that name it, applies every
-  migration from zero, refreshes the same stamp `migrate` writes, sweeps only the primary
-  bucket's `blobs/` prefix, bumps the registry generation and redeploys.  It is the one command
-  that both deletes data and rewrites committed configuration, so every count it takes around
-  that rewrite (one `database_id` binding before, the new id twice after) refuses rather than
-  guesses, and the BACKUP bucket appears nowhere in it.
+  confirmation prompt and before the first destructive call, empties the primary bucket's
+  `blobs/` prefix and the whole BACKUP bucket - while the database still exists, so a sweep that
+  stops partway is resumed by a re-run - then drops and recreates the database, bakes the
+  recreated id into both sites of `wrangler.jsonc` that name it, applies every migration from
+  zero, refreshes the same stamp `migrate` writes, bumps the registry generation and redeploys.
+  It is the one command that both deletes data and rewrites committed configuration, so every
+  count it takes around that rewrite (one `database_id` binding before, the new id twice after)
+  refuses rather than guesses, and a sweep ends only on an empty listing.  The governor's
+  `wipe` is its companion: it resets every storage pool only between two proofs that both
+  buckets are empty, and never the monthly operation windows.
 
 ### `xtask-registry-fixtures`
 
