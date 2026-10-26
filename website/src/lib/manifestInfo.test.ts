@@ -162,6 +162,20 @@ openssl = { version = "", system = true }
     assert.equal(info.dependencies[0].req, "");
 });
 
+test("system dependency keys keep the pkg-config module grammar", () => {
+    // Module names are upstream identities; the package grammar's
+    // lowercase rule does not apply to them.
+    const info = extract(`
+[dependencies]
+"glib-2.0" = { version = ">=2", system = true }
+SDL2 = { version = ">=2", system = true }
+`);
+    assert.deepEqual(
+        info.dependencies.map((dep) => dep.name),
+        ["glib-2.0", "SDL2"],
+    );
+});
+
 test("cfg toolchain, profile, and sources tables pass without dependencies", () => {
     // The other three RawConditionalTargetTable fields are real
     // manifest surface, not unknown keys.
@@ -287,6 +301,12 @@ test("shapes the publisher rejects fail the build", () => {
             '[dependencies]\n"Scope/zlib" = "1"',
         ],
         ["a hidden-file dependency name", '[dependencies]\n".hidden" = "1"'],
+        ["an uppercase dependency name", '[dependencies]\n"acme/Zlib" = "1"'],
+        ["a dotted dependency name", '[dependencies]\n"acme/z.lib" = "1"'],
+        [
+            "a system dependency name with a leading hyphen",
+            '[dependencies]\n"-lz" = { version = "", system = true }',
+        ],
         [
             "a default entry outside the feature-name grammar",
             '[features]\ndefault = ["bad name"]',

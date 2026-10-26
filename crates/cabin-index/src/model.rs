@@ -39,8 +39,10 @@ pub struct VersionMetadata {
     /// `system = true` dependencies of this version.  Each entry is
     /// a declaration the consumer is responsible for resolving
     /// outside Cabin (system probe, package manager, etc.) - they
-    /// never enter the Cabin resolver / fetcher / cache.
-    pub system_dependencies: BTreeMap<PackageName, IndexSystemDependency>,
+    /// never enter the Cabin resolver / fetcher / cache.  Keyed by
+    /// pkg-config module name, which keeps its own grammar
+    /// (`cabin_core::validate_system_dependency_name`).
+    pub system_dependencies: BTreeMap<String, IndexSystemDependency>,
     /// Whether this version has been yanked.  Yanked versions are
     /// excluded from resolver candidate sets.
     pub yanked: bool,

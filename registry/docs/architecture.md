@@ -522,6 +522,9 @@ by the claim flow's account-control check, never by the charset, and an
 unclaimable string can never gain members, so it answers the write
 plane's uniform 403 forever. The package part keeps the package grammar
 `^[a-z0-9][a-z0-9_-]*$`, and the full name contains exactly one `/`.
+Both are the client's own grammars (`cabin_core::PackageName`), mirrored
+in `src/routes.rs` because the worker cannot depend on the Cabin crates
+at runtime; a host-only parity test pins the mirror.
 
 **The claim flow.** `GET /claim/<scope>` starts a dedicated GitHub
 OAuth roundtrip - sign-in discards its token after one `/user` call, so

@@ -24,9 +24,8 @@ pub enum PublishError {
     )]
     BarePackageName { name: String, manifest_path: String },
 
-    /// A registry dependency map carries a key outside the canonical
-    /// registry grammar - bare, or spelled with characters only local
-    /// names allow.  The `dependencies` and `dev-dependencies` maps
+    /// A registry dependency map carries a bare key.  The
+    /// `dependencies` and `dev-dependencies` maps
     /// key on canonical `<scope>/<name>` registry names -
     /// dev-dependency keys denote registry packages too, so one
     /// grammar covers both - while `system-dependencies` is exempt:

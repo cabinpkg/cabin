@@ -26,8 +26,10 @@ use crate::toolchain::ToolchainSettings;
 ///
 /// A scoped name contains exactly one `/`.  The scope must satisfy
 /// [`is_valid_package_scope`]; the package part (and a bare name)
-/// must satisfy [`is_path_safe_package_name`].  Because `/` is a
-/// path separator, the full string must never be used as a single
+/// must satisfy [`is_valid_package_base_name`].  Both grammars are
+/// lowercase-only and every comparison is byte-exact: `Foo` is
+/// rejected, never folded to `foo`.  Because `/` is a path
+/// separator, the full string must never be used as a single
 /// filesystem path component - path sinks go through
 /// [`PackageName::path_components`] instead of `as_str`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -37,12 +39,9 @@ pub struct PackageName(String);
 impl PackageName {
     /// Construct a [`PackageName`] after running validation rules.
     ///
-    /// The per-component grammar covers filesystem path components,
-    /// sparse-HTTP path segments, package archive filenames, and
-    /// Windows-reserved filename characters in a single rule.  See
-    /// [`is_path_safe_package_name`] (bare names and the package part)
-    /// and [`is_valid_package_scope`] (the scope part) for the full
-    /// predicates.
+    /// See [`is_valid_package_base_name`] (bare names and the package
+    /// part) and [`is_valid_package_scope`] (the scope part) for the
+    /// full predicates.
     ///
     /// # Errors
     /// Returns [`ValidationError::EmptyPackageName`] for an empty name,
@@ -52,8 +51,8 @@ impl PackageName {
     /// contains more than one `/`,
     /// [`ValidationError::InvalidPackageScope`] when the scope part fails
     /// [`is_valid_package_scope`], and
-    /// [`ValidationError::UnsafePackageName`] when a bare name or the
-    /// package part fails the [`is_path_safe_package_name`] predicate.
+    /// [`ValidationError::InvalidPackageName`] when a bare name or the
+    /// package part fails [`is_valid_package_base_name`].
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
         let value = value.into();
         if value.is_empty() {
@@ -63,8 +62,8 @@ impl PackageName {
             return Err(ValidationError::PackageNameContainsWhitespace(value));
         }
         let Some((scope, base)) = value.split_once('/') else {
-            if !is_path_safe_package_name(&value) {
-                return Err(ValidationError::UnsafePackageName(value));
+            if !is_valid_package_base_name(&value) {
+                return Err(ValidationError::InvalidPackageName(value));
             }
             return Ok(Self(value));
         };
@@ -77,8 +76,8 @@ impl PackageName {
                 name: value,
             });
         }
-        if !is_path_safe_package_name(base) {
-            return Err(ValidationError::UnsafePackageName(value));
+        if !is_valid_package_base_name(base) {
+            return Err(ValidationError::InvalidPackageName(value));
         }
         Ok(Self(value))
     }
@@ -94,8 +93,8 @@ impl PackageName {
 
     /// The package part: everything after the `/` for a scoped name,
     /// the whole name for a bare one.  This is the value to derive
-    /// default target names, artifact/library file names, and
-    /// pkg-config module names from - those grammars have no `/`.
+    /// default target names and artifact/library file names from -
+    /// those grammars have no `/`.
     pub fn base_name(&self) -> &str {
         self.0
             .split_once('/')
@@ -111,9 +110,8 @@ impl PackageName {
     /// bare one.  Every name-to-path sink must fold these into the
     /// base directory instead of joining `as_str`, which would embed
     /// a `/` into what callers treat as one component.  Each yielded
-    /// component satisfies [`is_path_safe_package_name`] by
-    /// construction: the package part is validated with exactly that
-    /// predicate and the scope grammar is a strict subset of it.
+    /// component satisfies [`is_path_safe_name`] by construction: the
+    /// scope and package-part grammars are both strict subsets of it.
     pub fn path_components(&self) -> impl Iterator<Item = &str> {
         self.0.split('/')
     }
@@ -129,25 +127,17 @@ impl PackageName {
     }
 }
 
-/// Shared single-component name validity predicate.
+/// Single-component path-safety predicate.
 ///
 /// A name passes when it is safe to use **simultaneously** as
 /// (a) a single filesystem path component on every supported
 /// host OS, (b) a single sparse-HTTP URL path segment, and
-/// (c) a fragment of a package archive filename.  The grammar is
-/// deliberately strict so the same `PackageName` value can flow
-/// from manifest parsing through the workspace loader, the
-/// resolver, the lockfile, the artifact cache, and the registry
-/// (file or sparse HTTP) without any per-stage re-encoding.
-///
-/// This predicate is single-component on purpose: it guards bare
-/// package names, the package part of a scoped name, every
-/// [`PackageName::path_components`] element, and [`TargetName`].  A
-/// scoped `<scope>/<name>` string fails it (the `/` is outside the
-/// alphabet), which forces every path and URL sink - including the
-/// boundaries in `cabin-index-http` / `cabin-registry-api` - to vet
-/// a scoped name one component at a time instead of embedding the
-/// `/` into a single segment.
+/// (c) a fragment of an artifact filename.  It guards
+/// [`TargetName`], system-dependency names (pkg-config module names
+/// such as `glib-2.0` or `SDL2`), and the path and URL sinks that
+/// re-vet each [`PackageName::path_components`] element.  Package
+/// names themselves use the stricter [`is_valid_package_base_name`]
+/// and [`is_valid_package_scope`] grammars, both subsets of this one.
 ///
 /// A name is valid iff:
 ///
@@ -162,9 +152,7 @@ impl PackageName {
 /// - `foo..bar` is **accepted**: it's not a parent reference
 ///   because the name is not equal to `..` and does not start
 ///   with a dot.  Path resolvers do not interpret the embedded
-///   `..` substring as a navigation.  This is intentional so that
-///   common library names like `boost..hana` (hypothetical) stay
-///   legal under the registry grammar.
+///   `..` substring as a navigation.
 /// - A leading `-` is rejected so the name cannot be mistaken
 ///   for a flag when it reaches an argv-driven tool (e.g.,
 ///   `pkg-config`, the linker), or for the start of a CLI
@@ -176,10 +164,7 @@ impl PackageName {
 ///   so they are rejected without needing a separate enumeration.
 /// - Control characters and non-ASCII characters are also outside
 ///   the alphabet, so they fall under the same rule.
-///
-/// The shared helper keeps `cabin-package`, `cabin-registry-file`,
-/// and `cabin-index-http` from drifting on this rule.
-pub fn is_path_safe_package_name(name: &str) -> bool {
+pub fn is_path_safe_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
@@ -200,9 +185,7 @@ pub fn is_path_safe_package_name(name: &str) -> bool {
 /// bytes.  The grammar is GitHub-login-compatible on purpose: a scope
 /// is granted by proving control of the same-named GitHub account
 /// (logins are lowercased at claim time), so every claimable login
-/// must fit.  Every scope passing this predicate also passes
-/// [`is_path_safe_package_name`], so a scope directory component
-/// never needs a second guard.
+/// must fit.
 pub fn is_valid_package_scope(scope: &str) -> bool {
     !scope.is_empty()
         && scope.len() <= 39
@@ -213,14 +196,12 @@ pub fn is_valid_package_scope(scope: &str) -> bool {
         && !scope.ends_with('-')
 }
 
-/// Validity predicate for the package part of a registry-bound name.
-///
-/// Mirrors the registry's package-name grammar (`registry/src/routes.rs`,
-/// `is_valid_name`): `^[a-z0-9][a-z0-9_-]*$`.  [`PackageName`]'s own
-/// grammar is looser (uppercase and `.` are legal in local-only names),
-/// so without this check a name the registry refuses would fail publish
-/// only after staging and network work.
-pub fn is_valid_registry_package_name(name: &str) -> bool {
+/// Grammar for a bare package name and the package part of a scoped
+/// one: `^[a-z0-9][a-z0-9_-]*$`.  Every package identity - manifests,
+/// dependency keys, lockfiles, indexes, both registry kinds - goes
+/// through [`PackageName`], which enforces it; the hosted registry
+/// mirrors it (`registry/src/routes.rs`, `is_valid_name`).
+pub fn is_valid_package_base_name(name: &str) -> bool {
     !name.is_empty()
         && name.as_bytes()[0].is_ascii_alphanumeric()
         && name
@@ -228,12 +209,9 @@ pub fn is_valid_registry_package_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
-/// Run the shared three-step validation behind a path-safe name
-/// newtype: reject an empty value, reject any whitespace, then enforce
-/// [`is_path_safe_package_name`].  [`TargetName`] routes through this;
-/// [`PackageName`] validates its components directly (its scoped form
-/// is not a single path-safe component) but shares the same predicate
-/// per component, keeping the two from drifting on the rule.
+/// Run the shared three-step validation behind [`TargetName`]: reject
+/// an empty value, reject any whitespace, then enforce
+/// [`is_path_safe_name`].
 fn validate_path_safe_name(
     value: String,
     empty: ValidationError,
@@ -246,10 +224,29 @@ fn validate_path_safe_name(
     if value.chars().any(char::is_whitespace) {
         return Err(whitespace(value));
     }
-    if !is_path_safe_package_name(&value) {
+    if !is_path_safe_name(&value) {
         return Err(unsafe_name(value));
     }
     Ok(value)
+}
+
+/// Grammar for a system-dependency name: the `pkg-config` module a
+/// `system = true` dependency probes.  Deliberately not the package
+/// grammar - module names are upstream identities (`glib-2.0`,
+/// `SDL2`), and pkg-config looks them up case-sensitively - so it is
+/// the path-safe grammar, which also keeps a leading `-` out of the
+/// pkg-config argv.
+///
+/// # Errors
+/// Returns [`ValidationError::InvalidSystemDependencyName`] echoing
+/// the offending value.
+pub fn validate_system_dependency_name(value: &str) -> Result<(), ValidationError> {
+    if !is_path_safe_name(value) {
+        return Err(ValidationError::InvalidSystemDependencyName(
+            value.to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// Grammar for a `links` native-library identity: non-empty ASCII
@@ -335,20 +332,20 @@ impl TargetName {
     ///
     /// Target names are joined into filesystem paths by the build
     /// planner (object directories, executable paths, Cargo target
-    /// directories), so they share the path-component grammar with
-    /// [`PackageName`]: a name like `[target."../escape"]` would
+    /// directories): a name like `[target."../escape"]` would
     /// otherwise let a malicious manifest write artifacts outside
     /// the selected `--build-dir`.  The grammar is enforced through
-    /// [`is_path_safe_package_name`], which already covers path
-    /// separators, `..` / `.`, leading `.` or `-`, control characters,
-    /// non-ASCII bytes, and Windows-reserved filename characters in a
-    /// single rule.
+    /// [`is_path_safe_name`], which already covers path separators,
+    /// `..` / `.`, leading `.` or `-`, control characters, non-ASCII
+    /// bytes, and Windows-reserved filename characters in a single
+    /// rule.  A target name is a build-graph identity, not a package
+    /// identity, so it keeps this looser grammar.
     ///
     /// # Errors
     /// Returns [`ValidationError::EmptyTargetName`] for an empty name,
     /// [`ValidationError::TargetNameContainsWhitespace`] when the name contains
     /// whitespace, and [`ValidationError::UnsafeTargetName`] when it fails the
-    /// [`is_path_safe_package_name`] predicate.
+    /// [`is_path_safe_name`] predicate.
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
         validate_path_safe_name(
             value.into(),
@@ -950,10 +947,12 @@ impl WorkspaceDepRequirements {
 /// `cabin metadata`, the canonical package metadata, and the
 /// index metadata so external tooling sees the system-dep set
 /// alongside the Cabin-package deps.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SystemDependency {
-    /// The dependency name as written in the manifest.
-    pub name: PackageName,
+    /// The dependency name as written in the manifest: a pkg-config
+    /// module name, validated by [`validate_system_dependency_name`]
+    /// rather than the package grammar.
+    pub name: String,
     /// Version requirement string for `pkg-config`.  Cabin does
     /// not interpret it as a `SemVer` constraint; the system-deps
     /// layer translates the supported comparators for
@@ -1009,7 +1008,7 @@ pub enum DependencySource {
 }
 
 /// Top-level validated package.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Package {
     pub name: PackageName,
     pub version: semver::Version,
@@ -1138,8 +1137,10 @@ impl Package {
     /// # Errors
     /// Returns [`ValidationError::DuplicateTargetName`] for repeated target
     /// names, [`ValidationError::DuplicateDependency`] for a duplicate
-    /// dependency within a kind, [`ValidationError::DuplicateSystemDependency`]
-    /// for a duplicate system dependency, and propagates any
+    /// dependency within a kind,
+    /// [`ValidationError::InvalidSystemDependencyName`] or
+    /// [`ValidationError::DuplicateSystemDependency`] for an invalid or
+    /// duplicate system dependency, and propagates any
     /// [`ValidationError`] from validating the `[features]` table.
     pub fn with_config(input: PackageConfigInput) -> Result<Self, ValidationError> {
         let PackageConfigInput {
@@ -1346,6 +1347,7 @@ impl Package {
     fn validate_system_dependencies(deps: &[SystemDependency]) -> Result<(), ValidationError> {
         let mut seen: HashSet<&str> = HashSet::with_capacity(deps.len());
         for dep in deps {
+            validate_system_dependency_name(&dep.name)?;
             if !seen.insert(dep.name.as_str()) {
                 return Err(ValidationError::DuplicateSystemDependency(
                     dep.name.as_str().to_owned(),
@@ -1490,72 +1492,95 @@ mod tests {
         ));
     }
 
-    /// The displayed error must describe the actual grammar so a
-    /// user reading the message can fix their manifest without
-    /// reading the source.  Pin the exact phrasing so the wording
-    /// can only change deliberately.
+    /// The displayed error must name the grammar so a user reading the
+    /// message can fix their manifest without reading the source.
     #[test]
     fn package_name_error_describes_grammar() {
-        let err = PackageName::new("foo?bar").unwrap_err();
-        let displayed = err.to_string();
+        let displayed = PackageName::new("foo?bar").unwrap_err().to_string();
         assert!(
             displayed.contains("\"foo?bar\""),
             "error must echo the offending name: {displayed}"
         );
         assert!(
-            displayed.contains("ASCII letters")
-                && displayed.contains("ASCII digits")
-                && displayed.contains("`_`")
-                && displayed.contains("`-`")
-                && displayed.contains("`.`"),
-            "error must describe the allowed alphabet: {displayed}"
+            displayed.contains("`[a-z0-9][a-z0-9_-]*`"),
+            "error must name the grammar: {displayed}"
         );
         assert!(
-            displayed.contains("must not start with `.` or `-`")
-                && displayed.contains("must not be `.` or `..`"),
-            "error must describe the structural restrictions: {displayed}"
+            !displayed.contains("did you mean"),
+            "no lowercase spelling fixes `?`: {displayed}"
         );
     }
 
-    // -----------------------------------------------------------------
-    // PackageName grammar covers filesystem, URL, and
-    // windows-filename safety simultaneously.
-    // -----------------------------------------------------------------
-
+    /// A name that only lowercasing would fix gets that spelling as a
+    /// suggestion - never applied.
     #[test]
-    fn package_name_accepts_simple_alphanumeric() {
-        assert!(PackageName::new("fmt").is_ok());
+    fn package_name_error_suggests_the_lowercase_spelling() {
+        for (raw, suggestion) in [
+            ("Boa", "boa"),
+            ("PkgName", "pkgname"),
+            ("scope/PKG", "scope/pkg"),
+            ("Fmtlib/fmt", "fmtlib/fmt"),
+        ] {
+            let displayed = PackageName::new(raw).unwrap_err().to_string();
+            assert!(
+                displayed.contains(&format!("did you mean {suggestion:?}?")),
+                "{raw:?} should suggest {suggestion:?}: {displayed}"
+            );
+        }
+        let displayed = PackageName::new("Foo.Bar").unwrap_err().to_string();
+        assert!(
+            !displayed.contains("did you mean"),
+            "lowercasing does not fix `.`: {displayed}"
+        );
     }
 
     #[test]
-    fn package_name_accepts_hyphen_and_underscore() {
-        assert!(PackageName::new("foo-bar").is_ok());
-        assert!(PackageName::new("foo_bar").is_ok());
-        assert!(PackageName::new("foo-bar-baz").is_ok());
+    fn package_name_accepts_the_canonical_grammar() {
+        for raw in [
+            "pkg",
+            "pkgname",
+            "pkg-name",
+            "pkg_name",
+            "pkg123",
+            "9pkg",
+            "foo--bar",
+            "scope/pkg-name",
+            "fmtlib/fmt",
+            "a/b",
+            "s0me-org/pkg_name",
+        ] {
+            assert!(PackageName::new(raw).is_ok(), "{raw:?} should be accepted");
+        }
     }
 
     #[test]
-    fn package_name_accepts_dot_in_middle() {
-        // Dots in the middle of a name are allowed; only literal
-        // `.` / `..` and a leading dot are rejected.
-        assert!(PackageName::new("foo.bar").is_ok());
-        assert!(PackageName::new("foo..bar").is_ok());
-    }
-
-    #[test]
-    fn package_name_rejects_path_traversal() {
-        for raw in [".", "..", ".hidden", "foo\\bar"] {
+    fn package_name_rejects_uppercase_dots_and_leading_punctuation() {
+        for raw in [
+            "PKGNAME",
+            "PkgName",
+            "pkg.name",
+            "foo..bar",
+            ".pkg",
+            "-pkg",
+            "_pkg",
+            ".",
+            "..",
+            "foo\\bar",
+            "scope/PKG",
+            "scope/pkg.name",
+            "scope/_pkg",
+        ] {
             assert!(
                 matches!(
                     PackageName::new(raw).unwrap_err(),
-                    ValidationError::UnsafePackageName(_)
+                    ValidationError::InvalidPackageName(_)
                 ),
-                "{raw:?} should be rejected as unsafe"
+                "{raw:?} should be rejected"
             );
         }
         // `../evil` parses as scope `..` + package `evil`; the dot is
         // outside the scope alphabet, so the traversal is rejected as
-        // an invalid scope rather than an unsafe bare name.
+        // an invalid scope rather than an invalid bare name.
         assert!(matches!(
             PackageName::new("../evil").unwrap_err(),
             ValidationError::InvalidPackageScope { .. }
@@ -1565,19 +1590,6 @@ mod tests {
     // -----------------------------------------------------------------
     // Scoped names: `<scope>/<name>` with exactly one `/`.
     // -----------------------------------------------------------------
-
-    #[test]
-    fn package_name_accepts_scoped_form() {
-        for raw in [
-            "fmtlib/fmt",
-            "a/b",
-            "boost-org/boost",
-            "s0me-org/pkg_name",
-            "gabime/spdlog.core",
-        ] {
-            assert!(PackageName::new(raw).is_ok(), "{raw:?} should be accepted");
-        }
-    }
 
     #[test]
     fn package_name_rejects_more_than_one_slash() {
@@ -1621,14 +1633,14 @@ mod tests {
     }
 
     #[test]
-    fn package_name_rejects_unsafe_scoped_package_part() {
+    fn package_name_rejects_invalid_scoped_package_part() {
         for raw in ["fmtlib/", "fmtlib/..", "fmtlib/.hidden", "fmtlib/-flag"] {
             assert!(
                 matches!(
                     PackageName::new(raw).unwrap_err(),
-                    ValidationError::UnsafePackageName(_)
+                    ValidationError::InvalidPackageName(_)
                 ),
-                "{raw:?} should be rejected: unsafe package part"
+                "{raw:?} should be rejected: invalid package part"
             );
         }
     }
@@ -1650,7 +1662,7 @@ mod tests {
         for name in ["fmtlib/fmt", "a/b", "plain", "foo-bar"] {
             for component in PackageName::new(name).unwrap().path_components() {
                 assert!(
-                    is_path_safe_package_name(component),
+                    is_path_safe_name(component),
                     "component {component:?} of {name:?} must be path-safe"
                 );
                 assert!(!component.contains('/'));
@@ -1691,7 +1703,7 @@ mod tests {
             assert!(
                 matches!(
                     PackageName::new(raw).unwrap_err(),
-                    ValidationError::UnsafePackageName(_)
+                    ValidationError::InvalidPackageName(_)
                 ),
                 "{raw:?} must be rejected because of the leading `-`"
             );
@@ -1716,7 +1728,7 @@ mod tests {
             assert!(
                 matches!(
                     PackageName::new(raw).unwrap_err(),
-                    ValidationError::UnsafePackageName(_)
+                    ValidationError::InvalidPackageName(_)
                 ),
                 "{raw:?} should be rejected as URL-reserved / outside grammar"
             );
@@ -1731,7 +1743,7 @@ mod tests {
             assert!(
                 matches!(
                     PackageName::new(raw).unwrap_err(),
-                    ValidationError::UnsafePackageName(_)
+                    ValidationError::InvalidPackageName(_)
                 ),
                 "{raw:?} should be rejected as Windows-reserved filename char"
             );
@@ -1746,9 +1758,28 @@ mod tests {
             assert!(
                 matches!(
                     PackageName::new(raw).unwrap_err(),
-                    ValidationError::UnsafePackageName(_)
+                    ValidationError::InvalidPackageName(_)
                 ),
                 "{raw:?} should be rejected as non-ASCII"
+            );
+        }
+    }
+
+    /// pkg-config module names keep the path-safe grammar: uppercase
+    /// and `.` are part of real module names, a leading `-` would
+    /// reach the pkg-config argv as a flag.
+    #[test]
+    fn system_dependency_name_uses_the_path_safe_grammar() {
+        for raw in ["zlib", "glib-2.0", "SDL2", "Qt6Core"] {
+            assert!(validate_system_dependency_name(raw).is_ok(), "{raw:?}");
+        }
+        for raw in ["", "-lfoo", ".hidden", "..", "a/b", "glib 2"] {
+            assert!(
+                matches!(
+                    validate_system_dependency_name(raw).unwrap_err(),
+                    ValidationError::InvalidSystemDependencyName(_)
+                ),
+                "{raw:?} should be rejected"
             );
         }
     }
@@ -2037,7 +2068,7 @@ mod tests {
     #[test]
     fn project_rejects_duplicate_system_dependencies() {
         let sys = |n: &str| SystemDependency {
-            name: pkg(n),
+            name: n.to_owned(),
             version: ">=1".into(),
             kind: DependencyKind::Normal,
             condition: None,

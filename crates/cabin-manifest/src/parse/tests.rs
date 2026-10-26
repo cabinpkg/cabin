@@ -1018,6 +1018,51 @@ fn whitespace_package_name_errors() {
     ));
 }
 
+/// The manifest is an identity boundary: `[package].name` and every
+/// dependency key go through the lowercase package grammar, with no
+/// folding.
+#[test]
+fn mixed_case_package_and_dependency_names_error() {
+    for manifest in [
+        "[package]\nname = \"Boa\"\nversion = \"0.1.0\"\n",
+        "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dependencies]\n\"scope/Boa\" = \"1\"\n",
+        "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dev-dependencies]\n\"scope/b.oa\" = \"1\"\n",
+    ] {
+        let err = parse_manifest_str(manifest).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ManifestError::Validation(ValidationError::InvalidPackageName(_))
+            ),
+            "{manifest}: {err:?}"
+        );
+    }
+}
+
+/// A `system = true` key is a pkg-config module name, so it keeps its
+/// upstream spelling and only the path-safe rules apply.
+#[test]
+fn system_dependency_keys_keep_the_pkg_config_grammar() {
+    let manifest = "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dependencies]\n\
+                    \"glib-2.0\" = { version = \">=2\", system = true }\n\
+                    SDL2 = { version = \">=2\", system = true }\n";
+    let package = parse_manifest_str(manifest).unwrap().package.unwrap();
+    let mut names: Vec<&str> = package
+        .system_dependencies
+        .iter()
+        .map(|dep| dep.name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["SDL2", "glib-2.0"]);
+
+    let manifest = "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dependencies]\n\
+                    \"-lz\" = { version = \"\", system = true }\n";
+    assert!(matches!(
+        parse_manifest_str(manifest).unwrap_err(),
+        ManifestError::Validation(ValidationError::InvalidSystemDependencyName(_))
+    ));
+}
+
 #[test]
 fn empty_target_name_errors() {
     let manifest = r#"

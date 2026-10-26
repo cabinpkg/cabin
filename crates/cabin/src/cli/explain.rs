@@ -65,6 +65,7 @@ pub(crate) enum ExplainCommand {
     /// pulls it in.
     Package {
         /// Package name to explain.
+        #[arg(value_parser = crate::cli::parse_package_name)]
         name: String,
     },
     /// Explain a target's owning package, kind, deps, and
@@ -76,6 +77,7 @@ pub(crate) enum ExplainCommand {
     /// Explain where a package's source bytes come from.
     Source {
         /// Package name to explain.
+        #[arg(value_parser = crate::cli::parse_package_name)]
         name: String,
     },
     /// Explain a feature's enablement on the named package.
@@ -88,6 +90,7 @@ pub(crate) enum ExplainCommand {
     /// variants, condition trace, fingerprint).
     BuildConfig {
         /// Package name to explain.
+        #[arg(value_parser = crate::cli::parse_package_name)]
         name: String,
     },
 }

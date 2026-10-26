@@ -244,9 +244,10 @@ function dependencyEntry(
     condition: string | null,
     context: string,
 ): DependencyInfo {
-    if (!validPackageName(name)) {
+    const system = asRecord(spec)?.system === true;
+    if (!(system ? SYSTEM_DEPENDENCY_NAME : PACKAGE_NAME).test(name)) {
         throw new Error(
-            `Dependency name "${name}" in ${context} is outside the package-name grammar.`,
+            `Dependency name "${name}" in ${context} is outside the ${system ? "pkg-config module" : "package"}-name grammar.`,
         );
     }
     if (typeof spec === "string") {
@@ -389,37 +390,17 @@ const CONDITIONAL_TARGET_KEYS = new Set([
     "sources",
 ]);
 
-// The dependency-name grammar (cabin-core model.rs
-// `PackageName::new`): at most one scope slash, the scope
-// GitHub-login-shaped (lowercase/digits/hyphens, at most 39 bytes, no
-// edge hyphen), the package part path-safe (ASCII
-// letters/digits/_/./-, no leading dot or hyphen - which also covers
-// "." and "..").
-const PACKAGE_SCOPE = /^[a-z0-9-]{1,39}$/;
-const PATH_SAFE_NAME = /^[A-Za-z0-9_.-]+$/;
-
-function validPackageName(name: string): boolean {
-    const parts = name.split("/");
-    if (parts.length > 2) {
-        return false;
-    }
-    if (parts.length === 2) {
-        const scope = parts[0];
-        if (
-            !PACKAGE_SCOPE.test(scope) ||
-            scope.startsWith("-") ||
-            scope.endsWith("-")
-        ) {
-            return false;
-        }
-    }
-    const base = parts[parts.length - 1];
-    return (
-        PATH_SAFE_NAME.test(base) &&
-        !base.startsWith(".") &&
-        !base.startsWith("-")
-    );
-}
+// The package-name grammar (cabin-core model.rs `PackageName::new`):
+// an optional GitHub-login-shaped scope (lowercase/digits/hyphens, at
+// most 39 bytes, no edge hyphen) and a `[a-z0-9][a-z0-9_-]*` package
+// part.
+const PACKAGE_NAME =
+    /^(?:[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/)?[a-z0-9][a-z0-9_-]*$/;
+// A `system = true` key names a pkg-config module instead
+// (`validate_system_dependency_name`): path-safe, so `glib-2.0` and
+// `SDL2` pass, with no leading dot or hyphen (which also covers "."
+// and "..").
+const SYSTEM_DEPENDENCY_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 
 // A missing or blank requirement fails the build: Cabin trims, then
 // refuses the empty string, and an entry without a version cannot

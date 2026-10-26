@@ -336,20 +336,17 @@ impl RegistryApi {
     /// `<api>/api/v1/packages/<scope>/<name>/<version><suffix>`.  The
     /// hosted routes have no bare-name form, so a bare name fails
     /// here, before any request; the scoped name is re-validated
-    /// against the full `PackageName` grammar plus the registry's
-    /// stricter publish grammar for the name part at this URL
-    /// boundary (defense in depth, mirroring `cabin-index-http`), so
-    /// both segments it embeds are path-safe by construction.
+    /// against the `PackageName` grammar - the registry's own - at
+    /// this URL boundary (defense in depth, mirroring
+    /// `cabin-index-http`), so both segments it embeds are path-safe
+    /// by construction.
     fn package_route(
         &self,
         name: &str,
         version: &semver::Version,
         suffix: &str,
     ) -> Result<url::Url, RegistryApiError> {
-        let safe = cabin_core::PackageName::new(name).is_ok_and(|parsed| {
-            // Without the registry grammar a refused name would also 404 a yank misleadingly.
-            parsed.is_scoped() && cabin_core::is_valid_registry_package_name(parsed.base_name())
-        });
+        let safe = cabin_core::PackageName::new(name).is_ok_and(|parsed| parsed.is_scoped());
         if !safe {
             return Err(RegistryApiError::UnsafePackageName {
                 name: name.to_owned(),
@@ -1357,10 +1354,8 @@ mod tests {
             "acme//fmt",
             "/fmt",
             "acme/",
-            // The full grammar applies, not just path safety: a scope
-            // is lowercase-only, and the name part follows the
-            // registry's publish grammar (`[a-z0-9][a-z0-9_-]*`), so
-            // uppercase or `.`-bearing local-only names are refused
+            // The full lowercase grammar applies, not just path
+            // safety, so uppercase or `.`-bearing names are refused
             // before any request.
             "ACME/fmt",
             "acme/Foo",

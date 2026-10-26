@@ -154,6 +154,24 @@ fn metadata_unknown_package_fails_clearly() {
         .stderr(predicate::str::contains("not a member"));
 }
 
+/// Selection matches names exactly, so a spelling outside the package
+/// grammar is refused up front with the lowercase suggestion rather
+/// than folded onto the `alpha` member.
+#[test]
+fn metadata_mixed_case_package_selection_is_refused() {
+    let dir = TempDir::new().unwrap();
+    write_three_member_workspace(dir.path(), None, None);
+    for selection in [&["-p", "Alpha"][..], &["--workspace", "--exclude", "Alpha"]] {
+        cabin()
+            .args(["metadata", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .args(selection)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(r#"did you mean "alpha"?"#));
+    }
+}
+
 #[test]
 fn metadata_default_members_mode_errors_when_undeclared() {
     let dir = TempDir::new().unwrap();

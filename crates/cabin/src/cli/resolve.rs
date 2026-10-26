@@ -158,6 +158,24 @@ pub(crate) fn resolve_with_patch_activation(
                 }
             }
         }
+        // The resolver tells the root apart by name alone, so an index
+        // package sharing the synthetic root's name, or a dependency on
+        // it, would resolve to the root.
+        let root = &input.root_name;
+        if ctx.graph.root_package.is_none()
+            && index.packages.iter().any(|(name, entry)| {
+                name == root
+                    || entry
+                        .versions
+                        .values()
+                        .any(|version| version.dependencies.contains_key(root))
+            })
+        {
+            bail!(
+                "the package index carries or depends on `{root}`, the name Cabin reserves \
+                 for a pure workspace's resolution root"
+            );
+        }
         input.root_dependencies = root_deps;
         let (local_links, locally_supplied) = claims_and_supplied(&activated)?;
         input.local_links = local_links;
@@ -668,7 +686,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
             graph.packages[idx].package.name.clone(),
             graph.packages[idx].package.version.clone(),
         ),
-        None => cabin_workspace::synthetic_root_identity(&graph),
+        None => cabin_workspace::synthetic_root_identity(),
     };
 
     let lockfile_path = lockfile_path_for(&manifest_path);
@@ -1165,7 +1183,7 @@ pub(crate) fn run_artifact_pipeline(
             graph.packages[idx].package.name.clone(),
             graph.packages[idx].package.version.clone(),
         ),
-        None => cabin_workspace::synthetic_root_identity(graph),
+        None => cabin_workspace::synthetic_root_identity(),
     };
 
     let lockfile_path = lockfile_path_for(manifest_path);

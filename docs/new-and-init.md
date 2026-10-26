@@ -70,8 +70,9 @@ include-dirs = ["include"]
 The generated header (`include/<package>/<package>.hpp`) and the implementation source
 (`src/<package>.cc`) define a minimal `add(int, int)` function inside a namespace derived from the
 package name.  Hyphens in the package name are mapped to underscores when forming the C++ namespace
-identifier (so `hello-world` becomes `namespace hello_world`); the on-disk file paths keep the
-original package name.
+identifier (so `hello-world` becomes `namespace hello_world`), and a C++ keyword gains a trailing
+underscore (`class` becomes `namespace class_`); the on-disk file paths keep the original package
+name.
 
 Existing header / source files at those paths are preserved unchanged.
 
@@ -92,20 +93,26 @@ collaborators and CI converge on the same resolution; see [`lockfile.md`](lockfi
 
 ## Package name
 
-When `--name` is omitted, the package name is derived from the final path component (`cabin new
-path/to/hello-world` produces `hello-world`).  If that component is empty, contains characters
-outside the allowed alphabet (ASCII letters, digits, `_`, `-`), or starts with a `.`, Cabin falls
-back to the literal name `cabin-package`.
+Package names follow the [package-name grammar](manifest.md#package): `[a-z0-9][a-z0-9_-]*`.
+`cabin new` and `cabin init` scaffold a bare name; add a `<scope>/` to `[package].name` before
+publishing.
 
-Pass `--name <name>` to override the derived name.  Names containing whitespace or unsupported
-characters are rejected with a clear error.
+When `--name` is omitted, the package name is derived from the final path component, lowercased
+(`cabin new path/to/hello-world` produces `hello-world`; `cabin new Boa` creates the directory
+`Boa` with the package `boa`).  If the lowercased component is still not a valid name (it is empty,
+contains `.` or other characters outside the grammar, or starts with `_` or `-`), Cabin falls back
+to the literal name `cabin-package`.
+
+Pass `--name <name>` to override the derived name.  The override is used verbatim: `--name Boa` is
+rejected with a suggestion of `boa`, as is any other name outside the grammar.
 
 ## Errors
 
 `cabin new` and `cabin init` produce actionable diagnostics for:
 
 - `--bin` used together with `--lib`;
-- an invalid package name (empty, whitespace, or characters outside the allowed alphabet);
+- an invalid or scoped `--name` (the message names the grammar and suggests the lowercase spelling
+  when that alone would make it valid);
 - a destination that already exists (for `cabin new` - the message suggests `cabin init` for that
   case);
 - a parent directory that does not exist (for `cabin new`);

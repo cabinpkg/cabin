@@ -1061,6 +1061,52 @@ mod tests {
         }
     }
 
+    /// `is_valid_scope` and `is_valid_name` mirror the client's package
+    /// grammars (`cabin_core::is_valid_package_scope` and
+    /// `is_valid_package_base_name`), so a name the client accepts is
+    /// one these routes accept, and vice versa.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn name_grammars_mirror_the_client() {
+        let corpus = [
+            "",
+            "a",
+            "0",
+            "fmt",
+            "pkg-name",
+            "pkg_name",
+            "pkg123",
+            "9pkg",
+            "foo--bar",
+            "my-org",
+            "PKG",
+            "Fmt",
+            "pkg.name",
+            ".pkg",
+            "-pkg",
+            "_pkg",
+            "pkg-",
+            "pkg_",
+            "a/b",
+            "a b",
+            "naïve",
+            &"x".repeat(39),
+            &"x".repeat(40),
+        ];
+        for value in corpus {
+            assert_eq!(
+                is_valid_scope(value),
+                cabin_core::is_valid_package_scope(value),
+                "scope mirror disagrees on {value:?}"
+            );
+            assert_eq!(
+                is_valid_name(value),
+                cabin_core::is_valid_package_base_name(value),
+                "name mirror disagrees on {value:?}"
+            );
+        }
+    }
+
     #[test]
     fn version_validation_accepts_plain_semver_shapes_only() {
         for version in ["0.0.0", "10.2.1", "1.0.0-rc.1", "1.0.0-rc.1.2"] {

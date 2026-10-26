@@ -260,6 +260,13 @@ fn parse_experimental_feature(
     raw.parse()
 }
 
+/// clap value parser for `-p` / `--exclude`: a workspace member is
+/// named by its exact package name, so a value outside the package
+/// grammar is refused up front with the grammar's own diagnostic.
+pub(crate) fn parse_package_name(raw: &str) -> Result<String, cabin_core::ValidationError> {
+    cabin_core::PackageName::new(raw).map(String::from)
+}
+
 // `cabin --help` is the curated, day-to-day surface and
 // closely mirrors `cargo --help`.  Subcommands tagged
 // `#[command(hide = true)]` below stay fully functional but
@@ -786,7 +793,7 @@ pub(crate) struct WorkspaceSelectionArgsForUpdate {
 
     /// Drop the named package from the selection.  Only valid in
     /// combination with `--workspace` or `--default-members`.
-    #[arg(long, value_name = "PACKAGE")]
+    #[arg(long, value_name = "PACKAGE", value_parser = parse_package_name)]
     pub exclude: Vec<String>,
 }
 
@@ -810,7 +817,7 @@ pub(crate) struct WorkspaceSelectionArgs {
     /// Operate on the named workspace package.  Repeat the flag to
     /// select multiple packages.  Errors when a name is not a workspace
     /// member or appears twice in the workspace.
-    #[arg(long = "package", short = 'p', value_name = "PACKAGE")]
+    #[arg(long = "package", short = 'p', value_name = "PACKAGE", value_parser = parse_package_name)]
     pub package: Vec<String>,
 
     /// Operate on `[workspace.default-members]`.  Errors when the
@@ -820,7 +827,7 @@ pub(crate) struct WorkspaceSelectionArgs {
 
     /// Drop the named package from the selection.  Only valid in
     /// combination with `--workspace` or `--default-members`.
-    #[arg(long, value_name = "PACKAGE")]
+    #[arg(long, value_name = "PACKAGE", value_parser = parse_package_name)]
     pub exclude: Vec<String>,
 }
 

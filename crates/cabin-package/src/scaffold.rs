@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cabin_core::PackageName;
+use cabin_core::{PackageName, ValidationError};
 use cabin_fs::write_atomic;
 use thiserror::Error;
 
@@ -75,10 +75,11 @@ pub struct ScaffoldRequest<'a> {
     /// for creating it first so they can decide how to clean up
     /// on failure.
     pub dest_dir: &'a Path,
-    /// Explicit package name override.  When `None`, the default
-    /// is derived from the final component of `dest_dir`, falling
-    /// back to [`FALLBACK_PACKAGE_NAME`] when that component is
-    /// unusable as a package identifier.
+    /// Explicit package name override, used verbatim: it must already
+    /// be a valid bare package name.  When `None`, the default is the
+    /// final component of `dest_dir`, ASCII-lowercased, falling back
+    /// to [`FALLBACK_PACKAGE_NAME`] when that is not a valid package
+    /// name.
     pub name_override: Option<&'a str>,
     /// Scaffold kind.  Selects between binary and library
     /// layouts.
@@ -143,15 +144,16 @@ pub struct ScaffoldReport {
 /// Errors produced while scaffolding a new package layout.
 #[derive(Debug, Error)]
 pub enum ScaffoldError {
-    /// Package name is empty or contains whitespace.
-    #[error("invalid package name; names must not be empty or contain whitespace")]
-    EmptyOrWhitespaceName,
+    /// The explicit package name is not a valid package name.
+    #[error(transparent)]
+    InvalidName(#[from] ValidationError),
 
-    /// Package name contains characters outside the supported alphabet.
+    /// The explicit package name is scoped; the scaffold uses the name
+    /// as its target key and file stems, which have no `/`.
     #[error(
-        "package name {name:?} contains characters not supported (allowed: ASCII letters, digits, '_', '-')"
+        "package name {name:?} is scoped, but `cabin new` and `cabin init` scaffold a bare name; pass `--name {base}` and add the scope to `[package].name` before publishing"
     )]
-    UnsupportedNameCharacters { name: String },
+    ScopedName { name: String, base: String },
 
     /// A `cabin.toml` already exists at the target directory.
     #[error("{MANIFEST_FILENAME} already exists at {}", path.display())]
@@ -182,9 +184,9 @@ pub enum ScaffoldError {
 ///   of `request.emit_gitignore`.
 ///
 /// # Errors
-/// Returns [`ScaffoldError::EmptyOrWhitespaceName`] or
-/// [`ScaffoldError::UnsupportedNameCharacters`] when the resolved
-/// package name is invalid, [`ScaffoldError::ManifestAlreadyExists`]
+/// Returns [`ScaffoldError::InvalidName`] or
+/// [`ScaffoldError::ScopedName`] when the explicit package name is
+/// unusable, [`ScaffoldError::ManifestAlreadyExists`]
 /// when a `cabin.toml` is already present at the destination, and
 /// [`ScaffoldError::Io`] when creating directories or writing a
 /// generated file fails.
@@ -359,14 +361,15 @@ impl LibraryStems {
     }
 }
 
-/// Convert a validated package name (ASCII alphanumeric / `_` /
-/// `-`) into an identifier that is safe to drop into generated
+/// Convert a validated package name (lowercase ASCII letters, digits,
+/// `_`, `-`) into an identifier that is safe to drop into generated
 /// C/C++ source.  The conversion is narrow and deterministic:
 ///
 /// - `-` is mapped to `_`;
 /// - if the first character is an ASCII digit, a leading `_` is
 ///   prepended so the result is a valid C++ identifier (which
-///   may not start with a digit).
+///   may not start with a digit);
+/// - a C++ keyword gets a trailing `_` (`class` -> `class_`).
 ///
 /// The input is already validated by [`validate_package_name`],
 /// so the output is guaranteed to be a non-empty sequence of
@@ -380,40 +383,131 @@ fn sanitize_identifier(raw: &str) -> String {
     if out.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         out.insert(0, '_');
     }
+    if CXX_KEYWORDS.contains(&out.as_str()) {
+        out.push('_');
+    }
     out
 }
 
-/// Derive the default package name from a target directory.
-/// Returns [`FALLBACK_PACKAGE_NAME`] when the final path component
-/// is missing, non-UTF-8, or fails the bare-key alphabet.
-pub(crate) fn default_package_name_from_dir(dest_dir: &Path) -> String {
-    let candidate = dest_dir.file_name().and_then(|s| s.to_str()).unwrap_or("");
-    if is_bare_toml_key(candidate) {
-        candidate.to_owned()
-    } else {
-        FALLBACK_PACKAGE_NAME.to_owned()
-    }
-}
+/// C++23 keywords and alternative tokens ([lex.key], [lex.digraph]),
+/// none of which can name a namespace.
+const CXX_KEYWORDS: &[&str] = &[
+    "alignas",
+    "alignof",
+    "and",
+    "and_eq",
+    "asm",
+    "auto",
+    "bitand",
+    "bitor",
+    "bool",
+    "break",
+    "case",
+    "catch",
+    "char",
+    "char16_t",
+    "char32_t",
+    "char8_t",
+    "class",
+    "co_await",
+    "co_return",
+    "co_yield",
+    "compl",
+    "concept",
+    "const",
+    "const_cast",
+    "consteval",
+    "constexpr",
+    "constinit",
+    "continue",
+    "decltype",
+    "default",
+    "delete",
+    "do",
+    "double",
+    "dynamic_cast",
+    "else",
+    "enum",
+    "explicit",
+    "export",
+    "extern",
+    "false",
+    "float",
+    "for",
+    "friend",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "mutable",
+    "namespace",
+    "new",
+    "noexcept",
+    "not",
+    "not_eq",
+    "nullptr",
+    "operator",
+    "or",
+    "or_eq",
+    "private",
+    "protected",
+    "public",
+    "register",
+    "reinterpret_cast",
+    "requires",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "static_assert",
+    "static_cast",
+    "struct",
+    "switch",
+    "template",
+    "this",
+    "thread_local",
+    "throw",
+    "true",
+    "try",
+    "typedef",
+    "typeid",
+    "typename",
+    "union",
+    "unsigned",
+    "using",
+    "virtual",
+    "void",
+    "volatile",
+    "wchar_t",
+    "while",
+    "xor",
+    "xor_eq",
+];
 
-/// Whether `s` is non-empty and contains only ASCII letters,
-/// digits, `_`, or `-`.  This is the alphabet `cabin init` and
-/// `cabin new` accept for the generated package name; it is a
-/// strict subset of [`PackageName`]'s registry-safety grammar.
-pub(crate) fn is_bare_toml_key(s: &str) -> bool {
-    !s.is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+/// Derive the default package name from a target directory: its final
+/// component, ASCII-lowercased (`Boa` -> `boa`), or
+/// [`FALLBACK_PACKAGE_NAME`] when the component is missing, non-UTF-8,
+/// or not a valid bare package name even after lowercasing.
+pub(crate) fn default_package_name_from_dir(dest_dir: &Path) -> String {
+    dest_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|name| cabin_core::is_valid_package_base_name(name))
+        .unwrap_or_else(|| FALLBACK_PACKAGE_NAME.to_owned())
 }
 
 fn validate_package_name(raw: String) -> Result<PackageName, ScaffoldError> {
-    let empty_or_whitespace = raw.is_empty() || raw.chars().any(char::is_whitespace);
-    if empty_or_whitespace {
-        return Err(ScaffoldError::EmptyOrWhitespaceName);
+    let name = PackageName::new(raw)?;
+    if name.is_scoped() {
+        return Err(ScaffoldError::ScopedName {
+            base: name.base_name().to_owned(),
+            name: name.into(),
+        });
     }
-    if !is_bare_toml_key(&raw) {
-        return Err(ScaffoldError::UnsupportedNameCharacters { name: raw });
-    }
-    PackageName::new(raw).map_err(|_| ScaffoldError::EmptyOrWhitespaceName)
+    Ok(name)
 }
 
 fn create_dir_all(path: &Path) -> Result<(), ScaffoldError> {
@@ -443,15 +537,17 @@ mod tests {
     }
 
     #[test]
-    fn is_bare_toml_key_acceptance() {
-        assert!(is_bare_toml_key("hello"));
-        assert!(is_bare_toml_key("hello-world"));
-        assert!(is_bare_toml_key("hello_world"));
-        assert!(is_bare_toml_key("h123"));
-        assert!(!is_bare_toml_key(""));
-        assert!(!is_bare_toml_key("hello.world"));
-        assert!(!is_bare_toml_key("hello world"));
-        assert!(!is_bare_toml_key(".hidden"));
+    fn scaffold_library_with_a_keyword_name_emits_valid_cpp_namespace() {
+        let root = TempDir::new().unwrap();
+        let dir = root.child("Class");
+        dir.create_dir_all().unwrap();
+        let request = ScaffoldRequest::new(dir.path()).with_kind(ScaffoldKind::Library);
+        scaffold(request).unwrap();
+
+        let header = std::fs::read_to_string(dir.child("include/class/class.hpp").path()).unwrap();
+        assert!(header.contains("namespace class_ {"), "{header}");
+        let src = std::fs::read_to_string(dir.child("src/class.cc").path()).unwrap();
+        assert!(src.contains("namespace class_ {"), "{src}");
     }
 
     #[test]
@@ -613,22 +709,33 @@ mod tests {
     }
 
     #[test]
-    fn scaffold_rejects_invalid_name() {
+    fn scaffold_rejects_invalid_explicit_names() {
         let dir = TempDir::new().unwrap();
-        let request = binary_request(dir.path()).with_name(Some("foo bar"));
-        let err = scaffold(request).unwrap_err();
-        assert!(matches!(err, ScaffoldError::EmptyOrWhitespaceName));
+        for raw in ["", "foo bar", "foo.bar", "-foo", "_foo"] {
+            let err = scaffold(binary_request(dir.path()).with_name(Some(raw))).unwrap_err();
+            assert!(matches!(err, ScaffoldError::InvalidName(_)), "{raw:?}");
+        }
+        assert!(!dir.child(MANIFEST_FILENAME).exists());
+    }
+
+    /// An explicit name is an identity the user typed: it is rejected,
+    /// never lowercased, and the diagnostic offers the lowercase form.
+    #[test]
+    fn scaffold_rejects_an_uppercase_explicit_name_with_a_suggestion() {
+        let dir = TempDir::new().unwrap();
+        let err = scaffold(binary_request(dir.path()).with_name(Some("Boa"))).unwrap_err();
+        assert!(matches!(err, ScaffoldError::InvalidName(_)));
+        assert!(err.to_string().contains("did you mean \"boa\"?"), "{err}");
     }
 
     #[test]
-    fn scaffold_rejects_unsupported_characters() {
+    fn scaffold_rejects_a_scoped_explicit_name() {
         let dir = TempDir::new().unwrap();
-        let request = binary_request(dir.path()).with_name(Some("foo.bar"));
-        let err = scaffold(request).unwrap_err();
-        assert!(matches!(
-            err,
-            ScaffoldError::UnsupportedNameCharacters { .. }
-        ));
+        let err = scaffold(binary_request(dir.path()).with_name(Some("acme/foo"))).unwrap_err();
+        assert!(
+            matches!(&err, ScaffoldError::ScopedName { base, .. } if base == "foo"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -640,13 +747,31 @@ mod tests {
         assert_eq!(report.name.as_str(), "derived-name");
     }
 
+    /// Only a name inferred from the directory is lowercased; the
+    /// directory itself keeps its spelling.
+    #[test]
+    fn scaffold_lowercases_the_directory_name() {
+        for (dir_name, expected) in [("Boa", "boa"), ("MyProject", "myproject")] {
+            let parent = TempDir::new().unwrap();
+            let child = parent.child(dir_name);
+            child.create_dir_all().unwrap();
+            let report = scaffold(ScaffoldRequest::new(child.path())).unwrap();
+            assert_eq!(report.name.as_str(), expected);
+            child
+                .child(MANIFEST_FILENAME)
+                .assert(predicate::str::contains(format!("name = \"{expected}\"")));
+        }
+    }
+
     #[test]
     fn scaffold_falls_back_when_directory_name_unusable() {
-        let parent = TempDir::new().unwrap();
-        let child = parent.child(".dotted");
-        child.create_dir_all().unwrap();
-        let report = scaffold(ScaffoldRequest::new(child.path())).unwrap();
-        assert_eq!(report.name.as_str(), FALLBACK_PACKAGE_NAME);
+        for dir_name in [".dotted", "foo.bar", "-dash", "_under"] {
+            let parent = TempDir::new().unwrap();
+            let child = parent.child(dir_name);
+            child.create_dir_all().unwrap();
+            let report = scaffold(ScaffoldRequest::new(child.path())).unwrap();
+            assert_eq!(report.name.as_str(), FALLBACK_PACKAGE_NAME, "{dir_name:?}");
+        }
     }
 
     #[test]

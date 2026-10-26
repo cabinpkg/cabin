@@ -528,6 +528,22 @@ mod tests {
         assert!(matches!(err, LockfileError::DuplicatePackage { name } if name == "fmt"));
     }
 
+    /// A lockfile cannot reintroduce a name the manifest grammar
+    /// refuses, whether as a package or as a dependency edge.
+    #[test]
+    fn mixed_case_package_names_error() {
+        for (name, deps) in [("acme/Fmt", "[]"), ("acme/fmt", r#"["acme/Zlib"]"#)] {
+            let body = format!(
+                "version = 1\n\n[[package]]\nname = \"{name}\"\nversion = \"10.2.1\"\nsource = \"index\"\ndependencies = {deps}\n"
+            );
+            let err = parse_lockfile_str(&body).unwrap_err();
+            assert!(
+                matches!(err, LockfileError::InvalidPackageName { .. }),
+                "{body}: {err:?}"
+            );
+        }
+    }
+
     #[test]
     fn missing_version_errors() {
         let body = r#"

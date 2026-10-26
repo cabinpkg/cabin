@@ -84,7 +84,12 @@ pub(crate) struct TidyArgs {
     /// Analyze the named workspace package.  Repeat the flag to
     /// select multiple packages.  Errors when a name is not a
     /// workspace member.
-    #[arg(long = "package", short = 'p', value_name = "PACKAGE")]
+    #[arg(
+        long = "package",
+        short = 'p',
+        value_name = "PACKAGE",
+        value_parser = crate::cli::parse_package_name
+    )]
     pub package: Vec<String>,
 
     /// Analyze `[workspace.default-members]`.  Errors when the
