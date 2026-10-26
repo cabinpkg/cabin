@@ -66,12 +66,19 @@ struct Object {
     size: u64,
 }
 
-/// One page of the R2 REST listing.
+/// One page of the R2 REST listing.  `result_info` is `None` only when
+/// the key is missing: a `null` is metadata that is not an object, and
+/// fails like one.
 #[derive(Deserialize)]
 struct Page {
     success: bool,
     result: Vec<Object>,
+    #[serde(default, deserialize_with = "present")]
     result_info: Option<PageInfo>,
+}
+
+fn present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<PageInfo>, D::Error> {
+    PageInfo::deserialize(value).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -178,8 +185,11 @@ pub(crate) fn get(agent: &ureq::Agent, url: &str, token: &str) -> Result<String>
 /// once the listing is complete.
 ///
 /// Pagination is explicit: a truncated page without a cursor, or
-/// missing metadata entirely, fails the audit rather than silently
-/// reading a partial listing as the whole bucket.
+/// metadata without a truncation flag, fails the audit rather than
+/// silently reading a partial listing as the whole bucket.  The API
+/// leaves the metadata out of a listing's last page altogether, so a
+/// missing `result_info` key ends the listing, as `is_truncated: false`
+/// does.
 ///
 /// # Errors
 ///
@@ -189,20 +199,21 @@ fn page(body: &str) -> Result<(Vec<Object>, String)> {
     if !page.success {
         bail!("the listing reported failure");
     }
-    let cursor = match page.result_info.context("no pagination metadata")? {
-        PageInfo {
+    let cursor = match page.result_info {
+        None
+        | Some(PageInfo {
+            is_truncated: Some(false),
+            ..
+        }) => String::new(),
+        Some(PageInfo {
             is_truncated: Some(true),
             cursor,
-        } => encode_uri_component(
+        }) => encode_uri_component(
             &cursor
                 .filter(|cursor| !cursor.is_empty())
                 .context("a truncated page carries no cursor")?,
         ),
-        PageInfo {
-            is_truncated: Some(false),
-            ..
-        } => String::new(),
-        PageInfo { .. } => bail!("no is_truncated flag"),
+        Some(PageInfo { .. }) => bail!("no is_truncated flag"),
     };
     Ok((page.result, cursor))
 }
@@ -825,10 +836,11 @@ mod tests {
     }
 
     /// Pagination is the audit's one chance to be wrong about the whole
-    /// bucket: a page that claims more without saying where, or says
-    /// nothing about truncation at all, must stop the run.  Reading a
-    /// first page as the whole bucket would report every later object as
-    /// a missing backup.
+    /// bucket: a page that claims more without saying where, or carries
+    /// metadata that says nothing about truncation, must stop the run.
+    /// A page with no metadata at all is the API's last page.  Reading a
+    /// first page as the whole bucket would audit only part of it - and
+    /// could still report it OK.
     #[test]
     fn a_page_that_cannot_be_paginated_stops_the_audit() {
         let (objects, cursor) = page(
@@ -838,6 +850,11 @@ mod tests {
         .unwrap();
         assert_eq!(objects.len(), 1);
         assert!(cursor.is_empty(), "a complete listing ends the loop");
+        // The live API's last page carries no metadata at all.
+        let (objects, cursor) =
+            page(r#"{"success":true,"errors":[],"result":[{"key":"a","size":1}]}"#).unwrap();
+        assert_eq!(objects.len(), 1);
+        assert!(cursor.is_empty(), "a last page ends the loop");
 
         let (_, cursor) = page(
             r#"{"success":true,"result":[],
@@ -848,8 +865,8 @@ mod tests {
 
         for refused in [
             r#"{"success":false,"result":[],"result_info":{"is_truncated":false}}"#,
-            r#"{"success":true,"result":[]}"#,
             r#"{"success":true,"result":[],"result_info":{}}"#,
+            r#"{"success":true,"result":[],"result_info":null}"#,
             r#"{"success":true,"result":[],"result_info":{"is_truncated":"false"}}"#,
             r#"{"success":true,"result":[],"result_info":{"is_truncated":true}}"#,
             r#"{"success":true,"result":[],"result_info":{"is_truncated":true,"cursor":""}}"#,
