@@ -112,7 +112,7 @@ fn assembly_builds_and_runs() {
     let dir = copy_example("assembly");
     // GNU `.S` on Linux and macOS, MASM through `ml64.exe` on
     // Windows; the program exits non-zero unless the assembly
-    // returned the target's `CABIN_ANSWER` define.
+    // returned the target's `ANSWER_VALUE` define.
     let output = cabin()
         .args(["run", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))

@@ -7,7 +7,7 @@ c-standard = "c11"
 type = "executable"
 sources = ["src/main.c"]
 # Target defines reach the assembler too: the assembly returns this value.
-defines = ["CABIN_ANSWER=42"]
+defines = ["ANSWER_VALUE=42"]
 
 # GNU assembly (`.S`) goes through the GCC/Clang driver and MASM
 # (`.asm`) through MSVC's `ml64.exe`, so each host assembles the file

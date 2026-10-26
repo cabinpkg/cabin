@@ -1,4 +1,4 @@
-/* The C preprocessor runs first, so CABIN_ANSWER and these
+/* The C preprocessor runs first, so ANSWER_VALUE and these
    conditionals resolve before the assembler sees the file. */
 #if defined(__APPLE__)
 #define SYMBOL _cabin_answer
@@ -10,7 +10,7 @@
     .globl SYMBOL
 #if defined(__x86_64__)
 SYMBOL:
-    movl $CABIN_ANSWER, %eax
+    movl $ANSWER_VALUE, %eax
     ret
 #if defined(__ELF__)
     .section .note.GNU-stack,"",@progbits
@@ -18,7 +18,7 @@ SYMBOL:
 #elif defined(__aarch64__)
     .p2align 2
 SYMBOL:
-    mov w0, #CABIN_ANSWER
+    mov w0, #ANSWER_VALUE
     ret
 #if defined(__ELF__)
     .section .note.GNU-stack,"",%progbits
