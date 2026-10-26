@@ -1085,7 +1085,19 @@ is rehearsed (see "Rehearsal" below).
   release`), dumps without a
   validating sidecar, sidecars without their dump, and - given
   `CABIN_REGISTRY_TOKEN` - the governor's backup and dump pools
-  against the bucket's actual contents.
+  against the bucket's actual contents. The ledger keeps one row per
+  object, so each pool must cover the bucket in bytes and, separately,
+  in object count; a shortfall in either measure of either pool fails
+  the audit and names itself. The listing is read before the ledger
+  snapshot, so an in-flight drain copy or dump is already reserved by
+  then. Two shortfalls can still be honest, so rerun before
+  investigating: a `cargo registry-backup-backfill` copy reaches the
+  backup pool only when the drain retires its queue row (up to 50 per
+  breaker pass; the audit prints the queue depth), and an operator
+  `registry-governor release` (either pool) or a dump-job delete (the
+  nightly prune or an invalid-dump removal) landing between the two
+  reads makes the pool read short of an object the listing still saw.
+  The totals are aggregate, so a pass is not per-key proof.
 - **D1 metadata (RPO <= 24 h).** A second cron schedule (`0 3 * * *`)
   runs a nightly logical dump from the Worker itself: it drives the D1
   REST export endpoint (the same API `wrangler d1 export --remote`
