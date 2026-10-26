@@ -107,6 +107,29 @@ fn hello_cpp_builds_and_runs() {
 }
 
 #[test]
+fn assembly_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("assembly");
+    // GNU `.S` on Linux and macOS, MASM through `ml64.exe` on
+    // Windows; the program exits non-zero unless the assembly
+    // returned the target's `ANSWER_VALUE` define.
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("Assembled answer: 42"),
+        "assembly run: stdout = {stdout}"
+    );
+}
+
+#[test]
 fn platform_cfg_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("platform-cfg");

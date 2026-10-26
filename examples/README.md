@@ -51,6 +51,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`sqlite-todo/`](sqlite-todo) | An in-memory todo list on the `cabin-ports/sqlite3` package: DDL/DML through `sqlite3_exec`, then a prepare/step/finalize query loop. |
 | [`png-info/`](png-info) | An in-memory PNG encode/decode roundtrip on the `cabin-ports/libpng` package, pushing real image data across the transitive `libpng -> zlib` C package edge. |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines and sources: one C++ source that compiles a different macro, and one C source per platform, on Windows (MSVC) vs.  Unix (GCC/Clang). |
+| [`assembly/`](assembly) | Assembly sources in a C target: GNU `.S` through the GCC/Clang driver on Linux and macOS, MASM `.asm` through `ml64.exe` on Windows, selected per platform. |
 
 ## Running an example manually
 

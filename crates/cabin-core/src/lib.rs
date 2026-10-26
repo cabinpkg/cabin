@@ -94,7 +94,9 @@ pub use profile::{
     ProfileResolutionError, ProfileSelection, ProfileSource, ResolvedProfile,
     available_profile_names, resolve_profile,
 };
-pub use source_language::{SourceLanguage, classify_source, link_driver_language};
+pub use source_language::{
+    AssemblySyntax, SourceLanguage, classify_assembly, classify_source, link_driver_language,
+};
 pub use source_replacement::{
     SourceLocator, SourceReplacementEntry, SourceReplacementError, SourceReplacementResolution,
     SourceReplacementSettings,

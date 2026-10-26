@@ -814,8 +814,8 @@ resolution, and Ninja lookup.  The crate must:
 ### `cabin-build`
 
 Owns backend-independent build planning: `PackageGraph` plus `ResolvedToolchain`, per-package build
-flags, per-package language standards, and build settings become a `BuildGraph` of compile / archive
-/ link actions, with pre-Ninja validation of requested standards against the detected toolchain and
+flags, per-package language standards, and build settings become a `BuildGraph` of compile /
+assemble / archive / link actions, with pre-Ninja validation of requested standards against the detected toolchain and
 interface-standard enforcement across the target dependency closure.  The crate must:
 
 - not write Ninja syntax or any other backend's syntax;
@@ -829,7 +829,8 @@ Owns compiler-dialect lowering: the single boundary where `cabin-build`'s toolch
 `GnuLike` (the GCC / Clang driver: `-std=c++17`, `-D` / `-I` / `-isystem`, `-MD -MF` depfiles) or
 `Msvc` (the `cl.exe` / `lib.exe` driver: `/std:c++17`, `/D` / `/I` / `/external:I`,
 `/showIncludes`) - and owns every platform- and toolchain-specific spelling: artifact naming, Ninja
-header-dependency discovery, and how each action is lowered.  The planner and the Ninja writer stay
+header-dependency discovery, the assembler for each assembly syntax (the GCC/Clang driver for `.S`,
+`ml64.exe` for `.asm`), and how each action is lowered.  The planner and the Ninja writer stay
 dialect-agnostic.  The crate must:
 
 - stay pure and deterministic - no I/O, no process invocation;

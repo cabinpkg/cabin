@@ -34,7 +34,8 @@ pub mod dialect;
 pub mod lower;
 
 pub use action::{
-    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, LinkAction,
+    ArchiveAction, AssembleAction, BuildAction, CompileAction, CompileArguments, CompileMode,
+    LinkAction,
 };
 pub use dialect::{Dialect, NinjaDeps};
 pub use lower::{LoweredAction, LoweredActionKind, compile_argv, lower};

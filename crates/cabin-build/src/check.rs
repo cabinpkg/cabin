@@ -13,7 +13,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use cabin_driver::{BuildAction, CompileMode};
 
-use crate::graph::BuildGraph;
+use crate::graph::{BuildGraph, StandardViolation};
 
 /// Stamp file Ninja `touch`es after a successful syntax check.  Lives
 /// beside the object the normal build would have produced, so Ninja
@@ -73,9 +73,10 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
         .standard_violations
         .into_iter()
         .filter(|violation| {
-            selected_pkg_dirs
-                .iter()
-                .any(|dir| violation.object().as_std_path().starts_with(dir))
+            !matches!(violation, StandardViolation::AssemblyNeedsToolchain { .. })
+                && selected_pkg_dirs
+                    .iter()
+                    .any(|dir| violation.object().as_std_path().starts_with(dir))
         })
         .collect();
     BuildGraph {

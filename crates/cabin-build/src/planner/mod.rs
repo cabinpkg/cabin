@@ -1,5 +1,6 @@
 use crate::error::BuildError;
 use crate::graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
+use cabin_core::{AssemblySyntax, classify_assembly};
 use cabin_core::{
     InterfaceStandardSource, LanguageStandard, Package, ResolvedCompilerWrapper,
     ResolvedLanguageStandards, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
@@ -7,8 +8,8 @@ use cabin_core::{
     link_driver_language,
 };
 use cabin_driver::{
-    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
-    compile_argv,
+    ArchiveAction, AssembleAction, BuildAction, CompileAction, CompileArguments, CompileMode,
+    Dialect, LinkAction, compile_argv,
 };
 use cabin_workspace::PackageGraph;
 use camino::Utf8PathBuf;
@@ -148,6 +149,12 @@ struct PreparedSource {
     abs_source: Utf8PathBuf,
     object: Utf8PathBuf,
     language: SourceLanguage,
+}
+
+struct PreparedAssembly {
+    abs_source: Utf8PathBuf,
+    object: Utf8PathBuf,
+    syntax: AssemblySyntax,
 }
 
 /// Plan a build for the requested package graph.
@@ -425,25 +432,38 @@ fn emit_actions(
         }
 
         let mut prepared: Vec<PreparedSource> = Vec::new();
+        let mut assembly: Vec<PreparedAssembly> = Vec::new();
         for source in target.sources_for(&req.platform) {
-            let language =
-                classify_source(source).ok_or_else(|| BuildError::UnrecognizedSourceExtension {
+            let language = classify_source(source);
+            let syntax = classify_assembly(source);
+            if language.is_none() && syntax.is_none() {
+                return Err(BuildError::UnrecognizedSourceExtension {
                     target: format_target_id(tid, req.graph),
                     path: source.clone(),
-                })?;
+                });
+            }
             let object = object_path(&pkg_build_dir, target.name.as_str(), source, req.dialect)
                 .map_err(|reason| BuildError::InvalidSourcePath {
                     target: format_target_id(tid, req.graph),
                     path: source.clone(),
                     reason,
                 })?;
-            prepared.push(PreparedSource {
-                abs_source: manifest_dir.join(source),
-                object,
-                language,
-            });
+            let abs_source = manifest_dir.join(source);
+            if let Some(language) = language {
+                prepared.push(PreparedSource {
+                    abs_source,
+                    object,
+                    language,
+                });
+            } else if let Some(syntax) = syntax {
+                assembly.push(PreparedAssembly {
+                    abs_source,
+                    object,
+                    syntax,
+                });
+            }
         }
-        if prepared.is_empty() {
+        if prepared.is_empty() && assembly.is_empty() {
             return Err(BuildError::EmptyTargetSources(format_target_id(
                 tid, req.graph,
             )));
@@ -662,6 +682,42 @@ fn emit_actions(
             }
             objects.push(ps.object.clone());
             actions.push(BuildAction::Compile(compile));
+        }
+        for asm in &assembly {
+            // The C++ compiler is the one the dialect was detected
+            // from, so it is the driver that understands its syntax.
+            let Some(assembler) = req.dialect.assembler(asm.syntax, req.toolchain.cxx.path())
+            else {
+                let (syntax, needs) = match asm.syntax {
+                    AssemblySyntax::Gnu => ("GNU", "a GCC or Clang toolchain"),
+                    AssemblySyntax::Masm => (
+                        "MASM",
+                        "MSVC's `cl.exe`, beside which `ml64.exe` is installed",
+                    ),
+                };
+                standard_violations.push(StandardViolation::AssemblyNeedsToolchain {
+                    target: format_target_id(tid, req.graph),
+                    path: asm.abs_source.clone(),
+                    syntax,
+                    needs,
+                    object: asm.object.clone(),
+                });
+                continue;
+            };
+            actions.push(BuildAction::Assemble(AssembleAction {
+                assembler,
+                source: asm.abs_source.clone(),
+                object: asm.object.clone(),
+                depfile: Some(depfile_path(&asm.object)),
+                include_dirs: include_dirs
+                    .iter()
+                    .chain(&system_include_dirs)
+                    .cloned()
+                    .collect(),
+                defines: defines.clone(),
+                description: format!("AS {}", asm.object),
+            }));
+            objects.push(asm.object.clone());
         }
 
         // Per-target language manifest: own sources' languages

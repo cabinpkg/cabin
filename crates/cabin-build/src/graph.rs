@@ -119,6 +119,17 @@ pub enum StandardViolation {
         /// per-package prefix the check filter tests).
         object: Utf8PathBuf,
     },
+    /// An assembly source the active toolchain cannot assemble.  The
+    /// planner emits no action for it, and the `cabin check` rewrite,
+    /// which assembles nothing, drops it.
+    AssemblyNeedsToolchain {
+        target: String,
+        path: Utf8PathBuf,
+        syntax: &'static str,
+        needs: &'static str,
+        /// Object path the source would have produced.
+        object: Utf8PathBuf,
+    },
 }
 
 /// Which side of an interface requirement a consuming compile
@@ -142,7 +153,8 @@ impl StandardViolation {
             Self::MsvcSpelling { object, .. }
             | Self::MsvcGnuExtensions { object, .. }
             | Self::FlagConflict { object, .. }
-            | Self::InterfaceIncompatibility { object, .. } => object,
+            | Self::InterfaceIncompatibility { object, .. }
+            | Self::AssemblyNeedsToolchain { object, .. } => object,
         }
     }
 }

@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use cabin_build::BuildGraph;
-use cabin_driver::{Dialect, LoweredAction, LoweredActionKind, NinjaDeps, lower};
+use cabin_driver::{BuildAction, LoweredAction, LoweredActionKind, NinjaDeps, lower};
 use cabin_fs::write_atomic;
 
 use crate::error::NinjaError;
@@ -52,7 +52,7 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 /// Each semantic [`cabin_build::BuildAction`] is lowered to a concrete
 /// command via [`cabin_driver::lower()`] immediately before its edge is
 /// rendered - the single point where compile/archive/link intent
-/// becomes a command line.  The [`Dialect`] selects the spelling, so the
+/// becomes a command line.  The [`cabin_driver::Dialect`] selects the spelling, so the
 /// same actions render as GNU/Clang or MSVC without this writer changing.
 ///
 /// # Errors
@@ -73,7 +73,7 @@ pub fn render_build_ninja(
     // dialect pairs a Makefile `depfile` with `deps = gcc`; MSVC parses
     // `cl /showIncludes` stdout with `deps = msvc` and an
     // `msvc_deps_prefix`.
-    let deps = compile_deps_lines(graph.dialect);
+    let deps = deps_lines(graph.dialect.ninja_deps());
     // Syntax-only checks (`cabin check`) produce no object, so the rule
     // stamps an output to record success and keep Ninja's incrementality
     // working.  The compiler argv is bound to `$checkcmd` (not
@@ -103,6 +103,21 @@ pub fn render_build_ninja(
     out.push_str(&deps);
     out.push_str("  description = $description\n\n");
 
+    // Emitted only when used, so builds without assembly keep their
+    // existing `build.ninja` bytes.
+    if graph
+        .actions
+        .iter()
+        .any(|action| matches!(action, BuildAction::Assemble(_)))
+    {
+        out.push_str("rule assemble\n");
+        out.push_str("  command = $command\n");
+        if let Some(deps) = graph.dialect.assemble_deps() {
+            out.push_str(&deps_lines(deps));
+        }
+        out.push_str("  description = $description\n\n");
+    }
+
     out.push_str("rule cxx_archive\n");
     out.push_str("  command = $command\n");
     out.push_str("  description = $description\n\n");
@@ -129,11 +144,10 @@ pub fn render_build_ninja(
 }
 
 /// The `depfile` / `deps` (and, for MSVC, `msvc_deps_prefix`) lines a
-/// compile or check rule needs for header-dependency discovery in
-/// `dialect`.  Returned with trailing newlines, ready to splice into a
-/// rule body.
-fn compile_deps_lines(dialect: Dialect) -> String {
-    match dialect.ninja_deps() {
+/// rule needs for header-dependency discovery in `deps` mode.
+/// Returned with trailing newlines, ready to splice into a rule body.
+fn deps_lines(deps: NinjaDeps) -> String {
+    match deps {
         NinjaDeps::Gcc => "  depfile = $depfile\n  deps = gcc\n".to_owned(),
         NinjaDeps::Msvc { prefix } => format!("  deps = msvc\n  msvc_deps_prefix = {prefix}\n"),
     }
@@ -172,6 +186,7 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
         LoweredActionKind::CompileCpp => "cxx_compile",
         LoweredActionKind::SyntaxCheckC => "c_check",
         LoweredActionKind::SyntaxCheckCpp => "cxx_check",
+        LoweredActionKind::Assemble => "assemble",
         LoweredActionKind::ArchiveStaticLibrary => "cxx_archive",
         LoweredActionKind::LinkExecutable => "link_executable",
     };
@@ -207,6 +222,7 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
         LoweredActionKind::SyntaxCheckC | LoweredActionKind::SyntaxCheckCpp => "checkcmd",
         LoweredActionKind::CompileC
         | LoweredActionKind::CompileCpp
+        | LoweredActionKind::Assemble
         | LoweredActionKind::ArchiveStaticLibrary
         | LoweredActionKind::LinkExecutable => "command",
     };
@@ -383,6 +399,7 @@ mod tests {
         CompileMode, LinkAction,
     };
     use cabin_core::OptLevel;
+    use cabin_driver::Dialect;
     use camino::Utf8PathBuf;
     use std::collections::BTreeSet;
 
@@ -522,6 +539,35 @@ mod tests {
         assert!(body.contains("build /abs/build/main.o: cxx_compile /abs/src/main.cc"));
         assert!(body.contains("depfile = /abs/build/main.o.d"));
         assert!(body.contains("deps = gcc"));
+    }
+
+    /// The `assemble` rule exists only when a graph assembles, and its
+    /// header tracking follows the dialect: a GNU depfile, nothing for
+    /// `ml64`.
+    #[test]
+    fn assemble_rule_tracks_headers_on_gnu_only() {
+        let assemble = BuildAction::Assemble(cabin_driver::AssembleAction {
+            assembler: Utf8PathBuf::from("/usr/bin/g++"),
+            source: Utf8PathBuf::from("/abs/src/jump.S"),
+            object: Utf8PathBuf::from("/abs/build/jump.o"),
+            depfile: Some(Utf8PathBuf::from("/abs/build/jump.o.d")),
+            include_dirs: vec![],
+            defines: vec![],
+            description: "AS /abs/build/jump.o".into(),
+        });
+        let gnu = render(&graph_with(vec![assemble.clone()], vec![])).unwrap();
+        assert!(
+            gnu.contains(
+                "rule assemble\n  command = $command\n  depfile = $depfile\n  deps = gcc\n"
+            )
+        );
+        assert!(gnu.contains("build /abs/build/jump.o: assemble /abs/src/jump.S"));
+        assert!(gnu.contains("depfile = /abs/build/jump.o.d"));
+        let msvc = render(&msvc_graph_with(vec![assemble])).unwrap();
+        assert!(msvc.contains("rule assemble\n  command = $command\n  description"));
+        assert!(!msvc.contains("depfile = /abs/build/jump.o.d"));
+        let plain = render(&graph_with(vec![compile_action()], vec![])).unwrap();
+        assert!(!plain.contains("rule assemble"));
     }
 
     /// Build a graph that renders for the MSVC dialect.

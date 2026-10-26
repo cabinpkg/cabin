@@ -154,9 +154,21 @@ pub enum BuildError {
     /// A target carries a source whose extension does not match
     /// any of Cabin's recognized C/C++ extensions.
     #[error(
-        "target {target:?} has source `{path}` with an unrecognized extension; supported extensions are .c (C) and .cc / .cpp / .cxx / .c++ / .C (C++)"
+        "target {target:?} has source `{path}` with an unrecognized extension; supported extensions are .c (C), .cc / .cpp / .cxx / .c++ / .C (C++), .S (GNU assembly), and .asm (MASM)"
     )]
     UnrecognizedSourceExtension { target: String, path: Utf8PathBuf },
+
+    /// An assembly source whose syntax the active toolchain cannot
+    /// assemble: GNU `.S` needs GCC/Clang, MASM `.asm` needs MSVC.
+    #[error(
+        "target {target:?} has {syntax} assembly source `{path}`, which needs {needs}; list it in a `[target.'cfg(...)'.sources]` table for the platforms whose toolchain assembles it"
+    )]
+    AssemblyNeedsToolchain {
+        target: String,
+        path: Utf8PathBuf,
+        syntax: &'static str,
+        needs: &'static str,
+    },
 
     /// A target carries `.c` source(s) but no C compiler is
     /// available.  Set `CC`, pass `--cc`, or add `cc = ...` to

@@ -32,8 +32,8 @@ driver per source language.  The build planner classifies each source file by it
 matching driver.
 
 The link driver is *also* selected per target: every linked executable inspects its own objects plus
-every transitively reachable library object, picks **C++** if any of those are C++, and otherwise
-picks **C**.  There is no separate `--linker` selection; the C/C++ driver decision is what controls
+every transitively reachable library object, picks **C++** if any of those are C++ or none are C
+(assembly only), and otherwise picks **C**.  There is no separate `--linker` selection; the C/C++ driver decision is what controls
 whether the C++ runtime (libstdc++ / libc++) is pulled in.
 
 A linker-style env variable (`LD`) is intentionally not honored - adding linker selection would
@@ -446,10 +446,11 @@ the example packages that need no outbound network on a `windows-2025-vs2026` ru
 - **Cabin's full source-extension set.** `.c` compiles as C; `.cc`, `.cpp`, `.cxx`, `.c++`, and `.C`
   compile as C++.  The language is driven explicitly (`cl /Tp<file>` / `/Tc<file>`) rather than left
   to `cl`'s extension inference, so every supported extension compiles as the language Cabin
-  classified it.
+  classified it.  A `.asm` source assembles with the `ml64.exe` beside the resolved `cl.exe`.
 - **Command mapping.** `cl /nologo /utf-8 /std:c++17 /EHsc /O2 /Z7 /showIncludes /D ... /I ... /c
   /Tp<src> /Fo<obj>` for compiles (Ninja consumes `/showIncludes` via `deps = msvc`); `lib /nologo
-  /OUT:<lib> <objs>` for archives; `cl /nologo <inputs> /Fe<exe> /link <ldflags>` for links.
+  /OUT:<lib> <objs>` for archives; `ml64 /nologo /c /D ... /I ... /Fo <obj> <src>` for assembly;
+  `cl /nologo <inputs> /Fe<exe> /link <ldflags>` for links.
   `/utf-8` pins the source and execution character sets to UTF-8, matching the GCC/Clang default -
   without it `cl` interprets sources in the machine's active code page, and UTF-8-requiring headers
   (such as {fmt}'s) fail to compile.  `cabin check`
