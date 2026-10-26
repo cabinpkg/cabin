@@ -1,0 +1,36 @@
+[package.upstream]
+url = "https://github.com/boostorg/proto/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:1a39fc4d5f03e67d4b3b6b82cd4dbd062cfb42b2bc693b9ce7a0442ced3613d4"
+format = "tar.gz"
+strip-prefix = "proto-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-proto"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-typeof" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_proto]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-typeof", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

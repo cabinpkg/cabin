@@ -1,0 +1,44 @@
+[package.upstream]
+url = "https://github.com/boostorg/phoenix/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:044539f1427414139ea8949976d4e45f6c339e3a4c2a8e5c92489bb811644156"
+format = "tar.gz"
+strip-prefix = "phoenix-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-phoenix"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-fusion" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-predef" = "=1.92.0"
+"cabin-ports/boost-preprocessor" = "=1.92.0"
+"cabin-ports/boost-proto" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-smart-ptr" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-utility" = "=1.92.0"
+
+[target.boost_phoenix]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-fusion", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-predef", public = true },
+  { name = "cabin-ports/boost-preprocessor", public = true },
+  { name = "cabin-ports/boost-proto", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-smart-ptr", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-utility", public = true },
+]

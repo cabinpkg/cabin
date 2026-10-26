@@ -1,0 +1,50 @@
+[package.upstream]
+url = "https://github.com/boostorg/algorithm/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:6a0d577a7ecc85874cb041eac816fd486f851f12971fa078d6b8446d1b14d5d9"
+format = "tar.gz"
+strip-prefix = "algorithm-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-algorithm"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-array" = "=1.92.0"
+"cabin-ports/boost-assert" = "=1.92.0"
+"cabin-ports/boost-bind" = "=1.92.0"
+"cabin-ports/boost-concept-check" = "=1.92.0"
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-exception" = "=1.92.0"
+"cabin-ports/boost-function" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-regex" = "=1.92.0"
+"cabin-ports/boost-throw-exception" = "=1.92.0"
+"cabin-ports/boost-tuple" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+"cabin-ports/boost-unordered" = "=1.92.0"
+
+[target.boost_algorithm]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-array", public = true },
+  { name = "cabin-ports/boost-assert", public = true },
+  { name = "cabin-ports/boost-bind", public = true },
+  { name = "cabin-ports/boost-concept-check", public = true },
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-exception", public = true },
+  { name = "cabin-ports/boost-function", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-regex", public = true },
+  { name = "cabin-ports/boost-throw-exception", public = true },
+  { name = "cabin-ports/boost-tuple", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+  { name = "cabin-ports/boost-unordered", public = true },
+]

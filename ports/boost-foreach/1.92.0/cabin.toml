@@ -1,0 +1,30 @@
+[package.upstream]
+url = "https://github.com/boostorg/foreach/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:18ce251ecd5832aeb4223b28a0ec55a7cf4b072b943b07673bcf4f50a54100de"
+format = "tar.gz"
+strip-prefix = "foreach-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-foreach"
+version = "1.92.0"
+
+[dependencies]
+"cabin-ports/boost-config" = "=1.92.0"
+"cabin-ports/boost-core" = "=1.92.0"
+"cabin-ports/boost-iterator" = "=1.92.0"
+"cabin-ports/boost-mpl" = "=1.92.0"
+"cabin-ports/boost-range" = "=1.92.0"
+"cabin-ports/boost-type-traits" = "=1.92.0"
+
+[target.boost_foreach]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+  { name = "cabin-ports/boost-config", public = true },
+  { name = "cabin-ports/boost-core", public = true },
+  { name = "cabin-ports/boost-iterator", public = true },
+  { name = "cabin-ports/boost-mpl", public = true },
+  { name = "cabin-ports/boost-range", public = true },
+  { name = "cabin-ports/boost-type-traits", public = true },
+]
