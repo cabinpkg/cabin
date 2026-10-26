@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 use cabin_artifact::{MaterializeDefect, MaterializeError, PatchFetch, materialize_upstream};
 use cabin_core::UpstreamProvenance;
 use cabin_package::PackageError;
+use camino::Utf8PathBuf;
 
 use crate::scan::Contents;
 use crate::{Reason, VerifyError};
@@ -65,6 +66,7 @@ const ROOT_MANIFEST: &str = "cabin.toml";
 pub(crate) fn check(
     upstream_archive: &Path,
     declared: &UpstreamProvenance,
+    include: &[Utf8PathBuf],
     files: &Contents,
     patch_bytes: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Option<Reason>, VerifyError> {
@@ -91,7 +93,14 @@ pub(crate) fn check(
         path: tree.clone(),
         source,
     })?;
-    let outcome = check_extracted(upstream_archive, declared, files, patch_bytes, &tree);
+    let outcome = check_extracted(
+        upstream_archive,
+        declared,
+        include,
+        files,
+        patch_bytes,
+        &tree,
+    );
     // Best-effort cleanup; the verdict (or error) already stands.
     let _ = fs::remove_dir_all(&tree);
     outcome
@@ -123,6 +132,7 @@ fn remove_scratch(tree: &Path) -> Result<(), VerifyError> {
 fn check_extracted(
     upstream_archive: &Path,
     declared: &UpstreamProvenance,
+    include: &[Utf8PathBuf],
     files: &Contents,
     patch_bytes: &BTreeMap<String, Vec<u8>>,
     tree: &Path,
@@ -146,10 +156,11 @@ fn check_extracted(
         };
     }
 
-    // The same walk `cabin package` runs, so the expected tree drops
-    // exactly what packaging drops (`.git`, `build`, `cabin.lock`,
+    // The same walk `cabin package` runs, under the archived
+    // manifest's `include`, so the expected tree drops exactly what
+    // packaging drops (`.git`, `build`, `cabin.lock`, unlisted paths,
     // ...) and refuses exactly what packaging refuses.
-    let collected = match cabin_package::archive::collect_package_files(tree, None) {
+    let collected = match cabin_package::archive::collect_package_files(tree, None, include) {
         Ok(collected) => collected,
         // The walk reads directories this process just wrote, so
         // I/O faults are environmental; every content refusal
@@ -295,6 +306,7 @@ mod tests {
         let outcome = check(
             &archive,
             &declaration(&[]),
+            &[],
             &map(&[]),
             &std::collections::BTreeMap::new(),
         );

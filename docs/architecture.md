@@ -343,9 +343,10 @@ registry's own verifier, is [`package-format.md`](package-format.md#extraction-s
 ### `cabin-package`
 
 Owns deterministic source-archive creation and canonical per-version metadata generation.  Given a
-single-package manifest, it validates the source tree, walks it under a fixed include / exclude
-policy, writes a byte-deterministic `.zip`, hashes it with SHA-256, and emits a JSON metadata
-document shaped like a future registry's `<package>.json` version entry.  The crate must:
+single-package manifest, it validates the source tree, walks it under the fixed exclusions and the
+manifest's optional `include` list, writes a byte-deterministic `.zip`, hashes it with SHA-256,
+and emits a JSON metadata document shaped like a future registry's `<package>.json` version entry.
+The crate must:
 
 - not mutate any registry;
 - not run the resolver;
@@ -1309,7 +1310,7 @@ ParsedManifest -> Package
 ValidatedPackage
    |
    |  cabin_package::archive::collect_package_files
-   |   - sorted, fixed include / exclude policy
+   |   - sorted, fixed exclusions plus the optional `include` list
    |   - regular files and directories only
    v
 [PackageFile, ...]

@@ -78,7 +78,7 @@ fn measure(files: &[PackageFile], bytes: &[u8]) -> Metrics {
 fn every_example_round_trips_with_wide_margin_under_the_caps() {
     for package in example_packages() {
         let name = package.file_name().unwrap().to_string_lossy().into_owned();
-        let files = collect_package_files(&package, None).unwrap();
+        let files = collect_package_files(&package, None, &[]).unwrap();
         let bytes = build_zip(&files, None).unwrap();
         let metrics = measure(&files, &bytes);
 

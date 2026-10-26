@@ -185,7 +185,7 @@ fn seeds(root: &Path) -> Result<()> {
 /// `cabin.toml`, then each other file the packager collects as a NUL,
 /// its path, a newline, and its contents.
 fn package_spec(dir: &Path) -> Result<Vec<u8>> {
-    let files = cabin_package::archive::collect_package_files(dir, None)
+    let files = cabin_package::archive::collect_package_files(dir, None, &[])
         .with_context(|| format!("listing {}", dir.display()))?;
     let manifest = dir.join("cabin.toml");
     let mut spec =

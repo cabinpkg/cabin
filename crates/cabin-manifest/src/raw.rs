@@ -221,6 +221,10 @@ pub(crate) struct RawPackage {
     /// `cabin_core::UpstreamProvenance` by the parser.
     #[serde(default)]
     pub(crate) upstream: Option<RawUpstream>,
+    /// Archive allowlist; each entry is checked with
+    /// `cabin_core::upstream::is_safe_archive_path` by the parser.
+    #[serde(default)]
+    pub(crate) include: Vec<String>,
 }
 
 /// `[package.upstream]` table.  Field values are validated by

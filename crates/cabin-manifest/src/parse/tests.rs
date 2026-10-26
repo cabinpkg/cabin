@@ -3485,6 +3485,42 @@ fn package_upstream_is_parsed() {
 }
 
 #[test]
+fn package_include_is_parsed() {
+    let package = parse_project(&MINIMAL.replace(
+        "version = \"0.1.0\"",
+        "version = \"0.1.0\"\ninclude = [\"include\", \"src/lib.cc\"]",
+    ));
+    assert_eq!(
+        package.include,
+        [
+            Utf8PathBuf::from("include"),
+            Utf8PathBuf::from("src/lib.cc")
+        ]
+    );
+}
+
+#[test]
+fn package_include_rejects_non_canonical_paths() {
+    for path in [
+        "../escape",
+        "/abs",
+        "a/./b",
+        "src/",
+        "inc\\lude",
+        "src/*.cc",
+    ] {
+        let err = parse_project_err(&MINIMAL.replace(
+            "version = \"0.1.0\"",
+            &format!("version = \"0.1.0\"\ninclude = ['{path}']"),
+        ));
+        assert!(
+            matches!(&err, ManifestError::InvalidInclude { .. }),
+            "{path:?}: {err:?}"
+        );
+    }
+}
+
+#[test]
 fn package_without_upstream_has_none() {
     assert!(parse_project(MINIMAL).upstream.is_none());
 }

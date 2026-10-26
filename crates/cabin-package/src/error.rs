@@ -60,6 +60,11 @@ pub enum PackageError {
         limit: usize,
     },
 
+    #[error(
+        "`[package] include` entry `{0}` matches no file in the package (entries match path spelling exactly)"
+    )]
+    IncludeMatchedNothing(String),
+
     #[error("refusing to package symlink `{0}`: symlinks in package archives are not supported")]
     SymlinkNotSupported(String),
 

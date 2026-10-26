@@ -414,9 +414,10 @@ pub fn inspect_bytes(
         };
     let archive_checksum = cabin_core::Checksum::of_bytes(archive);
 
-    if let Some(reason) = consistency::check(&manifest, &files, pending, &archive_checksum)? {
-        return Ok(Verdict::Rejected(vec![reason]));
-    }
+    let package = match consistency::check(&manifest, &files, pending, &archive_checksum)? {
+        Ok(package) => package,
+        Err(reason) => return Ok(Verdict::Rejected(vec![reason])),
+    };
 
     // The consistency pass just proved the stored document equals
     // what the archived manifest derives, so the stored `upstream`
@@ -428,7 +429,7 @@ pub fn inspect_bytes(
         (Some(value), Some(path)) => {
             let declared: cabin_core::UpstreamProvenance = serde_json::from_value(value.clone())
                 .map_err(|_| VerifyError::MalformedMetadata("upstream"))?;
-            match upstream::check(path, &declared, &files, &patch_bytes)? {
+            match upstream::check(path, &declared, &package.include, &files, &patch_bytes)? {
                 Some(reason) => Ok(Verdict::Rejected(vec![reason])),
                 None => Ok(Verdict::Verified),
             }

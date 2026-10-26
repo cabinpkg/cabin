@@ -63,6 +63,7 @@ deps = ["greet", "fmt"]
 | `interface-c-standard` | string or `{ min, max }` table | no | Package-wide default C interface requirement for `library` / `header-only` targets: a string minimum (`"c11"`), a bounded inclusive range (`{ min = "c99", max = "c17" }`, `max` optional), or `"none"` (headers not consumable from C). |
 | `interface-cxx-standard` | string or `{ min, max }` table | no | Package-wide default C++ interface requirement for `library` / `header-only` targets; same forms as the C field. |
 | `gnu-extensions` | boolean | no | Package-wide default for the per-target GNU-extensions dialect knob (default `false`).  See [Language standards](language-standards.md). |
+| `include` | array of strings | no | The files and directories, relative to the package root, that `cabin package` archives besides the root `cabin.toml`; omitted, the whole tree is archived.  Each entry is a literal forward-slash path (no `.` or `..` component, no trailing `/`, and no `*` or `?`); list the `patches` directory too when the package declares patches.  See [Package format](package-format.md#include--exclude-policy). |
 
 Inside a workspace, each of the four standard fields also accepts the `{ workspace = true }` opt-in
 form, inheriting the literal declared on the workspace root's `[workspace]` table - see

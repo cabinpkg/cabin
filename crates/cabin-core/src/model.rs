@@ -1084,6 +1084,11 @@ pub struct Package {
     /// the pinned upstream archive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream: Option<crate::UpstreamProvenance>,
+    /// `[package] include` - the package-root-relative files and
+    /// directories `cabin package` archives, besides the root
+    /// manifest.  Empty archives the whole tree.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<Utf8PathBuf>,
 }
 
 fn is_empty_features(f: &Features) -> bool {
@@ -1164,6 +1169,7 @@ impl Package {
             compiler_wrapper: None,
             patches: PatchManifestSettings::default(),
             upstream: None,
+            include: Vec::new(),
         })
     }
 
@@ -1253,6 +1259,13 @@ impl Package {
     #[must_use]
     pub fn with_upstream(mut self, upstream: Option<crate::UpstreamProvenance>) -> Self {
         self.upstream = upstream;
+        self
+    }
+
+    /// Attach the `[package] include` archive allowlist.
+    #[must_use]
+    pub fn with_include(mut self, include: Vec<Utf8PathBuf>) -> Self {
+        self.include = include;
         self
     }
 
