@@ -353,3 +353,28 @@ jobs:
           # and never falls back to its unpinned default.
           wranglerVersion: ${{ steps.wrangler.outputs.version }}
           workingDirectory: registry
+
+  # TEMPORARY PR probe, removed before merge: the migrations gate on a
+  # real runner, passing on the committed stamp and failing with its
+  # annotation on a mismatched one.
+  probe-migrations-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+      - name: A current stamp passes
+        run: cargo workflow-migrations-pending
+      - name: A mismatched stamp blocks
+        id: blocked
+        continue-on-error: true
+        run: echo stale >> registry/migrations-applied && cargo workflow-migrations-pending
+      - name: The blocked step failed
+        run: test "$OUTCOME" = failure
+        env:
+          OUTCOME: ${{ steps.blocked.outcome }}
