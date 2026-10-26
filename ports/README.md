@@ -81,6 +81,8 @@ entire port removes the whole `ports/<name>/` directory.
 
 ## Available ports
 
+- `boost-*/1.92.0/` - Boost 1.92.0, one port per library (`boost-config`, `boost-core`, ...); the
+  [Boost ledger](../docs/design/boost-ports.md) lists every library, its rules, and its status.
 - [`catch2/3.15.1/`](catch2/3.15.1/) - the Catch2 modern C++ test framework (upstream
   amalgamation, default main plus a `custom-main` feature), version 3.15.1.
 - [`cJSON/1.7.18/`](cJSON/1.7.18/) - the cJSON ultralightweight JSON parser, version 1.7.18.

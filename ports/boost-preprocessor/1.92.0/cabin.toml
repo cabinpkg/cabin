@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/preprocessor/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:7c8f444bb5cf5f37d594ca421938ef0271f7d9866275347f25ceabffb931de7d"
+format = "tar.gz"
+strip-prefix = "preprocessor-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-preprocessor"
+version = "1.92.0"
+
+[target.boost_preprocessor]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"

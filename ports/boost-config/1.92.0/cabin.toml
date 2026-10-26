@@ -1,0 +1,15 @@
+[package.upstream]
+url = "https://github.com/boostorg/config/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:b4171037f13373203ba79cbc141d612982052283e696a315185ab5bea46102a0"
+format = "tar.gz"
+strip-prefix = "config-boost-1.92.0"
+patches = ["patches/0001-disable-msvc-auto-linking.patch"]
+
+[package]
+name = "cabin-ports/boost-config"
+version = "1.92.0"
+
+[target.boost_config]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++98"

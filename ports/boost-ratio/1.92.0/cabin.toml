@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/ratio/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:648454873dc5230c469324d5bb5f8b0b082ed96eb2fd2bba95dfc06ef89fbbea"
+format = "tar.gz"
+strip-prefix = "ratio-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-ratio"
+version = "1.92.0"
+
+[target.boost_ratio]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"

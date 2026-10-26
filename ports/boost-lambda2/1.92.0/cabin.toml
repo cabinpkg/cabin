@@ -1,0 +1,14 @@
+[package.upstream]
+url = "https://github.com/boostorg/lambda2/archive/refs/tags/boost-1.92.0.tar.gz"
+checksum = "sha256:6e6f1e20f73ea5756f253fef4a5ceec5008efa2b5ed686ca1d54ef6731f13fea"
+format = "tar.gz"
+strip-prefix = "lambda2-boost-1.92.0"
+
+[package]
+name = "cabin-ports/boost-lambda2"
+version = "1.92.0"
+
+[target.boost_lambda2]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++14"
