@@ -28,6 +28,7 @@ cabin test --test demo_test          # only the named test target
 cabin test --test a --test b         # several named test targets
 cabin test --release                 # compile with the release profile
 cabin test --features simd          # forward features to the test build
+cabin test -- --gtest_filter='Suite.*'  # pass arguments to every test executable
 ```
 
 `--test <NAME>` runs individual `test` targets, mirroring `cargo test --test <name>`.  The flag may
@@ -53,6 +54,24 @@ overrides (`--cc` / `--cxx` / `--ar` / `--compiler-wrapper`), the workspace-sele
 `--allow-no-tests` opts the user out of the empty-selection error: by default, `cabin test` exits
 with an error when the selected packages declare no `test` target, so CI does not silently pass when
 tests have not been added yet.  Pass `--allow-no-tests` for cases where empty is expected.
+
+## Passing arguments to tests
+
+Everything after `--` is passed to every selected test executable as its argument list, in order
+and without a shell: an empty argument, an argument with spaces or quotes, a second `--`, and (on
+Unix) bytes that are not UTF-8 reach the test unchanged.  On Windows, where a process receives one
+command line, the list is quoted so that the C runtime's parsing recovers it; a narrow `main`
+receives that list in the ANSI code page, so characters outside it reach only a `wmain`.  The test
+framework applies its own filters and options:
+
+```sh
+cabin test --test unit_test -- --gtest_filter='Parser.*' --gtest_repeat=3
+cabin test -- --success "[tag]"           # Catch2
+```
+
+Without `--`, a bare argument is rejected rather than taken as a test filter.  The arguments go to
+every selected executable, so combine a framework-specific option with `--test <NAME>` when the
+selection mixes frameworks.
 
 ## Output and exit status
 
@@ -159,8 +178,8 @@ Because `cabin test` includes `[dev-dependencies]` in resolution, projects that 
 - It does not run examples.  `example` targets are not selectable from the command line - they reach
   the build graph only as transitive deps of another selected target.
 - It does not parse GoogleTest / Catch2 / doctest output, nor emit XML / JUnit reports.
-- It does not provide test filtering inside an executable - `--test <NAME>` selects whole `test`
-  targets; individual test cases inside a binary are the test framework's concern.
+- It does not filter test cases inside an executable itself - `--test <NAME>` selects whole `test`
+  targets; arguments after `--` let the test framework filter its own cases.
 
 ## Contributing tests to Cabin
 

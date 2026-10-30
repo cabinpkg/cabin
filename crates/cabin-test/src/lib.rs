@@ -9,9 +9,10 @@
 //!    machinery is invented here.
 //! 2. This crate turns the resulting [`cabin_build::BuildGraph`]
 //!    into a deterministic [`TestPlan`].
-//! 3. [`run_tests`] executes the plan sequentially, captures
-//!    stdout / stderr from each test executable, and produces a
-//!    [`TestSummary`] describing what passed and what failed.
+//! 3. [`run_tests`] executes the plan sequentially, passing the
+//!    user's arguments to each test executable, captures stdout /
+//!    stderr from each one, and produces a [`TestSummary`]
+//!    describing what passed and what failed.
 //!
 //! Crate boundary: this crate does not parse manifests, build
 //! dependency graphs, generate Ninja, or know about config /
@@ -351,6 +352,11 @@ impl<W1: Write, W2: Write> TestOutputSink for StreamingSink<W1, W2> {
 /// parallelism in this release.  The returned [`TestSummary`]
 /// preserves the plan's order so output stays deterministic.
 ///
+/// Every executable receives `args` as its argument list, one
+/// `OsString` per argument, through [`Command::args`]: no shell
+/// re-splits or quotes them, so empty arguments, spaces, and a
+/// literal `--` reach the test framework unchanged.
+///
 /// A test executable's stdout / stderr are forwarded to `sink`
 /// while the process is running and also captured to memory for
 /// the returned summary.  Streaming sinks (see [`StreamingSink`])
@@ -370,12 +376,14 @@ impl<W1: Write, W2: Write> TestOutputSink for StreamingSink<W1, W2> {
 /// sink's `write_stdout` / `write_stderr`).
 pub fn run_tests<S: TestOutputSink>(
     plan: &TestPlan,
+    args: &[OsString],
     sink: &mut S,
 ) -> Result<TestSummary, TestRunError> {
     let started = Instant::now();
     let mut results: Vec<TestRunResult> = Vec::with_capacity(plan.executables.len());
     for executable in &plan.executables {
         let mut command = Command::new(&executable.executable);
+        command.args(args);
         command.current_dir(&executable.working_dir);
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         // Tests inherit the user's PATH plus whatever Cabin's
@@ -835,7 +843,7 @@ mod tests {
         let mut sink = RecordingSink {
             finished: Vec::new(),
         };
-        let summary = run_tests(&plan, &mut sink).unwrap();
+        let summary = run_tests(&plan, &[], &mut sink).unwrap();
         assert_eq!(summary.total(), 2);
         assert_eq!(summary.passed(), 1);
         assert_eq!(summary.failed(), 1);
@@ -914,7 +922,7 @@ exit 42
         let mut sink = MarkerSink {
             marker: marker.to_path_buf(),
         };
-        let summary = run_tests(&plan, &mut sink).unwrap();
+        let summary = run_tests(&plan, &[], &mut sink).unwrap();
 
         assert!(summary.all_passed(), "{summary:?}");
         assert_eq!(summary.results[0].stdout, b"ready\n");

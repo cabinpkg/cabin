@@ -518,6 +518,74 @@ int main() {
 }
 
 #[test]
+fn cabin_test_forwards_args_after_separator_to_every_test() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "argv"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.first_test]
+type = "test"
+sources = ["tests/argv.c"]
+
+[target.second_test]
+type = "test"
+sources = ["tests/argv.c"]
+"#,
+        )
+        .unwrap();
+    dir.child("tests/argv.c")
+        .write_str(
+            r#"#include <stdio.h>
+
+int main(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+        printf("[%s]\n", argv[i]);
+    }
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+
+    let mut forwarded = vec![
+        "",
+        "two words",
+        "--",
+        "--gtest_filter=Suite.*",
+        "say \"hi\"",
+        r"trailing\",
+    ];
+    // A narrow `main` on Windows sees its arguments in the ANSI code
+    // page, so only the other hosts can print this one back intact.
+    if !cfg!(windows) {
+        forwarded.push("\u{30c6}\u{30b9}\u{30c8}");
+    }
+    let assertion = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--")
+        .args(&forwarded)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).replace("\r\n", "\n");
+    let printed: String = forwarded.iter().flat_map(|arg| ["[", arg, "]\n"]).collect();
+    for target in ["first_test", "second_test"] {
+        let expected = format!("---- stdout: argv:{target} ----\n{printed}");
+        assert!(
+            stdout.contains(&expected),
+            "expected `{expected}` in test output, got: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn cabin_test_exits_non_zero_on_failure() {
     require_cxx_build_tools();
     let dir = passing_test_project();

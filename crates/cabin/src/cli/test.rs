@@ -14,6 +14,7 @@
 //! layer threads typed values between them.
 
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -128,6 +129,14 @@ pub(crate) struct TestArgs {
     /// declared yet.
     #[arg(long)]
     pub allow_no_tests: bool,
+
+    /// Arguments passed to every test executable.
+    ///
+    /// Everything after `--` reaches each selected test
+    /// executable verbatim, one argument per value, so the test
+    /// framework interprets its own filters and options.
+    #[arg(last = true, value_name = "ARGS")]
+    pub args: Vec<OsString>,
 }
 
 /// Run `cabin test`: build the selected `test` targets,
@@ -320,7 +329,7 @@ pub(crate) fn test(
         test_plan.len(),
         plural(test_plan.len())
     );
-    let summary = cabin_test::run_tests(&test_plan, &mut sink)?;
+    let summary = cabin_test::run_tests(&test_plan, &args.args, &mut sink)?;
     let _ = writeln!(
         sink.stdout,
         "{}",
@@ -427,6 +436,7 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeMap;
+    use std::ffi::OsStr;
     use std::path::{Path, PathBuf};
 
     use cabin_build::BuildGraph;
@@ -621,6 +631,44 @@ mod tests {
             err.to_string(),
             "--test `alpha_test` was not found in the selected packages"
         );
+    }
+
+    /// Parse `cabin test <tail>` and return the forwarded arguments.
+    fn forwarded_args(tail: &[impl AsRef<OsStr>]) -> Result<Vec<OsString>, clap::Error> {
+        use clap::Parser as _;
+        let head = ["cabin", "test"].map(OsStr::new);
+        let cli = crate::cli::Cli::try_parse_from(
+            head.into_iter().chain(tail.iter().map(AsRef::as_ref)),
+        )?;
+        match cli.command {
+            Some(crate::cli::Command::Test(args)) => Ok(args.args),
+            other => panic!("expected `cabin test`, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn args_after_separator_are_forwarded_verbatim() {
+        assert_eq!(
+            forwarded_args(&["--test", "a", "--", "", "two words", "--", "--test", "-h"]).unwrap(),
+            ["", "two words", "--", "--test", "-h"].map(OsString::from)
+        );
+        assert!(forwarded_args(&["--test", "a"]).unwrap().is_empty());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn non_utf8_args_are_forwarded() {
+        use std::os::unix::ffi::OsStrExt as _;
+        let raw = OsStr::from_bytes(b"\xff");
+        assert_eq!(forwarded_args(&[OsStr::new("--"), raw]).unwrap(), [raw]);
+    }
+
+    #[test]
+    fn args_without_separator_are_rejected() {
+        let err = forwarded_args(&["--gtest_filter=Foo.*"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+        let err = forwarded_args(&["Foo"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
     #[test]

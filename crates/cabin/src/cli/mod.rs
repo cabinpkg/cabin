@@ -361,7 +361,8 @@ pub(crate) enum Command {
     ///
     /// Builds the workspace's `test` targets and executes
     /// each one with a deterministic per-test `CABIN_*`
-    /// environment overlay.
+    /// environment overlay.  Arguments after `--` are forwarded
+    /// verbatim to every test executable.
     #[command(visible_alias = "t")]
     Test(crate::cli::test::TestArgs),
     /// Resolve versioned dependencies.
