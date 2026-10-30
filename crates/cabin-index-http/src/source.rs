@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use cabin_core::PackageName;
 use cabin_core::registry::{
     REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, api_url_error, relative_subdir_is_safe,
 };
-use cabin_core::{PackageName, TargetPlatform};
 use cabin_index::{IndexEntry, IndexError, PackageIndex, SourceContext};
 use serde::Deserialize;
 
@@ -193,7 +193,6 @@ impl HttpIndex {
         for name in &queue {
             ensure_path_safe(name.as_str())?;
         }
-        let platform = TargetPlatform::current();
         while let Some(name) = queue.pop_front() {
             if packages.contains_key(&name) || known.contains(&name) {
                 continue;
@@ -208,9 +207,8 @@ impl HttpIndex {
             for version_meta in entry.versions.values() {
                 // Mirror the resolver's transitive walk: include
                 // normal deps (dev deps and system deps are not
-                // part of resolve/fetch), skip disabled optional
-                // deps, and skip deps whose `cfg(...)` predicate
-                // fails on the host platform.  Walking every
+                // part of resolve/fetch) whatever their `cfg(...)`
+                // condition, and skip disabled optional deps.  Walking every
                 // version of every reachable package is necessary
                 // because the resolver may select any non-yanked
                 // version.  Yanked versions are skipped outright:
@@ -223,7 +221,7 @@ impl HttpIndex {
                 }
                 let kinded = version_meta.dependencies.iter();
                 for (dep_name, dep_entry) in kinded {
-                    if !dep_entry.is_active_for(&platform) {
+                    if dep_entry.optional {
                         continue;
                     }
                     // Re-check transitive names too: even though

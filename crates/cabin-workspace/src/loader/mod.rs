@@ -175,13 +175,6 @@ fn load_workspace_inner(
         });
     }
 
-    // Target-conditional dep tables are evaluated against the
-    // host platform - Cabin does not yet support
-    // cross-compilation.  Future steps may thread an explicit
-    // target context through this loader; for now the host is
-    // the single source of truth.
-    let host_platform = cabin_core::TargetPlatform::current();
-
     let is_workspace_root = root_manifest.workspace.is_some();
 
     let mut loader = Loader::default();
@@ -202,7 +195,6 @@ fn load_workspace_inner(
     let mut to_load = initial_load_queue(&primary_manifest_paths, registry, patches)?;
     let root_manifest_path = manifest_path.clone();
     let ctx = DepResolutionContext {
-        host_platform: &host_platform,
         registry: &registry_lookup,
         policy,
         include_dev_for,
@@ -620,18 +612,20 @@ fn reject_external_workspace_markers(
 }
 
 /// Loop-invariant inputs for [`resolve_dep_paths`]: the prepared
-/// lookup maps, the active policies, and the host platform every
-/// per-package dependency walk consults.
+/// lookup maps and the active policies every per-package dependency
+/// walk consults.
 struct DepResolutionContext<'a> {
-    host_platform: &'a cabin_core::TargetPlatform,
     registry: &'a RegistryLookup<'a>,
     policy: &'a RegistryPolicy<'a>,
     include_dev_for: &'a BTreeSet<String>,
 }
 
 /// Resolve one loaded package's dependency declarations into
-/// [`DepPath`] entries, applying the kind-activation, platform, and
-/// registry policies.
+/// [`DepPath`] entries, applying the kind-activation and registry
+/// policies.  Platform conditions do not filter here: the lockfile
+/// serves every platform, so a `[target.'cfg(...)'.<kind>]` path
+/// dependency loads everywhere and its edge keeps the condition for
+/// per-platform consumers.
 fn resolve_dep_paths(
     ctx: &DepResolutionContext<'_>,
     package: &cabin_core::Package,
@@ -668,14 +662,6 @@ fn resolve_dep_paths(
         let kind_active = dep.kind.is_resolved_by_default()
             || (dev_active_for_this_pkg && dep.kind == DependencyKind::Dev);
         if !kind_active {
-            continue;
-        }
-        // Skip dependencies declared inside a non-matching
-        // `[target.'cfg(...)'.<kind>]` table.  They stay on
-        // `package.dependencies` for metadata round-trip but
-        // never become package-graph edges or get loaded as
-        // path-dep sub-projects on this platform.
-        if !dep.matches_platform(ctx.host_platform) {
             continue;
         }
         if parent_is_registry {
@@ -961,9 +947,7 @@ struct DepPath {
     path: PathBuf,
     kind: cabin_core::DependencyKind,
     /// Condition under which this edge was declared.  `None`
-    /// for unconditional edges; the loader filters out
-    /// non-matching conditional edges before reaching this
-    /// point, so any value here matches the host platform.
+    /// for unconditional edges.
     condition: Option<cabin_core::Condition>,
     /// The declaration's `ignore-interface-standard` opt-out,
     /// carried onto the graph edge for the standard-compatibility

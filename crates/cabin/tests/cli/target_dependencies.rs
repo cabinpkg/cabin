@@ -1,6 +1,6 @@
 //! End-to-end coverage for `[target.'cfg(...)'.<kind>]`
 //! handling.  The tests exercise the full pipeline: parser,
-//! workspace loader, resolver, fetch, package metadata,
+//! workspace loader, resolver, lockfile, package metadata,
 //! and the CLI metadata JSON view.
 
 use super::*;
@@ -109,42 +109,51 @@ abseil = ">=1"
     );
 }
 
+/// The lockfile serves every platform: a registry dependency gated to
+/// another OS - declared directly or by a path dependency gated the
+/// same way - locks exactly as on that OS.
 #[test]
-fn resolve_filters_inactive_target_dependency() {
-    // Even though the manifest declares `spdlog`, only the
-    // `fmt` constraint reaches the resolver because the
-    // `spdlog` declaration is gated by a non-matching `cfg`.
-    // This proves the index does not need to know about
-    // `spdlog` for `cabin resolve` to succeed.
+fn resolve_locks_target_dependencies_for_every_platform() {
     let dir = TempDir::new().unwrap();
     let manifest = format!(
         r#"[package]
 name = "app"
 version = "0.1.0"
 
-[dependencies]
+[target.'cfg(os = "{host}")'.dependencies]
 fmt = ">=10"
 
 [target.'cfg(os = "{other}")'.dependencies]
 spdlog = "^1"
+helper = {{ path = "helper" }}
 "#,
+        host = host_os_value(),
         other = other_os_value(),
     );
     dir.child("cabin.toml").write_str(&manifest).unwrap();
-    write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
-    let assertion = cabin()
+    dir.child("helper/cabin.toml")
+        .write_str(
+            "[package]\nname = \"helper\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \"^1\"\n",
+        )
+        .unwrap();
+    let index = dir.path().join("index");
+    write_index_entry_no_source(&index, "fmt", "10.2.1", &"0".repeat(64));
+    write_index_entry_no_source(&index, "spdlog", "1.14.1", &"1".repeat(64));
+    write_index_entry_no_source(&index, "zlib", "1.3.1", &"2".repeat(64));
+    cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .args(["--index-path"])
-        .arg(dir.path().join("index"))
+        .arg(&index)
         .assert()
         .success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
-    assert!(stdout.contains("fmt"), "fmt should resolve: {stdout}");
-    assert!(
-        !stdout.contains("spdlog"),
-        "inactive spdlog must not enter resolution: {stdout}",
-    );
+    let lock = std::fs::read_to_string(dir.path().join("cabin.lock")).unwrap();
+    for name in ["fmt", "spdlog", "zlib"] {
+        assert!(
+            lock.contains(&format!("name = \"{name}\"")),
+            "{name} must be locked: {lock}"
+        );
+    }
 }
 
 #[test]

@@ -68,6 +68,7 @@ impl ResolutionSeed {
             inputs.graph,
             &resolved_selection,
             inputs.request,
+            None,
             inputs.dev_for,
         )?;
         let local_links = local_links_claims(inputs.graph, &features);
@@ -200,11 +201,7 @@ pub(crate) fn activated_fork_claims(
     if fork_roots.is_empty() {
         return Ok(Vec::new());
     }
-    let resolution = cabin_feature::resolve_fork_island_features(
-        graph,
-        &fork_roots,
-        &cabin_core::TargetPlatform::current(),
-    )?;
+    let resolution = cabin_feature::resolve_fork_island_features(graph, &fork_roots, None)?;
     Ok(links_claims_of(graph, &resolution.included))
 }
 
@@ -278,9 +275,8 @@ pub(crate) fn local_packages(graph: &PackageGraph) -> BTreeMap<PackageName, Inde
                 .filter_map(|dep| {
                     let req = match &dep.source {
                         DependencySource::Version(req) => req.clone(),
-                        // The loader skips a path edge gated off on this
-                        // platform; its condition keeps it inactive here
-                        // too, and it stays declared for feature entries.
+                        // The loader loads every path dependency,
+                        // whatever its condition.
                         DependencySource::Path(_) => pkg
                             .deps
                             .iter()

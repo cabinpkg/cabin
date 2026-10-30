@@ -215,12 +215,14 @@ impl std::fmt::Display for FeatureRequestSource {
 /// enabled optional edges) is then walked iteratively until no
 /// new features or optional dependencies become enabled.
 ///
-/// `platform` is used to filter target-conditional dependency
-/// declarations: `[target.'cfg(...)'.<kind>]` entries whose
-/// condition does not evaluate to `true` against `platform` are
-/// not visible to the resolver, so non-matching optional
-/// dependencies cannot be enabled, and dependency feature
-/// requests against non-matching declarations do not propagate.
+/// `platform` filters target-conditional dependency declarations:
+/// `[target.'cfg(...)'.<kind>]` entries whose condition does not
+/// evaluate to `true` against it are not visible to the resolver, so
+/// non-matching optional dependencies cannot be enabled, and
+/// dependency feature requests against non-matching declarations do
+/// not propagate.  `None` admits every declaration whatever its
+/// condition: dependency resolution locks every platform's
+/// dependencies.
 ///
 /// `dev_active_for` names the packages whose `[dev-dependencies]`
 /// are activated for this invocation (`cabin test` passes the
@@ -250,7 +252,7 @@ pub fn resolve_features(
     graph: &PackageGraph,
     selected_roots: &[usize],
     request: &RootFeatureRequest,
-    platform: &TargetPlatform,
+    platform: Option<&TargetPlatform>,
     dev_active_for: &BTreeSet<String>,
 ) -> Result<FeatureResolution, FeatureResolverError> {
     let mut state = ResolverState::new(graph, platform, dev_active_for);
@@ -343,7 +345,7 @@ pub fn resolve_features(
 pub fn resolve_fork_island_features(
     graph: &PackageGraph,
     fork_roots: &[usize],
-    platform: &TargetPlatform,
+    platform: Option<&TargetPlatform>,
 ) -> Result<FeatureResolution, FeatureResolverError> {
     resolve_features(
         graph,
@@ -373,8 +375,9 @@ struct ResolverState {
     edges_expanded: BTreeSet<(usize, usize, DependencyKind)>,
     versioned_requests: BTreeMap<PackageName, BTreeSet<String>>,
     work: VecDeque<WorkItem>,
-    /// Evaluation context for `[target.'cfg(...)']` filtering.
-    platform: TargetPlatform,
+    /// Evaluation context for `[target.'cfg(...)']` filtering;
+    /// `None` admits every declaration.
+    platform: Option<TargetPlatform>,
     /// Names of packages whose `[dev-dependencies]` are activated
     /// for this invocation.  Mirrors the workspace loader's
     /// `include_dev_for` policy.
@@ -422,9 +425,15 @@ impl ResolverState {
                 && self.dev_active_for.contains(pkg.package.name.as_str()))
     }
 
+    fn on_platform(&self, declared: &cabin_core::Dependency) -> bool {
+        self.platform
+            .as_ref()
+            .is_none_or(|platform| declared.matches_platform(platform))
+    }
+
     fn new(
         graph: &PackageGraph,
-        platform: &TargetPlatform,
+        platform: Option<&TargetPlatform>,
         dev_active_for: &BTreeSet<String>,
     ) -> Self {
         let per_package: BTreeMap<usize, ResolvedPackageFeatures> = (0..graph.packages.len())
@@ -436,7 +445,7 @@ impl ResolverState {
             edges_expanded: BTreeSet::new(),
             versioned_requests: BTreeMap::new(),
             work: VecDeque::new(),
-            platform: platform.clone(),
+            platform: platform.cloned(),
             dev_active_for: dev_active_for.clone(),
         }
     }
@@ -570,7 +579,7 @@ impl ResolverState {
             if declared.optional {
                 continue;
             }
-            if !declared.matches_platform(&self.platform) {
+            if !self.on_platform(declared) {
                 continue;
             }
             self.expand_edge_for_dep(graph, package, declared.name.as_str());
@@ -601,7 +610,7 @@ impl ResolverState {
         let pkg = &graph.packages[from_package];
         let Some(dep_entry) = self.lookup_declared_dep(pkg, "<dep-feature-request>", dep_name)?
         else {
-            // Inactive on this host - nothing to propagate.
+            // Inactive on the evaluated platform - nothing to propagate.
             return Ok(());
         };
         if dep_entry.optional
@@ -664,7 +673,7 @@ impl ResolverState {
             if !self.dep_participates(pkg, declared) {
                 continue;
             }
-            if !declared.matches_platform(&self.platform) {
+            if !self.on_platform(declared) {
                 continue;
             }
             let Some(edge) = pkg.deps.iter().find(|e| {
@@ -716,7 +725,8 @@ impl ResolverState {
     /// - `Ok(Some(dep))` for an active declaration of a
     ///   participating kind;
     /// - `Ok(None)` when every declaration matching `dep_name`
-    ///   is gated by a non-matching `cfg(...)` on this host -
+    ///   is gated by a `cfg(...)` the evaluated platform fails
+    ///   (never without a platform) -
     ///   feature entries that reference such a dep become a
     ///   no-op for this evaluation, mirroring Cargo's behavior
     ///   for inactive target-conditional optional deps;
@@ -734,7 +744,7 @@ impl ResolverState {
                 continue;
             }
             declared_anywhere = true;
-            if dep.matches_platform(&self.platform) {
+            if self.on_platform(dep) {
                 return Ok(Some(dep));
             }
         }

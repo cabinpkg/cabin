@@ -1143,11 +1143,13 @@ tables so a single workspace key cannot silently mean different things on differ
 
 Conditional dependencies declared via `[target.'cfg(...)'.<kind>]` travel the same path.  Each
 `Dependency` / `SystemDependency` / `DependencyEdge` carries an optional `condition:
-Option<Condition>` field.  The host `TargetPlatform` filters out non-matching declarations at three
-boundaries: the workspace loader skips them when building path-dep edges, the closure walker skips
-them in `collect_closure_versioned_deps_filtered`, and the feature resolver skips them when
-expanding `dep:` and per-edge feature requests.  The resolver also skips conditional
-`IndexPackageDependency` entries on registry packages.  The `condition` itself is preserved on
+Option<Condition>` field.  Resolution ignores it, so the lockfile serves every platform: the
+workspace loader builds every path-dep edge, the closure walker
+(`collect_closure_versioned_deps_excluding_with_dev`) and the resolver include every conditional
+declaration, and dependency resolution runs the feature resolver with no platform.  The build
+evaluates conditions against the host `TargetPlatform`: its feature resolution skips non-matching
+declarations when expanding `dep:` and per-edge feature requests, and the planner resolves target
+dependencies only through matching edges.  The `condition` itself is preserved on
 `Package::dependencies` and round-trips through `PackageMetadata` and the index loaders, so `cabin
 metadata` can surface inactive declarations without losing the predicate text.  Full protocol in
 [`target-dependencies.md`](target-dependencies.md).

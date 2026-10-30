@@ -426,6 +426,13 @@ pub(crate) fn prepare_workspace(
     } else {
         initial_resolved_selection.closure_package_names(&initial_graph)
     };
+    // The closure also follows optional path edges no feature enables;
+    // resolution fetched none of those packages' registry dependencies.
+    for (idx, pkg) in probe_graph.packages.iter().enumerate() {
+        if !seed.features.included.contains(&idx) {
+            strict_packages.remove(pkg.package.name.as_str());
+        }
+    }
     strict_packages.extend(activated_patches.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let graph = cabin_workspace::load_workspace_with_options(
@@ -457,6 +464,7 @@ pub(crate) fn prepare_workspace(
         &graph,
         &resolved_selection,
         &selection_request,
+        Some(&cabin_core::TargetPlatform::current()),
         &dev_for,
     )?;
     // The reload skips an optional registry dependency resolution
@@ -505,7 +513,9 @@ pub(crate) fn prepare_workspace(
     // error from a broken command line.
     let detection_report =
         cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)?;
-    let selected_closure = resolved_selection.closure(&graph);
+    // Feature resolution's reach: the closure through edges active on
+    // this platform, now that the graph also holds every other platform's.
+    let selected_closure = &feature_resolution.included;
     // Package-level approximation used only for the MSVC
     // `/external:I` fallback decision; the authoritative toolchain
     // validation runs against the *planned* compiles right after
@@ -516,7 +526,7 @@ pub(crate) fn prepare_workspace(
     let language_standards = super::resolve_per_package_language_standards(&graph);
     let approx_standards = cabin_build::collect_requested_standards(
         &graph,
-        &selected_closure,
+        selected_closure,
         &language_standards,
         &dev_for,
     );
@@ -546,7 +556,7 @@ pub(crate) fn prepare_workspace(
         &host_platform,
         &dev_for,
         cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
-        &selected_closure,
+        selected_closure,
     )?;
     let prep = resolve_build_prep(BuildConfigInputs {
         graph: &graph,

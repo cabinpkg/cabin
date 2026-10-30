@@ -48,7 +48,7 @@ use std::ops::Bound;
 use cabin_core::standard_compatibility::{ConsumerStandards, edge_compatible};
 use cabin_core::{
     DEFAULT_FEATURE_KEY, FeatureEntry, IncompatibleStandards, PackageName, Requirement,
-    StandardsMetadata, TargetPlatform, escape_control_chars,
+    StandardsMetadata, escape_control_chars,
 };
 use cabin_index::{IndexEntry, IndexPackageDependency, PackageIndex, VersionMetadata};
 use pubgrub::{Dependencies, DependencyProvider, PackageResolutionStatistics, Ranges};
@@ -207,7 +207,6 @@ pub(crate) struct Provider<'a> {
     index: &'a PackageIndex,
     root_dependencies: Vec<(PackageName, Ranges<Version>)>,
     locked: BTreeMap<PackageName, LockedVersion>,
-    platform: TargetPlatform,
     locked_constraints: Option<LockedConstraintRecorder>,
 }
 
@@ -216,7 +215,6 @@ impl<'a> Provider<'a> {
         input: &'a ResolveInput,
         index: &'a PackageIndex,
         locked: BTreeMap<PackageName, LockedVersion>,
-        platform: TargetPlatform,
         root_constraints: BTreeMap<PackageName, Vec<ResolverConstraint>>,
         root_dependencies: Vec<(PackageName, Ranges<Version>)>,
     ) -> Self {
@@ -230,7 +228,6 @@ impl<'a> Provider<'a> {
             index,
             root_dependencies,
             locked,
-            platform,
             locked_constraints,
         }
     }
@@ -364,10 +361,10 @@ impl<'a> Provider<'a> {
 
         let Some(feature) = feature else {
             // Optional edges join through the features that enable
-            // them; `cfg(...)`-gated edges whose predicate fails
-            // here never participate.
+            // them.  A `cfg(...)`-gated edge participates whatever
+            // its predicate: the lockfile serves every platform.
             for (dep_name, dep) in &meta.dependencies {
-                if dep.is_active_for(&self.platform) {
+                if !dep.optional {
                     self.require_edge(&mut deps, name, version, dep_name, dep)?;
                 }
             }
@@ -400,11 +397,6 @@ impl<'a> Provider<'a> {
                 }
                 FeatureEntry::OptionalDep(dep_name) => {
                     let (dep_name, dep) = declared_dep(name, version, feature, meta, &dep_name)?;
-                    // A dependency gated off on this platform is a no-op,
-                    // as in `cabin-feature`, whatever its kind.
-                    if !dep.matches_platform(&self.platform) {
-                        continue;
-                    }
                     if !dep.optional {
                         return Err(EdgeError::Unavailable(format!(
                             "{name} {version} feature {feature:?} enables {dep_name}, which is not optional"
@@ -417,11 +409,6 @@ impl<'a> Provider<'a> {
                     feature: requested,
                 } => {
                     let (dep_name, dep) = declared_dep(name, version, feature, meta, &dep_name)?;
-                    // Like `dep:`, a request on a gated-off dependency
-                    // is a no-op.
-                    if !dep.matches_platform(&self.platform) {
-                        continue;
-                    }
                     if dep.optional {
                         self.require_edge(&mut deps, name, version, dep_name, dep)?;
                     }

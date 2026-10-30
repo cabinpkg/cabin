@@ -27,7 +27,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | implemented |
 | 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | implemented |
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | implemented |
-| 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | not started |
+| 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | in progress |
 | 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | not started |
 | 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | not started |
 | 07 | Generated actions and build-machine tools | 4 | `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin-manifest`, `cabin-core` | 02, 04-06; 03's metadata | not started |
@@ -396,8 +396,8 @@ Statements that stay true until a stage changes the behavior, and that stage mus
 
 - `--target` rejection tests in `cabin/tests/cli.rs` and `cabin/tests/cli/test_targets.rs`
   (stage 04).
-- [Target dependencies](target-dependencies.md#evaluation-context) on host-only evaluation and the
-  lockfile (stage 04).
+- [Target dependencies](target-dependencies.md#evaluation-context) on host-only evaluation (stage
+  04).
 - [Dependency kinds](dependency-kinds.md) listing two kinds (stage 04).
 - [Cargo-inspired interface](cargo-inspired-interface.md) on examples and target selection
   (stage 11).
@@ -439,6 +439,14 @@ None: since stage 03 a respin may change resolution metadata, so no correction w
 **Adopted contracts.**  Stage 00 adopted the [shared contracts](design/capability-roadmap/contracts.md):
 package versus build-unit identity, usage-requirement kinds and edge rules, root-selected providers,
 generated actions with root execution policy, and per-revision metadata as stage 03's target.
+
+Stage 04 adopts one lockfile for every platform: resolution treats every `cfg(...)` declaration as
+active, the workspace loader loads every platform's path dependencies, and builds evaluate
+conditions for the platform they build for.  Its pull requests, in order: that lockfile; `--target
+<triple>` with per-target output directories, Clang's `--target=`, and compiler-target diagnostics;
+a toolchain identity stamp every action depends on; `[build-dependencies]` with build-context units,
+per-context features, and per-context `links`; runners for `cabin run` and `cabin test`, after stage
+11's test-concurrency change.
 
 **Changes.**  Stage 00: this ledger, the contracts page, and the scope alignment listed above.
 Stage 00 counts as adopted once this ledger is on `main`.
@@ -505,6 +513,15 @@ one revision (production index and public stats read on 2026-10-30: 17 packages,
 no served document changes.  The `links` table order check stays, now because the read plane
 serves stored tables verbatim.
 
+Stage 04, first change: the lockfile serves every platform.  The resolver, the sparse-HTTP prefetch
+walk, the local versioned-dependency collectors, and dependency resolution's feature pass
+(`cabin_feature::resolve_features` with no platform) include every `cfg(...)` declaration; the
+workspace loader loads a conditional path dependency everywhere and keeps its condition on the edge,
+and the build planner resolves target dependencies only through edges matching the platform it
+builds for.  A lockfile written earlier lacks the dependencies gated to other platforms, and
+`--locked` reports it out of date until one unlocked resolution adds them; a build now fetches those
+packages too.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -561,18 +578,24 @@ file-registry and vendor unit tests for recording and lifting.  Stage 03, second
 unit test composes a document whose superseded revision differs (schema 2, its `resolution`, none
 on the current or an agreeing revision) and one whose revisions agree (schema 1); a SQL test
 inserts and counts a dependency-changing respin under the opt-in, which the removed guard refused,
-and reads both stored documents back through the listing the read plane composes from.  Stage 11,
-first change: clap tests for the separator (empty and, on Unix, non-UTF-8 values, a second `--`,
-flag-shaped values, a bare argument rejected), and two C test targets printing their `argv` (empty,
-spaced, quoted, and Unicode arguments) end to end on macOS, with CI's Linux and Windows legs (a
-narrow `main` on Windows reads the ANSI code page, so Unicode is checked off Windows only).  Stage
-11, second change: runner tests on Unix for two tests that pass only when run together beside a
-failing one, a timeout kill, a leftover process holding the pipes, a mebibyte per stream plus a
-non-UTF-8 byte handed over whole from two concurrent tests, output a slow sink still holds after the
-test exits, and a sink failure killing a running test, the last three guards shown to fail when
-removed; spawn failures on every platform; a CLI test where a C test passes only beside a hung C++
-test that times out under `--test-jobs 2 --test-timeout 5`, shown to fail with one job (macOS here,
-CI's Linux and Windows legs), and that `-j` reaches Ninja while the same flag after `--` does not.
+and reads both stored documents back through the listing the read plane composes from.  Stage 04,
+first change: a CLI test locks a registry dependency gated to another OS and one reached through a
+path dependency gated the same way, and fails with the loader's platform filter restored; resolver,
+feature-resolver, patch-validation, planner, and tree/explain unit tests for the every-platform
+resolution and the per-platform edge filter; `cabin tidy` and `cabin build` CLI tests, each shown to
+fail without its fix, for a path dependency gated to another OS and a disabled optional one whose
+registry dependencies resolution skips.  Stage 11, first change: clap tests for the separator (empty
+and, on Unix, non-UTF-8 values, a second `--`, flag-shaped values, a bare argument rejected), and
+two C test targets printing their `argv` (empty, spaced, quoted, and Unicode arguments) end to end
+on macOS, with CI's Linux and Windows legs (a narrow `main` on Windows reads the ANSI code page, so
+Unicode is checked off Windows only).  Stage 11, second change: runner tests on Unix for two tests
+that pass only when run together beside a failing one, a timeout kill, a leftover process holding
+the pipes, a mebibyte per stream plus a non-UTF-8 byte handed over whole from two concurrent tests,
+output a slow sink still holds after the test exits, and a sink failure killing a running test, the
+last three guards shown to fail when removed; spawn failures on every platform; a CLI test where a C
+test passes only beside a hung C++ test that times out under `--test-jobs 2 --test-timeout 5`, shown
+to fail with one job (macOS here, CI's Linux and Windows legs), and that `-j` reaches Ninja while
+the same flag after `--` does not.
 
 **Unfinished.**  Stages 04-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,

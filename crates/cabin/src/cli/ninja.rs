@@ -294,12 +294,12 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
             .targets
             .iter()
             .find(|t| t.name.as_str() == target_name)?;
-        // Mirror the workspace loader's active-edge filter so
+        // Mirror the planner's active-edge filter so
         // the hint only points at deps that would
         // appear on the link command for this invocation:
         //
         // * Skip cfg-gated entries that do not match the host
-        //   platform - they never become graph edges.
+        //   platform - they never reach its link command.
         // * Skip `[dev-dependencies]` unless the owning package
         //   activated them for this invocation
         //   (`cabin test` populates `include_dev_for` with the

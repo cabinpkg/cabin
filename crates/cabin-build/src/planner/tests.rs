@@ -1300,7 +1300,14 @@ fn visibility_fixture() -> PackageGraph {
 }
 
 fn resolve_edge(decl: &cabin_core::TargetDep, graph: &PackageGraph) -> TargetDepEdge {
-    lowering::resolve_target_dep_edge(decl, 1, false, graph).unwrap()
+    lowering::resolve_target_dep_edge(
+        decl,
+        1,
+        false,
+        graph,
+        &cabin_core::TargetPlatform::current(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -4383,14 +4390,40 @@ fn standard_compat_names_the_conditional_table_for_cfg_edges() {
         ),
         "lib",
     );
+    // The edge is active on the platform the plan builds for.
+    let os = cabin_core::TargetPlatform::current().os;
     graph.packages[0].deps[0].condition =
-        Some(cabin_core::Condition::parse_cfg("cfg(os = \"linux\")").unwrap());
+        Some(cabin_core::Condition::parse_cfg(&format!("cfg(os = \"{os}\")")).unwrap());
     let violations = standard_compat_violations(&graph);
     assert_eq!(violations.len(), 1);
     assert_eq!(
-        violations[0].override_section.as_deref(),
-        Some("[target.'cfg(os = \"linux\")'.dependencies]")
+        violations[0].override_section,
+        Some(format!("[target.'cfg(os = \"{os}\")'.dependencies]"))
     );
+}
+
+/// The graph holds every platform's edges, so a target dependency
+/// reached only through an edge gated to another platform does not
+/// resolve on this one, and turns into a link once it is.
+#[test]
+fn target_deps_resolve_through_edges_active_on_the_planned_platform() {
+    let mut graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package("lib", CxxStandard::Cxx20, None, &[]),
+        "lib",
+    );
+    graph.packages[0].deps[0].condition =
+        Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap());
+    let tc = toolchain_with_cc();
+    let req = plan_request(&graph, &tc, "/abs/app/build");
+    assert!(matches!(
+        plan(&req).unwrap_err(),
+        BuildError::UnknownTargetReference(reference) if reference == "lib"
+    ));
+
+    let mut req = plan_request(&graph, &tc, "/abs/app/build");
+    req.platform.os = "plan9".to_owned();
+    plan(&req).unwrap();
 }
 
 /// Spec D9 row 4: a compiled dependency with *no* interface

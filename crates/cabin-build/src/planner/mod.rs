@@ -277,7 +277,8 @@ fn resolve_dependencies(
         // only.
         let dev_deps_visible = target.kind.is_dev_only();
         for decl in &target.deps {
-            let edge = resolve_target_dep_edge(decl, tid.0, dev_deps_visible, req.graph)?;
+            let edge =
+                resolve_target_dep_edge(decl, tid.0, dev_deps_visible, req.graph, &req.platform)?;
             let dep = edge.to.clone();
             // A dep edge is an explicit request: a feature-gated
             // dep target whose required features are not enabled
@@ -302,7 +303,7 @@ fn resolve_dependencies(
                 } else if dep.0 == tid.0 {
                     crate::error::FeatureGateFix::UpstreamEdge
                 } else if req.graph.packages[tid.0]
-                    .deps_of_kind(cabin_core::DependencyKind::Normal)
+                    .deps_of_kind(cabin_core::DependencyKind::Normal, &req.platform)
                     .any(|di| di == dep.0)
                 {
                     crate::error::FeatureGateFix::DependencyEdge

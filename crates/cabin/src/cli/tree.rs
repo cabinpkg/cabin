@@ -97,10 +97,12 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         args.selection.no_default_features,
     );
     let resolved_selection = cabin_workspace::resolve_package_selection(&graph, &tree_selection)?;
+    let platform = cabin_core::TargetPlatform::current();
     let feature_resolution = compute_feature_resolution(
         &graph,
         &resolved_selection,
         &request,
+        Some(&platform),
         &std::collections::BTreeSet::new(),
     )?;
 
@@ -111,6 +113,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         active_patches: Some(&active_patches),
         kind_filter: args.kind.to_filter(),
         included: Some(&feature_resolution.included),
+        platform: Some(&platform),
     };
     let forest = cabin_explain::build_tree(&inputs);
 

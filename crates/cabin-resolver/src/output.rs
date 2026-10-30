@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use cabin_core::{DEFAULT_FEATURE_KEY, FeatureEntry, PackageName, SourceLanguage, TargetPlatform};
+use cabin_core::{DEFAULT_FEATURE_KEY, FeatureEntry, PackageName, SourceLanguage};
 use cabin_index::{PackageIndex, VersionMetadata};
 use pubgrub::SelectedDependencies;
 use semver::Version;
@@ -125,8 +125,9 @@ pub struct ResolvedPackage {
     /// features it lists.
     pub features: BTreeSet<String>,
     /// Names of this package's active dependency edges under
-    /// `features`: platform-matching non-optional dependencies plus
-    /// the optional ones an enabled feature turns on.  For the root,
+    /// `features`: every non-optional dependency, whatever its
+    /// `cfg(...)` condition, plus the optional ones an enabled feature
+    /// turns on.  For the root,
     /// every root dependency and feature-request name.
     pub dependencies: BTreeSet<PackageName>,
 }
@@ -185,7 +186,6 @@ pub(crate) fn selected_dependencies_to_output(
         }
     }
 
-    let platform = TargetPlatform::current();
     let mut packages = Vec::with_capacity(selected.len() + 1);
     packages.push(ResolvedPackage {
         name: input.root_name.clone(),
@@ -202,7 +202,7 @@ pub(crate) fn selected_dependencies_to_output(
     for (name, version) in selected {
         let features = features.remove(&name).unwrap_or_default();
         let dependencies = version_metadata(input, index, &name, &version)
-            .map(|meta| active_dependencies(meta, &features, &platform))
+            .map(|meta| active_dependencies(meta, &features))
             .unwrap_or_default();
         let source = if input.local_packages.contains_key(&name) {
             ResolvedSource::Local
@@ -228,7 +228,6 @@ pub(crate) fn selected_dependencies_to_output(
 fn active_dependencies(
     meta: &VersionMetadata,
     features: &BTreeSet<String>,
-    platform: &TargetPlatform,
 ) -> BTreeSet<PackageName> {
     let enabled: BTreeSet<String> = features
         .iter()
@@ -241,9 +240,7 @@ fn active_dependencies(
         .collect();
     meta.dependencies
         .iter()
-        .filter(|(name, dep)| {
-            dep.matches_platform(platform) && (!dep.optional || enabled.contains(name.as_str()))
-        })
+        .filter(|(name, dep)| !dep.optional || enabled.contains(name.as_str()))
         .map(|(name, _)| name.clone())
         .collect()
 }

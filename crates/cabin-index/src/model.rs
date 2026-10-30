@@ -210,35 +210,10 @@ pub struct IndexPackageDependency {
     pub features: Vec<String>,
     pub default_features: bool,
     /// Optional `cfg(...)` predicate copied from the on-disk
-    /// `target` field.  When present and the host platform fails
-    /// the predicate, the dependency is skipped during resolution
-    /// and metadata views.
+    /// `target` field.  Resolution ignores it - the lockfile serves
+    /// every platform - and builds evaluate the package manifest's
+    /// own copy for the platform they build for.
     pub condition: Option<Condition>,
-}
-
-impl IndexPackageDependency {
-    /// Whether this edge's `target` condition, if any, matches
-    /// `platform`.  Optional edges additionally need a feature that
-    /// enables them; the resolver decides that.
-    pub fn matches_platform(&self, platform: &cabin_core::TargetPlatform) -> bool {
-        // Index dependency gating is platform-only; feature
-        // conditions are never present on registry index metadata,
-        // and compiler-conditioned entries are rejected by the
-        // loader (`cabin publish` cannot produce them and
-        // hand-authored ones refuse to load), so the platform-only
-        // context is correct.
-        self.condition
-            .as_ref()
-            .is_none_or(|c| c.evaluate(&cabin_core::ConditionContext::platform_only(platform)))
-    }
-
-    /// Whether this edge is active on `platform` regardless of
-    /// feature state: non-optional and platform-matching.  The
-    /// sparse-HTTP prefetch walks exactly these edges eagerly; the
-    /// resolver loads anything a feature activates on demand.
-    pub fn is_active_for(&self, platform: &cabin_core::TargetPlatform) -> bool {
-        !self.optional && self.matches_platform(platform)
-    }
 }
 
 /// Where a version's source archive lives on disk or on the network,

@@ -125,6 +125,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         &graph,
         &resolved_selection,
         &selection_request,
+        Some(&TargetPlatform::current()),
         &BTreeSet::new(),
     )?;
 
@@ -133,11 +134,9 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // versioned dependencies cannot be planned accurately here.
     // Scope this check to the selected closure so an unrelated
     // workspace member does not block `cabin tidy -p <name>`.
-    if let Some(name) = first_selected_versioned_dependency_package_name(
-        &graph,
-        &resolved_selection,
-        &feature_resolution,
-    ) {
+    if let Some(name) =
+        first_selected_versioned_dependency_package_name(&graph, &feature_resolution)
+    {
         bail!(
             "package `{name}` declares versioned registry dependencies; `cabin tidy` does not run the artifact pipeline, so registry-backed selections are not supported"
         );
@@ -256,13 +255,15 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // plans with, including the fail-soft host-default fallback above -
     // if tidy commits to MSVC, MSVC's constraint applies to the database
     // it is about to emit.
-    let selected_closure = resolved_selection.closure(&graph);
+    // Feature resolution's reach: the closure through edges active on
+    // this platform, now that the graph also holds every other platform's.
+    let selected_closure = &feature_resolution.included;
     crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
         &host_platform,
         &dev_for,
         dialect,
-        &selected_closure,
+        selected_closure,
     )?;
     let build_flags =
         crate::cli::augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
@@ -328,7 +329,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
                 report,
                 cabin_build::collect_requested_standards(
                     &graph,
-                    &selected_closure,
+                    selected_closure,
                     &language_standards,
                     &dev_for,
                 )
@@ -519,19 +520,17 @@ fn any_cpp_targets(graph: &PackageGraph, selected: &BTreeSet<usize>) -> bool {
     })
 }
 
-/// Find the first selected-closure package that declares an active
-/// versioned registry dependency.  Used to surface an actionable
-/// error instead of letting `cabin_build::plan` fail with a
+/// Find the first package feature resolution includes that declares
+/// an active versioned registry dependency.  Used to surface an
+/// actionable error instead of letting `cabin_build::plan` fail with a
 /// confusing downstream message.
 fn first_selected_versioned_dependency_package_name(
     graph: &PackageGraph,
-    selection: &cabin_workspace::ResolvedSelection,
     features: &cabin_feature::FeatureResolution,
 ) -> Option<String> {
-    let closure = selection.closure(graph);
     let host_platform = TargetPlatform::current();
     let mut hits: BTreeSet<&str> = BTreeSet::new();
-    for idx in closure {
+    for &idx in &features.included {
         let pkg = &graph.packages[idx];
         for dep in &pkg.package.dependencies {
             if dep.kind.is_resolved_by_default()

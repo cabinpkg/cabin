@@ -1,6 +1,6 @@
 # Target / platform-specific dependencies
 
-Cabin supports declaring a dependency only for a particular host platform via
+Cabin supports declaring a dependency only for a particular platform via
 `[target.'cfg(...)'.<kind>]` tables in `cabin.toml`.  The shape mirrors Cargo's syntax so the
 manifest stays familiar, but the supported predicates and evaluation context are pinned down to a
 small, deterministic set.
@@ -176,18 +176,21 @@ The evaluation rules are:
 - `not` inverts.
 - Unknown keys never reach evaluation - the parser rejects them.
 
-A dependency whose predicate fails on the host is filtered out **before** it reaches:
+Dependency resolution does not evaluate predicates: the [lockfile](#lockfile) serves every
+platform, so every declaration reaches the workspace loader (a conditional path dependency loads
+everywhere), the resolver input, the resolver's walk over registry metadata, and therefore the
+artifact fetch path and `cabin vendor`.  A dependency whose predicate fails on the host is left
+out of the build:
 
-- the workspace closure walker (`cabin_workspace::collect_closure_versioned_deps_filtered`);
-- the resolver input (no constraint reaches the solver);
-- the feature resolver (`cabin_feature::resolve_features` skips it when computing `dep:` entries);
-- the artifact fetch path;
-- the build planner;
-- the canonical metadata document and the `cabin metadata` JSON view's "active" flag.
+- the build's feature resolution (`cabin_feature::resolve_features` skips it when computing `dep:`
+  entries and per-edge requests);
+- the build planner (a target dependency resolves only through a matching edge);
+- `pkg-config` probing of conditional system dependencies;
+- `cabin tree` and `cabin explain`, which follow only the edges active on the host;
+- the `cabin metadata` JSON view's "active" flag.
 
 The `condition` is preserved on `Dependency::condition` and `DependencyEdge::condition` so the JSON
-view can still surface it as `target` plus an `active: false` marker; the dependency itself does not
-participate in resolution or build.
+view can still surface it as `target` plus an `active: false` marker.
 
 ## Round-trip through publishing
 
@@ -203,11 +206,17 @@ name already carries that meaning in the schema.
 
 ## Lockfile
 
-The lockfile records the resolved closure for the host platform, exactly as before.  Because
-filtering happens before resolution, the lockfile always describes a valid, host-evaluated set; it
-is not partitioned per-platform.  If the host platform changes, the closure may change and the
-lockfile is updated by re-running `cabin update` or by removing and regenerating it.  Cross-platform
-lockfile partitioning is deliberately out of scope for this step.
+The lockfile serves every platform.  Resolution treats every conditional declaration as active, so
+the same manifests lock the same packages whichever machine resolves them, and `--locked`,
+`--offline`, `cabin fetch`, and `cabin vendor` have every platform's dependencies in hand.  One
+package name still resolves to one version for all platforms; declarations gated to different
+platforms that cannot agree on a version fail resolution, as two unconditional ones would.  The
+`links` check and the workspace loader's dependency-cycle check run over the same every-platform
+graph, so two packages that claim one native identity collide, and two path dependencies that point
+at each other form a cycle, even when gated to different platforms.
+
+A lockfile written before Cabin locked every platform lacks the dependencies gated to other
+platforms; `--locked` reports it out of date until one unlocked resolution adds them.
 
 ## CLI behavior
 
@@ -218,8 +227,8 @@ lockfile partitioning is deliberately out of scope for this step.
 - per-dependency `target` (when present) and `active` flags so consumers can decide whether to
   surface or filter inactive declarations without re-evaluating the predicate.
 
-`cabin resolve`, `cabin fetch`, `cabin build`, and `cabin update` apply the host-platform filter
-implicitly.  They do not gain new flags - cross-compilation lives outside this step.
+`cabin resolve`, `cabin fetch`, `cabin vendor`, and `cabin update` resolve every platform's
+declarations; `cabin build` builds for the host.
 
 ## Errors
 

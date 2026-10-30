@@ -1304,23 +1304,19 @@ pub(crate) fn build_workspace_selection(
 /// model.  The returned [`cabin_feature::FeatureResolution`] is
 /// then threaded into the dependency-iteration helpers so
 /// disabled optional dependencies disappear from the resolver /
-/// fetch / build planning.
+/// fetch / build planning.  `platform` is the build's platform;
+/// dependency resolution passes `None` to admit every platform's
+/// declarations.
 pub(crate) fn compute_feature_resolution(
     graph: &PackageGraph,
     selection: &cabin_workspace::ResolvedSelection,
     request: &cabin_core::SelectionRequest,
+    platform: Option<&cabin_core::TargetPlatform>,
     dev_for: &BTreeSet<String>,
 ) -> Result<cabin_feature::FeatureResolution> {
     let root_request: cabin_feature::RootFeatureRequest = request.into();
-    let platform = cabin_core::TargetPlatform::current();
-    cabin_feature::resolve_features(
-        graph,
-        &selection.packages,
-        &root_request,
-        &platform,
-        dev_for,
-    )
-    .map_err(anyhow::Error::from)
+    cabin_feature::resolve_features(graph, &selection.packages, &root_request, platform, dev_for)
+        .map_err(anyhow::Error::from)
 }
 
 /// Flatten a [`cabin_feature::FeatureResolution`] into the

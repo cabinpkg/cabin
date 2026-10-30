@@ -277,15 +277,15 @@ pub fn combine_version_reqs(
 /// The per-dependency eligibility predicate for the versioned-dep
 /// walk.  Returns the [`semver::VersionReq`] when `dep` is an active
 /// registry-versioned dependency for this invocation - right kind (normal
-/// kinds, plus `Dev` when `dev_active_here`), matches the host platform,
-/// and optional only if enabled - otherwise `None`. `idx` is
+/// kinds, plus `Dev` when `dev_active_here`) and optional only if
+/// enabled; its `cfg(...)` condition does not matter, because the
+/// lockfile serves every platform - otherwise `None`. `idx` is
 /// the declaring package's closure index, threaded so the optional gate can
 /// consult `is_optional_dep_enabled`.
 fn versioned_dep_active<'a, F>(
     dep: &'a cabin_core::Dependency,
     idx: usize,
     dev_active_here: bool,
-    host: &cabin_core::TargetPlatform,
     is_optional_dep_enabled: &F,
 ) -> Option<&'a semver::VersionReq>
 where
@@ -295,9 +295,6 @@ where
     let kind_active =
         dep.kind.is_resolved_by_default() || (dev_active_here && dep.kind == DependencyKind::Dev);
     if !kind_active {
-        return None;
-    }
-    if !dep.matches_platform(host) {
         return None;
     }
     if dep.optional && !is_optional_dep_enabled(idx, dep.name.as_str()) {
@@ -359,9 +356,6 @@ pub fn collect_closure_versioned_deps_excluding_with_dev<F>(
 where
     F: Fn(usize, &str) -> bool,
 {
-    // Conditional dependencies are evaluated against the host
-    // platform - Cabin does not yet support cross-compilation.
-    let host_platform = cabin_core::TargetPlatform::current();
     let mut combined: BTreeMap<cabin_core::PackageName, Vec<String>> = BTreeMap::new();
     let mut referenced_excluded: BTreeSet<String> = BTreeSet::new();
     // Exclusion is applied here, not inside the eligibility
@@ -379,13 +373,9 @@ where
         }
         let dev_active_here = dev_active_for.contains(pkg.package.name.as_str());
         for dep in &pkg.package.dependencies {
-            if let Some(req) = versioned_dep_active(
-                dep,
-                idx,
-                dev_active_here,
-                &host_platform,
-                &is_optional_dep_enabled,
-            ) {
+            if let Some(req) =
+                versioned_dep_active(dep, idx, dev_active_here, &is_optional_dep_enabled)
+            {
                 if excluded_names.contains(dep.name.as_str()) {
                     referenced_excluded.insert(dep.name.as_str().to_owned());
                     continue;

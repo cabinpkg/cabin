@@ -242,9 +242,9 @@ explanations:
   and `<dep>/<feature>` entries enable, and feature requests on dependencies;
 - requests are additive across edges, so one edge with `default-features = false` does not turn off
   defaults another edge requests;
-- target-conditioned edges participate only when their condition matches the host platform, and
-  only the selected version's edges count, so backtracking away from a version also drops the
-  features and optional dependencies it enabled.
+- target-conditioned edges participate whatever their condition, since the lockfile serves every
+  platform, and only the selected version's edges count, so backtracking away from a version also
+  drops the features and optional dependencies it enabled.
 
 The selection carries each registry package's enabled features (`cabin resolve --format json`
 lists them under `packages[].features`), and every command that fetches or builds consumes that one

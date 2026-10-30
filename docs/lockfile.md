@@ -76,11 +76,12 @@ dependencies = ["fmt"]
 Local path packages are deliberately **not** recorded in `cabin.lock`; they are resolved
 structurally on every load by `cabin-workspace`.
 
-`[target.'cfg(...)'.<kind>]` predicates are evaluated **before** resolution against the host
-platform, so the lockfile records the host-evaluated closure exactly as if the non-matching entries
-had never been declared.  The `target` field is therefore not stored on locked packages - re-running
-on a host whose predicates re-evaluate to a different set updates the lockfile via the ordinary
-`cabin update` path.  See [`target-dependencies.md`](target-dependencies.md).
+The lockfile serves every platform: resolution includes each `[target.'cfg(...)'.<kind>]`
+declaration whatever its predicate, so the same manifests lock the same packages on every machine,
+and the build evaluates the predicates for the platform it builds for.  The `target` field is
+therefore not stored on locked packages.  A lockfile written before Cabin locked every platform
+lacks the dependencies gated to other platforms; `--locked` reports it out of date until one
+unlocked resolution adds them.  See [`target-dependencies.md`](target-dependencies.md).
 
 The format is strict:
 
@@ -188,8 +189,9 @@ revision id is its digest's first 16 hex characters.
 
 Beyond the version choices, the revision pins above, and the local override policy, `cabin.lock`
 records nothing else.  No language standards, no toolchain information, and no build fingerprints
-are written.  Resolution inputs are manifest-declared values only, so one lockfile stays shareable
-across platforms and toolchains.
+are written.  Resolution inputs are manifest-declared values only, and every platform's
+`[target.'cfg(...)']` dependencies are locked, so one lockfile stays shareable across platforms and
+toolchains.
 
 The post-resolution standard-compatibility check (see
 [`language-standards.md`](language-standards.md)) validates manifest-declared standards over the

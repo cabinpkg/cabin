@@ -3,9 +3,9 @@ use std::path::PathBuf;
 
 use cabin_core::standard_compatibility::{ConsumerStandards, dependency_attributes};
 use cabin_core::{
-    CStandard, CompilerWrapperRequest, Condition, CxxStandard, DependencyKind, Package,
-    PatchManifestSettings, ProfileDefinition, ProfileName, ToolchainSettings,
-    resolve_language_standards,
+    CStandard, CompilerWrapperRequest, Condition, ConditionContext, CxxStandard, DependencyKind,
+    Package, PatchManifestSettings, ProfileDefinition, ProfileName, TargetPlatform,
+    ToolchainSettings, resolve_language_standards,
 };
 
 /// Root-manifest policy settings that apply workspace-wide even
@@ -234,27 +234,29 @@ pub struct WorkspacePackage {
 }
 
 impl WorkspacePackage {
-    /// Iterate dependency edges of a single kind.  Used by the
-    /// build planner, which resolves ordinary targets through
-    /// `Normal`-kind edges only and additionally lets dev-only
-    /// targets (`test` / `example`) see activated `Dev`-kind edges.
-    pub fn deps_of_kind(&self, kind: DependencyKind) -> impl Iterator<Item = usize> + '_ {
+    /// Iterate dependency edges of a single kind that are active on
+    /// `platform`.  Used by the build planner, which resolves
+    /// ordinary targets through `Normal`-kind edges only and
+    /// additionally lets dev-only targets (`test` / `example`) see
+    /// activated `Dev`-kind edges.
+    pub fn deps_of_kind<'a>(
+        &'a self,
+        kind: DependencyKind,
+        platform: &'a TargetPlatform,
+    ) -> impl Iterator<Item = usize> + 'a {
         self.deps
             .iter()
-            .filter(move |edge| edge.kind == kind)
+            .filter(move |edge| edge.kind == kind && edge.matches_platform(platform))
             .map(|edge| edge.index)
     }
 }
 
 /// A single resolved package-dependency edge in the package graph.
 ///
-/// The graph only contains edges that *could* be active on the
-/// evaluation platform (the loader filters out non-matching
-/// `[target.'cfg(...)'.<kind>]` entries before constructing the
-/// graph), so consumers never need to re-check the condition
-/// against a different platform - the loader already did.  The
-/// edge still records the originating condition for diagnostics
-/// and metadata.
+/// The graph holds every platform's edges: the lockfile serves every
+/// platform, so the loader keeps `[target.'cfg(...)'.<kind>]` entries
+/// whatever their condition, and consumers that build for one
+/// platform filter with [`DependencyEdge::matches_platform`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DependencyEdge {
     /// Index of the depended-on package in [`PackageGraph::packages`].
@@ -262,14 +264,23 @@ pub struct DependencyEdge {
     /// Which manifest section this edge was declared under.
     pub kind: DependencyKind,
     /// `Some` when this edge originated from a
-    /// `[target.'cfg(...)'.<kind>]` table that matched the
-    /// evaluation platform; `None` for unconditional edges.
+    /// `[target.'cfg(...)'.<kind>]` table; `None` for unconditional
+    /// edges.
     pub condition: Option<Condition>,
     /// Whether the declaration opted this edge out of the
     /// standard-compatibility check with
     /// `ignore-interface-standard = true`.  Per-edge by design;
     /// inert unless the check runs.
     pub ignore_interface_standard: bool,
+}
+
+impl DependencyEdge {
+    /// Whether this edge's condition, if any, holds on `platform`.
+    pub fn matches_platform(&self, platform: &TargetPlatform) -> bool {
+        self.condition
+            .as_ref()
+            .is_none_or(|condition| condition.evaluate(&ConditionContext::platform_only(platform)))
+    }
 }
 
 /// Where a [`WorkspacePackage`] came from.

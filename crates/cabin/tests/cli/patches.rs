@@ -1666,9 +1666,9 @@ c-standard = "c11"
     }
 }
 
-/// A registry-reached fork's feature may name a path dependency gated
-/// off on this platform: the entry is a no-op, as for any local
-/// package, rather than an undeclared dependency.
+/// A registry-reached fork's feature may enable a path dependency gated
+/// to another platform: resolution covers every platform, so the
+/// dependency loads and resolves rather than reading as undeclared.
 #[test]
 fn registry_reached_fork_feature_naming_a_gated_off_path_dep_resolves() {
     let other_os = if std::env::consts::OS == "linux" {
