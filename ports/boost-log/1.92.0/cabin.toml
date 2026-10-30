@@ -51,13 +51,11 @@ version = "1.92.0"
 # on it, so a dependent names one, e.g.
 # `cabin-ports/boost-log:boost_log`.  No source defines its library's
 # BUILDING_THE_LIB macro, so each target does.  The CMake defaults hold
-# except where a port cannot follow them:
-# src/dump_ssse3.cpp and src/dump_avx2.cpp need per-source ISA flags, so
-# src/dump.cpp's generic code serves every host; the Windows event log
-# backend needs mc.exe to generate its message header, so it is built
-# without (BOOST_LOG_WITHOUT_EVENT_LOG, as upstream does when mc.exe is
-# missing), and including <boost/log/sinks/event_log_backend.hpp> on
-# Windows declares a sink that does not link.
+# except where a port cannot follow them: the Windows event log backend
+# needs mc.exe to generate its message header, so it is built without
+# (BOOST_LOG_WITHOUT_EVENT_LOG, as upstream does when mc.exe is missing),
+# and including <boost/log/sinks/event_log_backend.hpp> on Windows
+# declares a sink that does not link.
 [target.boost_log]
 type = "library"
 sources = [
@@ -175,6 +173,16 @@ boost_log = [
   "src/windows/object_name.cpp",
 ]
 
+# On x86, as upstream's CMake does, the SSSE3 and AVX2 dump routines
+# join boost_log with their instruction sets, and src/dump.cpp picks
+# between them and its generic code by CPUID.
+[target.'cfg(any(arch = "x86", arch = "x86_64"))'.sources]
+boost_log = ["src/dump_avx2.cpp", "src/dump_ssse3.cpp"]
+
+[target.boost_log.instruction-sets]
+"src/dump_avx2.cpp" = ["avx2"]
+"src/dump_ssse3.cpp" = ["ssse3"]
+
 # Upstream's private defines common to both libraries.  The sources
 # include their private headers by bare name from src/, as upstream's
 # CMake puts src/ on the private include path.
@@ -186,6 +194,9 @@ defines = [
   "__STDC_CONSTANT_MACROS",
 ]
 include-dirs = ["src"]
+
+[target.'cfg(any(arch = "x86", arch = "x86_64"))'.profile]
+defines = ["BOOST_LOG_USE_AVX2", "BOOST_LOG_USE_SSSE3"]
 
 # BOOST_LOG_USE_NATIVE_SYSLOG is the result of upstream's native syslog
 # probe on glibc and macOS.

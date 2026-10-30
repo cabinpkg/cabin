@@ -1,9 +1,14 @@
-// Exercises Boost.Contract in its header-only mode: each public call
-// checks the class invariant, a precondition and a postcondition over
-// an old value, and a precondition failure handler installed at run
-// time turns a broken precondition into an exception.
+// Exercises the compiled Boost.Contract archive without configuring it:
+// each public call checks the class invariant, a precondition and a
+// postcondition over an old value, and a precondition failure handler
+// installed at run time, in the archive's state, turns a broken
+// precondition into an exception.
 #include <boost/contract.hpp>
 #include <stdexcept>
+
+#ifndef BOOST_CONTRACT_STATIC_LINK
+#error "the port's interface definition must select the compiled archive"
+#endif
 
 class counter {
     friend class boost::contract::access;

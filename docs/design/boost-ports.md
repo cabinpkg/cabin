@@ -100,7 +100,8 @@ macOS, and Windows.
 | Platform-specific sources are not self-guarded | `thread`, `locale`, `log`, `fiber`, `stacktrace`, `context`, others | done: `[target.'cfg(...)'.sources]` tables (#2035) |
 | Assembly sources (`.S` through the GCC/Clang driver, MSVC `.asm` through `ml64`) | `context`, and through it `coroutine`, `coroutine2`, `fiber`, `cobalt`, `asio`, `beast`, `process`, `log` | done: `.S` and `.asm` sources (#2037) |
 | Archive above the operator `max_archive_bytes` (16 MiB) | `math` (30.6 MB compressed; the cap is the same in every quota class), and everything that depends on it | done: `[package] include` archives only the listed paths (#2038); `include/` alone is 2.4 MB |
-| Defines a consumer must set: Cabin propagated no defines to consumers | `stacktrace` (`BOOST_STACKTRACE_LINK`); `contract` ships header-only instead of requiring `BOOST_CONTRACT_STATIC_LINK` | open: target `interface-defines` exist ([capability roadmap](design/capability-roadmap/ledger.md) stage 02); the two ports adopt them in a later stage 02 change |
+| Defines a consumer must set: Cabin propagated no defines to consumers | `stacktrace` (`BOOST_STACKTRACE_LINK`); `contract` shipped header-only instead of requiring `BOOST_CONTRACT_STATIC_LINK` | done: target `interface-defines` (#2056) carry upstream's public `*_STATIC_LINK` |
+| Per-source instruction sets: ports cannot pass `-m<isa>` | `atomic` (SSE2/SSE4.1 address search), `log` (SSSE3/AVX2 dump) | done: `[target.<name>.instruction-sets]` (#2058); the variants build on x86, and the library picks one by CPUID unless the compiler's baseline already has it |
 | MSVC `/bigobj`: ports cannot pass compiler flags | `json`, `log`, `xpressive`, and the large consumer tests | not hit: the Windows dry-run builds them and their consumer tests without it (#2052) |
 | SDKs Cabin cannot provide: ports may not declare system dependencies, and these SDKs cannot be built as ports | `python`, `parameter_python` (Python); `mpi`, `graph_parallel`, `property_map_parallel` (MPI); `compute` (OpenCL); `mysql`, `redis` (OpenSSL) | decided: the SDKs become ordinary Cabin packages and the final consumer may select a system provider ([capability roadmap](design/capability-roadmap/ledger.md) stages 06, 12, 13) |
 
@@ -120,7 +121,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `asio` | `boost-asio` | `4fa4abee89a62fdeeccac2585caece625f40647e` | header-only | c++14 | 7 | merged | the SSL headers need OpenSSL, which has no port; they compile only for a consumer that supplies it |
 | `assert` | `boost-assert` | `fc2a476cc7d9f42b65ec104e90d24bfd6290efdc` | header-only | c++98 | 1 | merged |  |
 | `assign` | `boost-assign` | `ed938773ebdaf8cec5aba034be3d22ab20f6f2d3` | header-only | c++11 | 10 | merged |  |
-| `atomic` | `boost-atomic` | `84dccb548a7d8353c8ae4021aa7903bc94f80e0b` | compiled | c++14 | 7 | merged | generic address search: the SSE2/SSE4.1 variants need per-source ISA flags |
+| `atomic` | `boost-atomic` | `84dccb548a7d8353c8ae4021aa7903bc94f80e0b` | compiled | c++14 | 7 | merged | SSE2/SSE4.1 address search on x86 |
 | `beast` | `boost-beast` | `7c1e061f91e2ef542217b76286c314d006c0c8fc` | header-only | c++14 | 19 | merged | the SSL headers need OpenSSL, which has no port; they compile only for a consumer that supplies it |
 | `bimap` | `boost-bimap` | `705a7ca7f49f197a803134ade3a8c64473617a24` | header-only | c++11 | 13 | merged |  |
 | `bind` | `boost-bind` | `8cc29fc19db49e791743c821821e201b46ab9c66` | header-only | c++11 | 2 | merged |  |
@@ -137,7 +138,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `container` | `boost-container` | `f74270de43714edccf17b33eca454348d47402b7` | compiled | c++14 | 4 | merged | `alloc_lib.c` is C, so its four C++-only edges carry `ignore-interface-standard` |
 | `container_hash` | `boost-container-hash` | `2698b43803c012601e6bb1a6116e83767b97986c` | header-only | c++11 | 3 | merged |  |
 | `context` | `boost-context` | `cc1b9e02cd530d6607becc984e1e5bfa4f7b3600` | compiled | c++14 | 7 | merged | fcontext with each platform's `.S` or MSVC `.asm` sources (#2037); Windows is x64 only, since arm64 MSVC needs armasm |
-| `contract` | `boost-contract` | `723fe65e41c1c942e6b7637c3bdc72e283d7beca` | compiled | c++14 | 15 | merged | ported header-only: upstream's mode for consumers that do not define `BOOST_CONTRACT_STATIC_LINK` |
+| `contract` | `boost-contract` | `723fe65e41c1c942e6b7637c3bdc72e283d7beca` | compiled | c++14 | 15 | merged |  |
 | `conversion` | `boost-conversion` | `71b14ad1dae1d2be91ad310007c749ca93dc2e72` | header-only | c++11 | 4 | merged |  |
 | `convert` | `boost-convert` | `6dd61f248aba9e895346bc1c3bacc2ad007bcc9c` | header-only | c++14 | 11 | merged | `boost/convert/charconv.hpp` needs C++17 |
 | `core` | `boost-core` | `a90a31934fe8bcb6e6be6dfea77b80492c7b6c81` | header-only | c++98 | 3 | merged |  |
@@ -185,7 +186,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `local_function` | `boost-local-function` | `258aeaa6c1a9618c02ca4e4af2890e70833035f0` | header-only | c++11 | 7 | merged |  |
 | `locale` | `boost-locale` | `94f4d99619e54e11dbb3117bad7af0cca76fd51c` | compiled | c++14 | 7 | merged | std, POSIX (iconv) and Windows backends; ICU has no port |
 | `lockfree` | `boost-lockfree` | `9a06cd191f3226d4b77a1bc304df991ab470246f` | header-only | c++14 | 8 | merged |  |
-| `log` | `boost-log` | `f0d196ee03609d8cea8448bc4ad5889d52d9e4a0` | compiled | c++14 | 36 | merged | `boost_log` and `boost_log_setup`; generic dump code, since the SSSE3/AVX2 variants need per-source ISA flags; Windows builds without the event log, which needs `mc.exe` |
+| `log` | `boost-log` | `f0d196ee03609d8cea8448bc4ad5889d52d9e4a0` | compiled | c++14 | 36 | merged | `boost_log` and `boost_log_setup`; SSSE3/AVX2 dump on x86; Windows builds without the event log, which needs `mc.exe` |
 | `logic` | `boost-logic` | `9b8703a2d6623405323b892f1d126a6b17ca1651` | header-only | c++98 | 2 | merged |  |
 | `math` | `boost-math` | `f12be767c04d9499aaa6f88b22d5f1b464c1c27a` | header-only | c++14 | 9 | merged | `[package] include` archives `LICENSE` and `include/` (#2038); the 30.6 MB release tree is above the 16 MiB archive cap |
 | `metaparse` | `boost-metaparse` | `5a7d50bda78dc7a2ef667a3b10ddef05f26c0256` | header-only | c++98 | 5 | merged |  |
@@ -240,7 +241,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `smart_ptr` | `boost-smart-ptr` | `6e945160d788b8efdfc49ba4af1f8797cacd7c97` | header-only | c++11 | 4 | merged |  |
 | `sort` | `boost-sort` | `48c424bee18ee2d886f83571cc592f0319b501e3` | header-only | c++11 | 4 | merged |  |
 | `spirit` | `boost-spirit` | `64be6b02c5713cd175fbd2463e812cdcc8fc5941` | header-only | c++14 | 28 | merged |  |
-| `stacktrace` | `boost-stacktrace` | `4f8cabb87fb35044d5df44ae44cbf57904c65189` | compiled | c++14 | 6 | merged | consumers define `BOOST_STACKTRACE_LINK`; basic (POSIX) and windbg (Windows) backends |
+| `stacktrace` | `boost-stacktrace` | `4f8cabb87fb35044d5df44ae44cbf57904c65189` | compiled | c++14 | 6 | merged | basic (POSIX) and windbg (Windows) backends |
 | `statechart` | `boost-statechart` | `e930707f777489543a03114e5fcc3213876e0ed5` | header-only | c++14 | 11 | merged |  |
 | `static_assert` | `boost-static-assert` | `858097c08ebb53faaf1fba3201c0a76a96e49584` | header-only | c++98 | 1 | merged |  |
 | `static_string` | `boost-static-string` | `2ff9d3535e853f4913e85e7fea28f84b04ea5d81` | header-only | c++11 | 6 | merged |  |

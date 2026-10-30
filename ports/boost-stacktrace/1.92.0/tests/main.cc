@@ -1,9 +1,13 @@
-// Exercises the compiled Boost.Stacktrace archive: BOOST_STACKTRACE_LINK
-// makes the headers call into it, so capturing, printing and the
-// async-signal-safe dump all come from the library.
-#define BOOST_STACKTRACE_LINK
+// Exercises the compiled Boost.Stacktrace archive without configuring
+// it: the port's interface definition makes the headers call into it,
+// so capturing, printing and the async-signal-safe dump all come from
+// the library.
 #include <boost/stacktrace.hpp>
 #include <string>
+
+#ifndef BOOST_STACKTRACE_LINK
+#error "the port's interface definition must select the compiled archive"
+#endif
 
 int main() {
     boost::stacktrace::stacktrace st;
