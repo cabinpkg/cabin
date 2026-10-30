@@ -202,7 +202,7 @@ pub enum ManifestError {
     NamedTargetProfileField { table: String, field: String },
 
     #[error(
-        "unknown field `{field}` in {table}; supported fields are defines, include-dirs, cflags, cxxflags, ldflags, and link-libs"
+        "unknown field `{field}` in {table}; supported fields are defines, include-dirs, cflags, cxxflags, ldflags, link-libs, and frameworks"
     )]
     UnknownNamedTargetProfileField { table: String, field: String },
 

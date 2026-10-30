@@ -81,6 +81,7 @@ pub(super) fn profile_flags_from_overrides(
         && raw.cxxflags.is_none()
         && raw.ldflags.is_none()
         && raw.link_libs.is_none()
+        && raw.frameworks.is_none()
     {
         return Ok(None);
     }
@@ -91,6 +92,7 @@ pub(super) fn profile_flags_from_overrides(
         cxxflags: raw.cxxflags.clone().unwrap_or_default(),
         ldflags: raw.ldflags.clone().unwrap_or_default(),
         link_libs: raw.link_libs.clone().unwrap_or_default(),
+        frameworks: raw.frameworks.clone().unwrap_or_default(),
     };
     decl.validate().map_err(ManifestError::InvalidBuildFlags)?;
     Ok(Some(decl))
@@ -106,6 +108,7 @@ pub(super) fn build_flags_decl_from_raw_ref(
         cxxflags: raw.cxxflags.clone(),
         ldflags: raw.ldflags.clone(),
         link_libs: raw.link_libs.clone(),
+        frameworks: raw.frameworks.clone(),
     };
     decl.validate().map_err(ManifestError::InvalidBuildFlags)?;
     Ok(decl)

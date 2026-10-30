@@ -97,15 +97,16 @@ the built-in `dev` and `release` profiles exist without manifest entries.
 | `cxxflags` | array of strings | Arguments applied only to C++ compilation. |
 | `ldflags` | array of strings | Arguments applied to package link commands. |
 | `link-libs` | array of strings | Validated bare system-library names. |
+| `frameworks` | array of strings | Validated bare Apple framework names. |
 
 The schema is closed: any other key is rejected with a clear error.  Specifically, capability-style
 fields such as `compiler`, `toolchain`, `target`, `cfg`, `env`, `rustflags`, `linker`, `ar`,
 `stdlib`, and `sanitizer` are **not accepted** here - toolchain selection lives under `[toolchain]`,
 and capability probing is out of scope.
 
-The array flag fields `cflags`, `cxxflags`, `ldflags`, `defines`, `include-dirs`, and `link-libs`
-are written directly on the `[profile.<name>]` table.  See *Inheritance and array flags* below for
-the merge semantics across an inherits chain.
+The array flag fields `cflags`, `cxxflags`, `ldflags`, `defines`, `include-dirs`, `link-libs`, and
+`frameworks` are written directly on the `[profile.<name>]` table.  See *Inheritance and array
+flags* below for the merge semantics across an inherits chain.
 
 ### `[target.'cfg(...)'.profile]`: general conditional flag layer
 
@@ -118,7 +119,8 @@ defines = ["USE_EPOLL"]
 link-libs = ["pthread", "dl"]
 ```
 
-It accepts only `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, and `link-libs`.
+It accepts only `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, and
+`frameworks`.
 Conditional profile flag layers are package-level, so workspace members and dependencies may
 describe flags for their own sources.
 
@@ -133,10 +135,10 @@ It does not define a profile.  The overlay name only has to satisfy Cabin's prof
 does not have to be declared in the current workspace.  An undeclared name is accepted and remains
 inert unless a consumer workspace selects a profile chain containing that name.
 
-Named overlays accept the same six array fields as the general conditional layer: `defines`,
-`include-dirs`, `cflags`, `cxxflags`, `ldflags`, and `link-libs`.  They reject `inherits`, `debug`,
-`opt-level`, `assertions`, `toolchain`, and unknown fields.  Inheritance and scalar profile settings
-remain unconditional workspace-root policy under `[profile.<name>]`.
+Named overlays accept the same seven array fields as the general conditional layer: `defines`,
+`include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, and `frameworks`.  They reject
+`inherits`, `debug`, `opt-level`, `assertions`, `toolchain`, and unknown fields.  Inheritance and
+scalar profile settings remain unconditional workspace-root policy under `[profile.<name>]`.
 
 A custom profile and its overlay therefore use separate tables:
 
@@ -185,26 +187,46 @@ only if that driver supports `-static` and static versions of every required lib
 
 ### `link-libs`
 
-`link-libs` is an array of **bare system-library names** - e.g.  `["pthread", "dl", "m"]` - that a
-target's objects require at link time.  It differs from `ldflags` in two load-bearing ways:
+`link-libs` is an array of **bare system-library names** - e.g.  `["pthread", "dl", "m"]` - that
+the declaring package's objects require at link time.  It differs from `ldflags` in two
+load-bearing ways:
 
-- **It propagates.** A library's `link-libs` are added to the final link command of every executable
-  that depends on that library (transitively), emitted as `-l<name>` *after* the library's archive
-  so GNU `ld`'s left-to-right resolution finds the symbols.  `ldflags`, by contrast, apply only to
-  the declaring package's own link.  This is what lets a static-library dependency (e.g. sqlite3 needing
-  `-lpthread -ldl -lm` on Unix) carry its system-library requirements to consumers without every
-  consumer re-declaring them.
+- **It propagates.** A package's `link-libs` are added to the final link command of every executable
+  whose link reaches any of the package's targets, through private edges too, emitted as
+  `-l<name>` *after* every archive so GNU `ld`'s left-to-right resolution finds the symbols.
+  `ldflags`, by contrast, apply only to the declaring package's own link.  This is what lets a
+  static-library dependency (e.g. sqlite3 needing `-lpthread -ldl -lm` on Unix) carry its
+  system-library requirements to consumers without every consumer re-declaring them.
 - **It is validated and trusted.** Each entry must be a bare library name (a leading
   alphanumeric/underscore followed by alphanumerics and `_ . + -`); a leading `-`, a path separator,
   or whitespace is rejected at parse time.  Because a `link-libs` entry therefore cannot smuggle a
   linker flag, it is kept even for untrusted (registry) dependencies, unlike the raw `cflags` /
   `cxxflags` / `ldflags` arrays which are dropped.
 
+On the link line, packages contribute in link order: the executable's own package first, and every
+package before the packages its linked targets depend on.  Each name appears once, earliest-listed
+first, in an order that keeps every package's own list order.  Only when two packages order names
+both ways does every package's list stay in full, repetition included, because the linker needs
+it.
+
 Pair it with `[target.'cfg(...)'.profile]` to scope libraries to the platforms that need them, e.g.
 
 ```toml
 [target.'cfg(family = "unix")'.profile]
 link-libs = ["pthread", "dl", "m"]
+```
+
+### `frameworks`
+
+`frameworks` is an array of **bare Apple framework names** - e.g.  `["CoreFoundation",
+"Security"]` - that the declaring package's objects require.  It is validated, trusted, and
+propagated exactly like `link-libs`, and emitted as `-framework <name>` after the system libraries.
+Only Apple platforms (`os = "macos"` or `"ios"`) have frameworks; links for any other platform
+ignore the list.  A condition still states the intent:
+
+```toml
+[target.'cfg(os = "macos")'.profile]
+frameworks = ["CoreFoundation"]
 ```
 
 ### Inheritance
@@ -222,7 +244,8 @@ link-libs = ["pthread", "dl", "m"]
 ### Inheritance and array flags
 
 A `[profile.<name>]` table can contribute **array** flag fields: `cflags`, `cxxflags`, `ldflags`,
-`defines`, `include-dirs`, and `link-libs`.  These compose differently from the scalar fields above:
+`defines`, `include-dirs`, `link-libs`, and `frameworks`.  These compose differently from the
+scalar fields above:
 
 - **Scalars replace** across the inherits chain (`opt-level`, `debug`, `assertions`).  The leaf
   wins; an unset leaf field keeps its inherited value.

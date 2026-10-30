@@ -202,13 +202,14 @@ ldflags = ["-static"]
 | `cxxflags` | `Array<String>` | Escape hatch.  Passed verbatim only to **C++** compile commands (e.g. `-fno-rtti`, `-std=c++20`). |
 | `ldflags` | `Array<String>` | Escape hatch.  Passed verbatim to the link command. |
 | `link-libs` | `Array<String>` | Validated bare system-library names.  Propagated transitively to final link commands. |
+| `frameworks` | `Array<String>` | Validated bare Apple framework names.  Propagated like `link-libs`, emitted as `-framework <name>`; ignored for non-Apple platforms. |
 
 CFLAGS and CXXFLAGS spaces are kept strictly separate: a flag in `cflags` never reaches the C++
 compile line, and a flag in `cxxflags` never reaches the C compile line.
 
 Unknown fields - `compiler`, `toolchain`, etc. - are rejected at parse time.
 `[target.'cfg(...)'.profile.<name>]` is a named conditional flag overlay, not a profile definition.
-It accepts only the six array fields above; `inherits`, `debug`, `opt-level`, `assertions`, and
+It accepts only the seven array fields above; `inherits`, `debug`, `opt-level`, `assertions`, and
 `toolchain` are rejected.  See [Build profiles](profiles.md) for its inheritance-chain semantics.
 
 ### Layer order
@@ -238,7 +239,8 @@ requires a deliberate schema decision and is deferred.
 | `cflags` | Concatenated in layer order, preserving user-given order within each layer.  No deduplication. |
 | `cxxflags` | Same as `cflags`, applied only to C++ compiles. |
 | `ldflags` | Same as `cflags`, applied only to link commands. |
-| `link-libs` | Concatenated in layer order, then validated and propagated to final link commands. |
+| `link-libs` | Concatenated in layer order, deduplicated keeping the first occurrence, then propagated to final link commands in link order ([`link-libs`](profiles.md#link-libs)). |
+| `frameworks` | Same as `link-libs`. |
 
 Per-package include directories declared under `[profile]`, `[target.'cfg(...)'.profile]`, or
 `[target.'cfg(...)'.profile.<name>]` are resolved against the package manifest directory before
@@ -372,7 +374,7 @@ Cabin exposes to metadata, `cabin run`, and `cabin test`.  The hash folds in:
 | profile                  | name, debug, opt-level, assertions                                                      |
 | toolchain                | `(kind, spec)` pairs, sorted by tool key                                                |
 | compiler-wrapper         | kind, spec, source, version (or `none`)                                                 |
-| build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, plus language-neutral compile args from environment and system dependencies |
+| build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from environment and system dependencies |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
 
 The build-flags section uses one labeled sub-bucket per field, so language-neutral, C-only,

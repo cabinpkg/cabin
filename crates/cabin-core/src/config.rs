@@ -687,6 +687,11 @@ fn compute_fingerprint(
         hasher.update(a.as_bytes());
         hasher.update(b"\n");
     }
+    hasher.update(b"frameworks\n");
+    for a in &build_flags.frameworks {
+        hasher.update(a.as_bytes());
+        hasher.update(b"\n");
+    }
     // Effective language standards, values only: provenance labels
     // are reporting-only and must not move the fingerprint.
     hasher.update(b"language-standards\n");
@@ -1322,6 +1327,16 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_differs_when_frameworks_change() {
+        let baseline = resolve_with_flags(ResolvedProfileFlags::default());
+        let added = resolve_with_flags(ResolvedProfileFlags {
+            frameworks: vec!["CoreFoundation".to_owned()],
+            ..ResolvedProfileFlags::default()
+        });
+        assert_ne!(baseline.fingerprint, added.fingerprint);
+    }
+
+    #[test]
     fn fingerprint_is_stable_for_same_build_flags() {
         // Determinism: identical inputs produce identical
         // fingerprints.  The fingerprint serialiser sorts every
@@ -1338,6 +1353,7 @@ mod tests {
             cxxflags: vec!["-fno-rtti".to_owned()],
             ldflags: vec!["-Wl,--as-needed".to_owned()],
             link_libs: vec!["pthread".to_owned()],
+            frameworks: vec!["CoreFoundation".to_owned()],
         };
         let a = resolve_with_flags(flags.clone());
         let b = resolve_with_flags(flags);

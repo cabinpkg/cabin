@@ -105,10 +105,10 @@ exports (stage 09), and C++ modules (stage 10) - uses the same rule instead of i
 
 | Kind | Applies to | Examples today |
 | --- | --- | --- |
-| Producer-internal settings | The producer's own compiles and link steps only | `defines`, implementation `c-standard` / `cxx-standard`, `gnu-extensions`, package flag layers other than `link-libs` (`ldflags` reaches the producer's own link steps) |
+| Producer-internal settings | The producer's own compiles and link steps only | `defines`, implementation `c-standard` / `cxx-standard`, `gnu-extensions`, package flag layers other than `link-libs` and `frameworks` (`ldflags` reaches the producer's own link steps) |
 | Consumer interface | The producer and its consumers, along edges as described below; `interface-defines` reach consumers only | `include-dirs`, `interface-defines`, `interface-c-standard` / `interface-cxx-standard` |
 | Private implementation dependency | Compiling the producer; not re-exported | a string `deps` entry |
-| Final-link requirements | Every final link whose static closure contains the producer, regardless of edge visibility | static archives of the closure, `link-libs` |
+| Final-link requirements | Every final link whose static closure contains the producer, regardless of edge visibility | static archives of the closure, `link-libs`, `frameworks` |
 
 Edge rules:
 

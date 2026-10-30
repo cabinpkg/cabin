@@ -1515,19 +1515,23 @@ today, so future contributors do not silently regress them by porting more Cargo
 
 - **Link interface propagation.** A `library` target propagates its public link interface (the link
   line consumers must add) to every direct and transitive dependent automatically.  Build-time
-  link-only deps (linker libraries that are not Cabin packages) propagate as `link-libs` names.
+  link-only deps (linker libraries that are not Cabin packages) propagate as `link-libs` names,
+  and Apple frameworks as `frameworks`.
   `system-dependencies` are a separate channel: the active declarations of primary packages are
   probed through `pkg-config`, and the resulting flags apply to the declaring package's own
   compiles and links.  Compile visibility follows each edge's `public` flag
   ([Edge visibility](manifest.md#edge-visibility)) and the link line does not, so link items carry
-  no CMake-style `INTERFACE` / `PUBLIC` / `PRIVATE` keyword.  The resolver intentionally does not
-  re-implement the C++ link-order rules - Ninja + the linker do.
+  no CMake-style `INTERFACE` / `PUBLIC` / `PRIVATE` keyword.  The final link lists archives in
+  dependency-graph order, dependents first, then those names in the same package order, each once
+  unless two packages order names both ways ([`link-libs`](profiles.md#link-libs)).  The target
+  graph is acyclic, so no linker group is needed, and Cabin re-implements no other linker
+  resolution rule.
 
 - **Header-only is its own kind.** Header-only libraries are modeled as the dedicated `header-only`
   kind: they declare `include-dirs` and no `sources`, so the build graph emits no compile or archive
   actions of their own; their link interface is their include directories plus the final-link
-  requirements of their dependencies (archives and `link-libs`).  Declaring `sources` on a
-  `header-only` target is rejected at manifest-load time.
+  requirements of their package and dependencies (archives, `link-libs`, and `frameworks`).
+  Declaring `sources` on a `header-only` target is rejected at manifest-load time.
 
 - **Patch/override targets a name, not a target inside it.** `[patch] foo = { path = "../foo" }`
   replaces the *entire* package named `foo`.  There is no per-target patch surface.  Consumers

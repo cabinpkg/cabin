@@ -21,7 +21,7 @@ mod lowering;
 mod tests;
 
 use self::lowering::{
-    collect_interface, collect_link_lib_names, collect_link_libs, compile_dispatch, depfile_path,
+    collect_interface, collect_link_libs, collect_link_names, compile_dispatch, depfile_path,
     macro_name, object_path, promote_dir, resolve_target_dep_edge, topo_sort_targets,
 };
 
@@ -772,7 +772,18 @@ fn emit_actions(
                 // archives for left-to-right resolution. `arguments`
                 // stays the package's own raw `ldflags`.
                 let link_arguments = ldflags.to_vec();
-                let link_libs = collect_link_lib_names(tid, &resolved_deps, req.build_flags);
+                let link_libs = collect_link_names(tid, &resolved_deps, req.build_flags, |flags| {
+                    &flags.link_libs
+                });
+                // Frameworks exist only on Apple platforms; elsewhere a
+                // package's list means nothing, like a non-matching `cfg`.
+                let frameworks = if matches!(req.platform.os.as_str(), "macos" | "ios") {
+                    collect_link_names(tid, &resolved_deps, req.build_flags, |flags| {
+                        &flags.frameworks
+                    })
+                } else {
+                    Vec::new()
+                };
 
                 // Link-driver pick: C++ if any of this target's
                 // own objects came from a C++ source, or if any
@@ -809,6 +820,7 @@ fn emit_actions(
                     inputs,
                     arguments: link_arguments,
                     link_libs,
+                    frameworks,
                     description: format!("LINK {exe_path}"),
                 }));
                 output_for_target.insert(tid.clone(), exe_path);

@@ -172,6 +172,7 @@ fn split_profile_table(
         cxxflags: t.cxxflags,
         ldflags: t.ldflags,
         link_libs: t.link_libs,
+        frameworks: t.frameworks,
     };
     (base, t.variants)
 }
