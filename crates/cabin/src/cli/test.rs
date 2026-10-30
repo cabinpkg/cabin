@@ -4,7 +4,7 @@
 //! the same pipeline as `cabin build` (workspace load → artifact
 //! pipeline → planner → Ninja → invoke ninja), then hands the
 //! resulting [`cabin_build::BuildGraph`] to
-//! [`cabin_test::run_tests`] which spawns each test executable
+//! [`cabin_test::run_tests`] which spawns the test executables
 //! and reports a deterministic summary.
 //!
 //! This module owns only the orchestration.  Test planning and
@@ -16,7 +16,9 @@
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 use clap::Args;
@@ -129,6 +131,30 @@ pub(crate) struct TestArgs {
     /// declared yet.
     #[arg(long)]
     pub allow_no_tests: bool,
+
+    /// Number of parallel jobs to use for the build phase.
+    ///
+    /// Precedence: this flag > `CABIN_BUILD_JOBS` env var >
+    /// `[build] jobs` config setting > backend default.  The
+    /// value must be a positive integer; `0` is rejected.  It
+    /// does not limit how many tests run at once; see
+    /// `--test-jobs`.
+    #[arg(short = 'j', long = "jobs", value_name = "N")]
+    pub jobs: Option<cabin_core::BuildJobs>,
+
+    /// Number of test executables to run at once.
+    ///
+    /// With more than one, each executable's output is printed
+    /// in one piece when it finishes, so concurrent tests never
+    /// interleave.  Independent of `--jobs`, which only limits
+    /// the build.
+    #[arg(long, value_name = "N", default_value = "1")]
+    pub test_jobs: NonZeroUsize,
+
+    /// Kill a test executable still running after this many
+    /// seconds and report it as timed out.
+    #[arg(long, value_name = "SECONDS")]
+    pub test_timeout: Option<NonZeroU64>,
 
     /// Arguments passed to every test executable.
     ///
@@ -272,10 +298,10 @@ pub(crate) fn test(
     }
 
     let plan_graph = plan_prepared(&prepared, Some(test_selectors), false, color)?;
+    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
 
-    // `cabin test` builds with Ninja's default parallelism (no
-    // `-j`) and prints no `Finished` banner - the test summary is
-    // its completion signal - so the returned build duration is
+    // `cabin test` prints no `Finished` banner - the test summary
+    // is its completion signal - so the returned build duration is
     // unused here.
     crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
         build_dir: &prepared.build_dir,
@@ -287,7 +313,7 @@ pub(crate) fn test(
         feature_resolution: &prepared.feature_resolution,
         dev_for: &prepared.dev_for,
         ninja: &prepared.ninja,
-        jobs: None,
+        jobs,
         reporter,
     })?;
 
@@ -329,7 +355,14 @@ pub(crate) fn test(
         test_plan.len(),
         plural(test_plan.len())
     );
-    let summary = cabin_test::run_tests(&test_plan, &args.args, &mut sink)?;
+    let options = cabin_test::TestRunOptions {
+        args: args.args.clone(),
+        jobs: args.test_jobs,
+        timeout: args
+            .test_timeout
+            .map(|secs| Duration::from_secs(secs.get())),
+    };
+    let summary = cabin_test::run_tests(&test_plan, &options, &mut sink)?;
     let _ = writeln!(
         sink.stdout,
         "{}",

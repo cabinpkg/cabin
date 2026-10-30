@@ -368,13 +368,13 @@ Stage 11; integrated with 04, 08, 10; validated in 14.
   `tree`, `explain`, `package`, `login`, `logout`, `yank`, `compgen`, `mangen`
   (`cabin/src/cli/mod.rs`).
 - `cabin run --bin` and `cabin test --test` select targets; nothing selects an example or a single
-  build target; `cabin test` runs executables sequentially (`cabin-test`, `run_tests`;
-  `cabin/src/cli/test.rs` passes no job count) and passes the arguments after `--` to each one.
+  build target; `cabin test` runs up to `--test-jobs` executables at once with an optional
+  `--test-timeout`, its `-j` limits the build only (`cabin-test`, `run_tests`), and it passes the
+  arguments after `--` to each executable.
 
 **Blocked workflow.**  Running one example; building one target; a JUnit report for CI.
 
-**Necessary changes.**  Test-process concurrency separate from
-build jobs; truthful JUnit; example and target selection kept distinct from `--target`; dev
+**Necessary changes.**  Truthful JUnit; example and target selection kept distinct from `--target`; dev
 dependencies activated only for the selected workflow; shared-runtime and cross-runner integration;
 help, completions, man pages, and docs.
 
@@ -427,7 +427,7 @@ change expected to fix them.
 | [Lockfile](lockfile.md) format | `dependencies` are transitive names; `source` includes local provenance | direct resolved index dependencies; only `"index"` parses | fixed in stage 01 |
 | [Package index](package-index.md#packaging-revisions) | resolution never reads revisions | locked validation reads `revisions` | fixed in stage 03 |
 | `cabin resolve` help | selection only narrows diagnostics; resolves "against a local JSON package index" | selection scopes resolution ([workspaces](workspaces.md)); `--index-url` works | stage 11 |
-| [Cargo-inspired interface](cargo-inspired-interface.md) | subcommand table; `-j` "identical" | omits `login`, `logout`, `yank`, `resolve`, `compgen`, `mangen`; `test` has no `-j` | stage 11 |
+| [Cargo-inspired interface](cargo-inspired-interface.md) | subcommand table; `-j` "identical" | omits `login`, `logout`, `yank`, `resolve`, `compgen`, `mangen`; `test` has no `-j` | stage 11 (`test -j` fixed in its second change) |
 | `docs/architecture.md` | `SystemDependencyProbeReport` | the type is `SystemDependencyResolution` | stage 06 |
 
 ## Port corrections waiting on stage 03
@@ -509,6 +509,16 @@ Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin tes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
 
+Stage 11, second change: `cabin test --test-jobs <N>` (default 1) runs that many test executables at
+once, and `-j` limits the build only, through the same precedence as `cabin build`.  One
+coordinator thread owns every child and the sink: with one job, output streams live as before;
+with more, each executable's output is handed over whole when it finishes.  `--test-timeout
+<SECONDS>` kills the test process (not processes it started); a test that cannot start is a failed
+result rather than an aborted run; once a test exits, output a leftover process holds open is read
+for one more second and the result is marked cut off.  Every test runs; the runner kills the tests
+still running when it fails itself (a sink or read error), while Ctrl-C keeps the terminal's
+default, reaching the tests too.  Tests get an empty stdin.
+
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
 for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
@@ -555,7 +565,14 @@ and reads both stored documents back through the listing the read plane composes
 first change: clap tests for the separator (empty and, on Unix, non-UTF-8 values, a second `--`,
 flag-shaped values, a bare argument rejected), and two C test targets printing their `argv` (empty,
 spaced, quoted, and Unicode arguments) end to end on macOS, with CI's Linux and Windows legs (a
-narrow `main` on Windows reads the ANSI code page, so Unicode is checked off Windows only).
+narrow `main` on Windows reads the ANSI code page, so Unicode is checked off Windows only).  Stage
+11, second change: runner tests on Unix for two tests that pass only when run together beside a
+failing one, a timeout kill, a leftover process holding the pipes, a mebibyte per stream plus a
+non-UTF-8 byte handed over whole from two concurrent tests, output a slow sink still holds after the
+test exits, and a sink failure killing a running test, the last three guards shown to fail when
+removed; spawn failures on every platform; a CLI test where a C test passes only beside a hung C++
+test that times out under `--test-jobs 2 --test-timeout 5`, shown to fail with one job (macOS here,
+CI's Linux and Windows legs), and that `-j` reaches Ninja while the same flag after `--` does not.
 
 **Unfinished.**  Stages 04-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,

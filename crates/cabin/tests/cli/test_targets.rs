@@ -586,6 +586,93 @@ int main(int argc, char **argv) {
 }
 
 #[test]
+fn cabin_test_runs_tests_concurrently_and_kills_a_hung_one() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "lifecycle"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.c_test]
+type = "test"
+sources = ["tests/c_test.c"]
+
+[target.hang_test]
+type = "test"
+sources = ["tests/hang_test.cc"]
+"#,
+        )
+        .unwrap();
+    // `c_test` passes only while `hang_test`, which starts after it,
+    // runs alongside it.
+    dir.child("tests/c_test.c")
+        .write_str(
+            r#"#include <stdio.h>
+#include <time.h>
+
+int main(void) {
+    time_t start = time(NULL);
+    while (time(NULL) - start < 30) {
+        FILE *marker = fopen("hang.started", "r");
+        if (marker != NULL) {
+            fclose(marker);
+            printf("c says hi\n");
+            return 0;
+        }
+    }
+    return 1;
+}
+"#,
+        )
+        .unwrap();
+    dir.child("tests/hang_test.cc")
+        .write_str(
+            r#"#include <chrono>
+#include <fstream>
+#include <thread>
+
+int main() {
+    std::ofstream("hang.started") << "started\n";
+    std::this_thread::sleep_for(std::chrono::seconds(60));
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+
+    let assertion = cabin()
+        .args([
+            "test",
+            "--test-jobs",
+            "2",
+            "--test-timeout",
+            "5",
+            "--manifest-path",
+        ])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).replace("\r\n", "\n");
+    for expected in [
+        "---- stdout: lifecycle:c_test ----\nc says hi\ntest lifecycle:c_test ... ok\n",
+        "test lifecycle:hang_test ... FAILED (timed out after 5s)",
+        "failures:\n    lifecycle:hang_test",
+        "test result: FAILED. 1 passed; 1 failed",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "expected `{expected}` in test output, got: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn cabin_test_exits_non_zero_on_failure() {
     require_cxx_build_tools();
     let dir = passing_test_project();

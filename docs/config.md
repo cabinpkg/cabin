@@ -151,9 +151,9 @@ Persistent defaults for build-time selectors that Cabin already exposes as CLI f
 `cabin build`'s profile precedence is `--profile` - > `--release` - > `build.profile` config - >
 built-in `dev`.
 
-`cabin build` / `cabin run` jobs precedence is `-j` / `--jobs <N>` - > `CABIN_BUILD_JOBS` - >
-`build.jobs` config - > build backend default.  `cabin test` does not honor any jobs source: the
-test runner is sequential.
+`cabin build` / `cabin run` / `cabin test` jobs precedence is `-j` / `--jobs <N>` - >
+`CABIN_BUILD_JOBS` - > `build.jobs` config - > build backend default.  For `cabin test` it limits the
+build only; `--test-jobs` limits how many tests run at once.
 
 `compiler-wrapper` accepts any single executable name or path and is not
 shell-split. Precedence is `--compiler-wrapper` / `--no-compiler-wrapper` →

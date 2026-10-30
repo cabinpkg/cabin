@@ -107,8 +107,8 @@ CLI flags still take precedence, so `cabin -q build` does not inspect a conflict
 Cabin lets the user cap the number of parallel jobs the build backend runs.  The choice follows the
 standard precedence chain:
 
-1. **`-j` / `--jobs <N>`** on the command line (supported by `cabin build`, `cabin run`, and `cabin
-   tidy`).
+1. **`-j` / `--jobs <N>`** on the command line (supported by `cabin build`, `cabin run`, `cabin
+   test`, and `cabin tidy`).
 2. **`CABIN_BUILD_JOBS=<N>`** environment variable.
 3. **`[build] jobs = <N>`** in a config file.
 4. **Default** - the build backend's own default (Ninja picks a value derived from the host's CPU
@@ -125,8 +125,9 @@ error: invalid CABIN_BUILD_JOBS value "many": invalid jobs value "many"; expecte
 ```
 
 Cabin passes the resolved value to Ninja as `-jN` and does not otherwise modify the parallelism
-story for compilers or linkers.  `cabin test` does not expose `--jobs`: the test runner is
-sequential, and `CABIN_BUILD_JOBS` is ignored when `cabin test` invokes Ninja for the build phase.
+story for compilers or linkers.  For `cabin test` it limits the build phase only; how many test
+executables run at once is `--test-jobs`, which no environment variable or config setting changes
+(see [testing](testing.md#concurrency-and-timeouts)).
 
 `cabin tidy` honors the same precedence chain and forwards the resolved value to `run-clang-tidy` as
 `-j N`.  In `--fix` mode the effective parallelism is clamped to `1` so concurrent clang-tidy
