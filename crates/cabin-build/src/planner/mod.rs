@@ -780,6 +780,8 @@ fn emit_actions(
             // mixes in any `.cc` / `.cpp` source - directly or
             // transitively - drives the link with the C++ compiler.
             TargetKind::Executable | TargetKind::Test | TargetKind::Example => {
+                // shortcut: a GNU driver building for Windows (MinGW) writes
+                // `<name>.exe`; stage 05 names it so with MinGW support.
                 let exe_path =
                     pkg_build_dir.join(req.dialect.executable_name(target.name.as_str()));
                 let lib_paths =

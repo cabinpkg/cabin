@@ -133,7 +133,9 @@ cabin build --target aarch64-unknown-linux-gnu \
   target, which must name the triple's machine (same `arch` and `os`, and the same `env` when both
   name one): GCC's `-dumpmachine`, the MSVC banner's architecture.  Select the cross compiler with
   `--cc` / `--cxx` (or `CC` / `CXX`); the C and C++ compilers must both be Clang-family or both
-  not.  A compiler Cabin cannot classify fails the build rather than guessing.
+  not.  A compiler Cabin cannot classify fails the build rather than guessing.  A Windows GNU
+  triple (`x86_64-w64-mingw32`) is best-effort, as MinGW is: its driver names executables
+  `<name>.exe`, which Cabin does not yet expect, so every build relinks them.
 - **Output.**  The build writes under `<build-dir>/<triple>/<profile>/`, beside the build machine's
   `<build-dir>/<profile>/`, so the two builds never share an object; `cabin clean --target
   <triple>` cleans that tree.

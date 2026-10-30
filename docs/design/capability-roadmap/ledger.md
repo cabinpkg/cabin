@@ -651,7 +651,8 @@ CI job uses `clang-cl`.
 
 Follow-ups found in stage 04: `cabin tree` and `cabin tidy` take no `--target` and follow the build
 machine's edges; the build machine's own `env`, `abi`, and `target` values are still derived from
-the OS rather than detected.
+the OS rather than detected; GNU-dialect executables keep a bare name for a Windows target,
+though MinGW GCC and Clang write `<name>.exe` (stage 05's MinGW work).
 
 ## Handoff to stage 04
 
