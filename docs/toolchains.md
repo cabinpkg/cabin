@@ -517,13 +517,15 @@ explicitly selected toolset is honored.
 
 ## Deferred / out of scope
 
-- Compiler probe compilations beyond running `--version`.
-- Compiler-specific conditional flags (`cfg(compiler = "clang")` / `cfg(compiler_version = ...)`).
-- Sysroot or SDK discovery.
+Items marked *planned* belong to the capability roadmap
+([ledger](design/capability-roadmap/ledger.md)) and are not implemented yet.
+
+- Compiler probe compilations beyond running `--version` (planned: stage 05).
+- Sysroot or SDK discovery (planned: stage 05).
 - A fully supported GCC/Clang-style toolchain on Windows (MinGW / clang).  MSVC is the supported
-  Windows dialect.
-- A diagnostics abstraction (SARIF / JSON output formats).  Capabilities for these are detected, but
-  Cabin does not emit either format.
+  Windows dialect; stage 05 promotes MinGW only with real build-and-run CI evidence.
+- A diagnostics abstraction (SARIF / JSON output formats).  Cabin neither detects nor emits either
+  format.
 - Per-package profile overrides for `[toolchain]`.
 - A CLI escape hatch for raw compile / link flags (`--cflag`).
 - `LD` env-var honoring (linker selection requires a linker-command abstraction the backend lacks).

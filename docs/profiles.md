@@ -359,8 +359,8 @@ resolved fields without re-reading the manifest.  The existing
 
 ## Limitations
 
-- Cross-compilation is out of scope, so the build planner evaluates profiles against the host
-  toolchain.
+- Cabin does not cross-compile yet (planned: capability roadmap stage 04), so the build planner
+  evaluates profiles against the host toolchain.
 - Toolchain selection and capability probing are explicitly out of scope for profile tables.
 - Profile names cannot escape the build root; invalid names are rejected at parse time rather than
   sanitized silently.

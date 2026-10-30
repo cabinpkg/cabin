@@ -65,7 +65,9 @@ in the same change and follow the architecture document.
 - Comments explain non-obvious constraints, compatibility requirements, or
   rationale. Do not restate mechanics that clearer code can express.
 - Do not implement features listed as deferred or "not implemented" in
-  `docs/architecture.md`. Unknown future syntax must use generic
+  `docs/architecture.md`, except work it marks *planned*, which lands only
+  through its stage in `docs/design/capability-roadmap/ledger.md` and
+  against that roadmap's contracts. Unknown future syntax must use generic
   `deny_unknown_fields` or clap unknown-flag diagnostics, not tailored
   rejection arms.
 - Keep C first-class alongside C++. Changes to planning, manifests, flags,
