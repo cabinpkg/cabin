@@ -22,11 +22,6 @@ use crate::{quota, sql, verify};
 use super::denial_response;
 
 #[derive(Deserialize)]
-struct MetadataRecord {
-    metadata_json: String,
-}
-
-#[derive(Deserialize)]
 struct StoredRevisionRecord {
     revision: String,
     checksum: String,
@@ -151,32 +146,24 @@ pub(super) async fn publish_response(
         return error_response(400, publish::METADATA_NOT_JSON);
     };
 
-    let revive = match revision_disposition(
-        db,
-        scope,
-        name,
-        version,
-        revision,
-        &checksum,
-        new_revision,
-        metadata_text,
-    )
-    .await?
-    {
-        RevisionDisposition::Answered(response) => {
-            // The idempotent no-op (200) is a retry of a committed
-            // publish that still holds the row's exact bytes, so it is
-            // the one chance to self-heal a primary blob a reclaim
-            // race deleted. The 409 arms get no heal: their uploaded
-            // bytes were refused.
-            if response.status_code() == 200 {
-                heal_blobs_on_retry(env, &checksum, frame.archive).await?;
+    let revive =
+        match revision_disposition(db, scope, name, version, revision, &checksum, new_revision)
+            .await?
+        {
+            RevisionDisposition::Answered(response) => {
+                // The idempotent no-op (200) is a retry of a committed
+                // publish that still holds the row's exact bytes, so it is
+                // the one chance to self-heal a primary blob a reclaim
+                // race deleted. The 409 arms get no heal: their uploaded
+                // bytes were refused.
+                if response.status_code() == 200 {
+                    heal_blobs_on_retry(env, &checksum, frame.archive).await?;
+                }
+                return Ok(response);
             }
-            return Ok(response);
-        }
-        RevisionDisposition::Revive => true,
-        RevisionDisposition::New { .. } => false,
-    };
+            RevisionDisposition::Revive => true,
+            RevisionDisposition::New { .. } => false,
+        };
 
     // The archive-size cap and the per-user quotas gate genuinely new
     // versions - including a replacement of a rejected one, whose new
@@ -247,7 +234,6 @@ pub(super) async fn publish_response(
                 revision,
                 &checksum,
                 new_revision,
-                metadata_text,
             )
             .await?
             {
@@ -538,7 +524,6 @@ async fn persist_new_revision(
                 new.name.into(),
                 new.version.into(),
                 new.revision.into(),
-                new.metadata_text.into(),
                 opt_in.clone(),
             ])?,
             db.prepare(sql::INSERT_REVISION).bind(&[
@@ -716,7 +701,6 @@ async fn revive_rejected_revision(
                 archive_size.clone(),
                 new.revision.into(),
                 opt_in.clone(),
-                new.metadata_text.into(),
                 new.published_at.into(),
             ])?,
             db.prepare(sql::REVIVE_REJECTED_REVISION).bind(&[
@@ -800,7 +784,6 @@ enum RevisionDisposition {
 /// responses - a racer that slips between the read and the batch loses
 /// the guarded write, and the caller re-runs this function against the
 /// winner's state.
-#[allow(clippy::too_many_arguments)] // the revision quad plus the request plumbing
 async fn revision_disposition(
     db: &D1Database,
     scope: &str,
@@ -809,7 +792,6 @@ async fn revision_disposition(
     revision: &str,
     checksum: &str,
     new_revision: bool,
-    metadata_text: &str,
 ) -> worker::Result<RevisionDisposition> {
     let existing: Vec<StoredRevisionRecord> = db
         .prepare(sql::EXISTING_REVISIONS)
@@ -851,18 +833,6 @@ async fn revision_disposition(
                 return error_response(409, error::NEW_REVISION_REQUIRED)
                     .map(RevisionDisposition::Answered);
             }
-            // A revival re-enters the live set, so the invariance
-            // check applies exactly as for a new revision: the
-            // rejected document never constrained anyone, and a
-            // sibling published since the rejection may carry
-            // different resolver metadata this revival must not
-            // contradict.
-            if live_other_bytes
-                && let Some(response) =
-                    live_metadata_conflict(db, scope, name, version, metadata_text).await?
-            {
-                return Ok(RevisionDisposition::Answered(response));
-            }
             return Ok(RevisionDisposition::Revive);
         }
         return json_response_with_status(
@@ -881,52 +851,9 @@ async fn revision_disposition(
         return error_response(409, error::NEW_REVISION_REQUIRED)
             .map(RevisionDisposition::Answered);
     }
-    if live_other_bytes
-        && let Some(response) =
-            live_metadata_conflict(db, scope, name, version, metadata_text).await?
-    {
-        return Ok(RevisionDisposition::Answered(response));
-    }
     Ok(RevisionDisposition::New {
         version_has_revisions: !existing.is_empty(),
     })
-}
-
-/// The revision contract's preflight: a respin (or a revival) must
-/// not change what resolution consumes.  One live sibling represents
-/// the set (they agree by induction), and [`sql::INSERT_REVISION`] /
-/// [`sql::REVIVE_REJECTED_REVISION`] re-enforce the rule inside their
-/// transactions - this read only shapes the diagnostic.  `None` means
-/// no conflict.
-async fn live_metadata_conflict(
-    db: &D1Database,
-    scope: &str,
-    name: &str,
-    version: &str,
-    metadata_text: &str,
-) -> worker::Result<Option<Response>> {
-    let sibling: Option<MetadataRecord> = db
-        .prepare(sql::LIVE_REVISION_METADATA)
-        .bind(&[scope.into(), name.into(), version.into()])?
-        .first(None)
-        .await?;
-    let Some(sibling) = sibling else {
-        return Ok(None);
-    };
-    match publish::resolver_metadata_conflict(&sibling.metadata_json, metadata_text) {
-        Ok(None) => Ok(None),
-        Ok(Some(_field)) => {
-            error_response(409, error::REVISION_CHANGES_RESOLVER_METADATA).map(Some)
-        }
-        Err(_) => {
-            // A stored document that no longer parses is an
-            // invariant break; refuse rather than guess.
-            console_error!(
-                "stored metadata for a live revision of {scope}/{name}@{version} is invalid"
-            );
-            error_response(500, error::INTERNAL).map(Some)
-        }
-    }
 }
 
 /// The publish token bucket (`429`), charged per publish attempt - valid

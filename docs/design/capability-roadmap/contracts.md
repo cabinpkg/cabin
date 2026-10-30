@@ -146,8 +146,8 @@ directories to all transitive consumers.  After stage 02 a private edge stops at
 Consumers that compiled only because of that leak break, so stage 02 audits ports and examples,
 marks the edges whose public headers need the dependency as public, and documents the change.
 A published port whose correction changes only target `deps` visibility or other manifest fields
-outside resolution metadata respins as an ordinary packaging revision; a correction that changes
-dependencies, features, or standards waits for stage 03.
+outside resolution metadata respins as an ordinary packaging revision; since stage 03, so does one
+that changes dependencies, features, or standards.
 
 Further constraints:
 
@@ -255,8 +255,8 @@ lockfile's `checksum` pins the revision; plain resolution keeps a listed pin and
 moves to the current revision.  Since stage 03, an index's version-level metadata is the current
 revision's, and a revision whose `dependencies`, `features`, `standards`, or `links` differ carries
 its own `resolution` in a schema-2 document, which resolution reads for every pin the lockfile mode
-keeps.  The file registry and `cabin vendor` write it; the hosted registry still refuses a respin
-that changes those fields ([foundation ports](foundation-ports.md#packaging-revisions)).
+keeps.  The file registry, the hosted registry, and `cabin vendor` write it
+([foundation ports](foundation-ports.md#packaging-revisions)).
 
 **Contract for stage 03**: a correction at the same upstream version may change resolution
 metadata, and every existing pin keeps its meaning.
@@ -272,9 +272,6 @@ metadata, and every existing pin keeps its meaning.
   depends on wiping the production registry.
 - Machine-specific data (detected SDKs, absolute paths, environment selections) never enters
   published metadata.
-
-Until the hosted registry serves `resolution`, its respin restrictions stay in force, and the
-ledger records each port correction that waits for it.
 
 ## Compatibility expectations
 

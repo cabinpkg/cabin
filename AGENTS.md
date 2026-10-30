@@ -99,9 +99,8 @@ in the same change and follow the architecture document.
   every edit, including a comment, changes archive bytes. Compare its published
   digest before editing and do not fold a port correction into unrelated work.
   Follow
-  `docs/foundation-ports.md` "Packaging revisions" for which corrections may
-  respin as a packaging revision and which need a new upstream version; the
-  temporary-registry preflight cannot validate this distinction.
+  `docs/foundation-ports.md` "Packaging revisions" for how a correction
+  respins as a packaging revision of the same upstream version.
 
 ## Repository automation
 

@@ -19,9 +19,9 @@ statements! {
     /// [`COUNT_STORED_BYTES_ON_REVIVAL`]'s decide-then-flip shape)
     /// and repeats the insert's guards one-for-one - the same-key
     /// conjunct included - so a suppressed insert (a twin, a racing
-    /// byte-identical publish, an unflagged respin, an invariance
-    /// conflict) can never count bytes, and a blob some other live
-    /// row already references is never counted twice.  A post-insert
+    /// byte-identical publish, an unflagged respin) can never count
+    /// bytes, and a blob some other live row already references is
+    /// never counted twice.  A post-insert
     /// row-exists test could not tell this batch's row from a racing
     /// byte-identical winner's, which is why the guards read the
     /// pre-insert state instead. The CASTs
@@ -37,23 +37,10 @@ statements! {
               AND NOT EXISTS (SELECT 1 FROM revisions \
                               WHERE scope = ?3 AND name = ?4 AND version = ?5 \
                               AND revision = ?6) \
-              AND (?8 OR NOT EXISTS \
+              AND (?7 OR NOT EXISTS \
                    (SELECT 1 FROM revisions \
                     WHERE scope = ?3 AND name = ?4 AND version = ?5 \
                     AND verification IN ('pending', 'verified') AND checksum <> ?1)) \
-              AND NOT EXISTS \
-                  (SELECT 1 FROM revisions \
-                   WHERE scope = ?3 AND name = ?4 AND version = ?5 \
-                   AND verification IN ('pending', 'verified') \
-                   AND (json_extract(metadata_json, '$.dependencies') \
-                            IS NOT json_extract(?7, '$.dependencies') \
-                        OR json_extract(metadata_json, '$.features') \
-                            IS NOT json_extract(?7, '$.features') \
-                        OR json_extract(metadata_json, '$.standards') \
-                            IS NOT json_extract(?7, '$.standards') \
-                        OR (json_extract(metadata_json, '$.links') IS NOT NULL \
-                            AND json_extract(metadata_json, '$.links') \
-                                IS NOT json_extract(?7, '$.links')))) \
               THEN CAST(?2 AS INTEGER) ELSE 0 END) \
          ON CONFLICT (key) DO UPDATE SET \
          value = CAST(value AS INTEGER) + \
@@ -64,23 +51,10 @@ statements! {
               AND NOT EXISTS (SELECT 1 FROM revisions \
                               WHERE scope = ?3 AND name = ?4 AND version = ?5 \
                               AND revision = ?6) \
-              AND (?8 OR NOT EXISTS \
+              AND (?7 OR NOT EXISTS \
                    (SELECT 1 FROM revisions \
                     WHERE scope = ?3 AND name = ?4 AND version = ?5 \
                     AND verification IN ('pending', 'verified') AND checksum <> ?1)) \
-              AND NOT EXISTS \
-                  (SELECT 1 FROM revisions \
-                   WHERE scope = ?3 AND name = ?4 AND version = ?5 \
-                   AND verification IN ('pending', 'verified') \
-                   AND (json_extract(metadata_json, '$.dependencies') \
-                            IS NOT json_extract(?7, '$.dependencies') \
-                        OR json_extract(metadata_json, '$.features') \
-                            IS NOT json_extract(?7, '$.features') \
-                        OR json_extract(metadata_json, '$.standards') \
-                            IS NOT json_extract(?7, '$.standards') \
-                        OR (json_extract(metadata_json, '$.links') IS NOT NULL \
-                            AND json_extract(metadata_json, '$.links') \
-                                IS NOT json_extract(?7, '$.links')))) \
               THEN CAST(?2 AS INTEGER) ELSE 0 END";
 
     /// Refunds a rejected archive's bytes exactly when the row - still
@@ -107,8 +81,7 @@ statements! {
     /// `revive_rejected_revision`; revivals are byte-identical, so
     /// the checksum is the row's own).  The conditions mirror
     /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)'s guards one-for-one - the
-    /// opt-in (`?8`), resolver-metadata invariance (`?9`), and
-    /// advancing-stamp (`?10`) conjuncts included - so the counter can
+    /// opt-in (`?8`) and advancing-stamp (`?9`) conjuncts included - so the counter can
     /// never gain bytes for a flip the guards refused.
     COUNT_STORED_BYTES_ON_REVIVAL =
         "UPDATE meta SET value = CAST(value AS INTEGER) + \
@@ -120,23 +93,10 @@ statements! {
               AND (SELECT COUNT(*) FROM revisions \
                    WHERE checksum = ?5 AND verification != 'rejected') = 0 \
               AND (SELECT published_at FROM revisions \
-                   WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?7) < ?10 \
+                   WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?7) < ?9 \
               AND (?8 OR NOT EXISTS \
                    (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
                     AND verification IN ('pending', 'verified') AND checksum <> ?4)) \
-              AND NOT EXISTS \
-                  (SELECT 1 FROM revisions \
-                   WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-                   AND verification IN ('pending', 'verified') \
-                   AND (json_extract(metadata_json, '$.dependencies') \
-                            IS NOT json_extract(?9, '$.dependencies') \
-                        OR json_extract(metadata_json, '$.features') \
-                            IS NOT json_extract(?9, '$.features') \
-                        OR json_extract(metadata_json, '$.standards') \
-                            IS NOT json_extract(?9, '$.standards') \
-                        OR (json_extract(metadata_json, '$.links') IS NOT NULL \
-                            AND json_extract(metadata_json, '$.links') \
-                                IS NOT json_extract(?9, '$.links')))) \
               THEN CAST(?6 AS INTEGER) ELSE 0 END \
          WHERE key = 'total_stored_bytes'";
 }

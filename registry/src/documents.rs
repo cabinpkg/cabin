@@ -61,7 +61,16 @@ pub struct RevisionRow {
     /// Canonical `sha256:<64 lowercase hex>` value, as stored.
     pub checksum: String,
     pub published_at: String,
+    /// The revision's own canonical index entry, stored verbatim at
+    /// publish time.
+    pub metadata_json: String,
 }
+
+/// The entry fields resolution reads.  A revision whose values differ
+/// from the served revision's carries its own as `resolution`, so a
+/// lockfile pinning it resolves what its archive declares
+/// (`package-index.md`, "Packaging revisions").
+const RESOLUTION_FIELDS: [&str; 4] = ["dependencies", "features", "standards", "links"];
 
 #[derive(Serialize)]
 struct PackageDoc<'a> {
@@ -80,8 +89,10 @@ struct PackageDoc<'a> {
 /// is overwritten from its version row, its `revision` field names the
 /// served revision, and its `revisions` map lists every verified
 /// revision with its checksum, publish time, and canonical source
-/// path.  Deterministic: versions in lexicographic order, revisions in
-/// revision-id order.
+/// path, plus its own `resolution` when its stored entry's resolution
+/// fields differ from the served revision's - which makes the document
+/// schema 2, refused by clients that predate it.  Deterministic:
+/// versions in lexicographic order, revisions in revision-id order.
 ///
 /// # Errors
 ///
@@ -101,19 +112,10 @@ pub fn package_json(
     let mut rows: Vec<&VersionRow> = rows.iter().collect();
     rows.sort_by(|a, b| a.version.cmp(&b.version));
     let mut versions = Map::new();
+    let mut schema = 1;
     for row in rows {
-        let mut entry: Value = serde_json::from_str(&row.metadata_json).map_err(|err| {
-            format!(
-                "stored metadata for {name}@{} is not valid JSON: {err}",
-                row.version
-            )
-        })?;
-        let Some(fields) = entry.as_object_mut() else {
-            return Err(format!(
-                "stored metadata for {name}@{} is not a JSON object",
-                row.version
-            ));
-        };
+        let mut fields = stored_entry(&name, &row.version, &row.metadata_json)?;
+        let current = resolution_fields(&fields);
         for stripped in ["schema", "name", "version", "checksum", "source"] {
             // shift_remove: plain `remove` is a swap_remove under
             // `preserve_order` and would scramble the entry's key order.
@@ -125,14 +127,23 @@ pub fn package_json(
         for revision in revisions.iter().filter(|r| r.version == row.version) {
             let path =
                 crate::publish::source_path(scope, package, &revision.version, &revision.revision);
-            revision_map.insert(
-                revision.revision.clone(),
-                serde_json::json!({
-                    "checksum": revision.checksum,
-                    "published-at": revision.published_at,
-                    "source": { "type": "archive", "path": path, "format": "zip" },
-                }),
-            );
+            let mut listed = serde_json::json!({
+                "checksum": revision.checksum,
+                "published-at": revision.published_at,
+                "source": { "type": "archive", "path": path, "format": "zip" },
+            });
+            if revision.revision != row.revision {
+                let own = resolution_fields(&stored_entry(
+                    &name,
+                    &revision.version,
+                    &revision.metadata_json,
+                )?);
+                if own != current {
+                    listed["resolution"] = Value::Object(own);
+                    schema = 2;
+                }
+            }
+            revision_map.insert(revision.revision.clone(), listed);
         }
         if !revision_map.contains_key(&row.revision) {
             return Err(format!(
@@ -141,14 +152,33 @@ pub fn package_json(
             ));
         }
         fields.insert("revisions".to_owned(), Value::Object(revision_map));
-        versions.insert(row.version.clone(), entry);
+        versions.insert(row.version.clone(), Value::Object(fields));
     }
     Ok(serde_json::to_string(&PackageDoc {
-        schema: 1,
+        schema,
         name: &name,
         versions,
     })
     .expect("package document serializes"))
+}
+
+fn stored_entry(name: &str, version: &str, json: &str) -> Result<Map<String, Value>, String> {
+    match serde_json::from_str(json) {
+        Ok(Value::Object(fields)) => Ok(fields),
+        Ok(_) => Err(format!(
+            "stored metadata for {name}@{version} is not a JSON object"
+        )),
+        Err(err) => Err(format!(
+            "stored metadata for {name}@{version} is not valid JSON: {err}"
+        )),
+    }
+}
+
+fn resolution_fields(entry: &Map<String, Value>) -> Map<String, Value> {
+    RESOLUTION_FIELDS
+        .iter()
+        .filter_map(|field| Some(((*field).to_owned(), entry.get(*field)?.clone())))
+        .collect()
 }
 
 #[cfg(test)]
@@ -185,6 +215,7 @@ mod tests {
                 std::iter::repeat_n(seed, 64).collect::<String>()
             ),
             published_at: format!("2026-01-01T00:00:0{seed}Z"),
+            metadata_json: r#"{"dependencies":{}}"#.to_owned(),
         }
     }
 
@@ -263,6 +294,45 @@ mod tests {
             revisions[REV_A]["checksum"],
             format!("sha256:{}", "a".repeat(64))
         );
+    }
+
+    /// A superseded revision whose resolution fields differ from the
+    /// served revision's carries its own, and the document becomes
+    /// schema 2; a revision that agrees carries none.
+    #[test]
+    fn package_json_gives_superseded_revisions_their_own_resolution() {
+        let current = r#"{"dependencies":{"acme/b":"^1"},"links":{"z":"z"}}"#;
+        let rev_c = "cccccccccccccccc";
+        let mut first = revision("1.0.0", REV_A, 'a');
+        first.metadata_json = r#"{"dependencies":{},"features":{"default":[]}}"#.to_owned();
+        let mut agreeing = revision("1.0.0", rev_c, 'c');
+        agreeing.metadata_json = current.to_owned();
+        let revisions = [first, revision("1.0.0", REV_B, 'b'), agreeing];
+        let body = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_B, current, false)],
+            &revisions,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["schema"], 2);
+        let listed = &value["versions"]["1.0.0"]["revisions"];
+        assert_eq!(
+            listed[REV_A]["resolution"],
+            serde_json::json!({"dependencies": {}, "features": {"default": []}})
+        );
+        assert!(listed[REV_B].get("resolution").is_none(), "{body}");
+        assert!(listed[rev_c].get("resolution").is_none(), "{body}");
+
+        let body = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_B, current, false)],
+            &[revision("1.0.0", REV_B, 'b')],
+        )
+        .unwrap();
+        assert!(body.starts_with(r#"{"schema":1,"#), "{body}");
     }
 
     /// A current revision missing from the verified set is an internal

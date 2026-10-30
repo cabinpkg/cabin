@@ -324,17 +324,16 @@ committed `cabin.toml` and merge it.  It publishes verbatim, so a comment is a b
 any other.
 
 Consumers are unaffected until they ask to be.  A lockfile that already pins the old revision keeps
-resolving and fetching exactly those bytes; a fresh resolution, or an explicit `cabin update`, picks
-up the corrected revision.
+resolving its graph and fetching exactly those bytes; a fresh resolution, or an explicit
+`cabin update`, picks up the corrected revision.
 
 Because the publisher always passes `--new-revision`, the merged change *is* the intent
 signal - including an edit to the committed manifest itself, which publishes verbatim.  A correction landing on `main` is by construction a deliberate respin,
-and a rerun over an unchanged tree still produces byte-identical archives and stays a no-op.  A revision may not
-change what resolution consumes, so a correction that alters the published package's
-`dependencies`, `features`, or `standards` is not a respin - it needs a new upstream version.
-`links` is the one-way exception: a respin may stamp a claim table onto a version published
-without one (that is how existing ports gained their identities), but changing or removing an
-existing claim still needs a new upstream version.
+and a rerun over an unchanged tree still produces byte-identical archives and stays a no-op.  A
+respin may also correct what resolution consumes - the published package's `dependencies`,
+`features`, `standards`, or `links`: each revision keeps its own, so the old revision's pins keep
+their graph.  The package's index document then becomes schema 2, which earlier clients refuse
+rather than misread.
 
 ## Retiring a foundation port
 

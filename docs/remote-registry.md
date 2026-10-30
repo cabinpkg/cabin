@@ -331,7 +331,8 @@ On a registry with the [verification lifecycle](#verification-lifecycle), the co
 `revision` pointer names its current one and its `revisions` map lists every verified revision of
 it - and the artifact route serves verified revisions to ordinary tokens; a package with no verified
 revisions is indistinguishable from an unknown one.  A superseded verified revision stays
-downloadable, which is what keeps lockfiles that pin it building.
+downloadable, and carries its own `resolution` when it resolves differently from the current one,
+which is what keeps lockfiles that pin it building.
 
 ## Publish
 
@@ -394,17 +395,13 @@ Server-side behavior is part of the contract:
   of this version, or bump the version.*  With it, a new revision is created in `pending`.  Two
   different archives whose digests share the same 16-hex prefix are a loud `409` (`a packaging
   revision with this id already exists with different bytes`), never a silent overwrite.
-- **The revision contract.**  A revision must not change what resolution consumes: `dependencies`,
-  `features`, and `standards` are identical across every revision of a version, so a respin can
-  never alter a decision the resolver already made.  A change to any of them is a new version, not a
-  revision.  `links` joins the contract with a one-way rule: a revision may add a claim table to a
-  version published without one (identities are stamped onto already-published versions as packages
-  adopt the key - note this retroactively applies to every packaging revision of the version, older
-  pinned revisions included, whose archived manifests may predate the declaration), but an existing
-  table can never be changed or removed by a respin.  A file registry (`cabin publish
-  --registry-dir`) no longer needs this contract: it records each superseded revision's own
-  resolution metadata ([packaging revisions](package-index.md#packaging-revisions)), which this
-  registry's documents do not carry yet.
+- **Per-revision resolution metadata.**  A revision may change what resolution consumes:
+  `dependencies`, `features`, `standards`, and `links`.  Each revision keeps its own stored
+  document, and the package document gives a superseded revision whose fields differ from the
+  current revision's its own `resolution`, which makes the document `"schema": 2`
+  ([packaging revisions](package-index.md#packaging-revisions)).  A lockfile pinning that revision
+  keeps resolving what its archive declares; a client that predates schema 2 refuses the document
+  rather than misread it.
 - **Recovery.**  A version whose revisions are all **rejected** never became part of the registry,
   so fresh bytes are accepted without the opt-in.  Byte-identical bytes revive the rejected revision
   in place - new metadata, timestamp, and publisher - back to `pending` with a `201`.  The new
