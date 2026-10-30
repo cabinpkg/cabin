@@ -36,6 +36,7 @@ struct RevisionListRecord {
     revision: String,
     checksum: String,
     published_at: String,
+    metadata_json: String,
 }
 
 #[derive(Deserialize)]
@@ -192,6 +193,7 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
             revision: record.revision,
             checksum: record.checksum,
             published_at: record.published_at,
+            metadata_json: record.metadata_json,
         })
         .collect();
     match documents::package_json(scope, name, &rows, &revisions) {

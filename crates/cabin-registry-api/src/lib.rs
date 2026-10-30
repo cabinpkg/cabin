@@ -1095,8 +1095,8 @@ fn envelope_entry(response: ureq::Response) -> Option<ErrorEntry> {
 
 /// The publish `409` explanation: the server's envelope detail
 /// verbatim when present - the refusal has several distinct causes
-/// (missing `--new-revision`, a resolver-metadata change, a
-/// revision-id collision, a racing conflict), and only the server
+/// (missing `--new-revision`, a revision-id collision, a racing
+/// conflict), and only the server
 /// knows which fired - with the opt-in guidance as the fallback for
 /// an envelope-less response.
 fn version_conflict_message(name: &str, version: &str, detail: Option<&String>) -> String {
@@ -1628,13 +1628,13 @@ mod tests {
 
     /// 409: the server's envelope detail is authoritative - the
     /// refusal has several distinct causes and only the server knows
-    /// which fired, so the client must not paper over (say) an
-    /// invariance refusal with `--new-revision` advice.
+    /// which fired, so the client must not paper over (say) a
+    /// revision-id collision with `--new-revision` advice.
     #[test]
     fn publish_maps_409_to_version_conflict() {
         let mock = MockApi::respond_with(
             409,
-            r#"{"errors":[{"detail":"a packaging revision must not change dependencies"}]}"#,
+            r#"{"errors":[{"detail":"a packaging revision with this id already exists with different bytes"}]}"#,
         );
         let err = mock
             .client(Some(token()))
@@ -1650,14 +1650,14 @@ mod tests {
                 assert_eq!(version, "10.2.1");
                 assert_eq!(
                     detail.as_deref(),
-                    Some("a packaging revision must not change dependencies")
+                    Some("a packaging revision with this id already exists with different bytes")
                 );
             }
             other => panic!("expected VersionConflict, got {other:?}"),
         }
         let message = err.to_string();
         assert!(
-            message.contains("must not change dependencies"),
+            message.contains("already exists with different bytes"),
             "{message}"
         );
         assert!(

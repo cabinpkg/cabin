@@ -167,9 +167,6 @@ their outcomes as given.
   `current_revisions`, which the model does not exercise.
 - One package: `INSERT_PACKAGE`, `INSERT_VERSION_ROW`, and the `-`/`_`
   twin guard always succeed; the twin `400` is unreachable.
-- Resolver-metadata invariance (`dependencies`, `features`, `standards`,
-  `links`) is not modeled: the model's `409`s are the opt-in and
-  immutability refusals only.
 - The per-user quota tallies (`COUNT_USER_PACKAGE`,
   `COUNT_USER_STORED_BYTES`, `REFUND_USER_STORED_BYTES`) are not
   modeled: they write only `users` columns no guard reads, and only the
@@ -385,8 +382,8 @@ the individual statements against the schema; the Kani harnesses check
 the quota functions; this model checks their composition under
 concurrency, with the verifier's pass reduced to the outcomes its own
 tests establish ("The verifier" above). Nothing here verifies the
-inspection of archive bytes itself, the credentials, the yank column, the
-backup queue, or the resolver-metadata invariance guards.
+inspection of archive bytes itself, the credentials, the yank column, or
+the backup queue.
 
 ## Interpreting a counterexample
 

@@ -26,7 +26,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 00 | Shared contracts, this ledger, scope alignment | all | `docs/` | - | adopted |
 | 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | implemented |
 | 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | implemented |
-| 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | in progress |
+| 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | implemented |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | not started |
 | 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | not started |
 | 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | not started |
@@ -76,15 +76,15 @@ Stages 01 and 03; contexts in 04; validated in 12-14.
   `resolution` when it differs from the version's (`cabin-index/src/model.rs`, `RevisionMetadata`):
   the version-level dependencies, features, standards, and `links` are the current revision's, and
   each pin a lockfile mode keeps resolves with its own revision's
-  (`cabin-resolver/src/lib.rs`, `select_locked_revisions`).  The hosted registry still refuses a
-  respin that changes them and serves no `resolution`.
+  (`cabin-resolver/src/lib.rs`, `select_locked_revisions`).  The file and hosted registries write
+  it (`cabin-registry-file/src/index.rs`, `registry/src/documents.rs`).
 
 **Blocked workflow.**  Before stage 01, a consumer enabling a published package's feature that
 pulls in an optional registry dependency (`feature = ["dep:cabin-ports/zlib"]`) got nothing:
 resolution skipped the dependency.  Stage 01 unblocked that, so Boost integrations can be offered
 as opt-in features; `cabin-ports/boost-iostreams` still leaves out its bzip2/lzma/zstd filters
-until those libraries have ports.  A port that needs a dependency added at the same upstream
-version still cannot be corrected on the hosted registry (stage 03, second change).
+until those libraries have ports.  Since stage 03, a port can gain a dependency at the same upstream
+version as a packaging revision.
 
 The port publisher adds a constraint of its own: `xtask-port-publish` refuses `cfg(...)` dependency
 tables and orders publication by each port's own default feature closure, not by feature requests
@@ -399,8 +399,6 @@ Statements that stay true until a stage changes the behavior, and that stage mus
 - [Target dependencies](target-dependencies.md#evaluation-context) on host-only evaluation and the
   lockfile (stage 04).
 - [Dependency kinds](dependency-kinds.md) listing two kinds (stage 04).
-- [Remote registry](remote-registry.md) and [foundation ports](foundation-ports.md#packaging-revisions)
-  on revision-invariant resolution metadata (stage 03).
 - [Cargo-inspired interface](cargo-inspired-interface.md) on examples and target selection
   (stage 11).
 - [System dependencies](system-dependencies.md) on no probe path beyond `pkg-config` (stage 06).
@@ -434,8 +432,7 @@ change expected to fix them.
 
 ## Port corrections waiting on stage 03
 
-None recorded yet.  A stage that needs a published port to change its dependencies, features,
-standards, or an existing `links` claim records it here instead of respinning.
+None: since stage 03 a respin may change resolution metadata, so no correction waits on it.
 
 ## Progress record
 
@@ -499,6 +496,15 @@ respin no longer stamps its table onto earlier revisions; `cabin vendor` lifts t
 revision's into the version fields.  The hosted registry is unchanged: it refuses such respins and
 serves no `resolution` until the second change.
 
+Stage 03, second change: the hosted registry accepts a respin that changes resolution metadata -
+the transactional guards, their storage-accounting mirrors, and the preflight read that shaped
+their `409` are gone - and its package document gives each superseded verified revision whose
+stored `dependencies`, `features`, `standards`, or `links` differ from the current revision's its
+own `resolution`, becoming schema 2.  Legacy rows keep their meaning: every published version has
+one revision (production index and public stats read on 2026-10-30: 17 packages, 17 versions), so
+no served document changes.  The `links` table order check stays, now because the read plane
+serves stored tables verbatim.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -541,14 +547,17 @@ file and HTTP paths fetches r1's archive with no `acme/b` to lock, a vendored co
 dependencies and fetches offline under `--locked`, and `cabin update` locks `acme/b` with r2's
 checksum; removing the per-pin metadata selection fails it at the unchanged-lockfile check.
 Resolver unit tests for the four modes; loader tests for parsing, selection, and both rejections;
-file-registry and vendor unit tests for recording and lifting.  Stage 11, first change: clap tests
-for the separator (empty and, on Unix, non-UTF-8 values, a second `--`, flag-shaped values, a bare
-argument rejected), and two C test targets printing their `argv` (empty, spaced, quoted, and
-Unicode arguments) end to end on macOS, with CI's Linux and Windows legs (a narrow `main` on
-Windows reads the ANSI code page, so Unicode is checked off Windows only).
+file-registry and vendor unit tests for recording and lifting.  Stage 03, second change: a registry
+unit test composes a document whose superseded revision differs (schema 2, its `resolution`, none
+on the current or an agreeing revision) and one whose revisions agree (schema 1); a SQL test
+inserts and counts a dependency-changing respin under the opt-in, which the removed guard refused,
+and reads both stored documents back through the listing the read plane composes from.  Stage 11,
+first change: clap tests for the separator (empty and, on Unix, non-UTF-8 values, a second `--`,
+flag-shaped values, a bare argument rejected), and two C test targets printing their `argv` (empty,
+spaced, quoted, and Unicode arguments) end to end on macOS, with CI's Linux and Windows legs (a
+narrow `main` on Windows reads the ANSI code page, so Unicode is checked off Windows only).
 
-**Unfinished.**  Stage 03's hosted-registry change; stages 04-14.  Follow-ups found in stage 01,
-outside its scope:
+**Unfinished.**  Stages 04-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
 "Blocked workflow"); a transitively requested unknown feature is reported as a resolution conflict
 naming `<package>[<feature>]` rather than with the direct-request diagnostic; `metadata` and
@@ -564,9 +573,16 @@ target-level field other than `instruction-sets` (`sources`, `defines`, `interfa
 `include-dirs`, `deps`), short of `crates/AGENTS.md`, though nothing keys a build on it yet; no
 CI job uses `clang-cl`.
 
-## Handoff to stage 03
+## Handoff to stage 04
 
-Stage 03 starts from contracts section 5.  Stage 02 adds no resolution metadata: `interface-defines`,
-`instruction-sets`, and `frameworks` live in the archived manifest and change builds only, so they
-already travel with a revision's bytes.  No published port waits on stage 03 for a stage 02
-correction.
+Stage 04 starts from contracts section 1.  Stage 03 makes a revision's resolution metadata
+`dependencies`, `features`, `standards`, and `links`.  A declaration a later stage adds to index
+metadata that resolution reads - build or tool dependencies, providers, actions - joins that set in
+`cabin-index` (`ResolutionMetadata`), the file registry (`resolution_fields`), the hosted registry
+(`RESOLUTION_FIELDS`), and `cabin vendor` (`rewrite_vendored_revision`); otherwise an old pin
+resolves it with the current revision's value.
+
+Production rollout: the hosted change deploys from `main` with the registry workflow, and no stored
+row changes.  A respin that changes resolution metadata makes its package's document schema 2,
+which clients built before stage 03 refuse; no released client is affected, since 0.17.0 predates
+the revisions model and refuses every hosted document already.

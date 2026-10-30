@@ -739,8 +739,12 @@ rules, the artifact read gate, and the verdict body live in
   greatest `published_at`, breaking ties on the greater revision id - and
   its `revisions` map carries every verified revision, so a superseded one
   stays fetchable by pin and a pending respin never disturbs what is
-  served. The `verify` scope may additionally list
-  pending revisions (`GET /api/v1/admin/versions?status=...`, one entry per
+  served. A superseded revision whose stored entry differs from the
+  current one's in `dependencies`, `features`, `standards`, or `links`
+  carries those four as its `resolution`, and the document becomes
+  schema 2 (`../docs/package-index.md`, "Packaging revisions"). The
+  `verify` scope may additionally list pending revisions
+  (`GET /api/v1/admin/versions?status=...`, one entry per
   revision, each carrying `revision` and its `name` the canonical
   `<scope>/<name>`), fetch the package
   corpus its name advisories compare against

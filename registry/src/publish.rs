@@ -153,9 +153,8 @@ pub struct VersionMetadata {
     /// canonical document omits the empty map, so an explicit `null`
     /// must stay non-canonical rather than alias the omission (a
     /// stored `null` would break every index consumer's loader).
-    /// An explicit `{}` is rejected too: stored verbatim it would
-    /// read as *present* to the one-way revision guards and block
-    /// honest respins that correctly omit the field.
+    /// An explicit `{}` is rejected too: the canonical document never
+    /// carries one.
     #[serde(default, deserialize_with = "non_empty_links_map")]
     pub links: serde_json::Map<String, serde_json::Value>,
     /// Optional `[package.upstream]` provenance.  Typed (unlike the
@@ -470,9 +469,7 @@ pub fn validate_metadata(
 }
 
 /// The canonical document omits `links` when no target claims, so a
-/// present-but-empty map can never be canonical - and must not be
-/// stored, or the presence-keyed one-way revision guards would treat
-/// it as a declared table.
+/// present-but-empty map can never be canonical.
 fn non_empty_links_map<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<serde_json::Map<String, serde_json::Value>, D::Error> {
@@ -536,13 +533,10 @@ fn validate_links(
             return Err(INVALID_LINKS);
         }
     }
-    // Canonical key order is part of the accepted shape: the one-way
-    // revision guards compare a stored `links` table textually
-    // (`json_extract` preserves key order), so an unordered table
-    // would verify structurally yet block every later canonical
-    // respin with a spurious metadata conflict.  The canonical
-    // document renders the map name-sorted; `preserve_order` keeps
-    // the wire order observable here.  After the grammar pass, so a
+    // Canonical key order is part of the accepted shape: the read
+    // plane serves a stored table verbatim, and the canonical document
+    // renders it name-sorted; `preserve_order` keeps the wire order
+    // observable here.  After the grammar pass, so a
     // table violating both reports the grammar error first.
     let mut previous: Option<&str> = None;
     for target in links.keys() {
@@ -566,40 +560,6 @@ fn validate_links(
         }
     }
     Ok(())
-}
-
-/// The resolver-consumed fields every packaging revision of a version
-/// must agree on, compared as parsed JSON (structural equality;
-/// absent fields compare equal to absent).  Returns the first field
-/// that differs.  [`crate::sql::INSERT_REVISION`] enforces the same
-/// rule transactionally via serialized-JSON equality - strictly
-/// tighter, which is the safe direction: this check only shapes the
-/// preflight diagnostic.
-///
-/// # Errors
-///
-/// The generic non-canonical `400` detail when either document fails
-/// to parse - the stored side is registry-written, so in practice
-/// only a corrupt row can trigger it.
-pub fn resolver_metadata_conflict(
-    stored_json: &str,
-    incoming_json: &str,
-) -> Result<Option<&'static str>, &'static str> {
-    let stored: serde_json::Value =
-        serde_json::from_str(stored_json).map_err(|_| METADATA_NOT_JSON)?;
-    let incoming: serde_json::Value =
-        serde_json::from_str(incoming_json).map_err(|_| METADATA_NOT_JSON)?;
-    for field in ["dependencies", "features", "standards"] {
-        if stored.get(field) != incoming.get(field) {
-            return Ok(Some(field));
-        }
-    }
-    // `links` is one-way: a revision may add a table where the
-    // stored version has none; an existing table is immutable.
-    if stored.get("links").is_some() && stored.get("links") != incoming.get("links") {
-        return Ok(Some("links"));
-    }
-    Ok(None)
 }
 
 /// Compares the metadata's claimed checksum against the canonical
@@ -838,9 +798,9 @@ mod tests {
                 r#"{"z": "z"}"#,
                 LINKS_TARGET_NOT_LIBRARY,
             ),
-            // Structurally valid but not name-sorted: the textual
-            // one-way revision guards would refuse every later
-            // canonical respin, so the door refuses the document.
+            // Structurally valid but not name-sorted: not the
+            // canonical rendering, which the read plane serves
+            // verbatim.
             (
                 "unsorted targets",
                 r#"{"targets": {"png": {}, "z": {}}}"#,
@@ -1514,61 +1474,5 @@ mod tests {
         let len = bad_layout.len();
         bad_layout[len - 6] = bad_layout[len - 6].wrapping_add(1);
         assert_eq!(sanity_check_zip(&bad_layout), Err(NOT_ZIP));
-    }
-
-    #[test]
-    fn resolver_metadata_conflict_names_the_changed_field() {
-        let stored = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
-                         "standards":{"cxx":"c++17"},"checksum":"sha256:aa"}"#;
-        // Packaging-only differences (any non-resolver field) are fine.
-        let respun = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
-                        "standards":{"cxx":"c++17"},"checksum":"sha256:bb"}"#;
-        assert_eq!(resolver_metadata_conflict(stored, respun), Ok(None));
-        // Each resolver-facing field is compared structurally, first
-        // difference wins.
-        for (field, mutated) in [
-            (
-                "dependencies",
-                r#"{"features":{"default":[]},"standards":{"cxx":"c++17"}}"#,
-            ),
-            (
-                "features",
-                r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":["simd"]},
-                   "standards":{"cxx":"c++17"}}"#,
-            ),
-            (
-                "standards",
-                r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
-                   "standards":{"cxx":"c++20"}}"#,
-            ),
-        ] {
-            assert_eq!(resolver_metadata_conflict(stored, mutated), Ok(Some(field)));
-        }
-        // The comparison is structural, not textual: key order and
-        // whitespace differences are not conflicts.
-        let reordered = r#"{"standards":{"cxx":"c++17"},"features":{"default":[]},
-                           "dependencies":{"acme/dep":"^1"}}"#;
-        assert_eq!(resolver_metadata_conflict(stored, reordered), Ok(None));
-        // `links` is one-way: adding a table where the stored version
-        // has none is a legal respin; changing or removing a stored
-        // one is not.
-        let stamped = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
-                         "standards":{"cxx":"c++17"},"links":{"z":"z"}}"#;
-        assert_eq!(resolver_metadata_conflict(stored, stamped), Ok(None));
-        assert_eq!(
-            resolver_metadata_conflict(stamped, stored),
-            Ok(Some("links"))
-        );
-        let restamped = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
-                           "standards":{"cxx":"c++17"},"links":{"z":"zlib"}}"#;
-        assert_eq!(
-            resolver_metadata_conflict(stamped, restamped),
-            Ok(Some("links"))
-        );
-        // Malformed stored documents surface as an error, never a pass.
-        assert_eq!(
-            resolver_metadata_conflict("not json", respun),
-            Err(METADATA_NOT_JSON)
-        );
     }
 }

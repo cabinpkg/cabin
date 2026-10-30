@@ -154,9 +154,7 @@ fn publish(
         .expect("INSERT_VERSION_ROW");
     tx.execute(
         sql::COUNT_STORED_BYTES_ON_PUBLISH,
-        params![
-            revision, size, "alpha", name, version, revision, "{}", opt_in
-        ],
+        params![revision, size, "alpha", name, version, revision, opt_in],
     )
     .expect("COUNT_STORED_BYTES_ON_PUBLISH");
     let inserted = tx
@@ -186,7 +184,7 @@ fn revive(
     tx.execute(
         sql::COUNT_STORED_BYTES_ON_REVIVAL,
         params![
-            "alpha", name, "1.0.0", revision, revision, size, revision, 1, "{}", stamp
+            "alpha", name, "1.0.0", revision, revision, size, revision, 1, stamp
         ],
     )
     .expect("COUNT_STORED_BYTES_ON_REVIVAL");

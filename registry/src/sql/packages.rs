@@ -15,9 +15,10 @@ statements! {
 
     /// Every **verified** revision of the package, for the composed
     /// document's per-version `revisions` maps: superseded revisions
-    /// stay listed (and fetchable) so pinned lockfiles keep building.
+    /// stay listed (and fetchable) so pinned lockfiles keep building,
+    /// and their stored documents give them their own `resolution`.
     VERIFIED_REVISIONS_BY_PACKAGE =
-        "SELECT version, revision, checksum, published_at FROM revisions \
+        "SELECT version, revision, checksum, published_at, metadata_json FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND verification = 'verified' \
          ORDER BY version, revision";
 
@@ -88,20 +89,6 @@ statements! {
         "SELECT revision, checksum, verification FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3 ORDER BY revision";
 
-    /// One live (pending or verified) sibling's stored document, for
-    /// the publish preflight's resolver-metadata invariance check.
-    /// Live siblings agree on the symmetric fields by induction, but
-    /// `links` is one-way (a revision may add a table where the
-    /// version had none), so siblings can legitimately differ on it -
-    /// prefer a links-bearing row, which is authoritative once one
-    /// exists.  [`INSERT_REVISION`] re-enforces the same rule inside
-    /// the transaction; this read only shapes the diagnostic.
-    LIVE_REVISION_METADATA =
-        "SELECT metadata_json FROM revisions \
-         WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-         AND verification IN ('pending', 'verified') \
-         ORDER BY (json_extract(metadata_json, '$.links') IS NULL), revision LIMIT 1";
-
     /// Whether the token's user is a member (any role) of the scope: the
     /// write plane's authorization read. A scope that does not exist has
     /// no members, so nonexistent and foreign scopes answer identically
@@ -131,29 +118,21 @@ statements! {
          (SELECT 1 FROM packages WHERE scope = ?1 AND name = ?2)";
 
     /// Inserts a genuinely new revision row, starting `pending`.
-    /// Four guards are enforced *inside* the transaction, so
+    /// Three guards are enforced *inside* the transaction, so
     /// concurrent publishes cannot race past the preflight reads:
     /// the version row must exist (zero changed rows after
     /// [`INSERT_VERSION_ROW`] means the twin guard suppressed the
     /// package and nothing was persisted); no row may already hold
     /// this revision id (a racing byte-identical publish whose twin
     /// committed first must lose to the re-read, not fail the
-    /// primary key and abort the whole batch); unless `?10` carries
-    /// the `new-revision` opt-in, no live (pending or verified)
-    /// revision with different bytes may exist; and - opt-in or not
-    /// - the resolver-consumed metadata (`dependencies`, `features`,
-    /// `standards`) must agree with every live sibling, so a respin
-    /// can never alter what resolution already decided (the canonical
-    /// document renders deterministically, so serialized-JSON
-    /// equality via `json_extract` is exact for every honest client;
-    /// `IS NOT` keeps the absent-field `NULL`s comparable).  `links`
-    /// is one-way: a sibling without a table never constrains, but a
-    /// links-bearing sibling must be matched exactly - identities
-    /// may be stamped onto a published version once, then never
-    /// changed or removed by a respin.  Zero
-    /// changed rows sends the glue back to [`EXISTING_REVISIONS`] to
-    /// answer no-op, opt-in conflict, invariance conflict, or twin
-    /// `400` from what it re-reads.
+    /// primary key and abort the whole batch); and unless `?10`
+    /// carries the `new-revision` opt-in, no live (pending or
+    /// verified) revision with different bytes may exist.  A respin
+    /// may change what resolution reads: each revision keeps its own
+    /// stored document, which the read plane serves as that
+    /// revision's `resolution`.  Zero changed rows sends the glue back
+    /// to [`EXISTING_REVISIONS`] to answer no-op, opt-in conflict, or
+    /// twin `400` from what it re-reads.
     INSERT_REVISION =
         "INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json, \
          published_at, archive_size, published_by, verification) \
@@ -164,19 +143,7 @@ statements! {
               AND revision = ?4) \
          AND (?10 OR NOT EXISTS \
               (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-               AND verification IN ('pending', 'verified') AND checksum <> ?5)) \
-         AND NOT EXISTS \
-             (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-              AND verification IN ('pending', 'verified') \
-              AND (json_extract(metadata_json, '$.dependencies') \
-                       IS NOT json_extract(?6, '$.dependencies') \
-                   OR json_extract(metadata_json, '$.features') \
-                       IS NOT json_extract(?6, '$.features') \
-                   OR json_extract(metadata_json, '$.standards') \
-                       IS NOT json_extract(?6, '$.standards') \
-                   OR (json_extract(metadata_json, '$.links') IS NOT NULL \
-                       AND json_extract(metadata_json, '$.links') \
-                           IS NOT json_extract(?6, '$.links'))))";
+               AND verification IN ('pending', 'verified') AND checksum <> ?5))";
 
     /// Revives a rejected revision in place (back to `pending`),
     /// guarded on the row still being rejected (any rejected generation
@@ -190,12 +157,7 @@ statements! {
     /// revival is always byte-identical to what was rejected -
     /// `checksum` never changes - and the opt-in guard (`?6`, like
     /// [`INSERT_REVISION`]'s) keeps an unflagged revival from slipping
-    /// a different-bytes revision back beside a live one.  A revival
-    /// re-enters the live set, so [`INSERT_REVISION`]'s
-    /// resolver-metadata invariance applies identically: a rejected
-    /// sibling never constrained anyone (a later revision may have
-    /// changed `dependencies` freely), so the revived document (`?1`)
-    /// must agree with the live siblings of *today*, opt-in or not.
+    /// a different-bytes revision back beside a live one.
     REVIVE_REJECTED_REVISION =
         "UPDATE revisions SET metadata_json = ?1, published_at = ?2, published_by = ?3, \
          verification = 'pending', verification_reason = NULL, verified_at = NULL \
@@ -203,19 +165,7 @@ statements! {
          AND verification = 'rejected' AND checksum = ?9 AND published_at < ?2 \
          AND (?6 OR NOT EXISTS \
               (SELECT 1 FROM revisions WHERE scope = ?4 AND name = ?5 AND version = ?7 \
-               AND verification IN ('pending', 'verified') AND checksum <> ?9)) \
-         AND NOT EXISTS \
-             (SELECT 1 FROM revisions WHERE scope = ?4 AND name = ?5 AND version = ?7 \
-              AND verification IN ('pending', 'verified') \
-              AND (json_extract(metadata_json, '$.dependencies') \
-                       IS NOT json_extract(?1, '$.dependencies') \
-                   OR json_extract(metadata_json, '$.features') \
-                       IS NOT json_extract(?1, '$.features') \
-                   OR json_extract(metadata_json, '$.standards') \
-                       IS NOT json_extract(?1, '$.standards') \
-                   OR (json_extract(metadata_json, '$.links') IS NOT NULL \
-                       AND json_extract(metadata_json, '$.links') \
-                           IS NOT json_extract(?1, '$.links'))))";
+               AND verification IN ('pending', 'verified') AND checksum <> ?9))";
 
     /// How many revisions have sat `pending` for over an hour (the
     /// stuck-verifier alert).
