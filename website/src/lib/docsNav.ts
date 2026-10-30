@@ -123,6 +123,14 @@ export const DOCS_NAV: DocsNavSection[] = [
                 slug: "design/standard-compatibility/preference-mode",
             },
             { label: "Boost foundation ports", slug: "design/boost-ports" },
+            {
+                label: "Capability roadmap contracts",
+                slug: "design/capability-roadmap/contracts",
+            },
+            {
+                label: "Capability roadmap ledger",
+                slug: "design/capability-roadmap/ledger",
+            },
         ],
     },
 ];

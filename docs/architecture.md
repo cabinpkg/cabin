@@ -115,6 +115,9 @@ docs/
   package-index.md   package index schema
   foundation-ports.md  the curated foundation ports and how they publish
   design/
+    capability-roadmap/
+      contracts.md       shared contracts for the capability roadmap's stages (design)
+      ledger.md          per-area evidence, stage map, and status of the roadmap
     standard-compatibility/
       spec.md            normative resolver-level standard-compatibility model
       registry-index.md  standard metadata in the package index (design)
@@ -812,7 +815,8 @@ resolution, and Ninja lookup.  The crate must:
 - not parse TOML;
 - not run dependency resolution;
 - not read or write `cabin.lock`;
-- not compile probe sources or write build plans.
+- not write build plans, and not compile probe sources until toolchain probes land (planned:
+  capability roadmap stage 05).
 
 ### `cabin-build`
 
@@ -857,8 +861,9 @@ The crate must:
 - not parse manifests, plan builds, or resolve dependencies;
 - not generate Ninja or invoke `ninja`;
 - not know about config / patches / source replacement;
-- not introduce parallel test execution, in-binary test discovery, or test-framework output parsing
-  - those are documented limitations of the current model.
+- not introduce in-binary test discovery or test-framework output parsing - documented limitations
+  of the current model.  Running test executables concurrently is planned for capability roadmap
+  stage 11.
 
 `cabin/src/cli/test.rs` orchestrates `cabin test` by driving the existing build pipeline and handing
 the resulting `BuildGraph` to this crate.
@@ -1492,15 +1497,18 @@ today, so future contributors do not silently regress them by porting more Cargo
 
 - **Link interface propagation.** A `library` target propagates its public link interface (the link
   line consumers must add) to every direct and transitive dependent automatically.  Build-time
-  link-only deps (linker libraries that are not Cabin packages) are still represented as
-  `system-dependencies`; active declarations are probed through `pkg-config`, and the resulting
-  flags are wired into consumers that link the producing target.  Cabin does not model CMake's
+  link-only deps (linker libraries that are not Cabin packages) propagate as `link-libs` names.
+  `system-dependencies` are a separate channel: the active declarations of primary packages are
+  probed through `pkg-config`, and the resulting flags apply to the declaring package's own
+  compiles and links.
+  Cabin does not model CMake's
   `INTERFACE` / `PUBLIC` / `PRIVATE` distinction at the package boundary, and the resolver
   intentionally does not re-implement the C++ link-order rules - Ninja + the linker do.
 
 - **Header-only is its own kind.** Header-only libraries are modeled as the dedicated `header-only`
   kind: they declare `include-dirs` and no `sources`, so the build graph emits no compile or archive
-  actions and the link interface stays purely include-dir + system deps.  Declaring `sources` on a
+  actions of their own; their link interface is their include directories plus the final-link
+  requirements of their dependencies (archives and `link-libs`).  Declaring `sources` on a
   `header-only` target is rejected at manifest-load time.
 
 - **Patch/override targets a name, not a target inside it.** `[patch] foo = { path = "../foo" }`
@@ -1535,7 +1543,13 @@ today, so future contributors do not silently regress them by porting more Cargo
   index metadata, never from downloaded archives.
 
 These invariants are normative: a change that breaks one of them is a language / build-system change
-and needs an explicit design update, not an implementation tweak.
+and needs an explicit design update, not an implementation tweak.  The
+[capability roadmap's contracts](design/capability-roadmap/contracts.md) are that update for four of
+them, each taking effect only when its stage lands: usage requirements (stage 02) make edge
+visibility govern include-directory and definition propagation, add producer-only include
+directories, and let header-only targets carry interface definitions; build contexts (stage 04)
+scope `links` uniqueness to one link/runtime domain.
+Until then the invariants above describe the current behavior.
 
 ## Implemented layers - quick reference
 
@@ -1926,11 +1940,11 @@ documented in `registry/docs/architecture.md`:
   of scope.
 - **No administrative policy surfaces.**
 - **No remote / binary build cache.** The artifact cache stores source archives only.
-- **No cross-compilation.** Cabin builds only for the host platform: `[target.'cfg(...)']`
-  predicates evaluate against the host and `--target <triple>` is reserved for future use. (Windows
-  / MSVC itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the
-  `cabin-driver` crate lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the
-  detection and dialect sections above.)
+- **No cross-compilation yet** (planned: roadmap stages 04-05). Cabin builds only for the host
+  platform today: `[target.'cfg(...)']` predicates evaluate against the host and `--target
+  <triple>` is reserved for the platform selection stage 04 adds. (Windows / MSVC itself *is*
+  supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate lowers the
+  build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the detection and dialect sections above.)
 - **No hard resolver-side language-standard filtering.** First-class C/C++ language standards are
   implemented locally (required manifest fields with no built-in default, `[workspace]` defaults,
   the per-target `gnu-extensions` boolean, dialect lowering, pre-build validation, interface
@@ -1953,21 +1967,34 @@ documented in `registry/docs/architecture.md`:
   environment flag route (`CXXFLAGS` / `CFLAGS`) is their only supported injection point.
 - **No workspace-level profile or toolchain overrides beyond the documented root-owned settings.**
   Member manifests cannot carry root-only build policy, and workspace-level profile/toolchain
-  expansion beyond the current model is out of scope.
+  expansion beyond the current model is out of scope, except the root-owned per-context platform,
+  toolchain, and sysroot selection planned in roadmap stages 04-05.
 - **Not a CMake / Meson drop-in replacement.** Cabin does not consume `CMakeLists.txt` or
-  `meson.build` files.  Existing CMake / Meson projects cannot be migrated without rewriting the
-  build description as `cabin.toml`.
-- **No shared-library linkage model.** The current build model is based on executables, static
-  archives, header-only libraries, and system-library link flags; broad shared library generation /
-  ABI policy is out of scope.
+  `meson.build` files as its own build description.  Existing CMake / Meson projects cannot be
+  migrated without rewriting the build description as `cabin.toml`.  This stays true when the
+  roadmap lands its planned interoperability: invoking an upstream project's own builder behind an
+  explicit artifact contract (stage 07) and exporting CMake / pkg-config packages for external
+  consumers (stage 09).
+- **No shared-library linkage model yet** (planned: roadmap stage 08). The current build model is
+  based on executables, static archives, header-only libraries, and system-library link flags.
 - **No lockfile capture of resolved build configurations.** The lockfile records dependency and
   local-override state, not profile / toolchain / environment-derived build configuration
   fingerprints.
-- **No C++ modules, no generated-source bindings.** Header-generation tools (`cxx`, `autocxx`,
-  `bindgen`) and the C++ modules build flow are out of scope.
+- **No C++ modules or generated sources yet** (planned: roadmap stages 10 and 07). There is no
+  module build flow and no build action that generates files.  Rust-interop binding generators
+  (`cxx`, `autocxx`, `bindgen`) get no dedicated integration.
+- **No system providers or installation yet** (planned: roadmap stages 06 and 09). A dependency on
+  a Cabin package is always fetched and built (`system = true` names pkg-config modules of
+  libraries that have no Cabin package), and there is no install command and no CMake /
+  pkg-config export.
 
 Per-feature limitations live with each feature page (for example [`targets.md`](targets.md),
 [`profiles.md`](profiles.md)).
+
+Items above marked *planned* are not implemented.  They are assigned to stages of the capability
+roadmap, whose [ledger](design/capability-roadmap/ledger.md) maps each one to its stage and status
+and whose [contracts](design/capability-roadmap/contracts.md) every stage implements against.
+Planned work is implemented only through its stage; everything else above stays out of scope.
 
 ## Contributor-facing architecture guardrails
 

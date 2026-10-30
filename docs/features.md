@@ -67,7 +67,7 @@ openssl = { version = "^3", optional = true }
 [features]
 default = []
 ssl = ["dep:openssl"]
-full = ["ssl", "openssl/vendored"]
+full = ["ssl", "openssl/legacy"]
 ```
 
 - `optional = true` declares an optional Cabin package dependency (supported in `[dependencies]`;

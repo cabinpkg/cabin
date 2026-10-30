@@ -42,7 +42,8 @@ A port depends on its module's boostdep primary dependencies, each with the exac
 headers.  A package with several library targets is referenced as `package:target`.
 
 Six boostdep edges are dropped.  Each exists only through an opt-in integration header that the
-upstream CMake target also omits or that needs an SDK no port can provide, and each would
+upstream CMake target also omits or that needs an SDK no port can provide yet (capability roadmap
+stages 06 and 12), and each would
 otherwise force a blocked SDK, a cycle, or a stricter standard on every consumer:
 
 | Edge | Only through | Kept out because |
@@ -52,7 +53,7 @@ otherwise force a blocked SDK, a cycle, or a stricter standard on every consumer
 | `numeric~odeint` -> `compute` | `boost/numeric/odeint/external/compute/*` | OpenCL SDK |
 | `mysql` -> `pfr` | `boost/mysql/pfr.hpp` | `pfr` requires C++14 (`#error` below it); `mysql` supports C++11 |
 | `histogram` -> `serialization` | `boost/histogram/serialization.hpp` | a compiled library every histogram consumer would link |
-| `numeric~ublas` -> `compute` | `boost/numeric/ublas/opencl*.hpp` | those headers also need the OpenCL SDK, so `compute` can never be a port; upstream CMake keeps this edge |
+| `numeric~ublas` -> `compute` | `boost/numeric/ublas/opencl*.hpp` | those headers also need the OpenCL SDK, so `compute` cannot be a port until capability roadmap stages 06 and 12 land; upstream CMake keeps this edge |
 
 ### Language standards
 
@@ -99,9 +100,9 @@ macOS, and Windows.
 | Platform-specific sources are not self-guarded | `thread`, `locale`, `log`, `fiber`, `stacktrace`, `context`, others | done: `[target.'cfg(...)'.sources]` tables (#2035) |
 | Assembly sources (`.S` through the GCC/Clang driver, MSVC `.asm` through `ml64`) | `context`, and through it `coroutine`, `coroutine2`, `fiber`, `cobalt`, `asio`, `beast`, `process`, `log` | done: `.S` and `.asm` sources (#2037) |
 | Archive above the operator `max_archive_bytes` (16 MiB) | `math` (30.6 MB compressed; the cap is the same in every quota class), and everything that depends on it | done: `[package] include` archives only the listed paths (#2038); `include/` alone is 2.4 MB |
-| Defines a consumer must set: Cabin propagates no defines to consumers | `stacktrace` (`BOOST_STACKTRACE_LINK`); `contract` ships header-only instead of requiring `BOOST_CONTRACT_STATIC_LINK` | open |
+| Defines a consumer must set: Cabin propagates no defines to consumers | `stacktrace` (`BOOST_STACKTRACE_LINK`); `contract` ships header-only instead of requiring `BOOST_CONTRACT_STATIC_LINK` | open: interface definitions are [capability roadmap](design/capability-roadmap/ledger.md) stage 02 |
 | MSVC `/bigobj`: ports cannot pass compiler flags | `json`, `log`, `xpressive`, and the large consumer tests | not hit: the Windows dry-run builds them and their consumer tests without it (#2052) |
-| SDKs Cabin cannot provide: ports may not declare system dependencies, and these SDKs cannot be built as ports | `python`, `parameter_python` (Python); `mpi`, `graph_parallel`, `property_map_parallel` (MPI); `compute` (OpenCL); `mysql`, `redis` (OpenSSL) | needs a maintainer decision |
+| SDKs Cabin cannot provide: ports may not declare system dependencies, and these SDKs cannot be built as ports | `python`, `parameter_python` (Python); `mpi`, `graph_parallel`, `property_map_parallel` (MPI); `compute` (OpenCL); `mysql`, `redis` (OpenSSL) | decided: the SDKs become ordinary Cabin packages and the final consumer may select a system provider ([capability roadmap](design/capability-roadmap/ledger.md) stages 06, 12, 13) |
 
 ## Status
 
