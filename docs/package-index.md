@@ -139,7 +139,7 @@ Each version's metadata:
 | `yanked` | no | `false` | When `true`, the resolver excludes this version from candidate sets. |
 | `revision` | no | `null` | The version's **current** packaging revision: the one a fetch uses when no lockfile pins another.  Must name a key of `revisions`. |
 | `revisions` | no | `{}` | Every fetchable packaging revision of this version, keyed by revision id.  See [Packaging revisions](#packaging-revisions). |
-| `features` | no | omitted | Declared `[features]`.  Older index entries that omit the field continue to load. |
+| `features` | no | omitted | Declared `[features]`, validated like a manifest's table.  Resolution selects a version for a feature request only when this table declares the feature; an entry that omits the field loads and declares only an empty `default`. |
 | `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
 | `links` | no | omitted | Declared per-target [`links`](manifest.md#links) claims, keyed by target name.  Absence means the version claims nothing, so older entries that omit the field continue to load.  See [Links metadata](#links-metadata). |
 | `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, the algorithm-prefixed upstream `checksum` (`sha256:<hex>`, distinct from a revision's archive `checksum`), `format`, optional `strip-prefix`, optional `patches` list, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
@@ -366,7 +366,7 @@ Request shape:
 | Step | URL | Purpose |
 | --- | --- | --- |
 | 1 | `GET <url>/config.json` | Validates `schema = 1`, `kind = "file-registry"`, and the configured `packages` / `artifacts` subdirectories. |
-| 2 | `GET <url>/<config.packages>/<name>.json` (bare name) or `GET <url>/<config.packages>/<scope>/<name>.json` (scoped name) | One request per package referenced by the manifest's versioned dependencies (and their transitive closure). |
+| 2 | `GET <url>/<config.packages>/<name>.json` (bare name) or `GET <url>/<config.packages>/<scope>/<name>.json` (scoped name) | One request per package referenced by the manifest's versioned dependencies and their transitive non-optional dependencies; an optional dependency's metadata is requested only once resolution enables it. |
 | 3 | `GET <artifact-url>` | Source-archive download for each `(name, version, revision)` triple `cabin fetch` / `cabin build` needs. |
 
 The `config.json` fetched in step 1 recognizes the same optional `auth-required` / `api` fields
@@ -391,7 +391,9 @@ Source-path resolution for each revision:
 
 Error mapping:
 
-- `404` on a package metadata URL -> ``package `<name>` was not found in HTTP index``.
+- `404` on a package metadata URL -> the package has no versions: a direct dependency on it fails
+  with ``package "<name>" was not found in index``, a transitive requirement surfaces as a
+  resolution conflict, and an unselected version's dependency on it does not fail the run.
 - `5xx` -> ``HTTP index request failed for `<name>`: server returned <code>``.
 - Malformed JSON -> ``invalid package metadata from HTTP index for `<name>`: ...``.
 - Mismatched checksum on a downloaded archive -> the same artifact error (`checksum mismatch for

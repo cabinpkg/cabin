@@ -397,7 +397,9 @@ fn http_package_not_found_surfaces_clear_error() {
         .arg(server.url())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not found in HTTP index"));
+        .stderr(predicate::str::contains(
+            "package \"fmtlib/fmt\" was not found in index",
+        ));
 }
 
 #[test]

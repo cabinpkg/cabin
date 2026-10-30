@@ -9,13 +9,14 @@
 //! ## Layering
 //!
 //! `PubGrub` solves over abstract packages, versions, and
-//! version sets.  Cabin uses [`PackageName`], [`semver::Version`],
-//! and [`Ranges<semver::Version>`](Ranges) (the latter built by
-//! [`crate::range::req_to_range`]).  The provider also models a
-//! synthetic root package - Cabin's workspace root is not
-//! published in the index, so the solver is given the root's
-//! identity and the resolved root-dependency requirements at
-//! construction time.
+//! version sets.  Cabin uses [`Node`] (a package, one of its
+//! features, or the synthetic root), [`semver::Version`], and
+//! [`Ranges<semver::Version>`](Ranges) (the latter built by
+//! [`crate::range::req_to_range`]).  The root is the workspace
+//! itself, which no index publishes; its edges are the root
+//! dependencies and feature requests of [`ResolveInput`].  Packages
+//! the workspace supplies locally are single-version candidates
+//! that replace same-named index entries.
 //!
 //! ## Targeted errors
 //!
@@ -41,22 +42,106 @@
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::ops::Bound;
 
 use cabin_core::standard_compatibility::{ConsumerStandards, edge_compatible};
 use cabin_core::{
-    IncompatibleStandards, PackageName, Requirement, StandardsMetadata, TargetPlatform,
+    DEFAULT_FEATURE_KEY, FeatureEntry, IncompatibleStandards, PackageName, Requirement,
+    StandardsMetadata, TargetPlatform, escape_control_chars,
 };
-use cabin_index::{IndexEntry, PackageIndex};
-use pubgrub::{
-    Dependencies, DependencyConstraints, DependencyProvider, PackageResolutionStatistics, Ranges,
-};
+use cabin_index::{IndexEntry, IndexPackageDependency, PackageIndex, VersionMetadata};
+use pubgrub::{Dependencies, DependencyProvider, PackageResolutionStatistics, Ranges};
 use semver::Version;
 
 use crate::error::{ResolveError, ResolverConstraint};
 use crate::input::{LockedVersion, ResolveInput, ResolveMode};
 use crate::locked::{LockedConstraintRecorder, validate_locked_metadata};
 use crate::range::req_to_range;
+
+/// A `PubGrub` package.  Feature requests are solver packages of
+/// their own, so feature unification and version selection are one
+/// problem: `Feature(b, f)`'s versions are the versions of `b` that
+/// declare `f`, and selecting one pins `Package(b)` to that version.
+/// A requested feature therefore selects an older version that
+/// declares it over a newer one that does not, and a conflict
+/// reached through a feature edge backtracks like any other.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum Node {
+    /// The synthetic root, labeled with the root package's name.
+    Root(PackageName),
+    Package(PackageName),
+    Feature(PackageName, String),
+}
+
+impl Node {
+    pub(crate) fn package_name(&self) -> &PackageName {
+        match self {
+            Node::Root(name) | Node::Package(name) | Node::Feature(name, _) => name,
+        }
+    }
+}
+
+impl fmt::Display for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Node::Root(name) | Node::Package(name) => write!(f, "{name}"),
+            // Index dependency edges carry feature strings no grammar
+            // check has seen; keep them from steering the terminal.
+            Node::Feature(name, feature) => write!(f, "{name}[{}]", escape_control_chars(feature)),
+        }
+    }
+}
+
+/// `name`'s candidate versions: the workspace's local entry when it
+/// supplies the name, otherwise the index entry.
+///
+/// # Errors
+/// [`ResolveError::ReservedRootName`] for a pure workspace's synthetic
+/// root name, and [`ResolveError::MetadataNeeded`] when a lazily
+/// loaded index has not fetched `name` yet.
+pub(crate) fn lookup<'a>(
+    input: &'a ResolveInput,
+    index: &'a PackageIndex,
+    name: &PackageName,
+) -> Result<Option<&'a IndexEntry>, ResolveError> {
+    if let Some(entry) = input.local_packages.get(name) {
+        return Ok(Some(entry));
+    }
+    // A real root is a local package; only a pure workspace's
+    // synthetic root name reaches here, and no index package may
+    // stand in for it.
+    if *name == input.root_name {
+        return Err(ResolveError::ReservedRootName(name.to_string()));
+    }
+    if let Some(entry) = index.package(name) {
+        return Ok(Some(entry));
+    }
+    if input.lazy_index {
+        return Err(ResolveError::MetadataNeeded(name.clone()));
+    }
+    Ok(None)
+}
+
+/// The metadata of one selected `name@version`, local or indexed.
+pub(crate) fn version_metadata<'a>(
+    input: &'a ResolveInput,
+    index: &'a PackageIndex,
+    name: &PackageName,
+    version: &Version,
+) -> Option<&'a VersionMetadata> {
+    input
+        .local_packages
+        .get(name)
+        .or_else(|| index.package(name))
+        .and_then(|entry| entry.versions.get(version))
+}
+
+/// Whether `meta` is a candidate for `feature` (`None` = the package
+/// itself).  Every version offers `default`, possibly empty.
+fn declares(meta: &VersionMetadata, feature: Option<&str>) -> bool {
+    feature.is_none_or(|f| f == DEFAULT_FEATURE_KEY || meta.features.features.contains_key(f))
+}
 
 /// The three preference tiers of
 /// `docs/design/standard-compatibility/preference-mode.md` section 1,
@@ -75,6 +160,40 @@ enum StandardTier {
     DeclaredIncompatible,
 }
 
+/// Why a node's dependencies could not be produced: a fatal provider
+/// error, or a version `PubGrub` should treat as unusable and
+/// backtrack past.
+enum EdgeError {
+    Fatal(ResolveError),
+    Unavailable(String),
+}
+
+impl From<ResolveError> for EdgeError {
+    fn from(err: ResolveError) -> Self {
+        EdgeError::Fatal(err)
+    }
+}
+
+/// Dependency constraints under construction.  A node required twice
+/// (a package edge and a feature entry naming the same dependency)
+/// keeps the intersection of its ranges.
+#[derive(Default)]
+struct Constraints(BTreeMap<Node, Ranges<Version>>);
+
+impl Constraints {
+    fn require(&mut self, node: Node, range: Ranges<Version>) {
+        match self.0.entry(node) {
+            std::collections::btree_map::Entry::Vacant(slot) => {
+                slot.insert(range);
+            }
+            std::collections::btree_map::Entry::Occupied(mut slot) => {
+                let merged = slot.get().intersection(&range);
+                slot.insert(merged);
+            }
+        }
+    }
+}
+
 /// `PubGrub` [`DependencyProvider`] implementation used by
 /// [`crate::resolve`].
 ///
@@ -84,25 +203,17 @@ enum StandardTier {
 /// the recorder is absent because backtracking would invalidate
 /// it (see [`crate::locked`]).
 pub(crate) struct Provider<'a> {
+    input: &'a ResolveInput,
     index: &'a PackageIndex,
-    root_name: PackageName,
-    root_version: Version,
     root_dependencies: Vec<(PackageName, Ranges<Version>)>,
     locked: BTreeMap<PackageName, LockedVersion>,
     platform: TargetPlatform,
     locked_constraints: Option<LockedConstraintRecorder>,
-    /// The `[resolver] incompatible-standards` preference.  Under
-    /// `Fallback`, [`Self::choose_compatible_candidate`] orders
-    /// candidates by [`StandardTier`]; under `Allow` it is inert.
-    incompatible_standards: IncompatibleStandards,
-    /// The workspace consumer's effective compile levels, checked
-    /// against candidate declared requirements for tier ordering.
-    consumer_standards: ConsumerStandards,
 }
 
 impl<'a> Provider<'a> {
     pub(crate) fn new(
-        input: &ResolveInput,
+        input: &'a ResolveInput,
         index: &'a PackageIndex,
         locked: BTreeMap<PackageName, LockedVersion>,
         platform: TargetPlatform,
@@ -115,43 +226,280 @@ impl<'a> Provider<'a> {
         let locked_constraints = matches!(input.mode, ResolveMode::Locked)
             .then(|| LockedConstraintRecorder::new(root_constraints));
         Self {
+            input,
             index,
-            root_name: input.root_name.clone(),
-            root_version: input.root_version.clone(),
             root_dependencies,
             locked,
             platform,
             locked_constraints,
-            incompatible_standards: input.incompatible_standards,
-            consumer_standards: input.consumer_standards,
         }
     }
 
-    fn is_root(&self, package: &PackageName) -> bool {
-        package == &self.root_name
+    fn entry(&self, name: &PackageName) -> Result<Option<&'a IndexEntry>, ResolveError> {
+        lookup(self.input, self.index, name)
+    }
+
+    fn is_local(&self, name: &PackageName) -> bool {
+        self.input.local_packages.contains_key(name)
+    }
+
+    /// Candidate versions of `name` in `range` offering `feature`,
+    /// without fetching anything: `prioritize` cannot fail, and a
+    /// missing entry counts zero so `choose_version` reports it next.
+    fn candidate_count(
+        &self,
+        name: &PackageName,
+        range: &Ranges<Version>,
+        feature: Option<&str>,
+    ) -> usize {
+        self.input
+            .local_packages
+            .get(name)
+            .or_else(|| self.index.package(name))
+            .map_or(0, |entry| {
+                entry
+                    .versions
+                    .iter()
+                    .filter(|(v, meta)| range.contains(v) && declares(meta, feature))
+                    .count()
+            })
+    }
+
+    /// Whether any version of `name` in `range` declares a non-empty
+    /// `default` list.  An edge onto a package with none requests no
+    /// `default` node, which keeps conflict explanations of
+    /// feature-free graphs unchanged.
+    fn declares_default_features(
+        &self,
+        name: &PackageName,
+        range: &Ranges<Version>,
+    ) -> Result<bool, ResolveError> {
+        Ok(self.entry(name)?.is_some_and(|entry| {
+            entry
+                .versions
+                .iter()
+                .any(|(v, meta)| range.contains(v) && !meta.features.default.is_empty())
+        }))
+    }
+
+    /// Require one active dependency edge of `parent@version`: the
+    /// package itself plus the features the edge requests.
+    fn require_edge(
+        &self,
+        deps: &mut Constraints,
+        parent: &PackageName,
+        version: &Version,
+        dep_name: &PackageName,
+        dep: &IndexPackageDependency,
+    ) -> Result<(), EdgeError> {
+        if let Some(recorder) = &self.locked_constraints {
+            recorder.record(dep_name, parent.clone(), dep.req.clone());
+        }
+        // Another edge pinning a local pre-release exactly narrows its
+        // range to a singleton, which admits the pre-release; semver
+        // matching admits it only when this edge opts in.
+        if let Some(local) = self.input.local_packages.get(dep_name)
+            && let Some(local_version) = local.versions.keys().find(|v| !v.pre.is_empty())
+            && !dep.req.matches(local_version)
+        {
+            return Err(EdgeError::Unavailable(format!(
+                "{parent} {version} requires {dep_name} {}, which the local {dep_name} {local_version} does not satisfy",
+                dep.req
+            )));
+        }
+        let range = edge_range(parent, version, dep_name, dep)?;
+        if dep.default_features && self.declares_default_features(dep_name, &range)? {
+            deps.require(
+                Node::Feature(dep_name.clone(), DEFAULT_FEATURE_KEY.to_owned()),
+                range.clone(),
+            );
+        }
+        for feature in &dep.features {
+            deps.require(
+                Node::Feature(dep_name.clone(), feature.clone()),
+                range.clone(),
+            );
+        }
+        deps.require(Node::Package(dep_name.clone()), range);
+        Ok(())
+    }
+
+    fn constraints(&self, node: &Node, version: &Version) -> Result<Constraints, EdgeError> {
+        let mut deps = Constraints::default();
+        let (name, feature) = match node {
+            Node::Root(_) => {
+                for (name, range) in &self.root_dependencies {
+                    deps.require(Node::Package(name.clone()), range.clone());
+                }
+                for (name, features) in &self.input.root_features {
+                    let range = self
+                        .root_dependencies
+                        .iter()
+                        .find(|(dep, _)| dep == name)
+                        .map_or_else(Ranges::full, |(_, range)| range.clone());
+                    deps.require(Node::Package(name.clone()), range.clone());
+                    for feature in features {
+                        if feature == DEFAULT_FEATURE_KEY
+                            && !self.declares_default_features(name, &range)?
+                        {
+                            continue;
+                        }
+                        deps.require(Node::Feature(name.clone(), feature.clone()), range.clone());
+                    }
+                }
+                return Ok(deps);
+            }
+            Node::Package(name) => (name, None),
+            Node::Feature(name, feature) => (name, Some(feature.as_str())),
+        };
+
+        let entry = self
+            .entry(name)?
+            .ok_or_else(|| ResolveError::UnknownPackage(name.as_str().to_owned()))?;
+        let Some(meta) = entry.versions.get(version) else {
+            return Err(EdgeError::Unavailable(format!(
+                "{name} {version} is not present in the index"
+            )));
+        };
+
+        let Some(feature) = feature else {
+            // Optional edges join through the features that enable
+            // them; `cfg(...)`-gated edges whose predicate fails
+            // here never participate.
+            for (dep_name, dep) in &meta.dependencies {
+                if dep.is_active_for(&self.platform) {
+                    self.require_edge(&mut deps, name, version, dep_name, dep)?;
+                }
+            }
+            return Ok(deps);
+        };
+
+        let exact = Ranges::singleton(version.clone());
+        deps.require(Node::Package(name.clone()), exact.clone());
+        if feature == DEFAULT_FEATURE_KEY {
+            for implied in &meta.features.default {
+                deps.require(Node::Feature(name.clone(), implied.clone()), exact.clone());
+            }
+            return Ok(deps);
+        }
+        let Some(entries) = meta.features.features.get(feature) else {
+            return Err(EdgeError::Unavailable(format!(
+                "{name} {version} does not declare feature {feature:?}"
+            )));
+        };
+        for raw in entries {
+            let entry = FeatureEntry::parse(raw).map_err(|kind| {
+                EdgeError::Unavailable(format!(
+                    "{name} {version} feature {feature:?} has an invalid entry {raw:?}: {}",
+                    kind.message()
+                ))
+            })?;
+            match entry {
+                FeatureEntry::Local(implied) => {
+                    deps.require(Node::Feature(name.clone(), implied), exact.clone());
+                }
+                FeatureEntry::OptionalDep(dep_name) => {
+                    let (dep_name, dep) = declared_dep(name, version, feature, meta, &dep_name)?;
+                    // A dependency gated off on this platform is a no-op,
+                    // as in `cabin-feature`, whatever its kind.
+                    if !dep.matches_platform(&self.platform) {
+                        continue;
+                    }
+                    if !dep.optional {
+                        return Err(EdgeError::Unavailable(format!(
+                            "{name} {version} feature {feature:?} enables {dep_name}, which is not optional"
+                        )));
+                    }
+                    self.require_edge(&mut deps, name, version, dep_name, dep)?;
+                }
+                FeatureEntry::DepFeature {
+                    dep: dep_name,
+                    feature: requested,
+                } => {
+                    let (dep_name, dep) = declared_dep(name, version, feature, meta, &dep_name)?;
+                    // Like `dep:`, a request on a gated-off dependency
+                    // is a no-op.
+                    if !dep.matches_platform(&self.platform) {
+                        continue;
+                    }
+                    if dep.optional {
+                        self.require_edge(&mut deps, name, version, dep_name, dep)?;
+                    }
+                    let range = edge_range(name, version, dep_name, dep)?;
+                    deps.require(Node::Feature(dep_name.clone(), requested), range);
+                }
+            }
+        }
+        Ok(deps)
     }
 }
 
+/// The `PubGrub` range of one dependency edge.  An unsupported
+/// requirement syntax on a transitive dep is a backtrackable miss,
+/// not a fatal error: an older version of `parent` may declare the
+/// same dep with a syntax this build understands.  The root path
+/// catches unsupported syntax up front, where the error names the
+/// user-authored requirement.
+fn edge_range(
+    parent: &PackageName,
+    version: &Version,
+    dep_name: &PackageName,
+    dep: &IndexPackageDependency,
+) -> Result<Ranges<Version>, EdgeError> {
+    req_to_range(&dep.req).map_err(|err| {
+        EdgeError::Unavailable(format!(
+            "{parent} {version} declares an unsupported version requirement for {dep_name}: {}",
+            err.requirement,
+        ))
+    })
+}
+
+/// The normal dependency a feature entry of `name@version` names.
+/// An undeclared one makes the version unusable: index metadata is
+/// not validated against its own dependency table.
+fn declared_dep<'m>(
+    name: &PackageName,
+    version: &Version,
+    feature: &str,
+    meta: &'m VersionMetadata,
+    dep_name: &str,
+) -> Result<(&'m PackageName, &'m IndexPackageDependency), EdgeError> {
+    meta.dependencies
+        .iter()
+        .find(|(declared, _)| declared.as_str() == dep_name)
+        .ok_or_else(|| {
+            EdgeError::Unavailable(format!(
+                "{name} {version} feature {feature:?} references undeclared dependency {dep_name}"
+            ))
+        })
+}
+
 impl DependencyProvider for Provider<'_> {
-    type P = PackageName;
+    type P = Node;
     type V = Version;
     type VS = Ranges<Version>;
     type M = String;
-    type Priority = (u32, Reverse<usize>);
+    /// Conflict count first, as `PubGrub` recommends; then feature
+    /// nodes before package nodes, so a requested feature picks its
+    /// package's version instead of the package picking its newest
+    /// version and backtracking when that one lacks the feature;
+    /// then fewest candidates first.
+    type Priority = (u32, u8, Reverse<usize>);
     type Err = ResolveError;
 
     fn choose_version(
         &self,
-        package: &Self::P,
+        node: &Self::P,
         range: &Self::VS,
     ) -> Result<Option<Self::V>, Self::Err> {
-        if self.is_root(package) {
-            return Ok(if range.contains(&self.root_version) {
-                Some(self.root_version.clone())
-            } else {
-                None
-            });
-        }
+        let (name, feature) = match node {
+            Node::Root(_) => {
+                let root = &self.input.root_version;
+                return Ok(range.contains(root).then(|| root.clone()));
+            }
+            Node::Package(name) => (name, None),
+            Node::Feature(name, feature) => (name, Some(feature.as_str())),
+        };
 
         // A transitive package missing from the index is a
         // backtrackable miss, not a fatal error: an older
@@ -160,91 +508,75 @@ impl DependencyProvider for Provider<'_> {
         // abort resolution before `PubGrub` could try that
         // alternative.  Root-level unknowns are caught in
         // preflight where the error is unambiguous.
-        let Some(entry) = self.index.package(package) else {
+        let Some(entry) = self.entry(name)? else {
             return Ok(None);
         };
 
-        if let Some(recorder) = &self.locked_constraints {
-            return self.choose_locked_candidate(package, recorder, entry, range);
+        // A local package offers exactly its working copy's version:
+        // it is never yanked and never pinned by the lockfile.
+        if self.is_local(name) {
+            return Ok(entry
+                .versions
+                .iter()
+                .find(|(v, meta)| {
+                    range.contains(v)
+                        && candidate_admits_prerelease(range, v)
+                        && declares(meta, feature)
+                })
+                .map(|(v, _)| v.clone()));
         }
 
-        Ok(self.choose_compatible_candidate(package, entry, range))
+        if let Some(recorder) = &self.locked_constraints {
+            let version = self.choose_locked_candidate(name, recorder, entry, range)?;
+            if let Some(feature) = feature
+                && !entry
+                    .versions
+                    .get(&version)
+                    .is_some_and(|meta| declares(meta, Some(feature)))
+            {
+                return Err(ResolveError::LockedVersionLacksFeature {
+                    name: name.as_str().to_owned(),
+                    version: version.to_string(),
+                    feature: feature.to_owned(),
+                });
+            }
+            return Ok(Some(version));
+        }
+
+        Ok(self.choose_compatible_candidate(name, entry, range, feature))
     }
 
     fn prioritize(
         &self,
-        package: &Self::P,
+        node: &Self::P,
         range: &Self::VS,
         package_conflicts_counts: &PackageResolutionStatistics,
     ) -> Self::Priority {
-        let count = if self.is_root(package) {
-            usize::from(range.contains(&self.root_version))
-        } else if let Some(entry) = self.index.package(package) {
-            entry.versions.keys().filter(|v| range.contains(v)).count()
-        } else {
-            0
+        let (count, tier) = match node {
+            Node::Root(_) => (usize::from(range.contains(&self.input.root_version)), 0),
+            Node::Package(name) => (self.candidate_count(name, range, None), 0),
+            Node::Feature(name, feature) => (self.candidate_count(name, range, Some(feature)), 1),
         };
         if count == 0 {
-            return (u32::MAX, Reverse(0));
+            return (u32::MAX, tier, Reverse(0));
         }
-        (package_conflicts_counts.conflict_count(), Reverse(count))
+        (
+            package_conflicts_counts.conflict_count(),
+            tier,
+            Reverse(count),
+        )
     }
 
     fn get_dependencies(
         &self,
-        package: &Self::P,
+        node: &Self::P,
         version: &Self::V,
     ) -> Result<Dependencies<Self::P, Self::VS, Self::M>, Self::Err> {
-        if self.is_root(package) {
-            return Ok(Dependencies::Available(
-                self.root_dependencies.iter().cloned().collect(),
-            ));
+        match self.constraints(node, version) {
+            Ok(deps) => Ok(Dependencies::Available(deps.0.into_iter().collect())),
+            Err(EdgeError::Unavailable(reason)) => Ok(Dependencies::Unavailable(reason)),
+            Err(EdgeError::Fatal(err)) => Err(err),
         }
-
-        let entry = self
-            .index
-            .package(package)
-            .ok_or_else(|| ResolveError::UnknownPackage(package.as_str().to_owned()))?;
-        let Some(meta) = entry.versions.get(version) else {
-            return Ok(Dependencies::Unavailable(format!(
-                "{package} {version} is not present in the index"
-            )));
-        };
-
-        let mut deps: Vec<(PackageName, Ranges<Version>)> = Vec::new();
-        for (dep_name, dep_entry) in &meta.dependencies {
-            // Skip edges that do not participate in resolution on
-            // this host: optional deps (until a feature enables them,
-            // matching cabin-workspace::patch's conservative default)
-            // and `cfg(...)`-gated deps whose predicate fails here.
-            if !dep_entry.is_active_for(&self.platform) {
-                continue;
-            }
-            if let Some(recorder) = &self.locked_constraints {
-                recorder.record(dep_name, package.clone(), dep_entry.req.clone());
-            }
-            // An unsupported requirement syntax on a transitive
-            // dep is a backtrackable miss, not a fatal error:
-            // an older version of `package` may declare the
-            // same dep with a syntax this build understands, and
-            // returning `Err` here would abort resolution before
-            // `PubGrub` could try that alternative.  The root
-            // path catches unsupported syntax up front, where
-            // the error names the user-authored requirement.
-            let range = match req_to_range(&dep_entry.req) {
-                Ok(range) => range,
-                Err(err) => {
-                    return Ok(Dependencies::Unavailable(format!(
-                        "{package} {version} declares an unsupported version requirement for {dep_name}: {}",
-                        err.requirement,
-                    )));
-                }
-            };
-            deps.push((dep_name.clone(), range));
-        }
-        Ok(Dependencies::Available(DependencyConstraints::from_iter(
-            deps,
-        )))
     }
 }
 
@@ -269,11 +601,12 @@ impl Provider<'_> {
         package: &PackageName,
         entry: &IndexEntry,
         range: &Ranges<Version>,
+        feature: Option<&str>,
     ) -> Option<Version> {
         let mut candidates: Vec<&Version> = entry
             .versions
             .iter()
-            .filter(|(v, meta)| range.contains(*v) && !meta.yanked)
+            .filter(|(v, meta)| range.contains(*v) && !meta.yanked && declares(meta, feature))
             .map(|(v, _)| v)
             .collect();
         if candidates.is_empty() {
@@ -295,7 +628,7 @@ impl Provider<'_> {
             return Some(locked.version.clone());
         }
 
-        if self.incompatible_standards == IncompatibleStandards::Allow {
+        if self.input.incompatible_standards == IncompatibleStandards::Allow {
             // The pure-semver pick: the newest admissible version, i.e.
             // exactly what every pre-preference-mode release selects.
             return candidates.into_iter().max().cloned();
@@ -323,7 +656,7 @@ impl Provider<'_> {
             .versions
             .get(version)
             .map_or(StandardTier::Undeclared, |meta| {
-                classify(self.consumer_standards, &meta.standards)
+                classify(self.input.consumer_standards, &meta.standards)
             })
     }
 
@@ -338,7 +671,7 @@ impl Provider<'_> {
         recorder: &LockedConstraintRecorder,
         entry: &IndexEntry,
         range: &Ranges<Version>,
-    ) -> Result<Option<Version>, ResolveError> {
+    ) -> Result<Version, ResolveError> {
         let locked = self
             .locked
             .get(package)
@@ -361,7 +694,7 @@ impl Provider<'_> {
                 constraints: observed,
             });
         }
-        Ok(Some(locked.version.clone()))
+        Ok(locked.version.clone())
     }
 }
 

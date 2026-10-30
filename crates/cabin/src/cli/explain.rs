@@ -132,6 +132,7 @@ pub(crate) fn explain(
                 name,
                 Some(&active_patches),
                 lockfile.as_ref(),
+                Some(&feature_resolution.included),
             )?;
             cabin_explain::Explanation::Package(exp)
         }
@@ -198,8 +199,7 @@ pub(crate) fn explain(
             )?;
             let configurations = resolve_build_configurations(
                 &graph,
-                &request,
-                &resolved_selection.packages,
+                &feature_resolution,
                 &inspection.profile,
                 &prep.toolchain_summary,
                 &prep.build_flags,

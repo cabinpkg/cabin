@@ -89,14 +89,15 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     let lockfile = read_optional_lockfile(&lockfile_path)?;
 
     // Run the same selection / feature resolver `cabin metadata`
-    // runs so unknown features / `dep:` errors surface here too.
+    // runs so unknown features / `dep:` errors surface here too, and
+    // the tree shows only the dependencies the features activate.
     let request = build_selection_request(
         &args.selection.features,
         args.selection.all_features,
         args.selection.no_default_features,
     );
     let resolved_selection = cabin_workspace::resolve_package_selection(&graph, &tree_selection)?;
-    let _feature_resolution = compute_feature_resolution(
+    let feature_resolution = compute_feature_resolution(
         &graph,
         &resolved_selection,
         &request,
@@ -109,6 +110,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         lockfile: lockfile.as_ref(),
         active_patches: Some(&active_patches),
         kind_filter: args.kind.to_filter(),
+        included: Some(&feature_resolution.included),
     };
     let forest = cabin_explain::build_tree(&inputs);
 

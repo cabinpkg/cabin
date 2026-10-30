@@ -625,8 +625,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
     let configurations = resolve_build_configurations(
         &graph,
-        &request,
-        &resolved_selection.packages,
+        &feature_resolution,
         &profile,
         &toolchain_summary,
         &build_flags,

@@ -273,10 +273,21 @@ translates `semver::VersionReq` into PubGrub's `Ranges<semver::Version>`, implem
 `DependencyProvider` against `cabin_index::PackageIndex`, and handles yanked filtering, locked-mode
 preferences, optional / conditional edges, and candidate ordering.
 
+Features resolve together with versions.  The provider's private packages are the root, each
+package, and each (package, feature) pair; a pair's candidates are the versions declaring the
+feature, and choosing one pins the package to that version and adds the feature's entries.  The
+caller supplies the root's per-dependency feature requests (`ResolveInput::root_features`, from
+`cabin-feature`'s pass over the local packages) and every local package as a single-version entry
+(`ResolveInput::local_packages`) that replaces any same-named index entry, so registry edges onto
+members, path dependencies, and `[patch]` forks resolve against the local manifest.  The resolver
+performs no I/O: with `ResolveInput::lazy_index` set, a name missing from the index surfaces as
+`ResolveError::MetadataNeeded`, and the CLI fetches that entry and solves again.
+
 `ResolveError` implements `miette::Diagnostic` directly so dependency resolution failures are
 rendered through Cabin's miette-based diagnostics layer.  Lockfile errors stay specific - the
 resolver preserves `LockfileMissingPackage`, `LockedVersionMissing`, `LockedVersionYanked`,
-`LockedVersionViolatesConstraint`, `LockedChecksumMismatch`, and `LockedChecksumMissing` so users
+`LockedVersionViolatesConstraint`, `LockedVersionLacksFeature`, `LockedChecksumMismatch`, and
+`LockedChecksumMissing` so users
 can tell whether to update the lockfile, fix constraints, or investigate a packaging-revision pin
 that no longer matches what the index publishes.  Conflict cases collapse
 PubGrub's derivation tree into a human-readable explanation embedded in `ResolveError::Conflict {
@@ -373,8 +384,8 @@ public surface is intentionally small:
   (`404`, `401`/`403` for the authenticated path, `503` for the hosted registry's
   read-side budget breaker, `5xx`) and transport errors to `IndexHttpError` variants;
 - [`cabin_index_http::HttpIndex`] - opens a registry by fetching `<base>/config.json`, validates it,
-  exposes `fetch_package(name) -> IndexEntry` and a transitive walker `load_package_index(roots) ->
-  PackageIndex` that returns the same shape as the local file loader;
+  exposes `fetch_package(name) -> IndexEntry` and a walker `load_package_index(roots, known) ->
+  PackageIndex` over non-optional edges that returns the same shape as the local file loader;
 - [`cabin_index_http::RegistryAuth`] - a caller-supplied bearer credential scoped to one normalized
   origin (see [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests
   on that exact origin and never over cleartext `http` beyond loopback hosts.
@@ -1214,13 +1225,15 @@ PackageGraph + ResolvedToolchain --> cabin_build::plan(PlanRequest)
                                      v
                                   PackageIndex
                                      |
-ResolveInput (root package + versioned deps + locked map + mode)
+ResolveInput (root package + versioned deps + feature requests
+              + local packages + locked map + mode)
                                      |
                                      v
                                 cabin_resolver::resolve
                                      |
                                      v
-                                ResolveOutput { packages: [Root, Index, ...] }
+                                ResolveOutput { packages: [Root, Index, Local, ...]
+                                                with each package's features }
 ```
 
 ### Lockfile-aware resolution
@@ -1424,8 +1437,9 @@ by `cabin resolve`, `cabin fetch`, and `cabin build --index-path` without any re
    v
 HttpIndex { base, config, packages_base, client }
    |
-   |  cabin_index_http::HttpIndex::load_package_index(roots)
-   |    BFS over (root deps + transitive):
+   |  cabin_index_http::HttpIndex::load_package_index(roots, known)
+   |    BFS over root deps + transitive non-optional edges, skipping
+   |    local names; a 404 becomes an entry without versions:
    |      GET <base>/<config.packages>/<name>.json
    |    Each `<name>.json` is parsed via
    |    `cabin_index::parse_package_entry` with a `SourceContext::HttpUrl`
@@ -1437,7 +1451,8 @@ PackageIndex { packages: BTreeMap<PackageName, IndexEntry> }   (same shape as th
    |
    v
 cabin_resolver::resolve
-   |
+   |  MetadataNeeded(name) (an optional dependency a feature enabled)
+   |    -> load_package_index([name], known), extend, solve again
    v
 ResolveOutput
    |
@@ -1594,8 +1609,10 @@ time.
 What ships today: manifest declarations (`[features]`), `cabin-core`'s `BuildConfiguration` value
 with a deterministic SHA-256 fingerprint, CLI selection flags (`--features` / `--all-features` /
 `--no-default-features`), and round-trip preservation through `cabin package` and `cabin publish
---registry-dir`.  Older index entries that omit the field continue to load.  Full protocol in
-[`features.md`](features.md).
+--registry-dir`.  Older index entries that omit the field continue to load.  `cabin-feature`
+resolves the local packages' features and hands the requests on registry dependencies to
+`cabin-resolver`, which unifies registry features with version selection (see
+[`cabin-resolver`](#cabin-resolver)).  Full protocol in [`features.md`](features.md).
 
 Optional dependencies and per-edge feature requests, target-cfg dependencies, and build profiles all
 layer on top of the same surface; toolchain conditional flags are documented in

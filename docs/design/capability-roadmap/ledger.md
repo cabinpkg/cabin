@@ -24,7 +24,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | Stage | Outcome | Areas | Main owners | Needs | Status |
 | --- | --- | --- | --- | --- | --- |
 | 00 | Shared contracts, this ledger, scope alignment | all | `docs/` | - | adopted |
-| 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | not started |
+| 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | implemented |
 | 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | not started |
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | not started |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | not started |
@@ -50,21 +50,25 @@ Stages 01 and 03; contexts in 04; validated in 12-14.
 
 **Today.**
 
-- PubGrub packages are keyed by name (`cabin-resolver/src/provider.rs`), so one version per package
-  name; lockfile modes are prefer-locked, locked, update-all, and update-package
+- PubGrub's private packages are the root, each package name, and each (name, feature) pair
+  (`cabin-resolver/src/provider.rs`, `Node`), so one version per package name and one feature set
+  per package; lockfile modes are prefer-locked, locked, update-all, and update-package
   (`cabin-resolver/src/input.rs`).
-- Registry optional dependencies never activate: `IndexPackageDependency::is_active_for`
-  (`cabin-index/src/model.rs`) returns false for every `optional` edge, and both resolution and the
-  sparse-HTTP prefetch use it.  [Features](features.md) documents that they "are skipped regardless
-  of feature state".
+- Since stage 01, features resolve with versions: a (name, feature) pair's candidates are the
+  versions declaring the feature, an enabled feature adds its entries, and registry optional
+  dependencies activate exactly when a feature enables them (`provider.rs`, `constraints`).
+  `cabin-feature` resolves the local packages and hands the requests on registry edges to the
+  resolver (`FeatureResolution::versioned_requests`); local packages, patch forks included, are
+  single-version candidates (`cabin/src/cli/seed.rs`, `local_packages`).  Index metadata loads
+  lazily over sparse HTTP (`ResolveError::MetadataNeeded`); the eager prefetch still walks
+  non-optional edges only (`IndexPackageDependency::is_active_for`).
 - Feature resolution keeps one feature set per package for the whole graph
-  (`cabin-feature`, `FeatureResolution`) and already propagates dependency-edge feature requests
-  into the fetched graph's compiles and target gates (`cabin-ports/sqlite3`'s `single-threaded`
-  reaches compilation, `tests/cli/registry_ports.rs`).  What it cannot do is change which versions or
-  packages resolution selects.  Separately, the configuration report
-  (`cabin/src/cli/build_prep.rs`, `resolve_build_configurations`) gives non-selected packages
-  their default features "until per-dependency feature requests land", so `cabin metadata`
-  configurations and fingerprints can disagree with the build.
+  (`cabin-feature`, `FeatureResolution`) and propagates dependency-edge feature requests into the
+  fetched graph's compiles and target gates (`cabin-ports/sqlite3`'s `single-threaded` reaches
+  compilation, `tests/cli/registry_ports.rs`); the building commands refuse a final feature pass
+  that enables a dependency resolution did not select.  The configuration report
+  (`cabin/src/cli/build_prep.rs`, `resolve_build_configurations`) reads the local feature
+  resolution.
 - `cabin.lock` stores `name`, `version`, `checksum`, and resolved direct dependencies per registry
   package (`cabin-lockfile/src/model.rs`, `LockedPackage`); the checksum pins the packaging revision;
   path packages are not locked.
@@ -72,12 +76,12 @@ Stages 01 and 03; contexts in 04; validated in 12-14.
   (`cabin-index/src/model.rs`, `RevisionMetadata`); dependencies, features, standards, and `links`
   are version-level, which is why a respin may not change them.
 
-**Blocked workflow.**  A consumer enables a published package's feature that pulls in an optional
-registry dependency (`feature = ["dep:cabin-ports/zlib"]`): resolution skips the dependency, so the
-feature cannot link it, and Boost integrations cannot be offered as opt-in features.
-`cabin-ports/boost-iostreams` leaves out its bzip2/lzma/zstd filters because those libraries have
-no ports; once they do, the filters still need this stage to become opt-in.  Separately, a port that
-needs a dependency added at the same upstream version cannot be corrected at all.
+**Blocked workflow.**  Before stage 01, a consumer enabling a published package's feature that
+pulls in an optional registry dependency (`feature = ["dep:cabin-ports/zlib"]`) got nothing:
+resolution skipped the dependency.  Stage 01 unblocked that, so Boost integrations can be offered
+as opt-in features; `cabin-ports/boost-iostreams` still leaves out its bzip2/lzma/zstd filters
+until those libraries have ports.  A port that needs a dependency added at the same upstream
+version still cannot be corrected (stage 03).
 
 The port publisher adds a constraint of its own: `xtask-port-publish` refuses `cfg(...)` dependency
 tables and orders publication by each port's own default feature closure, not by feature requests
@@ -390,7 +394,6 @@ Statements that stay true until a stage changes the behavior, and that stage mus
 - [Target dependencies](target-dependencies.md#evaluation-context) on host-only evaluation and the
   lockfile (stage 04).
 - [Dependency kinds](dependency-kinds.md) listing two kinds (stage 04).
-- [Features](features.md) on skipped registry optional dependencies (stage 01).
 - [Remote registry](remote-registry.md) and [foundation ports](foundation-ports.md#packaging-revisions)
   on revision-invariant resolution metadata (stage 03).
 - [Cargo-inspired interface](cargo-inspired-interface.md) on examples and target selection
@@ -417,8 +420,8 @@ change expected to fix them.
 | [Profiles](profiles.md) | output layout `packages/<package>/<target>/...` | artifacts in `packages/<pkg>/`, objects in `packages/<pkg>/obj/<target>/` | stage 09 (layout contract) |
 | [Metadata, tree, explain](metadata-tree-explain.md) | metadata is byte-identical across machines | it includes resolved tool paths and pkg-config output | stage 05 (configured versus detected) |
 | [System dependencies](system-dependencies.md), `docs/architecture.md` (`cabin-system-deps`) | only the selected members are primary; probes fire only for a selected primary package | every primary package is probed; only the MSVC gate narrows to the selection (not run) | stage 06 |
-| [Lockfile](lockfile.md#limitations) | HTTP index, authentication, registry server, and publishing are unsupported; workspace lockfiles without a root package are unsupported | all exist | stage 01 |
-| [Lockfile](lockfile.md) format | `dependencies` are transitive names; `source` includes local provenance | direct resolved index dependencies; only `"index"` parses | stage 01 |
+| [Lockfile](lockfile.md#limitations) | HTTP index, authentication, registry server, and publishing are unsupported; workspace lockfiles without a root package are unsupported | all exist | fixed in stage 01 |
+| [Lockfile](lockfile.md) format | `dependencies` are transitive names; `source` includes local provenance | direct resolved index dependencies; only `"index"` parses | fixed in stage 01 |
 | [Package index](package-index.md#packaging-revisions) | resolution never reads revisions | locked validation reads `revisions` | stage 03 |
 | `cabin resolve` help | selection only narrows diagnostics; resolves "against a local JSON package index" | selection scopes resolution ([workspaces](workspaces.md)); `--index-url` works | stage 11 |
 | [Cargo-inspired interface](cargo-inspired-interface.md) | subcommand table; `-j` "identical" | omits `login`, `logout`, `yank`, `resolve`, `compgen`, `mangen`; `test` has no `-j` | stage 11 |
@@ -438,16 +441,38 @@ generated actions with root execution policy, and per-revision metadata as stage
 **Changes.**  Stage 00: this ledger, the contracts page, and the scope alignment listed above.
 Stage 00 counts as adopted once this ledger is on `main`.
 
-**Validation.**  Stage 00 changes documentation only; the website gate covers it.
+Stage 01: feature-aware dependency resolution (area 1, "Today").  Every command that resolves -
+`resolve`, `update`, `fetch`, `vendor`, `build`, `run`, `test` - shares one selection over file and
+sparse-HTTP indexes; `metadata` and `explain build-config` report configurations from the local
+feature resolution, and `tree` and `explain package` leave out optional dependencies no enabled
+feature turns on.  Patch forks reached through registry edges are ordinary single-version
+candidates, which replaced the activation loop, its residue packages, and the build-time-only
+collision check for fork optional dependencies; the transitive fork version check is now a
+resolution conflict.  The lockfile format is unchanged; [lockfile](lockfile.md#features-and-the-selected-closure)
+documents how features meet its contents.  Contracts section 1's seam for stage 04: the resolver's feature
+packages (`Node::Feature`) and its single `platform` are what per-context resolution splits, while
+`Node::Package` stays shared, keeping one version per name across contexts.
 
-**Unfinished.**  Stages 01-14.
+**Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
+resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
+for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
+lazy metadata), CLI tests for the registry chain built and replayed `--frozen`, an inactive
+optional dependency absent from file and HTTP registries, a registry-reached path patch enabling
+its optional versioned dependency, and dependency configurations in `metadata`; `cargo ci` on
+macOS.  Not run: Linux and Windows locally (CI covers them), and no real-project demonstration -
+stage 12 validates.
 
-## Handoff to stage 01
+**Unfinished.**  Stages 02-14.  Follow-ups found in stage 01, outside its scope:
+`xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
+"Blocked workflow"); a transitively requested unknown feature is reported as a resolution conflict
+naming `<package>[<feature>]` rather than with the direct-request diagnostic; `metadata` and
+`explain build-config` see local edges only, so a registry edge's request on a member or fork is
+missing from their configuration report; `tree` and `explain package` filter by included package,
+not by edge, so a disabled optional edge onto a package another edge includes still shows; over
+sparse HTTP, each optional dependency a feature enables costs one fetch round and re-solve.
 
-Stage 01 starts from contracts sections 1 (features unify per package within one context; leave a
-context seam for stage 04) and 5 (resolution metadata stays version-level until stage 03, so stage
-01 must not assume per-revision metadata), plus area 1 above.  The code to read first:
-`cabin-index/src/model.rs` (`is_active_for`), `cabin-resolver/src/provider.rs`,
-`cabin-index-http/src/source.rs` (prefetch), `cabin-feature/src/lib.rs`, the feature-set fallback in
-`cabin/src/cli/build_prep.rs`, and the [patch](patch-overrides.md) limitations on optional
-dependencies of registry-reached patches.  The lockfile discrepancies above are in its path.
+## Handoff to stage 02
+
+Stage 02 starts from contracts section 2 and area 2 above.  From stage 01 it inherits one enabled
+feature set per package (`FeatureResolution` locally, `ResolvedPackage::features` for registry
+packages), which is what feature-gated interface requirements must read.

@@ -2,13 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cabin_core::standard_compatibility::ConsumerStandards;
 use cabin_core::{IncompatibleStandards, PackageName};
+use cabin_index::IndexEntry;
 
 /// Inputs to [`crate::resolve`].
 ///
-/// The resolver does not know about manifests, workspaces, or
-/// local path dependencies - those are surfaced separately.
-/// `root_dependencies` must be the set of *versioned*
-/// dependencies of the root package.
+/// The resolver does not read manifests or workspaces.  The caller
+/// hands it the root's *versioned* dependencies, the feature
+/// requests on them, and every package the workspace supplies
+/// locally as a single-version entry (`local_packages`).
 ///
 /// `locked` and `mode` let callers feed the previous lockfile
 /// in as a preference (or, in `Locked` mode, as a hard
@@ -36,23 +37,31 @@ pub struct ResolveInput {
     /// default) makes every candidate rank as undeclared, so
     /// `Fallback` reduces to `Allow`.
     pub consumer_standards: ConsumerStandards,
-    /// Declared `links` claims of the packages the index never sees:
-    /// the selected workspace members, path dependencies, and
-    /// patched manifests.  The post-resolution uniqueness check
-    /// validates these together with the resolved registry packages'
-    /// index claims, because native symbol collisions ignore where a
-    /// package came from.  Empty (the default) means the local side
-    /// claims nothing.
+    /// Declared `links` claims of the local packages the caller
+    /// includes without resolution (the selected closure).  The
+    /// post-resolution uniqueness check validates these together with
+    /// the claims of every resolved package, because native symbol
+    /// collisions ignore where a package came from.
     pub local_links: Vec<LinksClaim>,
-    /// Names whose package the build takes from a local source
-    /// (workspace member, path dependency, `[patch]`) even when
-    /// resolution selects a same-named index candidate through a
-    /// transitive registry edge.  The links check skips these
-    /// candidates' index claims - the local replacement is what
-    /// links, and its claims (if any) arrive via `local_links` -
-    /// so a patched-away upstream cannot report a collision the
-    /// final link can never have.
-    pub locally_supplied: BTreeSet<PackageName>,
+    /// The root's active edges onto versioned dependencies with the
+    /// features they request, keyed by dependency name: `default` for
+    /// an edge that keeps default features, plus edge `features` and
+    /// `<dep>/<feature>` requests.  Every name is required, at its
+    /// `root_dependencies` range or, absent there (a `[patch]`ed name
+    /// the caller resolves locally), at any version.
+    pub root_features: BTreeMap<PackageName, BTreeSet<String>>,
+    /// Packages the workspace supplies locally (members, path
+    /// dependencies, `[patch]` forks), each a single-version entry.
+    /// A local entry replaces any same-named index entry for every
+    /// edge that reaches the name, is exempt from the lockfile, and
+    /// is reported as [`ResolvedSource::Local`](crate::ResolvedSource::Local).
+    pub local_packages: BTreeMap<PackageName, IndexEntry>,
+    /// Whether `index` holds only the metadata fetched so far (sparse
+    /// HTTP).  A name missing from such an index fails with
+    /// [`ResolveError::MetadataNeeded`](crate::ResolveError::MetadataNeeded)
+    /// so the caller can fetch it and resolve again; otherwise a
+    /// missing name is a package with no versions.
+    pub lazy_index: bool,
 }
 
 impl ResolveInput {
@@ -72,7 +81,9 @@ impl ResolveInput {
             incompatible_standards: IncompatibleStandards::default(),
             consumer_standards: ConsumerStandards { c: None, cxx: None },
             local_links: Vec::new(),
-            locally_supplied: BTreeSet::new(),
+            root_features: BTreeMap::new(),
+            local_packages: BTreeMap::new(),
+            lazy_index: false,
         }
     }
 }

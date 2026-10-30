@@ -11,13 +11,14 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
-use cabin_core::PackageName;
 use pubgrub::{DefaultStringReporter, DerivationTree, External, Ranges, Reporter};
 use semver::Version;
 
 use crate::error::ResolveError;
+use crate::input::ResolveInput;
+use crate::provider::Node;
 
-type Tree = DerivationTree<PackageName, Ranges<Version>, String>;
+type Tree = DerivationTree<Node, Ranges<Version>, String>;
 
 /// The largest derivation, counted as a tree, that is collapsed
 /// before reporting.  `collapse_no_versions` unshares every shared
@@ -35,15 +36,39 @@ const COLLAPSE_LIMIT: u64 = 100_000;
 /// named package; a larger one is reported as it is.  The report
 /// comes from [`DefaultStringReporter`], which follows shared
 /// derivations, normalized so the message is byte-stable across
-/// runs.
-pub(crate) fn explain_no_solution(mut tree: Tree, root_name: &PackageName) -> ResolveError {
+/// runs.  A conflict involving a locally supplied package ends with
+/// a note naming its one version, which no requirement can move.
+pub(crate) fn explain_no_solution(mut tree: Tree, input: &ResolveInput) -> ResolveError {
     if tree_size(&tree, &mut HashMap::new()) <= COLLAPSE_LIMIT {
         tree.collapse_no_versions();
     }
-    let detail = DefaultStringReporter::report(&tree);
+    let mut nodes = BTreeSet::new();
+    collect_nodes(&tree, &mut HashSet::new(), &mut nodes);
+    let names: BTreeSet<_> = nodes
+        .iter()
+        .filter(|node| !matches!(node, Node::Root(_)))
+        .map(|node| node.package_name())
+        .collect();
+    let mut detail = normalize_explanation(&DefaultStringReporter::report(&tree));
+    let locals: Vec<String> = names
+        .iter()
+        .filter_map(|name| {
+            let version = input.local_packages.get(name)?.versions.keys().next()?;
+            Some(format!("{name} {version}"))
+        })
+        .collect();
+    if !locals.is_empty() {
+        detail += "\n\nnote: supplied locally (workspace member, path dependency, or `[patch]`), so no other version can be selected: ";
+        detail += &locals.join(", ");
+    }
     ResolveError::Conflict {
-        package: pick_conflict_package(&tree, root_name),
-        detail: normalize_explanation(&detail),
+        package: names
+            .first()
+            .copied()
+            .unwrap_or(&input.root_name)
+            .as_str()
+            .to_owned(),
+        detail,
     }
 }
 
@@ -68,39 +93,29 @@ fn tree_size(tree: &Tree, sizes: &mut HashMap<*const Tree, u64>) -> u64 {
         })
 }
 
-/// Pick a representative package name to attach to a
-/// `Conflict` error.  Walks the derivation graph, each shared
-/// derivation once (`DerivationTree::packages` revisits them), and
-/// returns the alphabetically-first non-root package mentioned, or
-/// falls back to the root name when only the root appears.
-fn pick_conflict_package(tree: &Tree, root: &PackageName) -> String {
-    let mut packages = BTreeSet::new();
-    collect_packages(tree, &mut HashSet::new(), &mut packages);
-    packages
-        .into_iter()
-        .find(|p| *p != root)
-        .map_or_else(|| root.as_str().to_owned(), |p| p.as_str().to_owned())
-}
-
-fn collect_packages<'a>(
+/// Every node the derivation graph mentions, walking each shared
+/// derivation once (`DerivationTree::packages` revisits them).  The
+/// conflict's representative package is the alphabetically-first
+/// non-root one, falling back to the root when only the root appears.
+fn collect_nodes<'a>(
     tree: &'a Tree,
     walked: &mut HashSet<*const Tree>,
-    packages: &mut BTreeSet<&'a PackageName>,
+    nodes: &mut BTreeSet<&'a Node>,
 ) {
     match tree {
         DerivationTree::External(External::FromDependencyOf(p, _, p2, _)) => {
-            packages.extend([p, p2]);
+            nodes.extend([p, p2]);
         }
         DerivationTree::External(
             External::NoVersions(p, _) | External::NotRoot(p, _) | External::Custom(p, _, _),
         ) => {
-            packages.insert(p);
+            nodes.insert(p);
         }
         DerivationTree::Derived(derived) => {
-            packages.extend(derived.terms.keys());
+            nodes.extend(derived.terms.keys());
             for cause in [&derived.cause1, &derived.cause2] {
                 if walked.insert(Arc::as_ptr(cause)) {
-                    collect_packages(cause, walked, packages);
+                    collect_nodes(cause, walked, nodes);
                 }
             }
         }

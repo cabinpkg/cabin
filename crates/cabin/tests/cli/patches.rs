@@ -1583,11 +1583,10 @@ sources = ["src/main.cc"]
 }
 
 /// A patch discovered only through an index edge is validated
-/// against that edge's requirement exactly like a locally-visible
-/// one: `resolve_active_patches` never saw `aaa`'s `bbb >= 2`
-/// (aaa is index-only), and the final reload substitutes the fork
-/// without re-solving, so the post-solve check is the only place
-/// the mismatch can surface before an incompatible fork links.
+/// against that edge's requirement: `resolve_active_patches` never
+/// saw `aaa`'s `bbb >= 2` (aaa is index-only), so resolution, which
+/// offers the fork as the only `bbb`, refuses the mismatch and names
+/// the local supply.
 #[test]
 fn transitive_activation_validates_fork_version() {
     let dir = TempDir::new().unwrap();
@@ -1660,9 +1659,114 @@ c-standard = "c11"
         .failure();
     let stderr = String::from_utf8_lossy(&output.get_output().stderr);
     for needle in [
-        "patch package `bbb` has version `1.0.0`",
-        "does not satisfy dependency requirement `>=2`",
+        "depends on bbb >=2.0.0",
+        "so no other version can be selected: bbb 1.0.0",
     ] {
         assert!(stderr.contains(needle), "expected {needle:?} in: {stderr}");
     }
+}
+
+/// A registry-reached fork's feature may name a path dependency gated
+/// off on this platform: the entry is a no-op, as for any local
+/// package, rather than an undeclared dependency.
+#[test]
+fn registry_reached_fork_feature_naming_a_gated_off_path_dep_resolves() {
+    let other_os = if std::env::consts::OS == "linux" {
+        "macos"
+    } else {
+        "linux"
+    };
+    let dir = TempDir::new().unwrap();
+    dir.child("index/aaa.json")
+        .write_str(
+            r#"{"schema": 1, "name": "aaa",
+  "versions": {"1.0.0": {"dependencies": {"bbb": ">=1"}, "yanked": false}}}"#,
+        )
+        .unwrap();
+    dir.child("index/bbb.json")
+        .write_str(
+            r#"{"schema": 1, "name": "bbb",
+  "versions": {"1.0.0": {"dependencies": {}, "yanked": false}}}"#,
+        )
+        .unwrap();
+    dir.child("bbb-fork/cabin.toml")
+        .write_str(&format!(
+            r#"[package]
+name = "bbb"
+version = "1.0.0"
+
+[features]
+default = ["w"]
+w = ["dep:wdep"]
+
+[target.'cfg(os = "{other_os}")'.dependencies]
+wdep = {{ path = "../wdep", optional = true }}
+"#
+        ))
+        .unwrap();
+    dir.child("wdep/cabin.toml")
+        .write_str("[package]\nname = \"wdep\"\nversion = \"0.1.0\"\n")
+        .unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+aaa = ">=1"
+
+[patch]
+bbb = { path = "../bbb-fork" }
+"#,
+        )
+        .unwrap();
+
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .assert()
+        .success();
+}
+
+/// A registry package's edge onto a name the workspace supplies only
+/// as a path dependency cannot link, so resolution refuses it and
+/// names the `[patch]` that would.
+#[test]
+fn registry_edge_onto_an_unpatched_local_package_is_refused() {
+    let dir = TempDir::new().unwrap();
+    dir.child("index/png.json")
+        .write_str(
+            r#"{"schema": 1, "name": "png",
+  "versions": {"1.0.0": {"dependencies": {"zlib": "^1"}, "yanked": false}}}"#,
+        )
+        .unwrap();
+    dir.child("zlib/cabin.toml")
+        .write_str("[package]\nname = \"zlib\"\nversion = \"1.2.11\"\n")
+        .unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+png = "^1"
+zlib = { path = "../zlib" }
+"#,
+        )
+        .unwrap();
+
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "registry package `png` 1.0.0 depends on `zlib`, which this workspace supplies locally without a `[patch]` entry",
+        ));
 }

@@ -634,6 +634,14 @@ include-dirs = ["include"]
         &hex,
         "../artifacts/devkit-1.0.0.zip",
     );
+    // The index records the archive's `[features]`, as publish does:
+    // resolution only selects a version that declares `simd`.
+    let entry_path = dir.path().join("index/devkit.json");
+    let mut entry: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&entry_path).unwrap()).unwrap();
+    entry["versions"]["1.0.0"]["features"] =
+        serde_json::json!({ "default": [], "features": { "simd": [] } });
+    fs::write(&entry_path, entry.to_string()).unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
         .write_str(
             r#"[package]

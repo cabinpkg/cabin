@@ -253,6 +253,10 @@ fn activated_versioned_dev_dep_participates_before_fetch() {
         names(&root_res.enabled_features),
         vec!["default", "simd-tests"]
     );
+    assert_eq!(
+        names(&res.versioned_requests[&pkg("devcheck")]),
+        vec!["default", "simd"]
+    );
     // Without activation the same entry is an error - the
     // ordinary-command behavior is unchanged.
     let err = resolve_features(
@@ -267,6 +271,42 @@ fn activated_versioned_dev_dep_participates_before_fetch() {
         err,
         FeatureResolverError::UnknownDependency { .. }
     ));
+}
+
+/// Requests on registry dependencies are recorded for resolution:
+/// an enabled optional edge's own requests plus `<dep>/<feature>`
+/// ones; a disabled optional edge records nothing.
+#[test]
+fn versioned_requests_record_active_registry_edges() {
+    let registry =
+        |name: &str, optional: bool, default_features: bool, features: &[&str]| Dependency {
+            source: DependencySource::Version(semver::VersionReq::parse(">=1").unwrap()),
+            ..dep_normal_with(name, optional, features, default_features)
+        };
+    let root = make_project(
+        "root",
+        vec![
+            registry("always", false, true, &[]),
+            registry("ssl", true, false, &["fips"]),
+            registry("idle", true, true, &[]),
+        ],
+        features(&[], &[("tls", &["ssl/legacy"])]),
+    );
+    let graph = make_graph(vec![(root, Vec::new())]);
+    let request = RootFeatureRequest {
+        explicit_features: BTreeSet::from(["tls".to_owned()]),
+        ..RootFeatureRequest::default()
+    };
+    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
+    let recorded: Vec<(&str, Vec<&str>)> = res
+        .versioned_requests
+        .iter()
+        .map(|(name, requested)| (name.as_str(), names(requested)))
+        .collect();
+    assert_eq!(
+        recorded,
+        [("always", vec!["default"]), ("ssl", vec!["fips", "legacy"])]
+    );
 }
 
 #[test]

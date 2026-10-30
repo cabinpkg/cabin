@@ -6,9 +6,10 @@
 //! Given the loaded graph and the command's selection, the seed fixes
 //! which local packages are included and with which features, the
 //! `links` claims those packages declare, and the versioned
-//! dependencies the selected closure needs from an index - patched
-//! names excluded (they ship from a local working copy) and the
-//! activated forks' own versioned dependencies folded back in.  The
+//! dependencies the selected closure needs from an index, with the
+//! features it requests on them - patched names excluded (they ship
+//! from a local working copy) and the referenced forks' own versioned
+//! dependencies folded back in.  The
 //! local-vs-local `links` check runs here, unconditionally, because
 //! every command has a no-versioned-deps fast path that never reaches
 //! resolution: a workspace with no registry dependencies must reject
@@ -17,11 +18,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
-use cabin_core::PackageName;
+use cabin_core::{DependencySource, PackageName};
+use cabin_index::{IndexEntry, IndexPackageDependency, VersionMetadata};
 use cabin_resolver::LinksClaim;
 use cabin_workspace::{
-    ActivePatchSet, ClosureVersionedDeps, PackageGraph, PackageSelection, PatchedVersionedDeps,
-    ResolvedSelection, collect_patched_versioned_deps,
+    ActivePatchSet, ClosureVersionedDeps, PackageGraph, PackageKind, PackageSelection,
+    PatchedVersionedDeps, ResolvedSelection, collect_patched_versioned_deps,
 };
 
 /// What a command hands the seed, borrowed from its prepared
@@ -126,9 +128,9 @@ impl ResolutionSeed {
 /// contributes a claim it could not collide with.  Patched packages
 /// are graph packages like any local, so an included patch's claims
 /// participate; what never participates is the patched *name*'s
-/// index metadata - stripped from root deps, and skipped by the
-/// resolver for transitive selections via
-/// `cabin_resolver::ResolveInput::locally_supplied`.
+/// index metadata - stripped from root deps, and replaced for
+/// transitive selections by the fork's
+/// `cabin_resolver::ResolveInput::local_packages` entry.
 ///
 /// [`ResolutionSeed::compute`] validates these claims against each
 /// other with [`enforce_local_links_uniqueness`] *before* any
@@ -183,8 +185,8 @@ pub(crate) fn enforce_local_links_uniqueness(claims: &[LinksClaim]) -> Result<()
 /// [`cabin_feature::resolve_fork_island_features`] runs a dedicated
 /// under-approximating pass over the fork islands - see it for why
 /// only mandatory members claim here; the exact, edge-aware check
-/// runs in the build pipeline over the final reloaded graph, whose
-/// feature resolution applies the fetched manifests' real edge
+/// runs in dependency resolution, which selects the forks and their
+/// path dependencies under the registry edges' real feature
 /// requests.  Scoping to the pass's `included` set - not the
 /// loader-stitch closure - matches [`local_links_claims`]: a
 /// feature-disabled optional path dependency is loaded into the
@@ -253,6 +255,89 @@ fn collect_closure_versioned_deps_excluding_patches(
         dev_for,
     )
     .map_err(Into::into)
+}
+
+/// Every local package of `graph` as the single-version entry the
+/// resolver offers for its name, so a registry edge onto a `[patch]`ed
+/// name resolves to the fork, with the fork's own dependencies and
+/// features.  A path dependency becomes an exact requirement on the
+/// package it loads.  Dev dependencies stay out: their activation
+/// never propagates past the selected packages, whose dev edges are
+/// root dependencies already.
+pub(crate) fn local_packages(graph: &PackageGraph) -> BTreeMap<PackageName, IndexEntry> {
+    graph
+        .packages
+        .iter()
+        .filter(|pkg| pkg.kind == PackageKind::Local)
+        .map(|pkg| {
+            let package = &pkg.package;
+            let dependencies = package
+                .dependencies
+                .iter()
+                .filter(|dep| dep.kind.is_resolved_by_default())
+                .filter_map(|dep| {
+                    let req = match &dep.source {
+                        DependencySource::Version(req) => req.clone(),
+                        // The loader skips a path edge gated off on this
+                        // platform; its condition keeps it inactive here
+                        // too, and it stays declared for feature entries.
+                        DependencySource::Path(_) => pkg
+                            .deps
+                            .iter()
+                            .map(|edge| &graph.packages[edge.index].package)
+                            .find(|target| target.name == dep.name)
+                            .map_or(semver::VersionReq::STAR, |target| {
+                                exact_req(&target.version)
+                            }),
+                        DependencySource::Workspace => return None,
+                    };
+                    Some((
+                        dep.name.clone(),
+                        IndexPackageDependency {
+                            req,
+                            optional: dep.optional,
+                            features: dep.features.clone(),
+                            default_features: dep.default_features,
+                            condition: dep.condition.clone(),
+                        },
+                    ))
+                })
+                .collect();
+            let links = package
+                .targets
+                .iter()
+                .filter_map(|target| {
+                    let links = target.links.clone()?;
+                    Some((target.name.as_str().to_owned(), links))
+                })
+                .collect();
+            let meta = VersionMetadata {
+                dependencies,
+                features: package.features.clone(),
+                links,
+                ..VersionMetadata::default()
+            };
+            (
+                package.name.clone(),
+                IndexEntry {
+                    name: package.name.clone(),
+                    versions: BTreeMap::from([(package.version.clone(), meta)]),
+                },
+            )
+        })
+        .collect()
+}
+
+fn exact_req(version: &semver::Version) -> semver::VersionReq {
+    semver::VersionReq {
+        comparators: vec![semver::Comparator {
+            op: semver::Op::Exact,
+            major: version.major,
+            minor: Some(version.minor),
+            patch: Some(version.patch),
+            pre: version.pre.clone(),
+        }],
+    }
 }
 
 /// Merge `extra` into `into`, joining version requirements for

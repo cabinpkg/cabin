@@ -322,9 +322,10 @@ spdlog = "^1"
     lock
 }
 
-/// A patched name another member reaches through a registry edge is
-/// still a registry entry: a member-scoped run carries its pin like
-/// any other, so the next whole-workspace `--locked` run still passes.
+/// A patched name another member reaches through a registry edge
+/// resolves to its fork: a member-scoped run carries the unselected
+/// member's pins like any others, so the next whole-workspace
+/// `--locked` run still passes.
 #[test]
 fn member_scoped_resolve_keeps_a_patched_name_an_unselected_member_pins() {
     let parent = TempDir::new().unwrap();
@@ -370,8 +371,8 @@ fn member_scoped_resolve_keeps_a_patched_name_an_unselected_member_pins() {
     assert!(
         std::str::from_utf8(&before)
             .unwrap()
-            .contains("name = \"fmt\""),
-        "other's transitive edge must pin the patched name"
+            .contains("name = \"alpha\""),
+        "the whole-workspace lockfile must pin other's dep"
     );
     resolve(&["-p", "app"]);
     assert_eq!(fs::read(root.join("cabin.lock")).unwrap(), before);

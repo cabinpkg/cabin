@@ -92,10 +92,9 @@ requests for features the depended-on package does not declare all surface with 
 
 Effects on commands:
 
-- **`cabin resolve` / `update` / `fetch`** filter disabled optional dependencies declared on local
-  (workspace / path) packages out of the resolver / fetch / lockfile inputs.  Optional dependencies
-  declared on *registry* packages are skipped regardless of feature state.  A feature request on a
-  registry package does not enable that registry package's own optional dependencies.  Dev
+- **`cabin resolve` / `update` / `fetch` / `vendor`** carry the same feature state into dependency
+  resolution (see [Registry packages](#registry-packages)): a disabled optional dependency, local
+  or registry, never enters the resolver's selection, the fetch plan, or the lockfile.  Dev
   dependencies remain excluded by default; system dependencies remain declaration-only.
 - **`cabin build`** sees the same filtered dep set, so a disabled optional dependency never enters
   the build graph or links into ordinary C++ targets.
@@ -210,7 +209,9 @@ the package declared features:
 ```
 
 Selection flags passed to `cabin metadata` flow into the configuration block exactly the way they do
-for `cabin build`.
+for `cabin build`.  A package the selection reaches carries the features enabled on it - the
+selection flags on selected packages plus every local dependency edge's requests; a package outside the
+selection, such as an unselected workspace member, shows its declared defaults.
 
 ## Package metadata and registry preservation
 
@@ -220,10 +221,36 @@ index file.  `cabin-index` (local file index) and `cabin-index-http` (sparse HTT
 optional `features` field on every version entry and preserve it on `VersionMetadata`.  Older
 registry entries that omit the field continue to load.
 
-The resolver consults package features and dependency feature requests when deciding whether
-optional package dependencies declared on local (workspace / path) packages are active.  Optional
-dependencies declared on registry packages are conservatively skipped: their per-edge `features` /
-`default-features` requests round-trip through registry metadata, but transitive feature state for
-registry packages does not gate them on.  The lockfile records resolved registry versions only;
-per-`BuildConfiguration` state lives in the run-time fingerprint and is not persisted to
-`cabin.lock`.
+The lockfile records resolved registry versions only; per-`BuildConfiguration` state lives in the
+run-time fingerprint and is not persisted to `cabin.lock`.
+
+## Registry packages
+
+Features on registry packages resolve together with versions.  The feature resolver above settles
+the local packages first and hands dependency resolution, per versioned dependency, the features
+the local edges request (`default` unless an edge sets `default-features = false`, plus the edge's
+`features` and any `<dep>/<feature>` entries an enabled feature adds).  Dependency resolution then
+treats "package `P` with feature `f`" as a requirement in its own right, `P[f]` in conflict
+explanations:
+
+- a candidate version qualifies for `P[f]` only when its index entry declares `f` (every version
+  qualifies for `default`, and an entry without a `features` table declares nothing else), so a
+  request can select an older version than the newest in range.  A local request no in-range
+  version satisfies fails with `no version of "P" ... declares feature "f"`; a registry package's
+  request fails as a conflict whose explanation names the requester and `P[f]`;
+- an enabled feature contributes its entries: implied features, the optional dependencies `dep:`
+  and `<dep>/<feature>` entries enable, and feature requests on dependencies;
+- requests are additive across edges, so one edge with `default-features = false` does not turn off
+  defaults another edge requests;
+- target-conditioned edges participate only when their condition matches the host platform, and
+  only the selected version's edges count, so backtracking away from a version also drops the
+  features and optional dependencies it enabled.
+
+The selection carries each registry package's enabled features (`cabin resolve --format json`
+lists them under `packages[].features`), and every command that fetches or builds consumes that one
+selection: an optional dependency nothing enables is never downloaded, and its package does not
+even have to exist in the registry.  Over a sparse HTTP index, Cabin fetches an optional
+dependency's metadata only once resolution enables it.  The building commands refuse a feature pass over the fetched manifests
+that enables a dependency the selection lacks.
+Under `--locked`, a locked version that does not declare a requested feature fails with
+`locked package ... does not declare the requested feature`, and `cabin update` refreshes it.

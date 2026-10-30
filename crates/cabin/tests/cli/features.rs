@@ -69,6 +69,40 @@ fn cabin_metadata_all_features_applies_to_configuration_block() {
     assert_eq!(cfg["features"], serde_json::json!(["simd", "ssl"]));
 }
 
+/// A dependency's configuration carries the features its dependents'
+/// edges request, not its own defaults.
+#[test]
+fn cabin_metadata_dependency_configuration_follows_edge_requests() {
+    let dir = TempDir::new().unwrap();
+    write_demo_with_features(&dir.path().join("demo"));
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+demo = { path = "../demo", default-features = false, features = ["ssl"] }
+"#,
+        )
+        .unwrap();
+    let json = run_json(
+        cabin()
+            .args(["metadata", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml")),
+    );
+    let demo = json["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pkg| pkg["name"] == "demo")
+        .unwrap();
+    assert_eq!(
+        demo["configuration"]["features"],
+        serde_json::json!(["ssl"])
+    );
+}
+
 #[test]
 fn cabin_package_metadata_includes_declarations() {
     let dir = TempDir::new().unwrap();

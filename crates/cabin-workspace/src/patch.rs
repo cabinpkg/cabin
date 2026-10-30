@@ -237,67 +237,6 @@ fn combine_folded_reqs(
     Ok(out)
 }
 
-/// Versioned dependencies declared across an activated fork island -
-/// the `included` graph indices of a fork-island feature pass.
-///
-/// [`collect_patched_versioned_deps`] reads the fork manifests
-/// alone, so a registry dependency declared by a fork's *path
-/// dependency* is invisible to it - and for a solution-discovered
-/// fork the ordinary selection-closure pass ran before the fork was
-/// reachable, so nothing else folds such a dependency and the final
-/// reload would drop its edge without a diagnostic.  The caller
-/// supplies `included` from a fork-island feature resolution (this
-/// crate sits below the feature resolver), which keeps the fold on
-/// the same policy as fork `links` claims: feature-disabled optional
-/// members never build, so their registry dependencies stay out.
-///
-/// A dependency naming an `excluded_names` (patched) package chains
-/// that patch into `activated` instead of folding a requirement,
-/// and a patched fork whose graph index already sits in `included`
-/// (the loader stitches chained forks behind resolved edges) is
-/// reported as activated too; callers iterate island passes to a
-/// fixed point.
-///
-/// # Errors
-/// Same as [`collect_patched_versioned_deps`].
-pub fn collect_island_versioned_deps(
-    graph: &PackageGraph,
-    active_patches: &ActivePatchSet,
-    included: &BTreeSet<usize>,
-    excluded_names: &BTreeSet<String>,
-) -> Result<PatchedVersionedDeps, crate::WorkspaceError> {
-    let host_platform = cabin_core::TargetPlatform::current();
-    let mut combined: BTreeMap<PackageName, Vec<String>> = BTreeMap::new();
-    let mut activated: BTreeSet<String> = active_patches
-        .into_iter()
-        .filter(|patch| {
-            graph
-                .index_of(patch.name.as_str())
-                .is_some_and(|idx| included.contains(&idx))
-        })
-        .map(|patch| patch.name.as_str().to_owned())
-        .collect();
-    for &idx in included {
-        for dep in &graph.packages[idx].package.dependencies {
-            let Some(req) = active_versioned_req(dep, &host_platform) else {
-                continue;
-            };
-            if excluded_names.contains(dep.name.as_str()) {
-                activated.insert(dep.name.as_str().to_owned());
-                continue;
-            }
-            combined
-                .entry(dep.name.clone())
-                .or_default()
-                .push(req.to_string());
-        }
-    }
-    Ok(PatchedVersionedDeps {
-        deps: combine_folded_reqs(combined)?,
-        activated,
-    })
-}
-
 /// [`collect_patched_versioned_deps`]'s result: the folded
 /// requirements plus every patch the fold actually reached - the
 /// referenced seed AND the patches discovered through fork
@@ -311,9 +250,7 @@ pub struct PatchedVersionedDeps {
 }
 
 /// Graph indices of the `activated` patches' fork packages - the
-/// seed both [`activated_patch_closure`] and the CLI's feature-aware
-/// fork claim pass grow from, extracted so "which forks count as
-/// activated" is decided once.
+/// roots the CLI's feature-aware fork claim pass grows from.
 #[must_use]
 pub fn activated_fork_indices(
     graph: &PackageGraph,
@@ -325,43 +262,6 @@ pub fn activated_fork_indices(
         .filter(|patch| activated.contains(patch.name.as_str()))
         .filter_map(|patch| graph.index_of(patch.name.as_str()))
         .collect()
-}
-
-/// Graph indices reachable from the `activated` patches' forks
-/// along resolved dependency edges: the fork packages themselves
-/// plus the local closure each fork's manifest pulls in (its path
-/// dependencies).  The loader stitches every active
-/// patch manifest into the graph and resolves its edges, so
-/// activation only walks indices - no manifests are re-read.
-///
-/// Every loaded edge is followed deliberately - feature-disabled
-/// optional edges included - because this is the *load* set, not
-/// the link set: the reload stitches each of these packages into
-/// the graph regardless of feature state, so a same-named index
-/// selection must be suppressed (and never fetched) for every one
-/// of them or the reload sees two packages with one name.  `links`
-/// claims are the opposite - only what actually links may claim -
-/// so claim collection runs a feature-resolution pass over the
-/// forks instead of using this closure.
-#[must_use]
-pub fn activated_patch_closure(
-    graph: &PackageGraph,
-    active_patches: &ActivePatchSet,
-    activated: &BTreeSet<String>,
-) -> BTreeSet<usize> {
-    let mut stack: Vec<usize> = activated_fork_indices(graph, active_patches, activated);
-    let mut closure = BTreeSet::new();
-    while let Some(idx) = stack.pop() {
-        if !closure.insert(idx) {
-            continue;
-        }
-        for edge in &graph.packages[idx].deps {
-            if !closure.contains(&edge.index) {
-                stack.push(edge.index);
-            }
-        }
-    }
-    closure
 }
 
 /// Inputs to [`resolve_active_patches`].  Bundling them keeps the

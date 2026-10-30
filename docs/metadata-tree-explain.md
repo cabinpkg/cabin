@@ -73,9 +73,10 @@ Dev edges are declaration-only and never appear in the tree.  `cabin test` activ
 dev-dependencies for the selected primary packages; `cabin run` does not.  The filter therefore
 exposes no `dev` value.
 
-Feature flags (`--features`, `--all-features`, and `--no-default-features`) are parsed and validated
-through the same feature resolver used by `cabin metadata`, so unknown features and invalid `dep:`
-entries surface here too.
+Feature flags (`--features`, `--all-features`, and `--no-default-features`) go through the same
+feature resolver used by `cabin metadata`, so unknown features and invalid `dep:` entries surface
+here too, and a package that only optional dependencies no enabled feature turns on reach is left
+out of the tree.
 
 ## `cabin explain`
 
@@ -90,7 +91,8 @@ Five subcommands:
 ### `cabin explain package <name>`
 
 Reports the resolved package's source provenance plus the minimal paths from selected roots that
-reach it.  Paths are sorted by `(length, joined name sequence)` so the answer is deterministic.  At
+reach it, through packages the selected features include.  Paths are sorted by `(length, joined
+name sequence)` so the answer is deterministic.  At
 most 64 shortest paths are kept per selected root (diamond-shaped graphs otherwise double the count
 with every layer); when a root had more, the human output says so and the JSON carries
 `"paths_truncated": true` (the field is omitted otherwise).  The `is_selected_root` flag

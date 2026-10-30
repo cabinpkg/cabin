@@ -13,7 +13,7 @@
 //! declarations plus a [`SelectionRequest`] (typically built from CLI
 //! flags by `cabin`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -146,55 +146,59 @@ impl Features {
     }
 
     fn detect_cycles(&self) -> Result<(), ValidationError> {
-        #[derive(Clone, Copy)]
-        enum Color {
-            Visiting,
-            Done,
-        }
-        fn visit<'a>(
-            node: &'a str,
-            features: &'a BTreeMap<String, Vec<String>>,
-            state: &mut std::collections::HashMap<&'a str, Color>,
-            path: &mut Vec<&'a str>,
-        ) -> Result<(), ValidationError> {
-            match state.get(node) {
-                Some(Color::Done) => return Ok(()),
-                Some(Color::Visiting) => {
-                    let start = path.iter().position(|n| *n == node).unwrap_or(0);
+        // Cycle detection only follows local-feature edges: `dep:` /
+        // `dep/feature` entries are not part of this package's local
+        // feature graph.  Returned names borrow the `features` keys,
+        // in declaration order reversed for popping.
+        let successors = |name: &str| -> Vec<&str> {
+            let mut next: Vec<&str> = self
+                .features
+                .get(name)
+                .into_iter()
+                .flatten()
+                .filter_map(|raw| match FeatureEntry::parse(raw) {
+                    Ok(FeatureEntry::Local(local)) => self
+                        .features
+                        .get_key_value(local.as_str())
+                        .map(|(stored, _)| stored.as_str()),
+                    _ => None,
+                })
+                .collect();
+            next.reverse();
+            next
+        };
+        // An explicit stack, not recursion: registry metadata can carry
+        // an implication chain long enough to exhaust the thread stack.
+        let mut done: HashSet<&str> = HashSet::new();
+        for root in self.features.keys() {
+            if done.contains(root.as_str()) {
+                continue;
+            }
+            let mut path: Vec<&str> = vec![root.as_str()];
+            let mut on_path: HashSet<&str> = HashSet::from([root.as_str()]);
+            let mut pending: Vec<Vec<&str>> = vec![successors(root)];
+            while let Some(next) = pending.last_mut() {
+                let Some(child) = next.pop() else {
+                    pending.pop();
+                    let finished = path.pop().expect("one path entry per pending frame");
+                    on_path.remove(finished);
+                    done.insert(finished);
+                    continue;
+                };
+                if done.contains(child) {
+                    continue;
+                }
+                if on_path.contains(child) {
+                    let start = path.iter().position(|n| *n == child).unwrap_or(0);
                     let mut cycle: Vec<String> =
                         path[start..].iter().map(|s| (*s).to_owned()).collect();
-                    cycle.push(node.to_owned());
+                    cycle.push(child.to_owned());
                     return Err(ValidationError::FeatureCycle(cycle));
                 }
-                None => {}
+                path.push(child);
+                on_path.insert(child);
+                pending.push(successors(child));
             }
-            state.insert(node, Color::Visiting);
-            path.push(node);
-            if let Some(implies) = features.get(node) {
-                for r in implies {
-                    // Cycle detection only follows local-feature
-                    // edges. `dep:` / `dep/feature` entries are
-                    // not part of this package's local feature
-                    // graph and never trigger a local cycle here.
-                    // Look up the referenced name in the existing
-                    // `features` keys (so the borrowed slice
-                    // outlives this call) instead of creating a
-                    // new `String` from the parsed entry.
-                    if let Ok(FeatureEntry::Local(local)) = FeatureEntry::parse(r)
-                        && let Some((stored, _)) = features.get_key_value(local.as_str())
-                    {
-                        visit(stored.as_str(), features, state, path)?;
-                    }
-                }
-            }
-            path.pop();
-            state.insert(node, Color::Done);
-            Ok(())
-        }
-        let mut state = std::collections::HashMap::new();
-        let mut path: Vec<&str> = Vec::new();
-        for name in self.features.keys() {
-            visit(name.as_str(), &self.features, &mut state, &mut path)?;
         }
         Ok(())
     }

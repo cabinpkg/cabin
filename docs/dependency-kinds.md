@@ -170,7 +170,7 @@ openssl = { version = "^3", optional = true }
 
 Optional dependencies only enter ordinary resolution / fetch / build when a feature enables them via
 `dep:<name>` or `<name>/<feature>` from `[features]`.  Until then they appear in package / index
-metadata but never in the resolver input or the lockfile.  Per-edge `features = [...]` and
+metadata but never in the resolver's selection or the lockfile.  Per-edge `features = [...]` and
 `default-features = false` are also supported and are applied additively across all dependency edges
 that include the same package - see [`features.md`](features.md) for the full feature-resolution
 behavior.
@@ -181,9 +181,9 @@ manifest layer reports the violation as `OptionalNotSupportedForKind` (dev) or `
 
 ## Scope
 
-- **Registry optional-dep activation is conservative.** Optional dependencies declared by registry
-  packages are preserved in metadata; the resolver activates them only from feature state visible on
-  local (workspace / path) packages.
+- **Registry optional dependencies follow feature requests.** Dependency resolution unifies the
+  feature requests on every selected edge, local or registry, and enables a registry package's
+  optional dependencies exactly when those features do (see [`features.md`](features.md)).
 - **System deps are primary-only and pkg-config-only.** Cabin invokes pkg-config for active `system
   = true` entries declared by selected primary packages.  It does not probe system declarations from
   local path or registry dependencies and does not invoke any other system package manager.

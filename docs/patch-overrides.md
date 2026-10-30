@@ -100,22 +100,18 @@ Once patches are validated, Cabin treats them as *synthesized local-path package
   registry-fetch pass; the patched working copy never enters the artifact cache.
 - Feature resolution, dependency-kind handling, and target-conditioned dependencies flow through the
   patched manifest exactly as they would for any path dependency.
-- A patch reached only through registry metadata (nothing local names it, so activation is
-  discovered during resolution) has the `links` claims of its feature-enabled optional path
-  dependencies enforced by the building commands' final graph check (see
-  [`links`](manifest.md#links)), because those edges are not visible before resolution runs.  Index dependency edges onto the patched name -
-  visible only in the solution, so the pre-resolution validation above never saw them - are checked
-  once resolution completes: the fork's version must satisfy every selected dependent's
-  requirement, surfacing the same version-mismatch error.  Activation follows *live* edges only: a
-  patched name reachable solely through a replaced upstream's own index dependencies stays dormant,
-  because those edges die with the replacement (the fork's real dependencies take their place).  A
-  fork manifest that declares an
-  *optional versioned* dependency follows the same fetch policy as every other package: the
-  registry fetch materializes only edges the local feature resolution proves enabled (index-edge
-  feature requests are not consulted), and the building commands' final workspace reload requires
-  every versioned dependency an activated fork declares - so such a fork currently fails the build
-  naming the missing dependency.  Declare the fork's extras as path dependencies or non-optional
-  versioned dependencies instead.
+- Dependency resolution offers every local package - members, path dependencies, and patch forks
+  - as the only candidate for its name, with the manifest's own dependencies and features.  The
+  build links a registry package's edge only to a registry package or a patch, so such an edge onto
+  a local name that is not patched fails resolution, naming the `[patch]` entry to add.  A registry
+  edge onto a patched name selects the fork, and the fork's edges resolve like
+  any package's: its version must satisfy every selected dependent's requirement (a mismatch is a
+  resolution conflict whose explanation names the local supply), the edge's feature requests apply
+  to the fork, and the optional dependencies those features enable are selected and checked for
+  [`links`](manifest.md#links) collisions like any other, the versioned ones fetched and locked
+  too.  A patch nothing local references is activated only when the solution selects its fork; a
+  patched name that only a version the solution rejected would reach stays dormant and contributes
+  nothing.
 
 ## Source replacement syntax
 
