@@ -106,7 +106,7 @@ cxxapp = ["src/aarch64.c"]
 
     #[test]
     fn build_target_cross_compiles_c_and_cxx_beside_the_native_build() {
-        require_cxx_build_tools();
+        require_c_and_cxx_build_tools();
         let dir = TempDir::new().unwrap();
         write_project(dir.path());
         let (triple, arch, cpu_type) = cross();
@@ -146,7 +146,7 @@ cxxapp = ["src/aarch64.c"]
 
     #[test]
     fn run_target_naming_the_build_machine_runs() {
-        require_cxx_build_tools();
+        require_c_and_cxx_build_tools();
         let dir = TempDir::new().unwrap();
         write_project(dir.path());
         let arch = std::env::consts::ARCH;
@@ -165,7 +165,7 @@ cxxapp = ["src/aarch64.c"]
 
     #[test]
     fn run_and_test_build_for_the_target_but_execute_nothing() {
-        require_cxx_build_tools();
+        require_c_and_cxx_build_tools();
         let dir = TempDir::new().unwrap();
         write_project(dir.path());
         let (triple, ..) = cross();
