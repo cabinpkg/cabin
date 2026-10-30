@@ -85,6 +85,7 @@ pub struct FetchedPackage {
 /// [`ArtifactError::UnsafeArchiveEntry`]); and the validation errors
 /// [`ArtifactError::MissingArchiveManifest`],
 /// [`ArtifactError::ManifestMismatch`], or [`ArtifactError::Manifest`].
+#[tracing::instrument(name = "fetch_artifacts", level = "info", skip_all, fields(packages = plan.entries.len()))]
 pub fn fetch(
     plan: &FetchPlan,
     cache: &ArtifactCache,
@@ -97,6 +98,7 @@ pub fn fetch(
     Ok(FetchResult { packages })
 }
 
+#[tracing::instrument(level = "debug", skip_all, fields(package = %entry.name))]
 fn fetch_one(
     entry: &FetchEntry,
     cache: &ArtifactCache,
@@ -136,6 +138,7 @@ fn frozen_cache_miss(entry: &FetchEntry) -> ArtifactError {
 ///   if the bytes don't match `expected_hex`;
 /// - in frozen mode, refuse to populate; only an already-correct
 ///   cache entry is acceptable.
+#[tracing::instrument(level = "debug", skip_all, fields(hit = tracing::field::Empty))]
 fn ensure_archive(
     entry: &FetchEntry,
     archive_path: &Path,
@@ -145,6 +148,7 @@ fn ensure_archive(
     if archive_path.is_file() {
         let actual = hash_file(archive_path)?;
         if actual == expected_hex {
+            tracing::Span::current().record("hit", 1);
             return Ok(());
         }
         if frozen {
@@ -171,6 +175,7 @@ fn ensure_archive(
         })?;
     }
 
+    tracing::Span::current().record("hit", 0);
     populate_archive(entry, archive_path, expected_hex)
 }
 
@@ -219,6 +224,7 @@ fn populate_archive(
     staged.commit().map_err(io_error)
 }
 
+#[tracing::instrument(level = "debug", skip_all, fields(hit = tracing::field::Empty))]
 fn ensure_source(
     entry: &FetchEntry,
     archive_path: &Path,
@@ -229,8 +235,10 @@ fn ensure_source(
     if marker.is_file()
         && extract::validate_extracted(source_dir, &entry.name, &entry.version).is_ok()
     {
+        tracing::Span::current().record("hit", 1);
         return Ok(());
     }
+    tracing::Span::current().record("hit", 0);
     if frozen {
         return Err(frozen_cache_miss(entry));
     }

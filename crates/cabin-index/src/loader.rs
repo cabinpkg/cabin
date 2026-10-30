@@ -79,6 +79,7 @@ impl std::fmt::Debug for SourceContext<'_> {
 /// registry-root `config.json` is present it propagates the config
 /// errors (`Io` / `Json` / [`IndexError::InvalidRegistryConfig`]), and
 /// it propagates any per-package parse error from `parse_package_entry`.
+#[tracing::instrument(name = "load_file_index", level = "info", skip_all)]
 pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
     let path = path.as_ref();
     if !path.is_dir() {
@@ -272,6 +273,7 @@ fn load_package_file(path: &Path, scope: Option<&str>) -> Result<IndexEntry, Ind
 /// [`IndexError::UnsupportedSourceFormat`],
 /// [`IndexError::MissingSourcePath`], and any error returned by the
 /// [`SourceContext::HttpUrl`] resolver).
+#[tracing::instrument(level = "debug", skip_all, fields(bytes = body.len()))]
 pub fn parse_package_entry(
     body: &str,
     name_hint: Option<&str>,

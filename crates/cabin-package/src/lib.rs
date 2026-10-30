@@ -136,6 +136,7 @@ pub struct StagedPackage {
 /// `workspace_dep_requirements`), and
 /// [`PackageError::ManifestNormalizationIncomplete`] if the rewrite
 /// finds nothing to substitute.
+#[tracing::instrument(name = "stage_package", level = "info", skip_all)]
 pub fn stage_with_project(
     manifest_path: &Path,
     project_override: Option<cabin_core::Package>,
@@ -399,6 +400,7 @@ pub fn package_with_project(
 /// cannot be rendered, and [`PackageError::Io`] /
 /// [`PackageError::OutputAlreadyExists`] when `output_dir` cannot be
 /// created or a target file already exists with different bytes.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn write_staged(
     staged: &StagedPackage,
     output_dir: &Path,

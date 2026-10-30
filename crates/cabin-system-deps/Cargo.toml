@@ -17,6 +17,7 @@ camino = { workspace = true }
 miette = { workspace = true, features = ["derive"] }
 semver = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

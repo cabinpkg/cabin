@@ -35,6 +35,7 @@ mod help_rendering;
 mod manpages;
 mod stamp;
 mod term_setup;
+mod trace;
 mod version_info;
 
 /// Return the English plural suffix for a count: empty for one,
@@ -128,6 +129,7 @@ where
     // syntax-check rule's witness writer); dispatch it before clap so it
     // never enters the user-facing command surface - no `--help`,
     // `--list`, completions, or man pages, and no special-case filtering.
+    let started = std::time::Instant::now();
     let arguments: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
     if let Some(code) = stamp::dispatch(&arguments) {
         return code;
@@ -165,11 +167,24 @@ where
             Err(exit_code) => return exit_code,
         };
 
-    match cli::run(parsed, reporter, color) {
+    let command = matches.subcommand_name().unwrap_or("cabin");
+    let trace = match trace::TraceSession::from_env(command, started) {
+        Ok(trace) => trace,
+        Err(message) => {
+            let mut stderr = termcolor::StandardStream::stderr(term_setup::termcolor_choice(color));
+            let _ = error_rendering::write_plain_error(&mut stderr, &message);
+            return ExitCode::FAILURE;
+        }
+    };
+    let execute = || match cli::run(parsed, reporter, color) {
         Ok(code) => code,
         Err(error) => {
             error_rendering::render_error(&error, color);
             ExitCode::FAILURE
         }
+    };
+    match trace {
+        Some(trace) => trace.run(reporter, execute),
+        None => execute(),
     }
 }

@@ -64,6 +64,7 @@ impl HttpIndex {
     /// valid JSON or its `schema`/`kind`/`packages`/`artifacts`/
     /// `auth-required`/`api` fields fail validation.  Propagates the
     /// fetch errors of [`HttpClient::get_bytes`].
+    #[tracing::instrument(name = "open_http_index", level = "info", skip_all)]
     pub fn open(base_url: &str, client: HttpClient) -> Result<Self, IndexHttpError> {
         let base = parse_base_url(base_url)?;
         let config_url = base
@@ -178,6 +179,7 @@ impl HttpIndex {
     /// gate.  Otherwise propagates every error but a 404 from
     /// [`HttpIndex::fetch_package`] encountered while walking the
     /// dependency closure.
+    #[tracing::instrument(name = "load_http_index", level = "info", skip_all, fields(roots = roots.len(), fetched = tracing::field::Empty))]
     pub fn load_package_index(
         &self,
         roots: &[PackageName],
@@ -237,6 +239,7 @@ impl HttpIndex {
             }
             packages.insert(name, entry);
         }
+        tracing::Span::current().record("fetched", packages.len());
         Ok(PackageIndex {
             // Use the base URL string as the displayable root.
             root: std::path::PathBuf::from(self.base.as_str()),

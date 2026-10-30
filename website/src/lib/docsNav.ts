@@ -85,6 +85,7 @@ export const DOCS_NAV: DocsNavSection[] = [
                 label: "Metadata, tree, and explain",
                 slug: "metadata-tree-explain",
             },
+            { label: "Performance", slug: "performance" },
         ],
     },
     {
@@ -130,6 +131,10 @@ export const DOCS_NAV: DocsNavSection[] = [
             {
                 label: "Capability roadmap ledger",
                 slug: "design/capability-roadmap/ledger",
+            },
+            {
+                label: "Performance observability",
+                slug: "design/performance-observability",
             },
         ],
     },

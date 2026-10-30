@@ -95,6 +95,7 @@ docs/
   workspaces.md      workspace root discovery, member selection, inheritance
   metadata-tree-explain.md  `cabin metadata` / `cabin tree` / `cabin explain`
   cargo-inspired-interface.md  Cabin-vs-Cargo audit / classification
+  performance.md     trace capture and timings summary
   environment-variables.md  CABIN_* read-side / run / test env vars
   check.md           `cabin check` (syntax-only type-check)
   fmt.md             `cabin fmt` (clang-format)
@@ -118,6 +119,7 @@ docs/
     capability-roadmap/
       contracts.md       shared contracts for the capability roadmap's stages (design)
       ledger.md          per-area evidence, stage map, and status of the roadmap
+    performance-observability.md  measurement design and coverage record
     standard-compatibility/
       spec.md            normative resolver-level standard-compatibility model
       registry-index.md  standard metadata in the package index (design)
@@ -2103,6 +2105,19 @@ re-appends every source verbatim and would undo the escape, so those variants ke
 as a plain field.  They also name it `error` rather than `source`: `thiserror` adopts a field
 *named* `source` as the error's source even without the attribute, so dropping `#[source]` alone
 would not have taken it out of the chain.
+
+### Performance tracing
+
+Any crate may emit `tracing` spans and events; only `cabin` builds a subscriber (`src/trace.rs`,
+enabled by `CABIN_TRACE_DIR`, see [`performance.md`](performance.md)).  A domain crate adds the
+`tracing` facade and nothing else: no subscriber, no `tracing-subscriber`, no file output, no
+dependence on whether capture is on.  Spans belong at the operation's owner so every command
+calling it is covered.  Their fields are deliberate: counts, sizes, cache results, and package
+names, never paths, URLs, command lines, environment values, headers, or bodies.  `info` marks a
+command phase, `debug` a per-package or per-request step, and `trace` anything inside a loop that
+can run thousands of times.  The subscriber is scoped to the invocation's thread, never global,
+so a thread that should record spans must be handed the current dispatcher.  Capture must never
+change what a command does: its stdout, its exit status, its lockfile, its plan, or its rebuilds.
 
 ## Why a separate lockfile crate?
 

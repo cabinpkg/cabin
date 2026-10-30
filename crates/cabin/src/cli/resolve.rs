@@ -31,13 +31,17 @@ use super::{
 /// name, so the loop ends.  `lean` skips the hold-back report.  Each
 /// round first gives the lockfile's kept pins their revisions'
 /// metadata, which the fetch plan and lockfile writer then read too.
+#[tracing::instrument(level = "info", skip_all, fields(rounds = tracing::field::Empty))]
 fn resolve_with_lazy_index(
     input: &ResolveInput,
     index: &mut PackageIndex,
     sparse: Option<&cabin_index_http::HttpIndex>,
     lean: bool,
 ) -> Result<ResolveOutput> {
+    let mut rounds: u64 = 0;
     loop {
+        rounds += 1;
+        tracing::Span::current().record("rounds", rounds);
         cabin_resolver::select_locked_revisions(input, index);
         let result = if lean {
             cabin_resolver::resolve_packages(input, index)
@@ -338,6 +342,7 @@ struct ResolutionRequest<'a> {
     offline: bool,
 }
 
+#[tracing::instrument(level = "info", skip_all)]
 fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result<()> {
     let manifest_path = absolutise(request.manifest_path)
         .with_context(|| format!("failed to resolve {}", request.manifest_path.display()))?;
@@ -864,6 +869,7 @@ enum IndexAccess {
 
 /// Run the resolve → lockfile → fetch pipeline used by both
 /// `cabin fetch` and `cabin build`.
+#[tracing::instrument(level = "info", skip_all)]
 pub(crate) fn run_artifact_pipeline(
     request: &ArtifactPipelineRequest<'_>,
 ) -> Result<ArtifactPipeline> {
@@ -1115,6 +1121,7 @@ pub(crate) fn load_http_index(
 /// `access` decides whether HTTP-resolved sources get downloaded
 /// here (so `cabin-artifact` stays HTTP-free) or whether the source
 /// path is handed straight through as a local file.
+#[tracing::instrument(level = "info", skip_all)]
 fn build_fetch_plan(
     output: &ResolveOutput,
     index: &PackageIndex,

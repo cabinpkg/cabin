@@ -123,6 +123,7 @@ impl ResolvedSelection {
 /// for an unknown or non-primary named/excluded package, and
 /// [`WorkspaceError::AmbiguousPackageSelection`] when the selection
 /// resolves to no packages.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn resolve_package_selection(
     graph: &PackageGraph,
     selection: &PackageSelection,

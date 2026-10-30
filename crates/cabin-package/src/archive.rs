@@ -76,6 +76,7 @@ pub struct PackageFile {
 /// non-UTF-8 file name, [`PackageError::SymlinkNotSupported`] for a
 /// symlink, and [`PackageError::UnsupportedFileType`] for any entry
 /// that is neither a regular file nor a directory.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn collect_package_files(
     root: &Path,
     exclude_dir: Option<&Path>,
@@ -216,6 +217,7 @@ pub fn ensure_include_matched(
 /// Returns [`PackageError::Io`] when a file's bytes cannot be read,
 /// and [`PackageError::ArchiveWrite`] when writing an entry or
 /// finishing the zip stream fails.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn build_zip(
     files: &[PackageFile],
     manifest_substitute: Option<&[u8]>,

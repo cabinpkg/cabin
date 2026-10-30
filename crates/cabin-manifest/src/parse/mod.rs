@@ -122,6 +122,7 @@ pub struct WorkspaceTable {
 /// [`ManifestError::TomlAt`] (the source-annotated form of
 /// [`ManifestError::Toml`]); all other validation failures from
 /// [`parse_manifest_str`] are propagated unchanged.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn load_manifest(path: impl AsRef<Path>) -> Result<ParsedManifest, ManifestError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|source| ManifestError::Io {

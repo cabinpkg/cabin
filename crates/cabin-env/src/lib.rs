@@ -239,6 +239,15 @@ pub const CABIN_TERM_VERBOSE: &str = "CABIN_TERM_VERBOSE";
 /// `--quiet` CLI flag is present.
 pub const CABIN_TERM_QUIET: &str = "CABIN_TERM_QUIET";
 
+/// Directory that receives this invocation's performance trace and
+/// timings summary.  Unset or empty disables tracing.
+pub const CABIN_TRACE_DIR: &str = "CABIN_TRACE_DIR";
+
+/// Which spans a trace records, as `tracing-subscriber` `Targets`
+/// directives (`info`, `debug`, `cabin_resolver=trace,info`).
+/// Read only when [`CABIN_TRACE_DIR`] is set.
+pub const CABIN_TRACE_FILTER: &str = "CABIN_TRACE_FILTER";
+
 // ---------------------------------------------------------------------------
 // Package-execution env var name constants
 // ---------------------------------------------------------------------------

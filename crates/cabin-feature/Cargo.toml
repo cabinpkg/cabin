@@ -14,6 +14,7 @@ name = "cabin_feature"
 cabin-core = { workspace = true }
 cabin-workspace = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 camino = { workspace = true }
