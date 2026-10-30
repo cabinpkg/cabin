@@ -38,7 +38,7 @@ use cabin_core::standard_compatibility::{
 };
 use cabin_core::{
     DEFAULT_FEATURE_KEY, FeatureEntry, IncompatibleStandards, PackageName, Requirement,
-    SourceLanguage, TargetPlatform,
+    SourceLanguage,
 };
 use cabin_index::PackageIndex;
 use pubgrub::{PubGrubError, Ranges};
@@ -135,7 +135,6 @@ fn resolve_once_unchecked(
     input: &ResolveInput,
     index: &PackageIndex,
 ) -> Result<ResolveOutput, ResolveError> {
-    let platform = TargetPlatform::current();
     let locked = effective_locked(input);
 
     // Convert root requirements up front so an unsupported
@@ -150,14 +149,7 @@ fn resolve_once_unchecked(
     // it is constructed.
     let root_constraints = preflight_root_dependencies(input, index, &locked)?;
 
-    let provider = Provider::new(
-        input,
-        index,
-        locked,
-        platform,
-        root_constraints,
-        root_dependencies,
-    );
+    let provider = Provider::new(input, index, locked, root_constraints, root_dependencies);
 
     let solution = match pubgrub::resolve(
         &provider,
@@ -1556,22 +1548,9 @@ mod tests {
     // -----------------------------------------------------------------
     // Conditional registry dependencies
     //
-    // Index `cfg(...)` conditions are filtered against the host
-    // target platform.  Tests parametrise on the runner's actual
-    // `os` so they stay deterministic across CI machines.
+    // Resolution ignores index `cfg(...)` conditions: the lockfile
+    // serves every platform, and builds filter per platform.
     // -----------------------------------------------------------------
-
-    fn host_os() -> String {
-        cabin_core::TargetPlatform::current().os
-    }
-
-    fn other_os() -> String {
-        if host_os() == "linux" {
-            "macos".to_owned()
-        } else {
-            "linux".to_owned()
-        }
-    }
 
     fn entry_with_conditional(
         name: &str,
@@ -1621,32 +1600,34 @@ mod tests {
         }
     }
 
+    /// Both sides of a platform split resolve and stay listed as the
+    /// parent's dependencies, so the lockfile is the same wherever it
+    /// is written.
     #[test]
-    fn conditional_registry_dependency_included_when_predicate_matches() {
-        let cond =
-            cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{}")"#, host_os())).unwrap();
-        let parent = entry_with_conditional("parent", "1.0.0", vec![("fmt", ">=1", Some(cond))]);
-        let fmt = entry("fmt", vec![("1.0.0", vec![], false)]);
-        let index = build_index(vec![parent, fmt]);
-        let out = resolve(&make_input(vec![("parent", "*")]), &index).unwrap();
-        let names: Vec<&str> = out.packages.iter().map(|p| p.name.as_str()).collect();
-        assert!(
-            names.contains(&"fmt"),
-            "fmt should resolve when condition matches host: {names:?}"
+    fn conditional_registry_dependencies_resolve_for_every_platform() {
+        let linux = cabin_core::Condition::parse_cfg(r#"cfg(os = "linux")"#).unwrap();
+        let not_linux = cabin_core::Condition::parse_cfg(r#"cfg(not(os = "linux"))"#).unwrap();
+        let parent = entry_with_conditional(
+            "parent",
+            "1.0.0",
+            vec![
+                ("epoll", ">=1", Some(linux)),
+                ("kqueue", ">=1", Some(not_linux)),
+            ],
         );
-    }
-
-    #[test]
-    fn conditional_registry_dependency_skipped_when_predicate_fails() {
-        let cond =
-            cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{}")"#, other_os())).unwrap();
-        // The `fmt` package is absent from the index.  If the
-        // conditional edge leaked through, resolution would fail
-        // with `UnknownPackage`.
-        let parent = entry_with_conditional("parent", "1.0.0", vec![("fmt", ">=1", Some(cond))]);
-        let index = build_index(vec![parent]);
+        let epoll = entry("epoll", vec![("1.0.0", vec![], false)]);
+        let kqueue = entry("kqueue", vec![("1.0.0", vec![], false)]);
+        let index = build_index(vec![parent, epoll, kqueue]);
         let out = resolve(&make_input(vec![("parent", "*")]), &index).unwrap();
-        assert!(!out.packages.iter().any(|p| p.name.as_str() == "fmt"));
+        assert_eq!(names(&out), ["epoll", "kqueue", "parent"]);
+        assert_eq!(
+            selected(&out, "parent")
+                .dependencies
+                .iter()
+                .map(PackageName::as_str)
+                .collect::<Vec<_>>(),
+            ["epoll", "kqueue"]
+        );
     }
 
     // -----------------------------------------------------------------
@@ -3226,45 +3207,32 @@ mod tests {
         assert_eq!(selected(&out, "c").version, version("1.0.0"));
     }
 
-    /// Feature entries naming a dependency gated off on this platform
-    /// are no-ops: nothing is required, not even index metadata.
+    /// Feature entries naming a dependency gated to another platform
+    /// resolve it like any other: the lockfile serves every platform.
     #[test]
-    fn features_skip_dependencies_gated_off_on_this_platform() {
+    fn features_enable_dependencies_gated_to_any_platform() {
         let gated = cabin_index::IndexPackageDependency {
-            condition: Some(
-                cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{}")"#, other_os()))
-                    .unwrap(),
-            ),
+            condition: Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap()),
             ..optional("^1")
         };
-        let index = build_index(vec![featured(
-            "a",
-            vec![(
-                "1.0.0",
-                featured_version(vec![("d", gated.clone())], &[], &[("x", &["dep:d", "d/y"])]),
-            )],
-        )]);
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("d", gated)], &[], &[("x", &["dep:d", "d/y"])]),
+                )],
+            ),
+            featured(
+                "d",
+                vec![("1.0.0", featured_version(vec![], &[], &[("y", &[])]))],
+            ),
+        ]);
         let mut input = make_input(vec![("a", "^1")]);
         request(&mut input, "a", &["x"]);
-        input.lazy_index = true;
         let out = resolve(&input, &index).unwrap();
-        assert_eq!(names(&out), ["a"]);
-        assert!(selected(&out, "a").dependencies.is_empty());
-
-        // `dep:` on a gated-off non-optional dependency is a no-op too.
-        let non_optional = cabin_index::IndexPackageDependency {
-            optional: false,
-            ..gated
-        };
-        let index = build_index(vec![featured(
-            "a",
-            vec![(
-                "1.0.0",
-                featured_version(vec![("e", non_optional)], &[], &[("x", &["dep:e"])]),
-            )],
-        )]);
-        let out = resolve(&input, &index).unwrap();
-        assert_eq!(names(&out), ["a"]);
+        assert_eq!(names(&out), ["a", "d"]);
+        assert_eq!(selected(&out, "d").features, set(["y"]));
     }
 
     /// A version the fallback graph's feature requests rule out is not

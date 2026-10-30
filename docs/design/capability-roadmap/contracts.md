@@ -68,8 +68,9 @@ Rules:
 1. **The lockfile records package identities and resolution choices, not unit configuration.**  No
    toolchain, flag, profile, provider probe result, or fingerprint enters `cabin.lock`, as the
    [lockfile](lockfile.md#version-pins-only) promises today.  Context-specific edges come from
-   manifests and index metadata; stage 04 decides what the lockfile must add so that `--locked`,
-   `--offline`, `fetch`, and `vendor` reproduce both contexts' closures.
+   manifests and index metadata.  Since stage 04, resolution treats every `cfg(...)` declaration as
+   active, so one lockfile serves every platform and `--locked`, `--offline`, `fetch`, and `vendor`
+   reproduce any platform's closure; build-dependency edges join that same resolution.
 2. **Features unify per package within one context, never across contexts.**  Stage 01 completes
    unification within a context; stage 04 separates the contexts.
 3. **Units exist only where an active edge reaches them.**  A build with no build-context edges
@@ -95,7 +96,7 @@ Worked examples the contract decides:
 | A target edge enables feature `x` of `zlib`; a build edge does not. | `zlib` in the target context has `x`; `zlib` in the build context does not.  Neither leaks into the other. |
 | A native build with identical configuration in both contexts. | The two units may be deduplicated as an optimization.  Nothing may depend on that happening. |
 | The same tree is built for `--target aarch64-unknown-linux-gnu`, then natively. | Target units land in different directories; no object is reused across the two. |
-| A project without `cfg(...)` dependency tables is resolved on Linux and on macOS. | Identical `cabin.lock`: toolchains and provider probe results never appear in it.  Platform-conditional dependency tables still make the locked closure host-dependent today; stage 04 decides how lockfiles represent per-context closures. |
+| A project is resolved on Linux and on macOS. | Identical `cabin.lock`: toolchains and provider probe results never appear in it, and since stage 04 resolution locks every platform's `cfg(...)` dependencies, so platform-conditional tables do not make it host-dependent. |
 
 ## 2. Usage requirements and dependency edges
 

@@ -20,8 +20,9 @@ pub(super) fn resolve_target_dep_edge(
     pkg_idx: usize,
     dev_deps_visible: bool,
     graph: &PackageGraph,
+    platform: &cabin_core::TargetPlatform,
 ) -> Result<TargetDepEdge, BuildError> {
-    let to = resolve_target_dep(&decl.reference, pkg_idx, dev_deps_visible, graph)?;
+    let to = resolve_target_dep(&decl.reference, pkg_idx, dev_deps_visible, graph, platform)?;
     Ok(TargetDepEdge {
         to,
         public: decl.public,
@@ -33,20 +34,22 @@ pub(super) fn resolve_target_dep(
     pkg_idx: usize,
     dev_deps_visible: bool,
     graph: &PackageGraph,
+    platform: &cabin_core::TargetPlatform,
 ) -> Result<TargetId, BuildError> {
     let pkg = &graph.packages[pkg_idx];
 
     // Cross-package target lookups see Normal-kind dependency
     // edges, plus Dev-kind edges when the referencing target is a
-    // dev-only kind (`test` / `example`).  Dev edges only exist in
+    // dev-only kind (`test` / `example`), each active on the
+    // platform being built for.  Dev edges only exist in
     // the graph when the loader activated them for the owning
     // package (`cabin test` does, for the selected packages), so
     // ordinary builds never resolve through them.
     let find_dep_edge = |name: &str| -> Option<usize> {
-        pkg.deps_of_kind(cabin_core::DependencyKind::Normal)
+        pkg.deps_of_kind(cabin_core::DependencyKind::Normal, platform)
             .chain(
                 dev_deps_visible
-                    .then(|| pkg.deps_of_kind(cabin_core::DependencyKind::Dev))
+                    .then(|| pkg.deps_of_kind(cabin_core::DependencyKind::Dev, platform))
                     .into_iter()
                     .flatten(),
             )

@@ -861,6 +861,52 @@ fmt = "1.0"
     assert!(!body.contains("registry-user"));
 }
 
+/// The workspace graph holds every platform's path dependencies, but a
+/// versioned dependency behind one gated to another platform is not
+/// part of this platform's selection.
+#[test]
+fn versioned_dependency_of_another_platforms_path_dep_does_not_block() {
+    let other_os = if std::env::consts::OS == "linux" {
+        "macos"
+    } else {
+        "linux"
+    };
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(&format!(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+
+[target.'cfg(os = "{other_os}")'.dependencies]
+helper = {{ path = "helper" }}
+"#
+        ))
+        .unwrap();
+    dir.child("src/main.cc")
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    dir.child("helper/cabin.toml")
+        .write_str(
+            "[package]\nname = \"helper\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = \"1.0\"\n",
+        )
+        .unwrap();
+
+    let record = dir.path().join("argv.log");
+    cabin_with_fake_tidy()
+        .current_dir(dir.path())
+        .env("CABIN_FAKE_TIDY_RECORD", &record)
+        .arg("tidy")
+        .assert()
+        .success();
+    assert!(normalize(&std::fs::read_to_string(&record).unwrap()).contains("src/main.cc"));
+}
+
 #[test]
 fn versioned_dependency_produces_actionable_error() {
     // `cabin tidy` does not run the artifact pipeline; if a

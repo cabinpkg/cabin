@@ -123,18 +123,12 @@ impl ActivePatchSet {
 
 /// The per-dependency filter shared by the patch-side collectors
 /// below: active kind (dev deps are declaration-only here),
-/// host-platform match, non-optional, and a registry `Version`
-/// source.  Returns the requirement when `dep` passes, keeping
+/// non-optional, and a registry `Version` source, whatever the
+/// `cfg(...)` condition (the lockfile serves every platform).  Returns the requirement when `dep` passes, keeping
 /// [`collect_patched_versioned_deps`] and
 /// [`collect_version_requirements`] on the same policy.
-fn active_versioned_req<'a>(
-    dep: &'a cabin_core::Dependency,
-    host: &cabin_core::TargetPlatform,
-) -> Option<&'a semver::VersionReq> {
+fn active_versioned_req(dep: &cabin_core::Dependency) -> Option<&semver::VersionReq> {
     if !dep.kind.is_resolved_by_default() {
-        return None;
-    }
-    if !dep.matches_platform(host) {
         return None;
     }
     if dep.optional {
@@ -157,8 +151,8 @@ fn active_versioned_req<'a>(
 /// `collect_closure_versioned_deps_excluding_with_dev` for a
 /// non-test build: normal deps are active, dev deps are
 /// declaration-only, optional deps are skipped until a feature
-/// resolver can prove them enabled, target predicates are evaluated
-/// against the host, and patched names are excluded.
+/// resolver can prove them enabled, target predicates are ignored,
+/// and patched names are excluded.
 ///
 /// Only patches in `referenced_names` contribute - the names the
 /// closure walk actually reached on active edges.  A `[patch]`
@@ -178,7 +172,6 @@ pub fn collect_patched_versioned_deps(
     excluded_names: &BTreeSet<String>,
     referenced_names: &BTreeSet<String>,
 ) -> Result<PatchedVersionedDeps, crate::WorkspaceError> {
-    let host_platform = cabin_core::TargetPlatform::current();
     let mut combined: BTreeMap<PackageName, Vec<String>> = BTreeMap::new();
 
     let mut worklist: Vec<&ActivePatch> = active_patches
@@ -188,7 +181,7 @@ pub fn collect_patched_versioned_deps(
     let mut folded: BTreeSet<&str> = worklist.iter().map(|patch| patch.name.as_str()).collect();
     while let Some(patch) = worklist.pop() {
         for dep in &patch.package.dependencies {
-            let Some(req) = active_versioned_req(dep, &host_platform) else {
+            let Some(req) = active_versioned_req(dep) else {
                 continue;
             };
             if excluded_names.contains(dep.name.as_str()) {
@@ -368,10 +361,10 @@ struct MergedEntry {
 /// Walk every loaded package and collect, per patched name,
 /// the set of `Version`-source requirements that are
 /// *active* for the current invocation.  Inactive declarations
-/// (dev / system kinds, target-conditioned deps that do not
-/// match the host platform, optional deps regardless of feature
+/// (dev / system kinds, optional deps regardless of feature
 /// state) are skipped so a patch on a dormant dependency does
-/// not cause spurious version-mismatch errors.
+/// not cause spurious version-mismatch errors.  Target-conditioned
+/// deps count on every platform, as in the lockfile.
 ///
 /// Optional deps are conservative: even if a feature would
 /// enable them, this function lacks the cross-package feature
@@ -384,14 +377,13 @@ fn collect_version_requirements(
     graph: &PackageGraph,
     merged: &BTreeMap<PackageName, MergedEntry>,
 ) -> BTreeMap<PackageName, Vec<semver::VersionReq>> {
-    let host_platform = cabin_core::TargetPlatform::current();
     let mut out: BTreeMap<PackageName, Vec<semver::VersionReq>> = BTreeMap::new();
     for pkg in &graph.packages {
         for dep in &pkg.package.dependencies {
             if !merged.contains_key(&dep.name) {
                 continue;
             }
-            let Some(req) = active_versioned_req(dep, &host_platform) else {
+            let Some(req) = active_versioned_req(dep) else {
                 continue;
             };
             out.entry(dep.name.clone()).or_default().push(req.clone());
@@ -644,17 +636,22 @@ mod tests {
     }
 
     #[test]
-    fn target_mismatched_dep_does_not_block_patch_version() {
-        // Pick a target the host can never match so the
-        // requirement is dormant on this invocation.
+    fn target_conditional_dep_validates_patch_version() {
+        // The lockfile serves every platform, so a requirement gated
+        // to a platform this machine is not still bounds the patch.
         let dir = TempDir::new().unwrap();
         let graph = fixture(
             &dir,
             "[target.'cfg(os = \"never-an-os\")'.dependencies]\nfmt = \">=99\"",
         );
-        let resolved =
-            resolve_with(&graph).expect("non-matching target requirement must not gate patch");
-        assert_eq!(resolved.len(), 1);
+        let err = resolve_with(&graph).expect_err("a gated requirement must reject the patch");
+        assert!(matches!(
+            err,
+            PatchResolutionError::Validation {
+                source: PatchValidationError::VersionMismatch { .. },
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -731,7 +728,10 @@ fmt = { path = "../fmt" }
 
         assert_eq!(
             rendered,
-            BTreeMap::from([("spdlog".to_owned(), "^1.13".to_owned())])
+            BTreeMap::from([
+                ("spdlog".to_owned(), "^1.13".to_owned()),
+                ("target-only".to_owned(), "^1".to_owned()),
+            ])
         );
     }
 }

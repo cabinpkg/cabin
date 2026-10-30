@@ -288,16 +288,20 @@ pub(crate) fn edge_violations(
         // unselected (or invisible) edge suppresses nothing.
         let dev_edges_visible = consumer_target.kind.is_dev_only();
         let selected_pkg_edge = |dep_pkg: usize| -> Option<&cabin_workspace::DependencyEdge> {
-            let pkg_edges = &req.graph.packages[tid.0].deps;
-            pkg_edges
-                .iter()
+            let pkg_edges = || {
+                req.graph.packages[tid.0]
+                    .deps
+                    .iter()
+                    .filter(|pkg_edge| pkg_edge.matches_platform(&req.platform))
+            };
+            pkg_edges()
                 .find(|pkg_edge| {
                     pkg_edge.kind == cabin_core::DependencyKind::Normal && pkg_edge.index == dep_pkg
                 })
                 .or_else(|| {
                     dev_edges_visible
                         .then(|| {
-                            pkg_edges.iter().find(|pkg_edge| {
+                            pkg_edges().find(|pkg_edge| {
                                 pkg_edge.kind == cabin_core::DependencyKind::Dev
                                     && pkg_edge.index == dep_pkg
                             })

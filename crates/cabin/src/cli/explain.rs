@@ -117,10 +117,12 @@ pub(crate) fn explain(
     );
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &explain_selection)?;
+    let platform = cabin_core::TargetPlatform::current();
     let feature_resolution = compute_feature_resolution(
         &graph,
         &resolved_selection,
         &request,
+        Some(&platform),
         &std::collections::BTreeSet::new(),
     )?;
 
@@ -133,6 +135,7 @@ pub(crate) fn explain(
                 Some(&active_patches),
                 lockfile.as_ref(),
                 Some(&feature_resolution.included),
+                Some(&platform),
             )?;
             cabin_explain::Explanation::Package(exp)
         }

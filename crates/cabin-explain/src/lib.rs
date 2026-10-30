@@ -62,9 +62,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::path::PathBuf;
 
-use cabin_core::DependencyKind;
+use cabin_core::{DependencyKind, TargetPlatform};
 use cabin_lockfile::Lockfile;
-use cabin_workspace::{PackageGraph, PackageKind, WorkspacePackage};
+use cabin_workspace::{DependencyEdge, PackageGraph, PackageKind, WorkspacePackage};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -164,6 +164,20 @@ pub struct TreeInputs<'a> {
     /// skips the rest - optional dependencies no enabled feature turns
     /// on, which the loader still loads.
     pub included: Option<&'a BTreeSet<usize>>,
+    /// The platform feature resolution evaluated.  When set, the walk
+    /// skips edges whose `cfg(...)` it fails: the graph holds every
+    /// platform's edges.
+    pub platform: Option<&'a TargetPlatform>,
+}
+
+/// Whether a walk scoped to `included` and `platform` follows `edge`.
+fn follows(
+    edge: &DependencyEdge,
+    included: Option<&BTreeSet<usize>>,
+    platform: Option<&TargetPlatform>,
+) -> bool {
+    included.is_none_or(|included| included.contains(&edge.index))
+        && platform.is_none_or(|platform| edge.matches_platform(platform))
 }
 
 /// Build a deterministic [`TreeNode`] forest rooted at every
@@ -227,10 +241,7 @@ fn build_node(
         {
             continue;
         }
-        if inputs
-            .included
-            .is_some_and(|included| !included.contains(&edge.index))
-        {
+        if !follows(edge, inputs.included, inputs.platform) {
             continue;
         }
         children.push(build_node(edge.index, Some(edge.kind), inputs, visited));
@@ -542,9 +553,9 @@ pub struct FeatureExplanation {
     pub is_default: bool,
 }
 
-/// Build a [`PackageExplanation`] for `name`.  With `included` set,
-/// paths run only through those packages, as [`TreeInputs::included`]
-/// scopes the tree.
+/// Build a [`PackageExplanation`] for `name`.  With `included` or
+/// `platform` set, paths run only through those packages and that
+/// platform's edges, as [`TreeInputs`] scopes the tree.
 ///
 /// # Errors
 /// Returns [`ExplainError::PackageNotFound`] (with the known package
@@ -558,6 +569,7 @@ pub fn explain_package(
     active_patches: Option<&cabin_workspace::ActivePatchSet>,
     lockfile: Option<&Lockfile>,
     included: Option<&BTreeSet<usize>>,
+    platform: Option<&TargetPlatform>,
 ) -> Result<PackageExplanation, ExplainError> {
     let target_idx = locate_package(graph, name)?;
     let pkg = &graph.packages[target_idx];
@@ -568,6 +580,7 @@ pub fn explain_package(
         active_patches,
         kind_filter: None,
         included,
+        platform,
     };
     let source = source_provenance_for(pkg, &inputs);
 
@@ -581,7 +594,8 @@ pub fn explain_package(
     let mut paths: Vec<Vec<ExplainStep>> = Vec::new();
     let mut paths_truncated = false;
     for &root in &effective_roots {
-        let (root_paths, truncated) = shortest_paths_to(graph, root, target_idx, included);
+        let (root_paths, truncated) =
+            shortest_paths_to(graph, root, target_idx, included, platform);
         paths_truncated |= truncated;
         for path in root_paths {
             paths.push(materialize_path(graph, &path));
@@ -673,6 +687,7 @@ fn shortest_paths_to(
     start: usize,
     target: usize,
     included: Option<&BTreeSet<usize>>,
+    platform: Option<&TargetPlatform>,
 ) -> (Vec<Vec<usize>>, bool) {
     if start == target {
         return (vec![vec![start]], false);
@@ -689,10 +704,10 @@ fn shortest_paths_to(
         let mut next: Vec<usize> = Vec::new();
         for &node in &frontier {
             for edge in &graph.packages[node].deps {
-                let child = edge.index;
-                if included.is_some_and(|included| !included.contains(&child)) {
+                if !follows(edge, included, platform) {
                     continue;
                 }
+                let child = edge.index;
                 let new_depth = level + 1;
                 if let Some(&existing) = depth.get(&child) {
                     // Parallel edges (the same dependency as both normal
@@ -877,6 +892,7 @@ pub fn explain_source(
         active_patches,
         kind_filter: None,
         included: None,
+        platform: None,
     };
     let source = source_provenance_for(pkg, &inputs);
     let mut replacements: Vec<String> = source_replacements
@@ -1241,6 +1257,7 @@ mod tests {
             active_patches: None,
             kind_filter: None,
             included: None,
+            platform: None,
         });
         assert_eq!(forest.len(), 1);
         let root = &forest[0];
@@ -1261,6 +1278,7 @@ mod tests {
             active_patches: None,
             kind_filter: Some(DependencyKind::Normal),
             included: None,
+            platform: None,
         });
         let root = &forest[0];
         assert_eq!(root.children.len(), 1);
@@ -1278,6 +1296,7 @@ mod tests {
             active_patches: None,
             kind_filter: None,
             included: Some(&included),
+            platform: None,
         });
         let lib = &forest[0].children[0];
         assert_eq!(lib.name, "lib");
@@ -1294,6 +1313,7 @@ mod tests {
             active_patches: None,
             kind_filter: None,
             included: None,
+            platform: None,
         });
         let a = render_tree_human(&forest);
         let b = render_tree_human(&forest);
@@ -1309,14 +1329,45 @@ mod tests {
     fn explain_package_paths_skip_packages_outside_the_included_set() {
         let graph = three_pkg_graph();
         let included = BTreeSet::from([0, 1]);
-        let exp = explain_package(&graph, &[0], "util", None, None, Some(&included)).unwrap();
+        let exp = explain_package(&graph, &[0], "util", None, None, Some(&included), None).unwrap();
         assert!(exp.paths.is_empty());
+    }
+
+    #[test]
+    fn walks_skip_edges_inactive_on_the_platform() {
+        // app -> lib -> util, plus app -> util gated to another OS.
+        let mut graph = three_pkg_graph();
+        graph.packages[0].deps.push(DependencyEdge {
+            index: 2,
+            kind: DependencyKind::Normal,
+            condition: Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap()),
+            ignore_interface_standard: false,
+        });
+        let host = TargetPlatform::current();
+        let forest = build_tree(&TreeInputs {
+            graph: &graph,
+            roots: &[],
+            lockfile: None,
+            active_patches: None,
+            kind_filter: None,
+            included: None,
+            platform: Some(&host),
+        });
+        let children: Vec<&str> = forest[0].children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(children, ["lib"]);
+        let exp = explain_package(&graph, &[0], "util", None, None, None, Some(&host)).unwrap();
+        let names: Vec<Vec<&str>> = exp
+            .paths
+            .iter()
+            .map(|path| path.iter().map(|step| step.name.as_str()).collect())
+            .collect();
+        assert_eq!(names, [["app", "lib", "util"]]);
     }
 
     #[test]
     fn explain_package_returns_dep_path_from_root() {
         let graph = three_pkg_graph();
-        let exp = explain_package(&graph, &[0], "util", None, None, None).unwrap();
+        let exp = explain_package(&graph, &[0], "util", None, None, None, None).unwrap();
         assert_eq!(exp.name, "util");
         assert!(!exp.is_selected_root);
         assert_eq!(exp.paths.len(), 1);
@@ -1376,7 +1427,7 @@ mod tests {
     #[test]
     fn explain_package_caps_the_shortest_paths_per_root() {
         // 5 layers: 8 paths, under the cap - all listed, no flag.
-        let exp = explain_package(&lattice_graph(5), &[0], "a4", None, None, None).unwrap();
+        let exp = explain_package(&lattice_graph(5), &[0], "a4", None, None, None, None).unwrap();
         assert_eq!(exp.paths.len(), 8);
         assert!(!exp.paths_truncated);
         assert!(
@@ -1386,7 +1437,7 @@ mod tests {
         );
 
         // 12 layers: 1024 paths - capped, flagged, still shortest.
-        let exp = explain_package(&lattice_graph(12), &[0], "a11", None, None, None).unwrap();
+        let exp = explain_package(&lattice_graph(12), &[0], "a11", None, None, None, None).unwrap();
         assert_eq!(exp.paths.len(), MAX_PATHS_PER_ROOT);
         assert!(exp.paths.iter().all(|p| p.len() == 12));
         assert!(exp.paths_truncated);
@@ -1410,7 +1461,7 @@ mod tests {
             ..graph.packages[0].deps[0].clone()
         };
         graph.packages[0].deps.push(dev_edge);
-        let (paths, truncated) = shortest_paths_to(&graph, 0, 2, None);
+        let (paths, truncated) = shortest_paths_to(&graph, 0, 2, None, None);
         assert_eq!(paths, vec![vec![0, 1, 2]]);
         assert!(!truncated);
     }
@@ -1418,7 +1469,7 @@ mod tests {
     #[test]
     fn explain_package_marks_selected_root() {
         let graph = three_pkg_graph();
-        let exp = explain_package(&graph, &[0], "app", None, None, None).unwrap();
+        let exp = explain_package(&graph, &[0], "app", None, None, None, None).unwrap();
         assert!(exp.is_selected_root);
         // Path from root to root has a single step.
         assert_eq!(exp.paths.len(), 1);
@@ -1428,7 +1479,7 @@ mod tests {
     #[test]
     fn explain_package_returns_actionable_error_for_unknown_name() {
         let graph = three_pkg_graph();
-        let err = explain_package(&graph, &[0], "missing", None, None, None).unwrap_err();
+        let err = explain_package(&graph, &[0], "missing", None, None, None, None).unwrap_err();
         match err {
             ExplainError::PackageNotFound { name, candidates } => {
                 assert_eq!(name, "missing");

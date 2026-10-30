@@ -23,10 +23,10 @@ path dependencies and registry packages are preserved as metadata but are not pr
 downstream build - see [`system-dependencies.md`](system-dependencies.md) for the full probe
 behavior.
 
-Every kind also accepts the platform-conditional form `[target.'cfg(...)'.<kind>]`.  The condition
-is evaluated against the host platform; non-matching declarations are filtered out before they reach
-resolution / fetch / build.  The full grammar and evaluation rules live in
-[`target-dependencies.md`](target-dependencies.md).
+Every kind also accepts the platform-conditional form `[target.'cfg(...)'.<kind>]`.  Resolution
+and the lockfile include the declaration whatever its condition; the build evaluates the condition
+against the host platform and leaves non-matching declarations out.  The full grammar and
+evaluation rules live in [`target-dependencies.md`](target-dependencies.md).
 
 ## Manifest syntax
 

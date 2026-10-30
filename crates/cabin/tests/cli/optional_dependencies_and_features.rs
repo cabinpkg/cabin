@@ -440,6 +440,58 @@ fn registry_optional_dependency_is_inert_until_a_feature_enables_it() {
     }
 }
 
+/// Resolution fetches none of a disabled optional path dependency's
+/// registry dependencies, so the build must not require them, whether
+/// the edge is gated to this platform or another.
+#[test]
+fn disabled_optional_path_dependency_needs_none_of_its_registry_dependencies() {
+    require_c_and_cxx_build_tools();
+    let other_os = if std::env::consts::OS == "linux" {
+        "macos"
+    } else {
+        "linux"
+    };
+    for os in [std::env::consts::OS, other_os] {
+        let dir = TempDir::new().unwrap();
+        publish_c_lib(
+            dir.path(),
+            "ccc",
+            "\n[target.ccc]\ntype = \"library\"\nsources = [\"src/ccc.c\"]\n\
+             include-dirs = [\"include\"]\nc-standard = \"c11\"",
+            "int ccc_value(void) { return 7; }\n",
+        );
+        dir.child("app/cabin.toml")
+            .write_str(&format!(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"acme/ccc" = "^1"
+
+[target.'cfg(os = "{os}")'.dependencies]
+helper = {{ path = "../helper", optional = true }}
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+deps = ["acme/ccc"]
+"#
+            ))
+            .unwrap();
+        dir.child("app/src/main.c")
+            .write_str("#include \"ccc.h\"\nint main(void) { return ccc_value() == 7 ? 0 : 1; }\n")
+            .unwrap();
+        dir.child("helper/cabin.toml")
+            .write_str("[package]\nname = \"helper\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \"^1\"\n")
+            .unwrap();
+        chain_cmd(dir.path(), "build", &dir.path().join("app/cabin.toml"))
+            .assert()
+            .success();
+    }
+}
+
 /// A registry edge requesting a feature no in-range version declares
 /// fails resolution; the explanation names the feature as
 /// `<package>[<feature>]`.

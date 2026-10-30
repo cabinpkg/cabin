@@ -78,7 +78,6 @@ Before any consumer sees a resolved patch, Cabin validates each entry:
 "Active" means the edge would contribute to the resolver input on this invocation.  Cabin skips:
 
  - dev / system kinds - declaration-only, never resolved by the default build;
- - `[target.<cfg>]` deps whose condition does not match the host platform - dormant on this run;
  - `optional = true` deps - feature resolution decides their membership; if a feature later enables
    one, the patched manifest is used directly and any version mismatch surfaces against the real
    resolver input.

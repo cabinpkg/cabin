@@ -577,8 +577,13 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // Run the cross-package feature resolver so unknown features,
     // `dep:` entries on non-optional deps, and other feature-graph
     // errors surface here and in `cabin build`.
-    let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &request, &BTreeSet::new())?;
+    let feature_resolution = compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &request,
+        Some(&cabin_core::TargetPlatform::current()),
+        &BTreeSet::new(),
+    )?;
     // The detection report reaches the JSON view as `null` when
     // subprocess detection fails.
     let InspectionPrep {

@@ -153,9 +153,10 @@ After dependency resolution, Cabin refuses a graph in which two distinct package
 identity, because duplicate native symbols fail at the final link regardless of dependency
 visibility - the check sees private edges too.  The diagnostic names the shared identity and every
 claimant (package, version, target); keep exactly one claimant, or move the extras behind features
-or platform conditions so they never resolve together.  Claims are declared, not selection-aware: a
-target whose `required-features` are disabled still claims, but a package reachable only through a
-disabled optional dependency does not.
+so they never resolve together.  Platform conditions do not separate claimants, because resolution
+covers every platform.  Claims are declared, not selection-aware: a target whose `required-features`
+are disabled still claims, but a package reachable only through a disabled optional dependency does
+not.
 
 Resolution refuses collisions among the claims of everything it selects: local claims under the
 selected features and the claims of every selected registry package and `[patch]` fork, including

@@ -174,7 +174,7 @@ fn dev_edge_participates_when_activated() {
         &graph,
         &[0],
         &RootFeatureRequest::default(),
-        &host(),
+        Some(&host()),
         &dev_on_root(),
     )
     .unwrap();
@@ -203,7 +203,7 @@ fn dev_declaration_without_activation_stays_inert() {
         &graph,
         &[0],
         &RootFeatureRequest::default(),
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -244,7 +244,7 @@ fn activated_versioned_dev_dep_participates_before_fetch() {
         &graph,
         &[0],
         &RootFeatureRequest::default(),
-        &host(),
+        Some(&host()),
         &dev_on_root(),
     )
     .unwrap();
@@ -263,7 +263,7 @@ fn activated_versioned_dev_dep_participates_before_fetch() {
         &graph,
         &[0],
         &RootFeatureRequest::default(),
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap_err();
@@ -297,7 +297,7 @@ fn versioned_requests_record_active_registry_edges() {
         explicit_features: BTreeSet::from(["tls".to_owned()]),
         ..RootFeatureRequest::default()
     };
-    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
+    let res = resolve_features(&graph, &[0], &request, Some(&host()), &no_dev()).unwrap();
     let recorded: Vec<(&str, Vec<&str>)> = res
         .versioned_requests
         .iter()
@@ -306,6 +306,31 @@ fn versioned_requests_record_active_registry_edges() {
     assert_eq!(
         recorded,
         [("always", vec!["default"]), ("ssl", vec!["fips", "legacy"])]
+    );
+}
+
+/// A platform filters declarations gated to another platform out of
+/// feature resolution; `None`, which dependency resolution passes,
+/// admits them, so their requests reach the lockfile.
+#[test]
+fn no_platform_admits_declarations_gated_to_any_platform() {
+    let root = make_project(
+        "root",
+        vec![Dependency {
+            source: DependencySource::Version(semver::VersionReq::parse(">=1").unwrap()),
+            condition: Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap()),
+            ..dep_normal_with("ssl", true, &[], true)
+        }],
+        features(&["tls"], &[("tls", &["ssl/fips"])]),
+    );
+    let graph = make_graph(vec![(root, Vec::new())]);
+    let request = RootFeatureRequest::default();
+    let on_host = resolve_features(&graph, &[0], &request, Some(&host()), &no_dev()).unwrap();
+    assert!(on_host.versioned_requests.is_empty());
+    let everywhere = resolve_features(&graph, &[0], &request, None, &no_dev()).unwrap();
+    assert_eq!(
+        names(&everywhere.versioned_requests[&pkg("ssl")]),
+        vec!["default", "fips"]
     );
 }
 
@@ -323,7 +348,7 @@ fn enables_default_feature_for_root() {
         &graph,
         &[0],
         &RootFeatureRequest::default(),
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -344,7 +369,7 @@ fn no_default_features_skips_default_chain() {
         all_features: false,
         explicit_features: BTreeSet::new(),
     };
-    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
+    let res = resolve_features(&graph, &[0], &request, Some(&host()), &no_dev()).unwrap();
     let r = res.for_package(0);
     assert!(r.enabled_features.is_empty());
 }
@@ -364,7 +389,7 @@ fn explicit_features_request_only_those_features() {
         all_features: false,
         explicit_features: explicit,
     };
-    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
+    let res = resolve_features(&graph, &[0], &request, Some(&host()), &no_dev()).unwrap();
     let r = res.for_package(0);
     assert_eq!(names(&r.enabled_features), vec!["b"]);
 }
@@ -378,7 +403,7 @@ fn all_features_includes_every_declared_feature() {
         all_features: true,
         explicit_features: BTreeSet::new(),
     };
-    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
+    let res = resolve_features(&graph, &[0], &request, Some(&host()), &no_dev()).unwrap();
     let r = res.for_package(0);
     assert_eq!(names(&r.enabled_features), vec!["a", "b"]);
 }
@@ -397,7 +422,7 @@ fn unknown_root_feature_errors_clearly() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap_err();
@@ -434,7 +459,7 @@ fn dep_colon_enables_optional_dependency() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -465,7 +490,7 @@ fn dep_colon_on_non_optional_dep_errors_clearly() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap_err();
@@ -507,7 +532,7 @@ fn dep_slash_feature_requests_dep_feature_and_enables_optional() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -536,7 +561,7 @@ fn dep_colon_referencing_undeclared_dependency_errors_clearly() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap_err();
@@ -577,7 +602,7 @@ fn dep_slash_requesting_unknown_dep_feature_errors_clearly() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap_err();
@@ -628,7 +653,7 @@ fn additive_unification_across_paths() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -651,7 +676,7 @@ fn default_features_request_is_default_on() {
         &graph,
         &[1],
         &RootFeatureRequest::default(),
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -677,7 +702,7 @@ fn default_features_false_does_not_globally_disable() {
         &graph,
         &[1],
         &RootFeatureRequest::default(),
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -710,7 +735,7 @@ fn local_feature_cycle_is_terminating_and_recorded() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();
@@ -751,7 +776,7 @@ fn unknown_local_feature_in_chain_errors_clearly() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap_err();
@@ -775,8 +800,8 @@ fn deterministic_output_for_identical_inputs() {
         (root, vec![(0, DependencyKind::Normal)]),
     ]);
     let req = RootFeatureRequest::default();
-    let r1 = resolve_features(&graph, &[1], &req, &host(), &no_dev()).unwrap();
-    let r2 = resolve_features(&graph, &[1], &req, &host(), &no_dev()).unwrap();
+    let r1 = resolve_features(&graph, &[1], &req, Some(&host()), &no_dev()).unwrap();
+    let r2 = resolve_features(&graph, &[1], &req, Some(&host()), &no_dev()).unwrap();
     assert_eq!(r1, r2);
 }
 
@@ -813,7 +838,7 @@ fn dep_colon_skips_optional_dep_when_target_does_not_match() {
             all_features: false,
             explicit_features: explicit,
         },
-        &host(),
+        Some(&host()),
         &no_dev(),
     )
     .unwrap();

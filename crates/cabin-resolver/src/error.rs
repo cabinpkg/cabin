@@ -182,7 +182,7 @@ pub enum ResolveError {
     #[diagnostic(
         code(cabin::resolver::error),
         help(
-            "each `links` identity may appear at most once in a resolution graph, because duplicate native symbols fail at the final link even through private dependencies; keep exactly one of the claimants - drop or replace the other dependencies, or move them behind features or platform conditions so they never resolve together"
+            "each `links` identity may appear at most once in a resolution graph, because duplicate native symbols fail at the final link even through private dependencies; keep exactly one of the claimants - drop or replace the other dependencies, or move them behind features so they never resolve together"
         )
     )]
     LinksCollision {
