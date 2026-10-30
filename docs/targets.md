@@ -277,7 +277,7 @@ downloading the archive.
 The test surface is intentionally small:
 
 - no test discovery inside binaries (no GoogleTest / Catch2 / doctest output parsing);
-- no XML / JUnit output;
+- JUnit reports (`cabin test --junit`) list each test executable as one test case;
 - no `cabin run --example`, and no single-example selector on `cabin build`; `example` targets only
   reach the build graph as a transitive dep of another selected target;
 - no automatic `tests/` / `examples/` discovery.

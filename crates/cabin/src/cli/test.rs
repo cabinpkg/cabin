@@ -20,7 +20,7 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::Args;
 
 use cabin_build::{ManifestTargetSelector, select_targets_of_kind};
@@ -155,6 +155,15 @@ pub(crate) struct TestArgs {
     /// seconds and report it as timed out.
     #[arg(long, value_name = "SECONDS")]
     pub test_timeout: Option<NonZeroU64>,
+
+    /// Write an XML report of the test run to this path, in the
+    /// format CI services read as test results.
+    ///
+    /// Each test executable is one test case.  The report is
+    /// written once the tests have run, whether or not they
+    /// passed.
+    #[arg(long, value_name = "PATH")]
+    pub junit: Option<PathBuf>,
 
     /// Arguments passed to every test executable.
     ///
@@ -368,6 +377,11 @@ pub(crate) fn test(
         "{}",
         cabin_test::render_epilogue(&summary, filtered_out)
     );
+    if let Some(path) = &args.junit {
+        let report = cabin_test::junit_report(&summary).to_string()?;
+        std::fs::write(path, report)
+            .with_context(|| format!("failed to write JUnit report {}", path.display()))?;
+    }
     if !summary.all_passed() {
         bail!(
             "test failures: {} of {} test executables failed",
