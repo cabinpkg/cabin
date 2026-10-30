@@ -31,6 +31,7 @@ cabin test --features simd          # forward features to the test build
 cabin test -- --gtest_filter='Suite.*'  # pass arguments to every test executable
 cabin test --test-jobs 4             # run up to four test executables at once
 cabin test --test-timeout 60         # kill a test still running after 60 seconds
+cabin test --junit report.xml        # also write a JUnit XML report
 ```
 
 `--test <NAME>` runs individual `test` targets, mirroring `cargo test --test <name>`.  The flag may
@@ -141,6 +142,26 @@ test result: FAILED. P passed; F failed; 0 ignored; 0 measured; FO filtered out;
 error: test failures: F of N test executables failed
 ```
 
+## JUnit reports
+
+`--junit <PATH>` writes a JUnit XML report once the tests have run, whether or not they passed; CI
+services that read JUnit can show it next to the job.  Cabin sees test executables, not the test
+cases inside them, so each executable is one `testcase` (named after the target, with the package as
+`classname`) and each package one `testsuite`.  Each case carries the executable's run time and its
+stdout and stderr as `system-out` and `system-err`.  A test that fails, is terminated by a signal,
+or times out is a `failure` whose message is the reason the result line shows (`exit 17`, `timed out
+after 60s`); a test that cannot start is an `error`.  Output is decoded as UTF-8, with replacement
+characters for invalid bytes and for U+FFFE and U+FFFF, which XML cannot carry.  ANSI escapes and
+the C0 and C1 control characters other than the line feed are dropped, tabs and carriage returns
+included, and an escape sequence that never ends hides the rest of that stream; the terminal output
+keeps everything.  A test whose output was cut off has the property `output-cut-off` set to `true`.
+No report is written when no test runs.
+
+For a report per test case, pass the test framework its own reporting arguments after `--`, such as
+GoogleTest's `--gtest_output=xml:<dir>/`, which names each file after its executable; a relative
+path resolves against each package's directory, and `--test` limits the run to the executables that
+accept the argument.
+
 ## Working directory and environment
 
 Each test executable runs with its working directory set to the **owning package's manifest
@@ -206,7 +227,8 @@ Because `cabin test` includes `[dev-dependencies]` in resolution, projects that 
 
 - It does not run examples.  `example` targets are not selectable from the command line - they reach
   the build graph only as transitive deps of another selected target.
-- It does not parse GoogleTest / Catch2 / doctest output, nor emit XML / JUnit reports.
+- It does not parse GoogleTest / Catch2 / doctest output; its [JUnit report](#junit-reports) has one
+  test case per executable.
 - It does not filter test cases inside an executable itself - `--test <NAME>` selects whole `test`
   targets; arguments after `--` let the test framework filter its own cases.
 

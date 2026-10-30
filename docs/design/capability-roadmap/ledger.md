@@ -369,14 +369,15 @@ Stage 11; integrated with 04, 08, 10; validated in 14.
   (`cabin/src/cli/mod.rs`).
 - `cabin run --bin` and `cabin test --test` select targets; nothing selects an example or a single
   build target; `cabin test` runs up to `--test-jobs` executables at once with an optional
-  `--test-timeout`, its `-j` limits the build only (`cabin-test`, `run_tests`), and it passes the
-  arguments after `--` to each executable.
+  `--test-timeout`, its `-j` limits the build only (`cabin-test`, `run_tests`), it passes the
+  arguments after `--` to each executable, and `--junit` writes a report with one test case per
+  executable (`junit_report`).
 
-**Blocked workflow.**  Running one example; building one target; a JUnit report for CI.
+**Blocked workflow.**  Running one example; building one target.
 
-**Necessary changes.**  Truthful JUnit; example and target selection kept distinct from `--target`; dev
-dependencies activated only for the selected workflow; shared-runtime and cross-runner integration;
-help, completions, man pages, and docs.
+**Necessary changes.**  Example and target selection kept distinct from `--target`; dev dependencies
+activated only for the selected workflow; shared-runtime and cross-runner integration; help,
+completions, man pages, and docs.
 
 **Acceptance.**  Stage 11's validation list (argv edge cases, parallel success and failure, large and
 invalid-UTF-8 output, timeouts and cleanup, valid XML, unknown/gated/ambiguous targets, dev
@@ -536,6 +537,12 @@ for one more second and the result is marked cut off.  Every test runs; the runn
 still running when it fails itself (a sink or read error), while Ctrl-C keeps the terminal's
 default, reaching the tests too.  Tests get an empty stdin.
 
+Stage 11, third change: `cabin test --junit <PATH>` writes a JUnit report through `quick-junit` once
+the tests have run: one `testsuite` per package and one `testcase` per executable, since Cabin
+observes no test cases inside one, each with its run time and lossily decoded output; an exit code,
+a signal, or a timeout is a `failure`, a test that cannot start an `error`, and cut-off output an
+`output-cut-off` property.
+
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
 for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
@@ -596,6 +603,11 @@ last three guards shown to fail when removed; spawn failures on every platform; 
 test passes only beside a hung C++ test that times out under `--test-jobs 2 --test-timeout 5`, shown
 to fail with one job (macOS here, CI's Linux and Windows legs), and that `-j` reaches Ninja while
 the same flag after `--` does not.
+
+Stage 11, third change: a unit test reads back a serialized report of two packages covering every
+outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
+reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
+despite its timed-out test.
 
 **Unfinished.**  Stages 04-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,

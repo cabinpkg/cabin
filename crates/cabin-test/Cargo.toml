@@ -15,6 +15,7 @@ cabin-build = { workspace = true }
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
 cabin-workspace = { workspace = true }
+quick-junit = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

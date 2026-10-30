@@ -651,11 +651,14 @@ int main() {
             "2",
             "--test-timeout",
             "5",
+            "--junit",
+            "report.xml",
             "--manifest-path",
         ])
         .arg(dir.path().join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("build"))
+        .current_dir(dir.path())
         .assert()
         .failure();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).replace("\r\n", "\n");
@@ -668,6 +671,19 @@ int main() {
         assert!(
             stdout.contains(expected),
             "expected `{expected}` in test output, got: {stdout}"
+        );
+    }
+    // The report is written even though a test failed.
+    let report = std::fs::read_to_string(dir.path().join("report.xml")).unwrap();
+    for expected in [
+        r#"name="c_test""#,
+        "c says hi",
+        r#"name="hang_test""#,
+        r#"message="timed out after 5s""#,
+    ] {
+        assert!(
+            report.contains(expected),
+            "expected `{expected}` in the JUnit report, got: {report}"
         );
     }
 }

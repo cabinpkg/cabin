@@ -870,8 +870,10 @@ Owns the test plan and the test runner used by `cabin test`.  Given a finished
   optional per-test timeout, capturing stdout / stderr through a [`cabin_test::TestOutputSink`]
   trait; a test that fails, times out, or cannot start is a per-test status, and the runner kills
   the tests still running when it fails itself;
-- returns a typed [`cabin_test::TestSummary`] (totals, per-test status) plus stable rendering
-  helpers (`render_summary_line`, `render_result_line`, `render_epilogue`).
+- returns a typed [`cabin_test::TestSummary`] (totals, per-test status and run time) plus stable
+  rendering helpers (`render_summary_line`, `render_result_line`, `render_epilogue`) and
+  `junit_report`, which builds the `--junit` report with `quick-junit`, one test case per
+  executable.
 
 The crate must:
 

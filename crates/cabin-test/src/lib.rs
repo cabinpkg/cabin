@@ -34,6 +34,7 @@ use std::time::{Duration, Instant};
 use cabin_build::{BuildGraph, Dialect};
 use cabin_core::{ExitStatusKind, TargetKind, exit_status_kind};
 use cabin_workspace::{PackageGraph, WorkspacePackage};
+use quick_junit::{NonSuccessKind, Report, TestCase, TestCaseStatus, TestSuite};
 use thiserror::Error;
 
 /// One executable in a [`TestPlan`].
@@ -197,6 +198,9 @@ pub struct TestRunResult {
     pub executable: TestExecutable,
     /// Outcome classification.
     pub status: TestRunStatus,
+    /// Time from starting the test until it exited or was killed;
+    /// zero for a test that could not start.
+    pub duration: Duration,
     /// Captured stdout, in order of arrival.
     pub stdout: Vec<u8>,
     /// Captured stderr, in order of arrival.
@@ -416,6 +420,7 @@ pub fn run_tests<S: TestOutputSink>(
                     let result = TestRunResult {
                         executable: executable.clone(),
                         status: TestRunStatus::SpawnFailed(source.to_string()),
+                        duration: Duration::ZERO,
                         stdout: Vec::new(),
                         stderr: Vec::new(),
                         output_cut_off: false,
@@ -444,10 +449,10 @@ pub fn run_tests<S: TestOutputSink>(
         let mut i = 0;
         while i < running.len() {
             running[i].poll(options.timeout, now)?;
-            if let Some(status) = running[i].finished(now).cloned() {
+            if let Some((exited_at, status)) = running[i].finished(now).cloned() {
                 let test = running.swap_remove(i);
                 let index = test.index;
-                results[index] = Some(test.finish(status, live, sink)?);
+                results[index] = Some(test.finish(status, exited_at, live, sink)?);
             } else {
                 i += 1;
             }
@@ -635,18 +640,19 @@ impl<'a> RunningTest<'a> {
     /// handled to the end of both pipes, or once [`OUTPUT_GRACE`] has
     /// passed since the exit with a pipe still open.  A pipe that
     /// closed is always handled to its end, however slow the sink.
-    fn finished(&self, now: Instant) -> Option<&TestRunStatus> {
-        let (exited_at, status) = self.exited.as_ref()?;
+    fn finished(&self, now: Instant) -> Option<&(Instant, TestRunStatus)> {
+        let exited = self.exited.as_ref()?;
         // Every pipe at end of file has been handled; the rest are held.
         let only_held = self.open_streams == 2 - self.pipes_closed.load(Ordering::Relaxed);
         let done =
-            self.open_streams == 0 || (only_held && now.duration_since(*exited_at) >= OUTPUT_GRACE);
-        done.then_some(status)
+            self.open_streams == 0 || (only_held && now.duration_since(exited.0) >= OUTPUT_GRACE);
+        done.then_some(exited)
     }
 
     fn finish<S: TestOutputSink>(
         mut self,
         status: TestRunStatus,
+        exited_at: Instant,
         live: bool,
         sink: &mut S,
     ) -> Result<TestRunResult, TestRunError> {
@@ -659,6 +665,7 @@ impl<'a> RunningTest<'a> {
         let result = TestRunResult {
             executable: self.executable.clone(),
             status,
+            duration: exited_at.duration_since(self.started),
             stdout: std::mem::take(&mut self.stdout),
             stderr: std::mem::take(&mut self.stderr),
             output_cut_off: self.open_streams > 0,
@@ -808,21 +815,25 @@ pub fn render_epilogue(summary: &TestSummary, filtered_out: usize) -> String {
     out
 }
 
+/// Why a test failed, or `None` when it passed.
+fn failure_reason(status: &TestRunStatus) -> Option<String> {
+    Some(match status {
+        TestRunStatus::Passed => return None,
+        TestRunStatus::Failed(ExitStatusKind::Code(code)) => format!("exit {code}"),
+        TestRunStatus::Failed(ExitStatusKind::Signal(signal)) => {
+            format!("terminated by signal {signal}")
+        }
+        TestRunStatus::Failed(ExitStatusKind::Unknown) => "unknown exit status".to_owned(),
+        TestRunStatus::TimedOut(limit) => format!("timed out after {}s", limit.as_secs_f64()),
+        TestRunStatus::SpawnFailed(error) => format!("could not start: {error}"),
+    })
+}
+
 /// Render the per-test result line emitted after each executable
 /// finishes.
 pub fn render_result_line(result: &TestRunResult) -> String {
-    let label = match &result.status {
-        TestRunStatus::Passed => "ok".to_owned(),
-        TestRunStatus::Failed(ExitStatusKind::Code(code)) => format!("FAILED (exit {code})"),
-        TestRunStatus::Failed(ExitStatusKind::Signal(signal)) => {
-            format!("FAILED (terminated by signal {signal})")
-        }
-        TestRunStatus::Failed(ExitStatusKind::Unknown) => "FAILED (unknown exit status)".to_owned(),
-        TestRunStatus::TimedOut(limit) => {
-            format!("FAILED (timed out after {}s)", limit.as_secs_f64())
-        }
-        TestRunStatus::SpawnFailed(error) => format!("FAILED (could not start: {error})"),
-    };
+    let label = failure_reason(&result.status)
+        .map_or_else(|| "ok".to_owned(), |reason| format!("FAILED ({reason})"));
     let cut_off = if result.output_cut_off {
         " (output cut off)"
     } else {
@@ -832,6 +843,57 @@ pub fn render_result_line(result: &TestRunResult) -> String {
         "test {}:{} ... {label}{cut_off}",
         result.executable.package, result.executable.target
     )
+}
+
+/// Build the `--junit` report of `summary`: one `testsuite` per package
+/// and one `testcase` per test executable, since Cabin observes
+/// executables, not the test cases inside them.  A test that could
+/// not start is an `error`, every other failure a `failure`.  A test
+/// whose output was cut off has the property `output-cut-off` set to
+/// `true`.
+pub fn junit_report(summary: &TestSummary) -> Report {
+    let mut report = Report::new("cabin test");
+    report.set_time(summary.elapsed);
+    // Plans are sorted by package, so each package's results are adjacent.
+    for results in summary
+        .results
+        .chunk_by(|a, b| a.executable.package == b.executable.package)
+    {
+        let mut suite = TestSuite::new(results[0].executable.package.as_str());
+        for result in results {
+            let status = match failure_reason(&result.status) {
+                None => TestCaseStatus::success(),
+                Some(reason) => {
+                    let kind = if matches!(result.status, TestRunStatus::SpawnFailed(_)) {
+                        NonSuccessKind::Error
+                    } else {
+                        NonSuccessKind::Failure
+                    };
+                    let mut status = TestCaseStatus::non_success(kind);
+                    status.set_message(reason);
+                    status
+                }
+            };
+            let mut case = TestCase::new(result.executable.target.as_str(), status);
+            case.set_classname(result.executable.package.as_str())
+                .set_time(result.duration)
+                .set_system_out(xml_text(&result.stdout))
+                .set_system_err(xml_text(&result.stderr));
+            if result.output_cut_off {
+                case.add_property(("output-cut-off", "true"));
+            }
+            suite.add_test_case(case);
+        }
+        report.add_test_suite(suite);
+    }
+    report
+}
+
+/// Test output as XML text, decoded lossily.  `quick-junit` drops
+/// ANSI escapes and control characters but keeps U+FFFE and U+FFFF,
+/// which XML also forbids, so they become replacement characters.
+fn xml_text(output: &[u8]) -> String {
+    String::from_utf8_lossy(output).replace(['\u{fffe}', '\u{ffff}'], "\u{fffd}")
 }
 
 /// Errors that stop the runner itself.  A test that fails, times
@@ -921,6 +983,7 @@ mod tests {
                 .map(|e| TestRunResult {
                     executable: e.clone(),
                     status: TestRunStatus::Passed,
+                    duration: Duration::ZERO,
                     stdout: Vec::new(),
                     stderr: Vec::new(),
                     output_cut_off: false,
@@ -980,10 +1043,83 @@ mod tests {
                 env: BTreeMap::new(),
             },
             status,
+            duration: Duration::ZERO,
             stdout: Vec::new(),
             stderr: Vec::new(),
             output_cut_off: false,
         }
+    }
+
+    #[test]
+    fn junit_report_has_one_case_per_executable_grouped_by_package() {
+        let mut passed = result_for("pass_test", TestRunStatus::Passed);
+        passed.executable.package = "alpha".into();
+        passed.duration = Duration::from_millis(1500);
+        // A byte that is not UTF-8, then U+FFFE and U+FFFF.
+        passed.stdout = b"<&> \xff \xef\xbf\xbe\xef\xbf\xbf".to_vec();
+        passed.output_cut_off = true;
+        let mut exited = result_for("exit_test", TestRunStatus::Failed(ExitStatusKind::Code(1)));
+        exited.stderr = b"boom".to_vec();
+        let summary = TestSummary {
+            results: vec![
+                passed,
+                exited,
+                result_for(
+                    "signal_test",
+                    TestRunStatus::Failed(ExitStatusKind::Signal("9".to_owned())),
+                ),
+                result_for("odd_test", TestRunStatus::Failed(ExitStatusKind::Unknown)),
+                result_for("hang_test", TestRunStatus::TimedOut(Duration::from_secs(5))),
+                result_for("gone_test", TestRunStatus::SpawnFailed("not found".into())),
+            ],
+            elapsed: Duration::from_secs(2),
+        };
+
+        let xml = junit_report(&summary).to_string().unwrap();
+        let report = Report::deserialize_from_str(&xml).unwrap();
+
+        let [alpha, demo] = &report.test_suites[..] else {
+            panic!("expected two suites: {xml}");
+        };
+        assert_eq!((alpha.name.as_str(), alpha.tests), ("alpha", 1));
+        assert_eq!(
+            (demo.name.as_str(), demo.tests, demo.failures, demo.errors),
+            ("demo", 5, 4, 1)
+        );
+        let pass = &alpha.test_cases[0];
+        assert_eq!(pass.classname.as_ref().unwrap().as_str(), "alpha");
+        assert_eq!(pass.time, Some(Duration::from_millis(1500)));
+        assert_eq!(
+            pass.system_out.as_ref().unwrap().as_str(),
+            "<&> \u{fffd} \u{fffd}\u{fffd}"
+        );
+        let property = &pass.properties[0];
+        assert_eq!(
+            (property.name.as_str(), property.value.as_str()),
+            ("output-cut-off", "true")
+        );
+        let exit = &demo.test_cases[0];
+        assert_eq!(exit.system_err.as_ref().unwrap().as_str(), "boom");
+        let outcomes: Vec<_> = demo
+            .test_cases
+            .iter()
+            .map(|case| match &case.status {
+                TestCaseStatus::NonSuccess { kind, message, .. } => {
+                    (*kind, message.as_ref().unwrap().as_str())
+                }
+                status => panic!("unexpected {status:?}"),
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            [
+                (NonSuccessKind::Failure, "exit 1"),
+                (NonSuccessKind::Failure, "terminated by signal 9"),
+                (NonSuccessKind::Failure, "unknown exit status"),
+                (NonSuccessKind::Failure, "timed out after 5s"),
+                (NonSuccessKind::Error, "could not start: not found"),
+            ]
+        );
     }
 
     #[test]
@@ -1251,6 +1387,7 @@ exit 42
 
         assert!(started.elapsed() < Duration::from_secs(10));
         assert_eq!(summary.results[0].status, TestRunStatus::TimedOut(limit));
+        assert!(summary.results[0].duration >= limit);
         assert!(!summary.results[0].output_cut_off);
     }
 
@@ -1487,6 +1624,7 @@ exit 42
         sink.test_finished(&TestRunResult {
             executable: exe,
             status: TestRunStatus::Passed,
+            duration: Duration::ZERO,
             stdout: Vec::new(),
             stderr: Vec::new(),
             output_cut_off: false,
