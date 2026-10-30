@@ -382,8 +382,8 @@ resolved fields without re-reading the manifest.  The existing
 
 ## Limitations
 
-- Cabin does not cross-compile yet (planned: capability roadmap stage 04), so the build planner
-  evaluates profiles against the host toolchain.
+- Conditional profile tables evaluate for the platform the build is for (the build machine, or the
+  [`--target`](toolchains.md#building-for-another-platform) platform) and its detected compilers.
 - Toolchain selection and capability probing are explicitly out of scope for profile tables.
 - Profile names cannot escape the build root; invalid names are rejected at parse time rather than
   sanitized silently.

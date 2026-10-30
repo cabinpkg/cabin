@@ -60,6 +60,7 @@ pub use compiler_wrapper::{
 };
 pub use condition::{
     CompilerSlot, Condition, ConditionContext, ConditionKey, ConditionParseError, TargetPlatform,
+    TargetTripleError,
 };
 pub use config::{
     BuildConfiguration, BuildConfigurationInput, DEFAULT_FEATURE_KEY, FeatureEntry, Features,

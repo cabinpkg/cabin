@@ -11,6 +11,7 @@ pub mod msvc;
 pub mod ninja;
 mod path_search;
 pub mod resolve;
+pub mod target;
 pub mod wrapper;
 
 pub use detect::{
@@ -23,6 +24,7 @@ pub use ninja::locate_ninja;
 pub use resolve::{
     ConfigToolEntry, ConfigToolchainLayer, Inputs as ResolveInputs, resolve_toolchain,
 };
+pub use target::{CompilerTargetError, CompilerTargets, check_compiler_targets};
 pub use wrapper::{
     CompilerWrapperResolutionError, ConfigWrapperLayer, WrapperInputs, resolve_compiler_wrapper,
 };

@@ -48,11 +48,13 @@ out the missing features.  When *every* declared test is gated off, `cabin test`
 error naming the gated targets (or, under `--allow-no-tests`, reports the filtered-out count) so
 the outcome stays distinguishable from a package with no tests at all.
 
-`cabin test` shares its core flags with `cabin build`: `-j` / `--jobs`, `--profile`, `--release`, `--features`,
-`--no-default-features`, `--all-features`, `--locked`, `--frozen`, `--no-patches`, the toolchain
-overrides (`--cc` / `--cxx` / `--ar` / `--compiler-wrapper`), the workspace-selection bundle
-(`--workspace` / `-p` / `--default-members` / `--exclude`), and the index/cache locations
-(`--index-path` / `--index-url` / `--cache-dir`).
+`cabin test` shares its core flags with `cabin build`: `-j` / `--jobs`, `--profile`, `--release`,
+`--features`, `--no-default-features`, `--all-features`, `--locked`, `--frozen`, `--no-patches`, the
+toolchain overrides (`--cc` / `--cxx` / `--ar` / `--compiler-wrapper`), the workspace-selection
+bundle (`--workspace` / `-p` / `--default-members` / `--exclude`), and the index/cache locations
+(`--index-path` / `--index-url` / `--cache-dir`).  With
+[`--target`](toolchains.md#building-for-another-platform) naming another machine, it builds the
+tests and then fails without running them.
 
 `--allow-no-tests` opts the user out of the empty-selection error: by default, `cabin test` exits
 with an error when the selected packages declare no `test` target, so CI does not silently pass when

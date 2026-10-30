@@ -1149,7 +1149,9 @@ Option<Condition>` field.  Resolution ignores it, so the lockfile serves every p
 workspace loader builds every path-dep edge, the closure walker
 (`collect_closure_versioned_deps_excluding_with_dev`) and the resolver include every conditional
 declaration, and dependency resolution runs the feature resolver with no platform.  The build
-evaluates conditions against the host `TargetPlatform`: its feature resolution skips non-matching
+evaluates conditions against the `TargetPlatform` it builds for - the build machine's
+(`TargetPlatform::current`) or the `--target` triple's (`TargetPlatform::from_triple`): its feature
+resolution skips non-matching
 declarations when expanding `dep:` and per-edge feature requests, and the planner resolves target
 dependencies only through matching edges.  The `condition` itself is preserved on
 `Package::dependencies` and round-trips through `PackageMetadata` and the index loaders, so `cabin
@@ -1553,9 +1555,9 @@ today, so future contributors do not silently regress them by porting more Cargo
   but are excluded from the default `cabin build` enumeration.  `test` targets are built and run by
   `cabin test`, which selects every test target in the selected packages - or only the named ones
   when `--test <name>` is given.  `example` targets reach the build graph only as transitive deps of
-  a selected target - Cabin does not yet expose a single-example selector flag, because the historic
-  `--target` overload has been removed and the flag name is reserved for the future
-  platform/toolchain target.  A future `--example <name>` selector would follow the same
+  a selected target - Cabin does not yet expose a single-example selector flag, and the historic
+  `--target` overload is gone: `--target` names the platform triple to build for.  A future
+  `--example <name>` selector would follow the same
   distinct-flag pattern as `cabin test --test <name>`.  Dependencies of dev-only targets follow the
   same `target.<X>.deps` rules as an `executable`: include and link interfaces propagate from the
   libraries they pull in, but the dev-only targets never contribute include or link interface back
@@ -1752,6 +1754,12 @@ the whole toolchain to speak one dialect - an MSVC compiler paired with a GNU `a
 is rejected up front rather than left to fail mid-build.  Unknown compilers are conservative:
 capabilities default to `unsupported`, and the build flow rejects them when the planner needs
 GCC-style flags.
+
+`cabin-toolchain::check_compiler_targets` then matches the detected compilers against the platform
+the command builds for.  Under `--target`, Clang-family compilers receive the triple as
+`--target=` (`PlanRequest::clang_target`, lowered by `cabin-driver` on every GNU-dialect compile,
+assemble, and link), and GCC (`-dumpmachine`), MSVC, and clang-cl (banner) must already build that
+machine; without it, a compiler for another machine is only a warning.
 
 Detection results are deliberately **not** serialized into package or index metadata.  They are
 local-environment state and would create reproducibility problems if they leaked into a published
@@ -1973,11 +1981,14 @@ documented in `registry/docs/architecture.md`:
   of scope.
 - **No administrative policy surfaces.**
 - **No remote / binary build cache.** The artifact cache stores source archives only.
-- **No cross-compilation yet** (planned: roadmap stages 04-05). Cabin builds only for the host
-  platform today: `[target.'cfg(...)']` predicates evaluate against the host and `--target
-  <triple>` is reserved for the platform selection stage 04 adds. (Windows / MSVC itself *is*
-  supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate lowers the
-  build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the detection and dialect sections above.)
+- **Cross-compilation is partial** (planned: roadmap stages 04-05). `--target <triple>` selects the
+  platform `[target.'cfg(...)']` predicates evaluate for and passes Clang `--target=`; GCC, MSVC,
+  and clang-cl must already build that platform, and Cabin never runs what it built for another
+  machine (see [`toolchains.md`](toolchains.md#building-for-another-platform)). Build-machine tool
+  dependencies, runners, and sysroot or SDK discovery are not implemented yet. (Windows / MSVC
+  itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate
+  lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the detection and dialect
+  sections above.)
 - **No hard resolver-side language-standard filtering.** First-class C/C++ language standards are
   implemented locally (required manifest fields with no built-in default, `[workspace]` defaults,
   the per-target `gnu-extensions` boolean, dialect lowering, pre-build validation, interface

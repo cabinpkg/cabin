@@ -92,8 +92,8 @@ in the same change and follow the architecture document.
 
 ## Cabin invariants
 
-- `--target` is reserved for future platform/toolchain triples. Do not use it
-  for manifest-target selection. The build-output flag is `--build-dir`;
+- `--target` selects the platform triple to build for. Do not use it for
+  manifest-target selection. The build-output flag is `--build-dir`;
   `--target-dir` is not an alias.
 - A port directory, except its unpublished `tests/`, is published verbatim, so
   every edit, including a comment, changes archive bytes. Compare its published

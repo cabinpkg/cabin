@@ -320,6 +320,7 @@ pub(crate) fn test(
         toolchain: &prepared.toolchain,
         cxx_kind: prepared.detection_report.cxx.identity.kind,
         feature_resolution: &prepared.feature_resolution,
+        platform: &prepared.platform,
         dev_for: &prepared.dev_for,
         ninja: &prepared.ninja,
         jobs,
@@ -348,6 +349,15 @@ pub(crate) fn test(
             return Ok(());
         }
         bail!("no test targets were produced by the build graph; pass `--allow-no-tests` to skip");
+    }
+    let target = &prepared.platform.target;
+    if !prepared.platform.runs_on_build_machine() {
+        bail!(
+            "built {} test executable{} under {} for {target}, but ran none: the build machine cannot run {target} executables",
+            test_plan.len(),
+            plural(test_plan.len()),
+            prepared.build_dir.display(),
+        );
     }
 
     // Status lines mirror `cargo test`: a blank line, the

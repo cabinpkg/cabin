@@ -117,7 +117,7 @@ pub(crate) fn explain(
     );
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &explain_selection)?;
-    let platform = cabin_core::TargetPlatform::current();
+    let platform = args.toolchain.platform();
     let feature_resolution = compute_feature_resolution(
         &graph,
         &resolved_selection,
@@ -177,6 +177,7 @@ pub(crate) fn explain(
                 &graph,
                 args.profile.as_deref(),
                 &args.toolchain,
+                &platform,
                 &effective_config,
                 reporter,
             )?;
@@ -188,7 +189,8 @@ pub(crate) fn explain(
             let prep = crate::cli::build_prep::resolve_build_prep(
                 crate::cli::build_prep::BuildConfigInputs {
                     graph: &graph,
-                    host_platform: &inspection.host_platform,
+                    platform: &platform,
+                    target: args.toolchain.target.as_ref().map(|t| t.target.as_str()),
                     toolchain: &inspection.toolchain,
                     detection: inspection.detection.as_ref(),
                     cli_compiler_wrapper,

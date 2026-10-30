@@ -47,7 +47,10 @@ pub fn parse_cxx_version_output(text: &str) -> CompilerIdentity {
         CompilerKind::Msvc => msvc::parse_version(&lines),
         CompilerKind::Unknown => None,
     };
-    let target = parse_target_line(&lines);
+    let target = match kind {
+        CompilerKind::Msvc => msvc::parse_target(&lines),
+        _ => parse_target_line(&lines),
+    };
 
     CompilerIdentity {
         kind,

@@ -76,6 +76,10 @@ pub struct CompileAction {
     pub depfile: Option<Utf8PathBuf>,
     /// Compiler driver executable.
     pub compiler: Utf8PathBuf,
+    /// Platform triple a Clang-family driver builds for, spelled
+    /// `--target=<triple>` right after the driver; `None` keeps the
+    /// driver's default.  Set only on the GNU/Clang dialect.
+    pub target: Option<String>,
     /// Optional compiler wrapper (e.g. `ccache`) prepended to
     /// the *run* command by lowering.  Never affects
     /// `compile_commands.json`, which records the underlying compiler
@@ -138,6 +142,10 @@ pub struct AssembleAction {
     /// Assembler executable: the C++ compiler driver on the GNU/Clang
     /// dialect, `ml64.exe` on MSVC.
     pub assembler: Utf8PathBuf,
+    /// Platform triple a Clang-family driver builds for, spelled
+    /// `--target=<triple>` right after the driver; `None` keeps the
+    /// driver's default.  Set only on the GNU/Clang dialect.
+    pub target: Option<String>,
     /// Absolute path of the assembly source.
     pub source: Utf8PathBuf,
     /// Object file to produce.
@@ -172,6 +180,10 @@ pub struct LinkAction {
     /// Link-driver executable (the C or C++ compiler, chosen per
     /// target by the planner).
     pub linker: Utf8PathBuf,
+    /// Platform triple a Clang-family driver builds for, spelled
+    /// `--target=<triple>` right after the driver; `None` keeps the
+    /// driver's default.  Set only on the GNU/Clang dialect.
+    pub target: Option<String>,
     /// Executable to produce.
     pub output: Utf8PathBuf,
     /// Link inputs (objects then static archives), in link order.

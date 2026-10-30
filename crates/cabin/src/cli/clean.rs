@@ -90,6 +90,7 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
         package_roots: &package_roots,
         protected_source_paths: &protected_source_paths,
         scope,
+        target: args.target.as_ref().map(|t| t.target.as_str()),
     })
     .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 

@@ -188,6 +188,7 @@ pub(crate) fn run(
             toolchain: &prepared.toolchain,
             cxx_kind: prepared.detection_report.cxx.identity.kind,
             feature_resolution: &prepared.feature_resolution,
+            platform: &prepared.platform,
             dev_for: &prepared.dev_for,
             ninja: &prepared.ninja,
             jobs,
@@ -215,6 +216,13 @@ pub(crate) fn run(
                 run_target.target_name,
             )
         })?;
+    let target = &prepared.platform.target;
+    if !prepared.platform.runs_on_build_machine() {
+        bail!(
+            "built `{}` for {target}, but did not run it: the build machine cannot run {target} executables",
+            display_run_path(&executable, &prepared.manifest_path),
+        );
+    }
 
     // Build the env.  We do not clear the user's environment -
     // the spawned program inherits PATH, LANG, etc. - but we

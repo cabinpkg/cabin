@@ -25,7 +25,8 @@ behavior.
 
 Every kind also accepts the platform-conditional form `[target.'cfg(...)'.<kind>]`.  Resolution
 and the lockfile include the declaration whatever its condition; the build evaluates the condition
-against the host platform and leaves non-matching declarations out.  The full grammar and
+for the platform it builds for (the build machine, or the `--target` platform) and leaves
+non-matching declarations out.  The full grammar and
 evaluation rules live in [`target-dependencies.md`](target-dependencies.md).
 
 ## Manifest syntax

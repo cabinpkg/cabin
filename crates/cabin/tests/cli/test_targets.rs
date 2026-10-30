@@ -891,20 +891,13 @@ deps = ["{member}"]
 }
 
 #[test]
-fn cabin_test_rejects_target_flag_as_unknown_argument() {
-    // `cabin test` mirrors `cabin build`: the historic
-    // `--target` manifest-target selector is gone, with the
-    // flag name reserved for a future platform/toolchain
-    // target. clap must reject the flag at parse time so the
-    // overload cannot creep back in.
+fn cabin_test_target_takes_a_platform_triple_not_a_manifest_target() {
     cabin()
-        .args(["test", "--target", "foo"])
+        .args(["test", "--target", "x86_64-unknown-plan10"])
         .assert()
         .failure()
         .code(2)
-        .stderr(predicate::str::contains(
-            "unexpected argument '--target' found",
-        ));
+        .stderr(predicate::str::contains("names no operating system"));
 }
 
 #[test]

@@ -118,6 +118,34 @@ fn clean_profile_narrows_to_one_profile_dir() {
 }
 
 #[test]
+fn clean_target_narrows_to_that_triples_outputs() {
+    let dir = TempDir::new().unwrap();
+    populate_project(dir.path());
+    let cross = dir.path().join("build/aarch64-unknown-linux-gnu");
+    for profile in ["dev", "release"] {
+        assert_fs::fixture::ChildPath::new(cross.join(profile).join("build.ninja"))
+            .write_str("ninja")
+            .unwrap();
+    }
+
+    cabin()
+        .current_dir(dir.path())
+        .args([
+            "clean",
+            "--target",
+            "aarch64-unknown-linux-gnu",
+            "--profile",
+            "release",
+        ])
+        .assert()
+        .success();
+
+    assert!(!cross.join("release").exists());
+    assert!(cross.join("dev").exists());
+    assert!(dir.path().join("build/release").exists());
+}
+
+#[test]
 fn clean_release_alias_matches_profile_release() {
     let dir = TempDir::new().unwrap();
     populate_project(dir.path());

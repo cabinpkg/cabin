@@ -54,7 +54,15 @@ Conditional declarations work the same way as the other dependency kinds:
 systemd = { version = ">=240", system = true }
 ```
 
-A conditional system dependency is probed only when its condition matches the host platform.
+A conditional system dependency is probed only when its condition matches the platform the build
+is for.
+
+pkg-config reports the build machine's libraries, so a `--target` build for another machine with
+an active system dependency fails unless `PKG_CONFIG_LIBDIR` points pkg-config into the target
+sysroot (usually together with `PKG_CONFIG_SYSROOT_DIR`) or `CABIN_PKG_CONFIG` names a pkg-config
+for the target, such as `aarch64-linux-gnu-pkg-config`.  A triple naming another `env` counts as
+another machine, and Cabin assumes `gnu` for every Linux build machine: on a musl host, an explicit
+`--target x86_64-unknown-linux-musl` needs `CABIN_PKG_CONFIG=pkg-config`.
 
 ## What Cabin does with system-sourced entries
 

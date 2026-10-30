@@ -65,6 +65,9 @@ pub struct CleanRequest<'a> {
     pub protected_source_paths: &'a [PathBuf],
     /// What to clean.
     pub scope: CleanScope,
+    /// A `--target` triple: the scope applies to `<build_dir>/<triple>/`
+    /// instead of the build machine's tree.
+    pub target: Option<&'a str>,
 }
 
 /// Deterministic deletion plan: a sorted, deduplicated list of
@@ -153,13 +156,24 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
         req.protected_source_paths,
     )?;
 
+    let root = match req.target {
+        Some(triple) => {
+            let root = req.build_dir.join(triple);
+            // Containment below is lexical, so the triple's tree must be real too.
+            if std::fs::symlink_metadata(&root).is_ok_and(|meta| meta.file_type().is_symlink()) {
+                return Err(CleanError::SymlinkBuildDir(root));
+            }
+            root
+        }
+        None => req.build_dir.to_path_buf(),
+    };
     let candidates = match &req.scope {
-        CleanScope::Whole => vec![req.build_dir.to_path_buf()],
-        CleanScope::Profile(profile) => vec![req.build_dir.join(profile.as_str())],
+        CleanScope::Whole => vec![root],
+        CleanScope::Profile(profile) => vec![root.join(profile.as_str())],
         CleanScope::Packages { profiles, packages } => {
             let mut out = Vec::with_capacity(profiles.len().saturating_mul(packages.len()));
             for profile in profiles {
-                let profile_root = req.build_dir.join(profile.as_str());
+                let profile_root = root.join(profile.as_str());
                 for pkg in packages {
                     // Mirror the planner's `packages/<scope>/<name>`
                     // nesting so clean removes exactly the directory
@@ -377,6 +391,7 @@ mod tests {
             package_roots: &[],
             protected_source_paths: &[],
             scope,
+            target: None,
         }
     }
 
@@ -516,6 +531,7 @@ mod tests {
             package_roots: std::slice::from_ref(&pkg_path),
             protected_source_paths: &[],
             scope: CleanScope::Whole,
+            target: None,
         };
         let err = plan_clean(&request).unwrap_err();
         assert!(matches!(err, CleanError::PackageRootBuildDir(_)));
@@ -534,6 +550,7 @@ mod tests {
             package_roots: &[],
             protected_source_paths: std::slice::from_ref(&source_path),
             scope: CleanScope::Whole,
+            target: None,
         };
         let err = plan_clean(&request).unwrap_err();
         assert!(matches!(err, CleanError::SourcePathBuildDir { .. }));
@@ -561,6 +578,7 @@ mod tests {
             package_roots: &[],
             protected_source_paths: std::slice::from_ref(&source_path),
             scope: CleanScope::Whole,
+            target: None,
         };
         let err = plan_clean(&request).unwrap_err();
         assert!(matches!(err, CleanError::SourcePathBuildDir { .. }));
@@ -571,10 +589,30 @@ mod tests {
     fn rejects_symlink_build_dir() {
         let tmp = TempDir::new().unwrap();
         let target = tmp.child("real");
-        target.create_dir_all().unwrap();
+        target
+            .child("x86_64-pc-linux-gnu")
+            .create_dir_all()
+            .unwrap();
         let link = tmp.child("link");
         std::os::unix::fs::symlink(target.path(), link.path()).unwrap();
         let err = plan_clean(&req(link.path(), tmp.path(), CleanScope::Whole)).unwrap_err();
+        assert!(matches!(err, CleanError::SymlinkBuildDir(_)));
+        // Narrowing to one triple's tree still checks the build dir,
+        // and the triple's own directory.
+        let mut narrowed = req(link.path(), tmp.path(), CleanScope::Whole);
+        narrowed.target = Some("x86_64-pc-linux-gnu");
+        let err = plan_clean(&narrowed).unwrap_err();
+        assert!(matches!(err, CleanError::SymlinkBuildDir(_)));
+        let build = tmp.child("build");
+        build.create_dir_all().unwrap();
+        std::os::unix::fs::symlink(
+            target.path(),
+            build.child("aarch64-unknown-linux-gnu").path(),
+        )
+        .unwrap();
+        let mut narrowed = req(build.path(), tmp.path(), CleanScope::Whole);
+        narrowed.target = Some("aarch64-unknown-linux-gnu");
+        let err = plan_clean(&narrowed).unwrap_err();
         assert!(matches!(err, CleanError::SymlinkBuildDir(_)));
     }
 }

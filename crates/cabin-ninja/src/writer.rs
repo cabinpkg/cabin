@@ -416,6 +416,7 @@ mod tests {
             mode: CompileMode::Object,
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
+            target: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: OptLevel::O0,
@@ -454,6 +455,7 @@ mod tests {
     fn link_action() -> BuildAction {
         BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/g++"),
+            target: None,
             output: Utf8PathBuf::from("/abs/build/hello"),
             inputs: vec![Utf8PathBuf::from("/abs/build/main.o")],
             arguments: vec![],
@@ -474,6 +476,7 @@ mod tests {
             },
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
+            target: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: OptLevel::O0,
@@ -551,6 +554,7 @@ mod tests {
     fn assemble_rule_tracks_headers_on_gnu_only() {
         let assemble = BuildAction::Assemble(cabin_driver::AssembleAction {
             assembler: Utf8PathBuf::from("/usr/bin/g++"),
+            target: None,
             source: Utf8PathBuf::from("/abs/src/jump.S"),
             object: Utf8PathBuf::from("/abs/build/jump.o"),
             depfile: Some(Utf8PathBuf::from("/abs/build/jump.o.d")),

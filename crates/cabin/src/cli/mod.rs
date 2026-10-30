@@ -542,6 +542,11 @@ pub(crate) struct CleanArgs {
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
+    /// Clean the outputs of `--target <TRIPLE>` builds, under
+    /// `<build-dir>/<TRIPLE>/`, instead of the build machine's.
+    #[arg(long, value_name = "TRIPLE", value_parser = cabin_core::TargetPlatform::from_triple)]
+    pub target: Option<cabin_core::TargetPlatform>,
+
     /// Print the deletion plan without removing anything.  Output
     /// lists the paths that would be removed in deterministic
     /// order.
@@ -754,6 +759,24 @@ pub(crate) struct ToolchainSelectionArgs {
     /// `--compiler-wrapper`.
     #[arg(long)]
     pub no_compiler_wrapper: bool,
+
+    /// Build for the platform named by a target triple such as
+    /// `aarch64-unknown-linux-gnu` instead of the build machine.
+    /// `cfg(...)` conditions evaluate for that platform, outputs go
+    /// under `<build-dir>/<TRIPLE>/`, and Clang compilers receive
+    /// `--target=<TRIPLE>`.  See `docs/toolchains.md`.
+    #[arg(long, value_name = "TRIPLE", value_parser = cabin_core::TargetPlatform::from_triple)]
+    pub target: Option<cabin_core::TargetPlatform>,
+}
+
+impl ToolchainSelectionArgs {
+    /// The platform this invocation builds for: the `--target` triple,
+    /// or the build machine.
+    pub(crate) fn platform(&self) -> cabin_core::TargetPlatform {
+        self.target
+            .clone()
+            .unwrap_or_else(cabin_core::TargetPlatform::current)
+    }
 }
 
 /// Selection-flag bundle shared by `cabin build` and `cabin metadata`.

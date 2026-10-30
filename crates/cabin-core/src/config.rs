@@ -431,6 +431,9 @@ pub struct ToolchainSummary {
     /// different wrapper choice reuses neither cache layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compiler_wrapper: Option<CompilerWrapperSummary>,
+    /// The `--target` triple; `None` for a build-machine build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 impl ToolchainSummary {
@@ -463,6 +466,7 @@ impl ToolchainSummary {
             tools,
             sources,
             compiler_wrapper: wrapper.map(CompilerWrapperSummary::from_resolved),
+            target: None,
         }
     }
 }
@@ -586,6 +590,7 @@ fn bool_bytes(b: bool) -> &'static [u8] {
     if b { b"true" } else { b"false" }
 }
 
+#[allow(clippy::too_many_lines)] // one linear pass over every hashed input
 fn compute_fingerprint(
     features: &BTreeSet<String>,
     profile: &ResolvedProfile,
@@ -640,6 +645,9 @@ fn compute_fingerprint(
         None => {
             hasher.update(b"kind=none\n");
         }
+    }
+    if let Some(target) = &toolchain.target {
+        hasher.update(format!("target={target}\n").as_bytes());
     }
     hasher.update(b"build-flags\n");
     hasher.update(b"defines\n");
@@ -1533,6 +1541,32 @@ mod tests {
         })
         .unwrap();
         assert_ne!(cfg_a.fingerprint, cfg_b.fingerprint);
+    }
+
+    #[test]
+    fn fingerprint_differs_when_target_changes() {
+        let fingerprint = |target: Option<&str>| {
+            BuildConfiguration::resolve(BuildConfigurationInput {
+                targets: &[],
+                package: "demo",
+                features: &Features::default(),
+                request: &SelectionRequest::default(),
+                profile: dev(),
+                toolchain: ToolchainSummary {
+                    target: target.map(str::to_owned),
+                    ..ToolchainSummary::default()
+                },
+                build_flags: ResolvedProfileFlags::default(),
+                language: LanguageStandardsSummary::default(),
+            })
+            .unwrap()
+            .fingerprint
+        };
+        assert_ne!(fingerprint(None), fingerprint(Some("x86_64-apple-macos13")));
+        assert_ne!(
+            fingerprint(Some("x86_64-apple-macos13")),
+            fingerprint(Some("aarch64-apple-macos13"))
+        );
     }
 
     #[test]

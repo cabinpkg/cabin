@@ -998,20 +998,13 @@ fn release_flag_changes_compile_commands() {
 }
 
 #[test]
-fn cabin_build_rejects_target_flag_as_unknown_argument() {
-    // `--target` is reserved for a future platform/toolchain
-    // target selector.  Cabin no longer accepts it as a
-    // manifest-target selector on `cabin build`, so clap must
-    // reject the flag outright.  Pinning the rejection here keeps
-    // the historic overload from quietly returning.
+fn cabin_build_target_takes_a_platform_triple_not_a_manifest_target() {
     cabin()
         .args(["build", "--target", "foo"])
         .assert()
         .failure()
         .code(2)
-        .stderr(predicate::str::contains(
-            "unexpected argument '--target' found",
-        ));
+        .stderr(predicate::str::contains("malformed target triple \"foo\""));
 }
 
 #[test]
@@ -2280,6 +2273,9 @@ mod profiles;
 
 #[path = "cli/toolchain.rs"]
 mod toolchain;
+
+#[path = "cli/cross_target.rs"]
+mod cross_target;
 
 #[path = "cli/compiler_detection.rs"]
 mod compiler_detection;

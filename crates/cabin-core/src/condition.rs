@@ -347,11 +347,9 @@ pub struct TargetPlatform {
 }
 
 impl TargetPlatform {
-    /// Best-effort detection of the *host* platform - the
-    /// platform commands like `cabin build` execute on.  Cabin
-    /// does not yet support cross-compilation; future steps may
-    /// add an explicit target-triple selection layer that wraps
-    /// this constructor.
+    /// Best-effort detection of the build machine - the platform
+    /// commands like `cabin build` execute on and build for unless
+    /// `--target` names another.
     pub fn current() -> Self {
         let os = normalize_os(std::env::consts::OS);
         let arch = normalize_arch(std::env::consts::ARCH);
@@ -368,6 +366,166 @@ impl TargetPlatform {
             target,
         }
     }
+}
+
+impl TargetPlatform {
+    /// The platform a `--target` triple names.  `target` is the triple
+    /// as given; the other keys are classified from its components the
+    /// way compilers spell them (`x86_64-unknown-linux-gnu`,
+    /// `aarch64-linux-gnu`, `arm64-apple-ios17.0-simulator`,
+    /// `x86_64-w64-mingw32`, `x86_64-pc-windows-msvc`).  The compiler,
+    /// not this classification, decides what the triple builds.
+    ///
+    /// # Errors
+    /// Returns [`TargetTripleError`] for a triple with fewer than two
+    /// components, an empty component, or no recognized operating
+    /// system.
+    pub fn from_triple(triple: &str) -> Result<Self, TargetTripleError> {
+        let parts: Vec<&str> = triple.split('-').collect();
+        // The triple also names the build-output directory.
+        if parts.len() < 2
+            || parts.iter().any(|part| part.is_empty())
+            || !triple
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        {
+            return Err(TargetTripleError::Malformed(triple.to_owned()));
+        }
+        let named: Vec<(usize, &str)> = parts
+            .iter()
+            .enumerate()
+            .skip(1)
+            .filter_map(|(index, part)| triple_os(part).map(|os| (index, os)))
+            .collect();
+        // `none` is also a vendor (`aarch64-none-linux-gnu`), so it names
+        // the OS only when nothing else does.
+        let (os_index, mut os) = named
+            .iter()
+            .find(|(_, os)| *os != "none")
+            .or(named.first())
+            .copied()
+            .ok_or_else(|| TargetTripleError::UnknownOs(triple.to_owned()))?;
+        let rest = &parts[os_index + 1..];
+        if os == "linux" && rest.iter().any(|part| part.starts_with("android")) {
+            os = "android";
+        }
+        let arch = triple_arch(parts[0]);
+        let env = if rest.iter().any(|part| part.starts_with("msvc")) {
+            "msvc"
+        } else if parts[os_index] == "mingw32" || rest.iter().any(|part| part.starts_with("gnu")) {
+            "gnu"
+        } else if rest.iter().any(|part| part.starts_with("musl")) {
+            "musl"
+        } else if matches!(os, "macos" | "ios") {
+            "apple"
+        } else if os == "linux" && rest.is_empty() {
+            // GNU spells `linux-gnu` as `linux` (`x86_64-redhat-linux`).
+            "gnu"
+        } else {
+            "unknown"
+        };
+        let abi = rest
+            .iter()
+            .find_map(|part| {
+                if part.ends_with("eabihf") {
+                    Some("eabihf")
+                } else if part.ends_with("eabi") {
+                    Some("eabi")
+                } else if *part == "simulator" {
+                    Some("sim")
+                } else if *part == "macabi" {
+                    Some("macabi")
+                } else {
+                    None
+                }
+            })
+            .unwrap_or("unknown");
+        let family = if arch.starts_with("wasm") {
+            "wasm".to_owned()
+        } else {
+            normalize_family("", os)
+        };
+        Ok(Self {
+            os: os.to_owned(),
+            arch,
+            family,
+            env: env.to_owned(),
+            abi: abi.to_owned(),
+            target: triple.to_owned(),
+        })
+    }
+
+    /// Whether `other` builds for the same machine: equal `arch` and
+    /// `os`, and equal `env` unless either side does not know it.
+    pub fn same_machine(&self, other: &Self) -> bool {
+        self.arch == other.arch
+            && self.os == other.os
+            && (self.env == other.env || self.env == "unknown" || other.env == "unknown")
+    }
+
+    /// Whether the build machine runs this platform's binaries: the
+    /// same `os` and `arch`, or x86 on Windows x64.  The build machine's
+    /// `env` is a guess (`gnu` on every Linux), so it cannot tell a musl
+    /// host from a glibc one.
+    pub fn runs_on_build_machine(&self) -> bool {
+        let build_machine = Self::current();
+        self.os == build_machine.os
+            && (self.arch == build_machine.arch
+                || (self.os == "windows" && self.arch == "x86" && build_machine.arch == "x86_64"))
+    }
+}
+
+/// A `--target` triple Cabin cannot classify.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TargetTripleError {
+    #[error("malformed target triple {0:?}; expected `<arch>-<vendor>-<os>[-<env>]`")]
+    Malformed(String),
+    #[error("target triple {0:?} names no operating system Cabin recognizes")]
+    UnknownOs(String),
+}
+
+/// The `os` key an operating-system component of a triple names.
+fn triple_os(part: &str) -> Option<&'static str> {
+    const PREFIXES: [(&str, &str); 12] = [
+        ("linux", "linux"),
+        ("darwin", "macos"),
+        ("macos", "macos"),
+        ("ios", "ios"),
+        ("windows", "windows"),
+        ("win32", "windows"),
+        ("mingw32", "windows"),
+        ("freebsd", "freebsd"),
+        ("netbsd", "netbsd"),
+        ("openbsd", "openbsd"),
+        ("dragonfly", "dragonfly"),
+        ("wasi", "wasi"),
+    ];
+    if matches!(part, "none" | "elf") {
+        return Some("none");
+    }
+    PREFIXES
+        .iter()
+        .find(|(prefix, _)| part.starts_with(prefix))
+        .map(|(_, os)| *os)
+}
+
+/// The `arch` key for a triple's first component, spelled as
+/// `std::env::consts::ARCH` spells the build machine's.
+fn triple_arch(part: &str) -> String {
+    match part {
+        "amd64" => "x86_64",
+        "arm64" | "arm64e" => "aarch64",
+        "i386" | "i486" | "i586" | "i686" => "x86",
+        // `std::env::consts::ARCH` names one architecture per endianness pair.
+        "powerpc64le" | "ppc64le" | "ppc64" => "powerpc64",
+        "mipsel" => "mips",
+        "mips64el" => "mips64",
+        _ if part.starts_with("armv") || part.starts_with("thumbv") => "arm",
+        _ if part.starts_with("riscv64") => "riscv64",
+        _ if part.starts_with("riscv32") => "riscv32",
+        other => other,
+    }
+    .to_owned()
 }
 
 fn normalize_os(raw: &str) -> String {
@@ -854,6 +1012,93 @@ mod tests {
         cxx: &'a CompilerIdentity,
     ) -> ConditionContext<'a> {
         ConditionContext::platform_only(platform).with_compilers(None, Some(cxx))
+    }
+
+    #[test]
+    fn classifies_target_triples() {
+        // Each triple's `arch os family env abi`.
+        for (triple, expected) in [
+            ("x86_64-unknown-linux-gnu", "x86_64 linux unix gnu unknown"),
+            ("aarch64-linux-gnu", "aarch64 linux unix gnu unknown"),
+            ("x86_64-alpine-linux-musl", "x86_64 linux unix musl unknown"),
+            ("armv7-unknown-linux-gnueabihf", "arm linux unix gnu eabihf"),
+            ("aarch64-none-linux-gnu", "aarch64 linux unix gnu unknown"),
+            ("x86_64-redhat-linux", "x86_64 linux unix gnu unknown"),
+            ("ppc64le-redhat-linux", "powerpc64 linux unix gnu unknown"),
+            (
+                "riscv64gc-unknown-linux-gnu",
+                "riscv64 linux unix gnu unknown",
+            ),
+            (
+                "aarch64-linux-android21",
+                "aarch64 android unix unknown unknown",
+            ),
+            ("x86_64-apple-macos13", "x86_64 macos unix apple unknown"),
+            (
+                "arm64-apple-darwin25.0.0",
+                "aarch64 macos unix apple unknown",
+            ),
+            (
+                "arm64-apple-ios17.0-simulator",
+                "aarch64 ios unix apple sim",
+            ),
+            (
+                "x86_64-pc-windows-msvc",
+                "x86_64 windows windows msvc unknown",
+            ),
+            ("x86_64-w64-mingw32", "x86_64 windows windows gnu unknown"),
+            ("i686-w64-windows-gnu", "x86 windows windows gnu unknown"),
+            ("wasm32-wasi", "wasm32 wasi wasm unknown unknown"),
+            ("arm-none-eabi", "arm none unknown unknown eabi"),
+        ] {
+            let platform = TargetPlatform::from_triple(triple).unwrap();
+            let actual = [
+                &platform.arch,
+                &platform.os,
+                &platform.family,
+                &platform.env,
+                &platform.abi,
+            ]
+            .map(String::as_str)
+            .join(" ");
+            assert_eq!(actual, expected, "{triple}");
+            assert_eq!(platform.target, triple);
+        }
+        for bad in [
+            "",
+            "x86_64",
+            "x86_64--linux",
+            "x86_64-unknown-plan10",
+            "x86_64-unknown-linux/../gnu",
+        ] {
+            assert!(TargetPlatform::from_triple(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn build_machine_ignores_env() {
+        let host = TargetPlatform::current();
+        let musl = TargetPlatform {
+            env: "musl".to_owned(),
+            ..host.clone()
+        };
+        assert!(musl.runs_on_build_machine());
+        let other_arch = TargetPlatform {
+            arch: "riscv32".to_owned(),
+            ..host
+        };
+        assert!(!other_arch.runs_on_build_machine());
+    }
+
+    #[test]
+    fn same_machine_ignores_unknown_env() {
+        let msvc = TargetPlatform::from_triple("x86_64-pc-windows-msvc").unwrap();
+        let bare = TargetPlatform::from_triple("x86_64-pc-windows").unwrap();
+        let gnu = TargetPlatform::from_triple("x86_64-pc-windows-gnu").unwrap();
+        let arm = TargetPlatform::from_triple("aarch64-pc-windows-msvc").unwrap();
+        assert!(msvc.same_machine(&bare));
+        assert!(!msvc.same_machine(&gnu));
+        assert!(!msvc.same_machine(&arm));
     }
 
     #[test]

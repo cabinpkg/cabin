@@ -86,7 +86,8 @@ yields a value:
    project) or `~/.config/cabin/config.toml` (user).  See [`config.md`](config.md) for the full
    file-discovery rules.
 4. **Matching `[target.'cfg(...)'.toolchain]`** - the first conditional toolchain block whose
-   predicate evaluates to `true` against the host platform.
+   predicate evaluates to `true` for the platform the build is for (the build machine, or the
+   `--target` platform).
 5. **`[toolchain]`** - the workspace root manifest's general toolchain table.
 6. **Built-in defaults** - Cabin's documented fallback list.
 
@@ -106,9 +107,47 @@ cabin metadata --cxx clang++         # report the toolchain a build *would* pick
 filesystem path.  Whitespace-only values are rejected at parse time.  The flags apply only to the
 current command invocation; nothing is written back to the manifest.
 
-`cabin build` and `cabin metadata` accept the flags.  `cabin resolve`, `cabin update`, `cabin
+`cabin build`, `cabin check`, `cabin run`, `cabin test`, `cabin metadata`, and `cabin explain`
+accept the flags, along with `--target`.  `cabin resolve`, `cabin update`, `cabin
 fetch`, `cabin package`, and `cabin publish` deliberately do **not** accept them - toolchain
 selection has no effect on dependency resolution, the lockfile, or the published archive.
+
+## Building for another platform
+
+`--target <triple>` builds for the platform a target triple names (`aarch64-unknown-linux-gnu`,
+`x86_64-apple-macos13`, `x86_64-pc-windows-msvc`) instead of the build machine:
+
+```sh
+cabin build --target x86_64-apple-macos13
+cabin build --target aarch64-unknown-linux-gnu \
+  --cc aarch64-linux-gnu-gcc --cxx aarch64-linux-gnu-g++
+```
+
+- **Platform.**  `cfg(...)` conditions evaluate for the triple's `os`, `arch`, `family`, `env`, and
+  `abi` (see [the evaluation context](target-dependencies.md#evaluation-context)); `cabin metadata
+  --target <triple>` reports them under `target_platform`.  A triple with an operating system Cabin
+  does not recognize, or with characters other than ASCII letters, digits, `-`, `_`, and `.`, is a
+  usage error.  `--target` never selects a manifest target.
+- **Compilers.**  Clang and Apple Clang build any triple: every compile, assemble, and link command
+  passes `--target=<triple>` right after the driver.  GCC, MSVC, and clang-cl build one fixed
+  target, which must name the triple's machine (same `arch` and `os`, and the same `env` when both
+  name one): GCC's `-dumpmachine`, the MSVC banner's architecture.  Select the cross compiler with
+  `--cc` / `--cxx` (or `CC` / `CXX`); the C and C++ compilers must both be Clang-family or both
+  not.  A compiler Cabin cannot classify fails the build rather than guessing.
+- **Output.**  The build writes under `<build-dir>/<triple>/<profile>/`, beside the build machine's
+  `<build-dir>/<profile>/`, so the two builds never share an object; `cabin clean --target
+  <triple>` cleans that tree.
+- **Running.**  When the triple names another machine, `cabin run --target` and `cabin test
+  --target` build, then fail with an error naming what they built: Cabin never runs a binary built
+  for another machine.  A triple with the build machine's `os` and `arch` runs as usual, as does x86
+  on Windows x64.
+- **Sysroots.**  Cabin discovers no sysroot or SDK; pass one through `[profile]` flags or `CFLAGS` /
+  `CXXFLAGS` / `LDFLAGS` (`--sysroot=<dir>`).  [System dependencies](system-dependencies.md) need a
+  pkg-config for the target.
+
+Without `--target`, a compiler whose `--version` banner names another machine draws a warning:
+`cfg(...)` conditions still evaluate for the build machine, so pass `--target` to match them to the
+compiler.
 
 ## Environment variables
 
@@ -374,6 +413,7 @@ Cabin exposes to metadata, `cabin run`, and `cabin test`.  The hash folds in:
 | profile                  | name, debug, opt-level, assertions                                                      |
 | toolchain                | `(kind, spec)` pairs, sorted by tool key                                                |
 | compiler-wrapper         | kind, spec, source, version (or `none`)                                                 |
+| target                   | the `--target` triple; absent for a build-machine build                                 |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from environment and system dependencies |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
 | instruction-sets         | Every target's per-source [`instruction-sets`](targets.md#per-source-instruction-sets), as declared |

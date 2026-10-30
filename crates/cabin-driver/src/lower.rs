@@ -157,6 +157,12 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
     out.push(compile.compiler.to_string());
+    out.extend(
+        compile
+            .target
+            .iter()
+            .map(|target| format!("--target={target}")),
+    );
     out.push(gnu_std_flag(compile.standard, compile.gnu_extensions));
     out.push(args.opt_level.as_flag().to_owned());
     if args.debug_info {
@@ -220,6 +226,12 @@ fn lower_assemble_gnu(assemble: &AssembleAction) -> Vec<String> {
     // The driver preprocesses a `.S` input by its extension before
     // assembling it, so defines and include dirs apply as for C.
     let mut command = vec![assemble.assembler.to_string()];
+    command.extend(
+        assemble
+            .target
+            .iter()
+            .map(|target| format!("--target={target}")),
+    );
     if let Some(depfile) = &assemble.depfile {
         command.push("-MD".to_owned());
         command.push("-MF".to_owned());
@@ -258,6 +270,11 @@ fn lower_link_gnu(link: &LinkAction) -> Vec<String> {
     // System libraries follow the archives so a static library's
     // dependencies resolve left-to-right under GNU `ld`.
     let mut command = vec![link.linker.to_string()];
+    command.extend(
+        link.target
+            .iter()
+            .map(|target| format!("--target={target}")),
+    );
     for input in &link.inputs {
         command.push(input.to_string());
     }
@@ -527,6 +544,7 @@ mod tests {
             mode,
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
+            target: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: OptLevel::O0,
@@ -549,6 +567,7 @@ mod tests {
         let assemble = |assembler: &str| {
             BuildAction::Assemble(AssembleAction {
                 assembler: Utf8PathBuf::from(assembler),
+                target: None,
                 source: Utf8PathBuf::from("/abs/src/jump.S"),
                 object: Utf8PathBuf::from("/abs/build/jump.o"),
                 depfile: Some(Utf8PathBuf::from("/abs/build/jump.o.d")),
@@ -608,6 +627,37 @@ mod tests {
             let argv = compile_argv(dialect, &compile);
             let at = argv.iter().position(|arg| arg == "-msse4.1").unwrap();
             assert_eq!(argv[at + 1..at + 3], ["-mavx2", "-Wall"], "{dialect:?}");
+        }
+    }
+
+    #[test]
+    fn gnu_commands_pass_the_target_right_after_the_driver() {
+        let target = Some("x86_64-apple-macos13".to_owned());
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.target.clone_from(&target);
+        let assemble = BuildAction::Assemble(AssembleAction {
+            assembler: Utf8PathBuf::from("/usr/bin/clang"),
+            target: target.clone(),
+            source: Utf8PathBuf::from("/abs/src/jump.S"),
+            object: Utf8PathBuf::from("/abs/build/jump.o"),
+            depfile: None,
+            include_dirs: vec![],
+            defines: vec![],
+            description: String::new(),
+        });
+        let link = BuildAction::Link(LinkAction {
+            linker: Utf8PathBuf::from("/usr/bin/clang++"),
+            target,
+            output: Utf8PathBuf::from("/abs/build/app"),
+            inputs: vec![],
+            arguments: vec![],
+            link_libs: vec![],
+            frameworks: vec![],
+            description: String::new(),
+        });
+        for action in [BuildAction::Compile(compile), assemble, link] {
+            let command = lower(Dialect::GnuLike, &action).command;
+            assert_eq!(command[1], "--target=x86_64-apple-macos13", "{command:?}");
         }
     }
 
@@ -835,6 +885,7 @@ mod tests {
     fn gnu_link_lowers_to_driver_inputs_ldflags_output() {
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/g++"),
+            target: None,
             output: Utf8PathBuf::from("/abs/build/app"),
             inputs: vec![
                 Utf8PathBuf::from("/abs/build/main.o"),
@@ -875,6 +926,7 @@ mod tests {
             mode,
             depfile: Some(Utf8PathBuf::from("C:/build/main.obj.d")),
             compiler: Utf8PathBuf::from("cl.exe"),
+            target: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: OptLevel::O2,
@@ -1030,6 +1082,7 @@ mod tests {
     fn msvc_link_lowers_to_cl_fe_with_link_options() {
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
+            target: None,
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![
                 Utf8PathBuf::from("C:/build/main.obj"),
@@ -1062,6 +1115,7 @@ mod tests {
         // searched yet when it infers the subsystem (LNK1561).
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
+            target: None,
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
             arguments: vec![],
@@ -1090,6 +1144,7 @@ mod tests {
         // left-to-right against the archives that reference them.
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/cc"),
+            target: None,
             output: Utf8PathBuf::from("/abs/build/app"),
             inputs: vec![
                 Utf8PathBuf::from("/abs/build/main.o"),
@@ -1124,6 +1179,7 @@ mod tests {
         // archives, before `/Fe`), not GNU-style flags.
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
+            target: None,
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
             arguments: vec![],
