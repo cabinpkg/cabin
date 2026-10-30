@@ -160,6 +160,10 @@ pub struct TreeInputs<'a> {
     /// Restrict the walk to a single dependency-kind edge.
     /// `None` walks every kind the graph carries.
     pub kind_filter: Option<DependencyKind>,
+    /// The packages feature resolution includes.  When set, the walk
+    /// skips the rest - optional dependencies no enabled feature turns
+    /// on, which the loader still loads.
+    pub included: Option<&'a BTreeSet<usize>>,
 }
 
 /// Build a deterministic [`TreeNode`] forest rooted at every
@@ -220,6 +224,12 @@ fn build_node(
     for edge in &pkg.deps {
         if let Some(filter) = inputs.kind_filter
             && edge.kind != filter
+        {
+            continue;
+        }
+        if inputs
+            .included
+            .is_some_and(|included| !included.contains(&edge.index))
         {
             continue;
         }
@@ -532,7 +542,9 @@ pub struct FeatureExplanation {
     pub is_default: bool,
 }
 
-/// Build a [`PackageExplanation`] for `name`.
+/// Build a [`PackageExplanation`] for `name`.  With `included` set,
+/// paths run only through those packages, as [`TreeInputs::included`]
+/// scopes the tree.
 ///
 /// # Errors
 /// Returns [`ExplainError::PackageNotFound`] (with the known package
@@ -545,6 +557,7 @@ pub fn explain_package(
     name: &str,
     active_patches: Option<&cabin_workspace::ActivePatchSet>,
     lockfile: Option<&Lockfile>,
+    included: Option<&BTreeSet<usize>>,
 ) -> Result<PackageExplanation, ExplainError> {
     let target_idx = locate_package(graph, name)?;
     let pkg = &graph.packages[target_idx];
@@ -554,6 +567,7 @@ pub fn explain_package(
         lockfile,
         active_patches,
         kind_filter: None,
+        included,
     };
     let source = source_provenance_for(pkg, &inputs);
 
@@ -567,7 +581,7 @@ pub fn explain_package(
     let mut paths: Vec<Vec<ExplainStep>> = Vec::new();
     let mut paths_truncated = false;
     for &root in &effective_roots {
-        let (root_paths, truncated) = shortest_paths_to(graph, root, target_idx);
+        let (root_paths, truncated) = shortest_paths_to(graph, root, target_idx, included);
         paths_truncated |= truncated;
         for path in root_paths {
             paths.push(materialize_path(graph, &path));
@@ -654,7 +668,12 @@ fn known_package_names(graph: &PackageGraph) -> Vec<String> {
 /// with the flag saying whether more existed.  Edge kinds are recorded
 /// by the caller through [`materialize_path`] so the resulting
 /// [`ExplainStep`]s carry the right edge label.
-fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> (Vec<Vec<usize>>, bool) {
+fn shortest_paths_to(
+    graph: &PackageGraph,
+    start: usize,
+    target: usize,
+    included: Option<&BTreeSet<usize>>,
+) -> (Vec<Vec<usize>>, bool) {
     if start == target {
         return (vec![vec![start]], false);
     }
@@ -671,6 +690,9 @@ fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> (Vec<
         for &node in &frontier {
             for edge in &graph.packages[node].deps {
                 let child = edge.index;
+                if included.is_some_and(|included| !included.contains(&child)) {
+                    continue;
+                }
                 let new_depth = level + 1;
                 if let Some(&existing) = depth.get(&child) {
                     // Parallel edges (the same dependency as both normal
@@ -854,6 +876,7 @@ pub fn explain_source(
         lockfile,
         active_patches,
         kind_filter: None,
+        included: None,
     };
     let source = source_provenance_for(pkg, &inputs);
     let mut replacements: Vec<String> = source_replacements
@@ -1217,6 +1240,7 @@ mod tests {
             lockfile: None,
             active_patches: None,
             kind_filter: None,
+            included: None,
         });
         assert_eq!(forest.len(), 1);
         let root = &forest[0];
@@ -1236,10 +1260,28 @@ mod tests {
             lockfile: None,
             active_patches: None,
             kind_filter: Some(DependencyKind::Normal),
+            included: None,
         });
         let root = &forest[0];
         assert_eq!(root.children.len(), 1);
         assert_eq!(root.children[0].name, "lib");
+    }
+
+    #[test]
+    fn build_tree_skips_packages_outside_the_included_set() {
+        let graph = three_pkg_graph();
+        let included = BTreeSet::from([0, 1]);
+        let forest = build_tree(&TreeInputs {
+            graph: &graph,
+            roots: &[],
+            lockfile: None,
+            active_patches: None,
+            kind_filter: None,
+            included: Some(&included),
+        });
+        let lib = &forest[0].children[0];
+        assert_eq!(lib.name, "lib");
+        assert!(lib.children.is_empty());
     }
 
     #[test]
@@ -1251,6 +1293,7 @@ mod tests {
             lockfile: None,
             active_patches: None,
             kind_filter: None,
+            included: None,
         });
         let a = render_tree_human(&forest);
         let b = render_tree_human(&forest);
@@ -1263,9 +1306,17 @@ mod tests {
     }
 
     #[test]
+    fn explain_package_paths_skip_packages_outside_the_included_set() {
+        let graph = three_pkg_graph();
+        let included = BTreeSet::from([0, 1]);
+        let exp = explain_package(&graph, &[0], "util", None, None, Some(&included)).unwrap();
+        assert!(exp.paths.is_empty());
+    }
+
+    #[test]
     fn explain_package_returns_dep_path_from_root() {
         let graph = three_pkg_graph();
-        let exp = explain_package(&graph, &[0], "util", None, None).unwrap();
+        let exp = explain_package(&graph, &[0], "util", None, None, None).unwrap();
         assert_eq!(exp.name, "util");
         assert!(!exp.is_selected_root);
         assert_eq!(exp.paths.len(), 1);
@@ -1325,7 +1376,7 @@ mod tests {
     #[test]
     fn explain_package_caps_the_shortest_paths_per_root() {
         // 5 layers: 8 paths, under the cap - all listed, no flag.
-        let exp = explain_package(&lattice_graph(5), &[0], "a4", None, None).unwrap();
+        let exp = explain_package(&lattice_graph(5), &[0], "a4", None, None, None).unwrap();
         assert_eq!(exp.paths.len(), 8);
         assert!(!exp.paths_truncated);
         assert!(
@@ -1335,7 +1386,7 @@ mod tests {
         );
 
         // 12 layers: 1024 paths - capped, flagged, still shortest.
-        let exp = explain_package(&lattice_graph(12), &[0], "a11", None, None).unwrap();
+        let exp = explain_package(&lattice_graph(12), &[0], "a11", None, None, None).unwrap();
         assert_eq!(exp.paths.len(), MAX_PATHS_PER_ROOT);
         assert!(exp.paths.iter().all(|p| p.len() == 12));
         assert!(exp.paths_truncated);
@@ -1359,7 +1410,7 @@ mod tests {
             ..graph.packages[0].deps[0].clone()
         };
         graph.packages[0].deps.push(dev_edge);
-        let (paths, truncated) = shortest_paths_to(&graph, 0, 2);
+        let (paths, truncated) = shortest_paths_to(&graph, 0, 2, None);
         assert_eq!(paths, vec![vec![0, 1, 2]]);
         assert!(!truncated);
     }
@@ -1367,7 +1418,7 @@ mod tests {
     #[test]
     fn explain_package_marks_selected_root() {
         let graph = three_pkg_graph();
-        let exp = explain_package(&graph, &[0], "app", None, None).unwrap();
+        let exp = explain_package(&graph, &[0], "app", None, None, None).unwrap();
         assert!(exp.is_selected_root);
         // Path from root to root has a single step.
         assert_eq!(exp.paths.len(), 1);
@@ -1377,7 +1428,7 @@ mod tests {
     #[test]
     fn explain_package_returns_actionable_error_for_unknown_name() {
         let graph = three_pkg_graph();
-        let err = explain_package(&graph, &[0], "missing", None, None).unwrap_err();
+        let err = explain_package(&graph, &[0], "missing", None, None, None).unwrap_err();
         match err {
             ExplainError::PackageNotFound { name, candidates } => {
                 assert_eq!(name, "missing");

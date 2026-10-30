@@ -154,15 +154,10 @@ or platform conditions so they never resolve together.  Claims are declared, not
 target whose `required-features` are disabled still claims, but a package reachable only through a
 disabled optional dependency does not.
 
-The check runs where its inputs are exact.  Resolution refuses collisions among the claims that
-provably link: local claims under the selected features, resolved registry claims, and - for a
-`[patch]` fork reached only through registry metadata - the claims that hold under every feature
-configuration (the fork itself and its non-optional path dependencies; the fork's real feature set
-is decided by its dependents' edges, which resolution does not interpret).  The building commands
-re-check the final loaded graph, whose feature resolution applies the fetched manifests' real
-per-edge requests: a collision created only by such a fork's feature-enabled optional dependency
-is refused there.  A build refused this way may already
-have written `cabin.lock` - the recorded resolution itself stays valid.
+Resolution refuses collisions among the claims of everything it selects: local claims under the
+selected features and the claims of every selected registry package and `[patch]` fork, including
+a fork's optional dependencies that its dependents' feature requests enable.  The building commands
+re-check the final loaded graph.
 
 `links` is uniqueness enforcement only.  There is no metadata passing between packages and no
 build-hook integration, and only `library` targets may claim (header-only targets emit no linkable

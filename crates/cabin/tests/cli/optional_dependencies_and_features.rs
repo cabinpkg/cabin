@@ -278,3 +278,210 @@ fmt = ">=10"
         "expected non-optional dep error, got: {stderr}"
     );
 }
+
+/// Publish a C library `acme/<short>` from `root/src-<short>` into the
+/// `root/registry` file registry.  `extra` lands after `[package]`;
+/// `body` is the library's single source file.
+fn publish_c_lib(root: &Path, short: &str, extra: &str, body: &str) {
+    let pkg_root = root.join(format!("src-{short}"));
+    assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+        .write_str(&format!(
+            "[package]\nname = \"acme/{short}\"\nversion = \"1.0.0\"\n{extra}\n"
+        ))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join(format!("include/{short}.h")))
+        .write_str(&format!("#pragma once\nint {short}_value(void);\n"))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join(format!("src/{short}.c")))
+        .write_str(body)
+        .unwrap();
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(root.join("registry"))
+        .assert()
+        .success();
+}
+
+/// The registry chain `acme/aaa -> acme/bbb -> acme/ccc`: bbb's only
+/// target, which links ccc, is gated on feature `withc`, and `withc`
+/// is what enables bbb's optional `acme/ccc`.  `aaa_edge` is aaa's
+/// declaration of `acme/bbb`.  `app` depends on aaa and checks the
+/// value ccc returns; `app_extra` is appended to its manifest.
+fn write_registry_feature_chain(root: &Path, aaa_edge: &str, app_extra: &str) -> PathBuf {
+    publish_c_lib(
+        root,
+        "ccc",
+        "\n[target.ccc]\ntype = \"library\"\nsources = [\"src/ccc.c\"]\n\
+         include-dirs = [\"include\"]\nc-standard = \"c11\"",
+        "int ccc_value(void) { return 7; }\n",
+    );
+    publish_c_lib(
+        root,
+        "bbb",
+        r#"
+[dependencies]
+"acme/ccc" = { version = "^1", optional = true }
+
+[features]
+withc = ["dep:acme/ccc"]
+
+[target.bbb]
+type = "library"
+sources = ["src/bbb.c"]
+include-dirs = ["include"]
+c-standard = "c11"
+deps = ["acme/ccc"]
+required-features = ["withc"]"#,
+        "#include \"ccc.h\"\nint bbb_value(void) { return ccc_value(); }\n",
+    );
+    publish_c_lib(
+        root,
+        "aaa",
+        &format!(
+            "\n[dependencies]\n{aaa_edge}\n\n[target.aaa]\ntype = \"library\"\n\
+             sources = [\"src/aaa.c\"]\ninclude-dirs = [\"include\"]\nc-standard = \"c11\"\n\
+             deps = [\"acme/bbb\"]"
+        ),
+        "#include \"bbb.h\"\nint aaa_value(void) { return bbb_value(); }\n",
+    );
+    assert_fs::fixture::ChildPath::new(root.join("app/cabin.toml"))
+        .write_str(&format!(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"acme/aaa" = "^1"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+deps = ["acme/aaa"]
+{app_extra}"#
+        ))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("app/src/main.c"))
+        .write_str("#include \"aaa.h\"\nint main(void) { return aaa_value() == 7 ? 0 : 1; }\n")
+        .unwrap();
+    root.join("app/cabin.toml")
+}
+
+fn chain_cmd(root: &Path, command: &str, manifest: &Path) -> Command {
+    let mut cmd = cabin();
+    cmd.args([command, "--manifest-path"])
+        .arg(manifest)
+        .arg("--index-path")
+        .arg(root.join("registry"))
+        .arg("--cache-dir")
+        .arg(root.join("cache"))
+        .arg("--build-dir")
+        .arg(root.join("build"));
+    cmd
+}
+
+/// A feature request on a registry edge enables the requested
+/// package's optional registry dependency: resolution selects and
+/// locks it, the build links it, and a locked offline rebuild
+/// replays the same graph.
+#[test]
+fn registry_feature_chain_enables_an_optional_registry_dependency() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let manifest = write_registry_feature_chain(
+        dir.path(),
+        r#""acme/bbb" = { version = "^1", default-features = false, features = ["withc"] }"#,
+        "",
+    );
+
+    chain_cmd(dir.path(), "run", &manifest).assert().success();
+    let lock = fs::read_to_string(dir.path().join("app/cabin.lock")).unwrap();
+    for name in ["acme/aaa", "acme/bbb", "acme/ccc"] {
+        assert!(
+            lock.contains(&format!("name = \"{name}\"")),
+            "{name} must be locked: {lock}"
+        );
+    }
+    chain_cmd(dir.path(), "run", &manifest)
+        .arg("--frozen")
+        .assert()
+        .success();
+}
+
+/// Without a feature that enables it, a registry package's optional
+/// dependency is neither selected nor required to exist: removing it
+/// from the registry entirely changes nothing, over a file index and
+/// over sparse HTTP.
+#[test]
+fn registry_optional_dependency_is_inert_until_a_feature_enables_it() {
+    let dir = TempDir::new().unwrap();
+    let manifest = write_registry_feature_chain(dir.path(), r#""acme/bbb" = "^1""#, "");
+    fs::remove_file(dir.path().join("registry/packages/acme/ccc.json")).unwrap();
+
+    let server = crate::sparse_http::TestServer::serve(dir.path().join("registry"));
+    for index in [
+        [
+            "--index-path",
+            dir.path().join("registry").to_str().unwrap(),
+        ],
+        ["--index-url", server.url()],
+    ] {
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(&manifest)
+            .args(index)
+            .assert()
+            .success();
+        let lock = fs::read_to_string(dir.path().join("app/cabin.lock")).unwrap();
+        assert!(lock.contains("name = \"acme/bbb\""), "{lock}");
+        assert!(!lock.contains("acme/ccc"), "{lock}");
+    }
+}
+
+/// A registry edge requesting a feature no in-range version declares
+/// fails resolution; the explanation names the feature as
+/// `<package>[<feature>]`.
+#[test]
+fn registry_edge_requesting_an_undeclared_feature_fails() {
+    let dir = TempDir::new().unwrap();
+    let manifest = write_registry_feature_chain(
+        dir.path(),
+        r#""acme/bbb" = { version = "^1", features = ["nope"] }"#,
+        "",
+    );
+
+    let output = cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(dir.path().join("registry"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&output.get_output().stderr);
+    assert!(
+        stderr.contains("acme/aaa >=1.0.0, <2.0.0 depends on acme/bbb[nope]"),
+        "{stderr}"
+    );
+}
+
+/// A `[patch]`ed name a registry package reaches resolves to the fork
+/// under that registry edge's feature request, so the fork's optional
+/// *versioned* dependency is selected, locked, and linked.
+#[test]
+fn registry_reached_patch_enables_its_optional_versioned_dependency() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // The published bbb source tree doubles as the fork.
+    let manifest = write_registry_feature_chain(
+        dir.path(),
+        r#""acme/bbb" = { version = "^1", default-features = false, features = ["withc"] }"#,
+        "\n[patch]\n\"acme/bbb\" = { path = \"../src-bbb\" }\n",
+    );
+
+    chain_cmd(dir.path(), "run", &manifest).assert().success();
+    let lock = fs::read_to_string(dir.path().join("app/cabin.lock")).unwrap();
+    assert!(lock.contains("name = \"acme/ccc\""), "{lock}");
+    assert!(!lock.contains("name = \"acme/bbb\""), "{lock}");
+}

@@ -1,9 +1,8 @@
 //! End-to-end coverage for the per-target `links` native-library
 //! identity: the post-resolution uniqueness check across local and
 //! registry claimants, its exact feature-resolution scoping, the
-//! published index round trip, and the building commands'
-//! final-graph check for the claimants resolution cannot see
-//! (feature-enabled optional deps of transitively-activated forks).
+//! published index round trip, and the claims of the optional
+//! dependencies a transitively-activated fork's features enable.
 //! Resolve-level tests need no toolchain; the build-level tests
 //! guard on build tools.
 
@@ -1113,17 +1112,17 @@ fn metadata_json_carries_target_links() {
     );
 }
 
-/// An activation the re-solve walks back must stop claiming: the
-/// fork deps injected for a transitively-discovered patch can flip
-/// its parent to a version that never reaches the patched name, and
-/// a fork absent from the final graph never links.
+/// A patched name an index package reaches resolves to its fork, with
+/// the fork's own edges: when those rule the reaching version out,
+/// the solution avoids the patched name altogether, and the fork
+/// neither claims nor leaves its dependencies behind.
 #[test]
-fn deactivated_transitive_patch_claims_are_pruned() {
+fn ruled_out_transitive_patch_contributes_nothing() {
     let dir = TempDir::new().unwrap();
     let index = dir.path().join("index");
     // aaa 2.0.0 reaches patched bbb but pins ccc to 1.x; the bbb
-    // fork's own `ccc >= 2` requirement therefore flips aaa back to
-    // 1.0.0, which drops bbb from the solution entirely.
+    // fork's own `ccc >= 2` requirement therefore rules aaa 2.0.0
+    // out, and aaa 1.0.0 never reaches bbb.
     assert_fs::fixture::ChildPath::new(index.join("aaa.json"))
         .write_str(
             r#"{
@@ -1249,353 +1248,9 @@ c-standard = "c11"
         packages.iter().all(|(name, _)| name != "bbb"),
         "nothing reaches the patched name after the flip: {packages:?}"
     );
-    // The injected fork dep stays resolved - withdrawing it would
-    // re-select aaa 2.0.0 and oscillate; the residue is an unused
-    // package, not a claim.
     assert!(
-        packages.contains(&("ccc".to_owned(), "2.0.0".to_owned())),
-        "the injected fork dep remains in the solution: {packages:?}"
-    );
-}
-
-/// The root deps injected for a pruned activation stay in the solve
-/// (withdrawing them oscillates), but the orphaned selections they
-/// pull in never link: their index claims must not collide with a
-/// live package's.  Reachable claimants keep colliding - the
-/// suppression is residue-only.
-#[test]
-fn pruned_activation_residue_claims_are_suppressed() {
-    let dir = TempDir::new().unwrap();
-    let index = dir.path().join("index");
-    // Same flip as the pruning test: aaa 2.0.0 reaches patched bbb
-    // but pins ccc to 1.x, so the fork's `ccc >= 2` flips aaa back
-    // to 1.0.0 and orphans ccc.  Here the orphan itself claims the
-    // identity zzz holds.
-    assert_fs::fixture::ChildPath::new(index.join("aaa.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "aaa",
-  "versions": {
-    "1.0.0": { "dependencies": {}, "yanked": false },
-    "2.0.0": {
-      "dependencies": { "bbb": ">=1", "ccc": "=1.0.0" },
-      "yanked": false
-    }
-  }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(index.join("bbb.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "bbb",
-  "versions": { "1.0.0": { "dependencies": {}, "yanked": false } }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(index.join("ccc.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "ccc",
-  "versions": {
-    "1.0.0": { "dependencies": {}, "yanked": false },
-    "2.0.0": {
-      "dependencies": {},
-      "yanked": false,
-      "standards": { "targets": { "ccc": {} } },
-      "links": { "ccc": "z" }
-    }
-  }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(index.join("zzz.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "zzz",
-  "versions": {
-    "1.0.0": {
-      "dependencies": {},
-      "yanked": false,
-      "standards": { "targets": { "zzz": {} } },
-      "links": { "zzz": "z" }
-    }
-  }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "bbb"
-version = "1.0.0"
-
-[dependencies]
-ccc = ">=2"
-
-[target.bbb]
-type = "library"
-sources = ["src/bbb.c"]
-c-standard = "c11"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/src/bbb.c"))
-        .write_str("void b(void) {}\n")
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-aaa = ">=1"
-zzz = ">=1"
-
-[patch]
-bbb = { path = "../bbb-fork" }
-
-[target.app]
-type = "executable"
-sources = ["src/main.c"]
-c-standard = "c11"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.c"))
-        .write_str("int main(void) { return 0; }\n")
-        .unwrap();
-
-    // The orphaned ccc 2.0.0 is selected (residue) but never links,
-    // so its claim must not collide with zzz's.
-    let value = run_json(
-        cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-path")
-            .arg(&index)
-            .args(["--format", "json"]),
-    );
-    let packages: Vec<(String, String)> = value["packages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|p| {
-            (
-                p["name"].as_str().unwrap().to_owned(),
-                p["version"].as_str().unwrap().to_owned(),
-            )
-        })
-        .collect();
-    assert!(
-        packages.contains(&("ccc".to_owned(), "2.0.0".to_owned())),
-        "the residue stays resolved: {packages:?}"
-    );
-
-    // Sensitivity control: the same ccc 2.0.0 reached by a real root
-    // dep still claims, so the identical identity pair collides.
-    assert_fs::fixture::ChildPath::new(dir.path().join("app2/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "app2"
-version = "0.1.0"
-
-[dependencies]
-ccc = ">=2"
-zzz = ">=1"
-
-[target.app2]
-type = "executable"
-sources = ["src/main.c"]
-c-standard = "c11"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("app2/src/main.c"))
-        .write_str("int main(void) { return 0; }\n")
-        .unwrap();
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("app2/cabin.toml"))
-        .arg("--index-path")
-        .arg(&index)
-        .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&output.get_output().stderr);
-    for needle in ["\"z\"", "ccc v2.0.0", "zzz v1.0.0"] {
-        assert!(stderr.contains(needle), "expected {needle:?} in: {stderr}");
-    }
-}
-
-/// Residue can select a *patched* name: after the flip prunes bbb,
-/// the orphaned ccc 2.0.0 still back-edges onto patched ddd.  A
-/// fork reached only through residue never links, so ddd must stay
-/// dormant - keeping it activated would let its fork's claim
-/// falsely collide with zzz's.  Liveness is reachability, not
-/// probe membership.
-#[test]
-fn residue_reached_patch_stays_dormant() {
-    let dir = TempDir::new().unwrap();
-    let index = dir.path().join("index");
-    assert_fs::fixture::ChildPath::new(index.join("aaa.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "aaa",
-  "versions": {
-    "1.0.0": { "dependencies": {}, "yanked": false },
-    "2.0.0": {
-      "dependencies": { "bbb": ">=1", "ccc": "=1.0.0" },
-      "yanked": false
-    }
-  }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(index.join("bbb.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "bbb",
-  "versions": { "1.0.0": { "dependencies": {}, "yanked": false } }
-}"#,
-        )
-        .unwrap();
-    // ccc 2.0.0 - reachable only as the pruned bbb fork's injected
-    // dep - is what drags patched ddd into the solution.
-    assert_fs::fixture::ChildPath::new(index.join("ccc.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "ccc",
-  "versions": {
-    "1.0.0": { "dependencies": {}, "yanked": false },
-    "2.0.0": { "dependencies": { "ddd": ">=1" }, "yanked": false }
-  }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(index.join("ddd.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "ddd",
-  "versions": { "1.0.0": { "dependencies": {}, "yanked": false } }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(index.join("zzz.json"))
-        .write_str(
-            r#"{
-  "schema": 1,
-  "name": "zzz",
-  "versions": {
-    "1.0.0": {
-      "dependencies": {},
-      "yanked": false,
-      "standards": { "targets": { "zzz": {} } },
-      "links": { "zzz": "z" }
-    }
-  }
-}"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "bbb"
-version = "1.0.0"
-
-[dependencies]
-ccc = ">=2"
-
-[target.bbb]
-type = "library"
-sources = ["src/bbb.c"]
-c-standard = "c11"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/src/bbb.c"))
-        .write_str("void b(void) {}\n")
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("ddd-fork/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "ddd"
-version = "1.0.0"
-
-[target.ddd]
-type = "library"
-sources = ["src/ddd.c"]
-c-standard = "c11"
-links = "z"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("ddd-fork/src/ddd.c"))
-        .write_str("void d(void) {}\n")
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-aaa = ">=1"
-zzz = ">=1"
-
-[patch]
-bbb = { path = "../bbb-fork" }
-ddd = { path = "../ddd-fork" }
-
-[target.app]
-type = "executable"
-sources = ["src/main.c"]
-c-standard = "c11"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.c"))
-        .write_str("int main(void) { return 0; }\n")
-        .unwrap();
-
-    let value = run_json(
-        cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-path")
-            .arg(&index)
-            .args(["--format", "json"]),
-    );
-    let packages: Vec<(String, String)> = value["packages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|p| {
-            (
-                p["name"].as_str().unwrap().to_owned(),
-                p["version"].as_str().unwrap().to_owned(),
-            )
-        })
-        .collect();
-    assert!(
-        packages.contains(&("aaa".to_owned(), "1.0.0".to_owned())),
-        "the fork's dep must flip aaa to 1.0.0: {packages:?}"
-    );
-    assert!(
-        packages.iter().all(|(name, _)| name != "bbb"),
-        "nothing reaches the patched name after the flip: {packages:?}"
-    );
-    assert!(
-        packages.contains(&("ddd".to_owned(), "1.0.0".to_owned())),
-        "residue-reached ddd stays a plain index selection: {packages:?}"
+        packages.iter().all(|(name, _)| name != "ccc"),
+        "nothing the fork alone required stays resolved: {packages:?}"
     );
 }
 
@@ -1805,25 +1460,26 @@ fn fork_disabled_optional_path_dep_claims_do_not_participate() {
 }
 
 /// A transitively-activated fork's *feature-enabled* optional path
-/// dependency is out of resolution's reach: the fork's real feature
-/// set is decided by its dependents' edges, which the resolution
-/// layer deliberately does not interpret, so resolve and update
-/// stay conservative (mandatory island claims only) and the
-/// collision defers to the building commands' final-graph check
-/// (`fork_default_enabled_optional_dep_collides_at_build`).
+/// dependency claims during resolution: the registry edge onto the
+/// fork keeps its default features, which enable the claiming
+/// dependency, so resolve and update refuse the collision.
 #[test]
-fn fork_default_enabled_optional_path_dep_defers_to_build() {
+fn fork_default_enabled_optional_path_dep_collides_at_resolve() {
     let dir = TempDir::new().unwrap();
     write_fork_optional_claim_fixture(dir.path(), true);
 
     for command in ["resolve", "update"] {
-        cabin()
+        let output = cabin()
             .args([command, "--manifest-path"])
             .arg(dir.path().join("app/cabin.toml"))
             .arg("--index-path")
             .arg(dir.path().join("index"))
             .assert()
-            .success();
+            .failure();
+        let stderr = String::from_utf8_lossy(&output.get_output().stderr);
+        for needle in [COLLISION_PHRASE, "zlocal", "zzz"] {
+            assert!(stderr.contains(needle), "expected {needle:?} in: {stderr}");
+        }
     }
 }
 
@@ -1980,31 +1636,31 @@ fn resolve_with_index_assert(root: &Path, manifest: &Path) -> assert_cmd::assert
         .assert()
 }
 
-/// The build-level control for
-/// `fork_default_enabled_optional_path_dep_defers_to_build`: the
-/// final reload applies aaa's real edge request (a plain `>=1`
-/// keeps the fork's default features on), the enabled `withz`
-/// links `zlocal`, and the final-graph check refuses the collision
-/// with the registry claimant.
+/// aaa's real edge request (a plain `>=1` keeps the fork's default
+/// features on) enables `withz`, so `zlocal` links and both
+/// resolution and the build refuse the collision with the registry
+/// claimant.
 #[test]
-fn fork_default_enabled_optional_dep_collides_at_build() {
+fn fork_default_enabled_optional_dep_collides() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let manifest = write_fork_build_fixture(dir.path(), r#""acme/bbb" = ">=1""#, true);
 
-    resolve_with_index_assert(dir.path(), &manifest).success();
-    let output = build_assert(dir.path(), &manifest).failure();
-    let stderr = String::from_utf8_lossy(&output.get_output().stderr);
-    for needle in [COLLISION_PHRASE, "\"z\"", "zlocal", "acme/zzz"] {
-        assert!(stderr.contains(needle), "expected {needle:?} in: {stderr}");
+    for assert in [
+        resolve_with_index_assert(dir.path(), &manifest),
+        build_assert(dir.path(), &manifest),
+    ] {
+        let output = assert.failure();
+        let stderr = String::from_utf8_lossy(&output.get_output().stderr);
+        for needle in [COLLISION_PHRASE, "\"z\"", "zlocal", "acme/zzz"] {
+            assert!(stderr.contains(needle), "expected {needle:?} in: {stderr}");
+        }
     }
 }
 
 /// The false-reject control: aaa's real edge disables the fork's
-/// default features, so `withz` stays off and `zlocal` never links.
-/// Resolution must not assume any particular edge request (it would
-/// refuse this graph if it assumed defaults), and the final-graph
-/// check sees the disabled dependency excluded - both accept.
+/// default features, so `withz` stays off and `zlocal` never links;
+/// resolution and the build both accept.
 #[test]
 fn fork_edge_default_features_off_builds_clean() {
     require_c_and_cxx_build_tools();
@@ -2021,10 +1677,9 @@ fn fork_edge_default_features_off_builds_clean() {
 
 /// An explicitly-requested edge feature enables the claiming
 /// optional dependency even though the fork's own `default` never
-/// would: invisible to resolution's conservative pass, refused by
-/// the final-graph check.
+/// would.
 #[test]
-fn fork_edge_explicit_feature_collides_at_build() {
+fn fork_edge_explicit_feature_collides_at_resolve() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let manifest = write_fork_build_fixture(
@@ -2033,8 +1688,7 @@ fn fork_edge_explicit_feature_collides_at_build() {
         false,
     );
 
-    resolve_with_index_assert(dir.path(), &manifest).success();
-    let output = build_assert(dir.path(), &manifest).failure();
+    let output = resolve_with_index_assert(dir.path(), &manifest).failure();
     let stderr = String::from_utf8_lossy(&output.get_output().stderr);
     for needle in [COLLISION_PHRASE, "\"z\"", "zlocal", "acme/zzz"] {
         assert!(stderr.contains(needle), "expected {needle:?} in: {stderr}");

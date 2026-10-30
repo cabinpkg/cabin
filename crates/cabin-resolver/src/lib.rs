@@ -36,7 +36,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use cabin_core::standard_compatibility::{
     ConsumerStandards, EffectiveRequirements, edge_compatible,
 };
-use cabin_core::{IncompatibleStandards, PackageName, Requirement, SourceLanguage, TargetPlatform};
+use cabin_core::{
+    DEFAULT_FEATURE_KEY, FeatureEntry, IncompatibleStandards, PackageName, Requirement,
+    SourceLanguage, TargetPlatform,
+};
 use cabin_index::PackageIndex;
 use pubgrub::{PubGrubError, Ranges};
 use semver::{Version, VersionReq};
@@ -48,7 +51,7 @@ pub use output::{BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, R
 use crate::explanation::explain_no_solution;
 use crate::output::selected_dependencies_to_output;
 use crate::preflight::{effective_locked, preflight_root_dependencies};
-use crate::provider::Provider;
+use crate::provider::{Node, Provider, version_metadata};
 use crate::range::req_to_range;
 
 /// Resolve `input`'s versioned dependencies against `index`.
@@ -68,7 +71,7 @@ use crate::range::req_to_range;
 /// retrieving dependencies, or cancelling is bubbled back unchanged.
 pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let mut output = resolve_once(input, index)?;
-    output.held_back = held_back_report(input, index, &output.packages);
+    output.held_back = held_back_report(input, index, &output.packages)?;
     Ok(output)
 }
 
@@ -104,32 +107,12 @@ fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOut
     Ok(output)
 }
 
-/// [`resolve_packages`] without the post-resolution links check.
-///
-/// For orchestration that must inspect a solution before claim
-/// attribution is final: the CLI's patch-activation loop discovers
-/// transitively-reached patched names from a solution that a stale
-/// upstream claim would otherwise fail, then re-resolves and runs
-/// the checked path once the activation set is stable.
-///
-/// # Errors
-/// Same as [`resolve_packages`], minus
-/// [`ResolveError::LinksCollision`].
-pub fn resolve_packages_unchecked(
-    input: &ResolveInput,
-    index: &PackageIndex,
-) -> Result<ResolveOutput, ResolveError> {
-    resolve_once_unchecked(input, index)
-}
-
-/// [`resolve_once`] without the links-uniqueness check.
-/// `held_back_report`'s second `Allow`-mode solve diffs selections
-/// only - a collision in that hypothetical selection must not
-/// silently empty the report (its defensive error arm discards
+/// [`resolve_once`] without the links-uniqueness check, for
+/// `held_back_report`'s second `Allow`-mode solve, which diffs
+/// selections only - a collision in that hypothetical selection must
+/// not silently empty the report (its defensive error arm discards
 /// failures; collision-involved rows are pruned individually via
-/// [`colliding_packages`] instead), and the public
-/// [`resolve_packages_unchecked`] wraps it for the CLI's
-/// patch-activation probe.
+/// [`colliding_packages`] instead).
 fn resolve_once_unchecked(
     input: &ResolveInput,
     index: &PackageIndex,
@@ -160,12 +143,12 @@ fn resolve_once_unchecked(
 
     let solution = match pubgrub::resolve(
         &provider,
-        input.root_name.clone(),
+        Node::Root(input.root_name.clone()),
         input.root_version.clone(),
     ) {
         Ok(solution) => solution,
         Err(PubGrubError::NoSolution(tree)) => {
-            return Err(explain_no_solution(tree, &input.root_name));
+            return Err(explain_no_solution(tree, input));
         }
         // `ErrorChoosingVersion`, `ErrorRetrievingDependencies`,
         // and `ErrorInShouldCancel` all bubble a provider-side
@@ -178,47 +161,29 @@ fn resolve_once_unchecked(
         ) => return Err(source),
     };
 
-    Ok(selected_dependencies_to_output(input, solution))
+    Ok(selected_dependencies_to_output(input, index, solution))
 }
 
 /// Every `links` claim the resolved graph carries: the caller's
-/// local claims (workspace members, path deps, patches - packages
-/// the index never sees) plus each resolved registry package's
-/// claims from its index metadata.  `ResolvedSource::Root` entries
-/// are skipped - a same-named index entry is a stranger and must not
-/// attribute its claims to the local root - and so are
-/// locally-supplied names: a patched-away upstream selected through
-/// a transitive registry edge never links, so its index claims must
-/// not collide on the replacement's behalf.  For the same reason,
-/// index claims only count for selections reachable from the root
-/// dependencies without expanding a locally-supplied selection's own
-/// index edges: those edges belong to the replaced upstream, and the
-/// replacement's real dependencies are already folded into the root
-/// set - a selection only the dead edges reach never links.
+/// claims for the local packages it includes without resolution,
+/// plus the claims of every resolved package - from its index
+/// metadata, or from its local entry when the workspace supplies
+/// it.  Only selected packages claim: a `[patch]`ed name resolves to
+/// its fork, so the upstream it replaces never claims, and the
+/// solution holds exactly the packages active edges reach.
 fn links_claims_of_solution(
     input: &ResolveInput,
     index: &PackageIndex,
     packages: &[ResolvedPackage],
 ) -> Vec<LinksClaim> {
     let mut claims = input.local_links.clone();
-    let selected = selected_index_versions(packages);
-    let reachable = reachable_index_selections(
-        &selected,
-        index,
-        input.root_dependencies.keys(),
-        &input.locally_supplied,
-    );
     for package in packages {
+        // A same-named index entry is a stranger to the local root
+        // and must not attribute its claims to it.
         if package.source == ResolvedSource::Root {
             continue;
         }
-        if input.locally_supplied.contains(&package.name) || !reachable.contains(&package.name) {
-            continue;
-        }
-        let Some(meta) = index
-            .package(&package.name)
-            .and_then(|entry| entry.versions.get(&package.version))
-        else {
+        let Some(meta) = version_metadata(input, index, &package.name, &package.version) else {
             continue;
         };
         for (target, links) in &meta.links {
@@ -275,155 +240,6 @@ pub fn detect_links_collision(claims: &[LinksClaim]) -> Result<(), ResolveError>
     Ok(())
 }
 
-/// Index-selected packages of a solution that no `roots` entry can
-/// reach through live edges: with extra root requirements injected
-/// on behalf of a packages source the caller later withdraws (a
-/// pruned `[patch]` activation), the selections those requirements
-/// pulled in are solver residue nothing real links.  Reachability
-/// walks the selected versions' active index edges from `roots`,
-/// never expanding a `locally_supplied` selection: its index edges
-/// describe the replaced upstream, and the replacement's real
-/// dependencies are already folded into the caller's root set.
-///
-/// Callers feed the result into [`ResolveInput::locally_supplied`]
-/// so the residue's index claims stay out of the links-uniqueness
-/// check while the selections themselves remain in the solution,
-/// and use it to keep patch activation on the same live boundary -
-/// a patch name selected only behind a replaced upstream's dead
-/// edges must stay dormant.
-#[must_use]
-pub fn unreachable_index_selections(
-    packages: &[ResolvedPackage],
-    index: &PackageIndex,
-    roots: &BTreeSet<PackageName>,
-    locally_supplied: &BTreeSet<PackageName>,
-) -> BTreeSet<PackageName> {
-    let selected = selected_index_versions(packages);
-    let reachable = reachable_index_selections(&selected, index, roots.iter(), locally_supplied);
-    selected
-        .keys()
-        .filter(|name| !reachable.contains(*name))
-        .map(|name| (**name).clone())
-        .collect()
-}
-
-/// Validate every live index dependent's requirement on a locally
-/// supplied fork version.  An index dependency edge onto a patched
-/// name surfaces only in the solution - after the caller's local
-/// patch validation already ran - and the final workspace reload
-/// substitutes the fork for the selected upstream without
-/// re-solving, so an unchecked edge would silently link a fork
-/// version its dependent never accepts.  Matching and error mirror
-/// the local validation (`semver` matching,
-/// [`cabin_core::PatchValidationError`]) so the same mismatch
-/// surfaces identically whichever layer sees it first.  Selections
-/// named in `fork_versions` are the replacements themselves, and
-/// selections unreachable from `roots` (see
-/// [`unreachable_index_selections`]) are residue nothing links -
-/// both are exempt.
-///
-/// # Errors
-/// [`cabin_core::PatchValidationError::VersionMismatch`] naming the
-/// fork, its version, and the violated requirement.
-pub fn enforce_fork_version_requirements(
-    packages: &[ResolvedPackage],
-    index: &PackageIndex,
-    fork_versions: &BTreeMap<PackageName, Version>,
-    roots: &BTreeSet<PackageName>,
-    locally_supplied: &BTreeSet<PackageName>,
-) -> Result<(), cabin_core::PatchValidationError> {
-    if fork_versions.is_empty() {
-        return Ok(());
-    }
-    let orphaned = unreachable_index_selections(packages, index, roots, locally_supplied);
-    let platform = TargetPlatform::current();
-    for package in packages {
-        if package.source != ResolvedSource::Index
-            || fork_versions.contains_key(&package.name)
-            || orphaned.contains(&package.name)
-        {
-            continue;
-        }
-        let Some(meta) = index
-            .packages
-            .get(&package.name)
-            .and_then(|entry| entry.versions.get(&package.version))
-        else {
-            continue;
-        };
-        for (dep_name, dep) in &meta.dependencies {
-            if dep.optional || !dep.is_active_for(&platform) {
-                continue;
-            }
-            let Some(version) = fork_versions.get(dep_name) else {
-                continue;
-            };
-            if !dep.req.matches(version) {
-                return Err(cabin_core::PatchValidationError::VersionMismatch {
-                    package: dep_name.as_str().to_owned(),
-                    version: version.to_string(),
-                    requirement: dep.req.to_string(),
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-/// The index-sourced selections of a solution, by name.
-fn selected_index_versions(packages: &[ResolvedPackage]) -> BTreeMap<&PackageName, &Version> {
-    packages
-        .iter()
-        .filter(|package| package.source == ResolvedSource::Index)
-        .map(|package| (&package.name, &package.version))
-        .collect()
-}
-
-/// Selections reachable from `roots` through active index edges.
-/// `stop_expansion` names are marked reachable but never expanded:
-/// a locally-supplied selection's index edges describe the replaced
-/// upstream, not the replacement that actually links.  An empty stop
-/// set walks every selected edge.
-fn reachable_index_selections<'a, 'b>(
-    selected: &BTreeMap<&'a PackageName, &'a Version>,
-    index: &PackageIndex,
-    roots: impl Iterator<Item = &'b PackageName>,
-    stop_expansion: &BTreeSet<PackageName>,
-) -> BTreeSet<&'a PackageName> {
-    let platform = TargetPlatform::current();
-    let mut reachable: BTreeSet<&PackageName> = roots
-        .filter_map(|name| selected.get_key_value(name).map(|(key, _)| *key))
-        .collect();
-    let mut queue: Vec<&PackageName> = reachable
-        .iter()
-        .copied()
-        .filter(|name| !stop_expansion.contains(*name))
-        .collect();
-    while let Some(name) = queue.pop() {
-        let Some(version) = selected.get(name).copied() else {
-            continue;
-        };
-        let Some(meta) = index
-            .package(name)
-            .and_then(|entry| entry.versions.get(version))
-        else {
-            continue;
-        };
-        for (dep_name, dep_entry) in &meta.dependencies {
-            if !dep_entry.is_active_for(&platform) {
-                continue;
-            }
-            if let Some((key, _)) = selected.get_key_value(dep_name)
-                && reachable.insert(key)
-                && !stop_expansion.contains(key)
-            {
-                queue.push(key);
-            }
-        }
-    }
-    reachable
-}
-
 /// Names of every package participating in an identity claimed by two
 /// or more distinct packages.  Non-failing sibling of
 /// [`detect_links_collision`] for [`held_back_report`], which prunes
@@ -468,23 +284,28 @@ fn colliding_packages(claims: &[LinksClaim]) -> BTreeSet<PackageName> {
 /// standard (nothing can be incompatible).  On the `Fallback`-success
 /// path the `Allow` resolution cannot fail - solvability is identical -
 /// but a defensive error yields an empty report rather than aborting.
+/// The exception is [`ResolveError::MetadataNeeded`]: the `Allow`
+/// solve can reach a package the `Fallback` solve never needed, and
+/// the caller fetches it and resolves again.
 fn held_back_report(
     input: &ResolveInput,
     index: &PackageIndex,
     fallback_packages: &[ResolvedPackage],
-) -> Vec<HeldBack> {
+) -> Result<Vec<HeldBack>, ResolveError> {
     if input.incompatible_standards != IncompatibleStandards::Fallback {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let consumer = input.consumer_standards;
     if consumer.c.is_none() && consumer.cxx.is_none() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut allow_input = input.clone();
     allow_input.incompatible_standards = IncompatibleStandards::Allow;
-    let Ok(allow) = resolve_once_unchecked(&allow_input, index) else {
-        return Vec::new();
+    let allow = match resolve_once_unchecked(&allow_input, index) {
+        Ok(allow) => allow,
+        Err(err @ ResolveError::MetadataNeeded(_)) => return Err(err),
+        Err(_) => return Ok(Vec::new()),
     };
     let allow_versions: BTreeMap<&PackageName, &Version> = allow
         .packages
@@ -500,9 +321,9 @@ fn held_back_report(
 
     let mut held_back = Vec::new();
     for package in fallback_packages {
-        // The root is the local project, never selected from the index;
-        // a same-named index entry must not be applied to it.
-        if package.source == ResolvedSource::Root {
+        // The root and local packages offer one version each: nothing
+        // to hold back.
+        if package.source != ResolvedSource::Index {
             continue;
         }
         if locked
@@ -594,7 +415,7 @@ fn held_back_report(
         });
     }
     held_back.sort_by(|a, b| a.name.cmp(&b.name));
-    held_back
+    Ok(held_back)
 }
 
 /// Whether upgrading `package` to `newest` - every other pick of the
@@ -646,42 +467,60 @@ fn admissible_under(
     index: &PackageIndex,
     solution: &[ResolvedPackage],
 ) -> bool {
-    let platform = TargetPlatform::current();
     let mut range = Ranges::full();
     if let Some(req) = input.root_dependencies.get(package)
         && let Ok(root_range) = req_to_range(req)
     {
         range = range.intersection(&root_range);
     }
+    // Features other packages request on `package` hold it to versions
+    // declaring them, which no standard explains.  Its own defaults and
+    // implications are not requests: they may change between versions.
+    let mut requested = input
+        .root_features
+        .get(package)
+        .cloned()
+        .unwrap_or_default();
     for resolved in solution {
         // The root's own requirements are the `root_dependencies` folded
         // in above; a registry entry that coincidentally shares the
         // root's name and version is unrelated and must not contribute
         // its constraints.
-        if resolved.source == ResolvedSource::Root {
+        // Only edges that participated in resolution bind the range.
+        if resolved.source == ResolvedSource::Root || !resolved.dependencies.contains(package) {
             continue;
         }
-        let Some(meta) = index
-            .package(&resolved.name)
-            .and_then(|entry| entry.versions.get(&resolved.version))
-        else {
+        let Some(meta) = version_metadata(input, index, &resolved.name, &resolved.version) else {
             continue;
         };
         let Some(dep) = meta.dependencies.get(package) else {
             continue;
         };
-        // Only edges that participated in resolution bind the range.
-        if !dep.is_active_for(&platform) {
-            continue;
-        }
         if let Ok(dep_range) = req_to_range(&dep.req) {
             range = range.intersection(&dep_range);
         }
+        requested.extend(dep.features.iter().cloned());
+        for enabled in &resolved.features {
+            for raw in meta.features.features.get(enabled).into_iter().flatten() {
+                if let Ok(FeatureEntry::DepFeature { dep, feature }) = FeatureEntry::parse(raw)
+                    && dep == package.as_str()
+                {
+                    requested.insert(feature);
+                }
+            }
+        }
     }
+    let declares_features = version_metadata(input, index, package, version).is_none_or(|meta| {
+        requested.iter().all(|feature| {
+            feature == DEFAULT_FEATURE_KEY || meta.features.features.contains_key(feature)
+        })
+    });
     // Match the provider's own admissibility, pre-release rule included,
     // so a pre-release the fallback constraints would reject is not
     // reported as a standard hold.
-    range.contains(version) && crate::provider::candidate_admits_prerelease(&range, version)
+    declares_features
+        && range.contains(version)
+        && crate::provider::candidate_admits_prerelease(&range, version)
 }
 
 /// The interface requirements of a version the consumer fails to
@@ -805,7 +644,7 @@ mod tests {
                     revisions: BTreeMap::new(),
                     checksum: None,
                     source: None,
-                    features: None,
+                    features: cabin_core::Features::default(),
                     profiles: None,
                     toolchain: None,
                     build: None,
@@ -1381,7 +1220,7 @@ mod tests {
                 revisions: BTreeMap::new(),
                 checksum: None,
                 source: None,
-                features: None,
+                features: cabin_core::Features::default(),
                 profiles: None,
                 toolchain: None,
                 build: None,
@@ -1746,7 +1585,7 @@ mod tests {
                 revisions: BTreeMap::new(),
                 checksum: None,
                 source: None,
-                features: None,
+                features: cabin_core::Features::default(),
                 profiles: None,
                 toolchain: None,
                 build: None,
@@ -2097,13 +1936,11 @@ mod tests {
         assert_eq!(out.packages.len(), 4);
     }
 
-    /// A locally-supplied name's index claims are skipped: a
-    /// patched-away upstream selected through a transitive registry
-    /// edge never links, so its claims must not collide on the
-    /// replacement's behalf.  The replacement's own claims (from
-    /// `local_links`) still participate.
+    /// A locally supplied name replaces its index entry outright: the
+    /// upstream's claims never count, while the local package's own
+    /// claims do.
     #[test]
-    fn locally_supplied_names_contribute_no_index_claims() {
+    fn local_packages_replace_index_claims() {
         let mut index = build_index(vec![
             entry("zlib", vec![("1.3.1", vec![], false)]),
             entry("miniz", vec![("3.1.2", vec![], false)]),
@@ -2111,25 +1948,28 @@ mod tests {
         set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
         set_links(&mut index, "miniz", "3.1.2", &[("miniz", "z")]);
         let mut input = make_input(vec![("zlib", "*"), ("miniz", "*")]);
-        input.locally_supplied = std::collections::BTreeSet::from([pkg_name("zlib")]);
-        assert!(
-            resolve(&input, &index).is_ok(),
-            "the patched-away upstream's claim must be skipped"
+        input.local_packages.insert(
+            pkg_name("zlib"),
+            entry("zlib", vec![("1.3.1", vec![], false)]),
         );
+        let out = resolve(&input, &index).expect("the replaced upstream must not claim");
+        assert_eq!(out.packages[2].source, ResolvedSource::Local);
 
-        // A claiming replacement still collides.
-        input.local_links = vec![local_claim("zlib", "1.3.1", "z", "z")];
+        // A claiming local package still collides.
+        let mut claiming = entry("zlib", vec![("1.3.1", vec![], false)]);
+        claiming.versions.get_mut(&version("1.3.1")).unwrap().links =
+            BTreeMap::from([("z".to_owned(), "z".to_owned())]);
+        input.local_packages.insert(pkg_name("zlib"), claiming);
         let err = resolve(&input, &index).unwrap_err();
         assert!(matches!(err, ResolveError::LinksCollision { .. }));
     }
 
-    /// A selection reachable only through a locally-supplied
-    /// selection's own index edges never links - the replacement's
-    /// real dependencies are folded into the root set - so its index
-    /// claims are dropped rather than colliding with a live claimant.
-    /// A live path onto the same selection keeps its claims counted.
+    /// A transitively reached local package (a `[patch]` fork) uses its
+    /// own edges, so a dependency only the upstream declared is never
+    /// selected; and its one version must satisfy every dependent, or
+    /// the conflict names it as locally supplied.
     #[test]
-    fn upstream_only_descendants_of_locally_supplied_names_do_not_claim() {
+    fn transitively_reached_local_packages_use_their_own_edges() {
         let mut index = build_index(vec![
             entry("aaa", vec![("1.0.0", vec![("bbb", ">=1")], false)]),
             entry("bbb", vec![("1.0.0", vec![("ccc", ">=1")], false)]),
@@ -2139,18 +1979,65 @@ mod tests {
         set_links(&mut index, "ccc", "1.0.0", &[("ccc", "z")]);
         set_links(&mut index, "ddd", "1.0.0", &[("ddd", "z")]);
         let mut input = make_input(vec![("aaa", "*"), ("ddd", "*")]);
-        input.locally_supplied = std::collections::BTreeSet::from([pkg_name("bbb")]);
-        assert!(
-            resolve(&input, &index).is_ok(),
-            "a claim behind the replaced upstream's dead edge must not collide"
+        input.local_packages.insert(
+            pkg_name("bbb"),
+            entry("bbb", vec![("1.0.0", vec![], false)]),
+        );
+        let out = resolve(&input, &index).unwrap();
+        let names: Vec<(&str, ResolvedSource)> = out.packages[1..]
+            .iter()
+            .map(|p| (p.name.as_str(), p.source))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("aaa", ResolvedSource::Index),
+                ("bbb", ResolvedSource::Local),
+                ("ddd", ResolvedSource::Index),
+            ]
         );
 
-        // A root requirement (as a fork's folded dep would inject)
-        // reaches the same selection live: the collision is real.
-        let mut input = make_input(vec![("aaa", "*"), ("ddd", "*"), ("ccc", ">=1")]);
-        input.locally_supplied = std::collections::BTreeSet::from([pkg_name("bbb")]);
+        let index = build_index(vec![entry(
+            "aaa",
+            vec![("1.0.0", vec![("bbb", ">=2")], false)],
+        )]);
+        let mut input = make_input(vec![("aaa", "*")]);
+        input.local_packages.insert(
+            pkg_name("bbb"),
+            entry("bbb", vec![("1.0.0", vec![], false)]),
+        );
         let err = resolve(&input, &index).unwrap_err();
-        assert!(matches!(err, ResolveError::LinksCollision { .. }));
+        let ResolveError::Conflict { detail, .. } = err else {
+            panic!("expected a conflict, got {err:?}");
+        };
+        assert!(
+            detail.contains("so no other version can be selected: bbb 1.0.0"),
+            "{detail}"
+        );
+    }
+
+    /// A local pre-release satisfies only the edges that opt into it,
+    /// even when another edge pins it exactly.
+    #[test]
+    fn local_prerelease_must_match_every_dependent_requirement() {
+        let index = build_index(vec![entry(
+            "aaa",
+            vec![("1.0.0", vec![("bbb", "^1")], false)],
+        )]);
+        let mut input = make_input(vec![("aaa", "*"), ("ccc", "*")]);
+        input.local_packages.insert(
+            pkg_name("bbb"),
+            entry("bbb", vec![("1.1.0-alpha", vec![], false)]),
+        );
+        input.local_packages.insert(
+            pkg_name("ccc"),
+            entry("ccc", vec![("1.0.0", vec![("bbb", "=1.1.0-alpha")], false)]),
+        );
+        let err = resolve(&input, &index).unwrap_err();
+        let ResolveError::Conflict { detail, .. } = err else {
+            panic!("expected a conflict, got {err:?}");
+        };
+        assert!(detail.contains("local bbb 1.1.0-alpha"), "{detail}");
     }
 
     /// The same package reported through both `local_links` and the
@@ -2188,87 +2075,6 @@ mod tests {
     /// The rendered diagnostic carries the stable resolver code, the
     /// shared identity, and every claimant with package, version, and
     /// target - the user must be able to act without a backtrace.
-    /// Reachability for residue classification: selections no root
-    /// can reach through active index edges are residue; everything
-    /// on a root's edge chain is not.
-    #[test]
-    fn unreachable_index_selections_walks_root_edges() {
-        let index = build_index(vec![
-            entry("aaa", vec![("1.0.0", vec![("bbb", ">=1")], false)]),
-            entry("bbb", vec![("1.0.0", vec![], false)]),
-            entry("ccc", vec![("1.0.0", vec![], false)]),
-        ]);
-        let packages: Vec<ResolvedPackage> = ["aaa", "bbb", "ccc"]
-            .into_iter()
-            .map(|name| ResolvedPackage {
-                name: PackageName::new(name.to_owned()).unwrap(),
-                version: version("1.0.0"),
-                source: ResolvedSource::Index,
-            })
-            .collect();
-        let roots: BTreeSet<PackageName> = [PackageName::new("aaa".to_owned()).unwrap()]
-            .into_iter()
-            .collect();
-        let residue = unreachable_index_selections(&packages, &index, &roots, &BTreeSet::new());
-        let expected: BTreeSet<PackageName> = [PackageName::new("ccc".to_owned()).unwrap()]
-            .into_iter()
-            .collect();
-        assert_eq!(residue, expected);
-
-        // A locally-supplied root is never expanded: its index edges
-        // belong to the replaced upstream, so `bbb` becomes residue.
-        let supplied: BTreeSet<PackageName> = [PackageName::new("aaa".to_owned()).unwrap()]
-            .into_iter()
-            .collect();
-        let residue = unreachable_index_selections(&packages, &index, &roots, &supplied);
-        let expected: BTreeSet<PackageName> = ["bbb", "ccc"]
-            .into_iter()
-            .map(|name| PackageName::new(name.to_owned()).unwrap())
-            .collect();
-        assert_eq!(residue, expected);
-    }
-
-    /// A live index dependent's requirement is validated against the
-    /// fork version replacing its dependency; an orphaned dependent
-    /// is residue nothing links, so its requirements are exempt.
-    #[test]
-    fn fork_version_requirements_checked_for_live_dependents_only() {
-        let index = build_index(vec![entry(
-            "aaa",
-            vec![("1.0.0", vec![("bbb", ">=2")], false)],
-        )]);
-        let packages = vec![ResolvedPackage {
-            name: pkg_name("aaa"),
-            version: version("1.0.0"),
-            source: ResolvedSource::Index,
-        }];
-        let fork_versions: BTreeMap<PackageName, Version> =
-            [(pkg_name("bbb"), version("1.0.0"))].into_iter().collect();
-        let supplied: BTreeSet<PackageName> = [pkg_name("bbb")].into_iter().collect();
-
-        let roots: BTreeSet<PackageName> = [pkg_name("aaa")].into_iter().collect();
-        let err =
-            enforce_fork_version_requirements(&packages, &index, &fork_versions, &roots, &supplied)
-                .unwrap_err();
-        assert!(matches!(
-            err,
-            cabin_core::PatchValidationError::VersionMismatch { .. }
-        ));
-
-        // No root reaches aaa: its requirement constrains nothing.
-        let no_roots = BTreeSet::new();
-        assert!(
-            enforce_fork_version_requirements(
-                &packages,
-                &index,
-                &fork_versions,
-                &no_roots,
-                &supplied,
-            )
-            .is_ok()
-        );
-    }
-
     #[test]
     fn links_collision_diagnostic_names_identity_and_claimants() {
         let err = ResolveError::LinksCollision {
@@ -3139,5 +2945,523 @@ mod tests {
             out.held_back[0].message(),
             "fmt v1.0.0 (available: v2.0.0, requires interface c++11..c++14)"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Feature-aware resolution
+    // -----------------------------------------------------------------
+
+    fn edge(dep_req: &str) -> cabin_index::IndexPackageDependency {
+        cabin_index::IndexPackageDependency {
+            req: req(dep_req),
+            optional: false,
+            features: Vec::new(),
+            default_features: true,
+            condition: None,
+        }
+    }
+
+    fn optional(dep_req: &str) -> cabin_index::IndexPackageDependency {
+        cabin_index::IndexPackageDependency {
+            optional: true,
+            ..edge(dep_req)
+        }
+    }
+
+    /// One version with its dependency edges, `default` list, and
+    /// `[features]` table.
+    fn featured_version(
+        deps: Vec<(&str, cabin_index::IndexPackageDependency)>,
+        default: &[&str],
+        features: &[(&str, &[&str])],
+    ) -> VersionMetadata {
+        VersionMetadata {
+            dependencies: deps
+                .into_iter()
+                .map(|(name, dep)| (pkg_name(name), dep))
+                .collect(),
+            features: cabin_core::Features {
+                default: default.iter().map(|f| (*f).to_owned()).collect(),
+                features: features
+                    .iter()
+                    .map(|(name, entries)| {
+                        (
+                            (*name).to_owned(),
+                            entries.iter().map(|e| (*e).to_owned()).collect(),
+                        )
+                    })
+                    .collect(),
+            },
+            ..VersionMetadata::default()
+        }
+    }
+
+    fn featured(name: &str, versions: Vec<(&str, VersionMetadata)>) -> IndexEntry {
+        IndexEntry {
+            name: pkg_name(name),
+            versions: versions
+                .into_iter()
+                .map(|(ver, meta)| (version(ver), meta))
+                .collect(),
+        }
+    }
+
+    fn plain(name: &str) -> IndexEntry {
+        featured(name, vec![("1.0.0", featured_version(vec![], &[], &[]))])
+    }
+
+    fn request(input: &mut ResolveInput, name: &str, features: &[&str]) {
+        input
+            .root_features
+            .insert(pkg_name(name), set(features.iter().copied()));
+    }
+
+    fn set<'a>(items: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
+        items.into_iter().map(str::to_owned).collect()
+    }
+
+    fn names(out: &ResolveOutput) -> Vec<&str> {
+        out.packages[1..].iter().map(|p| p.name.as_str()).collect()
+    }
+
+    fn selected<'a>(out: &'a ResolveOutput, name: &str) -> &'a ResolvedPackage {
+        out.packages
+            .iter()
+            .find(|p| p.name.as_str() == name)
+            .unwrap()
+    }
+
+    /// A -> B -> C across registry packages: a root request for `a`'s
+    /// `x` requests `b/y`, whose `dep:c` turns on the optional `c`;
+    /// the reported features and active edges follow.
+    #[test]
+    fn feature_chain_activates_optional_registry_edges() {
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("b", edge("^1"))], &[], &[("x", &["b/y"])]),
+                )],
+            ),
+            featured(
+                "b",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("c", optional("^1"))], &[], &[("y", &["dep:c"])]),
+                )],
+            ),
+            plain("c"),
+        ]);
+        let mut input = make_input(vec![("a", "^1")]);
+        assert_eq!(names(&resolve(&input, &index).unwrap()), ["a", "b"]);
+
+        request(&mut input, "a", &["x"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(names(&out), ["a", "b", "c"]);
+        assert_eq!(selected(&out, "a").features, set(["x"]));
+        assert_eq!(selected(&out, "b").features, set(["y"]));
+        assert_eq!(
+            selected(&out, "b").dependencies,
+            BTreeSet::from([pkg_name("c")])
+        );
+    }
+
+    /// Default features are additive per edge: `left` turns them off
+    /// on `shared`, `right` keeps them, and the union enables them.
+    #[test]
+    fn default_features_are_additive_across_a_diamond() {
+        let no_defaults = cabin_index::IndexPackageDependency {
+            default_features: false,
+            ..edge("^1")
+        };
+        let index = build_index(vec![
+            featured(
+                "left",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("shared", no_defaults)], &[], &[]),
+                )],
+            ),
+            featured(
+                "right",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("shared", edge("^1"))], &[], &[]),
+                )],
+            ),
+            featured(
+                "shared",
+                vec![(
+                    "1.0.0",
+                    featured_version(
+                        vec![("extra", optional("^1"))],
+                        &["full"],
+                        &[("full", &["dep:extra"])],
+                    ),
+                )],
+            ),
+            plain("extra"),
+        ]);
+        let out = resolve(&make_input(vec![("left", "^1")]), &index).unwrap();
+        assert_eq!(names(&out), ["left", "shared"]);
+
+        let out = resolve(&make_input(vec![("left", "^1"), ("right", "^1")]), &index).unwrap();
+        assert_eq!(names(&out), ["extra", "left", "right", "shared"]);
+        assert_eq!(selected(&out, "shared").features, set(["full"]));
+    }
+
+    /// A requested feature selects the newest version declaring it,
+    /// not the newest version.
+    #[test]
+    fn feature_request_selects_an_older_version_declaring_it() {
+        let index = build_index(vec![featured(
+            "d",
+            vec![
+                ("1.0.0", featured_version(vec![], &[], &[("f", &[])])),
+                ("2.0.0", featured_version(vec![], &[], &[])),
+            ],
+        )]);
+        let mut input = make_input(vec![("d", ">=1")]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "d").version, version("2.0.0"));
+
+        request(&mut input, "d", &["f"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "d").version, version("1.0.0"));
+    }
+
+    /// An optional edge constrains selection once a feature enables
+    /// it: the newest `a` would enable an incompatible `c`, so
+    /// resolution backtracks to the `a` whose edge fits.
+    #[test]
+    fn enabled_optional_edges_backtrack() {
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![
+                    (
+                        "1.0.0",
+                        featured_version(vec![("c", optional("^1"))], &[], &[("x", &["dep:c"])]),
+                    ),
+                    (
+                        "2.0.0",
+                        featured_version(vec![("c", optional("^2"))], &[], &[("x", &["dep:c"])]),
+                    ),
+                ],
+            ),
+            featured(
+                "c",
+                vec![
+                    ("1.0.0", featured_version(vec![], &[], &[])),
+                    ("2.0.0", featured_version(vec![], &[], &[])),
+                ],
+            ),
+        ]);
+        let mut input = make_input(vec![("a", "*"), ("c", "^1")]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "a").version, version("2.0.0"));
+
+        request(&mut input, "a", &["x"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "a").version, version("1.0.0"));
+        assert_eq!(selected(&out, "c").version, version("1.0.0"));
+    }
+
+    /// Feature entries naming a dependency gated off on this platform
+    /// are no-ops: nothing is required, not even index metadata.
+    #[test]
+    fn features_skip_dependencies_gated_off_on_this_platform() {
+        let gated = cabin_index::IndexPackageDependency {
+            condition: Some(
+                cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{}")"#, other_os()))
+                    .unwrap(),
+            ),
+            ..optional("^1")
+        };
+        let index = build_index(vec![featured(
+            "a",
+            vec![(
+                "1.0.0",
+                featured_version(vec![("d", gated.clone())], &[], &[("x", &["dep:d", "d/y"])]),
+            )],
+        )]);
+        let mut input = make_input(vec![("a", "^1")]);
+        request(&mut input, "a", &["x"]);
+        input.lazy_index = true;
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(names(&out), ["a"]);
+        assert!(selected(&out, "a").dependencies.is_empty());
+
+        // `dep:` on a gated-off non-optional dependency is a no-op too.
+        let non_optional = cabin_index::IndexPackageDependency {
+            optional: false,
+            ..gated
+        };
+        let index = build_index(vec![featured(
+            "a",
+            vec![(
+                "1.0.0",
+                featured_version(vec![("e", non_optional)], &[], &[("x", &["dep:e"])]),
+            )],
+        )]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(names(&out), ["a"]);
+    }
+
+    /// A version the fallback graph's feature requests rule out is not
+    /// a standard hold-back: `b` 2.0.0 lacks the `x` that `a` 1.0.0
+    /// requests, so only `a`'s row is real.
+    #[test]
+    fn held_back_skips_versions_lacking_an_enabled_feature() {
+        let with_x = cabin_index::IndexPackageDependency {
+            features: vec!["x".to_owned()],
+            ..edge(">=1")
+        };
+        let mut index = build_index(vec![
+            featured(
+                "a",
+                vec![
+                    ("1.0.0", featured_version(vec![("b", with_x)], &[], &[])),
+                    (
+                        "2.0.0",
+                        featured_version(vec![("b", edge(">=1"))], &[], &[]),
+                    ),
+                ],
+            ),
+            featured(
+                "b",
+                vec![
+                    ("1.0.0", featured_version(vec![], &[], &[("x", &[])])),
+                    ("2.0.0", featured_version(vec![], &[], &[])),
+                ],
+            ),
+        ]);
+        set_standards(
+            &mut index,
+            "a",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("a", ">=1")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(selected(&out, "b").version, version("1.0.0"));
+        let rows: Vec<&str> = out.held_back.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(rows, ["a"]);
+    }
+
+    /// A `dep/feature` entry in an enabled feature is a request too:
+    /// `a` 1.0.0's `f` asks for `b/x`, which `b` 2.0.0 lacks.
+    #[test]
+    fn held_back_skips_versions_lacking_a_feature_table_request() {
+        let a =
+            |entries: &[&str]| featured_version(vec![("b", edge(">=1"))], &[], &[("f", entries)]);
+        let mut index = build_index(vec![
+            featured("a", vec![("1.0.0", a(&["b/x"])), ("2.0.0", a(&[]))]),
+            featured(
+                "b",
+                vec![
+                    ("1.0.0", featured_version(vec![], &[], &[("x", &[])])),
+                    ("2.0.0", featured_version(vec![], &[], &[])),
+                ],
+            ),
+        ]);
+        set_standards(
+            &mut index,
+            "a",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        let mut input = cxx_consumer_input(vec![("a", ">=1")], CxxStandard::Cxx17);
+        request(&mut input, "a", &["f"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "b").version, version("1.0.0"));
+        let rows: Vec<&str> = out.held_back.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(rows, ["a"]);
+    }
+
+    /// A hold-back survives a default feature the newer version drops:
+    /// `b` 1.0.0 enables its `legacy` default, which nothing requests,
+    /// so `b` 2.0.0 is held back by its standard alone.
+    #[test]
+    fn held_back_ignores_default_features_the_newer_version_drops() {
+        let mut index = build_index(vec![featured(
+            "b",
+            vec![
+                (
+                    "1.0.0",
+                    featured_version(vec![], &["legacy"], &[("legacy", &[])]),
+                ),
+                ("2.0.0", featured_version(vec![], &[], &[])),
+            ],
+        )]);
+        set_standards(
+            &mut index,
+            "b",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        let mut input = cxx_consumer_input(vec![("b", ">=1")], CxxStandard::Cxx17);
+        request(&mut input, "b", &["default"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "b").features, set(["legacy"]));
+        let rows: Vec<&str> = out.held_back.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(rows, ["b"]);
+    }
+
+    /// Feature strings on index dependency edges reach conflict
+    /// diagnostics escaped.
+    #[test]
+    fn conflict_detail_escapes_feature_names() {
+        let hostile = cabin_index::IndexPackageDependency {
+            features: vec!["no\u{1b}[2Jpe".to_owned()],
+            ..edge("^1")
+        };
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![("1.0.0", featured_version(vec![("b", hostile)], &[], &[]))],
+            ),
+            plain("b"),
+        ]);
+        let err = resolve(&make_input(vec![("a", "^1")]), &index).unwrap_err();
+        let ResolveError::Conflict { detail, .. } = err else {
+            panic!("expected a conflict, got {err:?}");
+        };
+        assert!(detail.contains("b[no\\u{1b}[2Jpe]"), "{detail}");
+        assert!(!detail.contains('\u{1b}'), "{detail}");
+    }
+
+    /// A root request no in-range version declares is a targeted error;
+    /// a transitive one is a conflict naming the feature node.
+    #[test]
+    fn unknown_features_are_reported() {
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("b", edge("^1"))], &[], &[("x", &["b/nope"])]),
+                )],
+            ),
+            plain("b"),
+        ]);
+        let mut input = make_input(vec![("a", "^1")]);
+        request(&mut input, "a", &["nope"]);
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(
+            matches!(&err, ResolveError::UnknownFeature { package, feature }
+                if package == "a" && feature == "nope"),
+            "{err:?}"
+        );
+
+        request(&mut input, "a", &["x"]);
+        let err = resolve(&input, &index).unwrap_err();
+        let ResolveError::Conflict { detail, .. } = err else {
+            panic!("expected a conflict, got {err:?}");
+        };
+        assert!(detail.contains("b[nope]"), "{detail}");
+    }
+
+    /// `--locked` replays the locked version and refuses a feature
+    /// request it cannot satisfy instead of moving the lock.
+    #[test]
+    fn locked_replay_checks_requested_features() {
+        let index = build_index(vec![featured(
+            "d",
+            vec![
+                ("1.0.0", featured_version(vec![], &[], &[("f", &[])])),
+                ("2.0.0", featured_version(vec![], &[], &[])),
+            ],
+        )]);
+        let mut input = input_with_locked(
+            vec![("d", ">=1")],
+            vec![("d", "1.0.0")],
+            ResolveMode::Locked,
+        );
+        request(&mut input, "d", &["f"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "d").version, version("1.0.0"));
+
+        let mut input = input_with_locked(
+            vec![("d", ">=1")],
+            vec![("d", "2.0.0")],
+            ResolveMode::Locked,
+        );
+        request(&mut input, "d", &["f"]);
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(
+            matches!(err, ResolveError::LockedVersionLacksFeature { .. }),
+            "{err:?}"
+        );
+    }
+
+    /// A lazily loaded index is asked for exactly the metadata the
+    /// active graph needs: a disabled optional dependency never is.
+    #[test]
+    fn lazy_index_requests_only_enabled_optional_metadata() {
+        let index = build_index(vec![featured(
+            "a",
+            vec![(
+                "1.0.0",
+                featured_version(vec![("d", optional("^1"))], &[], &[("x", &["dep:d"])]),
+            )],
+        )]);
+        let mut input = make_input(vec![("a", "^1")]);
+        input.lazy_index = true;
+        assert_eq!(names(&resolve(&input, &index).unwrap()), ["a"]);
+
+        request(&mut input, "a", &["x"]);
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(
+            matches!(&err, ResolveError::MetadataNeeded(name) if name.as_str() == "d"),
+            "{err:?}"
+        );
+    }
+
+    /// An index package's feature request reaches a locally supplied
+    /// package (a `[patch]` fork) like any other: the fork's optional
+    /// registry dependency resolves and its features are reported.
+    #[test]
+    fn index_requests_enable_local_optional_dependencies() {
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![(
+                    "1.0.0",
+                    featured_version(
+                        vec![(
+                            "p",
+                            cabin_index::IndexPackageDependency {
+                                features: vec!["with-q".to_owned()],
+                                ..edge("^1")
+                            },
+                        )],
+                        &[],
+                        &[],
+                    ),
+                )],
+            ),
+            plain("q"),
+        ]);
+        let mut input = make_input(vec![("a", "^1")]);
+        input.local_packages.insert(
+            pkg_name("p"),
+            featured(
+                "p",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("q", optional("^1"))], &[], &[("with-q", &["dep:q"])]),
+                )],
+            ),
+        );
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(names(&out), ["a", "p", "q"]);
+        let p = selected(&out, "p");
+        assert_eq!(p.source, ResolvedSource::Local);
+        assert_eq!(p.features, set(["with-q"]));
     }
 }

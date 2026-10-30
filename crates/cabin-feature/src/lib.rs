@@ -29,7 +29,8 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use cabin_core::{
-    DEFAULT_FEATURE_KEY, DependencyKind, FeatureEntry, InvalidFeatureEntryKind, TargetPlatform,
+    DEFAULT_FEATURE_KEY, DependencyKind, DependencySource, FeatureEntry, InvalidFeatureEntryKind,
+    PackageName, TargetPlatform,
 };
 use cabin_workspace::{PackageGraph, WorkspacePackage};
 use thiserror::Error;
@@ -102,6 +103,13 @@ pub struct FeatureResolution {
     /// disabled optional path dependencies (the `links` uniqueness
     /// check) scope to it.
     pub included: BTreeSet<usize>,
+    /// Active edges of included packages onto versioned dependencies
+    /// the graph holds no package for (registry dependencies before
+    /// resolution), keyed by dependency name, with the features they
+    /// request: `default` for an edge that keeps default features,
+    /// plus edge `features` and `<dep>/<feature>` requests.  Registry
+    /// resolution unifies these with the index's own requests.
+    pub versioned_requests: BTreeMap<PackageName, BTreeSet<String>>,
 }
 
 impl FeatureResolution {
@@ -363,6 +371,7 @@ struct ResolverState {
     /// `features = [...]` requests on every fixed-point
     /// iteration.
     edges_expanded: BTreeSet<(usize, usize, DependencyKind)>,
+    versioned_requests: BTreeMap<PackageName, BTreeSet<String>>,
     work: VecDeque<WorkItem>,
     /// Evaluation context for `[target.'cfg(...)']` filtering.
     platform: TargetPlatform,
@@ -425,6 +434,7 @@ impl ResolverState {
             per_package,
             included: BTreeSet::new(),
             edges_expanded: BTreeSet::new(),
+            versioned_requests: BTreeMap::new(),
             work: VecDeque::new(),
             platform: platform.clone(),
             dev_active_for: dev_active_for.clone(),
@@ -608,10 +618,14 @@ impl ResolverState {
         let Some(edge) = pkg.deps.iter().find(|e| {
             graph.packages[e.index].package.name.as_str() == dep_name && e.kind == dep_entry.kind
         }) else {
-            // Dep declared but not in the graph (registry not
-            // materialized, or path-dep skipped).  Silently skip;
-            // the resolver layer surfaces unresolved registry
-            // dependencies on its own.
+            // A registry dependency not materialized yet: registry
+            // resolution validates and applies the request.
+            if matches!(dep_entry.source, DependencySource::Version(_)) {
+                self.versioned_requests
+                    .entry(dep_entry.name.clone())
+                    .or_default()
+                    .insert(feature.to_owned());
+            }
             return Ok(());
         };
         let target_idx = edge.index;
@@ -656,6 +670,16 @@ impl ResolverState {
             let Some(edge) = pkg.deps.iter().find(|e| {
                 graph.packages[e.index].package.name.as_str() == dep_name && e.kind == declared.kind
             }) else {
+                if matches!(declared.source, DependencySource::Version(_)) {
+                    let requests = self
+                        .versioned_requests
+                        .entry(declared.name.clone())
+                        .or_default();
+                    if declared.default_features {
+                        requests.insert(DEFAULT_FEATURE_KEY.to_owned());
+                    }
+                    requests.extend(declared.features.iter().cloned());
+                }
                 continue;
             };
             if !self
@@ -753,6 +777,7 @@ impl ResolverState {
         FeatureResolution {
             per_package: self.per_package,
             included: self.included,
+            versioned_requests: self.versioned_requests,
         }
     }
 }

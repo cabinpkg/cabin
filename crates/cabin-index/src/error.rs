@@ -125,6 +125,13 @@ pub enum IndexError {
         message: String,
     },
 
+    #[error("invalid `features` for package {package:?} version {version}: {message}")]
+    InvalidFeatures {
+        package: String,
+        version: String,
+        message: String,
+    },
+
     #[error(
         "invalid file registry at {}: {message}", path.display()
     )]

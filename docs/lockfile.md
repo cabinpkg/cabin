@@ -69,9 +69,9 @@ dependencies = ["fmt"]
 | `[[package]]` | repeated | yes per package | One entry per resolved registry package.  Sorted alphabetically by name. |
 | `name` | package | yes | Package name. |
 | `version` | package | yes | Resolved SemVer version. |
-| `source` | package | yes | Where the package came from.  Cabin supports `"index"` plus local provenance records for patches and vendoring. |
+| `source` | package | yes | Where the package came from.  `"index"` is the only accepted value; patches and source replacements are recorded in the top-level arrays below. |
 | `checksum` | package | no | `sha256:<hex>` digest of the source archive's bytes, and thereby the packaging-revision pin - the revision id is this digest's leading 16 hex characters.  Strictly validated: exactly `sha256:` followed by 64 lowercase hex characters; any other spelling fails lockfile validation (delete the lockfile and re-run `cabin resolve`).  In `--locked` mode the resolver fails on lockfile-vs-index disagreement; in `cabin fetch` / `cabin build` the same value selects the revision to fetch and verifies the archive's content as it is copied into the cache. |
-| `dependencies` | package | no (only emitted when non-empty) | The package's transitive dependency names, sorted alphabetically. |
+| `dependencies` | package | no (only emitted when non-empty) | The locked packages among the version's declared dependencies, sorted alphabetically. |
 
 Local path packages are deliberately **not** recorded in `cabin.lock`; they are resolved
 structurally on every load by `cabin-workspace`.
@@ -141,6 +141,26 @@ alone, as it always has; `cabin update` is the remedy (see below).  Comparison u
 canonical (sorted) arrays the renderer emits, so it is deterministic.
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).
+
+## Features and the selected closure
+
+The lockfile records the registry packages the selection reaches under its feature requests, and
+nothing about the features themselves: every run recomputes them from the manifests and the index
+(see [`features.md`](features.md#registry-packages)).  An optional dependency, local or registry,
+is locked only while a feature enables it, and an edge onto a name a local package supplies (a
+workspace member, path dependency, or `[patch]` fork) is never a `[[package]]` entry or a
+`dependencies` item.  Consequences:
+
+- a feature change that adds a registry package fails every `--locked` run with `cabin.lock has no
+  entry for required package ...`; one that drops a package fails only `cabin resolve --locked`,
+  which compares the lockfile it would write, while `cabin fetch`, `cabin build`, and the other
+  artifact commands accept the leftover entry.  A run without `--locked` records the change (a
+  dropped entry is pruned subject to the workspace rule under [`cabin resolve`](#cabin-resolve));
+- under `--locked`, a locked version whose index entry does not declare a requested feature fails
+  with `locked package ... does not declare the requested feature ...`; `cabin update` re-selects;
+- a lockfile written before registry feature resolution may list a `[patch]`ed name reached only
+  through a registry package as an index entry; the first writing run drops it (subject to the
+  same workspace rule), so such a lockfile can fail `cabin resolve --locked` once.
 
 ## Packaging revisions
 
@@ -260,14 +280,9 @@ human-readable explanation derived from PubGrub's reporter output.
 
 The following are **not** part of the current lockfile contract:
 
-- network registry access (HTTP / sparse index client)
-- registry authentication
-- a registry server
-- package publishing (`cabin package`, `cabin publish`)
 - OCI / GHCR or other remote-archive transports
 - a binary artifact cache or remote build cache
 - alternative `source` values in `cabin.lock` such as `path` or `git`
 - locking of local path packages
-- workspace-level `cabin.lock` for workspaces without a root `[package]`
 - a separate `cabin generate-lockfile` command (`cabin resolve` and `cabin fetch` are the producers)
 - a public JSON Schema document for `cabin.lock`

@@ -736,6 +736,11 @@ fn resolve_dep_manifest_path(
             }
             if let Some(path) = ctx.registry.by_name.get(dep.name.as_str()) {
                 path.clone()
+            } else if dep.optional {
+                // Resolution leaves an optional dependency out exactly
+                // when no feature enables it; the build's feature pass
+                // refuses one it enables without an edge.
+                return Ok(None);
             } else {
                 // a missing registry entry is
                 // only an error when the *parent*

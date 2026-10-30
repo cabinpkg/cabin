@@ -150,9 +150,10 @@ fn fetch_unknown_package_errors_without_versioned_deps() {
         .stderr(predicate::str::contains("not a member"));
 }
 
-/// The resolver identifies its root by name, so a pure workspace
-/// refuses an index that carries or depends on the synthetic
-/// `cabin/workspace` root rather than resolving either to the root.
+/// A pure workspace resolves under the synthetic `cabin/workspace`
+/// root, so a dependency on that name - direct or from an index
+/// package - is refused rather than resolved to an index package
+/// the lockfile could not tell apart from the root.
 #[test]
 fn resolve_pure_workspace_refuses_an_index_naming_the_synthetic_root() {
     // (member dependency, index package, that package's dependencies)
@@ -201,7 +202,7 @@ fn resolve_pure_workspace_refuses_an_index_naming_the_synthetic_root() {
             .assert()
             .failure()
             .stderr(predicate::str::contains(
-                "the package index carries or depends on `cabin/workspace`",
+                "a dependency names \"cabin/workspace\", the name Cabin reserves",
             ));
     }
 }

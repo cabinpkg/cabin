@@ -26,7 +26,7 @@
 //! is the read-only commands' fail-soft profile / toolchain / detection
 //! step, shared by `cabin metadata` and `cabin explain build-config`.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -218,7 +218,6 @@ pub(crate) struct PreparedWorkspace {
     pub effective_config: cabin_config::EffectiveConfig,
     pub graph: cabin_workspace::PackageGraph,
     pub resolved_selection: cabin_workspace::ResolvedSelection,
-    pub selection_request: cabin_core::SelectionRequest,
     pub feature_resolution: cabin_feature::FeatureResolution,
     pub enabled_features: HashMap<usize, BTreeSet<String>>,
     pub profile: cabin_core::ResolvedProfile,
@@ -460,6 +459,14 @@ pub(crate) fn prepare_workspace(
         &selection_request,
         &dev_for,
     )?;
+    // The reload skips an optional registry dependency resolution
+    // left out, so one these features enable would otherwise build
+    // without its edge.
+    if let Some(name) = feature_resolution.versioned_requests.keys().next() {
+        bail!(
+            "feature resolution enables dependency `{name}`, which dependency resolution did not select"
+        );
+    }
     // The exact links-uniqueness check.  The final graph is the
     // only place every claimant exists as a loaded manifest -
     // fetched registry packages and activated forks alike -
@@ -561,7 +568,6 @@ pub(crate) fn prepare_workspace(
         effective_config,
         graph,
         resolved_selection,
-        selection_request,
         feature_resolution,
         enabled_features,
         profile,
@@ -589,17 +595,6 @@ pub(crate) fn plan_prepared(
     check: bool,
     color: cabin_core::ColorChoice,
 ) -> Result<cabin_build::BuildGraph> {
-    // Validation only: the planner takes no configuration input, but
-    // an invalid per-package configuration selection must still fail
-    // the command before any Ninja file is written.
-    super::resolve_build_configurations(
-        &prepared.graph,
-        &prepared.selection_request,
-        &prepared.resolved_selection.packages,
-        &prepared.profile,
-        &prepared.prep.toolchain_summary,
-        &prepared.prep.build_flags,
-    )?;
     let plan_graph = super::plan(&super::PlanRequest {
         graph: &prepared.graph,
         toolchain: &prepared.toolchain,
@@ -959,28 +954,31 @@ pub(crate) fn augment_build_flags(
 }
 
 /// Resolve a `BuildConfiguration` for every package in the graph.
-/// CLI feature selection requests apply to primary packages only -
-/// non-primary packages (transitive path / registry deps) fall back
-/// to their declared defaults until per-dependency feature requests
-/// land.
+/// A package the selection includes carries the features `features`
+/// enabled on it - the CLI selection on selected packages plus every
+/// dependency edge's requests; one outside the selection, such as an
+/// unselected workspace sibling, shows its declared defaults.
 pub(crate) fn resolve_build_configurations(
     graph: &PackageGraph,
-    request: &cabin_core::SelectionRequest,
-    selected: &[usize],
+    features: &cabin_feature::FeatureResolution,
     profile: &cabin_core::ResolvedProfile,
     toolchain: &cabin_core::ToolchainSummary,
     build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
 ) -> Result<HashMap<usize, cabin_core::BuildConfiguration>> {
-    let selected_set: HashSet<usize> = selected.iter().copied().collect();
     let mut out: HashMap<usize, cabin_core::BuildConfiguration> = HashMap::new();
     for (idx, pkg) in graph.packages.iter().enumerate() {
-        // CLI feature requests apply only to *selected* packages.
-        // Non-selected packages - including workspace siblings the
-        // user did not pick - fall back to their declared defaults
-        // so an unrelated package's missing feature does not fail
-        // an unrelated build.
-        let pkg_request = if selected_set.contains(&idx) {
-            request.clone()
+        let pkg_request = if features.included.contains(&idx) {
+            cabin_core::SelectionRequest {
+                features: features
+                    .for_package(idx)
+                    .enabled_features
+                    .iter()
+                    .filter(|name| name.as_str() != cabin_core::DEFAULT_FEATURE_KEY)
+                    .cloned()
+                    .collect(),
+                all_features: false,
+                no_default_features: true,
+            }
         } else {
             cabin_core::SelectionRequest::default()
         };

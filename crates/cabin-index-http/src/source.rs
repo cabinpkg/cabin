@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use cabin_core::registry::{
     REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, api_url_error, relative_subdir_is_safe,
@@ -159,19 +159,29 @@ impl HttpIndex {
     /// shape produced by the local file loader.
     ///
     /// The walker only fetches packages that are reachable from
-    /// `roots`; a sparse HTTP registry can hold thousands of
-    /// packages, but a single `cabin resolve` run only ever
-    /// references the closure of its declared dependencies.
+    /// `roots` through non-optional edges; a sparse HTTP registry can
+    /// hold thousands of packages, but a single `cabin resolve` run
+    /// only ever references the closure of its declared dependencies.
+    /// Optional dependencies are fetched on demand, once resolution
+    /// enables one.  Names in `known` are never fetched: packages the
+    /// workspace supplies locally, and those an earlier walk loaded.
+    /// The returned index holds the newly fetched entries only.
+    ///
+    /// A name the registry answers with 404 is recorded as an entry
+    /// without versions: whether a package that does not exist
+    /// matters is the resolver's call, since an unselected version's
+    /// dependency must not fail the walk.
     ///
     /// # Errors
     /// Returns [`IndexHttpError::UnsafePackageName`] when any root or
     /// transitively referenced dependency name fails the path-safety
-    /// gate.  Otherwise propagates every error from
+    /// gate.  Otherwise propagates every error but a 404 from
     /// [`HttpIndex::fetch_package`] encountered while walking the
     /// dependency closure.
     pub fn load_package_index(
         &self,
         roots: &[PackageName],
+        known: &BTreeSet<PackageName>,
     ) -> Result<PackageIndex, IndexHttpError> {
         let mut packages: BTreeMap<PackageName, IndexEntry> = BTreeMap::new();
         let mut queue: VecDeque<PackageName> = roots.iter().cloned().collect();
@@ -185,10 +195,16 @@ impl HttpIndex {
         }
         let platform = TargetPlatform::current();
         while let Some(name) = queue.pop_front() {
-            if packages.contains_key(&name) {
+            if packages.contains_key(&name) || known.contains(&name) {
                 continue;
             }
-            let entry = self.fetch_package(&name)?;
+            let entry = match self.fetch_package(&name) {
+                Err(IndexHttpError::PackageNotFound { .. }) => IndexEntry {
+                    name: name.clone(),
+                    versions: BTreeMap::new(),
+                },
+                result => result?,
+            };
             for version_meta in entry.versions.values() {
                 // Mirror the resolver's transitive walk: include
                 // normal deps (dev deps and system deps are not
@@ -1233,7 +1249,7 @@ mod tests {
         let server = StaticRegistry::start(CONFIG, "fmt", PACKAGE);
         let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
         let loaded = index
-            .load_package_index(&[PackageName::new("fmt").unwrap()])
+            .load_package_index(&[PackageName::new("fmt").unwrap()], &BTreeSet::new())
             .expect("the yanked version's dead dependency must not fail the walk");
         assert!(
             loaded
@@ -1246,6 +1262,36 @@ mod tests {
                 .contains_key(&PackageName::new("ghost").unwrap()),
             "yanked-only dependencies must not be prefetched"
         );
+    }
+
+    /// A 404 records the name as a package without versions instead of
+    /// failing the walk, and a `known` name is never fetched.
+    #[test]
+    fn load_package_index_records_missing_packages_and_skips_known_ones() {
+        const CONFIG: &str = r#"{
+            "schema": 1,
+            "kind": "file-registry",
+            "packages": "packages",
+            "artifacts": "artifacts"
+        }"#;
+        const PACKAGE: &str = r#"{
+            "schema": 1,
+            "name": "fmt",
+            "versions": { "1.0.0": { "dependencies": { "ghost": "^1" } } }
+        }"#;
+        let server = StaticRegistry::start(CONFIG, "fmt", PACKAGE);
+        let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
+        let fmt = PackageName::new("fmt").unwrap();
+        let ghost = PackageName::new("ghost").unwrap();
+        let loaded = index
+            .load_package_index(std::slice::from_ref(&fmt), &BTreeSet::new())
+            .unwrap();
+        assert!(loaded.packages[&ghost].versions.is_empty());
+
+        let loaded = index
+            .load_package_index(&[fmt, ghost.clone()], &BTreeSet::from([ghost.clone()]))
+            .unwrap();
+        assert!(!loaded.packages.contains_key(&ghost));
     }
 
     /// End-to-end auth flow over the real `open` / `fetch_package`

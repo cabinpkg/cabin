@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
 
 use cabin_build::{PlanRequest, plan};
 use cabin_package::scaffold;
-use cabin_workspace::{PackageGraph, RegistryPackageSource, collect_patched_versioned_deps};
+use cabin_workspace::{PackageGraph, RegistryPackageSource};
 
 use crate::completions::CompgenArgs;
 use crate::manpages::MangenArgs;

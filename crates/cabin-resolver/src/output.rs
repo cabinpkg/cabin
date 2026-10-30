@@ -1,14 +1,18 @@
-use cabin_core::{PackageName, SourceLanguage};
+use std::collections::{BTreeMap, BTreeSet};
+
+use cabin_core::{DEFAULT_FEATURE_KEY, FeatureEntry, PackageName, SourceLanguage, TargetPlatform};
+use cabin_index::{PackageIndex, VersionMetadata};
 use pubgrub::SelectedDependencies;
 use semver::Version;
 
 use crate::input::ResolveInput;
+use crate::provider::{Node, version_metadata};
 
 /// Resolution result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolveOutput {
     /// Resolved packages, including the root, sorted with the root first
-    /// and registry packages alphabetical by name.
+    /// and the rest (index and local) alphabetical by name.
     pub packages: Vec<ResolvedPackage>,
     /// Packages whose newest in-range version was passed over because
     /// [`IncompatibleStandards::Fallback`](cabin_core::IncompatibleStandards::Fallback)
@@ -117,19 +121,30 @@ pub struct ResolvedPackage {
     pub name: PackageName,
     pub version: semver::Version,
     pub source: ResolvedSource,
+    /// Features enabled on this package, `default` expanded to the
+    /// features it lists.
+    pub features: BTreeSet<String>,
+    /// Names of this package's active dependency edges under
+    /// `features`: platform-matching non-optional dependencies plus
+    /// the optional ones an enabled feature turns on.  For the root,
+    /// every root dependency and feature-request name.
+    pub dependencies: BTreeSet<PackageName>,
 }
 
 /// Where a [`ResolvedPackage`] came from.
 ///
 /// Deliberately not serde-serializable: every output path renders it
 /// through [`ResolvedSource::as_str`], which owns the stable `"root"` /
-/// `"index"` spellings the CLI's JSON emits.
+/// `"index"` / `"local"` spellings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolvedSource {
     /// The root package being resolved for.
     Root,
-    /// Selected from the local JSON package index.
+    /// Selected from the package index.
     Index,
+    /// Supplied by the workspace
+    /// ([`ResolveInput::local_packages`]).
+    Local,
 }
 
 impl ResolvedSource {
@@ -137,6 +152,7 @@ impl ResolvedSource {
         match self {
             ResolvedSource::Root => "root",
             ResolvedSource::Index => "index",
+            ResolvedSource::Local => "local",
         }
     }
 }
@@ -144,36 +160,90 @@ impl ResolvedSource {
 /// Assemble the public [`ResolveOutput`] from `PubGrub`'s
 /// [`SelectedDependencies`] map.
 ///
-/// The output keeps the root package first and sorts the
-/// remaining registry packages alphabetically by name (with
-/// version as a secondary key for the deterministic-ordering
-/// invariant).  `PubGrub` types stay confined to this
-/// boundary - callers see only Cabin-owned [`ResolvedPackage`]
-/// values.
+/// Package nodes become [`ResolvedPackage`]s and feature nodes fold
+/// into their package's `features`.  The output keeps the root first
+/// and sorts the rest by name.  `PubGrub` types stay confined to this
+/// boundary - callers see only Cabin-owned [`ResolvedPackage`] values.
 pub(crate) fn selected_dependencies_to_output(
     input: &ResolveInput,
-    solution: SelectedDependencies<PackageName, Version>,
+    index: &PackageIndex,
+    solution: SelectedDependencies<Node, Version>,
 ) -> ResolveOutput {
-    let mut others: Vec<ResolvedPackage> = solution
-        .into_iter()
-        .filter(|(name, _)| name != &input.root_name)
-        .map(|(name, version)| ResolvedPackage {
-            name,
-            version,
-            source: ResolvedSource::Index,
-        })
-        .collect();
-    others.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
+    let mut selected: BTreeMap<PackageName, Version> = BTreeMap::new();
+    let mut features: BTreeMap<PackageName, BTreeSet<String>> = BTreeMap::new();
+    for (node, version) in solution {
+        match node {
+            Node::Root(_) => {}
+            Node::Package(name) => {
+                selected.insert(name, version);
+            }
+            Node::Feature(name, feature) => {
+                if feature != DEFAULT_FEATURE_KEY {
+                    features.entry(name).or_default().insert(feature);
+                }
+            }
+        }
+    }
 
-    let mut packages = Vec::with_capacity(others.len() + 1);
+    let platform = TargetPlatform::current();
+    let mut packages = Vec::with_capacity(selected.len() + 1);
     packages.push(ResolvedPackage {
         name: input.root_name.clone(),
         version: input.root_version.clone(),
         source: ResolvedSource::Root,
+        features: BTreeSet::new(),
+        dependencies: input
+            .root_dependencies
+            .keys()
+            .chain(input.root_features.keys())
+            .cloned()
+            .collect(),
     });
-    packages.extend(others);
+    for (name, version) in selected {
+        let features = features.remove(&name).unwrap_or_default();
+        let dependencies = version_metadata(input, index, &name, &version)
+            .map(|meta| active_dependencies(meta, &features, &platform))
+            .unwrap_or_default();
+        let source = if input.local_packages.contains_key(&name) {
+            ResolvedSource::Local
+        } else {
+            ResolvedSource::Index
+        };
+        packages.push(ResolvedPackage {
+            name,
+            version,
+            source,
+            features,
+            dependencies,
+        });
+    }
     ResolveOutput {
         packages,
         held_back: Vec::new(),
     }
+}
+
+/// The dependency edges of `meta` that are active once `features`
+/// are enabled - the same edges the provider required.
+fn active_dependencies(
+    meta: &VersionMetadata,
+    features: &BTreeSet<String>,
+    platform: &TargetPlatform,
+) -> BTreeSet<PackageName> {
+    let enabled: BTreeSet<String> = features
+        .iter()
+        .filter_map(|feature| meta.features.features.get(feature))
+        .flatten()
+        .filter_map(|raw| match FeatureEntry::parse(raw) {
+            Ok(FeatureEntry::OptionalDep(dep) | FeatureEntry::DepFeature { dep, .. }) => Some(dep),
+            _ => None,
+        })
+        .collect();
+    meta.dependencies
+        .iter()
+        .filter(|(name, dep)| {
+            dep.matches_platform(platform) && (!dep.optional || enabled.contains(name.as_str()))
+        })
+        .map(|(name, _)| name.clone())
+        .collect()
 }

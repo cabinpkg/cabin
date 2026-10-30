@@ -566,6 +566,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
+absl = { version = ">=1", optional = true }
 fmt = ">=10"
 spdlog = ">=1"
 "#,
@@ -579,7 +580,8 @@ version = "10.2.1"
 "#,
         )
         .unwrap();
-    // Only `fmt` is in the registry; `spdlog` is missing.
+    // Only `fmt` is in the registry; `spdlog` is missing.  So is
+    // the optional `absl`, which is skipped: resolution left it out.
     let registry = vec![RegistryPackageSource {
         name: pkg("fmt"),
         version: ver("10.2.1"),

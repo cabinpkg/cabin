@@ -333,6 +333,14 @@ pub fn parse_package_entry(
         let checksum = current.map(|rev| rev.checksum.clone());
         let source = current.map(|rev| rev.source.clone());
         validate_links(&raw.name, &ver_str, &raw_ver.links, &raw_ver.standards)?;
+        raw_ver
+            .features
+            .validate()
+            .map_err(|err| IndexError::InvalidFeatures {
+                package: raw.name.clone(),
+                version: ver_str.clone(),
+                message: err.to_string(),
+            })?;
         versions.insert(
             version,
             VersionMetadata {
@@ -703,7 +711,7 @@ struct RawVersion {
     /// Declared `[features]`.  Optional; older registry
     /// entries that omit the field continue to load.
     #[serde(default)]
-    features: Option<serde_json::Value>,
+    features: cabin_core::Features,
     /// Declared `[profile.*]` tables.  Optional; older registries
     /// that omit the field continue to load.  The loader does not
     /// validate the inner shape - the file-registry writer
@@ -1989,7 +1997,7 @@ mod tests {
             .package(&PackageName::new("fmt").unwrap())
             .expect("fmt entry");
         let (_, meta) = entry.versions.iter().next().unwrap();
-        assert!(meta.features.is_none());
+        assert_eq!(meta.features, cabin_core::Features::default());
     }
 
     #[test]
@@ -2015,9 +2023,54 @@ mod tests {
             .package(&PackageName::new("fmt").unwrap())
             .expect("fmt entry");
         let (_, meta) = entry.versions.iter().next().unwrap();
-        let features = meta.features.as_ref().expect("features preserved");
-        assert_eq!(features["default"][0], "simd");
-        assert_eq!(features["features"]["ssl"], serde_json::json!([]));
+        assert_eq!(meta.features.default, vec!["simd".to_owned()]);
+        assert_eq!(meta.features.features["ssl"], Vec::<String>::new());
+    }
+
+    #[test]
+    fn index_rejects_features_naming_an_undeclared_default() {
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {
+                    "10.2.1": {
+                        "features": { "default": ["simd"], "features": {} }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        let err = load_index(dir.path()).unwrap_err();
+        assert!(
+            matches!(err, IndexError::InvalidFeatures { .. }),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A registry can publish any implication chain; validating one
+    /// must not exhaust the stack.
+    #[test]
+    fn index_accepts_a_long_feature_implication_chain() {
+        let chain: Vec<String> = (0..50_000)
+            .map(|i| format!(r#""f{i}": ["f{}"]"#, i + 1))
+            .chain(std::iter::once(r#""f50000": []"#.to_owned()))
+            .collect();
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(&format!(
+                r#"{{"schema": 1, "name": "fmt", "versions": {{"10.2.1": {{"features": {{"features": {{{}}}}}}}}}}}"#,
+                chain.join(", ")
+            ))
+            .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index
+            .package(&PackageName::new("fmt").unwrap())
+            .expect("fmt entry");
+        let (_, meta) = entry.versions.iter().next().unwrap();
+        assert_eq!(meta.features.features.len(), 50_001);
     }
 
     #[test]

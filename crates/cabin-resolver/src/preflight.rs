@@ -13,7 +13,9 @@
 //! * `AllMatchingVersionsYanked`
 //! * `LockfileMissingPackage`
 //! * every `Locked*` variant for the root's direct
-//!   dependencies (via [`validate_locked_root_dependency`]).
+//!   dependencies (via [`validate_locked_root_dependency`])
+//! * `UnknownFeature` for a root feature request no in-range
+//!   version declares.
 //! 3. The returned constraint map seeds the locked-mode
 //!    constraint recorder so a later
 //!    `LockedVersionViolatesConstraint` cites the root
@@ -21,13 +23,14 @@
 
 use std::collections::BTreeMap;
 
-use cabin_core::PackageName;
+use cabin_core::{DEFAULT_FEATURE_KEY, PackageName};
 use cabin_index::{IndexEntry, PackageIndex};
 use semver::{Version, VersionReq};
 
 use crate::error::{ResolveError, ResolverConstraint};
 use crate::input::{LockedVersion, ResolveInput, ResolveMode};
 use crate::locked::validate_locked_metadata;
+use crate::provider::lookup;
 
 /// Apply the [`ResolveMode`] visibility rules to the
 /// caller-supplied locked map.  `UpdateAll` clears it; an
@@ -67,11 +70,14 @@ pub(crate) fn preflight_root_dependencies(
                 requirement: req.clone(),
             });
 
-        let entry = index
-            .package(name)
+        // A lazily loaded index records a package the registry does
+        // not have as an entry without versions.
+        let entry = lookup(input, index, name)?
+            .filter(|entry| !entry.versions.is_empty())
             .ok_or_else(|| ResolveError::UnknownPackage(name.as_str().to_owned()))?;
 
-        if matches!(input.mode, ResolveMode::Locked) {
+        // Local packages never come from the lockfile.
+        if matches!(input.mode, ResolveMode::Locked) && !input.local_packages.contains_key(name) {
             let locked_entry = locked
                 .get(name)
                 .ok_or_else(|| ResolveError::LockfileMissingPackage(name.as_str().to_owned()))?;
@@ -80,6 +86,27 @@ pub(crate) fn preflight_root_dependencies(
         }
 
         check_root_candidates(name, entry, req, &constraints)?;
+    }
+
+    for (name, features) in &input.root_features {
+        // A name with no entry at all is the solver's to report.
+        let Some(entry) = lookup(input, index, name)? else {
+            continue;
+        };
+        let req = input.root_dependencies.get(name);
+        for feature in features {
+            let declared = feature == DEFAULT_FEATURE_KEY
+                || entry.versions.iter().any(|(version, meta)| {
+                    req.is_none_or(|req| req.matches(version))
+                        && meta.features.features.contains_key(feature)
+                });
+            if !declared {
+                return Err(ResolveError::UnknownFeature {
+                    package: name.as_str().to_owned(),
+                    feature: feature.clone(),
+                });
+            }
+        }
     }
 
     Ok(constraints)

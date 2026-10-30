@@ -29,7 +29,7 @@ pub struct IndexEntry {
 }
 
 /// Metadata recorded for one version of a package.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VersionMetadata {
     /// Normal-kind direct dependencies.  Registry-only - local path
     /// dependencies do not appear in the index.
@@ -68,12 +68,11 @@ pub struct VersionMetadata {
     /// resolved: callers receive a path or a URL they can act on
     /// without further resolution.
     pub source: Option<SourceLocation>,
-    /// Declared `[features]`, preserved as-is from the registry.
-    /// `None` for older entries that omit the field.  The resolver
-    /// does not currently consume features beyond passing them
-    /// through; the feature resolver consumes them in a later
-    /// step.
-    pub features: Option<serde_json::Value>,
+    /// Declared `[features]`, validated by the loader.  Empty for
+    /// entries that omit the field.  The resolver unifies feature
+    /// requests against these tables, so a version that lacks a
+    /// requested feature is not a candidate for that request.
+    pub features: cabin_core::Features,
     /// Declared `[profile.*]` tables, preserved as-is.  Profiles
     /// are local build configuration; the resolver never
     /// consumes them.  Older registries that omit the field
@@ -182,23 +181,27 @@ pub struct IndexPackageDependency {
 }
 
 impl IndexPackageDependency {
-    /// Whether this edge participates in resolution on `platform`:
-    /// non-optional and, when `target`-conditioned, matching the
-    /// platform.  The single source of truth the resolver and the
-    /// sparse-HTTP prefetch both consult so they agree on which
-    /// edges reach the index.
-    pub fn is_active_for(&self, platform: &cabin_core::TargetPlatform) -> bool {
+    /// Whether this edge's `target` condition, if any, matches
+    /// `platform`.  Optional edges additionally need a feature that
+    /// enables them; the resolver decides that.
+    pub fn matches_platform(&self, platform: &cabin_core::TargetPlatform) -> bool {
         // Index dependency gating is platform-only; feature
         // conditions are never present on registry index metadata,
         // and compiler-conditioned entries are rejected by the
         // loader (`cabin publish` cannot produce them and
         // hand-authored ones refuse to load), so the platform-only
         // context is correct.
-        !self.optional
-            && self
-                .condition
-                .as_ref()
-                .is_none_or(|c| c.evaluate(&cabin_core::ConditionContext::platform_only(platform)))
+        self.condition
+            .as_ref()
+            .is_none_or(|c| c.evaluate(&cabin_core::ConditionContext::platform_only(platform)))
+    }
+
+    /// Whether this edge is active on `platform` regardless of
+    /// feature state: non-optional and platform-matching.  The
+    /// sparse-HTTP prefetch walks exactly these edges eagerly; the
+    /// resolver loads anything a feature activates on demand.
+    pub fn is_active_for(&self, platform: &cabin_core::TargetPlatform) -> bool {
+        !self.optional && self.matches_platform(platform)
     }
 }
 

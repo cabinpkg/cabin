@@ -37,6 +37,34 @@ pub enum ResolveError {
         constraints: Vec<ResolverConstraint>,
     },
 
+    #[error(
+        "no version of {package:?} that satisfies the dependency requirement declares feature {feature:?}"
+    )]
+    #[diagnostic(
+        code(cabin::resolver::error),
+        help(
+            "check the feature name against the package's `[features]` table, or relax the version requirement so a version declaring it is in range"
+        )
+    )]
+    UnknownFeature { package: String, feature: String },
+
+    #[error(
+        "a dependency names {0:?}, the name Cabin reserves for a pure workspace's resolution root"
+    )]
+    #[diagnostic(
+        code(cabin::resolver::error),
+        help("a package by this name cannot be resolved inside a pure workspace")
+    )]
+    ReservedRootName(String),
+
+    /// The resolver needs `0`'s index metadata, which a lazily loaded
+    /// index ([`crate::ResolveInput::lazy_index`]) has not fetched
+    /// yet.  The caller fetches it and resolves again; it never
+    /// reaches users.
+    #[error("index metadata for package {0:?} has not been loaded")]
+    #[diagnostic(code(cabin::resolver::error))]
+    MetadataNeeded(PackageName),
+
     #[error("all matching versions of {0:?} are yanked")]
     #[diagnostic(
         code(cabin::resolver::error),
@@ -97,6 +125,19 @@ pub enum ResolveError {
         name: String,
         version: String,
         constraints: Vec<ResolverConstraint>,
+    },
+
+    #[error("locked package {name:?} {version} does not declare the requested feature {feature:?}")]
+    #[diagnostic(
+        code(cabin::resolver::error),
+        help(
+            "run `cabin update` so resolution can pick a version that declares the feature, or stop requesting it"
+        )
+    )]
+    LockedVersionLacksFeature {
+        name: String,
+        version: String,
+        feature: String,
     },
 
     #[error(
@@ -168,6 +209,8 @@ fn format_constraints(constraints: &[ResolverConstraint]) -> String {
         .map(|c| format!("{} requires {}", c.origin.as_str(), c.requirement))
         .collect();
     parts.sort();
+    // Two features enabling one edge record it twice.
+    parts.dedup();
     parts.join("; ")
 }
 
