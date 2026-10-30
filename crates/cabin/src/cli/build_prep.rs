@@ -992,6 +992,7 @@ pub(crate) fn resolve_build_configurations(
             toolchain: toolchain.clone(),
             build_flags: pkg_flags,
             language: cabin_core::LanguageStandardsSummary::from_package(&pkg.package),
+            targets: &pkg.package.targets,
         })
         .with_context(|| {
             format!(

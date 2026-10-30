@@ -376,6 +376,7 @@ Cabin exposes to metadata, `cabin run`, and `cabin test`.  The hash folds in:
 | compiler-wrapper         | kind, spec, source, version (or `none`)                                                 |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from environment and system dependencies |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
+| instruction-sets         | Every target's per-source [`instruction-sets`](targets.md#per-source-instruction-sets), as declared |
 
 The build-flags section uses one labeled sub-bucket per field, so language-neutral, C-only,
 C++-only, and link arguments each contribute independently.  Moving a flag between `cflags` and
