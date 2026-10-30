@@ -34,7 +34,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 08 | Static, shared, and loadable artifacts; PIC, DLLs, runtime lookup | 6 | `cabin-core`, `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin` | 02, 04-07 | not started |
 | 09 | Install, CMake Config and pkg-config export, relocation | 7 | owner chosen in 09; `cabin-build` | 02, 06-08 | not started |
 | 10 | C++20 modules | 8 | `cabin-core`, `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin-toolchain` | 02, 04, 05, 07-09 | not started |
-| 11 | Everyday CLI: test argv, test concurrency, JUnit, examples, target selection | 10 | `cabin`, `cabin-test` | 00 for independent parts; 04, 08, 10 | not started |
+| 11 | Everyday CLI: test argv, test concurrency, JUnit, examples, target selection | 10 | `cabin`, `cabin-test` | 00 for independent parts; 04, 08, 10 | in progress |
 | 12 | OpenSSL and OpenCL packages; Boost TLS and Compute | validation of 1-7, 9-10 | `ports/`, [Boost ledger](design/boost-ports.md) | 01-09; 11 where needed | not started |
 | 13 | Python and MPI packages; remaining Boost gaps | validation of 1-10 | `ports/`, [Boost ledger](design/boost-ports.md) | 01-12 | not started |
 | 14 | Integrated acceptance across the ten areas | 1-10 | all | 00-13 | not started |
@@ -368,13 +368,12 @@ Stage 11; integrated with 04, 08, 10; validated in 14.
   `tree`, `explain`, `package`, `login`, `logout`, `yank`, `compgen`, `mangen`
   (`cabin/src/cli/mod.rs`).
 - `cabin run --bin` and `cabin test --test` select targets; nothing selects an example or a single
-  build target; `cabin test` runs executables sequentially with no forwarded arguments
-  (`cabin-test`, `run_tests`; `cabin/src/cli/test.rs` passes no job count).
+  build target; `cabin test` runs executables sequentially (`cabin-test`, `run_tests`;
+  `cabin/src/cli/test.rs` passes no job count) and passes the arguments after `--` to each one.
 
-**Blocked workflow.**  `cabin test -- --gtest_filter=Foo.*`; running one example; building one
-target; a JUnit report for CI.
+**Blocked workflow.**  Running one example; building one target; a JUnit report for CI.
 
-**Necessary changes.**  Exact argv forwarding after `--`; test-process concurrency separate from
+**Necessary changes.**  Test-process concurrency separate from
 build jobs; truthful JUnit; example and target selection kept distinct from `--target`; dev
 dependencies activated only for the selected workflow; shared-runtime and cross-runner integration;
 help, completions, man pages, and docs.
@@ -500,6 +499,10 @@ respin no longer stamps its table onto earlier revisions; `cabin vendor` lifts t
 revision's into the version fields.  The hosted registry is unchanged: it refuses such respins and
 serves no `resolution` until the second change.
 
+Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
+the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
+a bare argument without `--` is rejected rather than read as a filter.
+
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
 for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
@@ -538,7 +541,11 @@ file and HTTP paths fetches r1's archive with no `acme/b` to lock, a vendored co
 dependencies and fetches offline under `--locked`, and `cabin update` locks `acme/b` with r2's
 checksum; removing the per-pin metadata selection fails it at the unchanged-lockfile check.
 Resolver unit tests for the four modes; loader tests for parsing, selection, and both rejections;
-file-registry and vendor unit tests for recording and lifting.
+file-registry and vendor unit tests for recording and lifting.  Stage 11, first change: clap tests
+for the separator (empty and, on Unix, non-UTF-8 values, a second `--`, flag-shaped values, a bare
+argument rejected), and two C test targets printing their `argv` (empty, spaced, quoted, and
+Unicode arguments) end to end on macOS, with CI's Linux and Windows legs (a narrow `main` on
+Windows reads the ANSI code page, so Unicode is checked off Windows only).
 
 **Unfinished.**  Stage 03's hosted-registry change; stages 04-14.  Follow-ups found in stage 01,
 outside its scope:
