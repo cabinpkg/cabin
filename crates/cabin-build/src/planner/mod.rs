@@ -772,15 +772,27 @@ fn emit_actions(
                 // archives for left-to-right resolution. `arguments`
                 // stays the package's own raw `ldflags`.
                 let link_arguments = ldflags.to_vec();
-                let link_libs = collect_link_names(tid, &resolved_deps, req.build_flags, |flags| {
-                    &flags.link_libs
-                });
+                // Apple's linker resolves archives in any order and
+                // warns on a repeated `-l`, so its links name each
+                // library once; other linkers search left to right.
+                let apple = matches!(req.platform.os.as_str(), "macos" | "ios");
+                let link_libs = collect_link_names(
+                    tid,
+                    &resolved_deps,
+                    req.build_flags,
+                    |flags| &flags.link_libs,
+                    apple,
+                );
                 // Frameworks exist only on Apple platforms; elsewhere a
                 // package's list means nothing, like a non-matching `cfg`.
-                let frameworks = if matches!(req.platform.os.as_str(), "macos" | "ios") {
-                    collect_link_names(tid, &resolved_deps, req.build_flags, |flags| {
-                        &flags.frameworks
-                    })
+                let frameworks = if apple {
+                    collect_link_names(
+                        tid,
+                        &resolved_deps,
+                        req.build_flags,
+                        |flags| &flags.frameworks,
+                        true,
+                    )
                 } else {
                     Vec::new()
                 };

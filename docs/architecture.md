@@ -1522,8 +1522,9 @@ today, so future contributors do not silently regress them by porting more Cargo
   compiles and links.  Compile visibility follows each edge's `public` flag
   ([Edge visibility](manifest.md#edge-visibility)) and the link line does not, so link items carry
   no CMake-style `INTERFACE` / `PUBLIC` / `PRIVATE` keyword.  The final link lists archives in
-  dependency-graph order, dependents first, then those names in the same package order, each once
-  unless two packages order names both ways ([`link-libs`](profiles.md#link-libs)).  The target
+  dependency-graph order, dependents first, then those names in the same package order, repeated
+  where two packages list one except on Apple platforms, whose order-independent linker warns on a
+  repeated `-l` ([`link-libs`](profiles.md#link-libs)).  The target
   graph is acyclic, so no linker group is needed, and Cabin re-implements no other linker
   resolution rule.
 

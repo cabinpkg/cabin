@@ -409,12 +409,15 @@ fn link_closure<'a>(
 /// packages their linked targets depend on, so `start`'s own comes
 /// first.  The caller emits them after the archives, so a static
 /// library's system libraries (sqlite's `-lpthread -ldl -lm`)
-/// resolve against the archive that needs them.
+/// resolve against the archive that needs them.  `dedup` keeps only
+/// each name's first occurrence; otherwise a name two packages list
+/// repeats, as an order-sensitive linker needs.
 pub(super) fn collect_link_names(
     start: &TargetId,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
     field: fn(&cabin_core::ResolvedProfileFlags) -> &[String],
+    dedup: bool,
 ) -> Vec<String> {
     let linked: Vec<&TargetId> = std::iter::once(start)
         .chain(link_closure(start, resolved))
@@ -430,48 +433,16 @@ pub(super) fn collect_link_names(
             .filter(|&to| to != pkg)
             .collect()
     });
-    let lists: Vec<&[String]> = packages
+    let mut names: Vec<String> = packages
         .iter()
-        .filter_map(|pkg| build_flags.get(pkg).map(field))
+        .filter_map(|pkg| build_flags.get(pkg))
+        .flat_map(|flags| field(flags).iter().cloned())
         .collect();
-    merge_link_names(&lists)
-}
-
-/// Merge per-package name lists, given in link order, into one list
-/// that names each entry once - a repeated `-l` is noise Apple's
-/// linker warns about - while every package's own list keeps its
-/// order: the earliest-listed name whose listed predecessors are all
-/// placed goes next.  Only when two packages order names both ways
-/// does the plain concatenation stay, since that repetition is what
-/// the linker needs.
-fn merge_link_names(lists: &[&[String]]) -> Vec<String> {
-    let all: Vec<&String> = lists.iter().copied().flatten().collect();
-    let mut names: Vec<&String> = Vec::new();
-    for name in &all {
-        if !names.contains(name) {
-            names.push(name);
-        }
+    if dedup {
+        let mut seen = HashSet::new();
+        names.retain(|name| seen.insert(name.clone()));
     }
-    // `(a, b)`: some package lists `a` right before `b`.
-    let pairs: Vec<(&String, &String)> = lists
-        .iter()
-        .flat_map(|list| list.windows(2))
-        .map(|pair| (&pair[0], &pair[1]))
-        .collect();
-    let mut merged: Vec<&String> = Vec::new();
-    while merged.len() < names.len() {
-        let ready = names.iter().find(|name| {
-            !merged.contains(name)
-                && !pairs
-                    .iter()
-                    .any(|(first, then)| then == *name && !merged.contains(first))
-        });
-        let Some(next) = ready else {
-            return all.into_iter().cloned().collect();
-        };
-        merged.push(next);
-    }
-    merged.into_iter().cloned().collect()
+    names
 }
 
 pub(super) fn collect_link_libs(

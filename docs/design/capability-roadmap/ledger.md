@@ -126,8 +126,8 @@ Stage 02; consumed by 06, 08, 09, 10; validated in 12-14.
   error.
 - The final link takes the archives of the whole transitive closure, private edges included, in
   dependency-graph order (`collect_link_libs`), then package-level `link-libs` and Apple
-  `frameworks` (Apple platforms only) in the same package order, each name once unless two
-  packages order names both ways (`collect_link_names`).
+  `frameworks` (Apple platforms only) in the same package order, a name two packages list
+  repeated except on Apple platforms (`collect_link_names`).
 - Registry packages' raw `cflags` / `cxxflags` / `ldflags` are dropped
   (`cabin-core/src/build_flags.rs`, `apply_package_layer`).
 - Implemented and not missing: C and C++ as separate languages with separate standards; target
@@ -464,8 +464,9 @@ not include `zlib.h`), and the `libpng-usage` example now declares the `zlib` it
 
 Stage 02, second change: the final link orders `link-libs` by the dependency graph, as its
 archives already were, instead of a stack walk that put a sibling-reached dependency's libraries
-first; first-occurrence deduplication, which could break a package's own order, is replaced by
-the rule in [profiles](profiles.md#link-libs).  Typed `frameworks` join every flag layer, kept for
+first; first-occurrence deduplication, which could move a library ahead of one that needs it, now
+applies to Apple links only, whose linker resolves in any order (a reversed `-l` order links on
+macOS; a repeated `-l` warns).  Typed `frameworks` join every flag layer, kept for
 registry packages like `link-libs` and ignored off Apple.  No linker groups: the target graph is
 acyclic.
 
@@ -481,7 +482,7 @@ chains and diamonds, definition conflicts (both paths, escaping, check pruning),
 override, and the visible set feeding the build-time standard check; manifest tests for the
 `interface-defines` grammar and kinds; the `libpng-usage` and `png-info` examples built and run;
 `cargo ci` on macOS.  Stage 02, second change: planner tests for link order through a private
-diamond edge and a multi-target package, deduplication, kept repetition, and frameworks on Apple
+diamond edge and a multi-target package, repetition, Apple deduplication, and frameworks on Apple
 and elsewhere, each shown to fail when the rule it covers is broken; lowering, manifest,
 flag-layer, and fingerprint tests; a CoreFoundation consumer built and run on macOS (arm64)
 through a path dependency's `frameworks`, which fails to link without it.  Not run: iOS.

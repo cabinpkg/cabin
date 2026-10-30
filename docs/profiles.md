@@ -204,10 +204,10 @@ load-bearing ways:
   `cxxflags` / `ldflags` arrays which are dropped.
 
 On the link line, packages contribute in link order: the executable's own package first, and every
-package before the packages its linked targets depend on.  Each name appears once, earliest-listed
-first, in an order that keeps every package's own list order.  Only when two packages order names
-both ways does every package's list stay in full, repetition included, because the linker needs
-it.
+package before the packages its linked targets depend on.  Each package's list stays in full, so a
+name two packages list repeats: a linker that searches libraries left to right needs it after both.
+Apple's linker resolves libraries in any order and warns on a repeated `-l`, so links for Apple
+platforms keep only each name's first occurrence.
 
 Pair it with `[target.'cfg(...)'.profile]` to scope libraries to the platforms that need them, e.g.
 

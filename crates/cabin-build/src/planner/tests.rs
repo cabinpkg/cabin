@@ -2564,37 +2564,23 @@ fn link_libs(names: &[&str]) -> ResolvedProfileFlags {
 }
 
 /// System libraries follow the link order, dependents first, even when
-/// a sibling edge reaches the dependency first; a shared name is kept
-/// once, at its last occurrence.
+/// a sibling edge reaches the dependency first; a name two packages
+/// list repeats, since a left-to-right linker needs it after both.
 #[test]
-fn link_libs_follow_link_order_without_noise_repetition() {
-    let bg = plan_link_diamond(
-        link_libs(&["crypto", "m"]),
-        link_libs(&["ssl", "m"]),
-        "linux",
-    )
-    .unwrap();
+fn link_libs_follow_link_order() {
+    let bg = plan_link_diamond(link_libs(&["z", "x"]), link_libs(&["x", "y"]), "linux").unwrap();
     let link = link_action(&bg);
     let archives: Vec<_> = link.inputs.iter().filter_map(|p| p.file_name()).collect();
     assert_eq!(archives, ["main.c.o", "liba.a", "libb.a"]);
-    assert_eq!(link.link_libs, ["ssl", "crypto", "m"]);
+    assert_eq!(link.link_libs, ["x", "y", "z", "x"]);
 }
 
-/// Each name once while every package's order holds; the repetition
-/// stays only when two packages order names both ways.
+/// Apple's linker resolves archives in any order and warns on a
+/// repeated `-l`, so its links name each library once.
 #[test]
-fn link_libs_repeat_only_for_conflicting_package_orders() {
-    // sqlite3's order next to spdlog's lone `pthread`.
-    let bg = plan_link_diamond(
-        link_libs(&["pthread"]),
-        link_libs(&["pthread", "dl", "m"]),
-        "linux",
-    )
-    .unwrap();
-    assert_eq!(link_action(&bg).link_libs, ["pthread", "dl", "m"]);
-
-    let bg = plan_link_diamond(link_libs(&["z", "x"]), link_libs(&["x", "z"]), "linux").unwrap();
-    assert_eq!(link_action(&bg).link_libs, ["x", "z", "z", "x"]);
+fn apple_links_name_each_library_once() {
+    let bg = plan_link_diamond(link_libs(&["z", "x"]), link_libs(&["x", "y"]), "macos").unwrap();
+    assert_eq!(link_action(&bg).link_libs, ["x", "y", "z"]);
 }
 
 /// A package's libraries follow every package its linked targets
