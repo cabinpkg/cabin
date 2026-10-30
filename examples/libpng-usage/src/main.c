@@ -14,10 +14,8 @@ int main(void) {
     printf("libpng version: %s\n", png_get_libpng_ver(png));
     png_destroy_read_struct(&png, NULL, NULL);
 
-    // zlibVersion() is a real zlib symbol reached only through the
-    // transitive libpng -> zlib dependency edge. Both the header (zlib.h)
-    // and the archive must propagate through libpng for this to
-    // compile and link, so calling it proves the transitive edge.
-    printf("zlib version (via libpng edge): %s\n", zlibVersion());
+    // zlib.h reaches this target only through its own zlib edge:
+    // libpng's edge onto zlib is private.
+    printf("zlib version: %s\n", zlibVersion());
     return 0;
 }

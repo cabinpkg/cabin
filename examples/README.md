@@ -33,7 +33,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`xxhash-usage/`](xxhash-usage) | Consuming the `cabin-ports/xxhash` registry package. |
 | [`tinyxml2-usage/`](tinyxml2-usage) | Consuming the `cabin-ports/tinyxml2` C++ registry package. |
 | [`sqlite3-usage/`](sqlite3-usage) | Consuming the `cabin-ports/sqlite3` registry package (SQLite amalgamation), including a `single-threaded` feature. |
-| [`libpng-usage/`](libpng-usage) | Consuming the `cabin-ports/libpng` registry package, which itself depends transitively on `cabin-ports/zlib`. |
+| [`libpng-usage/`](libpng-usage) | Consuming the `cabin-ports/libpng` registry package, which itself depends on `cabin-ports/zlib`; the app calls zlib too, so it declares zlib directly. |
 | [`fmt-usage/`](fmt-usage) | Consuming the `cabin-ports/fmt` C++ registry package. |
 | [`spdlog-usage/`](spdlog-usage) | Consuming the header-only `cabin-ports/spdlog` C++ registry package. |
 | [`googletest-usage/`](googletest-usage) | A `test` target linking the `cabin-ports/googletest` registry package, run with `cabin test`. |

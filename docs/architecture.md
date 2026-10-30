@@ -1496,12 +1496,15 @@ into is not.  The list below states the C++-specific invariants Cabin's build pl
 today, so future contributors do not silently regress them by porting more Cargo-like assumptions:
 
 - **Public vs. private include directories.** Header reachability is part of a `library` target's
-  interface, not a free-floating workspace property.  A target's `include-dirs` are *public*: every
-  consumer of the target inherits them transitively.  Sources that exist only to compile the library
-  must live under `sources` / internal subdirectories that the public include path does not expose.
-  There is no `private-include-dirs` field today; adding one is a deliberate language change, not a
-  build-graph fix-up.  Because they are public, they are also *bounded*: a target's `include-dirs`
-  must stay inside the declaring package (no absolute paths, no `..`), enforced where the manifest
+  interface, not a free-floating workspace property.  A target's `include-dirs` are *public*: its
+  direct consumers inherit them, and theirs only through public edges, while the final link takes
+  the whole closure regardless of visibility ([Edge visibility](manifest.md#edge-visibility)).
+  Sources that exist only to compile the library must live under `sources` / internal
+  subdirectories that the public include path does not expose; a package-wide producer-only path
+  goes in the `[profile]` `include-dirs`.  There is no per-target `private-include-dirs` field
+  today; adding one is a deliberate language change, not a build-graph fix-up.  Because they are
+  public, they are also *bounded*: a target's `include-dirs` must stay inside the declaring
+  package (no absolute paths, no `..`), enforced where the manifest
   is validated, so a dependency cannot aim its consumers' include search at a directory it does not
   ship.  That check is lexical; the other half of the guarantee is archive extraction refusing
   symlink entries, without which a shipped symlink would carry the search path out again.
@@ -1515,10 +1518,10 @@ today, so future contributors do not silently regress them by porting more Cargo
   link-only deps (linker libraries that are not Cabin packages) propagate as `link-libs` names.
   `system-dependencies` are a separate channel: the active declarations of primary packages are
   probed through `pkg-config`, and the resulting flags apply to the declaring package's own
-  compiles and links.
-  Cabin does not model CMake's
-  `INTERFACE` / `PUBLIC` / `PRIVATE` distinction at the package boundary, and the resolver
-  intentionally does not re-implement the C++ link-order rules - Ninja + the linker do.
+  compiles and links.  Compile visibility follows each edge's `public` flag
+  ([Edge visibility](manifest.md#edge-visibility)) and the link line does not, so link items carry
+  no CMake-style `INTERFACE` / `PUBLIC` / `PRIVATE` keyword.  The resolver intentionally does not
+  re-implement the C++ link-order rules - Ninja + the linker do.
 
 - **Header-only is its own kind.** Header-only libraries are modeled as the dedicated `header-only`
   kind: they declare `include-dirs` and no `sources`, so the build graph emits no compile or archive

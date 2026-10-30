@@ -6,9 +6,9 @@ interface-cxx-standard = "c++17"
 
 # A `header-only` target ships include-dirs and no compiled objects;
 # declaring `sources` on one is rejected at manifest-load time. Its
-# include-dirs propagate (transitively) to every dependent target -
-# the same mechanism header-only registry packages such as nlohmann_json,
-# CLI11, and stb are built on.
+# include-dirs reach every target that depends on it, and their
+# consumers through public edges - the same mechanism header-only
+# registry packages such as nlohmann_json, CLI11, and stb are built on.
 [target.geometry]
 type = "header-only"
 include-dirs = ["include"]

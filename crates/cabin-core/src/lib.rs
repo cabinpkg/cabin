@@ -82,8 +82,9 @@ pub use language_standard::{
 pub use model::{
     ConditionalSources, Dependency, DependencyKind, DependencySource, Package, PackageConfigInput,
     PackageName, SystemDependency, Target, TargetDep, TargetKind, TargetName,
-    WorkspaceDepRequirements, is_path_safe_name, is_valid_package_base_name,
-    is_valid_package_scope, validate_links_identity, validate_system_dependency_name,
+    WorkspaceDepRequirements, is_path_safe_name, is_valid_interface_define,
+    is_valid_package_base_name, is_valid_package_scope, validate_links_identity,
+    validate_system_dependency_name,
 };
 pub use patch::{
     PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind, PatchValidationError,

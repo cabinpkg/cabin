@@ -106,7 +106,7 @@ exports (stage 09), and C++ modules (stage 10) - uses the same rule instead of i
 | Kind | Applies to | Examples today |
 | --- | --- | --- |
 | Producer-internal settings | The producer's own compiles and link steps only | `defines`, implementation `c-standard` / `cxx-standard`, `gnu-extensions`, package flag layers other than `link-libs` (`ldflags` reaches the producer's own link steps) |
-| Consumer interface | The producer and its consumers, along edges as described below | `include-dirs`, `interface-c-standard` / `interface-cxx-standard` |
+| Consumer interface | The producer and its consumers, along edges as described below; `interface-defines` reach consumers only | `include-dirs`, `interface-defines`, `interface-c-standard` / `interface-cxx-standard` |
 | Private implementation dependency | Compiling the producer; not re-exported | a string `deps` entry |
 | Final-link requirements | Every final link whose static closure contains the producer, regardless of edge visibility | static archives of the closure, `link-libs` |
 
@@ -130,11 +130,13 @@ Reused vocabulary and what changes:
 - `public` keeps its spelling and its rule of thumb.  Today it only drives the post-resolution
   standard check and is otherwise declarative ([manifest](manifest.md#edge-visibility)); stage 02
   makes it govern include-directory and definition propagation too.
-- `include-dirs` keeps meaning *public include directories*.  Stage 02 adds a producer-only form,
-  reconciled with the package flag layers' `include-dirs`, which already reach only the declaring
-  package's own compiles.
-- `defines` keeps meaning *producer-only definitions*.  Stage 02 adds an interface form (the
-  equivalent of `interface-defines`).
+- `include-dirs` keeps meaning *public include directories*.  The producer-only form is the
+  package flag layers' `include-dirs` (`[profile]` and its `cfg(...)` variants), which reach only
+  the declaring package's own compiles; a per-target producer-only form waits for a package that
+  needs one.
+- `defines` keeps meaning *producer-only definitions*, and is rejected on `header-only` targets,
+  which compile nothing.  Stage 02 adds `interface-defines`, which, like the interface standards,
+  describe consumers' compiles and not the producer's own: a macro both need is listed in both.
 - `interface-c-standard` / `interface-cxx-standard` keep their meaning and ranges.
 - `links` stays a native-library identity claim, never a link-line entry or a metadata channel;
   `provides` / `conflicts` stay reserved.

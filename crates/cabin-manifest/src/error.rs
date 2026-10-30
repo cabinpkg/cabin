@@ -89,6 +89,16 @@ pub enum ManifestError {
     HeaderOnlyDeclaresSources { target: String },
 
     #[error(
+        "target {target:?} declares `type = \"header-only\"` but lists `defines`; a header-only library compiles nothing, so definitions its consumers need go in `interface-defines`"
+    )]
+    HeaderOnlyDeclaresDefines { target: String },
+
+    #[error(
+        "target {target:?} has an invalid `interface-defines` entry {value:?}; expected `NAME` or `NAME=value` with a C identifier for NAME, no control or bidirectional-formatting characters, and each NAME defined once"
+    )]
+    InvalidInterfaceDefine { target: String, value: String },
+
+    #[error(
         "`[target.{condition:?}.sources]` names {target:?}, which is not a target of this package"
     )]
     ConditionalSourcesUnknownTarget { condition: String, target: String },
@@ -215,12 +225,12 @@ pub enum ManifestError {
     #[error("{0}")]
     InvalidLanguageStandard(#[source] cabin_core::LanguageStandardParseError),
 
-    /// A target-level interface standard was declared on a target
-    /// kind that has no public interface for consumers.
+    /// A target-level interface field was declared on a target kind
+    /// that has no public interface for consumers.
     #[error(
         "target {target:?} is `{kind}`; `{field}` describes a library's public interface and only applies to `library` / `header-only` targets"
     )]
-    InterfaceStandardOnNonLibrary {
+    InterfaceFieldOnNonLibrary {
         target: String,
         kind: String,
         field: &'static str,

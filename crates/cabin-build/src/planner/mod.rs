@@ -21,8 +21,8 @@ mod lowering;
 mod tests;
 
 use self::lowering::{
-    collect_include_dirs, collect_link_lib_names, collect_link_libs, compile_dispatch,
-    depfile_path, object_path, promote_dir, resolve_target_dep_edge, topo_sort_targets,
+    collect_interface, collect_link_lib_names, collect_link_libs, compile_dispatch, depfile_path,
+    macro_name, object_path, promote_dir, resolve_target_dep_edge, topo_sort_targets,
 };
 
 /// Reference to a manifest target - one of the `[target.<name>]`
@@ -376,34 +376,9 @@ fn emit_actions(
     // compiler.  Populated in topo order so dependents inherit
     // their dependencies' contributions.
     let mut target_languages: HashMap<TargetId, BTreeSet<SourceLanguage>> = HashMap::new();
-    // Transitively reachable dependency targets per target, in
-    // first-occurrence order, populated in topo order (direct deps
-    // plus their reachable sets).  Drives the interface-standard
-    // compatibility check.
-    let mut transitive_deps: HashMap<TargetId, Vec<TargetId>> = HashMap::new();
 
     for tid in &topo {
         let target = lookup_target(tid, req.graph)?;
-        // Vec keeps first-occurrence order; the HashSet is only a
-        // seen-filter so membership checks stay O(1).
-        let mut dep_closure: Vec<TargetId> = Vec::new();
-        let mut seen: HashSet<TargetId> = HashSet::new();
-        if let Some(deps) = resolved_deps.get(tid) {
-            for edge in deps {
-                let dep = &edge.to;
-                if seen.insert(dep.clone()) {
-                    dep_closure.push(dep.clone());
-                }
-                if let Some(transitive) = transitive_deps.get(dep) {
-                    for transitive_dep in transitive {
-                        if seen.insert(transitive_dep.clone()) {
-                            dep_closure.push(transitive_dep.clone());
-                        }
-                    }
-                }
-            }
-        }
-        transitive_deps.insert(tid.clone(), dep_closure.clone());
 
         let pkg = &req.graph.packages[tid.0];
         // Per-profile output root keeps `dev` and `release`
@@ -423,9 +398,9 @@ fn emit_actions(
 
         // Header-only libraries declare include dirs but no
         // translation units.  Skip every action - `collect_link_libs`
-        // and `collect_include_dirs` already walk dep targets by
-        // their declared `include_dirs`, so consumers still pick up
-        // the headers; no `.a` is available to link against.
+        // and `collect_interface` already walk dep targets by their
+        // declared interfaces, so consumers still pick up the
+        // headers; no `.a` is available to link against.
         if target.kind.is_header_only() {
             target_languages.insert(tid.clone(), Default::default());
             continue;
@@ -469,6 +444,19 @@ fn emit_actions(
             )));
         }
 
+        // A C/C++ compile when the target has one: the `cabin check`
+        // rewrite keeps a definition conflict only with that compile.
+        let object = prepared
+            .first()
+            .map_or_else(|| &assembly[0].object, |source| &source.object);
+        let collected = collect_interface(
+            tid,
+            target,
+            &resolved_deps,
+            req.graph,
+            object,
+            &mut standard_violations,
+        )?;
         let pkg_standards = req
             .language_standards
             .get(&tid.0)
@@ -478,7 +466,7 @@ fn emit_actions(
             tid,
             target,
             &prepared,
-            &dep_closure,
+            &collected.visible,
             pkg_standards,
             req,
             &mut standard_violations,
@@ -493,7 +481,6 @@ fn emit_actions(
         // Compose include_dirs and defines: existing target +
         // per-package build flags, partitioned into the user (`-I`)
         // and system (`-isystem` / `/external:I`) buckets.
-        let collected = collect_include_dirs(tid, target, &resolved_deps, req.graph)?;
         let mut include_dirs = collected.user;
         let mut system_include_dirs = collected.system;
         if let Some(flags) = pkg_flags {
@@ -536,6 +523,15 @@ fn emit_actions(
                 }
             }
         }
+        // The target's own definitions override an incoming interface
+        // definition of the same macro.
+        let own: HashSet<&str> = defines.iter().map(|d| macro_name(d)).collect();
+        let incoming: Vec<String> = collected
+            .defines
+            .into_iter()
+            .filter(|d| !own.contains(macro_name(d)))
+            .collect();
+        defines.extend(incoming);
         let extra_compile_args: &[String] =
             pkg_flags.map_or(&[], |f| f.extra_compile_args.as_slice());
         let cflags: &[String] = pkg_flags.map_or(&[], |f| f.cflags.as_slice());
@@ -952,7 +948,7 @@ fn enforce_interface_standards(
     tid: &TargetId,
     target: &Target,
     prepared: &[PreparedSource],
-    dep_closure: &[TargetId],
+    visible: &[TargetId],
     pkg_standards: ResolvedLanguageStandards,
     req: &PlanRequest<'_>,
     violations: &mut Vec<StandardViolation>,
@@ -963,7 +959,7 @@ fn enforce_interface_standards(
             .find(|p| p.language == language)
             .map(|p| p.object.clone())
     };
-    for dep_tid in dep_closure {
+    for dep_tid in visible {
         let dep_target = lookup_target(dep_tid, req.graph)?;
         if !dep_target.kind.is_library_like() {
             continue;

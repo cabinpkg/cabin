@@ -568,6 +568,7 @@ mod tests {
             required_features: Vec::new(),
             language: Default::default(),
             links: None,
+            interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
         };
         let package = Package::new(

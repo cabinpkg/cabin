@@ -11,6 +11,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         sources,
         include_dirs,
         defines,
+        interface_defines,
         deps,
         required_features,
         c_standard,
@@ -26,6 +27,22 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
 
     if kind.is_header_only() && !sources.is_empty() {
         return Err(ManifestError::HeaderOnlyDeclaresSources { target: name });
+    }
+    if kind.is_header_only() && !defines.is_empty() {
+        return Err(ManifestError::HeaderOnlyDeclaresDefines { target: name });
+    }
+    // Interface definitions reach consumers' compiles, registry
+    // packages' included, so they get a strict grammar, and one
+    // target defines each macro once.
+    let mut defined = std::collections::HashSet::new();
+    if let Some(value) = interface_defines.iter().find(|value| {
+        !cabin_core::is_valid_interface_define(value)
+            || !defined.insert(value.split_once('=').map_or(value.as_str(), |(n, _)| n))
+    }) {
+        return Err(ManifestError::InvalidInterfaceDefine {
+            target: name,
+            value: value.clone(),
+        });
     }
 
     // `{ workspace = true }` is a `[package]`-level opt-in; a
@@ -53,7 +70,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         interface_cxx_standard.as_ref(),
         gnu_extensions,
     )?;
-    // Interface standards describe what consumers of a library's
+    // Interface fields describe what consumers of a library's
     // public headers need; executable-like targets have no
     // consumers, so a declared interface field there is a mistake.
     if kind.produces_executable() {
@@ -61,11 +78,13 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
             Some("interface-c-standard")
         } else if language.interface_cxx_standard.is_some() {
             Some("interface-cxx-standard")
+        } else if !interface_defines.is_empty() {
+            Some("interface-defines")
         } else {
             None
         };
         if let Some(field) = offending {
-            return Err(ManifestError::InterfaceStandardOnNonLibrary {
+            return Err(ManifestError::InterfaceFieldOnNonLibrary {
                 target: name,
                 kind: kind.as_str().to_owned(),
                 field,
@@ -83,6 +102,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         required_features,
         language,
         links,
+        interface_defines,
         conditional_sources: Vec::new(),
     })
 }

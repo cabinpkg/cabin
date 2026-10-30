@@ -640,6 +640,83 @@ fn interface_standard_on_executable_like_targets_is_rejected() {
 }
 
 #[test]
+fn interface_defines_parse_on_libraries_only() {
+    let target = |kind: &str, body: &str| {
+        format!(
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [target.lib]
+                type = "{kind}"
+                {body}
+            "#
+        )
+    };
+    let package = parse_project(&target(
+        "header-only",
+        r#"interface-cxx-standard = "c++17"
+                interface-defines = ["FOO_HEADER_ONLY", "FOO_LEVEL=2 3"]"#,
+    ));
+    assert_eq!(
+        package.targets[0].interface_defines,
+        ["FOO_HEADER_ONLY", "FOO_LEVEL=2 3"]
+    );
+
+    let package = parse_project(&target(
+        "library",
+        r#"sources = ["a.c"]
+                c-standard = "c11"
+                interface-defines = ["FOO_API=1"]"#,
+    ));
+    assert_eq!(package.targets[0].interface_defines, ["FOO_API=1"]);
+
+    for value in [
+        "",
+        "=1",
+        "1FOO",
+        "-DFOO",
+        "FOO BAR",
+        "FOO=a\\nb",
+        "FOO=\\u202Eb",
+        "FOO=1\", \"FOO=2",
+    ] {
+        let err = parse_project_err(&target(
+            "library",
+            &format!(
+                r#"sources = ["a.c"]
+                interface-defines = ["{value}"]"#
+            ),
+        ));
+        assert!(
+            matches!(&err, ManifestError::InvalidInterfaceDefine { target, .. } if target == "lib"),
+            "{value:?}: {err:?}"
+        );
+    }
+
+    let err = parse_project_err(&target(
+        "header-only",
+        r#"interface-cxx-standard = "c++17"
+                defines = ["FOO"]"#,
+    ));
+    assert!(
+        matches!(&err, ManifestError::HeaderOnlyDeclaresDefines { target } if target == "lib"),
+        "{err:?}"
+    );
+
+    let err = parse_project_err(&target(
+        "executable",
+        r#"sources = ["main.c"]
+                interface-defines = ["FOO"]"#,
+    ));
+    assert!(
+        matches!(&err, ManifestError::InterfaceFieldOnNonLibrary { field, .. } if *field == "interface-defines"),
+        "{err:?}"
+    );
+}
+
+#[test]
 fn implementation_standard_on_executable_is_accepted() {
     let manifest = r#"
             [package]

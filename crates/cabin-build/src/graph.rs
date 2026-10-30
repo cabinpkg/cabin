@@ -119,6 +119,17 @@ pub enum StandardViolation {
         /// per-package prefix the check filter tests).
         object: Utf8PathBuf,
     },
+    /// Two dependencies visible to one target's compiles define one
+    /// macro differently; `first` and `second` each read
+    /// `` `NAME=value` from a -> b ``.
+    ConflictingInterfaceDefines {
+        target: String,
+        name: String,
+        first: String,
+        second: String,
+        /// Object path of one of the target's compiles.
+        object: Utf8PathBuf,
+    },
     /// An assembly source the active toolchain cannot assemble.  The
     /// planner emits no action for it, and the `cabin check` rewrite,
     /// which assembles nothing, drops it.
@@ -154,6 +165,7 @@ impl StandardViolation {
             | Self::MsvcGnuExtensions { object, .. }
             | Self::FlagConflict { object, .. }
             | Self::InterfaceIncompatibility { object, .. }
+            | Self::ConflictingInterfaceDefines { object, .. }
             | Self::AssemblyNeedsToolchain { object, .. } => object,
         }
     }
