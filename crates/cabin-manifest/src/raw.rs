@@ -303,6 +303,11 @@ pub(crate) struct RawTarget {
     /// per-package uniqueness) by `cabin_core::Package`.
     #[serde(default)]
     pub(crate) links: Option<String>,
+    /// Source path -> instruction sets that source's compile enables;
+    /// `cabin_core::Package` checks each key names a C or C++ source.
+    #[serde(default, rename = "instruction-sets")]
+    pub(crate) instruction_sets:
+        std::collections::BTreeMap<Utf8PathBuf, Vec<cabin_core::InstructionSet>>,
 }
 
 /// Cabin package dependency entry, e.g. one row of

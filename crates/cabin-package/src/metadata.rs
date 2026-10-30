@@ -644,6 +644,7 @@ mod tests {
             links: links.map(str::to_owned),
             interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
+            instruction_sets: BTreeMap::new(),
         };
         let proj = Package::new(
             pkg("zlib"),

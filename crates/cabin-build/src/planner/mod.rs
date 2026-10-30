@@ -127,6 +127,12 @@ pub struct PlanRequest<'a> {
     /// switch an old `cl` would reject.  Ignored by the GCC/Clang
     /// dialect, where `-isystem` is part of the base command line.
     pub msvc_external_includes: bool,
+    /// The languages whose MSVC-dialect compiler is `clang-cl`
+    /// ([`crate::clang_cl_languages`]), which needs a `-m<name>` flag
+    /// for an intrinsic past the x86 baseline; `cl.exe` exposes every
+    /// intrinsic without one.  Ignored by the GCC/Clang dialect,
+    /// which always takes the flag.
+    pub clang_cl: Vec<SourceLanguage>,
     /// Per-package enabled feature names from the cross-package
     /// feature resolver, keyed by `graph.packages` index.  Gates
     /// targets that declare `required-features`: default
@@ -149,6 +155,7 @@ struct PreparedSource {
     abs_source: Utf8PathBuf,
     object: Utf8PathBuf,
     language: SourceLanguage,
+    instruction_sets: Vec<cabin_core::InstructionSet>,
 }
 
 struct PreparedAssembly {
@@ -408,6 +415,9 @@ fn emit_actions(
 
         let mut prepared: Vec<PreparedSource> = Vec::new();
         let mut assembly: Vec<PreparedAssembly> = Vec::new();
+        // Instruction sets mean nothing off x86, like a non-matching
+        // `cfg`, so one source can serve every platform.
+        let x86 = matches!(req.platform.arch.as_str(), "x86" | "x86_64");
         for source in target.sources_for(&req.platform) {
             let language = classify_source(source);
             let syntax = classify_assembly(source);
@@ -425,10 +435,16 @@ fn emit_actions(
                 })?;
             let abs_source = manifest_dir.join(source);
             if let Some(language) = language {
+                let flags = req.dialect == Dialect::GnuLike || req.clang_cl.contains(&language);
+                let instruction_sets = match target.instruction_sets.get(source) {
+                    Some(sets) if x86 && flags => sets.clone(),
+                    _ => Vec::new(),
+                };
                 prepared.push(PreparedSource {
                     abs_source,
                     object,
                     language,
+                    instruction_sets,
                 });
             } else if let Some(syntax) = syntax {
                 assembly.push(PreparedAssembly {
@@ -658,6 +674,7 @@ fn emit_actions(
                     include_dirs: include_dirs.clone(),
                     system_include_dirs: system_include_dirs.clone(),
                     defines: defines.clone(),
+                    instruction_sets: ps.instruction_sets.clone(),
                     extra_flags,
                 },
                 description: format!("{} {}", dispatch.description_tag, ps.object),

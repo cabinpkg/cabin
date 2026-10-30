@@ -128,6 +128,8 @@ Stage 02; consumed by 06, 08, 09, 10; validated in 12-14.
   dependency-graph order (`collect_link_libs`), then package-level `link-libs` and Apple
   `frameworks` (Apple platforms only) in the same package order, a name two packages list
   repeated except on Apple platforms (`collect_link_names`).
+- Target `instruction-sets` reach one source's compile on x86 only: `-m<name>` for GCC, Clang,
+  and `clang-cl`, nothing for `cl.exe` (`cabin-build/src/planner/mod.rs`, `PreparedSource`).
 - Registry packages' raw `cflags` / `cxxflags` / `ldflags` are dropped
   (`cabin-core/src/build_flags.rs`, `apply_package_layer`).
 - Implemented and not missing: C and C++ as separate languages with separate standards; target
@@ -139,7 +141,8 @@ Stage 02; consumed by 06, 08, 09, 10; validated in 12-14.
 **Blocked workflow.**  A Boost.Stacktrace consumer must define `BOOST_STACKTRACE_LINK` itself
 (`ports/boost-stacktrace/1.92.0/cabin.toml`), Boost.Contract ships header-only because consumers
 cannot receive `BOOST_CONTRACT_STATIC_LINK`, and Boost.Atomic and Boost.Log drop their SSE/AVX
-sources because no per-source ISA option exists.
+sources, which needed a per-source ISA option (target `instruction-sets` since stage 02; the ports
+have not moved to it yet).
 
 **Necessary changes.**  Interface definitions; a producer-only include form; propagation driven by
 edge visibility; the final-link closure kept separate from compile visibility with order
@@ -470,6 +473,12 @@ macOS; a repeated `-l` warns).  Typed `frameworks` join every flag layer, kept f
 registry packages like `link-libs` and ignored off Apple.  No linker groups: the target graph is
 acyclic.
 
+Stage 02, third change: target `instruction-sets` give one source typed x86 instruction sets, as
+upstream CMake's per-source `COMPILE_FLAGS` do for Boost.Atomic and Boost.Log.  `cl.exe` gets no
+flag, as upstream passes none on x64; `clang-cl` gets `-m<name>`, since it rejects such an
+intrinsic without one (`clang-cl` 23: "always_inline function '_mm256_add_epi32' requires target
+feature 'avx2'").  Off x86 the table is ignored, like `frameworks` off Apple.
+
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
 for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
@@ -485,7 +494,14 @@ override, and the visible set feeding the build-time standard check; manifest te
 diamond edge and a multi-target package, repetition, Apple deduplication, and frameworks on Apple
 and elsewhere, each shown to fail when the rule it covers is broken; lowering, manifest,
 flag-layer, and fingerprint tests; a CoreFoundation consumer built and run on macOS (arm64)
-through a path dependency's `frameworks`, which fails to link without it.  Not run: iOS.
+through a path dependency's `frameworks`, which fails to link without it.  Not run: iOS.  Stage
+02, third change: manifest, `Package` validation, planner (C and C++, sibling and consumer compiles
+untouched, non-x86, `cl.exe` and `clang-cl` mixed either way), and lowering tests; `clang-cl` 23
+and Clang cross-compiling SSE4.1 and AVX2 intrinsics for x86_64 Windows and Linux, which fail
+without `-m<name>`; the `simd-dispatch` example built and run on macOS (arm64, generic path).  Its
+CLI test runs the SSE4.1 variant on CI's x86_64 Linux (whose compiler rejects the source without
+the flag) and Windows x64 (`cl.exe`, no flag).  Not run: an x86 build here (no Rosetta), and
+`clang-cl` end to end, which no CI job uses.
 
 **Unfinished.**  Stages 02-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
@@ -496,8 +512,8 @@ missing from their configuration report; `tree` and `explain package` filter by 
 not by edge, so a disabled optional edge onto a package another edge includes still shows; over
 sparse HTTP, each optional dependency a feature enables costs one fetch round and re-solve.
 
-Stage 02 remaining, in order: per-source instruction sets; the Boost ports (`stacktrace` and
-`contract` interface definitions, `atomic` and `log` ISA sources).  Follow-ups found so far: a
+Stage 02 remaining: the Boost ports (`stacktrace` and `contract` interface definitions, `atomic`
+and `log` ISA sources).  Follow-ups found so far: a
 missing-header link diagnostic does not suggest a public edge or a direct dependency; the `libpng`
 port's comment claims `png.h` includes `zlib.h`, a comment-only packaging-revision correction for a
 later respin.

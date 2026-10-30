@@ -2,7 +2,7 @@ use camino::Utf8PathBuf;
 
 use super::target::parse_target_kind;
 use super::*;
-use cabin_core::{DependencyKind, DependencySource, TargetKind, ValidationError};
+use cabin_core::{DependencyKind, DependencySource, InstructionSet, TargetKind, ValidationError};
 
 fn parse_project(input: &str) -> Package {
     parse_manifest_str(input)
@@ -3980,4 +3980,50 @@ fn conditional_sources_need_a_compiled_target_and_a_platform_condition() {
         matches!(err, ManifestError::ConditionalSourcesNotPlatformOnly { .. }),
         "{err:?}"
     );
+}
+
+#[test]
+fn instruction_sets_key_plain_and_conditional_sources() {
+    let base = r#"
+            [package]
+            name = "sum"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.sum]
+            type = "library"
+            sources = ["src/sum.c"]
+
+            [target.'cfg(any(arch = "x86", arch = "x86_64"))'.sources]
+            sum = ["src/sum_sse41.c", "src/sum_avx2.c"]
+        "#;
+    let package = parse_project(&format!(
+        "{base}\n[target.sum.instruction-sets]\n\"src/sum_sse41.c\" = [\"sse4.1\"]\n\"src/sum_avx2.c\" = [\"avx\", \"avx2\"]\n"
+    ));
+    assert_eq!(
+        package.targets[0].instruction_sets,
+        BTreeMap::from([
+            (
+                Utf8PathBuf::from("src/sum_avx2.c"),
+                vec![InstructionSet::Avx, InstructionSet::Avx2]
+            ),
+            (
+                Utf8PathBuf::from("src/sum_sse41.c"),
+                vec![InstructionSet::Sse41]
+            ),
+        ])
+    );
+
+    let err = parse_project_err(&format!(
+        "{base}\n[target.sum.instruction-sets]\n\"src/other.c\" = [\"avx2\"]\n"
+    ));
+    assert!(
+        matches!(&err, ManifestError::Validation(ValidationError::InstructionSetsForUnknownSource { path, .. })
+            if path == "src/other.c"),
+        "{err:?}"
+    );
+    let err = parse_project_err(&format!(
+        "{base}\n[target.sum.instruction-sets]\n\"src/sum.c\" = [\"avx512f\"]\n"
+    ));
+    assert!(err.to_string().contains("unknown variant"), "{err:?}");
 }

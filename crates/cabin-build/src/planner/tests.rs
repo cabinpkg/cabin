@@ -138,6 +138,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         links: None,
         interface_defines: Vec::new(),
         conditional_sources: Vec::new(),
+        instruction_sets: BTreeMap::new(),
     }
 }
 
@@ -163,6 +164,7 @@ fn target_with_includes(
         links: None,
         interface_defines: Vec::new(),
         conditional_sources: Vec::new(),
+        instruction_sets: BTreeMap::new(),
     }
 }
 
@@ -242,6 +244,7 @@ fn plan_request<'a>(
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
         msvc_external_includes: true,
+        clang_cl: Vec::new(),
         enabled_features: None,
         standard_compat: false,
     }
@@ -2640,6 +2643,62 @@ fn frameworks_reach_apple_links_only() {
     assert_eq!(link_action(&bg).frameworks, ["CoreFoundation"]);
     let bg = plan_link_diamond(framework(), ResolvedProfileFlags::default(), "linux").unwrap();
     assert!(link_action(&bg).frameworks.is_empty());
+}
+
+/// `sum` compiles `src/sum_avx2.c` and `src/sum_avx2.cc` with AVX2
+/// and `app` links it, planned for `arch` with the given dialect and
+/// `clang-cl` languages.
+fn plan_instruction_sets(arch: &str, dialect: Dialect, clang_cl: &[SourceLanguage]) -> BuildGraph {
+    let mut sum = target(
+        "sum",
+        TargetKind::Library,
+        &["src/sum.c", "src/sum_avx2.c", "src/sum_avx2.cc"],
+        &[],
+    );
+    sum.instruction_sets = ["src/sum_avx2.c", "src/sum_avx2.cc"]
+        .into_iter()
+        .map(|path| {
+            (
+                Utf8PathBuf::from(path),
+                vec![cabin_core::InstructionSet::Avx2],
+            )
+        })
+        .collect();
+    let app = target("app", TargetKind::Executable, &["src/main.c"], &["sum"]);
+    let package = Package::new(pkg_name("demo"), version(), vec![sum, app], Vec::new()).unwrap();
+    let graph = single_package_graph(package, "/abs/demo");
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.platform.arch = arch.to_owned();
+    req.dialect = dialect;
+    req.clang_cl = clang_cl.to_vec();
+    plan(&req).unwrap()
+}
+
+/// An instruction set reaches its own source's compile only; off x86
+/// and for a `cl.exe` compile it reaches none.
+#[test]
+fn instruction_sets_reach_their_source_only() {
+    use cabin_core::InstructionSet::Avx2;
+    let sets =
+        |bg: &BuildGraph, marker: &str| compile_for(bg, marker).arguments.instruction_sets.clone();
+    for arch in ["x86_64", "x86"] {
+        let bg = plan_instruction_sets(arch, Dialect::GnuLike, &[]);
+        assert_eq!(sets(&bg, "sum_avx2.c."), [Avx2]);
+        assert_eq!(sets(&bg, "sum_avx2.cc"), [Avx2]);
+        assert!(sets(&bg, "/sum.c").is_empty());
+        assert!(sets(&bg, "main.c").is_empty());
+    }
+    let bg = plan_instruction_sets("aarch64", Dialect::GnuLike, &[]);
+    assert!(sets(&bg, "sum_avx2.c.").is_empty());
+    assert!(sets(&bg, "sum_avx2.cc").is_empty());
+    // `clang-cl` for one language and `cl.exe` for the other.
+    let bg = plan_instruction_sets("x86_64", Dialect::Msvc, &[SourceLanguage::C]);
+    assert_eq!(sets(&bg, "sum_avx2.c."), [Avx2]);
+    assert!(sets(&bg, "sum_avx2.cc").is_empty());
+    let bg = plan_instruction_sets("x86_64", Dialect::Msvc, &[SourceLanguage::Cxx]);
+    assert!(sets(&bg, "sum_avx2.c.").is_empty());
+    assert_eq!(sets(&bg, "sum_avx2.cc"), [Avx2]);
 }
 
 #[test]

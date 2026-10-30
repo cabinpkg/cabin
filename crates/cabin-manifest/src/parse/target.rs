@@ -20,6 +20,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         interface_cxx_standard,
         gnu_extensions,
         links,
+        instruction_sets,
     } = raw;
 
     let target_name = TargetName::new(name.clone())?;
@@ -104,6 +105,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         links,
         interface_defines,
         conditional_sources: Vec::new(),
+        instruction_sets,
     })
 }
 

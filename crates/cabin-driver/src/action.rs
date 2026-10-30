@@ -10,7 +10,7 @@
 
 use camino::Utf8PathBuf;
 
-use cabin_core::{LanguageStandard, OptLevel};
+use cabin_core::{InstructionSet, LanguageStandard, OptLevel};
 
 /// A single semantic build step: compile a translation unit, archive
 /// objects into a static library, or link an executable.
@@ -117,6 +117,11 @@ pub struct CompileArguments {
     /// Preprocessor defines, without any prefix.  Spelled `-D<define>`
     /// / `/D<define>`.
     pub defines: Vec<String>,
+    /// Instruction sets this source may use beyond the platform
+    /// baseline.  Spelled `-m<name>` by both dialects: the planner
+    /// leaves it empty for `cl.exe`, which exposes every intrinsic
+    /// without a flag, so on the MSVC dialect only `clang-cl` gets it.
+    pub instruction_sets: Vec<InstructionSet>,
     /// Escape-hatch compile flags appended verbatim after the
     /// include block.  The user writes these in the active dialect
     /// (language-neutral first, then language-specific).

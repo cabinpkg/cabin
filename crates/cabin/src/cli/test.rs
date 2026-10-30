@@ -458,6 +458,7 @@ mod tests {
             links: None,
             interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
+            instruction_sets: BTreeMap::new(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),
@@ -502,6 +503,7 @@ mod tests {
             links: None,
             interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
+            instruction_sets: BTreeMap::new(),
         };
         let alpha = Package::new(
             PackageName::new("alpha").unwrap(),

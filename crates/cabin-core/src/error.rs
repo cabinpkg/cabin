@@ -75,6 +75,14 @@ pub enum ValidationError {
     },
 
     #[error(
+        "target {target:?} lists instruction sets for {path:?}, which is not one of its C or C++ sources; each key must be a path from the target's `sources` or a `[target.'cfg(...)'.sources]` list"
+    )]
+    InstructionSetsForUnknownSource {
+        target: String,
+        path: camino::Utf8PathBuf,
+    },
+
+    #[error(
         "target {target:?} include directory {path:?} must be relative to the manifest directory; absolute paths are not allowed"
     )]
     TargetIncludeDirIsAbsolute { target: String, path: String },

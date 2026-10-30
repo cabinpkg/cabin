@@ -138,6 +138,8 @@ Common fields:
   declared in this package's `[features]` table.
 - `links`: the native-library identity a `library` target claims (`links = "z"`), enforced unique
   across a resolution graph; see [`links`](manifest.md#links).
+- `instruction-sets`: x86 instruction sets one of the target's C or C++ sources may use beyond the
+  platform baseline; see [Per-source instruction sets](#per-source-instruction-sets).
 
 Cross-package deps must reach the consumer through a `[dependencies]` edge.  `[dev-dependencies]`
 are never linked into ordinary targets; the dev-only kinds (`test`, `example`) may additionally
@@ -173,6 +175,36 @@ a `header-only` one, is a manifest error.
 Only the build selects by host.  Everything else treats every conditional list as declared:
 `cabin package` archives the files, the registry verifier requires them, and the language-standard
 checks count them.  A manifest therefore loads, packages, and verifies identically on every host.
+
+### Per-source instruction sets
+
+A source that uses SIMD intrinsics past the platform baseline names the instruction sets in its
+target's `instruction-sets` table, keyed by the source's path:
+
+```toml
+[target.sum]
+type = "library"
+sources = ["src/sum.c"]
+
+[target.'cfg(any(arch = "x86", arch = "x86_64"))'.sources]
+sum = ["src/sum_sse41.c", "src/sum_avx2.c"]
+
+[target.sum.instruction-sets]
+"src/sum_sse41.c" = ["sse4.1"]
+"src/sum_avx2.c" = ["avx2"]
+```
+
+The names are `sse2`, `sse3`, `ssse3`, `sse4.1`, `sse4.2`, `avx`, and `avx2`, and each key must be
+one of the target's C or C++ sources, from `sources` or a conditional list.  The instruction sets
+reach that source's compile only, never the target's other sources or its consumers, so code built
+with them must run only after a runtime CPU check: here `src/sum.c` would pick a variant by the CPU
+it runs on.  In C++, keep such a source out of inline functions and templates that other sources
+also use: the linker keeps one copy of each, and it may be the one built with the instruction set.
+GCC, Clang, and `clang-cl` compile the source with `-m<name>` (`-msse4.1`); `cl.exe` gets no flag,
+since it exposes every intrinsic without one.  Off x86 (an `arch` other than `x86`
+and `x86_64`) the table is ignored, like a non-matching `cfg`, so a source that guards its
+intrinsics with `#ifdef` builds on every platform.  The names are typed, so registry packages keep
+them, unlike raw `cflags`.
 
 ## Default-build vs. explicit selection
 

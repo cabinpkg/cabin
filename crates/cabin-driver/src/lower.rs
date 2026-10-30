@@ -195,6 +195,11 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
         out.push("-isystem".to_owned());
         out.push(include.to_string());
     }
+    out.extend(
+        args.instruction_sets
+            .iter()
+            .map(|isa| format!("-m{}", isa.as_str())),
+    );
     out.extend(args.extra_flags.iter().cloned());
     match &compile.mode {
         CompileMode::Object => {
@@ -365,6 +370,11 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
         out.push("/external:I".to_owned());
         out.push(include.to_string());
     }
+    out.extend(
+        args.instruction_sets
+            .iter()
+            .map(|isa| format!("-m{}", isa.as_str())),
+    );
     out.extend(args.extra_flags.iter().cloned());
     let source = format!(
         "{}{}",
@@ -525,6 +535,7 @@ mod tests {
                 include_dirs: vec![Utf8PathBuf::from("/abs/include")],
                 system_include_dirs: vec![Utf8PathBuf::from("/abs/dep/include")],
                 defines: strs(&["FOO=1"]),
+                instruction_sets: vec![],
                 extra_flags: strs(&["-Wall"]),
             },
             description: "CXX /abs/build/main.o".to_owned(),
@@ -581,6 +592,23 @@ mod tests {
                 "/abs/src/jump.S",
             ])
         );
+    }
+
+    /// Both dialects spell an instruction set `-m<name>`, ahead of the
+    /// escape-hatch flags; the planner hands the MSVC dialect one only
+    /// for `clang-cl`.
+    #[test]
+    fn instruction_sets_lower_to_feature_flags() {
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.arguments.instruction_sets = vec![
+            cabin_core::InstructionSet::Sse41,
+            cabin_core::InstructionSet::Avx2,
+        ];
+        for dialect in [Dialect::GnuLike, Dialect::Msvc] {
+            let argv = compile_argv(dialect, &compile);
+            let at = argv.iter().position(|arg| arg == "-msse4.1").unwrap();
+            assert_eq!(argv[at + 1..at + 3], ["-mavx2", "-Wall"], "{dialect:?}");
+        }
     }
 
     #[test]
@@ -855,6 +883,7 @@ mod tests {
                 include_dirs: vec![Utf8PathBuf::from("C:/include")],
                 system_include_dirs: vec![Utf8PathBuf::from("C:/dep/include")],
                 defines: strs(&["FOO=1"]),
+                instruction_sets: vec![],
                 extra_flags: strs(&["/W4"]),
             },
             description: "CXX C:/build/main.obj".to_owned(),

@@ -335,6 +335,10 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
                 .has_c_sources(),
             )
         }),
+        clang_cl: detection_report
+            .as_ref()
+            .map(cabin_build::clang_cl_languages)
+            .unwrap_or_default(),
         enabled_features: Some(&enabled_features),
         standard_compat: false,
     })?;
@@ -570,6 +574,7 @@ mod tests {
             links: None,
             interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
+            instruction_sets: std::collections::BTreeMap::new(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),
