@@ -19,6 +19,7 @@ use crate::validate::validate;
 /// Returns [`LockfileError::Io`] when `path` cannot be read; otherwise
 /// propagates any parse, conversion, or validation error from
 /// [`parse_lockfile_str`].
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn read_lockfile(path: impl AsRef<Path>) -> Result<Lockfile, LockfileError> {
     let path = path.as_ref();
     let body = std::fs::read_to_string(path).map_err(|source| LockfileError::Io {
@@ -57,6 +58,7 @@ pub fn parse_lockfile_str(input: &str) -> Result<Lockfile, LockfileError> {
 /// Propagates validation and serialization errors from
 /// [`render_lockfile`], and returns [`LockfileError::Io`] when the atomic
 /// write to `path` fails (for example, a missing parent directory).
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn write_lockfile(path: impl AsRef<Path>, lockfile: &Lockfile) -> Result<(), LockfileError> {
     let path = path.as_ref();
     let body = render_lockfile(lockfile)?;

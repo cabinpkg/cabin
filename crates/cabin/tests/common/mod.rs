@@ -225,6 +225,10 @@ pub fn cabin() -> Command {
         "CLICOLOR_FORCE",
         "CABIN_TERM_VERBOSE",
         "CABIN_TERM_QUIET",
+        // A developer's trace capture would add a stderr line and
+        // trace files to every test; trace tests set both explicitly.
+        "CABIN_TRACE_DIR",
+        "CABIN_TRACE_FILTER",
     ] {
         cmd.env_remove(key);
     }

@@ -217,6 +217,7 @@ pub struct VendorOutcomeEntry {
 /// conflicting checksum, `UnsafeArtifactPath` when an artifact
 /// destination is absolute or contains `..`, and `Json` when the
 /// summary fails to serialize.
+#[tracing::instrument(name = "materialize_vendor", level = "info", skip_all)]
 pub fn materialize(
     plan: &VendorPlan,
     vendor_dir: &Path,

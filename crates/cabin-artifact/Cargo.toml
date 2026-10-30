@@ -20,6 +20,7 @@ flate2 = { workspace = true }
 semver = { workspace = true }
 tar = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]

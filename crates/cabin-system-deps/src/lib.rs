@@ -381,6 +381,7 @@ fn display_block(stderr: &str) -> String {
 /// [`PkgConfigError::ExecutableNotFound`] or
 /// [`PkgConfigError::InvocationFailed`] when a `pkg-config` spawn
 /// fails (with `NotFound` or any other error, respectively).
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn probe_system_dependency(
     req: &SystemDependencyProbeRequest<'_>,
 ) -> Result<SystemDependencyResolution, PkgConfigError> {

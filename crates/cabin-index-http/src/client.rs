@@ -173,6 +173,7 @@ impl HttpClient {
     /// [`IndexHttpError::Transport`] when reading the body fails,
     /// when the body exceeds the 64 MiB cap, or on a `ureq` transport
     /// error.
+    #[tracing::instrument(name = "http_get", level = "debug", skip_all, fields(package = %package, status = tracing::field::Empty, bytes = tracing::field::Empty))]
     pub fn get_bytes(&self, url: &str, package: &str) -> Result<Vec<u8>, IndexHttpError> {
         // The auth decision is per request URL, not per client: the
         // token is only ever sent to the exact origin it is stored
@@ -185,7 +186,17 @@ impl HttpClient {
         if let Some(auth) = auth {
             request = request.set("Authorization", &format!("Bearer {}", auth.token.expose()));
         }
-        match request.call() {
+        let result = request.call();
+        let status = match &result {
+            Ok(response) => Some(response.status()),
+            Err(ureq::Error::Status(status, _)) => Some(*status),
+            Err(ureq::Error::Transport(_)) => None,
+        };
+        // A label, not a quantity: the timings summary sums integers.
+        if let Some(status) = status {
+            tracing::Span::current().record("status", tracing::field::display(status));
+        }
+        match result {
             Ok(response) => {
                 // `.redirects(0)` on the agent means redirects are not
                 // followed, but ureq still returns the 3xx response as
@@ -213,6 +224,7 @@ impl HttpClient {
                         message: format!("response body exceeded {} bytes", self.max_body_bytes),
                     });
                 }
+                tracing::Span::current().record("bytes", body.len());
                 Ok(body)
             }
             Err(ureq::Error::Status(404, _)) => Err(IndexHttpError::PackageNotFound {

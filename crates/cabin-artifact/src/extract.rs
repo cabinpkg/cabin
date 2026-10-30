@@ -637,6 +637,7 @@ fn zip_duplicate_central_name(
 /// production caps and no prefix stripping.  The crate-internal entry
 /// point used by the source-archive fetcher: published registry
 /// package archives are zip (see `docs/remote-registry.md`).
+#[tracing::instrument(level = "debug", skip_all)]
 pub(crate) fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ArtifactError> {
     safe_extract_zip_with_limits(
         archive,

@@ -125,6 +125,7 @@ pub struct ConfigDiscovery {
 /// when a discovered config file path is not valid UTF-8, and
 /// [`ConfigError::InvalidBoolEnv`] when `CABIN_NO_CONFIG` is set
 /// to a value outside the documented truthy / falsy spellings.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn discover_config_files(
     inputs: &ConfigDiscoveryInputs<'_>,
 ) -> Result<ConfigDiscovery, ConfigError> {

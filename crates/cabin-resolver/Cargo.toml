@@ -17,6 +17,7 @@ miette = { workspace = true, features = ["derive"] }
 pubgrub = { workspace = true }
 semver = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 miette = { workspace = true, features = ["fancy"] }

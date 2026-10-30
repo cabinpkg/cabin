@@ -75,6 +75,7 @@ pub struct DiscoveredManifest {
 /// `[_only]` arm) or two-or-more elements (the `_` arm), so the
 /// `Option`s are always `Some`, and `nearest` is set whenever `found`
 /// is non-empty.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn discover_workspace_root(start: &Path) -> Result<Option<DiscoveredManifest>, WorkspaceError> {
     let mut current = start.to_path_buf();
     if current.is_relative()

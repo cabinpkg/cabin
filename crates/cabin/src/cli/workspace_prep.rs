@@ -31,6 +31,7 @@ pub(crate) struct WorkspacePrep {
 /// # Errors
 /// Returns manifest, workspace-load, config-discovery, or patch
 /// resolution failures.
+#[tracing::instrument(level = "info", skip_all)]
 pub(crate) fn load_workspace_and_patches(
     manifest_path: &Path,
     no_patches: bool,

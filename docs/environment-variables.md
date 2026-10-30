@@ -30,6 +30,8 @@ const ... : &str = ...` constants.
 | `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing ``system = true` deps` |
 | `CABIN_BUILD_JOBS` | unset | Number of parallel jobs the build backend should use |
 | `CABIN_RESOLVER_INCOMPATIBLE_STANDARDS` | unset | Standard-aware version preference (`allow` / `fallback`) |
+| `CABIN_TRACE_DIR` | unset | Write a performance trace and timings summary for this invocation into this directory; see [`performance.md`](performance.md) |
+| `CABIN_TRACE_FILTER` | `info` | Which spans a trace records (`tracing-subscriber` `Targets` directives); read only with `CABIN_TRACE_DIR` |
 | `CPPFLAGS` | unset | Conventional preprocessor flags appended to **both** C/C++ compile commands |
 | `CFLAGS` | unset | Conventional flags appended only to C compile commands |
 | `CXXFLAGS` | unset | Conventional flags appended only to C++ compile commands |

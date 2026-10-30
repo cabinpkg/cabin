@@ -248,6 +248,7 @@ impl std::fmt::Display for FeatureRequestSource {
 /// [`FeatureResolverError::DepIsNotOptional`],
 /// [`FeatureResolverError::DepFeatureRequestUnknown`], and
 /// [`FeatureResolverError::InvalidFeatureEntry`].
+#[tracing::instrument(level = "info", skip_all, fields(roots = selected_roots.len(), packages = graph.packages.len()))]
 pub fn resolve_features(
     graph: &PackageGraph,
     selected_roots: &[usize],

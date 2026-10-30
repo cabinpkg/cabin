@@ -2390,3 +2390,6 @@ mod version_output;
 
 #[path = "cli/curated_help_and_list.rs"]
 mod curated_help_and_list;
+
+#[path = "cli/trace_capture.rs"]
+mod trace_capture;

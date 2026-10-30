@@ -59,6 +59,7 @@ use crate::range::req_to_range;
 /// resolves the graph its own archive declares rather than the current
 /// revision's.  Idempotent; call it again after loading more of a lazy
 /// index.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn select_locked_revisions(input: &ResolveInput, index: &mut PackageIndex) {
     for (name, locked) in effective_locked(input) {
         if let Some(checksum) = &locked.checksum
@@ -87,6 +88,7 @@ pub fn select_locked_revisions(input: &ResolveInput, index: &mut PackageIndex) {
 /// `PubGrub` reports no solution it returns [`ResolveError::Conflict`]; any
 /// provider-side [`ResolveError`] surfaced while choosing versions,
 /// retrieving dependencies, or cancelling is bubbled back unchanged.
+#[tracing::instrument(level = "info", skip_all, fields(roots = input.root_dependencies.len(), index_packages = index.packages.len()))]
 pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let mut output = resolve_once(input, index)?;
     output.held_back = held_back_report(input, index, &output.packages)?;
@@ -105,6 +107,7 @@ pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutp
 ///
 /// # Errors
 /// Same as [`resolve`].
+#[tracing::instrument(level = "info", skip_all, fields(roots = input.root_dependencies.len(), index_packages = index.packages.len()))]
 pub fn resolve_packages(
     input: &ResolveInput,
     index: &PackageIndex,
@@ -297,6 +300,7 @@ fn colliding_packages(claims: &[LinksClaim]) -> BTreeSet<PackageName> {
 /// The exception is [`ResolveError::MetadataNeeded`]: the `Allow`
 /// solve can reach a package the `Fallback` solve never needed, and
 /// the caller fetches it and resolves again.
+#[tracing::instrument(level = "debug", skip_all)]
 fn held_back_report(
     input: &ResolveInput,
     index: &PackageIndex,

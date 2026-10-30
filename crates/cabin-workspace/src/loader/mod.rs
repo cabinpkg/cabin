@@ -152,6 +152,7 @@ pub fn load_workspace_with_options(
 }
 
 #[allow(clippy::too_many_lines)] // linear scan-then-load pipeline; splitting would scatter the load loop
+#[tracing::instrument(name = "load_workspace", level = "info", skip_all)]
 fn load_workspace_inner(
     manifest_path: impl AsRef<Path>,
     registry: &[RegistryPackageSource],
