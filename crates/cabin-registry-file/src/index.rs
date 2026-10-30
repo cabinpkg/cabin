@@ -9,9 +9,14 @@ use serde::{Deserialize, Serialize};
 use crate::error::RegistryError;
 use crate::layout::FileRegistry;
 
-/// Schema version this crate emits and accepts in package index
-/// files.  Matches the index shape.
+/// Schema version of a package index file whose revisions all resolve
+/// as their version does.  Matches the index shape.
 pub const PACKAGE_INDEX_SCHEMA: u32 = 1;
+
+/// Schema version of a package index file in which some revision
+/// carries its own `resolution`; readers that predate it refuse the
+/// file instead of resolving that revision with the current metadata.
+const REVISION_RESOLUTION_SCHEMA: u32 = 2;
 
 /// Read `<registry>/packages/<name>.json`, plus return the parsed
 /// document.  Returns `Ok(None)` when the file does not exist (a
@@ -22,8 +27,9 @@ pub const PACKAGE_INDEX_SCHEMA: u32 = 1;
 /// read, [`RegistryError::PackageIndexJson`] when its contents are not
 /// valid package-index JSON, and
 /// [`RegistryError::PackageIndexUnsupportedSchema`] when the parsed
-/// schema is not [`PACKAGE_INDEX_SCHEMA`].  A missing file is not an
-/// error (`Ok(None)`).
+/// schema is neither [`PACKAGE_INDEX_SCHEMA`] nor the
+/// per-revision-resolution schema.  A missing file is not an error
+/// (`Ok(None)`).
 pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError> {
     if !path.exists() {
         return Ok(None);
@@ -37,7 +43,7 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
             path: path.to_path_buf(),
             error,
         })?;
-    if index.schema != PACKAGE_INDEX_SCHEMA {
+    if index.schema != PACKAGE_INDEX_SCHEMA && index.schema != REVISION_RESOLUTION_SCHEMA {
         return Err(RegistryError::PackageIndexUnsupportedSchema {
             path: path.to_path_buf(),
             schema: index.schema,
@@ -164,12 +170,10 @@ pub(crate) fn revision_of(metadata: &PackageMetadata) -> &str {
 /// Revision semantics ([`crate::publish`] module docs have the full
 /// contract): a byte-identical republication is a no-op; different
 /// bytes for an existing version require `allow_new_revision` (the
-/// `--new-revision` opt-in) and must keep the resolver-consumed
-/// metadata - dependencies, features, standards - unchanged, so a
-/// respin can never alter what resolution already decided.  The new
-/// revision becomes the version's current one (a file registry has
-/// no verification lifecycle); superseded revisions stay listed and
-/// fetchable.
+/// `--new-revision` opt-in).  The new revision becomes the version's
+/// current one (a file registry has no verification lifecycle), and
+/// its resolution metadata the version's; superseded revisions stay
+/// listed and fetchable, each resolving as it was published.
 pub(crate) fn insert_version(
     existing: Option<PackageIndex>,
     metadata: &PackageMetadata,
@@ -227,8 +231,9 @@ pub(crate) fn insert_version(
                     version: metadata.version.clone(),
                 });
             }
-            ensure_resolver_metadata_unchanged(entry, metadata)?;
-            revisions.clone()
+            let mut revisions = revisions.clone();
+            keep_superseded_resolution(entry, metadata, &mut revisions)?;
+            revisions
         }
     };
 
@@ -250,62 +255,67 @@ pub(crate) fn insert_version(
         yanked,
     )?;
     index.versions.insert(metadata.version.clone(), value);
+    if index.versions.values().any(has_revision_resolution) {
+        index.schema = REVISION_RESOLUTION_SCHEMA;
+    }
     Ok((index, InsertDisposition::Inserted))
 }
 
-/// A packaging revision must not change what resolution consumes:
-/// `dependencies`, `features`, and `standards` are compared against
-/// the version's existing entry (all recorded revisions agree on
-/// them by induction, so one comparison covers the set).  Everything
-/// else in the document - sources, profiles, provenance, future
-/// packaging metadata - is free to change across revisions.
-fn ensure_resolver_metadata_unchanged(
+fn has_revision_resolution(entry: &serde_json::Value) -> bool {
+    entry
+        .get("revisions")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|revisions| {
+            revisions
+                .values()
+                .any(|revision| revision.get("resolution").is_some())
+        })
+}
+
+/// A respin that changes what resolution reads must not change how the
+/// revisions before it resolve: each one still resolving as the version
+/// does (no `resolution` of its own) records the version's current
+/// resolution fields before the new revision's replace them.
+fn keep_superseded_resolution(
     entry: &serde_json::Value,
     metadata: &PackageMetadata,
+    revisions: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), RegistryError> {
-    let incoming = projected_resolver_metadata(metadata)?;
-    for (field, incoming_value) in incoming {
-        let existing_value = entry.get(field).cloned().unwrap_or(serde_json::Value::Null);
-        if existing_value != incoming_value {
-            return Err(RegistryError::RevisionChangesResolverMetadata {
-                name: metadata.name.clone(),
-                version: metadata.version.clone(),
-                field,
-            });
+    let mut current = serde_json::Map::new();
+    let mut incoming = serde_json::Map::new();
+    for (field, value) in resolution_fields(metadata)? {
+        if let Some(stored) = entry.get(field) {
+            current.insert(field.to_owned(), stored.clone());
+        }
+        if !value.is_null() {
+            incoming.insert(field.to_owned(), value);
         }
     }
-    // `links` is resolver-consumed too, but with a one-way rule: a
-    // revision may add a claim table where the version had none
-    // (identities are stamped onto already-published versions as the
-    // feature reaches ports), while changing or removing an
-    // existing one would flip resolution outcomes under a pinned
-    // graph and still requires a new version.  The hosted registry
-    // enforces the same rule in its publish preflight and SQL guards.
-    let existing_links = entry
-        .get("links")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let incoming_links = (!metadata.links.is_empty())
-        .then(|| serde_json::to_value(&metadata.links))
-        .transpose()?
-        .unwrap_or(serde_json::Value::Null);
-    if !existing_links.is_null() && existing_links != incoming_links {
-        return Err(RegistryError::RevisionChangesResolverMetadata {
-            name: metadata.name.clone(),
-            version: metadata.version.clone(),
-            field: "links",
-        });
+    if current == incoming {
+        return Ok(());
+    }
+    for revision in revisions.values_mut() {
+        if let Some(revision) = revision.as_object_mut()
+            && revision
+                .get("resolution")
+                .is_none_or(serde_json::Value::is_null)
+        {
+            revision.insert(
+                "resolution".to_owned(),
+                serde_json::Value::Object(current.clone()),
+            );
+        }
     }
     Ok(())
 }
 
-/// The resolver-consumed projection of a metadata document, in the
-/// exact wire encoding [`version_value_from_metadata`] emits (an
-/// omitted-when-empty field projects as `Null`, matching a missing
-/// key on the stored entry).
-fn projected_resolver_metadata(
+/// The resolution fields of a metadata document, in the exact wire
+/// encoding [`version_value_from_metadata`] emits (an
+/// omitted-when-empty field projects as `Null`, matching a missing key
+/// on the stored entry).
+fn resolution_fields(
     metadata: &PackageMetadata,
-) -> Result<[(&'static str, serde_json::Value); 3], RegistryError> {
+) -> Result<[(&'static str, serde_json::Value); 4], RegistryError> {
     let dependencies = serde_json::to_value(&metadata.dependencies)?;
     let features = (!metadata.features.default.is_empty()
         || !metadata.features.features.is_empty())
@@ -316,10 +326,15 @@ fn projected_resolver_metadata(
         .then(|| serde_json::to_value(&metadata.standards))
         .transpose()?
         .unwrap_or(serde_json::Value::Null);
+    let links = (!metadata.links.is_empty())
+        .then(|| serde_json::to_value(&metadata.links))
+        .transpose()?
+        .unwrap_or(serde_json::Value::Null);
     Ok([
         ("dependencies", dependencies),
         ("features", features),
         ("standards", standards),
+        ("links", links),
     ])
 }
 
@@ -650,34 +665,58 @@ mod tests {
         );
     }
 
-    /// A packaging revision must not change what resolution consumes.
+    /// A respin may change what resolution reads; every revision before
+    /// it keeps resolving as it was published, recorded the first time
+    /// the version's metadata moves on, and the file switches to the
+    /// schema that tells older readers to refuse it.
     #[test]
-    fn revisions_must_not_change_resolver_metadata() {
+    fn respins_keep_superseded_revisions_resolution() {
         use cabin_package::metadata::PackageDependencyEntry;
         let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
-        let mut changed = metadata_with_bytes("fmt", "10.2.1", 'b');
-        changed.dependencies.insert(
+        let unchanged = insert_version(
+            Some(initial.clone()),
+            &metadata_with_bytes("fmt", "10.2.1", 'b'),
+            STAMP,
+            true,
+        )
+        .unwrap()
+        .0;
+        assert_eq!(unchanged.schema, PACKAGE_INDEX_SCHEMA);
+        assert!(!has_revision_resolution(&unchanged.versions["10.2.1"]));
+
+        let mut with_dep = metadata_with_bytes("fmt", "10.2.1", 'b');
+        with_dep.dependencies.insert(
             "acme/dep".to_owned(),
             PackageDependencyEntry::Bare("^1".to_owned()),
         );
-        let err = insert_version(Some(initial.clone()), &changed, STAMP, true).unwrap_err();
+        let (index, _) = insert_version(Some(initial), &with_dep, STAMP, true).unwrap();
+        assert_eq!(index.schema, REVISION_RESOLUTION_SCHEMA);
+        let entry = &index.versions["10.2.1"];
+        assert_eq!(entry["dependencies"]["acme/dep"], "^1");
+        let first = entry["revisions"]["aaaaaaaaaaaaaaaa"].clone();
+        assert_eq!(
+            first["resolution"],
+            serde_json::json!({ "dependencies": {} })
+        );
         assert!(
-            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
-                if *field == "dependencies"),
-            "{err}"
+            entry["revisions"]["bbbbbbbbbbbbbbbb"]
+                .get("resolution")
+                .is_none()
         );
 
-        let mut changed = metadata_with_bytes("fmt", "10.2.1", 'b');
-        changed.features = cabin_core::Features {
-            default: vec!["simd".to_owned()],
-            features: BTreeMap::from([("simd".to_owned(), Vec::new())]),
-        };
-        let err = insert_version(Some(initial), &changed, STAMP, true).unwrap_err();
-        assert!(
-            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
-                if *field == "features"),
-            "{err}"
+        let mut with_links = metadata_with_bytes("fmt", "10.2.1", 'c');
+        with_links.links = BTreeMap::from([("fmt".to_owned(), "fmt".to_owned())]);
+        let (index, _) = insert_version(Some(index), &with_links, STAMP, true).unwrap();
+        let entry = &index.versions["10.2.1"];
+        assert_eq!(entry["dependencies"], serde_json::json!({}));
+        assert_eq!(entry["links"]["fmt"], "fmt");
+        let revisions = &entry["revisions"];
+        assert_eq!(revisions["aaaaaaaaaaaaaaaa"], first);
+        assert_eq!(
+            revisions["bbbbbbbbbbbbbbbb"]["resolution"],
+            serde_json::json!({ "dependencies": { "acme/dep": "^1" } })
         );
+        assert!(revisions["cccccccccccccccc"].get("resolution").is_none());
     }
 
     #[test]
@@ -799,39 +838,6 @@ mod tests {
         let body = render(&bare, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(value["versions"]["10.2.1"].get("links").is_none());
-    }
-
-    /// The `links` revision rule is one-way: a new packaging revision
-    /// may add a claim table to a version published without one (the
-    /// stamping path for already-published ports), but changing or
-    /// removing an existing table still requires a new version.
-    #[test]
-    fn revisions_may_add_but_not_change_or_remove_links() {
-        let no_links = insert_new(None, &metadata("zlib", "1.3.1")).unwrap();
-        let mut stamped = metadata_with_bytes("zlib", "1.3.1", 'b');
-        stamped.links = BTreeMap::from([("z".to_owned(), "z".to_owned())]);
-        let (with_links, disposition) =
-            insert_version(Some(no_links), &stamped, STAMP, true).unwrap();
-        assert_eq!(disposition, InsertDisposition::Inserted);
-        let entry = &with_links.versions["1.3.1"];
-        assert_eq!(entry["links"]["z"], "z");
-
-        let mut changed = metadata_with_bytes("zlib", "1.3.1", 'c');
-        changed.links = BTreeMap::from([("z".to_owned(), "zlib".to_owned())]);
-        let err = insert_version(Some(with_links.clone()), &changed, STAMP, true).unwrap_err();
-        assert!(
-            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
-                if *field == "links"),
-            "{err}"
-        );
-
-        let dropped = metadata_with_bytes("zlib", "1.3.1", 'd');
-        let err = insert_version(Some(with_links), &dropped, STAMP, true).unwrap_err();
-        assert!(
-            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
-                if *field == "links"),
-            "{err}"
-        );
     }
 
     #[test]

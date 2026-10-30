@@ -28,7 +28,9 @@ use super::{
 /// only, so the metadata of an optional dependency a feature enables,
 /// or of a fork's dependency, is fetched here.  The solve itself stays
 /// free of I/O and restarts after each fetch; every round loads a new
-/// name, so the loop ends.  `lean` skips the hold-back report.
+/// name, so the loop ends.  `lean` skips the hold-back report.  Each
+/// round first gives the lockfile's kept pins their revisions'
+/// metadata, which the fetch plan and lockfile writer then read too.
 fn resolve_with_lazy_index(
     input: &ResolveInput,
     index: &mut PackageIndex,
@@ -36,6 +38,7 @@ fn resolve_with_lazy_index(
     lean: bool,
 ) -> Result<ResolveOutput> {
     loop {
+        cabin_resolver::select_locked_revisions(input, index);
         let result = if lean {
             cabin_resolver::resolve_packages(input, index)
         } else {

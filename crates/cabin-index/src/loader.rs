@@ -9,8 +9,8 @@ use serde::Deserialize;
 
 use crate::error::IndexError;
 use crate::model::{
-    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, RevisionMetadata,
-    SourceLocation, VersionMetadata,
+    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, ResolutionMetadata,
+    RevisionMetadata, SourceLocation, VersionMetadata,
 };
 
 /// How to interpret a `source.path` value when parsing one
@@ -258,7 +258,8 @@ fn load_package_file(path: &Path, scope: Option<&str>) -> Result<IndexEntry, Ind
 ///
 /// # Errors
 /// Returns [`IndexError::Json`] on malformed JSON,
-/// [`IndexError::UnsupportedSchema`] when `schema` is not `1`,
+/// [`IndexError::UnsupportedSchema`] when `schema` is neither `1` nor
+/// `2`,
 /// [`IndexError::NameMismatch`] when `name_hint` disagrees with the
 /// declared `name`, [`IndexError::InvalidPackageName`] for an invalid
 /// package, dependency, or system-dependency name,
@@ -282,7 +283,10 @@ pub fn parse_package_entry(
         error,
     })?;
 
-    if raw.schema != 1 {
+    // Schema 2 marks a document whose revisions may carry their own
+    // `resolution`, which a schema-1 reader must refuse rather than
+    // resolve against the current revision's metadata.
+    if !matches!(raw.schema, 1 | 2) {
         return Err(IndexError::UnsupportedSchema {
             path: error_path.map(Path::to_path_buf).unwrap_or_default(),
             schema: raw.schema,
@@ -325,6 +329,7 @@ pub fn parse_package_entry(
         let (revision, revisions) = parse_revisions(
             &raw.name,
             &ver_str,
+            raw.schema,
             raw_ver.revision,
             raw_ver.revisions,
             context,
@@ -568,6 +573,7 @@ fn reject_compiler_condition(
 fn parse_revisions(
     package: &str,
     version: &str,
+    schema: u32,
     raw_revision: Option<String>,
     raw_revisions: BTreeMap<String, RawRevision>,
     context: &SourceContext<'_>,
@@ -612,16 +618,57 @@ fn parse_revisions(
             )));
         }
         let source = parse_source_location(raw.source, package, version, context)?;
+        // The current revision's metadata is the version's, and only a
+        // schema-2 document may carry another revision's.
+        let resolution = match raw.resolution {
+            None => None,
+            Some(_) if schema == 1 => {
+                return Err(invalid(format!(
+                    "revision {id:?} carries `resolution`, which requires `\"schema\": 2`"
+                )));
+            }
+            Some(_) if id == current => {
+                return Err(invalid(format!(
+                    "current revision {id:?} carries `resolution`; its metadata is the version's"
+                )));
+            }
+            Some(resolution) => Some(parse_resolution(package, version, resolution)?),
+        };
         revisions.insert(
             id,
             RevisionMetadata {
                 checksum,
                 published_at: raw.published_at,
                 source,
+                resolution,
             },
         );
     }
     Ok((Some(current), revisions))
+}
+
+/// Parse a revision's own resolution metadata under the rules its
+/// version-level counterparts follow.
+fn parse_resolution(
+    package: &str,
+    version: &str,
+    raw: RawResolution,
+) -> Result<ResolutionMetadata, IndexError> {
+    let dependencies = parse_kinded_dependencies(package, version, raw.dependencies)?;
+    validate_links(package, version, &raw.links, &raw.standards)?;
+    raw.features
+        .validate()
+        .map_err(|err| IndexError::InvalidFeatures {
+            package: package.to_owned(),
+            version: version.to_owned(),
+            message: err.to_string(),
+        })?;
+    Ok(ResolutionMetadata {
+        dependencies,
+        features: raw.features,
+        standards: raw.standards,
+        links: raw.links,
+    })
 }
 
 /// Parse and resolve a `source` block on an index version entry.
@@ -765,6 +812,25 @@ struct RawRevision {
     #[serde(rename = "published-at")]
     published_at: String,
     source: RawSourceArtifact,
+    /// Schema 2: this revision's resolution metadata, present when it
+    /// differs from the version's.
+    #[serde(default)]
+    resolution: Option<RawResolution>,
+}
+
+/// On-disk shape of a revision's `resolution` block: the version
+/// entry's resolution fields, with the same defaults.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawResolution {
+    #[serde(default)]
+    dependencies: BTreeMap<String, RawIndexPackageDep>,
+    #[serde(default)]
+    features: cabin_core::Features,
+    #[serde(default)]
+    standards: cabin_core::StandardsMetadata,
+    #[serde(default)]
+    links: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -864,6 +930,72 @@ mod tests {
     use super::*;
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
+
+    /// A schema-2 revision's own `resolution` loads under the
+    /// version-level rules, and selecting that revision gives the
+    /// version its metadata; selecting the current revision does not.
+    #[test]
+    fn revision_resolution_loads_and_selects() {
+        let doc = |schema: u32, current: &str, dep_req: &str| {
+            format!(
+                r#"{{
+                "schema": {schema},
+                "name": "fmt",
+                "versions": {{
+                    "10.2.1": {{
+                        "dependencies": {{ "acme/b": "^1" }},
+                        "revision": "{current}",
+                        "revisions": {{
+                            "aaaaaaaaaaaaaaaa": {{
+                                "checksum": "sha256:{a}",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": {{ "type": "archive", "path": "a.zip", "format": "zip" }},
+                                "resolution": {{ "dependencies": {{ "acme/c": "{dep_req}" }} }}
+                            }},
+                            "bbbbbbbbbbbbbbbb": {{
+                                "checksum": "sha256:{b}",
+                                "published-at": "2026-02-01T00:00:00Z",
+                                "source": {{ "type": "archive", "path": "b.zip", "format": "zip" }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}"#,
+                a = "a".repeat(64),
+                b = "b".repeat(64),
+            )
+        };
+        let context = SourceContext::LocalDir(Path::new("/registry/packages"));
+        let (rev_a, rev_b) = ("aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb");
+        let entry = parse_package_entry(&doc(2, rev_b, "^2"), None, &context, None).unwrap();
+        let meta = &entry.versions[&semver::Version::new(10, 2, 1)];
+        let names = |meta: &VersionMetadata| {
+            meta.dependencies
+                .keys()
+                .map(PackageName::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let mut current = meta.clone();
+        current.select_revision(meta.checksum.as_ref().unwrap());
+        assert_eq!(names(&current), ["acme/b"]);
+        let mut pinned = meta.clone();
+        pinned.select_revision(&meta.revisions[rev_a].checksum);
+        assert_eq!(names(&pinned), ["acme/c"]);
+
+        let err = parse_package_entry(&doc(2, rev_b, "not a requirement"), None, &context, None)
+            .unwrap_err();
+        assert!(
+            matches!(err, IndexError::InvalidRequirement { .. }),
+            "{err}"
+        );
+        // A schema-1 document cannot carry `resolution`, and neither can
+        // the current revision, whose metadata the version fields hold.
+        for bad in [doc(1, rev_b, "^2"), doc(2, rev_a, "^2")] {
+            let err = parse_package_entry(&bad, None, &context, None).unwrap_err();
+            assert!(matches!(err, IndexError::InvalidRevision { .. }), "{err}");
+        }
+    }
 
     #[test]
     fn loads_simple_package_index() {

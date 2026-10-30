@@ -65,15 +65,6 @@ pub enum RegistryError {
     },
 
     #[error(
-        "a new packaging revision of `{name} {version}` must not change `{field}`; revisions carry packaging corrections only - publish a new version for changes resolution can observe"
-    )]
-    RevisionChangesResolverMetadata {
-        name: String,
-        version: String,
-        field: &'static str,
-    },
-
-    #[error(
         "staged package `{name}` claims checksum `{claimed}` but its archive bytes hash to `{computed}`; the packaging revision derives from the archive contents, so a mismatched claim would publish an immutable revision that can never verify"
     )]
     StagedChecksumMismatch {

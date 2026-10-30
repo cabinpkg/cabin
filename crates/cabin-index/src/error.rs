@@ -42,7 +42,7 @@ pub enum IndexError {
     },
 
     #[error(
-        "index entry {path} uses unsupported schema version {schema}; only schema 1 is supported",
+        "index entry {path} uses unsupported schema version {schema}; only schemas 1 and 2 are supported",
         path = path.display()
     )]
     UnsupportedSchema { path: PathBuf, schema: u32 },

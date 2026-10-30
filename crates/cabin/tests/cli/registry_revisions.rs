@@ -30,19 +30,34 @@ cxx-standard = "c++17"
 /// into the sources so each publish has distinct bytes; respins pass
 /// `--new-revision`.
 fn publish_fmt(pkg_root: &Path, registry: &Path, marker: &str, new_revision: bool) {
+    publish_fmt_with(pkg_root, registry, marker, new_revision, "");
+}
+
+/// [`publish_fmt`] with `dependencies` as the manifest's
+/// `[dependencies]` table body.
+fn publish_fmt_with(
+    pkg_root: &Path,
+    registry: &Path,
+    marker: &str,
+    new_revision: bool,
+    dependencies: &str,
+) {
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
-        .write_str(
+        .write_str(&format!(
             r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
 cxx-standard = "c++17"
 
+[dependencies]
+{dependencies}
+
 [target.fmt]
 type = "library"
 sources = ["src/fmt.cc"]
 include-dirs = ["include"]
-"#,
-        )
+"#
+        ))
         .unwrap();
     assert_fs::fixture::ChildPath::new(pkg_root.join("include/fmt.h"))
         .write_str("#pragma once\nint fmt_value();\n")
@@ -310,5 +325,172 @@ fn vendor_reproduces_the_pinned_revision_after_a_respin() {
         offline_cache
             .join(format!("archives/sha256/{pinned_hex}.zip"))
             .is_file()
+    );
+}
+
+/// Publish `acme/b 1.0.0`, a header-only C library.
+fn publish_b(pkg_root: &Path, registry: &Path) {
+    assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/b"
+version = "1.0.0"
+interface-c-standard = "c11"
+
+[target.b]
+type = "header-only"
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("include/b.h"))
+        .write_str("#pragma once\nstatic inline int b_value(void) { return 7; }\n")
+        .unwrap();
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(registry)
+        .assert()
+        .success();
+}
+
+/// Whether the lockfile records `name`.
+fn locks(lockfile_path: &Path, name: &str) -> bool {
+    fs::read_to_string(lockfile_path)
+        .unwrap()
+        .lines()
+        .any(|line| line == format!("name = \"{name}\""))
+}
+
+/// A respin may add a dependency: a lockfile pinning the revision
+/// before it keeps that revision's graph and bytes - from a file
+/// registry, over sparse HTTP, and through a vendor directory - while
+/// `cabin update` takes the new revision's graph and bytes.
+#[test]
+fn a_respin_that_adds_a_dependency_leaves_old_pins_on_their_graph() {
+    let dir = TempDir::new().unwrap();
+    let registry = dir.path().join("registry");
+    publish_b(&dir.path().join("b"), &registry);
+    publish_fmt(&dir.path().join("pkg"), &registry, "1", false);
+
+    let manifest = write_consumer(&dir.path().join("consumer"));
+    let lockfile = manifest.parent().unwrap().join("cabin.lock");
+    let cache = dir.path().join("cache");
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .assert()
+        .success();
+    let pinned = locked_checksum(&lockfile);
+    let pinned_hex = pinned.strip_prefix("sha256:").unwrap().to_owned();
+    assert!(!locks(&lockfile, "acme/b"));
+
+    publish_fmt_with(
+        &dir.path().join("pkg"),
+        &registry,
+        "2",
+        true,
+        r#""acme/b" = "1""#,
+    );
+    let index: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(registry.join("packages/fmtlib/fmt.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(index["schema"], 2);
+
+    // Re-resolving and a locked fetch keep revision 1's graph and
+    // bytes: no `acme/b`, the same pin.
+    let before = fs::read_to_string(&lockfile).unwrap();
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .assert()
+        .success();
+    assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
+    let file_cache = dir.path().join("cache-file");
+    cabin()
+        .args(["fetch", "--locked", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(&file_cache)
+        .assert()
+        .success();
+    assert!(
+        file_cache
+            .join(format!("archives/sha256/{pinned_hex}.zip"))
+            .is_file()
+    );
+
+    let server = crate::sparse_http::TestServer::serve(registry.clone());
+    let http_cache = dir.path().join("cache-http");
+    cabin()
+        .args(["fetch", "--locked", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-url")
+        .arg(server.url())
+        .arg("--cache-dir")
+        .arg(&http_cache)
+        .assert()
+        .success();
+    assert!(
+        http_cache
+            .join(format!("archives/sha256/{pinned_hex}.zip"))
+            .is_file()
+    );
+    assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
+
+    let vendor_dir = dir.path().join("vendor");
+    cabin()
+        .args(["vendor", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .arg("--vendor-dir")
+        .arg(&vendor_dir)
+        .assert()
+        .success();
+    let vendored: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(vendor_dir.join("packages/fmtlib/fmt.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        vendored["versions"]["10.2.1"]["dependencies"],
+        serde_json::json!({})
+    );
+    assert!(!vendor_dir.join("packages/acme/b.json").exists());
+    cabin()
+        .args(["fetch", "--offline", "--locked", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&vendor_dir)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache-offline"))
+        .assert()
+        .success();
+
+    // `cabin update` moves to revision 2, its dependency included.
+    cabin()
+        .args(["update", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .assert()
+        .success();
+    assert!(locks(&lockfile, "acme/b"));
+    let (current, _) = fmt_revisions(&registry);
+    assert_eq!(
+        &locked_checksum(&lockfile)["sha256:".len()..][..16],
+        current
     );
 }

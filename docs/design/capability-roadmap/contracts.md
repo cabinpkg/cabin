@@ -252,9 +252,11 @@ invokes that real tool behind an explicit artifact contract rather than porting 
 [lockfile](lockfile.md#packaging-revisions)): the immutable registry unit is
 `(name, version, revision)`; a revision id is the first 16 hex characters of the archive digest; the
 lockfile's `checksum` pins the revision; plain resolution keeps a listed pin and `cabin update`
-moves to the current revision.  Resolution reads version-level metadata only, so a respin may not
-change `dependencies`, `features`, or `standards`, and may only add a missing `links` table
-([foundation ports](foundation-ports.md#packaging-revisions)).
+moves to the current revision.  Since stage 03, an index's version-level metadata is the current
+revision's, and a revision whose `dependencies`, `features`, `standards`, or `links` differ carries
+its own `resolution` in a schema-2 document, which resolution reads for every pin the lockfile mode
+keeps.  The file registry and `cabin vendor` write it; the hosted registry still refuses a respin
+that changes those fields ([foundation ports](foundation-ports.md#packaging-revisions)).
 
 **Contract for stage 03**: a correction at the same upstream version may change resolution
 metadata, and every existing pin keeps its meaning.
@@ -271,8 +273,8 @@ metadata, and every existing pin keeps its meaning.
 - Machine-specific data (detected SDKs, absolute paths, environment selections) never enters
   published metadata.
 
-Until stage 03 lands, the current respin restrictions stay in force, and the ledger records each
-port correction that waits for it.
+Until the hosted registry serves `resolution`, its respin restrictions stay in force, and the
+ledger records each port correction that waits for it.
 
 ## Compatibility expectations
 

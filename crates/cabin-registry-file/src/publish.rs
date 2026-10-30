@@ -65,8 +65,7 @@ pub struct RegistryPublishOutcome {
 /// ([`RegistryError::InvalidConfig`], [`RegistryError::ConfigJson`],
 /// [`RegistryError::Json`]), the revision rules
 /// ([`RegistryError::NewRevisionRequiresOptIn`],
-/// [`RegistryError::RevisionCollision`],
-/// [`RegistryError::RevisionChangesResolverMetadata`]),
+/// [`RegistryError::RevisionCollision`]),
 /// [`RegistryError::OrphanedArtifact`], index parse/render failures,
 /// and [`RegistryError::Io`] from the atomic writes.
 pub fn publish_to_registry(
@@ -104,7 +103,6 @@ pub fn publish_to_registry(
 /// [`FileRegistry::inspect`], and propagates the pre-write checks
 /// (`plan_publish`): [`RegistryError::NewRevisionRequiresOptIn`],
 /// [`RegistryError::RevisionCollision`],
-/// [`RegistryError::RevisionChangesResolverMetadata`],
 /// [`RegistryError::OrphanedArtifact`],
 /// [`RegistryError::PackageIndexInvalid`] for a non-SemVer metadata
 /// version, and the existing-index read errors of [`read_optional`].
@@ -272,8 +270,8 @@ struct PublishPlan {
 
 /// Build a [`PublishPlan`] without writing anything.  Validates
 /// every pre-write rule: the revision semantics of
-/// [`insert_version`] (no-op / opt-in / collision / resolver-
-/// metadata invariance), and the per-revision orphaned-artifact
+/// [`insert_version`] (no-op / opt-in / collision), and the
+/// per-revision orphaned-artifact
 /// check (an artifact file present on disk for a revision the index
 /// does not record is refused rather than silently overwritten).
 fn plan_publish(

@@ -54,6 +54,24 @@ use crate::preflight::{effective_locked, preflight_root_dependencies};
 use crate::provider::{Node, Provider, version_metadata};
 use crate::range::req_to_range;
 
+/// Give every version `input`'s lockfile keeps under its mode the
+/// resolution metadata of the pinned packaging revision, so an old pin
+/// resolves the graph its own archive declares rather than the current
+/// revision's.  Idempotent; call it again after loading more of a lazy
+/// index.
+pub fn select_locked_revisions(input: &ResolveInput, index: &mut PackageIndex) {
+    for (name, locked) in effective_locked(input) {
+        if let Some(checksum) = &locked.checksum
+            && let Some(meta) = index
+                .packages
+                .get_mut(&name)
+                .and_then(|entry| entry.versions.get_mut(&locked.version))
+        {
+            meta.select_revision(checksum);
+        }
+    }
+}
+
 /// Resolve `input`'s versioned dependencies against `index`.
 ///
 /// Returns a [`ResolveOutput`] whose `packages` list contains the root
@@ -1267,6 +1285,7 @@ mod tests {
                     source: cabin_index::SourceLocation::LocalPath(std::path::PathBuf::from(
                         "unused.zip",
                     )),
+                    resolution: None,
                 },
             );
         }
@@ -3029,6 +3048,45 @@ mod tests {
             .iter()
             .find(|p| p.name.as_str() == name)
             .unwrap()
+    }
+
+    /// A respin whose default feature turns on a new optional
+    /// dependency: a lockfile pinning the revision before it resolves
+    /// that revision's graph in every mode that keeps the pin, and the
+    /// update modes resolve the current revision's.
+    #[test]
+    fn kept_pins_resolve_their_own_revisions_metadata() {
+        let mut index = build_index(vec![
+            featured(
+                "fmt",
+                vec![(
+                    "10.2.1",
+                    featured_version(vec![("b", optional("^1"))], &["b"], &[("b", &["dep:b"])]),
+                )],
+            ),
+            plain("b"),
+        ]);
+        inject_revisions(&mut index, "fmt", &[REV_A, REV_B]);
+        let meta = index.packages.get_mut(&pkg_name("fmt")).unwrap();
+        let meta = meta.versions.get_mut(&version("10.2.1")).unwrap();
+        meta.revisions.get_mut(&REV_A[..16]).unwrap().resolution =
+            Some(cabin_index::ResolutionMetadata::default());
+        for (mode, takes_b) in [
+            (ResolveMode::PreferLocked, false),
+            (ResolveMode::Locked, false),
+            (ResolveMode::UpdatePackage(pkg_name("fmt")), true),
+            (ResolveMode::UpdateAll, true),
+        ] {
+            let mut input =
+                input_with_locked(vec![("fmt", "*")], vec![("fmt", "10.2.1")], mode.clone());
+            input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum =
+                Some(cabin_core::Checksum::parse(&format!("sha256:{REV_A}")).unwrap());
+            request(&mut input, "fmt", &["default"]);
+            let mut index = index.clone();
+            select_locked_revisions(&input, &mut index);
+            let out = resolve(&input, &index).unwrap();
+            assert_eq!(names(&out).contains(&"b"), takes_b, "{mode:?}");
+        }
     }
 
     /// A -> B -> C across registry packages: a root request for `a`'s

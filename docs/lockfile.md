@@ -170,8 +170,9 @@ replaced bytes.  There is no separate lockfile field for this: **`checksum` is t
 revision id is its digest's first 16 hex characters.
 
 - Plain `cabin resolve` **keeps** a recorded checksum as long as the index still lists that
-  revision.  Someone else's respin therefore never churns your lockfile: re-resolving after one
-  rewrites nothing.
+  revision, and resolves that revision's own dependencies, features, standards, and `links` - a
+  respin may change them ([packaging revisions](package-index.md#packaging-revisions)).  Someone
+  else's respin therefore never churns your lockfile: re-resolving after one rewrites nothing.
 - `cabin update` (and `cabin update --package <name>`) is the deliberate move to the version's
   current revision, exactly as it is the deliberate move to a newer version.
 - A first resolution, or a package whose pinned revision the index no longer lists, locks the

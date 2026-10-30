@@ -127,7 +127,7 @@ field.  Mismatches produce a clear error.
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `schema` | yes | Schema version.  Only `1` is supported; other values produce a clear error. |
+| `schema` | yes | Schema version: `1`, or `2` when a revision carries its own [`resolution`](#packaging-revisions).  Other values produce a clear error, and a reader that predates schema 2 refuses such a file rather than resolve a pinned revision with another revision's metadata. |
 | `name` | yes | Package name.  Must equal the file's stem. |
 | `versions` | yes | Map from SemVer version string to version metadata.  May be empty.  Keys are plain upstream versions; a key carrying SemVer build metadata (`10.2.1+anything`) is rejected. |
 
@@ -156,8 +156,30 @@ as a new version or as replaced bytes.
 A revision id is the **first 16 lowercase hex characters of the archive's SHA-256 digest**, which
 has two consequences the whole system leans on: republishing the identical archive maps onto the
 revision that already exists, and a revision id can always be re-derived from a `sha256:<hex>`
-checksum by taking its prefix.  Resolution never looks at revisions - it picks a version - and the
-revision is selected at *fetch* time, from the lockfile's `checksum` where there is one.
+checksum by taking its prefix.  Resolution picks a version, and the lockfile's `checksum` picks its
+revision.
+
+A respin may change what resolution reads - `dependencies`, `features`, `standards`, and `links` -
+because a revision's archive and the graph resolved for it always agree.  The version-level fields
+belong to the current revision; a revision whose resolution metadata differs carries its own in a
+`resolution` object (schema 2), so a lockfile that pins it keeps resolving exactly what its archive
+declares:
+
+| Mode | Revision whose metadata resolution reads |
+| --- | --- |
+| first resolution, `cabin update` | the current revision |
+| plain resolution with a lockfile | the pinned revision, while the index lists it; otherwise the current revision, and the lockfile moves to it |
+| `cabin update --package <name>` | the current revision for `<name>`; the pinned revision for every other package |
+| `--locked`, `--frozen` | the pinned revision; a pin the index no longer lists is an error |
+
+Plain resolution never moves a listed pin to another revision of its version: for that lockfile,
+the pinned revision's metadata is what the version declares.  When a manifest change needs what only
+a later revision declares, plain resolution chooses another version or fails, and
+`cabin update --package <name>` moves the pin.
+
+Yanking stays per version: a yanked version is never a new candidate, whatever its revisions.  A
+hosted registry lists only verified revisions, so a pin to one that is not listed behaves like any
+unlisted pin.
 
 Each entry of a version's `revisions` map takes this exact shape:
 
@@ -178,6 +200,7 @@ Each entry of a version's `revisions` map takes this exact shape:
 | `checksum` | yes | `sha256:<hex>` digest of this revision's archive bytes, parsed strictly (exactly `sha256:` followed by 64 lowercase hex characters; any other spelling fails index loading).  The revision id must be this digest's leading hex prefix. |
 | `published-at` | yes | Non-empty timestamp recorded by the registry that accepted this revision.  Carried verbatim; Cabin never orders revisions by it (the `revision` pointer names the current one). |
 | `source` | yes | Where this revision's archive lives.  See [Source artifact](#source-artifact). |
+| `resolution` | no | This revision's `dependencies`, `features`, `standards`, and `links`, in the version entry's encoding and with the same omission defaults, when they differ from the version's.  Absent: the revision resolves exactly as the version does.  Schema 2 only, and never on the current revision. |
 
 Superseded revisions stay listed, and their archives stay in place, so a lockfile that pins one
 keeps building.  `revision` and `revisions` may be **absent together** - a resolver-only fixture that
@@ -316,7 +339,7 @@ Loading rejects an index when:
 
 - the path is not a directory
 - a `*.json` file has unknown fields
-- `schema` is not `1`
+- `schema` is neither `1` nor `2`
 - the declared `name` doesn't equal the filename stem
 - a version key is not a valid SemVer string, or carries SemVer build metadata
 - a dependency requirement is not parseable
@@ -324,6 +347,7 @@ Loading rejects an index when:
 - a revision id is not the leading hex prefix of its own `checksum`
 - a revision's `published-at` is empty
 - `revisions` is present without a `revision` pointer, or the pointer does not name a listed revision
+- a revision carries `resolution` in a schema-1 file, or the current revision carries one
 - a `source.type` is anything other than `"archive"`
 - a `source.format` is anything other than `"zip"`
 - a `source.path` is empty
@@ -449,5 +473,6 @@ archive.  That document describes exactly **one packaging revision**: it carries
 `checksum` and a `source.path` whose filename already embeds the revision derived from that
 checksum, alongside the same `schema`, `dependencies`, `yanked`, and `standards` shape as an index
 entry.  File-registry publish splices it into a `<package>.json` - adding it to the version's
-`revisions` map and stamping `published-at` - without re-deriving anything.  Packaging and dry-run
+`revisions` map, stamping `published-at`, and recording the earlier revisions' `resolution` when the
+new one changes it - without re-deriving anything else.  Packaging and dry-run
 publishing do **not** modify any index - see [`package-format.md`](package-format.md).

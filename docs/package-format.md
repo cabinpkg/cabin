@@ -334,9 +334,8 @@ Behavioral notes specific to registry publish:
   this so static sparse-HTTP serving can read the same layout without rewriting.
 - The immutable unit is `(name, version, revision)`.  Republishing byte-identical bytes is a no-op
   onto the recorded revision; changed bytes for an already-published version require
-  `--new-revision`, and even then must not change `dependencies`, `features`, or `standards`.
-  `links` is one-way: a revision may add a claim table to a version published without one, but an
-  existing table can never be changed or removed by a respin.  See
+  `--new-revision`.  A respin may change `dependencies`, `features`, `standards`, or `links`;
+  every superseded revision keeps resolving as it was published.  See
   [`package-index.md`](package-index.md#packaging-revisions).
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a
   matching index entry, the publish run refuses.
