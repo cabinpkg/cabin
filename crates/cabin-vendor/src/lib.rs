@@ -589,8 +589,8 @@ fn verified_entry_revision(entry: &VendorEntry) -> Result<(String, String), Vend
 
 /// Reduce the vendored entry's revision axis to exactly the fetched
 /// revision - the vendor directory holds no other revision's archive -
-/// and point that revision's `source.path` at the vendor-relative
-/// artifact.  An entry that does not list the fetched revision, or a
+/// make that revision's own `resolution`, if it has one, the version's,
+/// and point its `source.path` at the vendor-relative artifact.  An entry that does not list the fetched revision, or a
 /// revision without a `source` object, is an error: copying it
 /// through verbatim would leave the vendored index pointing at bytes
 /// the directory does not hold, silently breaking offline use.
@@ -619,6 +619,17 @@ fn rewrite_vendored_revision(
                 "the version entry does not list vendored revision `{revision}` in `revisions`"
             ))
         })?;
+    if let Some(serde_json::Value::Object(resolution)) = kept
+        .as_object_mut()
+        .and_then(|rev| rev.shift_remove("resolution"))
+    {
+        for field in ["dependencies", "features", "standards", "links"] {
+            match resolution.get(field) {
+                Some(value) => obj.insert(field.to_owned(), value.clone()),
+                None => obj.shift_remove(field),
+            };
+        }
+    }
     let source = kept
         .as_object_mut()
         .and_then(|rev| rev.get_mut("source"))
@@ -739,6 +750,35 @@ mod tests {
             revisions[revision]["source"]["path"],
             "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
         );
+    }
+
+    /// A vendored superseded revision resolves from the vendor
+    /// directory as it did from the source registry: its own
+    /// `resolution` replaces the current revision's fields.
+    #[test]
+    fn rewrite_makes_the_vendored_revisions_resolution_the_versions() {
+        let revision = "aaaaaaaaaaaaaaaa";
+        let mut value = serde_json::json!({
+            "dependencies": { "acme/dep": "^1" },
+            "yanked": false,
+            "revision": "bbbbbbbbbbbbbbbb",
+            "revisions": {
+                revision: {
+                    "checksum": format!("sha256:{}", "a".repeat(64)),
+                    "published-at": "2026-01-01T00:00:00Z",
+                    "source": {"type": "archive", "path": "/leak.zip", "format": "zip"},
+                    "resolution": { "dependencies": {}, "links": { "fmt": "fmt" } },
+                },
+            },
+            "links": { "fmt": "fmt2" },
+            "standards": { "fmt": {} },
+        });
+        rewrite_vendored_revision(&mut value, revision, "a.zip", &pkg("fmt"), &ver("10.2.1"))
+            .unwrap();
+        assert_eq!(value["dependencies"], serde_json::json!({}));
+        assert_eq!(value["links"], serde_json::json!({ "fmt": "fmt" }));
+        assert!(value.get("standards").is_none());
+        assert!(value["revisions"][revision].get("resolution").is_none());
     }
 
     /// An index entry that does not list the fetched revision cannot

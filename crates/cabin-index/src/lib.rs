@@ -19,8 +19,8 @@ pub mod model;
 pub use error::IndexError;
 pub use loader::{SourceContext, load_index, parse_package_entry};
 pub use model::{
-    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, RevisionMetadata,
-    SourceLocation, VersionMetadata,
+    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, ResolutionMetadata,
+    RevisionMetadata, SourceLocation, VersionMetadata,
 };
 // Re-exported so index consumers (the resolver's preference mode and
 // publish lints) can name the standard-metadata types reachable on

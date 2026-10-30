@@ -26,7 +26,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 00 | Shared contracts, this ledger, scope alignment | all | `docs/` | - | adopted |
 | 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | implemented |
 | 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | implemented |
-| 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | not started |
+| 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | in progress |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | not started |
 | 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | not started |
 | 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | not started |
@@ -72,16 +72,19 @@ Stages 01 and 03; contexts in 04; validated in 12-14.
 - `cabin.lock` stores `name`, `version`, `checksum`, and resolved direct dependencies per registry
   package (`cabin-lockfile/src/model.rs`, `LockedPackage`); the checksum pins the packaging revision;
   path packages are not locked.
-- Index revisions carry only `checksum`, `published-at`, and `source`
-  (`cabin-index/src/model.rs`, `RevisionMetadata`); dependencies, features, standards, and `links`
-  are version-level, which is why a respin may not change them.
+- Index revisions carry `checksum`, `published-at`, `source`, and, since stage 03, their own
+  `resolution` when it differs from the version's (`cabin-index/src/model.rs`, `RevisionMetadata`):
+  the version-level dependencies, features, standards, and `links` are the current revision's, and
+  each pin a lockfile mode keeps resolves with its own revision's
+  (`cabin-resolver/src/lib.rs`, `select_locked_revisions`).  The hosted registry still refuses a
+  respin that changes them and serves no `resolution`.
 
 **Blocked workflow.**  Before stage 01, a consumer enabling a published package's feature that
 pulls in an optional registry dependency (`feature = ["dep:cabin-ports/zlib"]`) got nothing:
 resolution skipped the dependency.  Stage 01 unblocked that, so Boost integrations can be offered
 as opt-in features; `cabin-ports/boost-iostreams` still leaves out its bzip2/lzma/zstd filters
 until those libraries have ports.  A port that needs a dependency added at the same upstream
-version still cannot be corrected (stage 03).
+version still cannot be corrected on the hosted registry (stage 03, second change).
 
 The port publisher adds a constraint of its own: `xtask-port-publish` refuses `cfg(...)` dependency
 tables and orders publication by each port's own default feature closure, not by feature requests
@@ -425,7 +428,7 @@ change expected to fix them.
 | [System dependencies](system-dependencies.md), `docs/architecture.md` (`cabin-system-deps`) | only the selected members are primary; probes fire only for a selected primary package | every primary package is probed; only the MSVC gate narrows to the selection (not run) | stage 06 |
 | [Lockfile](lockfile.md#limitations) | HTTP index, authentication, registry server, and publishing are unsupported; workspace lockfiles without a root package are unsupported | all exist | fixed in stage 01 |
 | [Lockfile](lockfile.md) format | `dependencies` are transitive names; `source` includes local provenance | direct resolved index dependencies; only `"index"` parses | fixed in stage 01 |
-| [Package index](package-index.md#packaging-revisions) | resolution never reads revisions | locked validation reads `revisions` | stage 03 |
+| [Package index](package-index.md#packaging-revisions) | resolution never reads revisions | locked validation reads `revisions` | fixed in stage 03 |
 | `cabin resolve` help | selection only narrows diagnostics; resolves "against a local JSON package index" | selection scopes resolution ([workspaces](workspaces.md)); `--index-url` works | stage 11 |
 | [Cargo-inspired interface](cargo-inspired-interface.md) | subcommand table; `-j` "identical" | omits `login`, `logout`, `yank`, `resolve`, `compgen`, `mangen`; `test` has no `-j` | stage 11 |
 | `docs/architecture.md` | `SystemDependencyProbeReport` | the type is `SystemDependencyResolution` | stage 06 |
@@ -482,7 +485,20 @@ and `boost-contract` give consumers upstream's public `*_STATIC_LINK` through `i
 `boost-contract` becomes a compiled library, whose source compiles to nothing without that macro.
 `boost-atomic` and `boost-log` add their SSE2/SSE4.1 and SSSE3/AVX2 sources on x86 with their
 `instruction-sets` and upstream's `USE_*` definitions; both libraries pick a variant by CPUID at
-run time unless the compiler's baseline already has its instruction set.  None of the four was published, so each changed in place.
+run time unless the compiler's baseline already has its instruction set.  None of the four was
+published, so each changed in place.
+
+Stage 03, first change: a packaging revision whose `dependencies`, `features`, `standards`, or
+`links` differ from the version's carries its own in a `resolution` object, in a schema-2 index
+document that earlier clients refuse (they accept schema 1 only); a schema-1 file or a current
+revision carrying one is invalid.  Every pin the lockfile mode keeps resolves with its revision's
+metadata: the CLI applies it before each solve round, so the sparse-HTTP lazy loader, the lockfile
+writer, and the fetch plan read the same graph.  Plain resolution never moves a pin to another
+revision of its version; `cabin update --package` does.  The file registry records the earlier
+revisions' `resolution` when a respin changes those fields, instead of refusing it, so a links-only
+respin no longer stamps its table onto earlier revisions; `cabin vendor` lifts the vendored
+revision's into the version fields.  The hosted registry is unchanged: it refuses such respins and
+serves no `resolution` until the second change.
 
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
@@ -515,9 +531,17 @@ bucket, which no test arranges.  The publisher's dry run of each port's closure 
 baseline sources); Clang compiling the four ISA sources for x86_64 at the `x86-64` baseline: the
 SSE4.1, SSSE3, and AVX2 sources are rejected without their `-m<name>`, and the SSE2 one, inside
 that baseline, compiles either way; CI's port dry run builds and runs the tests on x86_64 Linux
-(GCC) and Windows x64 (`cl.exe`).  Not run: an x86 run here.
+(GCC) and Windows x64 (`cl.exe`).  Not run: an x86 run here.  Stage 03, first change: the
+decisive regression as a CLI test over a file registry, with `acme/fmt` r1 lacking `acme/b` and r2
+adding it: the r1 lockfile stays byte-identical through plain resolution, `fetch --locked` over the
+file and HTTP paths fetches r1's archive with no `acme/b` to lock, a vendored copy carries r1's
+dependencies and fetches offline under `--locked`, and `cabin update` locks `acme/b` with r2's
+checksum; removing the per-pin metadata selection fails it at the unchanged-lockfile check.
+Resolver unit tests for the four modes; loader tests for parsing, selection, and both rejections;
+file-registry and vendor unit tests for recording and lifting.
 
-**Unfinished.**  Stages 03-14.  Follow-ups found in stage 01, outside its scope:
+**Unfinished.**  Stage 03's hosted-registry change; stages 04-14.  Follow-ups found in stage 01,
+outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
 "Blocked workflow"); a transitively requested unknown feature is reported as a resolution conflict
 naming `<package>[<feature>]` rather than with the direct-request diagnostic; `metadata` and

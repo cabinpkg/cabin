@@ -253,7 +253,9 @@ Owns the local-filesystem JSON package index format and its loader, including th
 packaging-revision map: it validates that every revision id is the leading hex prefix of its own
 checksum and that the version's `revision` pointer names a listed one, and it derives the
 convenience version-level `checksum` / `source` of the current revision so consumers that do not
-care about the axis never touch the map.  The crate must:
+care about the axis never touch the map.  A revision whose resolution metadata differs from the
+version's carries its own `resolution`, which `VersionMetadata::select_revision` swaps in.  The
+crate must:
 
 - not run the resolver;
 - not fetch artifacts;
@@ -281,7 +283,9 @@ caller supplies the root's per-dependency feature requests (`ResolveInput::root_
 (`ResolveInput::local_packages`) that replaces any same-named index entry, so registry edges onto
 members, path dependencies, and `[patch]` forks resolve against the local manifest.  The resolver
 performs no I/O: with `ResolveInput::lazy_index` set, a name missing from the index surfaces as
-`ResolveError::MetadataNeeded`, and the CLI fetches that entry and solves again.
+`ResolveError::MetadataNeeded`, and the CLI fetches that entry and solves again.  Before every
+solve, the CLI calls `select_locked_revisions`, which gives each pin the mode keeps its pinned
+revision's resolution metadata.
 
 `ResolveError` implements `miette::Diagnostic` directly so dependency resolution failures are
 rendered through Cabin's miette-based diagnostics layer.  Lockfile errors stay specific - the
@@ -807,8 +811,8 @@ sticking around.  Given a [`cabin_package::StagedPackage`] plus a registry root,
   `artifacts`);
 - applies the packaging-revision rules before any bytes are written: byte-identical republication
   is a no-op onto the recorded revision, different bytes for an existing version need the
-  `--new-revision` opt-in and must leave `dependencies` / `features` / `standards` unchanged, and a
-  revision-id collision between different bytes fails loudly;
+  `--new-revision` opt-in, a respin that changes resolution metadata records each superseded
+  revision's own (schema 2), and a revision-id collision between different bytes fails loudly;
 - detects orphaned artifacts before any bytes are written;
 - places the artifact and updates the per-package index file via atomic write + rename, rolling back
   the artifact if the index update fails;
@@ -1272,7 +1276,7 @@ never reads the lockfile itself; the lockfile crate never runs the solver.  They
 
 | Mode | Locked map effect | Writes lockfile |
 | --- | --- | --- |
-| `PreferLocked` (default `cabin resolve`) | Tries the locked version first; falls back to newest compatible if locked no longer satisfies constraints. | yes |
+| `PreferLocked` (default `cabin resolve`) | Tries the locked version first, with its pinned revision's metadata; falls back to newest compatible if locked no longer satisfies constraints. | yes |
 | `Locked` (`cabin resolve --locked` / `--frozen`) | Restricts each candidate set to `[locked.version]`; surfaces precise errors when missing / yanked / constraint-violating, when the locked checksum names no published packaging revision, and when a locked entry carries no checksum at all while the index entry has revisions. | no |
 | `UpdateAll` (`cabin update`) | Ignores the locked map entirely. | yes |
 | `UpdatePackage(name)` (`cabin update --package <name>`) | Drops one entry from the locked map. | yes |
@@ -1388,8 +1392,9 @@ cabin_registry_file::publish_to_registry
    |
    |  Read the existing package index (if any), apply the packaging-
    |  revision rules (no-op on identical bytes, `--new-revision` for
-   |  changed bytes, resolver metadata unchanged), reject orphaned
-   |  artifacts.
+   |  changed bytes, a resolution-changing respin records the earlier
+   |  revisions' `resolution` and makes the document schema 2), reject
+   |  orphaned artifacts.
    |
    |  Phase 1: write artifact through `atomic-write-file` (sibling
    |           temp + rename)

@@ -122,10 +122,31 @@ pub struct VersionMetadata {
     pub upstream: Option<cabin_core::UpstreamProvenance>,
 }
 
+impl VersionMetadata {
+    /// Give this version the resolution metadata of its revision with
+    /// `checksum`, as a lockfile pinning that revision must see it.  A
+    /// no-op when that revision carries none of its own - it then has
+    /// exactly the version's - or is not listed.
+    pub fn select_revision(&mut self, checksum: &cabin_core::Checksum) {
+        let Some(resolution) = self
+            .revisions
+            .values()
+            .find(|revision| &revision.checksum == checksum)
+            .and_then(|revision| revision.resolution.clone())
+        else {
+            return;
+        };
+        self.dependencies = resolution.dependencies;
+        self.features = resolution.features;
+        self.standards = resolution.standards;
+        self.links = resolution.links;
+    }
+}
+
 /// One packaging revision of a published version: the immutable
 /// `(name, version, revision)` unit's archive identity plus its
-/// publish time.  Resolution never reads these - revisions are
-/// selected at fetch time.
+/// publish time.  A lockfile's `checksum` selects one, for fetching and
+/// (through [`VersionMetadata::select_revision`]) for resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevisionMetadata {
     /// Digest of this revision's archive bytes.  The revision id is
@@ -140,6 +161,21 @@ pub struct RevisionMetadata {
     /// Where this revision's source archive lives, already resolved
     /// by the loader.
     pub source: SourceLocation,
+    /// This revision's resolution metadata when it differs from the
+    /// version's, which belongs to the current revision.  `None` means
+    /// the revision resolves exactly as the version does.
+    pub resolution: Option<ResolutionMetadata>,
+}
+
+/// The metadata resolution reads from a version, recorded per
+/// packaging revision because a respin may change it: the archive's
+/// bytes and the graph resolved from them must always agree.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResolutionMetadata {
+    pub dependencies: BTreeMap<PackageName, IndexPackageDependency>,
+    pub features: cabin_core::Features,
+    pub standards: cabin_core::StandardsMetadata,
+    pub links: BTreeMap<String, String>,
 }
 
 /// One `system = true` dependency entry as it appears in an index

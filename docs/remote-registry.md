@@ -401,9 +401,10 @@ Server-side behavior is part of the contract:
   version published without one (identities are stamped onto already-published versions as packages
   adopt the key - note this retroactively applies to every packaging revision of the version, older
   pinned revisions included, whose archived manifests may predate the declaration), but an existing
-  table can never be changed or removed by a respin.  `cabin publish --registry-dir` rejects a
-  violating respin outright, naming the field that changed; it is a protocol obligation on any
-  registry implementing this contract.
+  table can never be changed or removed by a respin.  A file registry (`cabin publish
+  --registry-dir`) no longer needs this contract: it records each superseded revision's own
+  resolution metadata ([packaging revisions](package-index.md#packaging-revisions)), which this
+  registry's documents do not carry yet.
 - **Recovery.**  A version whose revisions are all **rejected** never became part of the registry,
   so fresh bytes are accepted without the opt-in.  Byte-identical bytes revive the rejected revision
   in place - new metadata, timestamp, and publisher - back to `pending` with a `201`.  The new
