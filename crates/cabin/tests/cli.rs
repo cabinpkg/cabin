@@ -2274,6 +2274,7 @@ mod profiles;
 #[path = "cli/toolchain.rs"]
 mod toolchain;
 
+#[cfg(unix)]
 #[path = "cli/cross_target.rs"]
 mod cross_target;
 

@@ -2,7 +2,6 @@
 
 use super::*;
 
-#[cfg(unix)]
 #[test]
 fn build_target_rejects_a_gcc_that_builds_for_another_machine() {
     use std::os::unix::fs::PermissionsExt;
