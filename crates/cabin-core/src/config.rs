@@ -491,6 +491,9 @@ pub struct BuildConfigurationInput<'a> {
     pub build_flags: ResolvedProfileFlags,
     /// Already-resolved per-package language standards summary.
     pub language: LanguageStandardsSummary,
+    /// The package's targets, for the per-source settings the
+    /// fingerprint covers (`instruction-sets`).
+    pub targets: &'a [crate::Target],
 }
 
 impl BuildConfiguration {
@@ -509,6 +512,7 @@ impl BuildConfiguration {
             toolchain,
             build_flags,
             language,
+            targets,
         } = input;
         let enabled_features = resolve_features(package, features, request)?;
         let fingerprint = compute_fingerprint(
@@ -517,6 +521,7 @@ impl BuildConfiguration {
             &toolchain,
             &build_flags,
             &language,
+            targets,
         );
         Ok(Self {
             enabled_features,
@@ -587,6 +592,7 @@ fn compute_fingerprint(
     toolchain: &ToolchainSummary,
     build_flags: &ResolvedProfileFlags,
     language: &LanguageStandardsSummary,
+    targets: &[crate::Target],
 ) -> String {
     // Hash a stable, line-based serialization rather than JSON so the
     // fingerprint is independent of serialiser whitespace choices.
@@ -699,7 +705,19 @@ fn compute_fingerprint(
         hasher.update(line.as_bytes());
         hasher.update(b"\n");
     }
+    hash_instruction_sets(&mut hasher, targets);
     crate::hash::hex_digest(&hasher.finalize())
+}
+
+fn hash_instruction_sets(hasher: &mut Sha256, targets: &[crate::Target]) {
+    hasher.update(b"instruction-sets\n");
+    for target in targets {
+        for (source, sets) in &target.instruction_sets {
+            let sets: Vec<_> = sets.iter().map(|set| set.as_str()).collect();
+            let line = format!("{}:{source}={}\n", target.name.as_str(), sets.join(","));
+            hasher.update(line.as_bytes());
+        }
+    }
 }
 
 /// Identifier grammar for feature names.
@@ -866,6 +884,7 @@ mod tests {
         );
         f.validate().unwrap();
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &SelectionRequest::default(),
@@ -884,6 +903,7 @@ mod tests {
         let f = feats(&["simd"], &[("simd", &[]), ("ssl", &[])]);
         f.validate().unwrap();
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &SelectionRequest {
@@ -906,6 +926,7 @@ mod tests {
         let mut req = SelectionRequest::default();
         req.features.insert("ssl".into());
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &req,
@@ -924,6 +945,7 @@ mod tests {
         let f = feats(&[], &[("simd", &[]), ("ssl", &[])]);
         f.validate().unwrap();
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &SelectionRequest {
@@ -946,6 +968,7 @@ mod tests {
         let mut req = SelectionRequest::default();
         req.features.insert("missing".into());
         match BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &req,
@@ -966,6 +989,7 @@ mod tests {
         let f = feats(&["simd"], &[("simd", &[]), ("ssl", &[])]);
         f.validate().unwrap();
         let cfg1 = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &SelectionRequest::default(),
@@ -976,6 +1000,7 @@ mod tests {
         })
         .unwrap();
         let cfg2 = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &SelectionRequest::default(),
@@ -995,6 +1020,7 @@ mod tests {
         f.validate().unwrap();
         let mut req = SelectionRequest::default();
         let cfg_empty = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &req,
@@ -1006,6 +1032,7 @@ mod tests {
         .unwrap();
         req.features.insert("simd".into());
         let cfg_simd = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &f,
             request: &req,
@@ -1023,6 +1050,7 @@ mod tests {
     /// - used for the fingerprint-input regression tests below.
     fn resolve_with_flags(flags: ResolvedProfileFlags) -> BuildConfiguration {
         BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1039,6 +1067,7 @@ mod tests {
     /// default.
     fn resolve_with_language(language: LanguageStandardsSummary) -> BuildConfiguration {
         BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1337,6 +1366,44 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_differs_when_instruction_sets_change() {
+        use crate::{InstructionSet, TargetKind, TargetName};
+        let resolve = |sets: Vec<InstructionSet>| {
+            let target = crate::Target {
+                name: TargetName::new("sum").unwrap(),
+                kind: TargetKind::Library,
+                sources: vec![Utf8PathBuf::from("src/sum_simd.c")],
+                include_dirs: Vec::new(),
+                defines: Vec::new(),
+                deps: Vec::new(),
+                required_features: Vec::new(),
+                language: crate::LanguageStandardSettings::default(),
+                links: None,
+                interface_defines: Vec::new(),
+                conditional_sources: Vec::new(),
+                instruction_sets: BTreeMap::from([(Utf8PathBuf::from("src/sum_simd.c"), sets)]),
+            };
+            BuildConfiguration::resolve(BuildConfigurationInput {
+                package: "demo",
+                features: &Features::default(),
+                request: &SelectionRequest::default(),
+                profile: dev(),
+                toolchain: ToolchainSummary::default(),
+                build_flags: ResolvedProfileFlags::default(),
+                language: LanguageStandardsSummary::default(),
+                targets: &[target],
+            })
+            .unwrap()
+            .fingerprint
+        };
+        assert_ne!(
+            resolve(vec![InstructionSet::Sse41]),
+            resolve(vec![InstructionSet::Avx2])
+        );
+        assert_ne!(resolve(Vec::new()), resolve(vec![InstructionSet::Avx2]));
+    }
+
+    #[test]
     fn fingerprint_is_stable_for_same_build_flags() {
         // Determinism: identical inputs produce identical
         // fingerprints.  The fingerprint serialiser sorts every
@@ -1373,6 +1440,7 @@ mod tests {
     #[test]
     fn fingerprint_differs_when_profile_changes() {
         let dev_cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1383,6 +1451,7 @@ mod tests {
         })
         .unwrap();
         let release_cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1405,6 +1474,7 @@ mod tests {
         let mut tc_b = ToolchainSummary::default();
         tc_b.tools.insert("cxx".to_owned(), "clang++".to_owned());
         let cfg_a = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1415,6 +1485,7 @@ mod tests {
         })
         .unwrap();
         let cfg_b = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1440,6 +1511,7 @@ mod tests {
             ..ToolchainSummary::default()
         };
         let cfg_a = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1450,6 +1522,7 @@ mod tests {
         })
         .unwrap();
         let cfg_b = BuildConfiguration::resolve(BuildConfigurationInput {
+            targets: &[],
             package: "demo",
             features: &Features::default(),
             request: &SelectionRequest::default(),
@@ -1466,6 +1539,7 @@ mod tests {
     fn as_json_renders_compiler_wrapper_summary() {
         let wrapper_json = |compiler_wrapper| {
             let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
+                targets: &[],
                 package: "demo",
                 features: &Features::default(),
                 request: &SelectionRequest::default(),

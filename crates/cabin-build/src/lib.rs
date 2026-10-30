@@ -46,7 +46,7 @@ pub use standard_compat::{
     ClashingBound, DeclScope, DeclSite, EdgeRequirement, RequirementOrigin, StandardCompatViolation,
 };
 pub use validate::{
-    RequestedStandards, collect_requested_standards, msvc_external_includes_supported,
-    requested_standards_of, validate_planned_standards, validate_toolchain_for_backend,
-    validate_toolchain_standards,
+    RequestedStandards, clang_cl_languages, collect_requested_standards,
+    msvc_external_includes_supported, requested_standards_of, validate_planned_standards,
+    validate_toolchain_for_backend, validate_toolchain_standards,
 };

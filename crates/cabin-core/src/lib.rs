@@ -80,8 +80,8 @@ pub use language_standard::{
     interface_c, interface_cxx, parse_interface_c, parse_interface_cxx, resolve_language_standards,
 };
 pub use model::{
-    ConditionalSources, Dependency, DependencyKind, DependencySource, Package, PackageConfigInput,
-    PackageName, SystemDependency, Target, TargetDep, TargetKind, TargetName,
+    ConditionalSources, Dependency, DependencyKind, DependencySource, InstructionSet, Package,
+    PackageConfigInput, PackageName, SystemDependency, Target, TargetDep, TargetKind, TargetName,
     WorkspaceDepRequirements, is_path_safe_name, is_valid_interface_define,
     is_valid_package_base_name, is_valid_package_scope, validate_links_identity,
     validate_system_dependency_name,

@@ -378,6 +378,7 @@ mod tests {
             links: None,
             interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
+            instruction_sets: std::collections::BTreeMap::new(),
         }
     }
 

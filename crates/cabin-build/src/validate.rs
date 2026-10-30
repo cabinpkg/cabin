@@ -354,6 +354,21 @@ pub fn msvc_external_includes_supported(
     cxx_ok && cc_ok
 }
 
+/// The languages whose detected compiler is `clang-cl`, for
+/// [`crate::PlanRequest::clang_cl`].
+#[must_use]
+pub fn clang_cl_languages(report: &ToolchainDetectionReport) -> Vec<SourceLanguage> {
+    let cc = report.cc.as_ref().map(|cc| cc.identity.kind);
+    [
+        (SourceLanguage::C, cc),
+        (SourceLanguage::Cxx, Some(report.cxx.identity.kind)),
+    ]
+    .into_iter()
+    .filter(|(_, kind)| *kind == Some(cabin_core::CompilerKind::ClangCl))
+    .map(|(language, _)| language)
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,6 +673,7 @@ mod tests {
                 links: None,
                 interface_defines: Vec::new(),
                 conditional_sources: Vec::new(),
+                instruction_sets: std::collections::BTreeMap::new(),
             };
             let package = Package::new(
                 PackageName::new(name).unwrap(),
@@ -734,6 +750,7 @@ mod tests {
             links: None,
             interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
+            instruction_sets: std::collections::BTreeMap::new(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),

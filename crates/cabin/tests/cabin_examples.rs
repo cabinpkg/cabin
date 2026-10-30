@@ -130,6 +130,37 @@ fn assembly_builds_and_runs() {
 }
 
 #[test]
+fn simd_dispatch_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("simd-dispatch");
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    // GCC and Clang reject the SSE4.1 source without `-msse4.1`; `cl.exe`
+    // takes it without a flag.  An x86 host with SSE4.1 runs that
+    // variant, and other hosts never compile it.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    let variant = if std::arch::is_x86_feature_detected!("sse4.1") {
+        "sse4.1"
+    } else {
+        "generic"
+    };
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    let variant = "generic";
+    assert!(
+        stdout.contains(&format!("max = 42 ({variant})")),
+        "simd-dispatch run: stdout = {stdout}"
+    );
+}
+
+#[test]
 fn platform_cfg_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("platform-cfg");

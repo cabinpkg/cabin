@@ -715,6 +715,45 @@ pub struct Target {
     /// table names, in manifest order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditional_sources: Vec<ConditionalSources>,
+    /// Instruction sets one of the target's C or C++ sources, keyed by
+    /// its declared path, may use beyond the platform baseline.  They
+    /// reach that source's compile only, never its siblings or
+    /// consumers, so the code that uses them must sit behind a runtime
+    /// CPU check.  `Package` validation requires each key to name a
+    /// declared C or C++ source.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub instruction_sets: BTreeMap<Utf8PathBuf, Vec<InstructionSet>>,
+}
+
+/// An x86 instruction-set extension a source may use beyond the
+/// platform baseline.  Each name is the GCC/Clang feature flag's
+/// (`-m<name>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstructionSet {
+    Sse2,
+    Sse3,
+    Ssse3,
+    #[serde(rename = "sse4.1")]
+    Sse41,
+    #[serde(rename = "sse4.2")]
+    Sse42,
+    Avx,
+    Avx2,
+}
+
+impl InstructionSet {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InstructionSet::Sse2 => "sse2",
+            InstructionSet::Sse3 => "sse3",
+            InstructionSet::Ssse3 => "ssse3",
+            InstructionSet::Sse41 => "sse4.1",
+            InstructionSet::Sse42 => "sse4.2",
+            InstructionSet::Avx => "avx",
+            InstructionSet::Avx2 => "avx2",
+        }
+    }
 }
 
 /// One `[target.'cfg(...)'.sources]` entry: sources a target compiles
@@ -1302,6 +1341,17 @@ impl Package {
                 ));
             }
             validate_target_include_dirs(target)?;
+            if let Some(path) = target.instruction_sets.keys().find(|path| {
+                crate::classify_source(path).is_none()
+                    || !target
+                        .declared_sources()
+                        .any(|source| source.as_str() == path.as_str())
+            }) {
+                return Err(ValidationError::InstructionSetsForUnknownSource {
+                    target: target.name.as_str().to_owned(),
+                    path: path.clone(),
+                });
+            }
         }
         let mut claimed: BTreeMap<&str, &str> = BTreeMap::new();
         for target in targets {
@@ -1410,6 +1460,7 @@ mod tests {
             links: None,
             interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
+            instruction_sets: BTreeMap::new(),
         }
     }
 
@@ -1497,6 +1548,30 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(bad_value, ValidationError::InvalidLinksValue(_)));
+    }
+
+    #[test]
+    fn instruction_sets_must_key_a_c_or_cxx_source() {
+        let with_sets = |path: &str| {
+            let mut t = target("lib", TargetKind::Library, &[]);
+            t.sources = vec!["src/lib.c".into(), "src/start.S".into()];
+            t.conditional_sources = vec![ConditionalSources {
+                condition: Condition::parse_cfg("cfg(arch = \"x86_64\")").unwrap(),
+                sources: vec!["src/lib_avx2.c".into()],
+            }];
+            t.instruction_sets = BTreeMap::from([(path.into(), vec![InstructionSet::Avx2])]);
+            Package::new(pkg("demo"), version(), vec![t], Vec::new())
+        };
+        assert!(with_sets("src/lib.c").is_ok());
+        assert!(with_sets("src/lib_avx2.c").is_ok());
+        for path in ["src/missing.c", "src/start.S", "src\\lib.c"] {
+            let err = with_sets(path).unwrap_err();
+            assert!(
+                matches!(&err, ValidationError::InstructionSetsForUnknownSource { target, path: p }
+                    if target == "lib" && p == path),
+                "expected InstructionSetsForUnknownSource for {path}, got {err:?}"
+            );
+        }
     }
 
     #[test]

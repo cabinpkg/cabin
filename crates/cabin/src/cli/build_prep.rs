@@ -614,6 +614,7 @@ pub(crate) fn plan_prepared(
             &prepared.detection_report,
             prepared.approx_standards.has_c_sources(),
         ),
+        clang_cl: cabin_build::clang_cl_languages(&prepared.detection_report),
         enabled_features: Some(&prepared.enabled_features),
         standard_compat: true,
     })?;
@@ -991,6 +992,7 @@ pub(crate) fn resolve_build_configurations(
             toolchain: toolchain.clone(),
             build_flags: pkg_flags,
             language: cabin_core::LanguageStandardsSummary::from_package(&pkg.package),
+            targets: &pkg.package.targets,
         })
         .with_context(|| {
             format!(

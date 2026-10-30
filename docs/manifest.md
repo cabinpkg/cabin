@@ -135,6 +135,7 @@ from, and looser than, the package-name grammar.
 | `interface-cxx-standard` | string or `{ min, max }` table | no | effective `cxx-standard` | C++ interface requirement; same forms as the C field; `library` / `header-only` only. |
 | `gnu-extensions` | boolean | no | package value, else `false` | Per-target GNU-extensions dialect override. |
 | `links` | string | no | - | Native-library identity this target claims, e.g. `"z"` for a target embodying zlib; `library` only.  See [`links`](#links). |
+| `instruction-sets` | table | no | `{}` | x86 instruction sets one of this target's C or C++ sources may use beyond the platform baseline, keyed by its path: `{ "src/sum_avx2.c" = ["avx2"] }`.  See [Per-source instruction sets](targets.md#per-source-instruction-sets). |
 
 `include-dirs` of a `library` or `header-only` target apply to its own compiles and, with its
 `interface-defines`, to every target that depends on it - transitively only along public edges

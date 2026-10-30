@@ -1,0 +1,23 @@
+[package]
+name = "simd-dispatch"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.simd-dispatch]
+type = "executable"
+sources = ["src/main.c"]
+
+# The SSE4.1 variant exists only on x86, where src/main.c calls it
+# after checking the CPU.  The define comes from the same condition as
+# the source, so the call and the definition always agree.
+[target.'cfg(any(arch = "x86", arch = "x86_64"))'.sources]
+simd-dispatch = ["src/max_sse41.c"]
+
+[target.'cfg(any(arch = "x86", arch = "x86_64"))'.profile]
+defines = ["HAVE_SSE41_VARIANT"]
+
+# Only this source compiles with SSE4.1 (`-msse4.1`; `cl.exe` needs no
+# flag), so src/main.c stays on the baseline and still runs on a CPU
+# without it.
+[target.simd-dispatch.instruction-sets]
+"src/max_sse41.c" = ["sse4.1"]
