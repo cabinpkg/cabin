@@ -65,7 +65,7 @@ crates/
   cabin-registry-api/ remote registry API client (publish / yank, -Z remote-registry)
   cabin-registry-verify/ hosted-registry archive verifier (verification lifecycle)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
-  cabin-test/        test-target plan + sequential runner
+  cabin-test/        test-target plan + runner
   cabin-explain/     typed model for `cabin tree` / `cabin explain`
   cabin-fs/          shared low-level filesystem helpers
   cabin-diagnostics/ user-facing diagnostic presentation + miette rendering boundary
@@ -861,15 +861,17 @@ dialect-agnostic.  The crate must:
 
 ### `cabin-test`
 
-Owns the test plan and the sequential test runner used by `cabin test`.  Given a finished
+Owns the test plan and the test runner used by `cabin test`.  Given a finished
 [`cabin_build::BuildGraph`] and the originating [`cabin_workspace::PackageGraph`], it:
 
 - builds a deterministic [`cabin_test::TestPlan`] of every `test` target whose linked executable
   appears in the graph's default outputs;
-- runs each executable sequentially via [`cabin_test::run_tests`], capturing stdout / stderr through
-  a [`cabin_test::TestOutputSink`] trait;
+- runs the executables via [`cabin_test::run_tests`], up to a requested number at once with an
+  optional per-test timeout, capturing stdout / stderr through a [`cabin_test::TestOutputSink`]
+  trait; a test that fails, times out, or cannot start is a per-test status, and the runner kills
+  the tests still running when it fails itself;
 - returns a typed [`cabin_test::TestSummary`] (totals, per-test status) plus stable rendering
-  helpers (`render_summary_line`, `render_result_line`, `render_running_line`).
+  helpers (`render_summary_line`, `render_result_line`, `render_epilogue`).
 
 The crate must:
 
@@ -877,8 +879,7 @@ The crate must:
 - not generate Ninja or invoke `ninja`;
 - not know about config / patches / source replacement;
 - not introduce in-binary test discovery or test-framework output parsing - documented limitations
-  of the current model.  Running test executables concurrently is planned for capability roadmap
-  stage 11.
+  of the current model.
 
 `cabin/src/cli/test.rs` orchestrates `cabin test` by driving the existing build pipeline and handing
 the resulting `BuildGraph` to this crate.

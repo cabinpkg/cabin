@@ -280,5 +280,4 @@ The test surface is intentionally small:
 - no XML / JUnit output;
 - no `cabin run --example`, and no single-example selector on `cabin build`; `example` targets only
   reach the build graph as a transitive dep of another selected target;
-- no automatic `tests/` / `examples/` discovery;
-- no parallel test execution.
+- no automatic `tests/` / `examples/` discovery.

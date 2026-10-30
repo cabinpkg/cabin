@@ -29,6 +29,8 @@ cabin test --test a --test b         # several named test targets
 cabin test --release                 # compile with the release profile
 cabin test --features simd          # forward features to the test build
 cabin test -- --gtest_filter='Suite.*'  # pass arguments to every test executable
+cabin test --test-jobs 4             # run up to four test executables at once
+cabin test --test-timeout 60         # kill a test still running after 60 seconds
 ```
 
 `--test <NAME>` runs individual `test` targets, mirroring `cargo test --test <name>`.  The flag may
@@ -45,7 +47,7 @@ out the missing features.  When *every* declared test is gated off, `cabin test`
 error naming the gated targets (or, under `--allow-no-tests`, reports the filtered-out count) so
 the outcome stays distinguishable from a package with no tests at all.
 
-`cabin test` shares its core flags with `cabin build`: `--profile`, `--release`, `--features`,
+`cabin test` shares its core flags with `cabin build`: `-j` / `--jobs`, `--profile`, `--release`, `--features`,
 `--no-default-features`, `--all-features`, `--locked`, `--frozen`, `--no-patches`, the toolchain
 overrides (`--cc` / `--cxx` / `--ar` / `--compiler-wrapper`), the workspace-selection bundle
 (`--workspace` / `-p` / `--default-members` / `--exclude`), and the index/cache locations
@@ -73,6 +75,24 @@ Without `--`, a bare argument is rejected rather than taken as a test filter.  T
 every selected executable, so combine a framework-specific option with `--test <NAME>` when the
 selection mixes frameworks.
 
+## Concurrency and timeouts
+
+`--test-jobs <N>` runs up to `N` test executables at once; the default is `1`, one after another.
+Tests run in their package's directory and may share fixture files there, so raise it once the
+tests are independent of each other.  It is separate from `-j` / `--jobs`, which limits the build
+exactly as for [`cabin build`](environment-variables.md#build-jobs-cabin_build_jobs-and---jobs),
+including the `CABIN_BUILD_JOBS` and `[build] jobs` fallbacks.  Every selected test runs, whatever
+the others do.
+
+`--test-timeout <SECONDS>` kills a test executable still running after that many seconds and
+reports it as failed.  Only the test process itself is killed; processes it started are not
+tracked.  Once a test exits, Cabin waits at most a second for its output to close: if a process the
+test started still holds its stdout or stderr, Cabin stops reading, and output written after that
+is not shown.
+
+Interrupting `cabin test` (Ctrl-C) stops it without a summary.  The interrupt also reaches the
+running tests, which share the terminal with Cabin.
+
 ## Output and exit status
 
 The status lines mirror `cargo test`'s shape.  A run prints the `running N tests` header, one result
@@ -92,15 +112,23 @@ in the selected packages that the invocation deselected via `--test <NAME>` or s
 their [`required-features`](features.md#feature-gated-targets) are not enabled.  `finished in` is
 the wall-clock time of the test run (the build is not included).
 
-A test executable's stdout / stderr stream live while it runs, prefixed by `---- stdout:
-<pkg>:<target> ----` / `---- stderr: <pkg>:<target> ----` headers.  Unlike `cargo test`, output is
-not buffered until the end of the run.
+A test executable's stdout / stderr appear under `---- stdout: <pkg>:<target> ----` / `----
+stderr: <pkg>:<target> ----` headers.  With `--test-jobs 1` they stream live while the test runs;
+unlike `cargo test`, output is not buffered until the end of the run.  With more test jobs, each
+executable's output is printed in one piece when it finishes, just before its result line, so
+output from concurrent tests never interleaves.  Result lines appear in the order tests finish.
 
-A failed test exits non-zero; Cabin records the exit code and writes:
+A test that does not pass is reported with the reason:
 
 ```
 test <pkg>:<target> ... FAILED (exit 17)
+test <pkg>:<target> ... FAILED (terminated by signal 11)
+test <pkg>:<target> ... FAILED (timed out after 60s)
+test <pkg>:<target> ... FAILED (could not start: Permission denied (os error 13))
 ```
+
+Signals are reported on Unix only.  A result line ends in `(output cut off)` when Cabin stopped
+reading output that a leftover process held open (see [timeouts](#concurrency-and-timeouts)).
 
 If any test fails, `cabin test` itself exits non-zero.  A `failures:` recap lists the failed test
 names before the summary, followed by the top-level error on stderr:
@@ -113,23 +141,24 @@ test result: FAILED. P passed; F failed; 0 ignored; 0 measured; FO filtered out;
 error: test failures: F of N test executables failed
 ```
 
-A test killed by a signal renders as `FAILED (terminated by signal)`.
-
 ## Working directory and environment
 
 Each test executable runs with its working directory set to the **owning package's manifest
 directory**.  Tests that read fixture data from paths relative to the package root therefore see the
 same files in CI and on a developer's machine.
 
-The environment the test inherits is the same as `cabin test`'s own, plus the deterministic
+The environment the test inherits is the same as `cabin test`'s own, without the registry
+credentials (`CABIN_REGISTRY_TOKEN`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`) and plus the deterministic
 `CABIN_*` package-execution overlay (manifest dir / path, package name / version, profile, build
 dir) documented in [`environment-variables.md`](environment-variables.md).  Cabin does not set
 test-framework-specific variables; if you need a particular variable, set it in the parent process.
+Standard input is empty: tests that run at the same time cannot share a terminal.
 
 ## Determinism
 
-Test ordering is `(package_name, target_name)` ascending, regardless of the order targets appear in
-`cabin.toml`.  The runner is sequential: each test runs to completion before the next starts.
+Tests start in `(package_name, target_name)` ascending order, regardless of the order targets appear
+in `cabin.toml`, and the `failures:` recap uses the same order.  With `--test-jobs 1` each test runs
+to completion before the next starts.
 
 ## Dev-dependencies
 

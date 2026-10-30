@@ -133,22 +133,43 @@ fn build_without_jobs_does_not_pass_dash_j() {
 }
 
 #[test]
-fn test_rejects_jobs_flag() {
-    // `cabin test` does not accept `--jobs` (or `-j`): the
-    // test runner is sequential, so exposing the flag would
-    // mislead users into expecting parallel test execution.
-    let dir = TempDir::new().unwrap();
-    write_minimal_project(dir.path());
-    let assertion = cabin()
-        .current_dir(dir.path())
-        .args(["test", "--jobs", "2"])
-        .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
-    assert!(
-        stderr.contains("unexpected argument") && stderr.contains("--jobs"),
-        "expected `unexpected argument '--jobs'` error, got: {stderr}"
-    );
+fn test_jobs_flag_reaches_ninja_and_not_the_tests() {
+    // `cabin test -j 3` limits the build like `cabin build -j 3`;
+    // the same flag after `--` belongs to the test executables.
+    // The fake ninja builds nothing, so the run itself fails; only
+    // what reached ninja matters here.
+    for (args, expected) in [
+        (&["test", "-j", "3"][..], Some("-j3")),
+        (&["test", "--", "-j", "3"][..], None),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let record = dir.path().join("ninja.log");
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.hello_test]
+type = "test"
+sources = ["tests/hello_test.cc"]
+"#,
+            )
+            .unwrap();
+        dir.child("tests/hello_test.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        let _ = cabin_with_fake_ninja(&record)
+            .current_dir(dir.path())
+            .args(args)
+            .assert()
+            .failure();
+        let invocations = read_ninja_argvs(&record);
+        assert_eq!(invocations.len(), 1, "{args:?}");
+        let jobs = invocations[0].iter().find(|arg| arg.starts_with("-j"));
+        assert_eq!(jobs.map(String::as_str), expected, "{args:?}");
+    }
 }
 
 #[test]
