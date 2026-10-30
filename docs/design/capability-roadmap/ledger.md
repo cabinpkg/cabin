@@ -124,8 +124,10 @@ Stage 02; consumed by 06, 08, 09, 10; validated in 12-14.
   defining one macro differently fail the build with both paths, recorded per compile so
   `cabin check` prunes a dependency's conflict.  `defines` on a `header-only` target is a manifest
   error.
-- The final link takes the archives of the whole transitive closure, private edges included
-  (`collect_link_libs`), plus package-level `link-libs` (`collect_link_lib_names`).
+- The final link takes the archives of the whole transitive closure, private edges included, in
+  dependency-graph order (`collect_link_libs`), then package-level `link-libs` and Apple
+  `frameworks` (Apple platforms only) in the same package order, a name two packages list
+  repeated except on Apple platforms (`collect_link_names`).
 - Registry packages' raw `cflags` / `cxxflags` / `ldflags` are dropped
   (`cabin-core/src/build_flags.rs`, `apply_package_layer`).
 - Implemented and not missing: C and C++ as separate languages with separate standards; target
@@ -391,8 +393,6 @@ Statements that stay true until a stage changes the behavior, and that stage mus
 
 - `--target` rejection tests in `cabin/tests/cli.rs` and `cabin/tests/cli/test_targets.rs`
   (stage 04).
-- The `docs/architecture.md` C++ semantic invariant on link interfaces (stage 02; the edge
-  visibility and include-directory statements were updated in stage 02).
 - [Target dependencies](target-dependencies.md#evaluation-context) on host-only evaluation and the
   lockfile (stage 04).
 - [Dependency kinds](dependency-kinds.md) listing two kinds (stage 04).
@@ -414,7 +414,7 @@ change expected to fix them.
 | `docs/architecture.md` C++ semantic invariants | system-dependency flags "are wired into consumers that link the producing target"; a header-only link interface is "include-dir + system deps" | primary packages only; `--libs` reaches the declaring package's own links; `link-libs` is what propagates | fixed (wording); behavior is stage 06 |
 | [Manifest](manifest.md#edge-visibility), `cabin-core` `TargetDep` doc | `public` "does not change how anything builds"; consumed by nothing | it drives the post-resolution standard check | fixed in stage 02 |
 | [Standard-compatibility spec](design/standard-compatibility/spec.md) D5 | a private edge does not expose the dependency to the consumer's own consumers | include directories follow private edges to every transitive consumer | fixed in stage 02 (the code now follows D5) |
-| [Profiles](profiles.md), `build_flags.rs` | `link-libs` belong to a target's objects | collected per package | stage 02 |
+| [Profiles](profiles.md), `build_flags.rs` | `link-libs` belong to a target's objects | collected per package | fixed in stage 02 (docs say per package) |
 | [Targets](targets.md), `TargetKind` doc | a `library` is a `.a` archive | `<name>.lib` on MSVC | stage 08 |
 | [Target dependencies](target-dependencies.md) | `cfg(env = "musl")` example; `target` documented as a triple in `condition.rs` | `env` always follows the OS; `target` is `<arch>-<family>-<os>` | stage 04 |
 | [Toolchains](toolchains.md), [compiler cache](compiler-cache.md), architecture | the wrapper's `source` is fingerprinted | only kind, spec, and version are hashed | stage 04 (fingerprint completeness) |
@@ -462,6 +462,14 @@ own sources, not through the producer's headers: `libpng` -> `zlib` stays privat
 not include `zlib.h`), and the `libpng-usage` example now declares the `zlib` it includes;
 `boost-iostreams` -> `zlib` is the only other private port edge.  No port changed.
 
+Stage 02, second change: the final link orders `link-libs` by the dependency graph, as its
+archives already were, instead of a stack walk that put a sibling-reached dependency's libraries
+first; first-occurrence deduplication, which could move a library ahead of one that needs it, now
+applies to Apple links only, whose linker resolves in any order (a reversed `-l` order links on
+macOS; a repeated `-l` warns).  Typed `frameworks` join every flag layer, kept for
+registry packages like `link-libs` and ignored off Apple.  No linker groups: the target graph is
+acyclic.
+
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
 for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
@@ -473,7 +481,11 @@ stage 12 validates.  Stage 02, first change: planner tests for private and publi
 chains and diamonds, definition conflicts (both paths, escaping, check pruning), own-define
 override, and the visible set feeding the build-time standard check; manifest tests for the
 `interface-defines` grammar and kinds; the `libpng-usage` and `png-info` examples built and run;
-`cargo ci` on macOS.
+`cargo ci` on macOS.  Stage 02, second change: planner tests for link order through a private
+diamond edge and a multi-target package, repetition, Apple deduplication, and frameworks on Apple
+and elsewhere, each shown to fail when the rule it covers is broken; lowering, manifest,
+flag-layer, and fingerprint tests; a CoreFoundation consumer built and run on macOS (arm64)
+through a path dependency's `frameworks`, which fails to link without it.  Not run: iOS.
 
 **Unfinished.**  Stages 02-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
@@ -484,11 +496,11 @@ missing from their configuration report; `tree` and `explain package` filter by 
 not by edge, so a disabled optional edge onto a package another edge includes still shows; over
 sparse HTTP, each optional dependency a feature enables costs one fetch round and re-solve.
 
-Stage 02 remaining, in order: graph-ordered `link-libs` with repetition kept and typed
-`frameworks`; per-source instruction sets; the Boost ports (`stacktrace` and `contract` interface
-definitions, `atomic` and `log` ISA sources).  Follow-ups found so far: a missing-header link
-diagnostic does not suggest a public edge or a direct dependency; the `libpng` port's comment
-claims `png.h` includes `zlib.h`, a comment-only packaging-revision correction for a later respin.
+Stage 02 remaining, in order: per-source instruction sets; the Boost ports (`stacktrace` and
+`contract` interface definitions, `atomic` and `log` ISA sources).  Follow-ups found so far: a
+missing-header link diagnostic does not suggest a public edge or a direct dependency; the `libpng`
+port's comment claims `png.h` includes `zlib.h`, a comment-only packaging-revision correction for a
+later respin.
 
 ## Handoff to stage 02
 

@@ -181,6 +181,10 @@ pub struct LinkAction {
     /// line.  Kept separate from `arguments` (raw `ldflags`) precisely so
     /// the dialect layer owns the spelling rather than the planner.
     pub link_libs: Vec<String>,
+    /// Apple frameworks to link, as bare names, lowered to
+    /// `-framework <name>` after `link_libs`.  The planner fills it
+    /// only for Apple platforms, which MSVC never targets.
+    pub frameworks: Vec<String>,
     /// Human-readable description (`LINK app`).
     pub description: String,
 }

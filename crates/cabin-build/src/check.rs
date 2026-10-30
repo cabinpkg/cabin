@@ -157,6 +157,7 @@ mod tests {
             inputs: vec![Utf8PathBuf::from(object_input)],
             arguments: vec![],
             link_libs: vec![],
+            frameworks: vec![],
             description: format!("LINK {exe}"),
         })
     }

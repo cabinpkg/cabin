@@ -256,7 +256,8 @@ fn validate_named_overlay_fields(
     let table = named_overlay_table(raw_target_name, profile);
     for field in fields.keys() {
         match field.as_str() {
-            "defines" | "include-dirs" | "cflags" | "cxxflags" | "ldflags" | "link-libs" => {}
+            "defines" | "include-dirs" | "cflags" | "cxxflags" | "ldflags" | "link-libs"
+            | "frameworks" => {}
             "inherits" => {
                 return Err(ManifestError::NamedTargetProfileInherits {
                     table,

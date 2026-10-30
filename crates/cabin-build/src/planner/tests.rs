@@ -2520,6 +2520,128 @@ fn link_libs_propagate_to_consumer_link_after_archives() {
     );
 }
 
+/// `app` -> `a` and `app` -> `b`, with `a` -> `b` privately, planned
+/// with the given per-package flags (`b` is package 0, `a` 1).
+fn plan_link_diamond(
+    b: ResolvedProfileFlags,
+    a: ResolvedProfileFlags,
+    os: &str,
+) -> Result<BuildGraph, BuildError> {
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c"],
+            &["a", "b"],
+        )],
+        vec![dep("a", "../a"), dep("b", "../b")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("b", "/abs/b", edged_library("b", &[]), vec![]),
+            make_pkg("a", "/abs/a", edged_library("a", &[("b", false)]), vec![0]),
+            make_pkg("app", "/abs/app", app, vec![1, 0]),
+        ],
+        vec![2],
+        Some(2),
+    );
+    let tc = toolchain_with_cc();
+    let flags = HashMap::from([(0, b), (1, a)]);
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_flags = &flags;
+    req.platform.os = os.to_owned();
+    plan(&req)
+}
+
+fn link_libs(names: &[&str]) -> ResolvedProfileFlags {
+    ResolvedProfileFlags {
+        link_libs: names.iter().map(|n| (*n).to_owned()).collect(),
+        ..Default::default()
+    }
+}
+
+/// System libraries follow the link order, dependents first, even when
+/// a sibling edge reaches the dependency first; a name two packages
+/// list repeats, since a left-to-right linker needs it after both.
+#[test]
+fn link_libs_follow_link_order() {
+    let bg = plan_link_diamond(link_libs(&["z", "x"]), link_libs(&["x", "y"]), "linux").unwrap();
+    let link = link_action(&bg);
+    let archives: Vec<_> = link.inputs.iter().filter_map(|p| p.file_name()).collect();
+    assert_eq!(archives, ["main.c.o", "liba.a", "libb.a"]);
+    assert_eq!(link.link_libs, ["x", "y", "z", "x"]);
+}
+
+/// Apple's linker resolves archives in any order and warns on a
+/// repeated `-l`, so its links name each library once.
+#[test]
+fn apple_links_name_each_library_once() {
+    let bg = plan_link_diamond(link_libs(&["z", "x"]), link_libs(&["x", "y"]), "macos").unwrap();
+    assert_eq!(link_action(&bg).link_libs, ["x", "y", "z"]);
+}
+
+/// A package's libraries follow every package its linked targets
+/// depend on, even when another of its targets is reached first.
+#[test]
+fn link_libs_order_packages_by_their_linked_targets() {
+    // `app` -> [`a`, `b:extra`]; `a` -> `b:core`.
+    let mut a = target("a", TargetKind::Library, &["src/a.c"], &["b:core"]);
+    a.deps[0].public = false;
+    let a = Package::new(pkg_name("a"), version(), vec![a], vec![dep("b", "../b")]).unwrap();
+    let b = Package::new(
+        pkg_name("b"),
+        version(),
+        vec![
+            target("core", TargetKind::Library, &["src/core.c"], &[]),
+            target("extra", TargetKind::Library, &["src/extra.c"], &[]),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c"],
+            &["a", "b:extra"],
+        )],
+        vec![dep("a", "../a"), dep("b", "../b")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("b", "/abs/b", b, vec![]),
+            make_pkg("a", "/abs/a", a, vec![0]),
+            make_pkg("app", "/abs/app", app, vec![1, 0]),
+        ],
+        vec![2],
+        Some(2),
+    );
+    let tc = toolchain_with_cc();
+    let flags = HashMap::from([(0, link_libs(&["crypto"])), (1, link_libs(&["ssl"]))]);
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_flags = &flags;
+    let bg = plan(&req).unwrap();
+    assert_eq!(link_action(&bg).link_libs, ["ssl", "crypto"]);
+}
+
+#[test]
+fn frameworks_reach_apple_links_only() {
+    let framework = || ResolvedProfileFlags {
+        frameworks: vec!["CoreFoundation".to_owned()],
+        ..Default::default()
+    };
+    let bg = plan_link_diamond(framework(), ResolvedProfileFlags::default(), "macos").unwrap();
+    assert_eq!(link_action(&bg).frameworks, ["CoreFoundation"]);
+    let bg = plan_link_diamond(framework(), ResolvedProfileFlags::default(), "linux").unwrap();
+    assert!(link_action(&bg).frameworks.is_empty());
+}
+
 #[test]
 fn qualified_target_selector_picks_specific_target() {
     let greet_proj = Package::new(

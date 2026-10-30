@@ -118,6 +118,8 @@ pub(crate) struct RawProfileTable {
     pub(crate) ldflags: Vec<String>,
     #[serde(default, rename = "link-libs")]
     pub(crate) link_libs: Vec<String>,
+    #[serde(default)]
+    pub(crate) frameworks: Vec<String>,
     /// Named profile variants (`[profile.dev]`, `[profile.release]`,
     /// any custom name).  Captured as a map so the parser can
     /// validate inheritance chains and merge against the base
@@ -143,6 +145,8 @@ pub(crate) struct RawProfileFlags {
     pub(crate) ldflags: Vec<String>,
     #[serde(default, rename = "link-libs")]
     pub(crate) link_libs: Vec<String>,
+    #[serde(default)]
+    pub(crate) frameworks: Vec<String>,
 }
 
 /// One row in the `[patch]` table.  The only supported source
@@ -163,8 +167,9 @@ pub(crate) struct RawPatch {
 /// keys do not silently slip through.
 ///
 /// Flag fields (`cflags`, `cxxflags`, `ldflags`, `defines`,
-/// `include-dirs`) are `Option<Vec<...>>` so the resolver can
-/// distinguish "the user did not override this layer" (`None`,
+/// `include-dirs`, `link-libs`, `frameworks`) are `Option<Vec<...>>`
+/// so the resolver can distinguish "the user did not override this
+/// layer" (`None`,
 /// inherit the base / chained value) from "the user set it to
 /// an empty list" (`Some(vec![])`, replace the base with empty).
 #[derive(Debug, Deserialize)]
@@ -190,6 +195,8 @@ pub(crate) struct RawProfile {
     pub(crate) ldflags: Option<Vec<String>>,
     #[serde(default, rename = "link-libs")]
     pub(crate) link_libs: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) frameworks: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -352,67 +352,97 @@ fn macro_value(define: &str) -> &str {
     define.split_once('=').map_or("1", |(_, value)| value)
 }
 
-/// Collect the validated system-library names
-/// (`ResolvedProfileFlags::link_libs`) that must be appended to the
-/// final link of the executable rooted at `start`.  Walks `start`'s
-/// own package plus every transitively-reachable dependency
-/// package's resolved build flags, deduplicating by name while
-/// preserving first-seen order (link order matters for GNU `ld`).
-///
-/// The names are emitted as `-l<name>` by the caller *after* the
-/// archive inputs and the executable's own `ldflags`, so a static
-/// library's required system libraries (e.g. sqlite's
-/// `-lpthread -ldl -lm`) resolve left-to-right against the archive
-/// that references them.
-pub(super) fn collect_link_lib_names(
+/// Every node reachable from `roots`, each before the nodes it
+/// reaches (the reverse postorder of a depth-first walk) as long as
+/// the walked graph is acyclic.
+fn reverse_postorder<T: Copy + Eq + std::hash::Hash>(
+    roots: impl IntoIterator<Item = T>,
+    successors: &dyn Fn(T) -> Vec<T>,
+) -> Vec<T> {
+    fn visit<T: Copy + Eq + std::hash::Hash>(
+        node: T,
+        successors: &dyn Fn(T) -> Vec<T>,
+        seen: &mut HashSet<T>,
+        post: &mut Vec<T>,
+    ) {
+        if !seen.insert(node) {
+            return;
+        }
+        for next in successors(node) {
+            visit(next, successors, seen, post);
+        }
+        post.push(node);
+    }
+
+    let mut seen = HashSet::new();
+    let mut post = Vec::new();
+    for root in roots {
+        visit(root, successors, &mut seen, &mut post);
+    }
+    post.reverse();
+    post
+}
+
+/// Every target the link of `start` reaches through any edge, private
+/// ones included since the final link ignores visibility, dependents
+/// before dependencies.  The target graph is acyclic, so this order
+/// resolves every archive in one left-to-right pass and no linker
+/// group is needed.
+fn link_closure<'a>(
+    start: &'a TargetId,
+    resolved: &'a HashMap<TargetId, Vec<TargetDepEdge>>,
+) -> Vec<&'a TargetId> {
+    let deps = |tid: &'a TargetId| -> Vec<&'a TargetId> {
+        resolved
+            .get(tid)
+            .into_iter()
+            .flatten()
+            .map(|edge| &edge.to)
+            .collect()
+    };
+    reverse_postorder(deps(start), &deps)
+}
+
+/// The bare names one field of the resolved build flags
+/// (`link_libs` or `frameworks`) contributes to the final link of
+/// `start`: each package the link reaches, dependents before the
+/// packages their linked targets depend on, so `start`'s own comes
+/// first.  The caller emits them after the archives, so a static
+/// library's system libraries (sqlite's `-lpthread -ldl -lm`)
+/// resolve against the archive that needs them.  `dedup` keeps only
+/// each name's first occurrence; otherwise a name two packages list
+/// repeats, as an order-sensitive linker needs.
+pub(super) fn collect_link_names(
     start: &TargetId,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    field: fn(&cabin_core::ResolvedProfileFlags) -> &[String],
+    dedup: bool,
 ) -> Vec<String> {
-    fn add_package(
-        pkg_idx: usize,
-        build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
-        result: &mut Vec<String>,
-        seen_packages: &mut HashSet<usize>,
-    ) {
-        if !seen_packages.insert(pkg_idx) {
-            return;
-        }
-        if let Some(flags) = build_flags.get(&pkg_idx) {
-            for lib in &flags.link_libs {
-                if !result.contains(lib) {
-                    result.push(lib.clone());
-                }
-            }
-        }
-    }
-
-    let mut result: Vec<String> = Vec::new();
-    let mut seen_packages: HashSet<usize> = HashSet::new();
-
-    add_package(start.0, build_flags, &mut result, &mut seen_packages);
-
-    let mut seen_targets: HashSet<TargetId> = HashSet::new();
-    let empty: Vec<TargetDepEdge> = Vec::new();
-    let mut stack: Vec<&TargetId> = resolved
-        .get(start)
-        .unwrap_or(&empty)
-        .iter()
-        .map(|e| &e.to)
+    let linked: Vec<&TargetId> = std::iter::once(start)
+        .chain(link_closure(start, resolved))
         .collect();
-    while let Some(tid) = stack.pop() {
-        if !seen_targets.insert(tid.clone()) {
-            continue;
-        }
-        add_package(tid.0, build_flags, &mut result, &mut seen_packages);
-        if let Some(deps) = resolved.get(tid) {
-            for d in deps {
-                stack.push(&d.to);
-            }
-        }
+    // Package edges come from linked targets only: a target the link
+    // never reaches must not reorder its package.
+    let packages = reverse_postorder([start.0], &|pkg| {
+        linked
+            .iter()
+            .filter(|tid| tid.0 == pkg)
+            .flat_map(|tid| resolved.get(*tid).into_iter().flatten())
+            .map(|edge| edge.to.0)
+            .filter(|&to| to != pkg)
+            .collect()
+    });
+    let mut names: Vec<String> = packages
+        .iter()
+        .filter_map(|pkg| build_flags.get(pkg))
+        .flat_map(|flags| field(flags).iter().cloned())
+        .collect();
+    if dedup {
+        let mut seen = HashSet::new();
+        names.retain(|name| seen.insert(name.clone()));
     }
-
-    result
+    names
 }
 
 pub(super) fn collect_link_libs(
@@ -421,38 +451,12 @@ pub(super) fn collect_link_libs(
     graph: &PackageGraph,
     output_for_target: &HashMap<TargetId, Utf8PathBuf>,
 ) -> Vec<Utf8PathBuf> {
-    fn visit(
-        node: &TargetId,
-        resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
-        graph: &PackageGraph,
-        seen: &mut HashSet<TargetId>,
-        post: &mut Vec<TargetId>,
-    ) {
-        if !seen.insert(node.clone()) {
-            return;
-        }
-        if let Some(deps) = resolved.get(node) {
-            for d in deps {
-                visit(&d.to, resolved, graph, seen, post);
-            }
-        }
-        let Some(target) = find_target(&graph.packages[node.0].package, &node.1) else {
-            return;
-        };
-        if target.kind.produces_archive() {
-            post.push(node.clone());
-        }
-    }
-
-    let mut seen: HashSet<TargetId> = HashSet::new();
-    let mut post: Vec<TargetId> = Vec::new();
-    if let Some(deps) = resolved.get(start) {
-        for d in deps {
-            visit(&d.to, resolved, graph, &mut seen, &mut post);
-        }
-    }
-    post.iter()
-        .rev()
+    link_closure(start, resolved)
+        .into_iter()
+        .filter(|tid| {
+            find_target(&graph.packages[tid.0].package, &tid.1)
+                .is_some_and(|target| target.kind.produces_archive())
+        })
         .filter_map(|tid| output_for_target.get(tid).cloned())
         .collect()
 }

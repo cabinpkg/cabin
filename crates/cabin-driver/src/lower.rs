@@ -249,7 +249,7 @@ fn lower_archive_gnu(archive: &ArchiveAction) -> Vec<String> {
 }
 
 fn lower_link_gnu(link: &LinkAction) -> Vec<String> {
-    // `<driver> <inputs...> <ldflags...> -l<lib>... -o <exe>`.
+    // `<driver> <inputs...> <ldflags...> -l<lib>... -framework <name>... -o <exe>`.
     // System libraries follow the archives so a static library's
     // dependencies resolve left-to-right under GNU `ld`.
     let mut command = vec![link.linker.to_string()];
@@ -259,6 +259,10 @@ fn lower_link_gnu(link: &LinkAction) -> Vec<String> {
     command.extend(link.arguments.iter().cloned());
     for lib in &link.link_libs {
         command.push(format!("-l{lib}"));
+    }
+    for framework in &link.frameworks {
+        command.push("-framework".to_owned());
+        command.push(framework.clone());
     }
     command.push("-o".to_owned());
     command.push(link.output.to_string());
@@ -810,6 +814,7 @@ mod tests {
             ],
             arguments: strs(&["-Wl,--as-needed"]),
             link_libs: vec![],
+            frameworks: vec![],
             description: "LINK /abs/build/app".to_owned(),
         });
         let lowered = lower(Dialect::GnuLike, &action);
@@ -1003,6 +1008,7 @@ mod tests {
             ],
             arguments: strs(&["/DEBUG"]),
             link_libs: vec![],
+            frameworks: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
         });
         let lowered = lower(Dialect::Msvc, &action);
@@ -1031,6 +1037,7 @@ mod tests {
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
             arguments: vec![],
             link_libs: vec![],
+            frameworks: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
         });
         let lowered = lower(Dialect::Msvc, &action);
@@ -1061,6 +1068,7 @@ mod tests {
             ],
             arguments: vec![],
             link_libs: strs(&["pthread", "m"]),
+            frameworks: strs(&["CoreFoundation"]),
             description: "LINK /abs/build/app".to_owned(),
         });
         let lowered = lower(Dialect::GnuLike, &action);
@@ -1072,6 +1080,8 @@ mod tests {
                 "/abs/build/libsqlite3.a",
                 "-lpthread",
                 "-lm",
+                "-framework",
+                "CoreFoundation",
                 "-o",
                 "/abs/build/app",
             ])
@@ -1089,6 +1099,7 @@ mod tests {
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
             arguments: vec![],
             link_libs: strs(&["user32"]),
+            frameworks: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
         });
         let lowered = lower(Dialect::Msvc, &action);

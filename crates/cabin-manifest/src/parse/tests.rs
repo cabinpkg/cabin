@@ -2605,12 +2605,14 @@ fn profile_release_accepts_cxxflags_override() {
             [profile.release]
             opt-level = 3
             cxxflags = ["-march=native"]
+            frameworks = ["Accelerate"]
         "#;
     let package = parse_project(manifest);
     let release = cabin_core::ProfileName::new("release".to_owned()).expect("valid profile name");
     let prof = package.profiles.get(&release).expect("release profile");
     let build = prof.build.as_ref().expect("override build flags");
     assert_eq!(build.cxxflags, vec!["-march=native".to_owned()]);
+    assert_eq!(build.frameworks, ["Accelerate"]);
 }
 
 #[test]
@@ -2652,6 +2654,38 @@ fn profile_accepts_link_libs_in_base_and_cfg_tables() {
     assert_eq!(
         conditional[0].flags.link_libs,
         vec!["pthread".to_owned(), "dl".to_owned()]
+    );
+}
+
+#[test]
+fn profile_accepts_frameworks_and_rejects_flag_like_ones() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(os = "macos")'.profile]
+            frameworks = ["CoreFoundation", "Security"]
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.build.conditional[0].flags.frameworks,
+        ["CoreFoundation", "Security"]
+    );
+
+    let err = parse_project_err(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [profile]
+            frameworks = ["-Wl,-evil"]
+        "#,
+    );
+    assert!(
+        matches!(err, ManifestError::InvalidBuildFlags(_)),
+        "expected InvalidBuildFlags, got {err:?}"
     );
 }
 
@@ -2735,6 +2769,7 @@ fn target_named_profile_overlay_accepts_all_array_fields() {
             cxxflags = ["-fno-semantic-interposition"]
             ldflags = ["-Wl,--as-needed"]
             link-libs = ["pthread", "dl"]
+            frameworks = ["Security"]
         "#,
     );
     let overlay = &package.build.conditional[0];
@@ -2754,6 +2789,7 @@ fn target_named_profile_overlay_accepts_all_array_fields() {
     assert_eq!(overlay.flags.cxxflags, vec!["-fno-semantic-interposition"],);
     assert_eq!(overlay.flags.ldflags, vec!["-Wl,--as-needed"]);
     assert_eq!(overlay.flags.link_libs, vec!["pthread", "dl"]);
+    assert_eq!(overlay.flags.frameworks, ["Security"]);
 }
 
 #[test]
@@ -2854,7 +2890,7 @@ fn target_named_profile_overlay_rejects_definition_and_unknown_fields() {
         (
             r#"foo = ["bar"]"#,
             "unknown field `foo`",
-            "supported fields are defines, include-dirs, cflags, cxxflags, ldflags, and link-libs",
+            "supported fields are defines, include-dirs, cflags, cxxflags, ldflags, link-libs, and frameworks",
         ),
     ];
 

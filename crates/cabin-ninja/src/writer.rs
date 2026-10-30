@@ -457,6 +457,7 @@ mod tests {
             inputs: vec![Utf8PathBuf::from("/abs/build/main.o")],
             arguments: vec![],
             link_libs: vec![],
+            frameworks: vec![],
             description: "LINK /abs/build/hello".into(),
         })
     }

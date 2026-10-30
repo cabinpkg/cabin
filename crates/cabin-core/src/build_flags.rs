@@ -72,19 +72,25 @@ pub struct ProfileFlags {
     /// link command this layer applies to.
     #[serde(default, rename = "ldflags", skip_serializing_if = "Vec::is_empty")]
     pub ldflags: Vec<String>,
-    /// System libraries this target's objects require, as bare
+    /// System libraries this package's objects require, as bare
     /// library names (e.g. `"pthread"`, `"dl"`, `"m"`).  Unlike
     /// `ldflags` - which are raw, unvalidated, and applied only to
     /// the declaring package's own link - `link_libs` are validated
     /// safe library names that **propagate** to the final link of
-    /// every executable that depends on this target (transitively),
-    /// emitted as `-l<name>` after the archives so GNU `ld`'s
+    /// every executable whose link reaches this package, emitted as
+    /// `-l<name>` after the archives so GNU `ld`'s
     /// left-to-right resolution finds them.  Because they are
     /// validated (no leading `-`, no path separators, no spaces)
     /// they cannot inject linker flags, so they are kept even for
     /// untrusted (registry) packages.
     #[serde(default, rename = "link-libs", skip_serializing_if = "Vec::is_empty")]
     pub link_libs: Vec<String>,
+    /// Apple frameworks this package's objects require, as bare names
+    /// (e.g. `"CoreFoundation"`).  Validated like `link_libs` and
+    /// propagated the same way, emitted as `-framework <name>`; links
+    /// for other platforms ignore them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frameworks: Vec<String>,
 }
 
 impl ProfileFlags {
@@ -95,6 +101,7 @@ impl ProfileFlags {
             && self.cxxflags.is_empty()
             && self.ldflags.is_empty()
             && self.link_libs.is_empty()
+            && self.frameworks.is_empty()
     }
 
     /// Run the validation rules that apply at manifest parse time.
@@ -110,7 +117,9 @@ impl ProfileFlags {
     /// [`BuildFlagsValidationError::DefineMissingName`] for a define starting
     /// with `=`, [`BuildFlagsValidationError::InvalidLinkLib`] for a malformed
     /// link-library name, and propagates any error from validating an include
-    /// directory (a non-relative directory or one containing a `..` component).
+    /// directory (a non-relative directory or one containing a `..` component),
+    /// and [`BuildFlagsValidationError::InvalidFramework`] for a malformed
+    /// framework name.
     pub fn validate(&self) -> Result<(), BuildFlagsValidationError> {
         for define in &self.defines {
             if define.is_empty() {
@@ -129,6 +138,11 @@ impl ProfileFlags {
             if !is_safe_link_lib(lib) {
                 return Err(BuildFlagsValidationError::InvalidLinkLib { raw: lib.clone() });
             }
+        }
+        if let Some(framework) = self.frameworks.iter().find(|name| !is_safe_link_lib(name)) {
+            return Err(BuildFlagsValidationError::InvalidFramework {
+                raw: framework.clone(),
+            });
         }
         Ok(())
     }
@@ -223,6 +237,9 @@ pub struct ResolvedProfileFlags {
     /// and emits `-l<name>` (after the archives) on the consumer's
     /// link command.
     pub link_libs: Vec<String>,
+    /// Validated Apple framework names that propagate like
+    /// `link_libs`, emitted as `-framework <name>`.
+    pub frameworks: Vec<String>,
 }
 
 impl ResolvedProfileFlags {
@@ -235,6 +252,7 @@ impl ResolvedProfileFlags {
             && self.cxxflags.is_empty()
             && self.ldflags.is_empty()
             && self.link_libs.is_empty()
+            && self.frameworks.is_empty()
     }
 
     /// Compact JSON view used by `cabin metadata`.
@@ -256,6 +274,7 @@ impl ResolvedProfileFlags {
             "cxxflags": self.cxxflags,
             "ldflags": self.ldflags,
             "link_libs": self.link_libs,
+            "frameworks": self.frameworks,
         })
     }
 }
@@ -350,6 +369,7 @@ fn apply_layer(target: &mut ResolvedProfileFlags, layer: &ProfileFlags) {
     // is noise, so we mirror the include-dir treatment rather
     // than the append-verbatim used for the raw flag arrays.
     extend_dedup_first_occurrence(&mut target.link_libs, &layer.link_libs);
+    extend_dedup_first_occurrence(&mut target.frameworks, &layer.frameworks);
 }
 
 /// Append `items` into `target`, skipping any item already present,
@@ -386,6 +406,10 @@ pub enum BuildFlagsValidationError {
         "[profile] link library {raw:?} is not a valid library name; use a bare name like \"pthread\" (no leading `-`, path separators, or whitespace)"
     )]
     InvalidLinkLib { raw: String },
+    #[error(
+        "[profile] framework {raw:?} is not a valid framework name; use a bare name like \"CoreFoundation\" (no leading `-`, path separators, or whitespace)"
+    )]
+    InvalidFramework { raw: String },
     #[error(
         "[profile] include directory {path:?} must be a relative path; absolute paths are not allowed"
     )]
@@ -1105,6 +1129,7 @@ mod tests {
         // (registry) packages because they cannot smuggle a flag.
         let mut p = ProfileSettings::default();
         p.general.link_libs = vec!["pthread".into()];
+        p.general.frameworks = vec!["CoreFoundation".into()];
         p.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
         let r = resolve_without_profile(
             &p,
@@ -1112,6 +1137,7 @@ mod tests {
             false,
         );
         assert_eq!(r.link_libs, vec!["pthread".to_owned()]);
+        assert_eq!(r.frameworks, vec!["CoreFoundation".to_owned()]);
         assert!(r.ldflags.is_empty(), "untrusted ldflags must be dropped");
     }
 
@@ -1153,6 +1179,17 @@ mod tests {
                     Err(BuildFlagsValidationError::InvalidLinkLib { .. })
                 ),
                 "expected {bad:?} to be rejected"
+            );
+            let decl = ProfileFlags {
+                frameworks: vec![bad.into()],
+                ..Default::default()
+            };
+            assert!(
+                matches!(
+                    decl.validate(),
+                    Err(BuildFlagsValidationError::InvalidFramework { .. })
+                ),
+                "expected framework {bad:?} to be rejected"
             );
         }
     }
