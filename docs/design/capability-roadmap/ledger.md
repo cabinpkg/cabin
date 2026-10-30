@@ -25,7 +25,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | --- | --- | --- | --- | --- | --- |
 | 00 | Shared contracts, this ledger, scope alignment | all | `docs/` | - | adopted |
 | 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | implemented |
-| 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | in progress |
+| 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | implemented |
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | not started |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | not started |
 | 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | not started |
@@ -138,11 +138,9 @@ Stage 02; consumed by 06, 08, 09, 10; validated in 12-14.
 - Package flag layers' `include-dirs` reach only the declaring package's own compiles: the
   producer-only include form (contracts section 2); there is no per-target one.
 
-**Blocked workflow.**  A Boost.Stacktrace consumer must define `BOOST_STACKTRACE_LINK` itself
-(`ports/boost-stacktrace/1.92.0/cabin.toml`), Boost.Contract ships header-only because consumers
-cannot receive `BOOST_CONTRACT_STATIC_LINK`, and Boost.Atomic and Boost.Log drop their SSE/AVX
-sources, which needed a per-source ISA option (target `instruction-sets` since stage 02; the ports
-have not moved to it yet).
+**Blocked workflow.**  None left from stage 02: Boost.Stacktrace and Boost.Contract consumers link
+the compiled archive without defining a configuration macro, and Boost.Atomic and Boost.Log build
+their SSE/AVX sources on x86 (`ports/boost-*/1.92.0/cabin.toml`).
 
 **Necessary changes.**  Interface definitions; a producer-only include form; propagation driven by
 edge visibility; the final-link closure kept separate from compile visibility with order
@@ -479,6 +477,13 @@ flag, as upstream passes none on x64; `clang-cl` gets `-m<name>`, since it rejec
 intrinsic without one (`clang-cl` 23: "always_inline function '_mm256_add_epi32' requires target
 feature 'avx2'").  Off x86 the table is ignored, like `frameworks` off Apple.
 
+Stage 02, fourth change: the four Boost ports build as upstream's CMake does.  `boost-stacktrace`
+and `boost-contract` give consumers upstream's public `*_STATIC_LINK` through `interface-defines`;
+`boost-contract` becomes a compiled library, whose source compiles to nothing without that macro.
+`boost-atomic` and `boost-log` add their SSE2/SSE4.1 and SSSE3/AVX2 sources on x86 with their
+`instruction-sets` and upstream's `USE_*` definitions; both libraries pick a variant by CPUID at
+run time unless the compiler's baseline already has its instruction set.  None of the four was published, so each changed in place.
+
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
 for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
@@ -501,9 +506,18 @@ and Clang cross-compiling SSE4.1 and AVX2 intrinsics for x86_64 Windows and Linu
 without `-m<name>`; the `simd-dispatch` example built and run on macOS (arm64, generic path).  Its
 CLI test runs the SSE4.1 variant on CI's x86_64 Linux (whose compiler rejects the source without
 the flag) and Windows x64 (`cl.exe`, no flag).  Not run: an x86 build here (no Rosetta), and
-`clang-cl` end to end, which no CI job uses.
+`clang-cl` end to end, which no CI job uses.  Stage 02, fourth change: the Stacktrace and Contract
+consumer tests define nothing and fail to compile when the interface definition stops arriving; the
+Log test checks a 2100-byte dump, long enough for either SIMD routine, against the generic format.
+Below an SSE4.1 baseline, Atomic's `lock_pool.cpp` dispatch references the search variants, so a
+missing one fails the test's link; running one takes a dozen addresses waited on in one lock-pool
+bucket, which no test arranges.  The publisher's dry run of each port's closure on macOS (arm64,
+baseline sources); Clang compiling the four ISA sources for x86_64 at the `x86-64` baseline: the
+SSE4.1, SSSE3, and AVX2 sources are rejected without their `-m<name>`, and the SSE2 one, inside
+that baseline, compiles either way; CI's port dry run builds and runs the tests on x86_64 Linux
+(GCC) and Windows x64 (`cl.exe`).  Not run: an x86 run here.
 
-**Unfinished.**  Stages 02-14.  Follow-ups found in stage 01, outside its scope:
+**Unfinished.**  Stages 03-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
 "Blocked workflow"); a transitively requested unknown feature is reported as a resolution conflict
 naming `<package>[<feature>]` rather than with the direct-request diagnostic; `metadata` and
@@ -512,14 +526,16 @@ missing from their configuration report; `tree` and `explain package` filter by 
 not by edge, so a disabled optional edge onto a package another edge includes still shows; over
 sparse HTTP, each optional dependency a feature enables costs one fetch round and re-solve.
 
-Stage 02 remaining: the Boost ports (`stacktrace` and `contract` interface definitions, `atomic`
-and `log` ISA sources).  Follow-ups found so far: a
-missing-header link diagnostic does not suggest a public edge or a direct dependency; the `libpng`
-port's comment claims `png.h` includes `zlib.h`, a comment-only packaging-revision correction for a
-later respin.
+Follow-ups found in stage 02: a missing-header link diagnostic does not suggest a public edge or a
+direct dependency; the `libpng` port's comment claims `png.h` includes `zlib.h`, a comment-only
+packaging-revision correction for a later respin; `BuildConfiguration::fingerprint` covers no
+target-level field other than `instruction-sets` (`sources`, `defines`, `interface-defines`,
+`include-dirs`, `deps`), short of `crates/AGENTS.md`, though nothing keys a build on it yet; no
+CI job uses `clang-cl`.
 
-## Handoff to stage 02
+## Handoff to stage 03
 
-Stage 02 starts from contracts section 2 and area 2 above.  From stage 01 it inherits one enabled
-feature set per package (`FeatureResolution` locally, `ResolvedPackage::features` for registry
-packages), which is what feature-gated interface requirements must read.
+Stage 03 starts from contracts section 5.  Stage 02 adds no resolution metadata: `interface-defines`,
+`instruction-sets`, and `frameworks` live in the archived manifest and change builds only, so they
+already travel with a revision's bytes.  No published port waits on stage 03 for a stage 02
+correction.

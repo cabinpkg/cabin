@@ -1567,12 +1567,10 @@ today, so future contributors do not silently regress them by porting more Cargo
 
 These invariants are normative: a change that breaks one of them is a language / build-system change
 and needs an explicit design update, not an implementation tweak.  The
-[capability roadmap's contracts](design/capability-roadmap/contracts.md) are that update for four of
-them, each taking effect only when its stage lands: usage requirements (stage 02) make edge
-visibility govern include-directory and definition propagation, add producer-only include
-directories, and let header-only targets carry interface definitions; build contexts (stage 04)
-scope `links` uniqueness to one link/runtime domain.
-Until then the invariants above describe the current behavior.
+[capability roadmap's contracts](design/capability-roadmap/contracts.md) are that update: usage
+requirements (stage 02) made edge visibility govern include-directory and definition propagation,
+as the invariants above describe; build contexts (stage 04) will scope `links` uniqueness to one
+link/runtime domain, and until then the `links` invariant describes the current behavior.
 
 ## Implemented layers - quick reference
 

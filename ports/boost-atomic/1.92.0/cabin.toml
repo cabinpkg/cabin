@@ -17,13 +17,6 @@ version = "1.92.0"
 "cabin-ports/boost-type-traits" = "=1.92.0"
 "cabin-ports/boost-winapi" = "=1.92.0"
 
-# Upstream adds src/find_address_sse2.cpp and src/find_address_sse41.cpp
-# on x86 when per-source -msse* flags work, which a port cannot pass.
-# Both stay out with BOOST_ATOMIC_USE_SSE2/SSE41 undefined: lock_pool.cpp
-# then uses its generic address search, the configuration upstream
-# builds on every non-x86 host.  Defining only USE_SSE2 breaks
-# lock_pool.cpp wherever the compiler already targets SSE4.1, as Apple
-# clang does by default on x86_64.
 [target.boost_atomic]
 type = "library"
 sources = ["src/lock_pool.cpp"]
@@ -47,6 +40,22 @@ deps = [
 # as upstream's CMake does.
 [profile]
 include-dirs = ["src"]
+
+# On x86, as upstream's CMake does, the SSE2 and SSE4.1 address searches
+# join the library with their instruction sets, and lock_pool.cpp picks
+# between them and its generic search by CPUID.  The sources and both
+# defines go together: defining only USE_SSE2 breaks lock_pool.cpp
+# wherever the compiler already targets SSE4.1, as Apple clang does by
+# default on x86_64.
+[target.'cfg(any(arch = "x86", arch = "x86_64"))'.sources]
+boost_atomic = ["src/find_address_sse2.cpp", "src/find_address_sse41.cpp"]
+
+[target.boost_atomic.instruction-sets]
+"src/find_address_sse2.cpp" = ["sse2"]
+"src/find_address_sse41.cpp" = ["sse4.1"]
+
+[target.'cfg(any(arch = "x86", arch = "x86_64"))'.profile]
+defines = ["BOOST_ATOMIC_USE_SSE2", "BOOST_ATOMIC_USE_SSE41"]
 
 [target.'cfg(os = "linux")'.profile]
 link-libs = ["pthread"]

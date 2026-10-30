@@ -2,13 +2,16 @@
 // stream sink (boost_log), and its filter and formatter parsers
 // (boost_log_setup): trivial-logger records pass a parsed severity
 // filter into a sink that formats them with a parsed format string.
-// An IPC object name exercises the platform's compiled IPC sources.
+// An IPC object name exercises the platform's compiled IPC sources, and
+// a dump long enough for the SIMD routines checks whichever one the CPU
+// selects against the generic format.
 #include <boost/log/attributes/constant.hpp>
 #include <boost/log/core/core.hpp>
 #include <boost/log/sinks/sync_frontend.hpp>
 #include <boost/log/sinks/text_ostream_backend.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/utility/ipc/object_name.hpp>
+#include <boost/log/utility/manipulators/dump.hpp>
 #include <boost/log/utility/setup/filter_parser.hpp>
 #include <boost/log/utility/setup/formatter_parser.hpp>
 #include <boost/smart_ptr/make_shared_object.hpp>
@@ -47,6 +50,19 @@ int main() {
         name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0) {
         return 1;
     }
+
+    // Two AVX2 strides of 1024 bytes, then 16-byte and shorter tails.
+    unsigned char bytes[2100];
+    std::string expected;
+    for (std::size_t i = 0; i < sizeof(bytes); ++i) {
+        bytes[i] = static_cast<unsigned char>(i * 7);
+        if (i != 0) expected += ' ';
+        expected += "0123456789abcdef"[bytes[i] >> 4];
+        expected += "0123456789abcdef"[bytes[i] & 15];
+    }
+    std::ostringstream dumped;
+    dumped << logging::dump(bytes, sizeof(bytes));
+    if (dumped.str() != expected) return 1;
 
     return out->str() == "warning|cabin|kept 1\nerror|cabin|kept 2\n" ? 0 : 1;
 }

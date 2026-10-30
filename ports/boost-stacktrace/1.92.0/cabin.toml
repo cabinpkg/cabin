@@ -24,13 +24,14 @@ version = "1.92.0"
 # define the same symbols, so a consumer could link only one; backtrace
 # needs libbacktrace; addr2line runs an external program; and
 # from_exception interposes __cxa_allocate_exception, which every
-# consumer that throws would pull from this archive.  Consumers use the
-# archive by defining BOOST_STACKTRACE_LINK; otherwise the headers are
-# header-only.
+# consumer that throws would pull from this archive.  Consumers get
+# upstream's public BOOST_STACKTRACE_STATIC_LINK, which makes the headers
+# call into the archive instead of compiling header-only.
 [target.boost_stacktrace]
 type = "library"
 sources = ["src/dump.cpp"]
 include-dirs = ["include"]
+interface-defines = ["BOOST_STACKTRACE_STATIC_LINK"]
 cxx-standard = "c++14"
 interface-cxx-standard = "c++14"
 links = "boost_stacktrace"

@@ -25,16 +25,18 @@ version = "1.92.0"
 "cabin-ports/boost-typeof" = "=1.92.0"
 "cabin-ports/boost-utility" = "=1.92.0"
 
-# Upstream's CMake compiles src/contract.cpp, but its headers use that
-# archive only when every consumer defines BOOST_CONTRACT_STATIC_LINK,
-# which a port cannot propagate.  A consumer that defines nothing gets
-# upstream's header-only mode, which the library supports for a single
-# program with only static libraries - every Cabin link - so the port
-# ships that mode alone and nothing can mix it with the compiled one.
+# Upstream's CMake compiles src/contract.cpp and makes
+# BOOST_CONTRACT_STATIC_LINK public, so the library and every consumer
+# use that archive rather than the headers' header-only mode.
 [target.boost_contract]
-type = "header-only"
+type = "library"
+sources = ["src/contract.cpp"]
 include-dirs = ["include"]
+defines = ["BOOST_CONTRACT_STATIC_LINK"]
+interface-defines = ["BOOST_CONTRACT_STATIC_LINK"]
+cxx-standard = "c++14"
 interface-cxx-standard = "c++14"
+links = "boost_contract"
 deps = [
   { name = "cabin-ports/boost-any", public = true },
   { name = "cabin-ports/boost-assert", public = true },
