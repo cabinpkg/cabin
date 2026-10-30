@@ -4,12 +4,13 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-# libpng depends on zlib. The app declares only
-# libpng; zlib is pulled in transitively, and its archive + headers
-# propagate through the libpng edge.
+# libpng depends on zlib through a private edge: png.h never includes
+# zlib.h. The app calls zlib itself, so it declares zlib too; both
+# edges resolve to the one zlib version.
 "cabin-ports/libpng" = "=1.6.50"
+"cabin-ports/zlib" = "^1.3"
 
 [target.libpng-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["cabin-ports/libpng"]
+deps = ["cabin-ports/libpng", "cabin-ports/zlib"]

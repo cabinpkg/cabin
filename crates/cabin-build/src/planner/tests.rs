@@ -136,6 +136,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         required_features: Vec::new(),
         language: language_for_sources(sources),
         links: None,
+        interface_defines: Vec::new(),
         conditional_sources: Vec::new(),
     }
 }
@@ -160,6 +161,7 @@ fn target_with_includes(
         required_features: Vec::new(),
         language: language_for_sources(sources),
         links: None,
+        interface_defines: Vec::new(),
         conditional_sources: Vec::new(),
     }
 }
@@ -1363,40 +1365,318 @@ fn dep_edge_visibility_attaches_to_qualified_and_local_references() {
     );
 }
 
-#[test]
-fn public_dep_edge_plans_like_a_private_one() {
-    // Visibility is declarative only today: a public edge must not
-    // change planning output.  Same shape as
-    // `cross_package_path_dep_links_library`, with the dep declared
-    // public.
-    let greet_proj = Package::new(
-        pkg_name("greet"),
+/// `app` (C++) -> `png` (C) -> `z` (C), where `z` declares
+/// `interface-defines` and `png`'s edge onto it has the given
+/// visibility.
+fn visibility_graph(png_to_z_public: bool) -> PackageGraph {
+    let mut z = target_with_includes("z", TargetKind::Library, &["src/z.c"], &["include"], &[]);
+    z.interface_defines = vec!["Z_API=1".to_owned()];
+    let mut png = target_with_includes(
+        "png",
+        TargetKind::Library,
+        &["src/png.c"],
+        &["include"],
+        &[],
+    );
+    png.deps = vec![cabin_core::TargetDep {
+        reference: "z".to_owned(),
+        public: png_to_z_public,
+    }];
+    let z_pkg = Package::new(pkg_name("z"), version(), vec![z], Vec::new()).unwrap();
+    let png_pkg = Package::new(
+        pkg_name("png"),
         version(),
-        vec![target("greet", TargetKind::Library, &["src/greet.cc"], &[])],
-        Vec::new(),
+        vec![png],
+        vec![dep("z", "../z")],
     )
     .unwrap();
-    let mut app_target = target("app", TargetKind::Executable, &["src/main.cc"], &[]);
-    app_target.deps = vec![cabin_core::TargetDep {
-        reference: "greet".to_owned(),
-        public: true,
-    }];
-    let app_proj = Package::new(
+    let app_pkg = Package::new(
         pkg_name("app"),
         version(),
-        vec![app_target],
-        vec![dep("greet", "../greet")],
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["png"],
+        )],
+        vec![dep("png", "../png")],
     )
     .unwrap();
-    let greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
-    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
-    let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
-    let tc = toolchain();
+    graph_with(
+        vec![
+            make_pkg("z", "/abs/z", z_pkg, vec![]),
+            make_pkg("png", "/abs/png", png_pkg, vec![0]),
+            make_pkg("app", "/abs/app", app_pkg, vec![1]),
+        ],
+        vec![2],
+        Some(2),
+    )
+}
+
+#[test]
+fn private_edges_stop_the_dependency_interface_at_the_producer() {
+    let graph = visibility_graph(false);
+    let tc = toolchain_with_cc();
     let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
-    let link = link_action(&bg);
-    assert!(link.inputs.contains(&Utf8PathBuf::from(
-        "/abs/build/dev/packages/greet/libgreet.a"
-    )));
+    let z_include = Utf8PathBuf::from("/abs/z/include");
+
+    // The interface applies to consumers, not to `z` itself.
+    let z = &compile_for(&bg, "z.c").arguments;
+    assert!(!z.defines.contains(&"Z_API=1".to_owned()));
+    let png = &compile_for(&bg, "png.c").arguments;
+    assert!(png.include_dirs.contains(&z_include));
+    assert!(png.defines.contains(&"Z_API=1".to_owned()));
+    let app = &compile_for(&bg, "main.cc").arguments;
+    assert!(
+        app.include_dirs
+            .contains(&Utf8PathBuf::from("/abs/png/include"))
+    );
+    assert!(!app.include_dirs.contains(&z_include));
+    assert!(!app.defines.contains(&"Z_API=1".to_owned()));
+    // The final link still takes the private dependency's archive.
+    assert!(
+        link_action(&bg)
+            .inputs
+            .contains(&Utf8PathBuf::from("/abs/build/dev/packages/z/libz.a"))
+    );
+}
+
+#[test]
+fn public_edges_reexport_the_dependency_interface() {
+    let graph = visibility_graph(true);
+    let tc = toolchain_with_cc();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let app = &compile_for(&bg, "main.cc").arguments;
+    assert_eq!(
+        app.include_dirs,
+        [
+            Utf8PathBuf::from("/abs/png/include"),
+            Utf8PathBuf::from("/abs/z/include"),
+        ]
+    );
+    assert!(app.defines.contains(&"Z_API=1".to_owned()));
+}
+
+/// A C library package `name` with an `include` dir and the given
+/// `(dependency, public)` target edges onto same-named packages.
+fn edged_library(name: &str, edges: &[(&str, bool)]) -> Package {
+    let mut lib =
+        target_with_includes(name, TargetKind::Library, &["src/lib.c"], &["include"], &[]);
+    lib.deps = edges
+        .iter()
+        .map(|(to, public)| cabin_core::TargetDep {
+            reference: (*to).to_owned(),
+            public: *public,
+        })
+        .collect();
+    let deps = edges
+        .iter()
+        .map(|(to, _)| dep(to, &format!("../{to}")))
+        .collect();
+    Package::new(pkg_name(name), version(), vec![lib], deps).unwrap()
+}
+
+#[test]
+fn reexports_cross_public_hops_and_any_public_path() {
+    // app -> a =pub=> b =pub=> c, and app -> x -> s (private) while
+    // app -> y =pub=> s: `c` is two public hops away, and `s` is
+    // visible through `y` whatever `x` hides.
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c"],
+            &["a", "x", "y"],
+        )],
+        vec![dep("a", "../a"), dep("x", "../x"), dep("y", "../y")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("c", "/abs/c", edged_library("c", &[]), vec![]),
+            make_pkg("b", "/abs/b", edged_library("b", &[("c", true)]), vec![0]),
+            make_pkg("a", "/abs/a", edged_library("a", &[("b", true)]), vec![1]),
+            make_pkg("s", "/abs/s", edged_library("s", &[]), vec![]),
+            make_pkg("x", "/abs/x", edged_library("x", &[("s", false)]), vec![3]),
+            make_pkg("y", "/abs/y", edged_library("y", &[("s", true)]), vec![3]),
+            make_pkg("app", "/abs/app", app, vec![2, 4, 5]),
+        ],
+        vec![6],
+        Some(6),
+    );
+    let tc = toolchain_with_cc();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let mut seen = compile_for(&bg, "app/src/main.c")
+        .arguments
+        .include_dirs
+        .clone();
+    seen.sort();
+    assert_eq!(
+        seen,
+        ["a", "b", "c", "s", "x", "y"].map(|p| Utf8PathBuf::from(format!("/abs/{p}/include")))
+    );
+    // `x` itself still compiles against its private dependency.
+    assert!(
+        compile_for(&bg, "x/src/lib.c")
+            .arguments
+            .include_dirs
+            .contains(&Utf8PathBuf::from("/abs/s/include"))
+    );
+}
+
+/// `app` -> `a` and `app` -> `b`, each library declaring the given
+/// `interface-defines`; `app` declares `app_defines` itself.
+fn diamond_with_defines(a: &[&str], b: &[&str], app_defines: &[&str]) -> PackageGraph {
+    let library = |name: &str, defines: &[&str]| {
+        let mut lib =
+            target_with_includes(name, TargetKind::Library, &["src/lib.c"], &["include"], &[]);
+        lib.interface_defines = defines.iter().map(|d| (*d).to_owned()).collect();
+        Package::new(pkg_name(name), version(), vec![lib], Vec::new()).unwrap()
+    };
+    let mut app = target("app", TargetKind::Executable, &["src/main.c"], &["a", "b"]);
+    app.defines = app_defines.iter().map(|d| (*d).to_owned()).collect();
+    let app_pkg = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![app],
+        vec![dep("a", "../a"), dep("b", "../b")],
+    )
+    .unwrap();
+    graph_with(
+        vec![
+            make_pkg("a", "/abs/a", library("a", a), vec![]),
+            make_pkg("b", "/abs/b", library("b", b), vec![]),
+            make_pkg("app", "/abs/app", app_pkg, vec![0, 1]),
+        ],
+        vec![2],
+        Some(2),
+    )
+}
+
+#[test]
+fn conflicting_interface_defines_name_both_paths() {
+    let tc = toolchain_with_cc();
+    let graph = diamond_with_defines(&["MODE=1"], &["MODE=2"], &[]);
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    let BuildError::ConflictingInterfaceDefines {
+        target,
+        name,
+        first,
+        second,
+    } = err
+    else {
+        panic!("expected a definition conflict, got {err:?}");
+    };
+    assert_eq!(
+        (
+            target.as_str(),
+            name.as_str(),
+            first.as_str(),
+            second.as_str()
+        ),
+        (
+            "app:app",
+            "MODE",
+            "`MODE=2` from app:app -> b:b",
+            "`MODE=1` from app:app -> a:a"
+        )
+    );
+
+    // Agreeing definitions are one definition, `MODE` meaning `MODE=1`.
+    let graph = diamond_with_defines(&["MODE"], &["MODE=1"], &[]);
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    crate::validate_planned_standards(&bg).unwrap();
+    let app = &compile_for(&bg, "main.c").arguments;
+    assert_eq!(app.defines, ["MODE=1"]);
+    // Siblings keep the search order Cabin has always emitted.
+    assert_eq!(
+        app.include_dirs,
+        [
+            Utf8PathBuf::from("/abs/b/include"),
+            Utf8PathBuf::from("/abs/a/include"),
+        ]
+    );
+}
+
+#[test]
+fn conflicting_interface_defines_escape_their_values() {
+    let tc = toolchain_with_cc();
+    let graph = diamond_with_defines(&["MODE=\u{202e}1"], &["MODE"], &[]);
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("MODE=\\u{202e}1"), "{message}");
+    assert!(!message.contains('\u{202e}'), "{message}");
+}
+
+/// A conflict inside a dependency's compiles gates building it, not
+/// `cabin check` of a package that sees neither definition.
+#[test]
+fn check_prunes_a_dependency_definition_conflict() {
+    let tc = toolchain_with_cc();
+    let library = |name: &str, deps: &[&str], defines: &[&str]| {
+        let mut lib = target(name, TargetKind::Library, &["src/lib.c"], deps);
+        lib.interface_defines = defines.iter().map(|d| (*d).to_owned()).collect();
+        let deps = deps.iter().map(|d| dep(d, &format!("../{d}"))).collect();
+        Package::new(pkg_name(name), version(), vec![lib], deps).unwrap()
+    };
+    let top = Package::new(
+        pkg_name("top"),
+        version(),
+        vec![target(
+            "top",
+            TargetKind::Executable,
+            &["src/top.c"],
+            &["mid"],
+        )],
+        vec![dep("mid", "../mid")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("a", "/abs/a", library("a", &[], &["MODE=1"]), vec![]),
+            make_pkg("b", "/abs/b", library("b", &[], &["MODE=2"]), vec![]),
+            make_pkg(
+                "mid",
+                "/abs/mid",
+                library("mid", &["a", "b"], &[]),
+                vec![0, 1],
+            ),
+            make_pkg("top", "/abs/top", top, vec![2]),
+        ],
+        vec![3],
+        Some(3),
+    );
+
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    assert!(
+        matches!(&err, BuildError::ConflictingInterfaceDefines { target, .. } if target == "mid:mid"),
+        "{err}"
+    );
+    let checked = crate::into_check_graph(bg, &[PathBuf::from("/abs/build/dev/packages/top")]);
+    crate::validate_planned_standards(&checked).unwrap();
+
+    // Nor does a check gate on a selected target's assembly, which it
+    // never assembles.
+    let mut graph = diamond_with_defines(&["MODE=1"], &["MODE=2"], &[]);
+    graph.packages[2].package.targets[0].sources = vec![Utf8PathBuf::from("src/start.S")];
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    crate::validate_planned_standards(&bg).unwrap_err();
+    let checked = crate::into_check_graph(bg, &[PathBuf::from("/abs/build/dev/packages/app")]);
+    crate::validate_planned_standards(&checked).unwrap();
+}
+
+#[test]
+fn own_defines_override_an_incoming_interface_define() {
+    let tc = toolchain_with_cc();
+    let graph = diamond_with_defines(&["MODE=1", "EXTRA"], &[], &["MODE=3"]);
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let app = &compile_for(&bg, "main.c").arguments;
+    assert_eq!(app.defines, ["MODE=3", "EXTRA"]);
 }
 
 // -----------------------------------------------------------------
@@ -4053,6 +4333,23 @@ fn standard_compat_does_not_propagate_through_private_edges() {
         Some(0),
     );
     assert!(standard_compat_violations(&graph).is_empty());
+    // The build-time check follows the same visibility: `app` sees
+    // `liba`'s headers but not `libb`'s.
+    let tc = toolchain_with_cc();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/app/build")).unwrap();
+    let seen_by_app: Vec<&str> = bg
+        .standard_violations
+        .iter()
+        .filter_map(|v| match v {
+            crate::StandardViolation::InterfaceIncompatibility {
+                consumer,
+                dependency,
+                ..
+            } if consumer == "app:app" => Some(dependency.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seen_by_app, ["liba:liba"]);
 }
 
 /// Spec D9 row 3: a header-only dependency without an interface

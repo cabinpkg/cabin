@@ -1,3 +1,4 @@
+use crate::StandardViolation;
 use crate::error::BuildError;
 use cabin_core::{SourceLanguage, Target};
 use cabin_driver::Dialect;
@@ -206,9 +207,9 @@ pub(super) fn topo_sort_targets(
 // internal: include dir + link lib collection
 // ---------------------------------------------------------------------------
 
-/// Include dirs for one target's compiles, partitioned into the user
-/// bucket (`-I`) and the system bucket (`-isystem` / `/external:I`).
-pub(super) struct CollectedIncludeDirs {
+/// What one target's compiles receive: its own include dirs plus the
+/// consumer interfaces of the dependency targets it sees.
+pub(super) struct CollectedInterface {
     /// The target's own include dirs plus those contributed by
     /// local dependency targets - code the user owns.
     pub(super) user: Vec<Utf8PathBuf>,
@@ -217,39 +218,61 @@ pub(super) struct CollectedIncludeDirs {
     /// the user cannot fix, so compiles mark them as system search
     /// paths.
     pub(super) system: Vec<Utf8PathBuf>,
+    /// The visible dependencies' `interface-defines`, in visit order.
+    pub(super) defines: Vec<String>,
+    /// The visible library-like dependency targets, in visit order.
+    pub(super) visible: Vec<TargetId>,
 }
 
-pub(super) fn collect_include_dirs(
+/// Collect the consumer interface `start` compiles against: each
+/// direct dependency's, plus what that dependency re-exports through
+/// public edges, transitively.  A private edge's own dependencies stay
+/// invisible.  Visits pop a stack pushed in declaration order, the
+/// include search order Cabin has always emitted.  Two visible
+/// dependencies defining one macro differently are recorded against
+/// `object`, one of `start`'s compiles, which the `cabin check`
+/// rewrite prunes the conflict with.
+pub(super) fn collect_interface(
     start: &TargetId,
     target: &Target,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     graph: &PackageGraph,
-) -> Result<CollectedIncludeDirs, BuildError> {
+    object: &Utf8Path,
+    violations: &mut Vec<StandardViolation>,
+) -> Result<CollectedInterface, BuildError> {
     let manifest_dir = promote_dir(&graph.packages[start.0].manifest_dir)?;
-    let mut user: Vec<Utf8PathBuf> = target
-        .include_dirs
-        .iter()
-        .map(|d| manifest_dir.join(d))
-        .collect();
-    let mut system: Vec<Utf8PathBuf> = Vec::new();
-
-    let mut seen: HashSet<TargetId> = HashSet::new();
+    let mut collected = CollectedInterface {
+        user: target
+            .include_dirs
+            .iter()
+            .map(|d| manifest_dir.join(d))
+            .collect(),
+        system: Vec::new(),
+        defines: Vec::new(),
+        visible: Vec::new(),
+    };
+    // Each visited target and the target it was reached through, for
+    // the paths a conflicting definition names.
+    let mut reached_via: HashMap<&TargetId, &TargetId> = HashMap::new();
+    let mut define_origin: HashMap<&str, (&str, &TargetId)> = HashMap::new();
     let empty: Vec<TargetDepEdge> = Vec::new();
-    let mut stack: Vec<&TargetId> = resolved
+    let mut stack: Vec<(&TargetId, &TargetId)> = resolved
         .get(start)
         .unwrap_or(&empty)
         .iter()
-        .map(|e| &e.to)
+        .map(|e| (&e.to, start))
         .collect();
-    while let Some(tid) = stack.pop() {
-        if !seen.insert(tid.clone()) {
+    while let Some((tid, via)) = stack.pop() {
+        if tid == start || reached_via.contains_key(tid) {
             continue;
         }
+        reached_via.insert(tid, via);
         let dep_pkg = &graph.packages[tid.0];
         let Some(dep_target) = find_target(&dep_pkg.package, &tid.1) else {
             continue;
         };
         if dep_target.kind.is_library_like() {
+            collected.visible.push(tid.clone());
             // Provenance decides the bucket: registry archives are
             // third-party code, while workspace
             // members, plain path deps, and `[patch]`ed packages are
@@ -261,23 +284,72 @@ pub(super) fn collect_include_dirs(
             let dep_manifest = promote_dir(&dep_pkg.manifest_dir)?;
             for inc in &dep_target.include_dirs {
                 let abs = dep_manifest.join(inc);
-                if !user.contains(&abs) && !system.contains(&abs) {
+                if !collected.user.contains(&abs) && !collected.system.contains(&abs) {
                     if third_party {
-                        system.push(abs);
+                        collected.system.push(abs);
                     } else {
-                        user.push(abs);
+                        collected.user.push(abs);
+                    }
+                }
+            }
+            for define in &dep_target.interface_defines {
+                let name = macro_name(define);
+                match define_origin.get(name) {
+                    None => {
+                        define_origin.insert(name, (define, tid));
+                        collected.defines.push(define.clone());
+                    }
+                    Some((first, _)) if macro_value(first) == macro_value(define) => {}
+                    Some((first, origin)) => {
+                        let path_to = |end: &TargetId| {
+                            let mut hops = vec![format_target_id(end, graph)];
+                            let mut at = end;
+                            while let Some(prev) = reached_via.get(at) {
+                                hops.push(format_target_id(prev, graph));
+                                at = prev;
+                            }
+                            hops.reverse();
+                            hops.join(" -> ")
+                        };
+                        // Registry-supplied values: escape them before
+                        // they reach the terminal.
+                        violations.push(StandardViolation::ConflictingInterfaceDefines {
+                            target: format_target_id(start, graph),
+                            name: name.to_owned(),
+                            first: format!(
+                                "`{}` from {}",
+                                cabin_core::escape_control_chars(first),
+                                path_to(origin)
+                            ),
+                            second: format!(
+                                "`{}` from {}",
+                                cabin_core::escape_control_chars(define),
+                                path_to(tid)
+                            ),
+                            object: object.to_owned(),
+                        });
                     }
                 }
             }
         }
         if let Some(deps) = resolved.get(tid) {
-            for d in deps {
-                stack.push(&d.to);
+            for edge in deps.iter().filter(|edge| edge.public) {
+                stack.push((&edge.to, tid));
             }
         }
     }
+    Ok(collected)
+}
 
-    Ok(CollectedIncludeDirs { user, system })
+/// The macro a `-D` entry defines: everything before its `=`, or
+/// before the parameter list of a function-like `NAME(args)=body`.
+pub(super) fn macro_name(define: &str) -> &str {
+    define.split(['=', '(']).next().unwrap_or(define)
+}
+
+/// The value a `-D` entry gives its macro: a bare `NAME` means `1`.
+fn macro_value(define: &str) -> &str {
+    define.split_once('=').map_or("1", |(_, value)| value)
 }
 
 /// Collect the validated system-library names

@@ -25,7 +25,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | --- | --- | --- | --- | --- | --- |
 | 00 | Shared contracts, this ledger, scope alignment | all | `docs/` | - | adopted |
 | 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | implemented |
-| 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | not started |
+| 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | in progress |
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | not started |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | not started |
 | 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | not started |
@@ -112,15 +112,18 @@ Stage 02; consumed by 06, 08, 09, 10; validated in 12-14.
 
 **Today.**
 
-- `public` exists per `deps` entry (`cabin-core/src/model.rs`, `TargetDep`) and drives only the
-  post-resolution standard check (`cabin-workspace/src/standards.rs`); the
-  [manifest reference](manifest.md#edge-visibility) calls it declarative.
-- Include directories follow every edge, private ones included, to every transitive consumer
-  (`cabin-build/src/planner/lowering.rs`, `collect_include_dirs`); registry packages' directories
-  become system includes.
+- `public` per `deps` entry (`cabin-core/src/model.rs`, `TargetDep`) decides which compiles see a
+  dependency's consumer interface: its `include-dirs` and `interface-defines` reach the depending
+  target's compiles, and that target's consumers only through public edges
+  (`cabin-build/src/planner/lowering.rs`, `collect_interface`).  The post-resolution standard check
+  (`cabin-workspace/src/standards.rs`) and the build-time interface-standard check use the same
+  visibility.  Registry packages' directories become system includes.
 - `defines` and package flag layers apply to the declaring package's own compiles, and `ldflags`
-  to its own link steps, only (`cabin-build/src/planner/mod.rs`); no definition reaches a consumer.  A `header-only` target's
-  `defines` is accepted and has no effect.
+  to its own link steps, only (`cabin-build/src/planner/mod.rs`); target `interface-defines` reach
+  consumers only, and a target's own `defines` override an incoming one.  Two visible dependencies
+  defining one macro differently fail the build with both paths, recorded per compile so
+  `cabin check` prunes a dependency's conflict.  `defines` on a `header-only` target is a manifest
+  error.
 - The final link takes the archives of the whole transitive closure, private edges included
   (`collect_link_libs`), plus package-level `link-libs` (`collect_link_lib_names`).
 - Registry packages' raw `cflags` / `cxxflags` / `ldflags` are dropped
@@ -128,14 +131,13 @@ Stage 02; consumed by 06, 08, 09, 10; validated in 12-14.
 - Implemented and not missing: C and C++ as separate languages with separate standards; target
   `public` edges; interface standard ranges; `cfg`-conditional sources and flag layers;
   compiler-conditioned flag layers (`cc`, `cxx`, `cc_version`, `cxx_version`); assembly sources.
-- Package flag layers' `include-dirs` already reach only the declaring package's own compiles - a
-  package-wide producer-only include form that stage 02 reconciles with its per-target one.
+- Package flag layers' `include-dirs` reach only the declaring package's own compiles: the
+  producer-only include form (contracts section 2); there is no per-target one.
 
 **Blocked workflow.**  A Boost.Stacktrace consumer must define `BOOST_STACKTRACE_LINK` itself
 (`ports/boost-stacktrace/1.92.0/cabin.toml`), Boost.Contract ships header-only because consumers
 cannot receive `BOOST_CONTRACT_STATIC_LINK`, and Boost.Atomic and Boost.Log drop their SSE/AVX
-sources because no per-source ISA option exists.  A library's private dependency's headers leak to
-every consumer.
+sources because no per-source ISA option exists.
 
 **Necessary changes.**  Interface definitions; a producer-only include form; propagation driven by
 edge visibility; the final-link closure kept separate from compile visibility with order
@@ -389,8 +391,8 @@ Statements that stay true until a stage changes the behavior, and that stage mus
 
 - `--target` rejection tests in `cabin/tests/cli.rs` and `cabin/tests/cli/test_targets.rs`
   (stage 04).
-- "Today the flag is declarative" in [manifest](manifest.md#edge-visibility) and the C++ semantic
-  invariants on include directories and link interfaces (stage 02).
+- The `docs/architecture.md` C++ semantic invariant on link interfaces (stage 02; the edge
+  visibility and include-directory statements were updated in stage 02).
 - [Target dependencies](target-dependencies.md#evaluation-context) on host-only evaluation and the
   lockfile (stage 04).
 - [Dependency kinds](dependency-kinds.md) listing two kinds (stage 04).
@@ -410,8 +412,8 @@ change expected to fix them.
 | [Toolchains](toolchains.md#deferred--out-of-scope) deferred list | compiler-conditional flags are deferred | `cc`, `cxx`, `cc_version`, `cxx_version` flag-table keys exist | fixed |
 | [Toolchains](toolchains.md#deferred--out-of-scope) deferred list | SARIF/JSON capabilities "are detected" | no such capability field | fixed |
 | `docs/architecture.md` C++ semantic invariants | system-dependency flags "are wired into consumers that link the producing target"; a header-only link interface is "include-dir + system deps" | primary packages only; `--libs` reaches the declaring package's own links; `link-libs` is what propagates | fixed (wording); behavior is stage 06 |
-| [Manifest](manifest.md#edge-visibility), `cabin-core` `TargetDep` doc | `public` "does not change how anything builds"; consumed by nothing | it drives the post-resolution standard check | stage 02 |
-| [Standard-compatibility spec](design/standard-compatibility/spec.md) D5 | a private edge does not expose the dependency to the consumer's own consumers | include directories follow private edges to every transitive consumer | stage 02 |
+| [Manifest](manifest.md#edge-visibility), `cabin-core` `TargetDep` doc | `public` "does not change how anything builds"; consumed by nothing | it drives the post-resolution standard check | fixed in stage 02 |
+| [Standard-compatibility spec](design/standard-compatibility/spec.md) D5 | a private edge does not expose the dependency to the consumer's own consumers | include directories follow private edges to every transitive consumer | fixed in stage 02 (the code now follows D5) |
 | [Profiles](profiles.md), `build_flags.rs` | `link-libs` belong to a target's objects | collected per package | stage 02 |
 | [Targets](targets.md), `TargetKind` doc | a `library` is a `.a` archive | `<name>.lib` on MSVC | stage 08 |
 | [Target dependencies](target-dependencies.md) | `cfg(env = "musl")` example; `target` documented as a triple in `condition.rs` | `env` always follows the OS; `target` is `<arch>-<family>-<os>` | stage 04 |
@@ -453,6 +455,13 @@ documents how features meet its contents.  Contracts section 1's seam for stage 
 packages (`Node::Feature`) and its single `platform` are what per-context resolution splits, while
 `Node::Package` stays shared, keeping one version per name across contexts.
 
+Stage 02, first change: edge visibility governs compile interfaces (area 2, "Today"), with target
+`interface-defines`, header-only `defines` rejected, and definition conflicts diagnosed.  The
+migration audit found one private port edge whose consumers relied on the old leak through their
+own sources, not through the producer's headers: `libpng` -> `zlib` stays private (`png.h` does
+not include `zlib.h`), and the `libpng-usage` example now declares the `zlib` it includes;
+`boost-iostreams` -> `zlib` is the only other private port edge.  No port changed.
+
 **Validation.**  Stage 00 changes documentation only; the website gate covers it.  Stage 01:
 resolver unit tests for each acceptance scenario (feature chain, defaults diamond, older candidate
 for a feature, optional-edge backtracking, non-matching `cfg` edge, unknown feature, locked replay,
@@ -460,7 +469,11 @@ lazy metadata), CLI tests for the registry chain built and replayed `--frozen`, 
 optional dependency absent from file and HTTP registries, a registry-reached path patch enabling
 its optional versioned dependency, and dependency configurations in `metadata`; `cargo ci` on
 macOS.  Not run: Linux and Windows locally (CI covers them), and no real-project demonstration -
-stage 12 validates.
+stage 12 validates.  Stage 02, first change: planner tests for private and public edges, public
+chains and diamonds, definition conflicts (both paths, escaping, check pruning), own-define
+override, and the visible set feeding the build-time standard check; manifest tests for the
+`interface-defines` grammar and kinds; the `libpng-usage` and `png-info` examples built and run;
+`cargo ci` on macOS.
 
 **Unfinished.**  Stages 02-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
@@ -470,6 +483,12 @@ naming `<package>[<feature>]` rather than with the direct-request diagnostic; `m
 missing from their configuration report; `tree` and `explain package` filter by included package,
 not by edge, so a disabled optional edge onto a package another edge includes still shows; over
 sparse HTTP, each optional dependency a feature enables costs one fetch round and re-solve.
+
+Stage 02 remaining, in order: graph-ordered `link-libs` with repetition kept and typed
+`frameworks`; per-source instruction sets; the Boost ports (`stacktrace` and `contract` interface
+definitions, `atomic` and `log` ISA sources).  Follow-ups found so far: a missing-header link
+diagnostic does not suggest a public edge or a direct dependency; the `libpng` port's comment
+claims `png.h` includes `zlib.h`, a comment-only packaging-revision correction for a later respin.
 
 ## Handoff to stage 02
 

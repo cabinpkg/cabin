@@ -403,10 +403,7 @@ fn libpng_usage_builds_and_runs() {
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
         index_path: Some(committed_ports_registry().to_path_buf()),
-        expected_stdout: &[
-            "libpng version: 1.6.50",
-            "zlib version (via libpng edge): 1.3",
-        ],
+        expected_stdout: &["libpng version: 1.6.50", "zlib version: 1.3"],
     });
 }
 
@@ -835,7 +832,6 @@ fn png_info_builds_and_runs() {
             "png-info: 2x2, 4 channel(s)",
             "roundtrip pixels match: yes",
             "libpng version: 1.6.50",
-            "zlib version (transitive edge): 1.3",
         ],
     });
 }
@@ -857,9 +853,9 @@ fn workspace_app_and_lib_builds_and_runs() {
         .assert()
         .success();
     // `default-members = ["packages/app"]` selects the app without
-    // `-p`. The fmt-formatted greeting proves the package's headers and
-    // archive reached `app` transitively through the internal
-    // `greeter` path dependency.
+    // `-p`. The fmt-formatted greeting proves the fmt archive reached
+    // `app`'s link transitively through the internal `greeter` path
+    // dependency.
     let output = cabin()
         .args(["run", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))

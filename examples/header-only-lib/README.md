@@ -5,8 +5,9 @@ A package that **authors** a header-only library as Cabin's dedicated `header-on
 in the same package through `deps = ["geometry"]`.
 
 A `header-only` target produces no archive and never reaches the link line; it exists purely in
-the dependency graph so its `include-dirs` (and, when declared, its `interface-c-standard` /
-`interface-cxx-standard`) propagate transitively to every dependent target.  Declaring `sources`
+the dependency graph so its `include-dirs` (and, when declared, its `interface-defines` and
+`interface-c-standard` / `interface-cxx-standard`) reach every target that depends on it, and
+those targets' consumers through public edges.  Declaring `sources`
 on a `header-only` target is rejected at manifest-load time.  This is the same mechanism the
 header-only `cabin-ports/*` registry packages are built on - see
 [`nlohmann-json-usage/`](../nlohmann-json-usage), [`cli11-usage/`](../cli11-usage), and

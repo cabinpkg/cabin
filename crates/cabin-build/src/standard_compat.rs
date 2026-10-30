@@ -430,7 +430,8 @@ fn section_of(pkg_edge: &cabin_workspace::DependencyEdge) -> String {
 /// do not exist.  Requirements merely passing through it from a
 /// library behind it keep warning (their origin is the library),
 /// and the always-on build-time enforcement independently checks
-/// the transitive closure, so nothing real is lost.
+/// every dependency whose headers the consumer sees, so nothing real
+/// is lost.
 fn interface_less_default_origin(
     provenance: &Provenance<'_>,
     topo: &[TargetId],

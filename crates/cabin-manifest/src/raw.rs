@@ -266,6 +266,8 @@ pub(crate) struct RawTarget {
     pub(crate) include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub(crate) defines: Vec<String>,
+    #[serde(default, rename = "interface-defines")]
+    pub(crate) interface_defines: Vec<String>,
     /// Entries accept the string shorthand (a private edge) or the
     /// `{ name = "...", public = <bool> }` table form;
     /// `cabin_core::TargetDep`'s deserialiser handles both shapes.

@@ -91,8 +91,8 @@ the built-in `dev` and `release` profiles exist without manifest entries.
 | `debug`      | `true` / `false`                        | Whether `-g` is added to C/C++ compile commands.          |
 | `opt-level`  | `0` / `1` / `2` / `3` / `"s"` / `"z"`   | Maps directly onto `-O0` … `-O3` / `-Os` / `-Oz`.             |
 | `assertions` | `true` / `false`                        | When `false`, `-DNDEBUG` is added to C/C++ compile commands. |
-| `defines` | array of strings | Preprocessor definitions applied to C and C++. |
-| `include-dirs` | array of paths | Relative include directories applied to C and C++. |
+| `defines` | array of strings | Preprocessor definitions applied to the package's own C and C++ compiles; consumers' interface definitions are target [`interface-defines`](manifest.md#edge-visibility). |
+| `include-dirs` | array of paths | Relative include directories applied to the package's own C and C++ compiles - the producer-only counterpart of target `include-dirs`, which consumers inherit. |
 | `cflags` | array of strings | Arguments applied only to C compilation. |
 | `cxxflags` | array of strings | Arguments applied only to C++ compilation. |
 | `ldflags` | array of strings | Arguments applied to package link commands. |

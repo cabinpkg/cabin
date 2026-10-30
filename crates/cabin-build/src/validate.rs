@@ -252,7 +252,8 @@ pub fn validate_toolchain_standards(
 ///
 /// # Errors
 /// Returns [`BuildError::StandardUnsupportedOnMsvcDialect`],
-/// [`BuildError::StandardFlagConflict`], or
+/// [`BuildError::StandardFlagConflict`],
+/// [`BuildError::ConflictingInterfaceDefines`], or
 /// [`BuildError::AssemblyNeedsToolchain`] for the first surviving
 /// violation.
 pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), BuildError> {
@@ -283,6 +284,18 @@ pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), Build
             path: path.clone(),
             syntax,
             needs,
+        }),
+        Some(crate::StandardViolation::ConflictingInterfaceDefines {
+            target,
+            name,
+            first,
+            second,
+            ..
+        }) => Err(BuildError::ConflictingInterfaceDefines {
+            target: target.clone(),
+            name: name.clone(),
+            first: first.clone(),
+            second: second.clone(),
         }),
         Some(crate::StandardViolation::FlagConflict { conflict, .. }) => {
             Err(BuildError::StandardFlagConflict(Box::new(conflict.clone())))
@@ -643,6 +656,7 @@ mod tests {
                     ..Default::default()
                 },
                 links: None,
+                interface_defines: Vec::new(),
                 conditional_sources: Vec::new(),
             };
             let package = Package::new(
@@ -718,6 +732,7 @@ mod tests {
                 ..Default::default()
             },
             links: None,
+            interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
         };
         let package = Package::new(

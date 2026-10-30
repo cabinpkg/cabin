@@ -249,6 +249,21 @@ pub fn validate_system_dependency_name(value: &str) -> Result<(), ValidationErro
     Ok(())
 }
 
+/// Whether `raw` is a valid `interface-defines` entry: `NAME` or
+/// `NAME=value` with a C identifier for `NAME` and no control or
+/// bidirectional-formatting characters anywhere, since a failed build
+/// echoes the command line.  The value is otherwise free: it reaches
+/// the compiler as one quoted argument.
+pub fn is_valid_interface_define(raw: &str) -> bool {
+    let name = raw.split_once('=').map_or(raw, |(name, _)| name);
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && crate::escape_control_chars(raw) == raw
+}
+
 /// Grammar for a `links` native-library identity: non-empty ASCII
 /// letters, digits, `.`, `_`, `+`, and `-`.  Deliberately not the
 /// path-safe target-name grammar - a `links` value never becomes a
@@ -526,10 +541,10 @@ pub struct TargetDep {
     /// [`Target::deps`] for why this is a `String`, not a
     /// [`TargetName`].
     pub reference: String,
-    /// Whether this edge re-exports the dependency's public
-    /// headers to the target's own consumers.  Declarative only
-    /// today: recorded on the resolved dependency graph, consumed
-    /// by nothing yet.
+    /// Whether this edge re-exports the dependency's consumer
+    /// interface (include directories, interface definitions and
+    /// standards) to the target's own consumers.  A private edge
+    /// applies it to this target's compiles only.
     pub public: bool,
 }
 
@@ -637,8 +652,16 @@ pub struct Target {
     pub sources: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub include_dirs: Vec<Utf8PathBuf>,
+    /// Preprocessor definitions for this target's own compiles only.
     #[serde(default)]
     pub defines: Vec<String>,
+    /// Preprocessor definitions for consumers' compiles, not this
+    /// target's own: each `NAME` or `NAME=value` reaches the targets
+    /// that depend on this one, and their consumers along public
+    /// edges.  The manifest parser enforces the grammar and the
+    /// library-like kind.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interface_defines: Vec<String>,
     /// Explicit references to the linked targets.  A bare name
     /// resolves to a same-package target first, then to a
     /// dependency package's *sole* library / header-only target,
@@ -1385,6 +1408,7 @@ mod tests {
             required_features: Vec::new(),
             language: LanguageStandardSettings::default(),
             links: None,
+            interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
         }
     }

@@ -135,8 +135,9 @@ fn qualified_reference_links_differently_named_target() {
 fn public_table_form_dep_builds_like_a_string_entry() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // `{ name = ..., public = true }` is declarative today: the
-    // build must behave exactly like the string spelling.
+    // On a direct edge `{ name = ..., public = true }` changes what
+    // the consumer's own consumers see, not this build: it must
+    // behave exactly like the string spelling.
     write_shorthand_workspace(dir.path(), r#"{ name = "toolkit:kit", public = true }"#);
     cabin()
         .args(["build", "-p", "app", "--manifest-path"])

@@ -3,31 +3,33 @@
 A consumer example for the `cabin-ports/libpng` registry package, published from the curated
 [`ports/libpng/1.6.50/`](../../ports/libpng/1.6.50/)
 package directory.
-The program creates a libpng read struct, prints the libpng version, and prints the zlib version -
-the latter reached only through libpng's own dependency on `cabin-ports/zlib`.
+The program creates a libpng read struct, prints the libpng version, and prints the zlib version
+it calls directly.
 
 This is **not** itself a port and does not vendor or copy libpng or zlib sources.  It demonstrates
 depending on a registry package that itself depends on another registry package.
 
 ## A transitive registry dependency
 
-libpng depends on zlib.  The app declares only libpng:
+libpng depends on zlib: the published libpng package declares `"cabin-ports/zlib" = "^1.3"`, so the
+resolver pulls zlib in transitively and its archive joins the final link.  libpng's target edge
+onto zlib is private - `png.h` never includes `zlib.h` - so zlib's headers stop at libpng.  Because
+`src/main.c` includes `zlib.h` and calls `zlibVersion()` itself, the app declares zlib too:
 
 ```toml
 [dependencies]
 "cabin-ports/libpng" = "=1.6.50"
+"cabin-ports/zlib" = "^1.3"
 ```
 
-The published libpng package declares `"cabin-ports/zlib" = "^1.3"`, so the resolver pulls zlib in
-transitively. zlib's headers and its compiled archive propagate through the libpng edge, which is
-why `src/main.c` can `#include <zlib.h>` and call `zlibVersion()` even though the app never names
-zlib.  The dependency tree shows the nesting:
+Both edges resolve to one zlib version.  The dependency tree shows them:
 
 ```
 $ cabin tree
 libpng-usage v0.1.0 (workspace)
-`-- cabin-ports/libpng v1.6.50 [normal] (registry, sha256:...)
-    `-- cabin-ports/zlib v1.3.1 [normal] (registry, sha256:...)
+|-- cabin-ports/libpng v1.6.50 [normal] (registry, sha256:...)
+|   `-- cabin-ports/zlib v1.3.1 [normal] (registry, sha256:...)
+`-- cabin-ports/zlib v1.3.1 [normal] (registry, sha256:...) (*)
 ```
 
 ## Build and run
@@ -42,7 +44,7 @@ Expected output (versions are whatever the resolved packages pin):
 
 ```
 libpng version: 1.6.50
-zlib version (via libpng edge): 1.3.1
+zlib version: 1.3.1
 ```
 
 ## Prebuilt configuration, no configure step

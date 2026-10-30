@@ -72,11 +72,16 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
     let standard_violations = graph
         .standard_violations
         .into_iter()
-        .filter(|violation| {
-            !matches!(violation, StandardViolation::AssemblyNeedsToolchain { .. })
-                && selected_pkg_dirs
-                    .iter()
-                    .any(|dir| violation.object().as_std_path().starts_with(dir))
+        .filter(|violation| match violation {
+            StandardViolation::AssemblyNeedsToolchain { .. } => false,
+            // Recorded against an assembly object when the target
+            // compiles no C/C++, which a check never assembles.
+            StandardViolation::ConflictingInterfaceDefines { object, .. } => actions
+                .iter()
+                .any(|action| matches!(action, BuildAction::Compile(c) if &c.object == object)),
+            _ => selected_pkg_dirs
+                .iter()
+                .any(|dir| violation.object().as_std_path().starts_with(dir)),
         })
         .collect();
     BuildGraph {

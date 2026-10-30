@@ -125,7 +125,8 @@ from, and looser than, the package-name grammar.
 | `type` | string | yes | - | Target kind.  One of `library`, `header-only`, `executable`, `test`, `example`.  Each kind describes artifact role only; a target may freely mix `.c` and C++ sources.  See [Targets](targets.md). |
 | `sources` | array of strings | no | `[]` | Source files, relative to the manifest directory (no `..`). |
 | `include-dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory (no `..`, no absolute paths).  A dependency's entries reach its consumers' compile lines, so they may never point outside the declaring package. |
-| `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
+| `defines` | array of strings | no | `[]` | Preprocessor definitions for this target's own compiles, e.g. `"FOO=1"`; never reach consumers.  Rejected on `header-only`, which compiles nothing. |
+| `interface-defines` | array of strings | no | `[]` | Preprocessor definitions for consumers' compiles, not this target's own: `NAME` or `NAME=value`, `NAME` a C identifier, no control characters; `library` / `header-only` only.  List a macro in both fields when the target's own sources need it too.  See [Edge visibility](#edge-visibility). |
 | `deps` | array of strings or tables | no | `[]` | Target dependencies.  A string entry declares a private edge; the table form adds per-edge visibility: `{ name = "foo", public = true }`.  See [Target dependencies](#target-dependencies). |
 | `required-features` | array of strings | no | `[]` | Package features (declared in this package's `[features]` table) that must all be enabled for this target to be built or used.  Unknown names are rejected at manifest load.  See [Feature-gated targets](features.md#feature-gated-targets). |
 | `c-standard` | string | no | package value | Per-target C implementation standard override.  See [Language standards](language-standards.md). |
@@ -135,8 +136,9 @@ from, and looser than, the package-name grammar.
 | `gnu-extensions` | boolean | no | package value, else `false` | Per-target GNU-extensions dialect override. |
 | `links` | string | no | - | Native-library identity this target claims, e.g. `"z"` for a target embodying zlib; `library` only.  See [`links`](#links). |
 
-`include-dirs` of a `library` or `header-only` target are visible (transitively) to any target that
-depends on it.
+`include-dirs` of a `library` or `header-only` target apply to its own compiles and, with its
+`interface-defines`, to every target that depends on it - transitively only along public edges
+([Edge visibility](#edge-visibility)).
 
 ### `links`
 
@@ -332,10 +334,29 @@ is private.  Visibility applies to the resolved edge - the bare-name shorthand r
 `{ name = "fmt", public = true }` declares a public edge to the `fmt` package's sole library
 target.
 
-Today the flag is declarative: it does not change how anything builds or links.  It exists so
-interface requirements (see [Language standards](language-standards.md)) can propagate along
-public edges only.  A linter that flags under-declaration - public headers including headers of a
-dependency whose edge is private - may come later.
+Visibility decides which compiles see a dependency's consumer interface - its `include-dirs`,
+`interface-defines`, and interface standards ([Language standards](language-standards.md)):
+
+- a **private** edge applies it to the depending target's own compiles only;
+- a **public** edge applies it there too and re-exports it to that target's consumers, and theirs,
+  as long as the chain of edges stays public.
+
+So with `app -> net -> util` above, `app` compiles against `net`'s interface but not `util`'s,
+while `fmt`'s reaches `app` through the public edge.  Linking ignores visibility: every library in
+the dependency closure joins the final link of each executable that depends on it, private edges
+included, in dependency order (dependents first).
+
+Two dependencies that reach one compile with different values for the same macro fail the build,
+naming both dependency paths; agreeing values (`FOO` and `FOO=1`) count once.  A target's own
+`defines` and its package's `[profile]` `defines` override an incoming interface definition of the
+same macro.
+
+Before this rule, every edge carried include directories to all transitive consumers.  A consumer
+that compiled only because of that leak now misses a header - or, worse, silently finds a system
+copy of it while linking the dependency's archive.  The fix depends on who includes the header:
+when the consumer's own sources do, it declares that dependency itself; when a library's public
+headers do, the library marks its edge public.  A registry library needs a corrected release (or
+packaging revision) for the latter.  No linter flags under-declaration yet.
 
 Declaring a package under `[dependencies]` only makes it *available*; nothing links until a target
 names one of its targets in `deps`.  [Features](features.md) never add `deps` entries either - a

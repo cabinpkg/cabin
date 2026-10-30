@@ -151,6 +151,17 @@ pub enum BuildError {
     )]
     MixedToolchainDialects { detail: String },
 
+    /// Two dependencies a target compiles against define one macro
+    /// with different values through their `interface-defines`.
+    /// `first` and `second` each read `` `NAME=value` from a -> b ``.
+    #[error("target {target:?} receives conflicting definitions of `{name}`: {first} and {second}")]
+    ConflictingInterfaceDefines {
+        target: String,
+        name: String,
+        first: String,
+        second: String,
+    },
+
     /// A target carries a source whose extension does not match
     /// any of Cabin's recognized C/C++ extensions.
     #[error(

@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <zlib.h>
 
 /* Encode a tiny RGBA image to an in-memory PNG with libpng's
  * simplified write API, then decode it back and report what a
@@ -64,6 +63,5 @@ int main(void) {
     printf("roundtrip pixels match: %s\n",
            memcmp(pixels, decoded, sizeof pixels) == 0 ? "yes" : "no");
     printf("libpng version: %s\n", PNG_LIBPNG_VER_STRING);
-    printf("zlib version (transitive edge): %s\n", zlibVersion());
     return 0;
 }

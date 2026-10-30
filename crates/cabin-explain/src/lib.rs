@@ -1458,6 +1458,7 @@ mod tests {
             required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
             links: None,
+            interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
         };
         graph.packages[2].package.targets.push(target);
@@ -1484,6 +1485,7 @@ mod tests {
             required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
             links: None,
+            interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
         };
         graph.packages[1].package.targets.push(lib_target);

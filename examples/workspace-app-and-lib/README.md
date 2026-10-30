@@ -10,8 +10,9 @@ A Cabin workspace whose internal library carries an external dependency:
 
 Where [`workspace-basic/`](../workspace-basic) shows workspace mechanics with path dependencies
 alone, this example adds the mixed-dependency shape real projects have: `app` declares only the
-internal `greeter` library, and the fmt package's headers and archive propagate to `app`'s compile
-and link transitively through the `app -> greeter -> fmt` chain.
+internal `greeter` library, and the fmt archive joins `app`'s link transitively through the
+`app -> greeter -> fmt` chain.  `greeter`'s edge onto fmt is private, because only `greeter.cc`
+includes fmt's headers, so `app` compiles against `greeter`'s headers alone.
 
 The workspace root is a *virtual* manifest (no `[package]`) with `members = ["packages/*"]`;
 `default-members = ["packages/app"]` makes `cabin run` launch the app without `-p`.

@@ -4,9 +4,9 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-# libpng depends on zlib. The app declares only
-# libpng; zlib is pulled in transitively, and its archive + headers
-# propagate through the libpng edge.
+# libpng depends on zlib. The app declares only libpng; zlib is
+# pulled in transitively and its archive joins the final link, while
+# its headers stay behind libpng's private edge.
 "cabin-ports/libpng" = "=1.6.50"
 
 [target.png-info]

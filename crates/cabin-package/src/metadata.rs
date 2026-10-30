@@ -642,6 +642,7 @@ mod tests {
             required_features: Vec::new(),
             language: LanguageStandardSettings::default(),
             links: links.map(str::to_owned),
+            interface_defines: Vec::new(),
             conditional_sources: Vec::new(),
         };
         let proj = Package::new(

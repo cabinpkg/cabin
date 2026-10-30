@@ -100,12 +100,15 @@ Common fields:
 - `sources`: source files relative to the package root.
 - `include-dirs`: public include directories, relative to the package root.  Absolute paths and
   `..` traversal are rejected when the manifest loads: a package must not aim its consumers'
-  include search outside itself.  Consumers of this target inherit them through `deps`.
+  include search outside itself.  Consumers of this target inherit them through `deps`, and
+  their consumers only through public edges; see [Edge visibility](manifest.md#edge-visibility).
   When the providing package is third-party code (an extracted registry package or a foundation
   port), consumers compile with the inherited dirs marked as *system* search paths (`-isystem` /
   MSVC `/external:I`) so warnings inside dependency headers do not fail a strict warning profile;
   see [System include directories](toolchains.md#system-include-directories).
-- `defines`: preprocessor defines applied to this target's compile actions.
+- `defines`: preprocessor defines applied to this target's compile actions only.
+- `interface-defines`: preprocessor defines applied to the compiles of this target's consumers,
+  with the same reach as `include-dirs` (`library` / `header-only` only).
 - `deps`: explicit references to the linked targets:
   - same-package by bare name: `deps = ["lib"]`;
   - cross-package by bare package name: `deps = ["cabin-ports/zlib"]` resolves to the
@@ -127,7 +130,8 @@ Common fields:
 
   Any of these references may be wrapped in the table form `{ name = "fmt", public = true }` to
   declare the edge **public** - meaning this target's public headers include headers of that
-  dependency.  String entries are private edges.  The flag is declarative today; see
+  dependency.  String entries are private edges: the dependency's include dirs and interface
+  defines reach this target's compiles but not its consumers'.  Linking ignores visibility; see
   [Edge visibility](manifest.md#edge-visibility).
 - `required-features`: package features that must all be enabled for this target to be built or
   used; see [Feature-gated targets](features.md#feature-gated-targets).  Entries must name features

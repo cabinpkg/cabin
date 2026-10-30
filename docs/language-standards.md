@@ -225,8 +225,10 @@ dependency compile `cabin check` drops never gates the check, while `cabin build
 
 ## Interface enforcement
 
-A library-like target imposes its effective interface standard on every target that transitively
-depends on it, per language, checked after planning and before any Ninja file is written:
+A library-like target imposes its effective interface standard on every target whose compiles see
+its headers - its direct dependents and, through public edges, their consumers (see
+[Edge visibility](manifest.md#edge-visibility)) - per language, checked after planning and before
+any Ninja file is written:
 
 - The consumer's effective implementation standard must sit **inside** the dependency's
   interface range: at least its minimum, and - when the dependency declares a `max` - at most
