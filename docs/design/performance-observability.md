@@ -95,8 +95,8 @@ uncertainty.  Status: designed; lands with the build-path spans after roadmap st
 
 | PR | Content | Depends on | Status |
 | --- | --- | --- | --- |
-| 1 | Capture (`trace.rs`), timings summary, spans in workspace, manifest, config, feature, resolver, index, index-http, artifact, lockfile, package, vendor, system-deps, and the resolve/fetch orchestration; this record and `performance.md` | - | in progress |
-| 2 | `xtask-bench`: fixtures, Criterion benches, `hyperfine` CLI scenarios, baselines, comparison reports; profiling profile and recipes | 1 | not started |
+| 1 | Capture (`trace.rs`), timings summary, spans in workspace, manifest, config, feature, resolver, index, index-http, artifact, lockfile, package, vendor, system-deps, and the resolve/fetch orchestration; this record and `performance.md` | - | #2068 |
+| 2 | `xtask-bench`: fixtures, Criterion benches, `hyperfine` CLI scenarios, baselines, comparison reports; profiling profile and recipes | 1 | in progress |
 | 3 | Build-path spans (toolchain detection, planning, lowering, Ninja emission), the Ninja action timeline, test-run timeline | 1; stage 04 PR B; #2065 | blocked on stage 04 PR B |
 | 4 | Performance workflow: smoke subset on pull requests, full comparison on schedule and on demand, artifact retention | 2 | not started |
 
@@ -138,6 +138,28 @@ Measurement-infrastructure evidence for PR 1:
 | Repeated in-process invocations | unit `repeated_sessions_in_one_thread_each_capture_their_own_command` |
 | Write failure is reported, not a panic or a false "complete" | unit `a_write_failure_leaves_a_partial_trace_and_says_so`, `checked_writer_keeps_the_first_error_and_swallows_the_rest` |
 
+## Benchmark coverage
+
+End-to-end scenarios (`cargo perf list`) and Criterion benches (`benches/domain.rs`) per family.
+Each scenario's check is what keeps a number honest; see `performance.md`.
+
+| Family | CLI scenarios | Check | Criterion | Status |
+| --- | --- | --- | --- | --- |
+| Startup and no-op | `startup/version`, `inspect/metadata-*`, `build/noop-*` | exit 0; no Ninja action | - | done |
+| Resolution | `resolve/wide`, `resolve/deep`, `resolve/update-wide` | exit 0, from no lockfile; the lockfile lists every package | `resolver/wide`, `resolver/deep`, `features/resolve-40` | done |
+| Index and registry metadata | `index/http-wide`, `index/http-lazy` (loopback sparse HTTP) | exit 0, from no lockfile; the lockfile lists every package | `index/load-file-registry` | done; no warm/cold metadata split, because Cabin keeps no metadata cache |
+| Workspace and planning | `workspace/metadata`, `workspace/tree`, `workspace/build-noop` | exit 0; no Ninja action | `workspace/load-40`, `manifest/parse-*` | done; planning and lowering benches land with PR 3 |
+| Clean and incremental builds | `build/clean-*`, `build/touch-source-*`, `build/touch-header-*` | exact compiled-object count from the `.ninja_log` delta | - | done |
+| Artifacts and file system | `artifact/fetch-cold`, `artifact/fetch-warm`, `package/vendor`, `package/package-*` | exit 0; one cached archive per dependency; every package vendored; the archive and its metadata written | `artifact/extract-zip` | done |
+| Tests | `test/run-c`, `test/run-cxx` | exit 0; no Ninja action; the JUnit report lists all 12 tests | - | done |
+| Real packages | `ports/*` (`--ports`) | exit 0; every port locked and one cached archive per port; the clean build compiles, the no-op runs no Ninja action | - | done |
+| Measurement infrastructure | `trace/noop-cxx-info`, `trace/noop-cxx-debug` | exit 0; no Ninja action | - | done |
+
+C and C++ inputs: the project scenarios come in both languages, the workspace alternates them by
+member, the synthetic registry by package, and the ports pair two C libraries with two C++ ones.
+The registry consumers and the capture-overhead scenarios are C++ only; the language of the root
+package does not change what resolution, fetching, or capture does.
+
 ## Measured overhead
 
 `hyperfine` 2.0, 5 warmups and 60 runs per command, interleaved in one session, release builds of
@@ -157,9 +179,73 @@ per invocation: creating the files, starting and joining the writer thread, and 
 earlier draft that `fsync`ed both files cost 14 ms on macOS; the files are now written without
 `fsync` and made atomic by rename alone.
 
+## Investigation: no-op build latency
+
+The first question taken through this tooling end to end, on the macOS reference machine (Apple
+silicon, macOS 27.2, release builds).
+
+**Question.**  `build/noop-cxx` took 68 ms, yet its trace accounted for well under 1 ms of it: the
+root `cabin` span lasted 64.7 ms while `load_workspace_and_patches`, `load_workspace`, and
+`resolve_features` together took 0.6 ms.  The time was spent outside every PR 1 span, in the build
+path PR 3 instruments.
+
+**Hypothesis 1: the `xcrun` shims.**  A no-op build still detects the toolchain, running
+`--version` on the C++ compiler, the C compiler, and the archiver one after another.  On macOS
+`/usr/bin/c++`, `cc`, and `ar` are `xcrun` shims, and `/usr/bin/c++ --version` took 11.4 ms
+against 5.0 ms for the `clang++` it resolves to.  A no-op build given the resolved tools directly
+used less CPU (user 12.4 ms instead of 18.3 ms) but was no faster (69.1 ms against 66.1 ms, medians
+of 40 runs).  Refuted, and less work at the same wall time pointed at waiting.
+
+**Hypothesis 2: the wait between probe checks.**  `run_process_with_timeout` in
+`cabin-toolchain/src/detect.rs` checked each probe with `try_wait` and slept up to 10 ms between
+checks, so each probe was noticed only on a 10 ms tick after it had exited, and the tick, not the
+probe, set the wall time.
+
+**Experiment.**  Two release binaries from one commit, differing only in that interval (10 ms and
+1 ms), compared with `cargo perf run --runs 30 --cabin base=... --cabin poll1ms=...`:
+
+| Scenario | 10 ms | 1 ms | Change | Noise | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `inspect/metadata-c` | 51.6 ms | 37.0 ms | -28.3% | 8.4% | Improved |
+| `inspect/metadata-cxx` | 52.4 ms | 41.0 ms | -21.8% | 14.7% | Improved |
+| `build/noop-c` | 65.9 ms | 50.9 ms | -22.8% | 15.4% | Improved |
+| `build/noop-cxx` | 67.8 ms | 54.5 ms | -19.6% | 6.7% | Improved |
+| `test/run-c` | 102.6 ms | 75.5 ms | -26.4% | 19.6% | Improved |
+| `test/run-cxx` | 90.4 ms | 77.9 ms | -13.8% | 12.4% | Improved |
+| `workspace/build-noop` | 84.1 ms | 70.8 ms | -15.7% | 11.3% | Improved |
+| `resolve/wide` (control: no detection) | 14.2 ms | 14.4 ms | +1.2% | 4.3% | Unchanged |
+
+Instructions rose 0.2-0.7% with the extra wake-ups, and peak RSS did not move.  `startup/version`,
+the other control, first read -18.9% (Improved, noise 13.8%); it was the run's first scenario, and
+two reruns with the binaries in swapped order read +7.6% and -0.7%, both Unchanged.  That is why
+the harness now alternates which binary runs first and `performance.md` warns about a run's first
+scenario.
+
+Hypothesis 1 rerun on both binaries (the `build/noop-cxx` project, medians of 40 runs) shows why
+it was refuted: the coarse tick hid the shims' cost.
+
+| Tools | 10 ms interval | 1 ms interval |
+| --- | ---: | ---: |
+| `xcrun` shims (`/usr/bin/cc`, `c++`, `ar`) | 67.5 ms | 53.3 ms |
+| Resolved paths (`--cc`, `--cxx`, `--ar`) | 68.4 ms | 38.0 ms |
+
+**Fix.**  The probe loop now sleeps at most 1 ms between checks (#2070).
+
+**Found on the way, not changed:**
+
+- With the fix, the `xcrun` shims are the largest remaining cost of a no-op build on macOS: 15 ms
+  of 53 ms, paid on every invocation because detection is not cached.
+- `cabin-test` waits for test output with a 10 ms timeout (`POLL_INTERVAL`) and reaps an exited
+  test on the next check, so a test can be reported up to 10 ms after it exits.
+- The lazy HTTP index needs one resolution round per dependency level: `index/http-lazy` takes 8
+  rounds for its 8-deep optional chain.
+- The file index parses every package document in the registry, whatever the resolution needs.
+
 ## Platform verification
 
 | Capability | macOS (arm64) | Linux (x86-64) | Windows (MSVC) |
 | --- | --- | --- | --- |
 | Trace capture and summary | verified locally | CI test suite | CI test suite |
 | `getrusage` memory and CPU in the summary | verified locally | CI test suite (non-zero peak asserted) | unsupported: `process` is `null` (asserted) |
+| `cargo perf run`, every scenario | verified locally | performance workflow (PR 4) | not verified; `--prepare` uses `cmd.exe` quoting |
+| Criterion benches | verified locally | CI test suite (one iteration each) | CI test suite (one iteration each) |

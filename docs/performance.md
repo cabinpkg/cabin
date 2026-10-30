@@ -1,7 +1,8 @@
 # Performance
 
-How to see where a Cabin command spends its time.  This page covers trace capture; the design,
-the coverage record, and the platform verification matrix are in
+How to see where a Cabin command spends its time, measure it reproducibly, and catch regressions:
+trace capture, the `cargo perf` benchmarks, and profiling.  The design, the coverage record, and
+the platform verification matrix are in
 [`design/performance-observability.md`](design/performance-observability.md).
 
 ## Capturing a trace
@@ -80,7 +81,140 @@ names follow the code and can change between commits.
 ## Sharing a trace
 
 A trace records span names, counts, sizes, HTTP status codes, and, at `debug`, the names of the
-packages being loaded or fetched.  It records no file paths,
-URLs, command lines, environment variables, headers, credentials, or response bodies.  The file
+packages being loaded or fetched.  It records no file paths, URLs, command lines, environment
+variables, headers, credentials, or response bodies.  The file
 names contain only the subcommand, a timestamp, and a process id.  Package names can still be
 private: check a `debug` trace of a private project before attaching it to a public issue.
+
+## Benchmarks
+
+`cargo perf` times Cabin commands end to end with [hyperfine](https://github.com/sharkdp/hyperfine)
+2.0 or newer (`cargo install hyperfine --locked`); Ninja and a C/C++ compiler are needed as for any
+build.  Run it from the repository root:
+
+```console
+$ cargo perf list                     # every scenario; [smoke] marks the quick subset
+$ cargo perf run                      # build this checkout (release profile), run the suite
+$ cargo perf run --smoke              # the quick subset
+$ cargo perf run --filter build/ --runs 20
+$ cargo perf run --base origin/main   # also build origin/main and compare the two
+$ cargo perf run --cabin a=/path/to/cabin --cabin b=/path/to/other/cabin
+```
+
+A run writes into `target/perf/runs/<unix time>/` (or `--out`):
+
+- `<label>.json` for each binary: the raw per-run samples (wall, user, and system time, peak
+  resident memory of the largest process, and retired instructions where the host exposes the
+  counter: on Linux those of Cabin and every process it starts, on macOS Cabin's own only), the
+  check result, and the phases of the check run's trace.  `format_version` is `1`.
+- `report.md`: per scenario, the median, the spread, and the three costliest phases.
+- `compare.md` and `compare.json` when two binaries ran.
+
+### Scenarios
+
+| Family | Scenarios | Measures |
+| --- | --- | --- |
+| Startup | `startup/version` | Process start and argument parsing |
+| Inspection | `inspect/metadata-c`, `inspect/metadata-cxx` | Config, workspace, and feature loading without a build |
+| Builds | `build/clean-*`, `build/noop-*`, `build/touch-source-*`, `build/touch-header-*` | A full build of a 24-source library and an executable; a no-op; a one-source and a shared-header rebuild.  Each in C and C++ |
+| Tests | `test/run-c`, `test/run-cxx` | Running 12 test executables with nothing to rebuild |
+| Packaging | `package/package-c`, `package/package-cxx`, `package/vendor` | Archive staging, and vendoring 20 registry packages |
+| Workspaces | `workspace/metadata`, `workspace/tree`, `workspace/build-noop` | A 40-member workspace of alternating C and C++ packages, each linking the previous one |
+| Resolution | `resolve/wide`, `resolve/deep`, `resolve/update-wide` | Solving 100 direct dependencies whose newest versions are all unsatisfiable, a 60-deep chain, and writing the lockfile |
+| Registry metadata | `index/http-wide`, `index/http-lazy` | The sparse HTTP index over loopback, and an 8-deep optional-feature chain that needs one resolution round per level |
+| Artifacts | `artifact/fetch-cold`, `artifact/fetch-warm` | Downloading, verifying, and extracting 20 archives; re-validating a warm cache |
+| Measurement | `trace/noop-cxx-info`, `trace/noop-cxx-debug` | Capture overhead: compare with `build/noop-cxx` |
+| Real packages (`--ports`) | `ports/resolve`, `ports/fetch-cold`, `ports/build-clean`, `ports/build-noop` | zlib, libpng, fmt, and spdlog from `ports/`, staged by the port publisher's own pipeline.  The first run downloads their pinned upstream archives |
+
+The inputs are generated into `target/perf/fixtures/` and reused until the harness is rebuilt; the
+ports are staged into each run's own directory.  The synthetic registry is published through the
+same code path as `cabin publish --registry-dir`, so its index documents and archives are real.
+Every scenario and binary works on a private copy.
+
+### What makes a number trustworthy
+
+- **Checked before timed.**  Each scenario first runs once, untimed and traced, and must exit 0
+  and do what it claims: a no-op build runs no Ninja action, a one-source touch compiles exactly
+  one object, a header touch compiles exactly its includers, a clean build compiles every source,
+  a test run rebuilds nothing and its JUnit report lists every test, a resolution locks every
+  package, a fetch leaves one archive per dependency in the cache, and packaging and vendoring
+  write every expected file.  A scenario that fails its check is reported as `FAILED` with the
+  reason and no numbers, and `cargo perf run` exits 1.  A binary from before trace capture is
+  checked and timed all the same, without phases.
+- **State reset outside the timing.**  hyperfine's `--prepare` removes the build directory,
+  cache, or output, or touches a source, before every run.
+- **Isolated.**  Every invocation gets a private `CABIN_CONFIG_HOME` and `CABIN_CACHE_HOME` and
+  no other inherited `CABIN_*` variable, so no configuration file, build directory, registry
+  token, or capture setting of yours reaches it; no `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, or
+  `LDFLAGS`; and `--no-compiler-wrapper` for builds, so a ccache hit never passes for a fast
+  build.  Your configuration and caches are neither read nor touched.  `CC`, `CXX`, and `AR`
+  still choose the toolchain.
+- **Recorded.**  Results name the hyperfine and Ninja versions, the OS, architecture, CPU count,
+  and fixture version; a comparison across different hosts or fixtures says so.
+- **Interleaved.**  With two binaries, each scenario runs for both back to back, so drift in the
+  machine's state affects both alike, and which binary goes first alternates per scenario.  The
+  first scenario of a run is the noisiest, measured while the machine is still settling; before
+  trusting a change there, rerun that scenario alone with the `--cabin` order swapped.
+- **Your machine stays as it is.**  The harness changes no system setting.  Close heavy
+  applications and keep a laptop on power; retired instructions move far less than wall time and
+  are the metric to trust first on a noisy host.  On macOS they cover Cabin's own process only, so
+  there a build's or a test run's instructions leave out Ninja, the compilers, and the tests.
+
+### Baselines and regressions
+
+```console
+$ cargo perf run --save-baseline before    # also saved as target/perf/baselines/before-candidate.json
+$ git switch my-change
+$ cargo perf run --out target/perf/after
+$ cargo perf compare before-candidate target/perf/after/candidate.json --out target/perf/after
+```
+
+`compare` takes two results files, or names saved with `--save-baseline`.  For every scenario and
+metric (wall time, peak memory, instructions) it compares the medians.  A change counts only when
+it exceeds both the metric's minimum effect (5% for wall time and peak memory, 2% for
+instructions) and the noise, the larger relative interquartile range of the two sides.  Each row
+is `Regressed`, `Improved`, or `Unchanged`, or `Invalid` when a side failed its check or lacks the
+scenario.  `--fail-on-regression` (on `run` or `compare`) exits 1 on any `Regressed` or `Invalid`
+row.
+
+### Micro-benchmarks
+
+`cargo bench -p xtask-bench` runs [Criterion](https://docs.rs/criterion) benchmarks on the same
+generated inputs: manifest parsing (C and C++), loading the 40-member workspace, feature
+resolution, loading the file index, solving the wide and deep shapes, and safe zip extraction.
+Criterion compares against its own saved baselines:
+`cargo bench -p xtask-bench -- --save-baseline main`, then `-- --baseline main` after a change.
+`cargo nextest run --all-targets` (part of `cargo ci`) runs each benchmark once as a test.
+
+## Profiling
+
+Capture a trace first: it says which phase to look at.  Then profile a binary with line tables:
+
+```console
+$ cargo build --profile profiling -p cabinpkg
+$ cargo perf exec build/noop-cxx --cabin target/profiling/cabin --repeat 200
+```
+
+`cargo perf exec` prepares a scenario as `run` does, runs its command `--repeat` times untimed,
+and prints the directory it ran in.  Repeat a short command enough to give a sampling profiler
+samples.  Wrap it in the profiler:
+
+- [samply](https://github.com/mstange/samply) (macOS, Linux; follows child processes):
+  `samply record cargo perf exec build/noop-cxx --cabin target/profiling/cabin --repeat 200`.
+- `perf` (Linux): `perf record -g --call-graph dwarf -- cargo perf exec ...`, then `perf report`.
+- Instruments (macOS), which records one process: from the directory `cargo perf exec` printed,
+  `xcrun xctrace record --template 'Time Profiler' --launch -- <repo>/target/profiling/cabin build
+  --no-compiler-wrapper`.  This run uses your own environment, not the harness's private one.
+
+Memory:
+
+- Peak resident memory, Cabin's and its largest child's apart, is in the timings summary's
+  `process`; `cargo perf` reports the peak of the largest process per run.
+- Allocations: `heaptrack <repo>/target/profiling/cabin build --no-compiler-wrapper` (Linux) or
+  Instruments' `Allocations` template (macOS), from the same directory and in your own
+  environment.
+
+A compiler's time is not Cabin's: build execution spans wait on Ninja.  To see what a compile
+costs, ask the compiler through the standard flag variables, for example `CXXFLAGS=-ftime-trace`
+with Clang (one `.json` per object beside it, viewable in Perfetto) or `CFLAGS=-ftime-report` with
+GCC.  Changing the flags rebuilds everything once.
