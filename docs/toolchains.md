@@ -157,8 +157,17 @@ cabin build --target aarch64-unknown-linux-gnu \
   build only the triple's machine, so when it is another machine, a build with build dependencies
   fails there.  `CFLAGS` and
   the other environment flags describe the target and do not reach these units.
-- **Sysroots.**  Cabin discovers no sysroot or SDK; pass one through `[profile]` flags or `CFLAGS` /
-  `CXXFLAGS` / `LDFLAGS` (`--sysroot=<dir>`).  [System dependencies](system-dependencies.md) need a
+- **Sysroots.**  `--sysroot <dir>`, or the [`[sysroot]`](config.md#sysroot) entry for the
+  `--target` triple, names the directory holding the target's headers and libraries; `--sysroot`
+  wins.  Every GCC and Clang compile, assemble, and link command passes `--sysroot=<dir>`, or
+  `-isysroot <dir>` for an Apple triple, right after `--target=`.  MSVC and clang-cl take the
+  Windows SDK from `INCLUDE` and `LIB`, so a sysroot with either is an error.  Without a choice,
+  an Apple Clang build for macOS or iOS, and `cabin tidy`'s compile database, pass the
+  platform's SDK: an absolute `SDKROOT`, else what `xcrun --sdk <sdk> --show-sdk-path` names
+  (`macosx`, `iphoneos`, or `iphonesimulator`).  A sysroot is part of every command line, so
+  switching it, or switching Xcode's SDK, rebuilds.  `cabin metadata` reports it under
+  `toolchain.sysroot`, with a `source` of `cli`, the config file's source, or `detected`.  Build
+  dependencies build with the compilers' own default.  [System dependencies](system-dependencies.md) need a
   pkg-config for the target.
 
 Without `--target`, a compiler whose `--version` banner names another machine draws a warning:
@@ -436,6 +445,7 @@ identical `ToolchainDetectionReport`s.
 | toolchain                | `(kind, spec)` pairs, sorted by tool key                                                |
 | compiler-wrapper         | kind, spec, version (or `none`)                                                         |
 | target                   | the `--target` triple; absent for a build-machine build                                 |
+| sysroot                  | the `--sysroot` or `[sysroot]` value as written; absent for none or a detected Apple SDK |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from environment and system dependencies |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
 | instruction-sets         | Every target's per-source [`instruction-sets`](targets.md#per-source-instruction-sets), as declared |
@@ -470,6 +480,8 @@ an input:
   fingerprint.
 - The `CABIN_CACHE_DIR` and `--cache-dir` selection drive where artifacts land on disk but do not
   change the compile / link argv, so they are not in the fingerprint either.
+- A detected Apple SDK is reported (`toolchain.sysroot`) but not hashed: like a resolved tool path,
+  it differs between machines, and a change still reaches every compile and link argv.
 
 ### Direct `ninja` invocation
 
@@ -633,7 +645,8 @@ Items marked *planned* belong to the capability roadmap
 ([ledger](design/capability-roadmap/ledger.md)) and are not implemented yet.
 
 - Compiler probe compilations beyond running `--version` (planned: stage 05).
-- Sysroot or SDK discovery (planned: stage 05).
+- Sysroot discovery beyond Apple SDKs, and a sysroot for the build-machine context (planned:
+  stage 05).
 - A fully supported GCC/Clang-style toolchain on Windows (MinGW / clang).  MSVC is the supported
   Windows dialect; stage 05 promotes MinGW only with real build-and-run CI evidence.
 - A diagnostics abstraction (SARIF / JSON output formats).  Cabin neither detects nor emits either

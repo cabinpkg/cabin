@@ -135,7 +135,7 @@ The query splits on its *last* `/`, so a scoped package's feature is `fmtlib/fmt
 ### `cabin explain build-config <name>`
 
 Reports the resolved `BuildConfiguration` for the package: profile, toolchain (with the same
-per-tool source labels metadata uses), build flags (with profile / manifest / condition overlays),
+per-tool source labels metadata uses, and an explicit sysroot as written), build flags (with profile / manifest / condition overlays),
 enabled features, and the SHA-256 fingerprint of the configuration.  A future cache layer would key
 on this value.
 

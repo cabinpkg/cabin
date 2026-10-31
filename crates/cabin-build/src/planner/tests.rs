@@ -239,6 +239,7 @@ fn plan_request<'a>(
         build_dir: PathBuf::from(build_dir),
         platform: cabin_core::TargetPlatform::current(),
         clang_target: None,
+        sysroot: None,
         build_context: false,
         profile: dev_profile(),
         selected: None,
@@ -438,10 +439,10 @@ fn assembly_sources_assemble_into_the_target_archive() {
     }
 }
 
-/// A `--target` build hands Clang its triple on every compile,
-/// assemble, and link the planner emits.
+/// A `--target` build hands Clang its triple, and the sysroot, on
+/// every compile, assemble, and link the planner emits.
 #[test]
-fn clang_target_reaches_every_compile_assemble_and_link() {
+fn clang_target_and_sysroot_reach_every_compile_assemble_and_link() {
     let exe = target(
         "app",
         TargetKind::Executable,
@@ -453,18 +454,26 @@ fn clang_target_reaches_every_compile_assemble_and_link() {
     let tc = toolchain_with_cc();
     let mut request = plan_request(&graph, &tc, "/abs/proj/build");
     request.clang_target = Some("aarch64-unknown-linux-gnu".to_owned());
+    let sysroot = cabin_core::Sysroot {
+        path: Utf8PathBuf::from("/usr/aarch64-linux-gnu"),
+        apple: false,
+    };
+    request.sysroot = Some(sysroot.clone());
     let bg = plan(&request).unwrap();
-    let targets: Vec<Option<&str>> = bg
+    let targets: Vec<(Option<&str>, Option<&cabin_core::Sysroot>)> = bg
         .actions
         .iter()
         .filter_map(|action| match action {
-            BuildAction::Compile(a) => Some(a.target.as_deref()),
-            BuildAction::Assemble(a) => Some(a.target.as_deref()),
-            BuildAction::Link(a) => Some(a.target.as_deref()),
+            BuildAction::Compile(a) => Some((a.target.as_deref(), a.sysroot.as_ref())),
+            BuildAction::Assemble(a) => Some((a.target.as_deref(), a.sysroot.as_ref())),
+            BuildAction::Link(a) => Some((a.target.as_deref(), a.sysroot.as_ref())),
             BuildAction::Archive(_) => None,
         })
         .collect();
-    assert_eq!(targets, [Some("aarch64-unknown-linux-gnu"); 4]);
+    assert_eq!(
+        targets,
+        [(Some("aarch64-unknown-linux-gnu"), Some(&sysroot)); 4]
+    );
 }
 
 /// An executable built only from assembly links with the validated

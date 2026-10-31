@@ -2300,6 +2300,10 @@ mod toolchain;
 #[path = "cli/cross_target.rs"]
 mod cross_target;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[path = "cli/sysroot.rs"]
+mod sysroot;
+
 #[path = "cli/compiler_detection.rs"]
 mod compiler_detection;
 

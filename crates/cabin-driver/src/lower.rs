@@ -11,7 +11,7 @@ use camino::Utf8PathBuf;
 
 #[cfg(test)]
 use cabin_core::{CStandard, CxxStandard};
-use cabin_core::{LanguageStandard, OptLevel, SourceLanguage};
+use cabin_core::{LanguageStandard, OptLevel, SourceLanguage, Sysroot};
 
 use crate::action::{
     ArchiveAction, AssembleAction, BuildAction, CompileAction, CompileMode, LinkAction,
@@ -158,12 +158,10 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
     out.push(compile.compiler.to_string());
-    out.extend(
-        compile
-            .target
-            .iter()
-            .map(|target| format!("--target={target}")),
-    );
+    out.extend(gnu_target_args(
+        compile.target.as_deref(),
+        compile.sysroot.as_ref(),
+    ));
     out.push(gnu_std_flag(compile.standard, compile.gnu_extensions));
     out.push(args.opt_level.as_flag().to_owned());
     if args.debug_info {
@@ -223,16 +221,30 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     out
 }
 
+/// `--target=<triple>` and the sysroot, right after the driver.
+fn gnu_target_args(target: Option<&str>, sysroot: Option<&Sysroot>) -> Vec<String> {
+    let mut args: Vec<String> = target
+        .map(|t| format!("--target={t}"))
+        .into_iter()
+        .collect();
+    match sysroot {
+        Some(sysroot) if sysroot.apple => {
+            args.extend(["-isysroot".to_owned(), sysroot.path.to_string()]);
+        }
+        Some(sysroot) => args.push(format!("--sysroot={}", sysroot.path)),
+        None => {}
+    }
+    args
+}
+
 fn lower_assemble_gnu(assemble: &AssembleAction) -> Vec<String> {
     // The driver preprocesses a `.S` input by its extension before
     // assembling it, so defines and include dirs apply as for C.
     let mut command = vec![assemble.assembler.to_string()];
-    command.extend(
-        assemble
-            .target
-            .iter()
-            .map(|target| format!("--target={target}")),
-    );
+    command.extend(gnu_target_args(
+        assemble.target.as_deref(),
+        assemble.sysroot.as_ref(),
+    ));
     if let Some(depfile) = &assemble.depfile {
         command.push("-MD".to_owned());
         command.push("-MF".to_owned());
@@ -271,11 +283,10 @@ fn lower_link_gnu(link: &LinkAction) -> Vec<String> {
     // System libraries follow the archives so a static library's
     // dependencies resolve left-to-right under GNU `ld`.
     let mut command = vec![link.linker.to_string()];
-    command.extend(
-        link.target
-            .iter()
-            .map(|target| format!("--target={target}")),
-    );
+    command.extend(gnu_target_args(
+        link.target.as_deref(),
+        link.sysroot.as_ref(),
+    ));
     for input in &link.inputs {
         command.push(input.to_string());
     }
@@ -546,6 +557,7 @@ mod tests {
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             target: None,
+            sysroot: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: OptLevel::O0,
@@ -569,6 +581,7 @@ mod tests {
             BuildAction::Assemble(AssembleAction {
                 assembler: Utf8PathBuf::from(assembler),
                 target: None,
+                sysroot: None,
                 source: Utf8PathBuf::from("/abs/src/jump.S"),
                 object: Utf8PathBuf::from("/abs/build/jump.o"),
                 depfile: Some(Utf8PathBuf::from("/abs/build/jump.o.d")),
@@ -632,13 +645,37 @@ mod tests {
     }
 
     #[test]
-    fn gnu_commands_pass_the_target_right_after_the_driver() {
+    fn gnu_commands_pass_the_target_and_sysroot_right_after_the_driver() {
+        for (sysroot, spelled) in [
+            (
+                Sysroot {
+                    path: Utf8PathBuf::from("/sdks/My SDK.sdk"),
+                    apple: true,
+                },
+                &["-isysroot", "/sdks/My SDK.sdk"][..],
+            ),
+            (
+                Sysroot {
+                    path: Utf8PathBuf::from("/usr/aarch64-linux-gnu"),
+                    apple: false,
+                },
+                &["--sysroot=/usr/aarch64-linux-gnu"][..],
+            ),
+        ] {
+            gnu_commands_pass(&sysroot, spelled);
+        }
+    }
+
+    fn gnu_commands_pass(sysroot: &Sysroot, spelled: &[&str]) {
         let target = Some("x86_64-apple-macos13".to_owned());
+        let sysroot = Some(sysroot.clone());
         let mut compile = cxx_compile(CompileMode::Object);
         compile.target.clone_from(&target);
+        compile.sysroot.clone_from(&sysroot);
         let assemble = BuildAction::Assemble(AssembleAction {
             assembler: Utf8PathBuf::from("/usr/bin/clang"),
             target: target.clone(),
+            sysroot: sysroot.clone(),
             source: Utf8PathBuf::from("/abs/src/jump.S"),
             object: Utf8PathBuf::from("/abs/build/jump.o"),
             depfile: None,
@@ -649,6 +686,7 @@ mod tests {
         let link = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/clang++"),
             target,
+            sysroot: sysroot.clone(),
             output: Utf8PathBuf::from("/abs/build/app"),
             inputs: vec![],
             arguments: vec![],
@@ -659,6 +697,7 @@ mod tests {
         for action in [BuildAction::Compile(compile), assemble, link] {
             let command = lower(Dialect::GnuLike, &action).command;
             assert_eq!(command[1], "--target=x86_64-apple-macos13", "{command:?}");
+            assert_eq!(command[2..2 + spelled.len()], *spelled, "{command:?}");
         }
     }
 
@@ -887,6 +926,7 @@ mod tests {
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/g++"),
             target: None,
+            sysroot: None,
             output: Utf8PathBuf::from("/abs/build/app"),
             inputs: vec![
                 Utf8PathBuf::from("/abs/build/main.o"),
@@ -928,6 +968,7 @@ mod tests {
             depfile: Some(Utf8PathBuf::from("C:/build/main.obj.d")),
             compiler: Utf8PathBuf::from("cl.exe"),
             target: None,
+            sysroot: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: OptLevel::O2,
@@ -1084,6 +1125,7 @@ mod tests {
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
             target: None,
+            sysroot: None,
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![
                 Utf8PathBuf::from("C:/build/main.obj"),
@@ -1117,6 +1159,7 @@ mod tests {
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
             target: None,
+            sysroot: None,
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
             arguments: vec![],
@@ -1146,6 +1189,7 @@ mod tests {
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/cc"),
             target: None,
+            sysroot: None,
             output: Utf8PathBuf::from("/abs/build/app"),
             inputs: vec![
                 Utf8PathBuf::from("/abs/build/main.o"),
@@ -1181,6 +1225,7 @@ mod tests {
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
             target: None,
+            sysroot: None,
             output: Utf8PathBuf::from("C:/build/app.exe"),
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
             arguments: vec![],

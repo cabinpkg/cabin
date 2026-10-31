@@ -518,6 +518,7 @@ fn plan_products_lists_every_product_and_depfile() {
             depfile: Some(format!("{object}.d").into()),
             compiler: "cc".into(),
             target: None,
+            sysroot: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: cabin_core::OptLevel::O0,
@@ -550,6 +551,7 @@ fn plan_products_lists_every_product_and_depfile() {
             BuildAction::Link(LinkAction {
                 linker: "cc".into(),
                 target: None,
+                sysroot: None,
                 output: "/b/app".into(),
                 inputs: vec!["/b/liba.a".into()],
                 arguments: vec![],

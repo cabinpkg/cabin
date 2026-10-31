@@ -755,6 +755,12 @@ pub(crate) fn config_view_json(
         })
         .collect();
 
+    let sysroots: serde_json::Map<String, serde_json::Value> = config
+        .sysroots
+        .iter()
+        .map(|(triple, setting)| (triple.clone(), path_setting_view(Some(setting))))
+        .collect();
+
     serde_json::json!({
         "loaded_files": loaded_files,
         "registry": registry,
@@ -765,6 +771,7 @@ pub(crate) fn config_view_json(
         "toolchain": toolchain,
         "compiler_wrapper": compiler_wrapper,
         "runners": runners,
+        "sysroots": sysroots,
     })
 }
 

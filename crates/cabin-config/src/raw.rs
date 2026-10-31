@@ -77,6 +77,9 @@ pub(crate) struct RawConfig {
     /// `[runner]`: `<triple> = ["program", "arg", ...]`.
     #[serde(default)]
     pub(crate) runner: Option<BTreeMap<String, Vec<String>>>,
+    /// `[sysroot]`: `<triple> = "<dir>"`.
+    #[serde(default)]
+    pub(crate) sysroot: Option<BTreeMap<String, Utf8PathBuf>>,
     #[serde(flatten)]
     pub(crate) extra: BTreeMap<String, toml::Value>,
 }

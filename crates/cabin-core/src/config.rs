@@ -434,6 +434,11 @@ pub struct ToolchainSummary {
     /// The `--target` triple; `None` for a build-machine build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// The sysroot the user chose, as written (`--sysroot` or a
+    /// `[sysroot]` entry); `None` for none or a detected Apple SDK,
+    /// which stays out of the fingerprint like a resolved tool path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sysroot: Option<String>,
 }
 
 impl ToolchainSummary {
@@ -467,6 +472,7 @@ impl ToolchainSummary {
             sources,
             compiler_wrapper: wrapper.map(CompilerWrapperSummary::from_resolved),
             target: None,
+            sysroot: None,
         }
     }
 }
@@ -546,6 +552,7 @@ impl BuildConfiguration {
                 "tools": &self.toolchain.tools,
                 "sources": &self.toolchain.sources,
                 "compiler_wrapper": &self.toolchain.compiler_wrapper,
+                "sysroot": &self.toolchain.sysroot,
             },
             "build_flags": self.build_flags.as_json(),
             "language": &self.language,
@@ -648,6 +655,9 @@ fn compute_fingerprint(
     }
     if let Some(target) = &toolchain.target {
         hasher.update(format!("target={target}\n").as_bytes());
+    }
+    if let Some(sysroot) = &toolchain.sysroot {
+        hasher.update(format!("sysroot={sysroot}\n").as_bytes());
     }
     hasher.update(b"build-flags\n");
     hasher.update(b"defines\n");
@@ -1567,6 +1577,29 @@ mod tests {
             fingerprint(Some("x86_64-apple-macos13")),
             fingerprint(Some("aarch64-apple-macos13"))
         );
+    }
+
+    #[test]
+    fn fingerprint_and_json_follow_the_chosen_sysroot() {
+        let configuration = |sysroot: &str| {
+            BuildConfiguration::resolve(BuildConfigurationInput {
+                targets: &[],
+                package: "demo",
+                features: &Features::default(),
+                request: &SelectionRequest::default(),
+                profile: dev(),
+                toolchain: ToolchainSummary {
+                    sysroot: Some(sysroot.to_owned()),
+                    ..ToolchainSummary::default()
+                },
+                build_flags: ResolvedProfileFlags::default(),
+                language: LanguageStandardsSummary::default(),
+            })
+            .unwrap()
+        };
+        let (a, b) = (configuration("sdks/A.sdk"), configuration("sdks/B.sdk"));
+        assert_ne!(a.fingerprint, b.fingerprint);
+        assert_eq!(a.as_json()["toolchain"]["sysroot"], "sdks/A.sdk");
     }
 
     #[test]
