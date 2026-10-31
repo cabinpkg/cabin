@@ -36,6 +36,7 @@ members = [
   # tools reached through the aliases in .cargo/config.toml, never part of
   # the shipped surface (AGENTS.md, "Repository automation").
   "crates/xtask-port-publish",
+  "crates/xtask-bench",
   "crates/xtask-ci",
   "crates/xtask-dist",
   "crates/xtask-fuzz",
@@ -80,6 +81,10 @@ libc = "0.2"
 clap_complete = "4"
 clap_mangen = "0.3"
 crc32fast = "1"
+# Micro-benchmarks only (xtask-bench); no HTML reports or plotting.
+criterion = { version = "0.8", default-features = false, features = [
+  "cargo_bench_support",
+] }
 flate2 = "1"
 miette = { version = "7", default-features = false }
 predicates = "3"
@@ -146,3 +151,9 @@ assert_is_empty = "allow"
 
 [profile.release]
 lto = "thin"
+
+# The release build plus line tables, so profilers can symbolize it
+# (docs/performance.md, "Profiling").
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"

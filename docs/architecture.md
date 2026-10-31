@@ -49,6 +49,7 @@ crates/
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
+  xtask-bench/       repository tool: benchmark fixtures, scenarios, and reports (`cargo perf`)
   xtask-ci/          repository tool: the local mirror of the CI gate
   xtask-dist/        repository tool: release packaging and archive check for dist.yml
   xtask-fuzz/        repository tool: seed corpora and CI check for the fuzz targets
@@ -95,7 +96,7 @@ docs/
   workspaces.md      workspace root discovery, member selection, inheritance
   metadata-tree-explain.md  `cabin metadata` / `cabin tree` / `cabin explain`
   cargo-inspired-interface.md  Cabin-vs-Cargo audit / classification
-  performance.md     trace capture and timings summary
+  performance.md     trace capture, benchmarks, and profiling
   environment-variables.md  CABIN_* read-side / run / test env vars
   check.md           `cabin check` (syntax-only type-check)
   fmt.md             `cabin fmt` (clang-format)
@@ -650,6 +651,24 @@ runs, fuzzes every target on the corpus the previous run kept and minimizes it. 
 - keep a fuzzed target's output off the console, past libFuzzer's numeric final stats, and drop a
   failed target's corpus before the workflow caches it: either can hold the input that crashed
   it (`fuzz/README.md`, "Crashes").
+
+### `xtask-bench`
+
+Repository-owned maintainer tool (`publish = false`) behind `cargo perf`, plus the Criterion
+micro-benchmarks of the domain crates (`cargo bench -p xtask-bench`); see
+[`performance.md`](performance.md).  It generates its inputs, times Cabin binaries with
+hyperfine, and compares results.  The crate must:
+
+- measure only binaries it built from a checkout or that the caller names, never an installed
+  `cabin` found on `PATH`;
+- run every Cabin invocation with a private `CABIN_CONFIG_HOME` and `CABIN_CACHE_HOME` and no
+  other inherited `CABIN_*` variable, so user settings and credentials neither change a result,
+  leak into it, nor get touched;
+- check each scenario's behavior on an untimed run before timing it (exit status, the Ninja
+  actions it ran, the files it wrote) and report a failed check instead of numbers;
+- write only under `target/` and the results directory it is given, and serve HTTP only on
+  loopback; the one network access is the `--ports` staging of the ports' pinned upstream
+  archives.
 
 ### `xtask-ci`
 

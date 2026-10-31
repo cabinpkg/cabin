@@ -1,0 +1,40 @@
+[package]
+name = "xtask-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: Cabin's benchmark fixtures, scenarios, and reports"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): it benchmarks this checkout's own Cabin builds.
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+cabin-core = { workspace = true }
+cabin-env = { workspace = true }
+cabin-publish = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tiny_http = { workspace = true }
+xtask-port-publish = { path = "../xtask-port-publish" }
+
+[dev-dependencies]
+cabin-artifact = { workspace = true }
+cabin-feature = { workspace = true }
+cabin-index = { workspace = true }
+cabin-manifest = { workspace = true }
+cabin-resolver = { workspace = true }
+cabin-workspace = { workspace = true }
+criterion = { workspace = true }
+semver = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "domain"
+harness = false
+
+[lints]
+workspace = true
