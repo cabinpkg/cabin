@@ -15,7 +15,7 @@ jobs:
   on-main:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -36,7 +36,7 @@ jobs:
       attestations: write # store the attestations
     steps:
       - name: Download binary archives
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        uses: actions/download-artifact@v8.0.2
         with:
           pattern: cabin-*
           path: artifacts
@@ -46,14 +46,14 @@ jobs:
       # Attest the exact archives the release publishes; verifiable
       # with `gh attestation verify`.
       - name: Attest binary archives
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             artifacts/*.tar.xz
             artifacts/*.zip
 
       - name: Download demo
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        uses: actions/download-artifact@v8.0.2
         with:
           name: demo.gif
           path: artifacts
@@ -62,7 +62,7 @@ jobs:
         # Swapping the release action for a `gh release` script would
         # change release behavior; AGENTS.md forbids changing release
         # workflow behavior as part of unrelated work.
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@v3.0.3
         with: # zizmor: ignore[superfluous-actions] -- AGENTS.md defers release-behavior changes; a gh-cli migration is separate release work
           draft: false
           generate_release_notes: true

@@ -1,0 +1,7 @@
+# actions.lock pins every action's commit and CI verifies it; released
+# zizmor cannot read the lockfile yet (zizmorcore/zizmor#2477).
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin

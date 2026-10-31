@@ -36,10 +36,10 @@ jobs:
     runs-on: ubuntu-26.04
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
           rustflags: ""
@@ -120,7 +120,7 @@ jobs:
         run: vhs demo.tape
 
       - name: Upload demo
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@v7.0.2
         with:
           path: demo.gif
           archive: false
@@ -149,10 +149,10 @@ jobs:
           - target: aarch64-pc-windows-msvc
             runner: windows-11-vs2026-arm
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           target: ${{ matrix.target }}
           cache-on-failure: false
@@ -180,7 +180,7 @@ jobs:
         run: cargo dist-check "$PACKAGE_PATH" --ref-name "$GITHUB_REF_NAME" --ref-type "${GITHUB_REF_TYPE:-}"
 
       - name: Upload binary archive
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@v7.0.2
         with:
           path: ${{ env.PACKAGE_PATH }}
           archive: false
@@ -199,7 +199,7 @@ jobs:
     steps:
       # The gate logic is a local action; the sparse checkout keeps
       # this fetch small.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: .github/actions/required-gate
