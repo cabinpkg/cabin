@@ -177,7 +177,7 @@ fn long_archive_and_link_commands_use_response_files() {
     // the 120 KiB inline limit together); Windows keeps paths under
     // `MAX_PATH` and needs only 24 KiB.
     let segment = "s".repeat(if cfg!(windows) { 100 } else { 200 });
-    let nested = vec![segment.as_str(); if cfg!(windows) { 1 } else { 4 }].join("/");
+    let nested = [segment.as_str(); if cfg!(windows) { 1 } else { 4 }].join("/");
     let count = 150;
     let sources = |prefix: &str| {
         (0..count)
