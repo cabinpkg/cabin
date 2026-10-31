@@ -100,11 +100,7 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
     // `CABIN_BUILD_DIR` / `[paths] build-dir`.  We want the
     // walker to exclude exactly the directory `cabin build`
     // would have written into.
-    let (build_dir_input, _) = crate::cli::config::resolve_build_dir_with_env(
-        args.build_dir.as_deref(),
-        &effective_config,
-    );
-    let build_dir = absolutize(&graph.root_dir, &build_dir_input);
+    let build_dir = super::resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
 
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
     let absolute_excludes: Vec<PathBuf> =

@@ -613,34 +613,7 @@ pub(crate) fn prepare_workspace(
         ))?;
     }
 
-    // Resolve the build directory.  Precedence:
-    // `--build-dir` > `CABIN_BUILD_DIR` env var
-    // > `[paths] build-dir` config setting > built-in default.
-    let (build_dir_input, _build_dir_source) =
-        super::config::resolve_build_dir_with_env(args.build_dir, &effective_config);
-    let mut build_dir = super::absolutise(&build_dir_input)
-        .with_context(|| format!("failed to resolve build dir {}", build_dir_input.display()))?;
-    // Ninja drops `..` lexically, while Unix resolves it after any
-    // symlink before it, so `link/../build` would name one directory to
-    // Ninja (and the `cabin recreate` it runs on `$out`) and another to
-    // the compiler and archiver.  Resolving the path up to its last `..`
-    // gives the spelling both agree on; Windows drops `..` lexically too.
-    let components: Vec<_> = build_dir.components().collect();
-    if cfg!(unix)
-        && let Some(last) = components
-            .iter()
-            .rposition(|component| *component == std::path::Component::ParentDir)
-    {
-        let (head, tail) = components.split_at(last + 1);
-        let head: PathBuf = head.iter().collect();
-        // The OS resolves `..` only after a directory that exists.
-        std::fs::create_dir_all(&head)
-            .with_context(|| format!("failed to create build directory {}", head.display()))?;
-        build_dir = cabin_fs::canonicalize(&head)
-            .with_context(|| format!("failed to resolve build dir {}", build_dir.display()))?
-            .join(tail.iter().collect::<PathBuf>());
-    }
-
+    let mut build_dir = super::resolve_build_dir(args.build_dir, &effective_config)?;
     let build_root = build_dir.clone();
     if let Some(target) = &args.toolchain.target {
         build_dir.push(&target.target);

@@ -1037,16 +1037,20 @@ The crate must:
 ### `cabin-fs`
 
 Small filesystem helpers shared by Cabin's production crates.  Currently provides atomic file
-replacement and lexical path-safety predicates; intentionally narrow rather than a broad filesystem
-abstraction.
+replacement, lexical path-safety predicates, and the canonicalization shared across crates;
+intentionally narrow rather than a broad filesystem abstraction.
 
 - Atomic replacement stages bytes in a sibling temporary file and commits with a rename only after
   the write succeeds, so an interrupted run leaves any previous contents of the destination intact.
 - The lexical path-safety predicates reason over path components only - they reject absolute paths,
   `..` traversal, root components, and Windows path prefixes - and are safe to call on paths that do
   not yet exist.
-- The helpers do not canonicalize, follow symlinks, read the filesystem, create parent directories,
-  or enforce archive-, registry-, or config-specific policy.  Callers own parent-directory creation.
+- `canonicalize` resolves symlinks and `..` through the filesystem so one file has one spelling
+  across crates; on Windows it also expands 8.3 short names and drops the verbatim `\\?\` prefix
+  MSVC cannot open wherever the path can be spelled without it.  It is the only helper that reads
+  the filesystem.
+- The helpers do not create parent directories or enforce archive-, registry-, or config-specific
+  policy.  Callers own parent-directory creation.
 - Domain-specific error mapping stays with each consumer so the destination path and user-facing
   context remain in the surfaced diagnostic.  `cabin-lockfile` maps write failures to
   `LockfileError`, `cabin-ninja` to `NinjaError`, `cabin-package` scaffold writes to

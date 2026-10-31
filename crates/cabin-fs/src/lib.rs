@@ -1,12 +1,12 @@
 //! Small filesystem helpers shared by Cabin production crates.
 //!
 //! The crate is intentionally narrow: it owns the atomic-write
-//! boilerplate and the lexical path-safety predicates that
-//! multiple production crates would otherwise duplicate.  Callers
-//! keep responsibility for parent-directory creation, for archive-
-//! or context-specific extraction policy, and for mapping the
-//! returned [`std::io::Error`] onto their own domain error types so
-//! the destination path stays visible in diagnostics.
+//! boilerplate, the lexical path-safety predicates, and the
+//! canonicalization that multiple production crates would otherwise
+//! duplicate.  Callers keep responsibility for parent-directory
+//! creation, for archive- or context-specific extraction policy, and
+//! for mapping the returned [`std::io::Error`] onto their own domain
+//! error types so the destination path stays visible in diagnostics.
 
 pub mod path;
 
