@@ -135,6 +135,15 @@ jobs:
       - name: Build
         run: cargo check --workspace --all-targets --locked --verbose
 
+      # x64's default %TEMP% sits on C:, slower than RUNNER_TEMP's D:. ARM
+      # keeps its RUNNER~1 default: tests must still meet 8.3 short names.
+      - name: Move the x64 Windows temp dir to the runner temp drive
+        if: matrix.os == 'windows-2025-vs2026'
+        shell: pwsh
+        run: |
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
       - name: Run Tests
         run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast --verbose -- --show-output
         env:
