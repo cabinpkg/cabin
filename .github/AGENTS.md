@@ -31,3 +31,24 @@ their cargo aliases or established external tools directly.
 - Required contexts for gated work must be non-matrix `if: always()`
   aggregates that fail closed when the change gate or work job fails or is
   cancelled. Protect the aggregate, never a skippable work or matrix job.
+- `.github/workflows/actions.lock` is GitHub's workflow dependency lockfile:
+  for each workflow it lists, the runner runs only the locked commit of each
+  action, direct or transitive, and fails a job that uses an unlocked one.
+  The runner ignores an unparsable lockfile, so the check below is the
+  guard. Never edit it by hand. In any change that adds, removes, or edits a
+  workflow or a `uses:` line, run `gh actions-lock --no-narrow` with the
+  extension version `ci.yml` pins, and commit the result; on a merge
+  conflict, take main's copy and rerun it. Without `--no-narrow` the tool
+  rewrites every SHA pin to a tag; its "bare SHA" warning is expected. The
+  `commitlint` check runs `gh actions-lock --verify`; run it before pushing.
+- Review a lockfile diff as a dependency change: a new `commit` is new code,
+  and a changed `owner_id` or `repo_id` is a different repository. Dependabot
+  regenerates the entries it bumps. On a moved or unreachable pin,
+  investigate upstream; pass `--accept-moved` only after that review, never
+  in automation. Every `uses:` is SHA-pinned, so `--relock` only matters for
+  a deliberately floating tag or branch ref.
+- Local `./` actions keep only `run:` steps: the lockfile cannot cover
+  actions they use. Recompile `issue-triage.md` with
+  `gh aw compile --actions-lock`, which runs `gh actions-lock --no-narrow`
+  afterwards; `.github/aw/actions-lock.json` is gh-aw's own pin cache, not
+  the lockfile.

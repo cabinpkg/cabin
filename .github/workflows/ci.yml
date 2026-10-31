@@ -21,8 +21,8 @@ env:
   CLICOLOR: 1
 
 jobs:
-  # The spelling check shares this runner: both checks are seconds
-  # of work, dominated by checkout and setup.
+  # The spelling and action-lockfile checks share this runner: all
+  # are seconds of work, dominated by checkout and setup.
   commitlint:
     runs-on: ubuntu-slim
     # Run steps work from .github/commitlint so commitlint picks up
@@ -41,9 +41,19 @@ jobs:
 
       - uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
 
-      # A merge group's commit is GitHub-generated, so only typos runs
-      # there; the commitlint steps validate the real PR commits and
-      # the squash title the merge would generate.
+      # gh actions-lock reads .github/workflows from the working
+      # directory; .github/AGENTS.md has the lockfile procedure.
+      - name: Verify the actions lockfile
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh extension install github/gh-actions-lock --pin v0.4.0
+          gh actions-lock --verify
+
+      # A merge group's commit is GitHub-generated, so only typos and
+      # the lockfile check run there; the commitlint steps validate the
+      # real PR commits and the squash title the merge would generate.
       - name: Setup node
         if: github.event_name != 'merge_group'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
