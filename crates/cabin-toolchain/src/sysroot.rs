@@ -4,12 +4,15 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
+use std::thread;
 
-use cabin_core::{CompilerKind, Sysroot, TargetPlatform, ToolchainDetectionReport};
+use cabin_core::{
+    CompilerKind, ResolvedToolchain, Sysroot, TargetPlatform, ToolchainDetectionReport,
+};
 use camino::Utf8PathBuf;
 use thiserror::Error;
 
-use crate::detect::ToolRunner;
+use crate::detect::{DetectionError, ToolRunner, detect_toolchain};
 
 /// A sysroot requested for a compiler that takes none.
 #[derive(Debug, Error)]
@@ -47,27 +50,51 @@ pub fn explicit_sysroot(
     })
 }
 
-/// The SDK Apple Clang builds `platform` against when no sysroot is
-/// chosen: `SDKROOT` when the driver would honor it (an existing
-/// absolute path other than `/`), else what `xcrun` names for the
-/// platform.  `None` for other platforms or compilers, or when `xcrun`
-/// names nothing, which leaves the driver to its own default.
-pub fn discover_apple_sdk(
+/// [`detect_toolchain`], and the SDK Apple Clang builds `platform`
+/// against when no sysroot is chosen: `SDKROOT` when the driver would
+/// honor it (an existing absolute path other than `/`), else what
+/// `xcrun` names for the platform.  The SDK is `None` for other
+/// platforms or compilers, or when `xcrun` names nothing, which leaves
+/// the driver to its own default.
+///
+/// Finding the SDK needs the compilers only to decide whether it
+/// applies, so on Apple platforms `xcrun` runs beside the version
+/// probes, and its answer goes unused for any other compiler.
+///
+/// # Errors
+/// Those of [`detect_toolchain`].
+pub fn detect_toolchain_and_apple_sdk(
+    toolchain: &ResolvedToolchain,
     platform: &TargetPlatform,
-    report: &ToolchainDetectionReport,
     sdkroot: Option<&OsStr>,
-    runner: &impl ToolRunner,
-) -> Option<Sysroot> {
-    let apple_clang = |kind| kind == CompilerKind::AppleClang;
-    if !is_apple(platform)
-        || !apple_clang(report.cxx.identity.kind)
-        || report
-            .cc
-            .as_ref()
-            .is_some_and(|cc| !apple_clang(cc.identity.kind))
-    {
-        return None;
+    runner: &dyn ToolRunner,
+) -> Result<(ToolchainDetectionReport, Option<Sysroot>), DetectionError> {
+    if !is_apple(platform) {
+        return Ok((detect_toolchain(toolchain, runner)?, None));
     }
+    thread::scope(|scope| {
+        let sdk = scope.spawn(|| apple_sdk(platform, sdkroot, runner));
+        let report = detect_toolchain(toolchain, runner)?;
+        let sdk = sdk
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        let apple_clang = |kind| kind == CompilerKind::AppleClang;
+        let applies = apple_clang(report.cxx.identity.kind)
+            && report
+                .cc
+                .as_ref()
+                .is_none_or(|cc| apple_clang(cc.identity.kind));
+        Ok((report, sdk.filter(|_| applies)))
+    })
+}
+
+/// The SDK an Apple Clang build of `platform` uses, whatever the
+/// compilers turn out to be.
+fn apple_sdk(
+    platform: &TargetPlatform,
+    sdkroot: Option<&OsStr>,
+    runner: &dyn ToolRunner,
+) -> Option<Sysroot> {
     let path = match sdkroot.and_then(OsStr::to_str) {
         Some(sdkroot)
             if Path::new(sdkroot).is_absolute()
@@ -108,7 +135,10 @@ fn is_apple(platform: &TargetPlatform) -> bool {
 mod tests {
     use super::*;
     use crate::detect::test_support::FakeRunner;
-    use cabin_core::{ArchiverIdentity, ArchiverKind, CompilerIdentity, ToolDetection};
+    use cabin_core::{
+        ArchiverIdentity, ArchiverKind, CompilerIdentity, ResolvedTool, ToolDetection, ToolKind,
+        ToolSource, ToolSpec,
+    };
 
     fn report(cxx: CompilerKind, cc: Option<CompilerKind>) -> ToolchainDetectionReport {
         let compiler = |kind| {
@@ -165,26 +195,49 @@ mod tests {
 
     #[test]
     fn apple_clang_gets_the_sdk_xcrun_names_for_the_platform() {
-        let runner = FakeRunner::new()
-            .with(
-                "xcrun",
-                &["--sdk", "macosx", "--show-sdk-path"],
-                "/sdks/MacOSX27.2.sdk\n",
-                "",
-                0,
-            )
-            .with(
-                "xcrun",
-                &["--sdk", "iphonesimulator", "--show-sdk-path"],
-                "/sdks/iPhoneSimulator.sdk\n",
-                "",
-                0,
-            );
-        let apple = report(CompilerKind::AppleClang, Some(CompilerKind::AppleClang));
-        let discover = |triple, report: &_, sdkroot: Option<&str>| {
-            discover_apple_sdk(&platform(triple), report, sdkroot.map(OsStr::new), &runner)
-                .map(|sysroot| sysroot.path)
+        const APPLE: &str = "Apple clang version 17.0.0 (clang-1700.0.13.3)\n";
+        let runner = |cxx: &str, cc: &str| {
+            FakeRunner::new()
+                .with("/bin/c++", &["--version"], cxx, "", 0)
+                .with("/bin/cc", &["--version"], cc, "", 0)
+                .with("/bin/ar", &["--version"], "GNU ar 2.40\n", "", 0)
+                .with(
+                    "xcrun",
+                    &["--sdk", "macosx", "--show-sdk-path"],
+                    "/sdks/MacOSX27.2.sdk\n",
+                    "",
+                    0,
+                )
+                .with(
+                    "xcrun",
+                    &["--sdk", "iphonesimulator", "--show-sdk-path"],
+                    "/sdks/iPhoneSimulator.sdk\n",
+                    "",
+                    0,
+                )
         };
+        let tool = |kind, path: &str| ResolvedTool {
+            kind,
+            path: path.into(),
+            spec: ToolSpec::Name(path.into()),
+            source: ToolSource::Default,
+        };
+        let toolchain = ResolvedToolchain {
+            cxx: tool(ToolKind::CxxCompiler, "/bin/c++"),
+            cc: Some(tool(ToolKind::CCompiler, "/bin/cc")),
+            ar: tool(ToolKind::Archiver, "/bin/ar"),
+        };
+        let discover = |triple, runner: &FakeRunner, sdkroot: Option<&str>| {
+            let (_, sdk) = detect_toolchain_and_apple_sdk(
+                &toolchain,
+                &platform(triple),
+                sdkroot.map(OsStr::new),
+                runner,
+            )
+            .unwrap();
+            sdk.map(|sysroot| sysroot.path)
+        };
+        let apple = runner(APPLE, APPLE);
         assert_eq!(
             discover("arm64-apple-macos13", &apple, None).unwrap(),
             "/sdks/MacOSX27.2.sdk"
@@ -218,8 +271,8 @@ mod tests {
         }
         // Other compilers and platforms keep their own default; an SDK
         // `xcrun` cannot name (here, `iphoneos`) leaves the driver's.
-        let gcc = report(CompilerKind::Gcc, None);
-        let mixed = report(CompilerKind::AppleClang, Some(CompilerKind::Clang));
+        let gcc = runner("gcc (GCC) 13.2.0\n", "gcc (GCC) 13.2.0\n");
+        let mixed = runner(APPLE, "clang version 17.0.6\n");
         assert_eq!(discover("arm64-apple-macos13", &gcc, None), None);
         assert_eq!(discover("arm64-apple-macos13", &mixed, None), None);
         assert_eq!(discover("aarch64-unknown-linux-gnu", &apple, None), None);

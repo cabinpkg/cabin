@@ -160,12 +160,12 @@ pub(crate) fn resolve_inspection_prep(
     let toolchain_selection = toolchain_selection_from_args(toolchain_args)?;
     let toolchain =
         resolve_toolchain_layered(graph, &toolchain_selection, effective_config, platform)?;
-    let detection =
-        match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
-            Ok(report) => Some(report),
+    let (detection, apple_sdk) =
+        match detect_toolchain(&toolchain, toolchain_args, effective_config, platform) {
+            Ok((report, apple_sdk)) => (Some(report), apple_sdk),
             Err(err) => {
                 reporter.warning(format_args!("toolchain detection failed: {err}"));
-                None
+                (None, None)
             }
         };
     let sysroot = select_sysroot(
@@ -173,6 +173,7 @@ pub(crate) fn resolve_inspection_prep(
         effective_config,
         platform,
         detection.as_ref(),
+        apple_sdk,
     )?;
     Ok(InspectionPrep {
         manifest_profiles,
@@ -195,17 +196,39 @@ pub(crate) struct SysrootChoice {
     pub written: Option<String>,
 }
 
-/// `--sysroot`, else the config `[sysroot]` entry for `--target`, else
-/// the Apple SDK Apple Clang would use (contracts: explicit choices
-/// over discovery).  Without a detection report, nothing is
-/// discovered and an explicit choice goes unchecked.
-pub(crate) fn select_sysroot(
+/// Detect `toolchain`, and the Apple SDK a sysroot would be discovered
+/// as unless one is chosen explicitly.
+fn detect_toolchain(
+    toolchain: &cabin_core::ResolvedToolchain,
     toolchain_args: &super::ToolchainSelectionArgs,
     effective_config: &cabin_config::EffectiveConfig,
     platform: &cabin_core::TargetPlatform,
-    detection: Option<&cabin_core::ToolchainDetectionReport>,
-) -> Result<Option<SysrootChoice>> {
-    let explicit = match &toolchain_args.sysroot {
+) -> Result<
+    (
+        cabin_core::ToolchainDetectionReport,
+        Option<cabin_core::Sysroot>,
+    ),
+    cabin_toolchain::ToolchainDetectionFailure,
+> {
+    if explicit_sysroot(toolchain_args, effective_config).is_some() {
+        let report = cabin_toolchain::detect_toolchain(toolchain, &cabin_toolchain::ProcessRunner)?;
+        return Ok((report, None));
+    }
+    cabin_toolchain::detect_toolchain_and_apple_sdk(
+        toolchain,
+        platform,
+        std::env::var_os("SDKROOT").as_deref(),
+        &cabin_toolchain::ProcessRunner,
+    )
+}
+
+/// `--sysroot`, else the config `[sysroot]` entry for `--target`: the
+/// path, its source, and the choice as the user wrote it.
+fn explicit_sysroot(
+    toolchain_args: &super::ToolchainSelectionArgs,
+    effective_config: &cabin_config::EffectiveConfig,
+) -> Option<(PathBuf, &'static str, String)> {
+    match &toolchain_args.sysroot {
         Some(path) => Some((path.clone(), "cli", path.to_string_lossy().into_owned())),
         None => toolchain_args
             .target
@@ -216,8 +239,21 @@ pub(crate) fn select_sysroot(
                 let written = setting.value.to_string();
                 (setting.absolute().into_std_path_buf(), source, written)
             }),
-    };
-    if let Some((path, source, written)) = explicit {
+    }
+}
+
+/// `--sysroot`, else the config `[sysroot]` entry for `--target`, else
+/// the Apple SDK Apple Clang would use, `apple_sdk` from
+/// [`detect_toolchain`] (contracts: explicit choices over discovery).
+/// Without a detection report, an explicit choice goes unchecked.
+pub(crate) fn select_sysroot(
+    toolchain_args: &super::ToolchainSelectionArgs,
+    effective_config: &cabin_config::EffectiveConfig,
+    platform: &cabin_core::TargetPlatform,
+    detection: Option<&cabin_core::ToolchainDetectionReport>,
+    apple_sdk: Option<cabin_core::Sysroot>,
+) -> Result<Option<SysrootChoice>> {
+    if let Some((path, source, written)) = explicit_sysroot(toolchain_args, effective_config) {
         // Ninja runs from the build directory, and a relative
         // `CABIN_CONFIG` leaves a config entry relative too.
         let path = super::absolutise(&path)
@@ -231,20 +267,11 @@ pub(crate) fn select_sysroot(
             written: Some(written),
         }));
     }
-    Ok(detection
-        .and_then(|report| {
-            cabin_toolchain::discover_apple_sdk(
-                platform,
-                report,
-                std::env::var_os("SDKROOT").as_deref(),
-                &cabin_toolchain::ProcessRunner,
-            )
-        })
-        .map(|sysroot| SysrootChoice {
-            sysroot,
-            source: "detected",
-            written: None,
-        }))
+    Ok(apple_sdk.map(|sysroot| SysrootChoice {
+        sysroot,
+        source: "detected",
+        written: None,
+    }))
 }
 
 /// Which packages' `[dev-dependencies]` a command activates.
@@ -652,8 +679,8 @@ pub(crate) fn prepare_workspace(
     // available before any Ninja file is written.  Fail fast and
     // clear here rather than letting Ninja produce a confusing
     // error from a broken command line.
-    let detection_report =
-        cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)?;
+    let (detection_report, apple_sdk) =
+        detect_toolchain(&toolchain, args.toolchain, &effective_config, &platform)?;
     let compiler_targets = cabin_toolchain::check_compiler_targets(
         &detection_report,
         &platform,
@@ -668,6 +695,7 @@ pub(crate) fn prepare_workspace(
         &effective_config,
         &platform,
         Some(&detection_report),
+        apple_sdk,
     )?;
     let written_sysroot = sysroot_choice
         .as_ref()

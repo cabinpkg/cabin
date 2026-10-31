@@ -320,9 +320,30 @@ takes about as long as the slowest probe.
 
 Instructions are within 1% (the two helper threads), and peak RSS is unchanged.
 
-**Not changed.**  Apple SDK discovery runs `xcrun --show-sdk-path` only after detection, since it
-needs to know the compiler is Apple Clang; starting it alongside the probes would save a few more
-milliseconds at the cost of an `xcrun` run for every other compiler on macOS.
+**Apple SDK discovery.**  Without a sysroot chosen by `--sysroot` or config, a build for an Apple
+platform passes the SDK that `SDKROOT` or `xcrun --show-sdk-path` names, but only to Apple Clang,
+which detection identifies; so `xcrun` ran after the probes, for about 6 ms (40 runs of
+`xcrun --sdk macosx --show-sdk-path`: median 5.8 ms, 5.1-12.2 ms).  It now runs beside them, and
+its answer is dropped for any other compiler.  Release builds of 7325ca99c and the change, 60 runs
+each, interleaved, under lighter load (load average 7-16):
+
+| Scenario | Wall | Change | Verdict |
+| --- | ---: | ---: | --- |
+| `inspect/metadata-c` | 28.7 -> 21.0 ms | -26.9% | Improved |
+| `inspect/metadata-cxx` | 31.9 -> 23.2 ms | -27.2% | Improved |
+| `build/noop-c` | 33.9 -> 26.5 ms | -21.8% | Improved |
+| `build/noop-cxx` | 36.5 -> 30.4 ms | -16.8% | Unchanged |
+| `test/run-c` | 63.6 -> 57.5 ms | -9.6% | Unchanged |
+| `test/run-cxx` | 71.5 -> 71.6 ms | +0.2% | Unchanged |
+| `workspace/build-noop` | 54.3 -> 47.9 ms | -11.8% | Improved |
+| `startup/version` (control: no detection) | 5.8 -> 5.6 ms | -3.4% | Unchanged |
+
+The `Unchanged` rows moved less than their interquartile range (17-46%).  Instructions rose by up
+to 0.7% (`build/noop-cxx`'s 0.5% is `Increased`), and peak RSS moved by at most 0.5%, as much in
+the control.  A build with another compiler on macOS now runs `xcrun` for an answer it drops,
+beside probes that take longer.  On a Mac without Apple's developer tools, running `xcrun` offers
+to install them; such a machine has no SDK to compile against unless one is chosen, and choosing
+one (`--sysroot`, the config entry, or `SDKROOT`) skips `xcrun`.
 
 **Waiting for the exit.**  The probe runner noticed a probe's exit by waking every millisecond to
 check, so a probe that waited longer retired more instructions.  The thread that reads the probe's

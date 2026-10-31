@@ -220,8 +220,15 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // detection stays fail-soft: on failure the dialect falls back to
     // the host default and compiler cfg conditions evaluate as
     // `unknown`.
-    let detection_report =
-        cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner).ok();
+    let (detection_report, apple_sdk) = cabin_toolchain::detect_toolchain_and_apple_sdk(
+        &toolchain,
+        &platform,
+        std::env::var_os("SDKROOT").as_deref(),
+        &cabin_toolchain::ProcessRunner,
+    )
+    .map_or((None, None), |(report, apple_sdk)| {
+        (Some(report), apple_sdk)
+    });
     let dialect = detection_report
         .as_ref()
         .map_or_else(cabin_build::Dialect::host_default, |report| {
@@ -314,14 +321,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         platform: TargetPlatform::current(),
         clang_target: None,
         // The compile database `cabin build` writes names the same SDK.
-        sysroot: detection_report.as_ref().and_then(|report| {
-            cabin_toolchain::discover_apple_sdk(
-                &platform,
-                report,
-                std::env::var_os("SDKROOT").as_deref(),
-                &cabin_toolchain::ProcessRunner,
-            )
-        }),
+        sysroot: apple_sdk,
         build_context: false,
         profile: profile.clone(),
         selected: Some(tidy_selectors),

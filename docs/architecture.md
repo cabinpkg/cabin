@@ -852,7 +852,7 @@ sticking around.  Given a [`cabin_package::StagedPackage`] plus a registry root,
 ### `cabin-toolchain`
 
 Owns toolchain resolution, subprocess-based compiler / archiver detection, compiler-wrapper
-resolution, sysroot selection (`explicit_sysroot`, `discover_apple_sdk`), compile / link / run
+resolution, sysroot selection (`explicit_sysroot`, `detect_toolchain_and_apple_sdk`), compile / link / run
 probes (`probe`), and Ninja lookup.  The crate must:
 
 - not parse TOML;
