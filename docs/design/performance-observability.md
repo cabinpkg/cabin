@@ -220,8 +220,6 @@ it was refuted: the coarse tick hid the shims' cost.
 
 - With the fix, the `xcrun` shims are the largest remaining cost of a no-op build on macOS: 15 ms
   of 53 ms, paid on every invocation because detection is not cached.
-- `cabin-test` waits for test output with a 10 ms timeout (`POLL_INTERVAL`) and reaps an exited
-  test on the next check, so a test can be reported up to 10 ms after it exits.
 - The lazy HTTP index needs one resolution round per dependency level: `index/http-lazy` takes 8
   rounds for its 8-deep optional chain.
 

@@ -95,6 +95,8 @@ semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.11"
+# No `timeout` feature: it installs a process-wide SIGCHLD handler.
+shared_child = { version = "1.1", default-features = false }
 shlex = "2"
 tar = "0.4"
 tempfile = "3"
