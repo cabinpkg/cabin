@@ -189,9 +189,58 @@ fn quantile(sorted: &[f64], q: f64) -> f64 {
 }
 
 /// The metrics the comparison judges, each with the smallest change
-/// it reports.  Wall time and peak memory move a few percent between
-/// identical runs on a quiet machine; retired instructions barely move.
-const METRICS: [(&str, f64); 3] = [("wall", 0.05), ("peak_rss", 0.05), ("instructions", 0.02)];
+/// the policy counts as a regression or an improvement: relative, and
+/// absolute (seconds, bytes, instructions).  The floors sit past what
+/// the median moved in a quieter run of one binary against itself
+/// (`docs/design/performance-observability.md`): the wall time of
+/// scenarios under 30 ms, peak RSS, and instruction counts that do not
+/// depend on load.
+const METRICS: [(&str, f64, f64); 3] = [
+    ("wall", 0.05, FLOOR_WALL_S),
+    ("peak_rss", 0.05, FLOOR_RSS_BYTES),
+    ("instructions", 0.02, FLOOR_INSTRUCTIONS),
+];
+const FLOOR_WALL_S: f64 = 0.002;
+const FLOOR_RSS_BYTES: f64 = 1024.0 * 1024.0;
+const FLOOR_INSTRUCTIONS: f64 = 1e6;
+
+/// The two-sided 1% critical value of the standard normal: a rank-sum
+/// statistic past it means the two sides' samples are unlikely to come
+/// from one distribution.
+const Z_CRITICAL: f64 = 2.576;
+
+/// The Mann-Whitney rank-sum statistic of `candidate` against
+/// `baseline`, by the normal approximation with tie and continuity
+/// corrections: how many standard deviations the candidate's ranks sit
+/// from where they would if both sides came from one distribution.
+#[allow(clippy::cast_precision_loss)]
+fn rank_sum_z(baseline: &[f64], candidate: &[f64]) -> f64 {
+    let mut all: Vec<(f64, bool)> = baseline.iter().map(|&v| (v, false)).collect();
+    all.extend(candidate.iter().map(|&v| (v, true)));
+    all.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let (n1, n2) = (baseline.len() as f64, candidate.len() as f64);
+    let total = n1 + n2;
+    let (mut rank_sum, mut ties, mut start) = (0.0, 0.0, 0);
+    while start < all.len() {
+        let value = all[start].0;
+        let end = start
+            + all[start..]
+                .iter()
+                .take_while(|x| x.0.total_cmp(&value).is_eq())
+                .count();
+        let mean_rank = (start + end + 1) as f64 / 2.0;
+        rank_sum += mean_rank * all[start..end].iter().filter(|x| x.1).count() as f64;
+        let run = (end - start) as f64;
+        ties += run * run * run - run;
+        start = end;
+    }
+    let u = rank_sum - n2 * (n2 + 1.0) / 2.0;
+    let sigma = (n1 * n2 / 12.0 * (total + 1.0 - ties / (total * (total - 1.0)))).sqrt();
+    if sigma.is_nan() || sigma == 0.0 {
+        return 0.0;
+    }
+    ((u - n1 * n2 / 2.0).abs() - 0.5).max(0.0) / sigma
+}
 
 fn metric<'a>(samples: &'a Samples, name: &str) -> &'a [f64] {
     match name {
@@ -209,7 +258,8 @@ pub struct Comparison {
     pub candidate_median: Option<f64>,
     /// `candidate / baseline - 1`.
     pub change: Option<f64>,
-    /// The larger relative interquartile range of the two sides.
+    /// The larger interquartile range of the two sides, relative to the
+    /// baseline median like `change`.
     pub noise: Option<f64>,
     pub verdict: Verdict,
 }
@@ -217,9 +267,20 @@ pub struct Comparison {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Verdict {
+    /// A real decrease past the policy's minimum effect and floor.
     Improved,
+    /// No difference beyond run-to-run noise.
     Unchanged,
+    /// A real increase past the policy's minimum effect and floor.
     Regressed,
+    /// A real increase the policy does not count: smaller than the
+    /// minimum effect or the absolute floor.
+    Increased,
+    /// A real decrease the policy does not count.
+    Decreased,
+    /// Only one side recorded the metric (its platform or revision
+    /// does not measure it), so there is nothing to compare.
+    Incomparable,
     /// The candidate failed its check or lacks the scenario.
     Invalid,
     /// Only the baseline failed its check or lacks the scenario, as
@@ -228,10 +289,12 @@ pub enum Verdict {
     NoBaseline,
 }
 
-/// Classify every scenario both sides measured.  A change counts only
-/// when it exceeds both the metric's minimum effect and the observed
-/// noise; a noisier machine therefore reports fewer, never false,
-/// regressions.
+/// Classify every scenario both sides measured.  A difference is real
+/// when the samples' ranks separate (`rank_sum_z`) and the medians move
+/// further than the noise, and the policy counts a real one only past
+/// the metric's minimum effect and floor.  Each side's samples are
+/// taken one after another, so load that changes in between can still
+/// make a false difference.
 pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
@@ -239,13 +302,12 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
     for scenario in names.map(|s| &s.name).filter(|&n| seen.insert(n)) {
         let base = baseline.scenarios.iter().find(|s| &s.name == scenario);
         let cand = candidate.scenarios.iter().find(|s| &s.name == scenario);
-        for (name, min_effect) in METRICS {
+        for (name, min_effect, floor) in METRICS {
             let sides = base
                 .zip(cand)
                 .map(|(b, c)| (metric(&b.samples, name), metric(&c.samples, name)));
-            let stats = sides.and_then(|(b, c)| Some((Stats::of(b)?, Stats::of(c)?)));
             let valid = base.is_some_and(|b| b.valid) && cand.is_some_and(|c| c.valid);
-            let Some((b, c)) = stats.filter(|_| valid) else {
+            let Some((bs, cs)) = sides.filter(|_| valid) else {
                 let verdict = if cand.is_some_and(|c| c.valid) && !base.is_some_and(|b| b.valid) {
                     Verdict::NoBaseline
                 } else {
@@ -264,15 +326,39 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
                 }
                 continue;
             };
-            let change = c.median / b.median - 1.0;
-            let noise = b.relative_spread().max(c.relative_spread());
-            let threshold = min_effect.max(noise);
-            let verdict = if change > threshold {
-                Verdict::Regressed
-            } else if change < -threshold {
-                Verdict::Improved
-            } else {
+            let (b, c) = match (Stats::of(bs), Stats::of(cs)) {
+                (Some(b), Some(c)) => (b, c),
+                (None, None) => continue,
+                (b, c) => {
+                    out.push(Comparison {
+                        scenario: scenario.clone(),
+                        metric: name.to_owned(),
+                        baseline_median: b.map(|b| b.median),
+                        candidate_median: c.map(|c| c.median),
+                        change: None,
+                        noise: None,
+                        verdict: Verdict::Incomparable,
+                    });
+                    continue;
+                }
+            };
+            let shift = c.median - b.median;
+            let change = shift / b.median;
+            // The spread in the metric's own units, so which side is the
+            // baseline cannot decide whether a difference is real.
+            let noise = (b.q3 - b.q1).max(c.q3 - c.q1) / b.median;
+            let verdict = if rank_sum_z(bs, cs) <= Z_CRITICAL || change.abs() <= noise {
                 Verdict::Unchanged
+            } else if change.abs() < min_effect || shift.abs() < floor {
+                if shift > 0.0 {
+                    Verdict::Increased
+                } else {
+                    Verdict::Decreased
+                }
+            } else if shift > 0.0 {
+                Verdict::Regressed
+            } else {
+                Verdict::Improved
             };
             out.push(Comparison {
                 scenario: scenario.clone(),
@@ -329,6 +415,9 @@ pub fn write_compare(
     for verdict in [
         Verdict::Regressed,
         Verdict::Improved,
+        Verdict::Increased,
+        Verdict::Decreased,
+        Verdict::Incomparable,
         Verdict::Invalid,
         Verdict::NoBaseline,
     ] {
@@ -561,18 +650,77 @@ mod tests {
     }
 
     #[test]
-    fn a_change_beyond_threshold_and_noise_is_classified() {
-        let quiet = vec![1.0, 1.0, 1.0, 1.0];
-        assert_eq!(verdict(quiet.clone(), vec![1.2; 4]), Verdict::Regressed);
-        assert_eq!(verdict(quiet.clone(), vec![0.8; 4]), Verdict::Improved);
-        assert_eq!(verdict(quiet, vec![1.03; 4]), Verdict::Unchanged);
+    fn the_rank_sum_statistic_corrects_for_ties_and_continuity() {
+        let z = rank_sum_z(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]);
+        assert!((z - 4.0 / 5.25_f64.sqrt()).abs() < 1e-12, "{z}");
+        let z = rank_sum_z(&[1.0, 1.0, 2.0], &[2.0, 3.0, 3.0]);
+        assert!((z - 3.5 / 4.8_f64.sqrt()).abs() < 1e-12, "{z}");
+        assert!(rank_sum_z(&[1.0; 5], &[1.0; 5]).abs() < 1e-12);
     }
 
     #[test]
-    fn noise_wider_than_the_change_is_not_a_regression() {
-        // 40% interquartile spread swallows a 20% median shift.
-        let noisy = vec![0.8, 0.9, 1.0, 1.2, 1.3];
-        assert_eq!(verdict(noisy, vec![1.2; 5]), Verdict::Unchanged);
+    fn a_real_change_is_judged_by_the_policy() {
+        let base = || {
+            (0..10)
+                .map(|i| 1.0 + f64::from(i) * 1e-3)
+                .collect::<Vec<_>>()
+        };
+        let shifted = |by: f64| base().into_iter().map(|v| v * by).collect::<Vec<_>>();
+        assert_eq!(verdict(base(), shifted(1.2)), Verdict::Regressed);
+        assert_eq!(verdict(base(), shifted(0.8)), Verdict::Improved);
+        // Below the 5% minimum effect, still reported.
+        assert_eq!(verdict(base(), shifted(1.03)), Verdict::Increased);
+        assert_eq!(verdict(base(), shifted(0.97)), Verdict::Decreased);
+        // 15%, but 1.5 ms is under the wall-time floor.
+        let fast = || base().into_iter().map(|v| v * 0.01).collect::<Vec<_>>();
+        let slower = fast().into_iter().map(|v| v * 1.15).collect();
+        assert_eq!(verdict(fast(), slower), Verdict::Increased);
+    }
+
+    #[test]
+    fn a_shift_within_the_noise_is_unchanged() {
+        // A 20% median shift between samples that interleave.
+        let base = vec![0.8, 0.9, 1.0, 1.2, 1.3, 0.85, 1.25, 0.95, 1.0, 1.1];
+        let cand = vec![1.2, 0.8, 1.3, 1.25, 0.9, 1.2, 1.35, 0.95, 1.15, 1.3];
+        assert!(rank_sum_z(&base, &cand) <= Z_CRITICAL);
+        assert_eq!(verdict(base, cand), Verdict::Unchanged);
+        // Ranks that separate, by less than the interquartile spread.
+        let base: Vec<f64> = (0..40).map(|i| 0.6 + f64::from(i % 10) * 0.1).collect();
+        let cand: Vec<f64> = base.iter().map(|v| v + 0.25).collect();
+        assert!(rank_sum_z(&base, &cand) > Z_CRITICAL);
+        assert_eq!(verdict(base, cand), Verdict::Unchanged);
+        // Separated, but within the wider side's spread whichever side
+        // is the baseline: +102% from the narrow side, -50% from the wide.
+        let wide = vec![0.6, 0.62, 0.7, 0.75, 0.9, 1.1, 1.25, 1.3, 1.35, 1.4];
+        let narrow: Vec<f64> = (0..10).map(|i| 0.45 + f64::from(i) * 0.01).collect();
+        assert_eq!(verdict(narrow.clone(), wide.clone()), Verdict::Unchanged);
+        assert_eq!(verdict(wide, narrow), Verdict::Unchanged);
+    }
+
+    #[test]
+    fn untied_samples_need_six_runs_a_side() {
+        let base = |n| {
+            (0..n)
+                .map(|i| 1.0 + f64::from(i) * 1e-3)
+                .collect::<Vec<_>>()
+        };
+        let shifted = |n| base(n).into_iter().map(|v| v * 1.2).collect::<Vec<_>>();
+        // Fully separated, yet five runs a side cannot reach 1%.
+        assert_eq!(verdict(base(5), shifted(5)), Verdict::Unchanged);
+        assert_eq!(verdict(base(6), shifted(6)), Verdict::Regressed);
+        // Ties narrow the variance, so five identical runs a side can.
+        assert_eq!(verdict(vec![0.05; 5], vec![0.06; 5]), Verdict::Regressed);
+    }
+
+    #[test]
+    fn a_metric_only_one_side_records_is_incomparable() {
+        let mut base = results("base", vec![("s", vec![1.0; 10], true)]);
+        base.scenarios[0].samples.instructions = vec![5e7; 10];
+        let rows = compare(&base, &results("cand", vec![("s", vec![1.0; 10], true)]));
+        let row = rows.iter().find(|r| r.metric == "instructions").unwrap();
+        assert_eq!(row.verdict, Verdict::Incomparable);
+        assert_eq!(row.baseline_median, Some(5e7));
+        assert!(rows.iter().all(|r| r.metric != "peak_rss"), "{rows:?}");
     }
 
     #[test]

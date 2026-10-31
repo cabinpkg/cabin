@@ -196,9 +196,10 @@ Every scenario and binary works on a private copy.
   fixture version, each binary's build, and the harness's own checkout.  A comparison names both
   sides' builds and says so when they ran on different hosts or fixtures, or were measured by
   different harness checkouts, whose scenarios may differ.
-- **Interleaved.**  With two binaries, each scenario runs for both back to back, so drift in the
-  machine's state affects both alike, and which binary goes first alternates per scenario.  The
-  first scenario of a run is the noisiest, measured while the machine is still settling; before
+- **Interleaved.**  With two binaries, each scenario runs for both back to back, so drift slower
+  than a scenario reaches both, and which binary goes first alternates per scenario.  Within a
+  scenario each binary's runs are still one block, so faster drift can separate the two (see
+  "Baselines and regressions").  The first scenario of a run is the noisiest, measured while the machine is still settling; before
   trusting a change there, rerun that scenario alone with the `--cabin` order swapped.
 - **Your machine stays as it is.**  The harness changes no system setting.  Close heavy
   applications and keep a laptop on power; retired instructions move far less than wall time and
@@ -215,12 +216,32 @@ $ cargo perf compare before-candidate target/perf/after/candidate.json --out tar
 ```
 
 `compare` takes two results files, or names saved with `--save-baseline`.  For every scenario and
-metric (wall time, peak memory, instructions) it compares the medians.  A change counts only when
-it exceeds both the metric's minimum effect (5% for wall time and peak memory, 2% for
-instructions) and the noise, the larger relative interquartile range of the two sides.  Each row
-is `Regressed`, `Improved`, or `Unchanged`; `Invalid` when the candidate failed its check or lacks
-the scenario; or `NoBaseline` when only the baseline did.  `--fail-on-regression` (on `run` or
-`compare`) exits 1 on any `Regressed` or `Invalid` row.
+metric (wall time, peak memory, instructions) it first asks whether the two sides differ at all:
+the samples' ranks must separate (a Mann-Whitney test at the two-sided 1% level), and the medians
+must move further than the noise, the larger interquartile range of the two sides.  A
+difference that passes both is then judged by the policy, which counts it only past the metric's
+minimum effect (5% for wall time and peak memory, 2% for instructions) and its absolute floor
+(2 ms, 1 MiB, 1 million instructions).  Each row is:
+
+- `Regressed` or `Improved`: a difference the policy counts;
+- `Increased` or `Decreased`: a difference smaller than the policy counts, shown so that small
+  steps stay visible;
+- `Unchanged`: no difference the samples show;
+- `Incomparable`: only one side recorded the metric, as when its platform or revision does not
+  measure it;
+- `Invalid` when the candidate failed its check or lacks the scenario, or `NoBaseline` when only
+  the baseline did.
+
+`--fail-on-regression` (on `run` or `compare`) exits 1 on any `Regressed` or `Invalid` row.
+
+With untied samples of equal size, the test needs at least 6 runs on each side before any
+difference can reach 1%, so comparing `--smoke` runs, 5 each, can report a real change in wall
+time or instructions as `Unchanged`.  It also assumes both sides ran under the same conditions, but each binary's runs of a
+scenario follow one another, so load that changes in between can still produce a false
+difference: two runs of one binary against itself report some `Regressed` or `Improved` rows, more
+on a busy machine (see the calibration in
+[`design/performance-observability.md`](design/performance-observability.md)).  Rerun a
+surprising row on a quieter machine before acting on it.
 
 ### Micro-benchmarks
 

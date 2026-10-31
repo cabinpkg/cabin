@@ -164,6 +164,52 @@ Disabled capture is within noise of the uninstrumented binary.  Enabled capture 
 per invocation: creating the files, starting and joining the writer thread, and the renames.  The
 files are made atomic by rename alone, without `fsync`, which cost 14 ms on macOS.
 
+## Investigation: calibrating the comparison
+
+Same machine, one release binary of `main` (5acbd263e) measured under two labels with
+`cargo perf run --cabin a=... --cabin b=...` (every scenario but the ports ones, default run
+counts): an A/A comparison, in which every reported difference is false.  Two runs, one while
+another session compiled alongside (load average 40-65), one quieter (7-25); 93 rows each.
+
+**Question.**  The comparison counted a change past the larger of the metric's minimum effect and
+the two sides' relative interquartile range, and claimed that a noisier machine reports fewer,
+never false, regressions.  How often does it report a difference between a binary and itself?
+
+Each cell counts the rows reported as `Regressed` or `Improved` with `a`, then `b`, as the
+baseline, and after a semicolon the smaller differences reported as `Increased` or `Decreased`.
+
+| Rule | Loaded run | Quieter run |
+| --- | --- | --- |
+| Previous: past both the minimum effect and the relative interquartile range | 8 / 11 | 3 / 3 |
+| Rank test alone, then minimum effect and floor | 13 / 13; 11 / 11 | 2 / 2; 12 / 12 |
+| Rank test and past the interquartile range, then minimum effect and floor | 8 / 8; 5 / 5 | 2 / 2; 3 / 3 |
+
+**Why.**  A scenario's runs are two blocks, all of one binary's and then all of the other's (the
+harness alternates which goes first).  Load that changes between the blocks moves every sample of
+one side, which no statistic over the samples can tell from a real change: in the loaded run the
+same binary's `build/touch-source-cxx` medians were 983 ms and 580 ms, with 98 of the 100 pairs of
+the two sides' samples ordered one way.  Instruction counts drift too: the toolchain probes are polled every
+millisecond, so a probe that waits longer retires more instructions, and `gc/clean-10k`'s count,
+mostly the kernel unlinking 10,000 files, moved 3-7% between the two sides.
+
+**Change.**  A difference counts as real only when the samples' ranks separate (a Mann-Whitney
+test, two-sided 1%) and the medians move past the larger interquartile range, so the previous
+rule's guard against drift stays.  The range is compared in the metric's own units rather than
+relative to each side's median, so whether a difference is real no longer depends on which side is
+the baseline; the policy's percentages, relative to the baseline, still do.
+The policy then counts a real difference only past the minimum effect and an absolute floor above
+the quieter run's A/A shifts: 2 ms of wall time (scenarios under 30 ms moved up to 1.05 ms), 1 MiB
+of peak RSS (up to 544 KiB), 1 million instructions (up to 0.48 million, but for the load-dependent
+3.6 million of `artifact/fetch-cold` and 929 million of `gc/clean-10k`).  A real difference below
+the policy is reported as `Increased` or `Decreased` rather than hidden, and a metric only one side
+recorded is `Incomparable` rather than dropped.  The false rows that remain are drift, which no
+threshold over the samples removes: `--fail-on-regression` can still fail a run of one binary
+against itself.
+
+**Not changed.**  Interleaving the two binaries' runs within a scenario, in short alternating
+batches, would let the test's assumption hold under drifting load; it changes how the harness
+schedules every run.
+
 ## Investigation: no-op build latency
 
 The first question taken through this tooling end to end, on the macOS reference machine (Apple
