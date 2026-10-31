@@ -281,35 +281,26 @@ sources = ["src/main.c"]
     lock.try_lock().unwrap();
 }
 
-/// `cabin` as a child the test talks to while it runs, without the
-/// toolchain and config environment [`cabin()`] also clears.  Its
-/// stderr goes to the test's own.
+/// `cabin` as a child the test talks to while it runs, isolated as
+/// [`cabin()`] isolates it.  Its stderr goes to the test's own.
 fn spawn_cabin(dir: &Path, args: &[&str]) -> std::process::Child {
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_cabin"));
+    let template = cabin();
+    let mut cmd = std::process::Command::new(template.get_program());
+    for (key, value) in template.get_envs() {
+        match value {
+            Some(value) => cmd.env(key, value),
+            None => cmd.env_remove(key),
+        };
+    }
     cmd.args(args)
         .arg("--manifest-path")
         .arg(dir.join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.join("build"))
-        .env("CABIN_NO_CONFIG", "1")
-        .env("CABIN_TERM_COLOR", "never")
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped());
-    for key in [
-        "CABIN_CONFIG",
-        "CABIN_COMPILER_WRAPPER",
-        "CC",
-        "CXX",
-        "AR",
-        "NINJA",
-        "CFLAGS",
-        "CXXFLAGS",
-        "CPPFLAGS",
-        "LDFLAGS",
-    ] {
-        cmd.env_remove(key);
-    }
-    cmd.spawn().unwrap()
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap()
 }
 
 /// Every file under `dir`, recursively.
