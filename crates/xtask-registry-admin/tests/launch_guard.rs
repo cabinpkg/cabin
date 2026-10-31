@@ -68,9 +68,9 @@ impl Shim {
             config_database_id()
         );
         fs::write(dir.join("response-list"), list).expect("write list response");
-        let node = dir.join("node");
+        let script = dir.join("node.sh");
         fs::write(
-            &node,
+            &script,
             format!(
                 "#!/usr/bin/env bash\n\
                  printf '%s\\n' \"$*\" >>\"{log}\"\n\
@@ -84,6 +84,17 @@ impl Shim {
             ),
         )
         .expect("write node shim");
+        // Only `cp` opens the executable for writing: a sibling test that
+        // spawns while this process holds it open passes the descriptor
+        // to its child until that child's exec, and Linux refuses to exec
+        // a file open for writing (ETXTBSY).
+        let node = dir.join("node");
+        let copied = Command::new("cp")
+            .arg(&script)
+            .arg(&node)
+            .status()
+            .expect("cp is runnable");
+        assert!(copied.success());
         fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).expect("chmod node");
         Self { dir: temp }
     }
