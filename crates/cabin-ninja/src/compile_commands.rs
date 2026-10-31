@@ -4,16 +4,16 @@ use cabin_build::BuildGraph;
 use serde::Serialize;
 
 use crate::error::NinjaError;
-use crate::writer::{atomically_write, shell_join};
+use crate::writer::{shell_join, write_if_changed};
 
 /// Write a Clang JSON Compilation Database describing every C/C++ compile in
-/// `graph` to `path`.
+/// `graph` to `path`, and return whether the file changed.
 ///
-/// Replacement is atomic: the rendered JSON lands in a sibling
-/// temporary file and only renames onto `path` after a successful
-/// write, so an interrupted run leaves the previous
-/// `compile_commands.json` in place.  The parent directory must
-/// already exist.
+/// The file is written only when its contents change, and then
+/// atomically: the rendered JSON lands in a sibling temporary file and
+/// only renames onto `path` after a successful write, so an interrupted
+/// run leaves the previous `compile_commands.json` in place.  The parent
+/// directory must already exist.
 ///
 /// # Errors
 /// Propagates rendering failures from [`render_compile_commands`]
@@ -21,9 +21,9 @@ use crate::writer::{atomically_write, shell_join};
 /// returns [`NinjaError::Io`] when the atomic write to `path` fails (for
 /// example, when the parent directory is missing).
 #[tracing::instrument(level = "info", skip_all)]
-pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), NinjaError> {
+pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<bool, NinjaError> {
     let body = render_compile_commands(graph)?;
-    atomically_write(path, body.as_bytes())
+    write_if_changed(path, body.as_bytes())
 }
 
 /// Render the compilation database as a UTF-8 JSON string.  Pulled out so

@@ -241,6 +241,35 @@ it was refuted: the coarse tick hid the shims' cost.
   rounds for its 8-deep optional chain.
 - The file index parses every package document in the registry, whatever the resolution needs.
 
+## Investigation: generated-file writes and manifest size
+
+Same machine, release builds of `main` and the change, three synthetic workspaces of one-header
+C++ members (`small`: 7 Ninja edges; `medium`: 212; `large`: 4,052), each under a 120-byte
+absolute path; medians of 20 no-op runs, phase times from `CABIN_TRACE_DIR` timings.
+
+**Question.**  A no-op build rewrote `build.ninja` and `compile_commands.json` every time, through
+`write_atomic`, which `fsync`s each file and its directory.  What does that cost, and is the
+manifest's size worth shrinking?
+
+| Workspace | `build.ninja` | `write_build_ninja` | `write_compile_commands` | No-op wall time |
+| --- | ---: | ---: | ---: | ---: |
+| `small`, before | 11.7 KB | 4.4 ms | 4.7 ms | 53.0 ms |
+| `small`, unchanged files kept | 11.7 KB | 0.1 ms | 0.0 ms | 43.7 ms |
+| `medium`, before | 464 KB | 6.2 ms | 5.9 ms | 63.3 ms |
+| `medium`, unchanged files kept | 464 KB | 1.1 ms | 0.6 ms | 52.5 ms |
+| `large`, before | 11.3 MB | 30.2 ms | 22.9 ms | 209.2 ms |
+| `large`, unchanged files kept | 11.3 MB | 24.9 ms | 18.1 ms | 195.7 ms |
+
+**Fix.**  Each file is now compared with its current contents and written only when they differ.
+The comparison reads the old file back, so at `large` peak RSS rises from 67 to 78 MiB, the size
+of that `build.ninja`.
+
+**Manifest size, not changed.**  At `large`, Ninja spends 18.5 ms parsing the 11.3 MB manifest
+and 15 ms on 8,106 `stat`s (`ninja -d stats`).  Each edge spells its full command, so moving each
+target's shared flags into Ninja variables could save at most about half the parse time, under 5%
+of the no-op, and would split commands that the driver lowers whole and that
+`compile_commands.json` must spell out anyway.
+
 ## Platform verification
 
 | Capability | macOS (arm64) | Linux (x86-64) | Windows (MSVC) |
