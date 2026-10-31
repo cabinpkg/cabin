@@ -27,6 +27,8 @@ use cabin_core::{
 };
 use cabin_workspace::PackageGraph;
 
+use camino::{Utf8Path, Utf8PathBuf};
+
 use crate::error::BuildError;
 
 /// The set of language standards a build's compiles request, per
@@ -322,6 +324,63 @@ pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), Build
         ))),
         None => Ok(()),
     }
+}
+
+/// Refuse `graph` when two of its actions would write one path, or one
+/// would write a file where another's output needs a directory, as the
+/// build machine's filesystem compares paths by default: a target named
+/// `libfoo.a` beside a library `foo`, an executable named `obj`, or one
+/// source listed twice.  Sharing an input is fine; every output has
+/// exactly one writer.  Runs on the final graph before anything is
+/// written, so a collision fails the command instead of letting one
+/// output overwrite another.
+///
+/// # Errors
+/// [`BuildError::OutputPathConflict`] naming the first such pair.
+pub fn validate_output_paths(graph: &crate::BuildGraph) -> Result<(), BuildError> {
+    validate_output_paths_folding(graph, cfg!(any(windows, target_os = "macos")))
+}
+
+/// [`validate_output_paths`], comparing paths ignoring letter case when
+/// `fold_case`, as Windows' and macOS's default filesystems do.  On
+/// Linux, outputs one letter case apart are distinct files, and only
+/// sources one letter case apart (`foo.c` and the C++ `foo.C`) produce
+/// them; on Windows and macOS those sources are one file anyway.
+pub(crate) fn validate_output_paths_folding(
+    graph: &crate::BuildGraph,
+    fold_case: bool,
+) -> Result<(), BuildError> {
+    let mut outputs: Vec<(Utf8PathBuf, &Utf8Path)> = crate::gc::plan_products(graph)
+        .map(|path| {
+            let key = if fold_case {
+                path.as_str().to_lowercase()
+            } else {
+                path.as_str().to_owned()
+            };
+            (Utf8PathBuf::from(key), path)
+        })
+        .collect();
+    // Paths compare by component, so a path's descendants sort right
+    // after it.
+    outputs.sort_by(|a, b| a.0.cmp(&b.0));
+    let Some([(first_key, first), (second_key, second)]) = outputs
+        .windows(2)
+        .find(|pair| pair[1].0.starts_with(&pair[0].0))
+    else {
+        return Ok(());
+    };
+    let reason = if first_key != second_key {
+        "the second needs a directory where the first is a file"
+    } else if first == second {
+        "they are the same file"
+    } else {
+        "they differ only in letter case, which this filesystem ignores"
+    };
+    Err(BuildError::OutputPathConflict {
+        first: (*first).to_owned(),
+        second: (*second).to_owned(),
+        reason,
+    })
 }
 
 /// Human-readable dialect name for the mixed-toolchain diagnostic.

@@ -366,7 +366,7 @@ Server-side behavior is part of the contract:
   [verifier](#the-verifiers-checks) cannot judge must never enter the pending queue), requires
   the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), requires every key of the
   metadata's `dependencies` and `dev-dependencies` maps to be a canonical `<scope>/<name>`
-  name (`system-dependencies` is exempt - its keys name system packages, not registry
+  name, neither part a Windows device name (`system-dependencies` is exempt - its keys name system packages, not registry
   packages), requires a declared `upstream` provenance block to pass a lexical mirror of the
   manifest's provenance rules (credential-free HTTPS URL, `sha256:`-prefixed 64-hex `checksum`,
   `"tar.gz"` / `"zip"` format, single-component `strip-prefix`, non-escaping copy paths,

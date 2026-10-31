@@ -1000,6 +1000,7 @@ pub(crate) fn plan_prepared(
     // (which drops dependency compiles) and before any Ninja file is
     // written.
     cabin_build::validate_planned_standards(&plan_graph)?;
+    cabin_build::validate_output_paths(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
         &prepared.toolchain,
         &prepared.detection_report,

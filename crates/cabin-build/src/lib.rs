@@ -48,6 +48,6 @@ pub use standard_compat::{
 };
 pub use validate::{
     RequestedStandards, clang_cl_languages, collect_requested_standards,
-    msvc_external_includes_supported, requested_standards_of, validate_planned_standards,
-    validate_toolchain_for_backend, validate_toolchain_standards,
+    msvc_external_includes_supported, requested_standards_of, validate_output_paths,
+    validate_planned_standards, validate_toolchain_for_backend, validate_toolchain_standards,
 };

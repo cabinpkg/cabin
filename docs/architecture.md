@@ -220,11 +220,14 @@ are intentionally not traversed here.  Current invariants:
   `cabin_core::is_valid_package_scope`, the GitHub-login-compatible grammar (lowercase
   alphanumerics plus interior `-`, at most 39 bytes).  Names are compared exactly, never
   case-folded; the only lowercasing is `cabin new` / `cabin init` deriving a default name from a
-  directory.  The registry worker mirrors both grammars
+  directory.  `PackageName::new` also refuses a part that is a Windows device name
+  (`cabin_fs::path::component_portability`), as each part names a build directory; the registry
+  reserves the same names (`registry/src/names.rs`).  The registry worker mirrors both grammars
   (`registry/src/routes.rs`), pinned by a parity test.  `cabin_core::is_path_safe_name` is the
   separate, looser *component* grammar (ASCII alphanumerics plus `_-.`, non-empty, not `.`/`..`,
   no leading `.` or `-`): it covers filesystem path components, sparse-HTTP URL path segments,
-  and Windows-reserved filename characters in one rule, and guards `TargetName`, system-dependency
+  and Windows-reserved filename characters in one rule, and guards `TargetName` (which adds
+  `component_portability`, and `Package` refuses target names one letter case apart), system-dependency
   names (pkg-config modules such as `glib-2.0`), and - one URL segment at a time - the remote URL
   boundary in `cabin-index-http`.  Both package grammars are subsets of it.  The full name string
   is the one canonical identity (manifest, index, lockfile, resolver) and is never used as a

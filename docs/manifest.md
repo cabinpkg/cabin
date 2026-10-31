@@ -58,7 +58,7 @@ deps = ["greet", "fmt"]
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `name` | string | yes | Package name: a bare `<name>` or a scoped `<scope>/<name>` with exactly one `/`.  `<name>` matches `[a-z0-9][a-z0-9_-]*`: lowercase ASCII letters, digits, `_`, and `-`, starting with a letter or digit.  The scope has its own grammar: lowercase letters, digits, and interior `-` only, at most 39 characters (a claimable GitHub login).  Uppercase and `.` are rejected, and names are compared exactly, never case-folded.  Registry packages are always scoped; bare names are local-only and rejected by `cabin publish`. |
+| `name` | string | yes | Package name: a bare `<name>` or a scoped `<scope>/<name>` with exactly one `/`.  `<name>` matches `[a-z0-9][a-z0-9_-]*`: lowercase ASCII letters, digits, `_`, and `-`, starting with a letter or digit.  The scope has its own grammar: lowercase letters, digits, and interior `-` only, at most 39 characters (a claimable GitHub login).  Uppercase and `.` are rejected, and names are compared exactly, never case-folded.  Each part names a build directory, so neither may be a Windows device name (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, or `lpt1` to `lpt9`); the registry refuses the same names.  Registry packages are always scoped; bare names are local-only and rejected by `cabin publish`. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
 | `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`; `c90` is an alias of `c89`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++26`; `c++03` is an alias of `c++98`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
@@ -120,7 +120,21 @@ verified - its versions stay pending until an operator intervenes.
 The table key (`<name>`) is the target name.  Target names must be non-empty, must not contain
 whitespace, must consist only of ASCII letters, digits, `_`, `-`, and `.`, must not start with `.`
 or `-`, must not be `.` or `..`, and must be unique within the manifest.  This grammar is separate
-from, and looser than, the package-name grammar.
+from, and looser than, the package-name grammar.  A target name also names the target's output files
+and object directory, so on every platform it must not:
+
+- end with `.`, which Windows drops, so `tool.` would write `tool`'s files;
+- have a Windows device name before its first `.` - `CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, or
+  `LPT1` to `LPT9`, in any letter case (`nul`, `Con.txt`); `COM0` and `LPT0` are not device names;
+- differ from another target name in the manifest only in letter case: a case-insensitive filesystem
+  (the Windows and macOS default) would give `Tool` and `tool` the same files.
+
+Mixed-case names and internal dots are fine (`MyTool`, `tool.v2`).  Before writing anything, a build
+also refuses two outputs that would land on one path, or one output's file where another needs a
+directory: an executable named `libfoo.a` beside a library `foo` (GCC/Clang names the archive
+`libfoo.a`), an executable named `obj` (the object directory), or one source listed twice.  On
+Windows and macOS, whose filesystems ignore letter case by default, paths one letter case apart
+count as one; on Linux, sources such as C `foo.c` and C++ `foo.C` stay apart.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |

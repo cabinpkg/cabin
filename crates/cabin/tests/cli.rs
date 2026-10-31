@@ -2420,6 +2420,9 @@ mod trace_capture;
 #[path = "cli/ninja_paths.rs"]
 mod ninja_paths;
 
+#[path = "cli/target_names.rs"]
+mod target_names;
+
 #[path = "cli/static_library_rebuild.rs"]
 mod static_library_rebuild;
 
