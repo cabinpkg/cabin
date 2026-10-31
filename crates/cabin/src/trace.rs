@@ -25,7 +25,10 @@
 //! [`tracing::dispatcher::with_default`], never installed globally, so
 //! repeated or concurrent in-process calls to [`crate::run`] each get
 //! their own capture.  A thread spawned inside the command records
-//! spans only if it is handed the dispatcher.
+//! spans only if it is handed the dispatcher.  `tracing-chrome` numbers
+//! threads per process, not per capture, so in a later capture on the
+//! same thread a helper can share the caller's lane; the `cabin`
+//! binary captures once per process.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{File, OpenOptions};

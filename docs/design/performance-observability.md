@@ -35,7 +35,7 @@ Rules that follow from the table:
 | --- | --- | --- |
 | Span facade in domain crates | `tracing` 0.1.44 | Zero-cost when no subscriber exists; the Rust ecosystem's standard; Cargo uses it |
 | Subscriber composition | `tracing-subscriber` 0.3 registry, `Targets` filter | No regex dependency; `Targets` directives cover per-crate detail |
-| Trace file | `tracing-chrome` 0.7.2, Chrome trace-event JSON | Opens in Perfetto and `chrome://tracing`; Cargo's own choice.  Its writer unwraps I/O errors, so Cabin wraps the writer (see below) |
+| Trace file | `tracing-chrome` 0.7.2, Chrome trace-event JSON | Opens in Perfetto and `chrome://tracing`; Cargo's own choice.  Its writer unwraps I/O errors, so Cabin wraps the writer (see below).  It numbers threads per process, so a later in-process capture can draw a helper thread in its caller's lane |
 | End-to-end timing | `hyperfine` 2.0 | Warmup, per-run prepare/conclude, raw samples, CPU and peak-RSS per run, versioned JSON |
 | In-process benchmarks | Criterion | Statistics, baselines, and change detection for subsystem benches |
 | Build-action timeline | Ninja's own `.ninja_log`, delimited to the invocation | Authoritative and already written; `ninjatracing`'s last-build heuristic replays history on a no-op build (see below) |
@@ -231,9 +231,53 @@ it was refuted: the coarse tick hid the shims' cost.
 **Found on the way, not changed:**
 
 - With the fix, the `xcrun` shims are the largest remaining cost of a no-op build on macOS: 15 ms
-  of 53 ms, paid on every invocation because detection is not cached.
+  of 53 ms, paid on every invocation because detection is not cached (see "Toolchain detection"
+  below).
 - The lazy HTTP index needs one resolution round per dependency level: `index/http-lazy` takes 8
   rounds for its 8-deep optional chain (see "Registry metadata latency" below).
+
+## Investigation: toolchain detection
+
+Same machine, release builds of `main` (5c5e062f2) and the change, under other load (load average
+17-51); medians of 30 runs, phase times from the check run's timings.  The default toolchain is
+Apple's `/usr/bin` shims.
+
+**Question.**  Every command that builds runs `--version` on the C++ compiler, the C compiler, and
+the archiver, one after another, before it plans anything.  Through an `xcrun` shim each probe
+takes 15-20 ms, against 8 ms for the same `clang` run directly: the shim first asks `xcrun` which
+tool the selected Xcode or Command Line Tools provides.  Can a build skip or shorten that?
+
+**Caching the result, rejected.**  A cache keyed on the tool's path and file identity is sound only
+when that file alone decides what `--version` prints.  Two common setups break that:
+
+- An `xcrun` shim never changes when `xcode-select --switch`, `DEVELOPER_DIR`, `TOOLCHAINS`, or an
+  Xcode update changes the compiler behind it.  Keying on that choice means reproducing `xcrun`'s
+  selection, and asking `xcrun` (`xcrun -f`, `xcode-select -p`) costs about what the probe does.
+- A dynamically linked compiler, such as a distribution's `clang` over `libLLVM` or
+  `libclang-cpp`, prints a version that its libraries carry: upgrading them leaves the executable
+  untouched.
+
+A stale identity would keep `cabin-toolchain.json` unchanged and skip the rebuild a compiler change
+requires, so a fast path that can be stale is not worth its saving.
+
+**Fix.**  The probes run side by side: each mostly waits for its tool to load, so detection now
+takes about as long as the slowest probe.
+
+| Scenario | `detect_toolchain` | Wall | CPU (user + system) |
+| --- | ---: | ---: | ---: |
+| `build/noop-c` | 34.5 -> 14.1 ms | 53.0 -> 32.2 ms | 41.3 -> 43.7 ms |
+| `build/noop-cxx` | 34.6 -> 13.9 ms | 57.2 -> 35.4 ms | 45.1 -> 47.0 ms |
+| `test/run-c` | 36.2 -> 14.2 ms | 78.4 -> 57.2 ms | 62.4 -> 64.3 ms |
+| `test/run-cxx` | 52.2 -> 15.7 ms | 84.6 -> 63.3 ms | 68.1 -> 69.2 ms |
+| `workspace/build-noop` | 40.9 -> 21.7 ms | 76.4 -> 54.7 ms | 64.1 -> 65.6 ms |
+
+Instructions are within 1% (the two helper threads), and peak RSS is unchanged.
+
+**Not changed.**  Apple SDK discovery runs `xcrun --show-sdk-path` only after detection, since it
+needs to know the compiler is Apple Clang; starting it alongside the probes would save a few more
+milliseconds at the cost of an `xcrun` run for every other compiler on macOS.  The probe runner
+also wakes every millisecond to check for the child's exit, so a slower probe retires more
+instructions.
 
 ## Investigation: generated-file writes and manifest size
 
