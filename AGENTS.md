@@ -137,6 +137,19 @@ in the same change and follow the architecture document.
   `examples/README.md`, `ports/README.md`, and website copy. Update claims
   about the repository's current shape; leave durable upstream facts and
   policy alone.
+- Keep documentation focused on current behavior, contracts, design
+  rationale, and unresolved work. Update existing explanations instead of
+  appending implementation diaries, completed-task reports, or one-time
+  validation transcripts. Keep task history in commits and pull requests.
+- When a change resolves a documented gap or supersedes a plan, update or
+  remove the affected blocker entries, TODOs, and handoffs in the same
+  change. Preserve remaining requirements, active dependencies, and useful
+  distinctions between implemented, published, and verified behavior.
+- Preserve information that still serves readers, including design
+  rationale, compatibility boundaries, reproducible measurements, release
+  notes, and migration guidance. Prefer one authoritative explanation with
+  links over duplicated content. Do not create archive pages merely to
+  relocate obsolete task history.
 
 ## Git and pull requests
 
