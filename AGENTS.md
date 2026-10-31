@@ -62,8 +62,15 @@ in the same change and follow the architecture document.
 - Prefer reducing the state space or simplifying an invariant over adding
   logic to make every possible state behave perfectly. Once supported
   behavior is correct and secure, stop.
-- Comments explain non-obvious constraints, compatibility requirements, or
-  rationale. Do not restate mechanics that clearer code can express.
+- Comments state non-obvious contracts, preconditions, invariants,
+  compatibility requirements, or design rationale. Do not restate
+  mechanics already clear from the code.
+- For non-obvious correctness or safety claims, state the premises,
+  relevant cases, and why the conclusion follows. A proof may be written
+  in prose and be as long as needed; never omit necessary steps for brevity.
+- Ground explanations in the code, tests, or an authoritative specification.
+  Avoid speculative rationale, filler, rhetorical contrasts, and repeated
+  justification. Preserve negations and exceptions that affect correctness.
 - Do not implement features listed as deferred or "not implemented" in
   `docs/architecture.md`, except work it marks *planned*, which lands only
   through its stage in `docs/design/capability-roadmap/ledger.md` and
