@@ -168,3 +168,130 @@ fn concurrent_invocations_write_separate_complete_captures() {
     }
     assert_eq!(files_with_suffix(&traces, ".timings.json").len(), 4);
 }
+
+/// The names on the trace's Ninja lane, checked against the summary's
+/// count.
+fn ninja_actions(events: &[serde_json::Value], timings: &serde_json::Value) -> Vec<String> {
+    let names: Vec<String> = events
+        .iter()
+        .filter(|e| e["ph"] == "X" && e["pid"] == 2)
+        .map(|e| e["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(timings["ninja_actions"], names.len());
+    names
+}
+
+#[test]
+fn traced_builds_record_only_the_ninja_actions_they_ran() {
+    require_c_and_cxx_build_tools();
+    let c_project = TempDir::new().unwrap();
+    c_project
+        .child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "cdemo"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c", "src/util.c"]
+"#,
+        )
+        .unwrap();
+    c_project
+        .child("src/main.c")
+        .write_str("int util(void);\nint main(void) { return util(); }\n")
+        .unwrap();
+    c_project
+        .child("src/util.c")
+        .write_str("int util(void) { return 0; }\n")
+        .unwrap();
+    let cxx_project = TempDir::new().unwrap();
+    write_hello_project(cxx_project.path());
+
+    let object = format!(".{}", host_obj_ext());
+    for (project, objects) in [(c_project.path(), 2), (cxx_project.path(), 1)] {
+        let clean = project.join("clean-traces");
+        traced(project, &clean).arg("build").assert().success();
+        let (events, timings) = only_capture(&clean);
+        let actions = ninja_actions(&events, &timings);
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|name| name.ends_with(&object))
+                .count(),
+            objects,
+            "{actions:?}"
+        );
+        assert_eq!(actions.len(), objects + 1, "plus the link: {actions:?}");
+        assert!(
+            actions.iter().all(|name| name.starts_with("packages/")),
+            "named relative to the build directory: {actions:?}"
+        );
+
+        let no_op = project.join("no-op-traces");
+        traced(project, &no_op).arg("build").assert().success();
+        let (events, timings) = only_capture(&no_op);
+        assert!(
+            ninja_actions(&events, &timings).is_empty(),
+            "the log's earlier entries are not this build's"
+        );
+    }
+}
+
+#[test]
+fn a_build_that_finishes_no_action_counts_zero_actions() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_hello_project(dir.path());
+    // Ninja creates `.ninja_log` only once an action succeeds.
+    dir.child("src/main.cc")
+        .write_str("int main() { return missing; }\n")
+        .unwrap();
+    let traces = dir.path().join("traces");
+    traced(dir.path(), &traces).arg("build").assert().failure();
+    let (events, timings) = only_capture(&traces);
+    assert!(ninja_actions(&events, &timings).is_empty());
+}
+
+#[test]
+fn traced_test_run_records_each_test_executable() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.c_test]
+type = "test"
+sources = ["tests/c_test.c"]
+
+[target.cxx_test]
+type = "test"
+sources = ["tests/cxx_test.cc"]
+"#,
+        )
+        .unwrap();
+    dir.child("tests/c_test.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    dir.child("tests/cxx_test.cc")
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    let traces = dir.path().join("traces");
+    traced(dir.path(), &traces).arg("test").assert().success();
+
+    let (events, _) = only_capture(&traces);
+    let mut tests: Vec<&str> = events
+        .iter()
+        .filter(|e| e["ph"] == "X" && e["pid"] == 3)
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    tests.sort_unstable();
+    assert_eq!(tests, ["demo:c_test", "demo:cxx_test"]);
+}

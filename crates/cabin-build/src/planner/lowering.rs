@@ -235,6 +235,7 @@ pub(super) struct CollectedInterface {
 /// dependencies defining one macro differently are recorded against
 /// `object`, one of `start`'s compiles, which the `cabin check`
 /// rewrite prunes the conflict with.
+#[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn collect_interface(
     start: &TargetId,
     target: &Target,
@@ -448,6 +449,7 @@ pub(super) fn collect_link_names(
     names
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn collect_link_libs(
     start: &TargetId,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,

@@ -365,10 +365,10 @@ pub(crate) fn test(
     // line per executable as it finishes (emitted live by the
     // streaming sink), and a blank-line-separated epilogue with
     // the optional `failures:` recap plus the summary line.
-    let mut sink = cabin_test::StreamingSink {
+    let mut sink = crate::trace::TestLane(cabin_test::StreamingSink {
         stdout: std::io::stdout().lock(),
         stderr: std::io::stderr().lock(),
-    };
+    });
     println!(
         "\nrunning {} test{}",
         test_plan.len(),
@@ -383,7 +383,7 @@ pub(crate) fn test(
     };
     let summary = cabin_test::run_tests(&test_plan, &options, &mut sink)?;
     let _ = writeln!(
-        sink.stdout,
+        sink.0.stdout,
         "{}",
         cabin_test::render_epilogue(&summary, filtered_out)
     );

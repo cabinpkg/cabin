@@ -112,6 +112,7 @@ impl TestPlan {
 /// Ordering is `(package_name, target_name)` ascending - the
 /// same order `cabin metadata` and the planner emit, so plans
 /// are deterministic across runs.
+#[tracing::instrument(level = "info", skip_all)]
 pub fn plan_tests(
     package_graph: &PackageGraph,
     build_graph: &BuildGraph,
@@ -398,6 +399,7 @@ pub struct TestRunOptions {
 /// reading a child's stdout/stderr fails, and `SinkIo` if forwarding
 /// output or a result to `sink` fails.  Every test still running is
 /// killed before the error returns.
+#[tracing::instrument(level = "info", skip_all, fields(executables = plan.len()))]
 pub fn run_tests<S: TestOutputSink>(
     plan: &TestPlan,
     options: &TestRunOptions,

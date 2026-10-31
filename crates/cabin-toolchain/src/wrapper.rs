@@ -235,6 +235,12 @@ fn pick_request(
     Ok(None)
 }
 
+#[tracing::instrument(
+    name = "version_probe",
+    level = "debug",
+    skip_all,
+    fields(tool = "wrapper")
+)]
 fn detect_identity(
     kind: CompilerWrapperKind,
     path: &Path,

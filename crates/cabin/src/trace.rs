@@ -17,6 +17,10 @@
 //! - `<stem>.timings.json`: a versioned summary (see [`Timings`]) whose
 //!   field set and units are stable within a `format_version`.
 //!
+//! Child processes that run concurrently cannot be spans on Cabin's
+//! one thread, so the trace shows them as lanes of their own: Ninja's
+//! actions ([`NinjaLog`]) and the test executables ([`TestLane`]).
+//!
 //! The subscriber is scoped to the invocation's thread with
 //! [`tracing::dispatcher::with_default`], never installed globally, so
 //! repeated or concurrent in-process calls to [`crate::run`] each get
@@ -26,7 +30,7 @@
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Read as _, Seek as _, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr as _;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -56,6 +60,15 @@ static SEQUENCE: AtomicU32 = AtomicU32::new(0);
 
 type Phases = Arc<Mutex<BTreeMap<(&'static str, &'static str), Phase>>>;
 type WriteError = Arc<Mutex<Option<io::Error>>>;
+type SharedTimeline = Arc<Mutex<Timeline>>;
+
+/// The trace processes Cabin adds beside `tracing-chrome`'s pid 1, as
+/// `(pid, name)`.
+const NINJA_LANE: (u32, &str) = (2, "ninja");
+const TESTS_LANE: (u32, &str) = (3, "tests");
+
+/// Ninja's log of finished actions, in the directory it builds in.
+const NINJA_LOG: &str = ".ninja_log";
 
 /// One invocation's capture: the scoped subscriber plus the files it
 /// writes.
@@ -73,6 +86,7 @@ pub(crate) struct TraceSession {
     guard: tracing_chrome::FlushGuard,
     write_error: WriteError,
     phases: Phases,
+    timeline: SharedTimeline,
 }
 
 impl TraceSession {
@@ -159,12 +173,19 @@ impl TraceSession {
             // and name the user's home directory.
             .include_locations(false)
             .build();
+        // `tracing-chrome` timestamps count from when its layer was built.
+        let timeline = Arc::new(Mutex::new(Timeline {
+            origin: Instant::now(),
+            ninja_actions: None,
+            intervals: Vec::new(),
+        }));
         let phases = Phases::default();
         let subscriber = tracing_subscriber::registry()
             .with(targets)
             .with(chrome)
             .with(PhaseLayer {
                 phases: Arc::clone(&phases),
+                timeline: Arc::clone(&timeline),
             });
         Ok(Self {
             started,
@@ -177,6 +198,7 @@ impl TraceSession {
             guard,
             write_error,
             phases,
+            timeline,
         })
     }
 
@@ -212,6 +234,7 @@ impl TraceSession {
             guard,
             write_error,
             phases,
+            timeline,
         } = self;
         // Dropping the guard closes the JSON array and joins the
         // writer thread, so every event is on disk before the rename.
@@ -221,14 +244,16 @@ impl TraceSession {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
+        let mut timeline = timeline.lock().unwrap_or_else(PoisonError::into_inner);
         if failure.is_none() {
-            let process = serde_json::json!({
+            let mut events = vec![serde_json::json!({
                 "ph": "M",
                 "pid": 1,
                 "name": "process_name",
                 "args": { "name": format!("cabin {command}") },
-            });
-            failure = append_events(partial, &[process])
+            })];
+            events.extend(complete_events(std::mem::take(&mut timeline.intervals)));
+            failure = append_events(partial, &events)
                 .and_then(|()| std::fs::rename(&partial_path, &trace_path))
                 .err();
         }
@@ -243,6 +268,7 @@ impl TraceSession {
             trace_complete,
             wall_time_us: duration_us(wall),
             startup_us: duration_us(startup),
+            ninja_actions: timeline.ninja_actions,
             phases: phases
                 .into_iter()
                 .map(|((target, name), phase)| PhaseReport {
@@ -353,6 +379,214 @@ fn append_events(mut file: File, events: &[serde_json::Value]) -> io::Result<()>
     out.flush()
 }
 
+/// Child-process runs recorded beside the spans, and the Ninja action
+/// count for the summary.
+struct Timeline {
+    /// The trace clock's zero.
+    origin: Instant,
+    ninja_actions: Option<usize>,
+    intervals: Vec<Interval>,
+}
+
+/// One child-process run, in microseconds on the trace clock.
+struct Interval {
+    lane: (u32, &'static str),
+    name: String,
+    start_us: u64,
+    dur_us: u64,
+}
+
+/// The capture running on this thread, found through its dispatcher so
+/// it follows the same scoping as the spans.
+fn current_timeline() -> Option<SharedTimeline> {
+    tracing::dispatcher::get_default(|dispatch| {
+        dispatch
+            .downcast_ref::<PhaseLayer>()
+            .map(|layer| Arc::clone(&layer.timeline))
+    })
+}
+
+/// `.ninja_log` before a Ninja run.  The log keeps earlier builds'
+/// entries, so the run's own are those appended after this snapshot.
+pub(crate) struct NinjaLog {
+    timeline: SharedTimeline,
+    build_root: PathBuf,
+    before: Vec<u8>,
+}
+
+impl NinjaLog {
+    /// Snapshot `<build_root>/.ninja_log` when a capture is running.
+    pub(crate) fn snapshot(build_root: &Path) -> Option<Self> {
+        let timeline = current_timeline()?;
+        let before = read_ninja_log(build_root)?;
+        Some(Self {
+            timeline,
+            build_root: build_root.to_owned(),
+            before,
+        })
+    }
+
+    /// Add the actions Ninja logged since [`Self::snapshot`] to the
+    /// ninja lane.  Ninja times them from its own start, which
+    /// `spawned` (when Cabin started Ninja) places on the trace clock.
+    pub(crate) fn record(self, spawned: Instant) {
+        let Some(after) = read_ninja_log(&self.build_root) else {
+            return;
+        };
+        let Some(actions) = appended_actions(&self.before, &after) else {
+            return;
+        };
+        let mut timeline = self.timeline.lock().unwrap_or_else(PoisonError::into_inner);
+        let spawned_us = duration_us(spawned.saturating_duration_since(timeline.origin));
+        timeline.ninja_actions = Some(actions.len());
+        let build_root = lexically_normal(&self.build_root);
+        for (start_ms, end_ms, output, _) in actions {
+            // Ninja logs the absolute paths Cabin wrote; relative to
+            // the build root they cannot name the user's home.
+            let output = Path::new(output);
+            let name = output
+                .strip_prefix(&build_root)
+                .unwrap_or_else(|_| Path::new(output.file_name().unwrap_or_default()));
+            timeline.intervals.push(Interval {
+                lane: NINJA_LANE,
+                name: name.to_string_lossy().into_owned(),
+                start_us: spawned_us + u64::from(start_ms) * 1000,
+                dur_us: u64::from(end_ms.saturating_sub(start_ms)) * 1000,
+            });
+        }
+    }
+}
+
+/// `<build_root>/.ninja_log`, empty until Ninja first logs a finished
+/// action.
+fn read_ninja_log(build_root: &Path) -> Option<Vec<u8>> {
+    match std::fs::read(build_root.join(NINJA_LOG)) {
+        Ok(bytes) => Some(bytes),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Some(Vec::new()),
+        Err(_) => None,
+    }
+}
+
+/// `path` with each `dir/..` collapsed, as Ninja collapses the paths
+/// it logs: `--build-dir ../build` keeps its `..` in the build root.
+fn lexically_normal(path: &Path) -> PathBuf {
+    let mut normal = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir
+                if matches!(normal.components().next_back(), Some(Component::Normal(_))) =>
+            {
+                normal.pop();
+            }
+            component => normal.push(component),
+        }
+    }
+    normal
+}
+
+/// The actions in `after` past its prefix `before`, as `(start_ms,
+/// end_ms, output, command_hash)`.  `None` when `after` does not start
+/// with `before`: Ninja rewrote the log (it recompacts it at startup),
+/// so this run's entries cannot be told from earlier ones.
+fn appended_actions<'a>(
+    before: &[u8],
+    after: &'a [u8],
+) -> Option<Vec<(u32, u32, &'a str, &'a str)>> {
+    let appended = std::str::from_utf8(after.strip_prefix(before)?).ok()?;
+    // `# ninja log vN`, then `start \t end \t mtime \t output \t hash`.
+    let mut actions: Vec<_> = appended
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let [start, end, _, output, hash] = line.split('\t').collect::<Vec<_>>()[..] else {
+                return None;
+            };
+            Some((start.parse().ok()?, end.parse().ok()?, output, hash))
+        })
+        .collect();
+    // A command with several outputs logs a line per output, each with
+    // the command's start, end, and hash.
+    actions.dedup_by_key(|&mut (start, end, _, hash)| (start, end, hash));
+    Some(actions)
+}
+
+/// A [`cabin_test::TestOutputSink`] that also adds each finished test
+/// executable to the tests lane while a capture runs.
+pub(crate) struct TestLane<S>(pub(crate) S);
+
+impl<S: cabin_test::TestOutputSink> cabin_test::TestOutputSink for TestLane<S> {
+    fn write_stdout(
+        &mut self,
+        executable: &cabin_test::TestExecutable,
+        bytes: &[u8],
+    ) -> io::Result<()> {
+        self.0.write_stdout(executable, bytes)
+    }
+
+    fn write_stderr(
+        &mut self,
+        executable: &cabin_test::TestExecutable,
+        bytes: &[u8],
+    ) -> io::Result<()> {
+        self.0.write_stderr(executable, bytes)
+    }
+
+    fn test_finished(&mut self, result: &cabin_test::TestRunResult) -> io::Result<()> {
+        if let Some(timeline) = current_timeline() {
+            let mut timeline = timeline.lock().unwrap_or_else(PoisonError::into_inner);
+            // The runner reports a test once it has ended.
+            let end_us = duration_us(timeline.origin.elapsed());
+            let dur_us = duration_us(result.duration);
+            timeline.intervals.push(Interval {
+                lane: TESTS_LANE,
+                name: format!("{}:{}", result.executable.package, result.executable.target),
+                start_us: end_us.saturating_sub(dur_us),
+                dur_us,
+            });
+        }
+        self.0.test_finished(result)
+    }
+}
+
+/// Chrome complete events for `intervals`, each lane's after its
+/// `process_name`.  An interval takes the lowest thread id free at its
+/// start, so no two on one thread overlap.
+fn complete_events(mut intervals: Vec<Interval>) -> Vec<serde_json::Value> {
+    intervals.sort_by_key(|interval| (interval.lane.0, interval.start_us));
+    let mut events = Vec::new();
+    let mut pid = None;
+    let mut busy_until: Vec<u64> = Vec::new();
+    for interval in intervals {
+        if pid != Some(interval.lane.0) {
+            pid = Some(interval.lane.0);
+            busy_until.clear();
+            events.push(serde_json::json!({
+                "ph": "M",
+                "pid": interval.lane.0,
+                "name": "process_name",
+                "args": { "name": interval.lane.1 },
+            }));
+        }
+        let tid = busy_until
+            .iter()
+            .position(|&busy| busy <= interval.start_us)
+            .unwrap_or_else(|| {
+                busy_until.push(0);
+                busy_until.len() - 1
+            });
+        busy_until[tid] = interval.start_us + interval.dur_us;
+        events.push(serde_json::json!({
+            "ph": "X",
+            "pid": interval.lane.0,
+            "tid": tid,
+            "ts": interval.start_us,
+            "dur": interval.dur_us,
+            "name": interval.name,
+        }));
+    }
+    events
+}
+
 /// The `*.timings.json` document.
 ///
 /// Stable within a `format_version`: every field's name, unit, and
@@ -374,6 +608,10 @@ struct Timings<'a> {
     /// From [`crate::run`] entry to the start of the capture (argument
     /// parsing and terminal setup), which no span covers.
     startup_us: u64,
+    /// The actions Ninja ran in this invocation, from its `.ninja_log`;
+    /// `null` when Cabin ran no Ninja or Ninja rewrote its log, so its
+    /// actions are unavailable.
+    ninja_actions: Option<usize>,
     /// Every recorded span, aggregated per (target, name).
     phases: Vec<PhaseReport<'a>>,
     /// Resource usage at exit; `null` where unsupported (Windows).
@@ -458,9 +696,11 @@ fn duration_us(duration: Duration) -> u64 {
     u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
 }
 
-/// Aggregates span lifetimes per (target, name) for the summary.
+/// Aggregates span lifetimes per (target, name) for the summary, and
+/// holds the capture's [`Timeline`] where [`current_timeline`] finds it.
 struct PhaseLayer {
     phases: Phases,
+    timeline: SharedTimeline,
 }
 
 /// A span's open time and its integer fields so far.
@@ -673,6 +913,85 @@ mod tests {
             .unwrap();
         assert!(err.contains(cabin_env::CABIN_TRACE_FILTER), "{err}");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    const LOG: &str = "# ninja log v7\n0\t9\t1\t/b/old.o\taa\n";
+
+    #[test]
+    fn only_the_entries_appended_after_the_snapshot_are_actions() {
+        let after = format!(
+            "{LOG}5\t20\t2\t/b/x.o\tbb\n# ninja log v7\n20\t30\t3\t/b/app\tcc\n20\t30\t3\t/b/app.map\tcc\n"
+        );
+        assert_eq!(
+            appended_actions(LOG.as_bytes(), after.as_bytes()),
+            Some(vec![(5, 20, "/b/x.o", "bb"), (20, 30, "/b/app", "cc")]),
+            "a header line is skipped and a second output of one command is the same action"
+        );
+        assert_eq!(
+            appended_actions(LOG.as_bytes(), LOG.as_bytes()),
+            Some(vec![])
+        );
+        assert_eq!(
+            appended_actions(b"", LOG.as_bytes()),
+            Some(vec![(0, 9, "/b/old.o", "aa")]),
+            "a first build's log is all new"
+        );
+    }
+
+    #[test]
+    fn a_parent_relative_build_root_collapses_as_ninja_logs_it() {
+        let root = Path::new("/work/app/../build/./dev");
+        assert_eq!(lexically_normal(root), Path::new("/work/build/dev"));
+    }
+
+    #[test]
+    fn a_rewritten_log_has_no_actions_rather_than_old_ones() {
+        let recompacted = "# ninja log v7\n5\t20\t2\t/b/x.o\tbb\n";
+        assert_eq!(
+            appended_actions(LOG.as_bytes(), recompacted.as_bytes()),
+            None
+        );
+    }
+
+    fn interval(lane: (u32, &'static str), name: &str, start_us: u64, dur_us: u64) -> Interval {
+        Interval {
+            lane,
+            name: name.to_owned(),
+            start_us,
+            dur_us,
+        }
+    }
+
+    #[test]
+    fn overlapping_intervals_never_share_a_thread() {
+        let events = complete_events(vec![
+            interval(TESTS_LANE, "t", 0, 10),
+            interval(NINJA_LANE, "c", 10, 5),
+            interval(NINJA_LANE, "b", 2, 8),
+            interval(NINJA_LANE, "a", 0, 10),
+        ]);
+        let placed: Vec<(u64, u64, &str)> = events
+            .iter()
+            .filter(|e| e["ph"] == "X")
+            .map(|e| {
+                (
+                    e["pid"].as_u64().unwrap(),
+                    e["tid"].as_u64().unwrap(),
+                    e["name"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            placed,
+            [(2, 0, "a"), (2, 1, "b"), (2, 0, "c"), (3, 0, "t")],
+            "`b` overlaps `a`; `c` starts as `a` ends; each lane counts its own threads"
+        );
+        let processes: Vec<&str> = events
+            .iter()
+            .filter(|e| e["ph"] == "M")
+            .map(|e| e["args"]["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(processes, ["ninja", "tests"]);
     }
 
     #[test]

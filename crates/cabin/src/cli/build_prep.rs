@@ -245,6 +245,7 @@ pub(crate) struct PreparedWorkspace {
 /// strict-set skeleton); with them disabled those loads collapse to
 /// the initial graph and the pipeline is exactly the `build` / `run`
 /// preamble.
+#[tracing::instrument(level = "info", skip_all)]
 pub(crate) fn prepare_workspace(
     args: &WorkspacePipelineArgs<'_>,
     reporter: Reporter,

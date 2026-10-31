@@ -80,24 +80,24 @@ on one side only as a change in instrumentation, not a regression.
 ### Ninja actions
 
 A persistent `.ninja_log` holds earlier builds' entries, so the timeline must be cut to the current
-invocation: Cabin records the log's length and a digest of its contents before starting Ninja, and
-reads only the entries appended after that point.  A no-op build therefore reports zero actions
-rather than the previous build's.  If the prefix changed (Ninja recompacts the log at startup once
-it holds enough stale entries) the action timeline is reported as unavailable, never as zero.
+invocation: Cabin keeps the log's contents from before it starts Ninja, and reads only the entries
+appended after them.  A no-op build therefore reports zero actions rather than the previous
+build's.  If the prefix changed (Ninja recompacts the log at startup once it holds enough stale
+entries) the action timeline is reported as unavailable, never as zero.
 Ninja writes an entry only for an action that succeeded, so a failed build lists its completed
 actions and says the failed one is absent.  Several outputs of one command share one entry's
 start, end, and command hash and count as one action.  Ninja's times are milliseconds from its own
 build start, a clock Cabin cannot read; actions are placed at Cabin's spawn instant, and the gap
 between Ninja's spawn and its first action (manifest load, startup) is the stated alignment
-uncertainty.  Status: designed; lands with the build-path spans after roadmap stage 04's PR B.
+uncertainty.  Status: implemented (`NinjaLog` in `trace.rs`).
 
 ## Delivery
 
 | PR | Content | Depends on | Status |
 | --- | --- | --- | --- |
 | 1 | Capture (`trace.rs`), timings summary, spans in workspace, manifest, config, feature, resolver, index, index-http, artifact, lockfile, package, vendor, system-deps, and the resolve/fetch orchestration; this record and `performance.md` | - | #2068 |
-| 2 | `xtask-bench`: fixtures, Criterion benches, `hyperfine` CLI scenarios, baselines, comparison reports; profiling profile and recipes | 1 | in progress |
-| 3 | Build-path spans (toolchain detection, planning, lowering, Ninja emission), the Ninja action timeline, test-run timeline | 1; stage 04 PR B; #2065 | blocked on stage 04 PR B |
+| 2 | `xtask-bench`: fixtures, Criterion benches, `hyperfine` CLI scenarios, baselines, comparison reports; profiling profile and recipes | 1 | #2071 |
+| 3 | Build-path spans (toolchain detection, planning, lowering, Ninja emission), the Ninja action timeline, test-run timeline | 1; stage 04 PR B; #2065 | in progress |
 | 4 | Performance workflow: smoke subset on pull requests, full comparison on schedule and on demand, artifact retention | 2 | not started |
 
 Stage 04 (build and target contexts) reshapes `cli/build_prep.rs`, `cli/ninja.rs`, the planner,
@@ -121,11 +121,11 @@ Trace coverage per workflow.  `info` spans mark phases; `debug` spans mark per-i
 | Artifact cache, checksum, extraction | `cabin-artifact`, `cabin` | `run_artifact_pipeline`, `build_fetch_plan` (HTTP downloads), `fetch_artifacts` (`packages`), `fetch_one`, `ensure_archive` / `ensure_source` (`hit`), `extract_zip` (debug) | done |
 | Package and vendor | `cabin-package`, `cabin-vendor` | `stage_package`, `collect_package_files`, `build_zip`, `write_staged`, `materialize_vendor` | done |
 | System dependencies | `cabin-system-deps` | `probe_system_dependency` (debug) | done |
-| Toolchain detection and probes | `cabin-toolchain` | - | PR 3 |
-| Build planning, usage requirements, link closure | `cabin-build` | - | PR 3 |
-| Driver lowering, Ninja and compile-database emission | `cabin-driver`, `cabin-ninja` | - | PR 3 |
-| Build execution | `cabin`, Ninja | Ninja action timeline | PR 3 |
-| Test planning and execution | `cabin-test` | - | PR 3 |
+| Toolchain detection and probes | `cabin-toolchain` | `detect_toolchain`, `version_probe` (debug, `tool`) | done |
+| Build preparation, planning, usage requirements, link closure | `cabin`, `cabin-build` | `prepare_workspace`, `plan` (`actions`), `collect_interface` / `collect_link_libs` (debug) | done |
+| Driver lowering, Ninja and compile-database emission | `cabin-driver`, `cabin-ninja` | `lower` (trace), `write_build_ninja`, `write_compile_commands` | done |
+| Build execution | `cabin`, Ninja | `run_ninja`; the `ninja` lane and summary `ninja_actions` from `.ninja_log` | done |
+| Test planning and execution | `cabin-test`, `cabin` | `plan_tests`, `run_tests` (`executables`); the `tests` lane | done |
 
 Measurement-infrastructure evidence for PR 1:
 
@@ -148,7 +148,7 @@ Each scenario's check is what keeps a number honest; see `performance.md`.
 | Startup and no-op | `startup/version`, `inspect/metadata-*`, `build/noop-*` | exit 0; no Ninja action | - | done |
 | Resolution | `resolve/wide`, `resolve/deep`, `resolve/update-wide` | exit 0, from no lockfile; the lockfile lists every package | `resolver/wide`, `resolver/deep`, `features/resolve-40` | done |
 | Index and registry metadata | `index/http-wide`, `index/http-lazy` (loopback sparse HTTP) | exit 0, from no lockfile; the lockfile lists every package | `index/load-file-registry` | done; no warm/cold metadata split, because Cabin keeps no metadata cache |
-| Workspace and planning | `workspace/metadata`, `workspace/tree`, `workspace/build-noop` | exit 0; no Ninja action | `workspace/load-40`, `manifest/parse-*` | done; planning and lowering benches land with PR 3 |
+| Workspace and planning | `workspace/metadata`, `workspace/tree`, `workspace/build-noop` | exit 0; no Ninja action | `workspace/load-40`, `manifest/parse-*` | done; no planning bench: in a traced `workspace/build-noop`, `plan` takes 1.8 ms of 79 ms, against 40 ms for toolchain detection and 14 ms for writing `build.ninja` and `compile_commands.json` |
 | Clean and incremental builds | `build/clean-*`, `build/touch-source-*`, `build/touch-header-*` | exact compiled-object count from the `.ninja_log` delta | - | done |
 | Artifacts and file system | `artifact/fetch-cold`, `artifact/fetch-warm`, `package/vendor`, `package/package-*` | exit 0; one cached archive per dependency; every package vendored; the archive and its metadata written | `artifact/extract-zip` | done |
 | Tests | `test/run-c`, `test/run-cxx` | exit 0; no Ninja action; the JUnit report lists all 12 tests | - | done |

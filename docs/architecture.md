@@ -2143,11 +2143,14 @@ enabled by `CABIN_TRACE_DIR`, see [`performance.md`](performance.md)).  A domain
 `tracing` facade and nothing else: no subscriber, no `tracing-subscriber`, no file output, no
 dependence on whether capture is on.  Spans belong at the operation's owner so every command
 calling it is covered.  Their fields are deliberate: counts, sizes, cache results, and package
-names, never paths, URLs, command lines, environment values, headers, or bodies.  `info` marks a
-command phase, `debug` a per-package or per-request step, and `trace` anything inside a loop that
-can run thousands of times.  The subscriber is scoped to the invocation's thread, never global,
-so a thread that should record spans must be handed the current dispatcher.  Capture must never
-change what a command does: its stdout, its exit status, its lockfile, its plan, or its rebuilds.
+names, never paths, URLs, command lines, environment values, headers, or bodies.  The lanes
+`src/trace.rs` adds for child processes name a Ninja action by its output path relative to the
+profile's build directory and a test by its package and target, never by an absolute path.
+`info` marks a command phase, `debug` a per-package or per-request step, and `trace` anything
+inside a loop that can run thousands of times.  The subscriber is scoped to the invocation's
+thread, never global, so a thread that should record spans must be handed the current
+dispatcher.  Capture must never change what a command does: its stdout, its exit status, its
+lockfile, its plan, or its rebuilds.
 
 ## Why a separate lockfile crate?
 

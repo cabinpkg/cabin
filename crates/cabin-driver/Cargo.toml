@@ -13,6 +13,7 @@ name = "cabin_driver"
 [dependencies]
 cabin-core = { workspace = true }
 camino = { workspace = true }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

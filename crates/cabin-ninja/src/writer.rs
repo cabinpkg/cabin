@@ -25,6 +25,7 @@ use crate::error::NinjaError;
 /// [`NinjaError::UnquotableArgument`]), and returns [`NinjaError::Io`]
 /// when the atomic write to `path` fails (for example, when the parent
 /// directory is missing).
+#[tracing::instrument(level = "info", skip_all)]
 pub fn write_build_ninja(
     path: &Path,
     graph: &BuildGraph,

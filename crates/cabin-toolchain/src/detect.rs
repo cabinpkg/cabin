@@ -230,6 +230,7 @@ fn kind_label(kind: ToolKind) -> &'static str {
 /// to spawn or capture output from a tool's `--version` probe; the
 /// underlying [`RunError`] is propagated as its source.  A non-zero
 /// exit status is not an error (the tool is recorded as unknown).
+#[tracing::instrument(level = "info", skip_all)]
 pub fn detect_toolchain(
     toolchain: &ResolvedToolchain,
     runner: &dyn ToolRunner,
@@ -243,6 +244,7 @@ pub fn detect_toolchain(
     Ok(ToolchainDetectionReport { cxx, cc, ar })
 }
 
+#[tracing::instrument(name = "version_probe", level = "debug", skip_all, fields(tool = tool.kind.as_key()))]
 fn detect_cxx(
     tool: &ResolvedTool,
     runner: &dyn ToolRunner,
@@ -285,6 +287,7 @@ fn detect_cxx(
     })
 }
 
+#[tracing::instrument(name = "version_probe", level = "debug", skip_all, fields(tool = tool.kind.as_key()))]
 fn detect_ar(
     tool: &ResolvedTool,
     runner: &dyn ToolRunner,
