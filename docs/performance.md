@@ -203,6 +203,19 @@ Criterion compares against its own saved baselines:
 `cargo bench -p xtask-bench -- --save-baseline main`, then `-- --baseline main` after a change.
 `cargo nextest run --all-targets` (part of `cargo ci`) runs each benchmark once as a test.
 
+### In CI
+
+The Performance workflow is not a required check.  On a pull request that touches the Rust code it
+runs `cargo perf run --smoke` on Linux, so a smoke scenario that fails its check shows up before
+merge; a shared runner's numbers flag only gross changes.  Every Monday on `main`, and when
+dispatched by hand on any branch, it runs every scenario, ports included, with
+`--fail-on-regression` against the dispatched `base` revision or, by default, the same branch as
+it was eight days earlier.  Consecutive weekly runs therefore overlap by a day, and a regression
+accepted on purpose stops failing once it is older than the base.  Each run copies its reports
+(`report.md`, and `compare.md` for a full run) into its summary and keeps them with the results
+JSON as an artifact, for 14 days from a pull request and 90 from a full run.  Nothing is uploaded
+anywhere else, and the workflow holds no secrets.
+
 ## Profiling
 
 Capture a trace first: it says which phase to look at.  Then profile a binary with line tables:

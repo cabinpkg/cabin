@@ -96,9 +96,9 @@ uncertainty.  Status: implemented (`NinjaLog` in `trace.rs`).
 | PR | Content | Depends on | Status |
 | --- | --- | --- | --- |
 | 1 | Capture (`trace.rs`), timings summary, spans in workspace, manifest, config, feature, resolver, index, index-http, artifact, lockfile, package, vendor, system-deps, and the resolve/fetch orchestration; this record and `performance.md` | - | #2068 |
-| 2 | `xtask-bench`: fixtures, Criterion benches, `hyperfine` CLI scenarios, baselines, comparison reports; profiling profile and recipes | 1 | #2071 |
-| 3 | Build-path spans (toolchain detection, planning, lowering, Ninja emission), the Ninja action timeline, test-run timeline | 1; stage 04 PR B; #2065 | in progress |
-| 4 | Performance workflow: smoke subset on pull requests, full comparison on schedule and on demand, artifact retention | 2 | not started |
+| 2 | `xtask-bench`: fixtures, Criterion benches, `hyperfine` CLI scenarios, baselines, comparison reports; profiling profile and recipes | 1 | #2071, #2076 |
+| 3 | Build-path spans (toolchain detection, planning, lowering, Ninja emission), the Ninja action timeline, test-run timeline | 1; stage 04 PR B; #2065 | #2073 |
+| 4 | Performance workflow: smoke subset on pull requests, full comparison on schedule and on demand, artifact retention | 2 | in progress |
 
 Stage 04 (build and target contexts) reshapes `cli/build_prep.rs`, `cli/ninja.rs`, the planner,
 the driver, and toolchain detection; PR 3 lands on top of it by agreement with that stage's

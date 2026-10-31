@@ -39,6 +39,10 @@ workflows:
         - 'github/gh-aw-actions@ebb97091a4afcc9bf2d594071dbabe861e9a34fc'
     '.github/workflows/oss-fuzz.yml':
         - 'actions/checkout@v7.0.1'
+    '.github/workflows/perf.yml':
+        - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
+        - 'actions/checkout@v7.0.1'
+        - 'actions/upload-artifact@v7.0.2'
     '.github/workflows/ports-publish.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/cache@v6.1.0'
