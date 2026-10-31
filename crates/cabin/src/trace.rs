@@ -18,7 +18,7 @@
 //!   field set and units are stable within a `format_version`.
 //!
 //! Child processes that run concurrently cannot be spans on Cabin's
-//! one thread, so the trace shows them as lanes of their own: Ninja's
+//! main thread, so the trace shows them as lanes of their own: Ninja's
 //! actions ([`NinjaLog`]) and the test executables ([`TestLane`]).
 //!
 //! The subscriber is scoped to the invocation's thread with

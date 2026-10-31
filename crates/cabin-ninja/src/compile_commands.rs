@@ -37,6 +37,7 @@ pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<bool, N
 /// Returns [`NinjaError::UnquotableArgument`] when a compile command
 /// argument cannot be shell-quoted, and [`NinjaError::Json`] if
 /// `serde_json` fails to serialize the entries.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn render_compile_commands(graph: &BuildGraph) -> Result<String, NinjaError> {
     let mut entries: Vec<Entry<'_>> = Vec::with_capacity(graph.compile_commands.len());
     for cc in &graph.compile_commands {

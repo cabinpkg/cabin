@@ -1266,6 +1266,7 @@ PackageGraph + ResolvedToolchain --> cabin_build::plan(PlanRequest)
                                        v
                           cabin_ninja::write_build_ninja        --> build.ninja
                           cabin_ninja::write_compile_commands   --> compile_commands.json
+                            (side by side; each written only when its contents change)
                                        |
                                        v
                                `ninja -C <build_dir>`           (cabin)

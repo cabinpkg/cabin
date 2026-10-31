@@ -568,14 +568,30 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
 
     let ninja_file = profile_build_root.join("build.ninja");
     let identity = serde_json::to_string_pretty(&req.detection.build_identity())?;
-    let ninja_changed = cabin_ninja::write_build_ninja(
-        &ninja_file,
-        req.plan_graph,
-        &check_stamp_runner(),
-        &identity,
-    )?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
-    let ccmd_changed = cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)?;
+    // Rendering dominates both writes and neither file depends on the
+    // other, so they render side by side.  The trace capture is scoped
+    // to this thread, so the helper thread is handed its dispatcher.
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    let (ninja_changed, ccmd_changed) = std::thread::scope(|scope| {
+        let ccmd = scope.spawn(|| {
+            tracing::dispatcher::with_default(&dispatch, || {
+                cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)
+            })
+        });
+        let ninja = cabin_ninja::write_build_ninja(
+            &ninja_file,
+            req.plan_graph,
+            &check_stamp_runner(),
+            &identity,
+        );
+        (
+            ninja,
+            ccmd.join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        )
+    });
+    let (ninja_changed, ccmd_changed) = (ninja_changed?, ccmd_changed?);
 
     // Implementation-detail status is verbose-only: under `-v` the
     // user sees which files Cabin wrote and how Ninja was invoked,

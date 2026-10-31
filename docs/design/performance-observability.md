@@ -21,8 +21,9 @@ Rules that follow from the table:
 
 - Summed span time is not elapsed time.  Spans overlap across threads and nest; the summary's
   `total_us` is a per-name sum of inclusive lifetimes and is labeled as such.  No exclusive-time or
-  critical-path figure is derived: Cabin's own work is sequential on one thread, and the parallel
-  part (Ninja's actions) is shown as Ninja recorded it, not re-derived.
+  critical-path figure is derived: Cabin's own work is sequential on one thread, apart from
+  writing `build.ninja` and `compile_commands.json` side by side, and the parallel part (Ninja's
+  actions) is shown as Ninja recorded it, not re-derived.
 - Waiting is not CPU.  The trace shows wall time; CPU time comes from `getrusage` and the
   profilers.
 - A deterministic counter that changes (an extra compile action, an extra metadata request) is a
@@ -52,8 +53,9 @@ Rules that follow from the table:
 - **Scoping.**  The subscriber is installed with `dispatcher::with_default` for the duration of
   `cabin::run`, never globally, so repeated and concurrent in-process invocations each capture
   their own command and cannot fail on a second global initialization.  Cabin's own work runs on
-  one thread today; its concurrency is child processes (Ninja's actions, test executables), which
-  appear as their own timelines rather than as threads.
+  one thread, apart from a helper thread that writes `compile_commands.json` beside
+  `build.ninja` and is handed the capture's dispatcher; its other concurrency is child processes
+  (Ninja's actions, test executables), which appear as their own timelines rather than as threads.
 - **Files.**  Each capture's stem is `<command>-<unix-ms>-<pid>-<seq>`, unique per process and
   per in-process invocation, so concurrent or nested invocations never write the same file.  The
   trace is written as `<stem>.trace.json.partial` and renamed only after the writer thread has
@@ -108,7 +110,7 @@ Trace coverage per workflow.  `info` spans mark phases; `debug` spans mark per-i
 | System dependencies | `cabin-system-deps` | `probe_system_dependency` (debug) | done |
 | Toolchain detection and probes | `cabin-toolchain` | `detect_toolchain`, `version_probe` (debug, `tool`) | done |
 | Build preparation, planning, usage requirements, link closure | `cabin`, `cabin-build` | `prepare_workspace`, `plan` (`actions`), `collect_interface` / `collect_link_libs` (debug) | done |
-| Driver lowering, Ninja and compile-database emission | `cabin-driver`, `cabin-ninja` | `lower` (trace), `write_build_ninja`, `write_compile_commands` | done |
+| Driver lowering, Ninja and compile-database emission | `cabin-driver`, `cabin-ninja` | `lower` (trace), `write_build_ninja`, `write_compile_commands`, `render_build_ninja` / `render_compile_commands` (debug), `write_if_changed` (debug, `bytes`, `changed`) | done |
 | Build execution | `cabin`, Ninja | `run_ninja`; the `ninja` lane and summary `ninja_actions` from `.ninja_log` | done |
 | Test planning and execution | `cabin-test`, `cabin` | `plan_tests`, `run_tests` (`executables`); the `tests` lane | done |
 
@@ -243,8 +245,27 @@ manifest's size worth shrinking?
 | `large`, unchanged files kept | 11.3 MB | 24.9 ms | 18.1 ms | 195.7 ms |
 
 **Fix.**  Each file is now compared with its current contents and written only when they differ.
-The comparison reads the old file back, so at `large` peak RSS rises from 67 to 78 MiB, the size
-of that `build.ninja`.
+The comparison reads the file on disk a 64 KiB block at a time, after checking its size, so it
+never holds a second copy of an 11 MB `build.ninja`.
+
+**Where the rest goes.**  With the files kept, a no-op `large` build spends 22.3 ms rendering
+`build.ninja`, 15.9 ms rendering `compile_commands.json`, and 2.6 ms comparing both, 20 MB, with
+the files on disk (debug spans, medians of 5 traced runs); Ninja then parses the manifest in 18 ms
+and `stat`s for 16 ms.  About 5 ms of the compilation database's time is JSON serialization (from a
+temporary span) and most of the rest is `shlex` quoting each argument; it examines every byte, and
+a faster quoter would be a replacement for `shlex`.  Neither file depends on the other, so each is
+now rendered, compared, and written on a thread of its own.  Alternating 30 no-op runs of each binary, under other load (load average 7-20), with
+Cabin's own peak RSS from `getrusage`:
+
+| Workspace | Before | Block-wise comparison | And side-by-side rendering |
+| --- | ---: | ---: | ---: |
+| `small` | 48.0 ms, 11.9 MiB | 45.7 ms, 12.0 MiB | 44.8 ms, 11.9 MiB |
+| `medium` | 52.8 ms, 14.7 MiB | 52.6 ms, 14.1 MiB | 54.2 ms, 14.3 MiB |
+| `large` | 204.2 ms, 79.2 MiB | 203.7 ms, 68.3 MiB | 190.3 ms, 69.2 MiB |
+
+At `large`, side-by-side rendering is faster in 25 of 30 paired runs (median -13.4 ms) and peak
+RSS stays 10 MiB below the whole-file comparison's; at `small` and `medium` the wall-time
+differences are inside the run-to-run spread (interquartile ranges of 10-14% and 4-7%).
 
 **Manifest size, not changed.**  At `large`, Ninja spends 18.5 ms parsing the 11.3 MB manifest
 and 15 ms on 8,106 `stat`s (`ninja -d stats`).  Each edge spells its full command, so moving each
