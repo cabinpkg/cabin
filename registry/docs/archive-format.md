@@ -234,9 +234,7 @@ detail is fixed text and never echoes archive bytes. The shared `cabin-fs`
 predicate returns the violated rule, so the verifier's detail and the pack-time
 diagnostic name the same rule.
 
-The container profile defines these codes; three are new to the zip profile
-(`case_conflict`, `unsupported_zip_feature`, `header_mismatch`), the rest are
-carried over from the previous tar profile:
+The container profile defines these codes:
 
 | Code | Cause |
 | --- | --- |
@@ -257,7 +255,6 @@ carried over from the previous tar profile:
 
 Once the container passes, the manifest-consistency pass runs and can add the
 consistency codes (`manifest_invalid`, `name_mismatch`, `checksum_mismatch`,
-...); those are unchanged by this profile and are tabulated with the full
-public set in
+...); they are tabulated with the full public set in
 [`../../docs/remote-registry.md`](../../docs/remote-registry.md), "The
 verifier's checks".

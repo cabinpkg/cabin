@@ -358,8 +358,8 @@ verdict loudly at the read, and the guarded `UPDATE` binds the same
 body values, so a stale verdict that would apply is refused again by
 D1 (as the lost-race `409`) if the Rust check were gone, while a stale
 no-op or conflict answers as its transition says - removing the check
-alone changes no row and is not a detected mutation. Binding the handler's own read instead, as the
-code once did, would make the Rust check the only enforcement. The
+alone changes no row and is not a detected mutation. Binding the handler's own read instead
+would make the Rust check the only enforcement. The
 three verifier rows test the driver model's arms, not a server statement:
 the first two make `Inspections` or the digest hook inconsistent with
 `Malicious` (the second against the skew/corruption threat the model

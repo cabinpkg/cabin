@@ -296,8 +296,8 @@ pub fn check_publish(
 /// caller-controlled).  They must be bounded by *something*: the
 /// deployed WAF rate limiter deliberately covers only the website
 /// origin's write/auth surface, never `registry.cabinpkg.com` reads
-/// ([`runbook.md`](../docs/runbook.md), "Zone security and rate
-/// limiting"), so without this one unauthenticated caller could
+/// ([`runbook.md`](../docs/runbook.md), "Zone rate limiting (WAF)"),
+/// so without this one unauthenticated caller could
 /// drain the shared `b_ordinary` pool and 503 everyone else's
 /// uncached downloads.
 ///

@@ -145,24 +145,7 @@ skew").
 
 ## First-time provisioning
 
-Resources are created with wrangler (`wrangler.jsonc` carries the account
-id and the database id - both public identifiers, not secrets; fill
-`database_id` after creating the database):
-
-```sh
-node_modules/.bin/wrangler d1 create cabin-registry
-node_modules/.bin/wrangler r2 bucket create cabin-registry-blobs
-node_modules/.bin/wrangler r2 bucket create cabin-registry-backup
-node_modules/.bin/wrangler d1 migrations apply DB --remote
-node_modules/.bin/wrangler deploy
-node_modules/.bin/wrangler secret put GITHUB_CLIENT_SECRET
-openssl rand -base64 32 | node_modules/.bin/wrangler secret put SESSION_SECRET
-```
-
-The secrets back the GitHub sign-in flow ("Getting a token" above):
-`GITHUB_CLIENT_ID` (plain var in `wrangler.jsonc`; client ids are public) and
-`GITHUB_CLIENT_SECRET` identify the GitHub OAuth app (its authorization
-callback URL is `https://cabinpkg.com/callback`), and `SESSION_SECRET`
-keys the HMAC behind the state and session cookies; `ALLOWED_GITHUB_IDS`
-(plain var in `wrangler.jsonc`) limits who may sign in. See
-[`docs/runbook.md`](docs/runbook.md) for the exact procedure.
+The resources, the GitHub OAuth app, and the secrets are set up by
+[`docs/runbook.md`](docs/runbook.md), "First-time provisioning".
+`wrangler.jsonc` carries the account id and the database id; both are
+public identifiers, not secrets.

@@ -447,7 +447,8 @@ fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
     smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[503])?;
     // Anonymous readers receive the same refusal - status, envelope,
     // and Retry-After.  A public over-budget answer reveals service
-    // state; that is inherent to public reads (the recorded revision).
+    // state; that is inherent to public reads
+    // (`registry/docs/architecture.md`, "Origins and roles").
     // /healthz stays up.
     let anonymous = smoke.http("GET", &package_url, &[], None)?;
     if anonymous != 503 {

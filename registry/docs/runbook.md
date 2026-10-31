@@ -36,11 +36,11 @@ infrastructure cutover.
 ## Zone security prerequisite
 
 The registry hosts serve machine clients (cabin, curl, CI), so they must not
-sit behind a Cloudflare visitor challenge. Zone-wide Bot Fight Mode on
-cabinpkg.com answered every registry request with `403` /
-`cf-mitigated: challenge` until the operator disabled it (2026-07-09,
-dashboard: Security -> Bots). If zone-wide bot protection is ever wanted
-again, it needs a plan that exempts the registry hosts first - e.g. a WAF
+sit behind a Cloudflare visitor challenge. Zone-wide Bot Fight Mode
+stays off on cabinpkg.com (dashboard: Security -> Bots; disabled
+2026-07-09): with it on, every registry request answers `403` /
+`cf-mitigated: challenge`. If zone-wide bot protection is ever wanted,
+it needs a plan that exempts the registry hosts first - e.g. a WAF
 custom rule skipping the challenge products for
 `http.host eq "registry.cabinpkg.com"` and the `/api/*` paths on
 `cabinpkg.com` (note free-plan Bot Fight Mode ignores skip rules; it can
@@ -63,10 +63,9 @@ requests per 10 seconds:
   `(http.host eq "cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or starts_with(http.request.uri.path, "/callback") or starts_with(http.request.uri.path, "/claim/")))`
 - Same characteristics: IP. Rate: 50 requests per 10 seconds. Action:
   Block, mitigation timeout 10 seconds.
-- The `/claim/` arm was added with the scope-claim flow; it is a
-  dashboard-managed rule, so apply the updated expression by hand when
-  deploying that step (`/callback/claim` was already covered by the
-  `/callback` arm).
+- The rule is dashboard-managed: a change to the website origin's
+  registry routes needs a hand edit of the expression. `/callback/claim`
+  is covered by the `/callback` arm.
 
 The rule keys on `cabinpkg.com` because the hostname-role split put the
 whole write/auth surface on the website origin; it deliberately guards
@@ -233,7 +232,8 @@ Smoke checks after any deploy:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz   # 200
-curl -sS -D - https://registry.cabinpkg.com/config.json   # uniform 401 envelope,
+curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/config.json   # 200 (503 under reads_blocked)
+curl -sS -D - https://registry.cabinpkg.com/unknown/path   # uniform 401 envelope,
 # with WWW-Authenticate: Cabin login_url="https://cabinpkg.com/docs/remote-registry"
 curl -sS -o /dev/null -w '%{http_code}\n' https://cabinpkg.com/api/v1/user   # 401 (session plane)
 ```
@@ -394,7 +394,7 @@ serves - makes step 4 refuse rather than undercount.
    (`VERIFIER_BACKING_ACCOUNT_ID`).
 4. Run `cargo registry-governor wipe` from the repository root. Its
    no-delayed-publisher evidence gate requires zero live publish tokens
-   (revoked and expired ones no longer count), and a login-session token
+   (revoked and expired ones do not count), and a login-session token
    carries `publish`, so **block writes first**, wait out the in-flight
    window (~5 minutes: the 60 s mode cache plus in-flight upload time),
    then run the wipe under `writes_blocked` - the gate clears on the
@@ -611,10 +611,9 @@ On demand (with a login-session token in `CABIN_REGISTRY_TOKEN`):
 `usage` renders `GET /api/v1/admin/governor` (Bearer, `verify` scope);
 `compare` also sums D1's live and verified blob views and says which
 direction any divergence runs and which command fixes it. Both are
-read-only and safe on a live registry. The first `usage` after a
-deploy that introduces the class also serves as initialization: the
-named object is created on first use and applies its schema
-idempotently before answering.
+read-only and safe on a live registry. The named object is created
+on first use and applies its schema idempotently before answering, so
+`usage` also initializes a fresh object.
 
 **Reconciliation and operator releases.** Reconciliation is
 increase-only: it records every live blob as committed usage and only
@@ -765,11 +764,10 @@ true R2 cap in the interim.
 `wrangler deploy` as the Worker (the `migrations` block in
 `wrangler.jsonc` tags `Governor` as a SQLite-backed class); the CI
 deploy token's Workers Scripts:Edit scope covers Durable Object
-migrations, but watch the first deploy that introduces the class and
-fall back to a manual `node_modules/.bin/wrangler deploy` if the API
-refuses. A wiped or reinitialized object recreates its schema
-idempotently; reconciliation then rebuilds the **primary** rows
-conservatively from D1, the backfill script re-ledgers the **backup**
+migrations; if the API refuses a deploy that carries a new migration,
+fall back to a manual `node_modules/.bin/wrangler deploy`. A wiped or
+reinitialized object recreates its schema idempotently; reconciliation
+then rebuilds the **primary** rows conservatively from D1, the backfill script re-ledgers the **backup**
 pool, and dump entries regrow with the nightly job ("Known ceilings"
 above). The schema is applied with `CREATE TABLE IF NOT EXISTS` only,
 so any future column change to a governor table needs an explicit
@@ -786,33 +784,18 @@ verbatim, no `deleted_classes` for a bound class, no mixing of the
 bundle really exporting `Governor`, and every `GOVERNOR_*`/`BUDGET_*`
 var name and value valid.
 
-**Governor rollout sequence.** Exact and copyable; nothing here
-mutates production until the merge itself.
+**Validating a governor change.** Before merging, run the registry
+checks (`registry/AGENTS.md`, "Checks") and the full local smoke run
+with local state wiped first, so the ledger and edge cache start empty.
+After the deploy lands ("Integrated topology and route management"),
+run the smoke checks from "First-time provisioning" and read the
+ledger:
 
 ```sh
-# 1. Before merging: the full local gate (the same shapes CI runs).
-cargo fmt --all -- --check && cargo clippy --all-targets --locked -- -D warnings
-cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
-RUSTFLAGS="-D warnings" cargo test --locked
-(cd .. && cargo check-sql && cargo check-r2)
-cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
-(cd .. && cargo check-deploy --require-bundle)
-
-# 2. The full local smoke run (wrangler dev; several minutes). Wipe
-#    local state first so the ledger and edge cache start empty.
-npm ci --ignore-scripts
 (cd .. && CABIN_WIPE_YES=1 cargo registry-wipe --local)
 (cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)
-
-# 3. Merge through the merge queue; its build (smoke included) +
-#    conformance runs gate the merge, and the main push runs
-#    deploy-registry (red, deploying nothing, while
-#    the migrations stamp is pending - cargo registry-migrate).
-#    Watch it land:
-node_modules/.bin/wrangler deployments list
-
-# 4. Post-deploy validation (see "Deploy skew" for the smoke curls):
-curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
+(cd .. && cargo check-deploy --require-bundle)   # the smoke run built the bundle
+# after the deploy:
 (cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor usage)
 (cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor compare)
 ```
@@ -844,8 +827,9 @@ resources). Two rules bound what a rollback may target:
   re-deploy of old code.
 - **Adjacent governor-era versions only.** The DO's stored schema and
   the worker's protocol evolve together; roll back only to a version
-  whose governor protocol matches what is deployed today (any version
-  since the hardening pass shares it), and prefer a `git revert`
+  whose governor protocol matches what is deployed today (compare
+  `registry/src/governor.rs` and `registry/src/governor_do.rs` between
+  the two versions), and prefer a `git revert`
   through CI - it keeps the freshness and migrations gates and leaves
   an auditable trail. `node_modules/.bin/wrangler rollback` is for the
   emergency where CI itself is the problem.
@@ -976,7 +960,7 @@ does not fail the run, and every later pass re-logs it - that is
 by design; the stuck-pending alert ("N version(s) have been pending
 verification for over an hour") is the summons. Verdicts require the
 verify workflow's own OIDC identity (see above) - a manual `curl`
-with the verify token no longer authenticates - so resolution is a
+with the verify token does not authenticate - so resolution is a
 `workflow_dispatch` of `registry-verify.yml` naming the version:
 
 - Name is fine - waive the advisories for that one version:
@@ -1259,7 +1243,8 @@ content-addressed key is no proof the key stays gone, because a
 concurrent same-checksum publish can recreate it at any moment.
 
 Orphaned bytes are also invisible to the storage self-accounting - the
-counter tracks referenced blobs only, by design ("never analytics"), and
+counter tracks referenced blobs only, by design (storage is
+self-accounted, never read from analytics), and
 the storage budget's headroom below the free limit absorbs the bounded
 drift. If the dashboard's bucket size ever diverges noticeably from
 `meta.total_stored_bytes`, delete the orphans and recompute the counter
