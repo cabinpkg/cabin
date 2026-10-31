@@ -244,9 +244,12 @@ Cabin lays test / example executables out the same way as ordinary `executable` 
 `<build-dir>` defaults to `build/`; `<profile>` is the resolved profile name (`dev` by default,
 `release` for `--release`, or any custom profile declared in `[profile.<name>]`).
 
-On Linux and macOS, a `<build-dir>` spelled with `..` is resolved through its last `..` to a
-physical path, following symlinks, before planning: Ninja removes `..` without consulting the
-filesystem, so a spelling such as `link/../build`, where `link` is a symlink, would otherwise name
+Every command that writes, reads, or skips the build directory (`build`, `check`, `run`, `test`,
+`clean`, `fmt`, `tidy`) resolves it the same way: a relative `--build-dir` or `CABIN_BUILD_DIR`,
+and the default `build`, against the current directory, and a relative `[paths] build-dir`
+against its config file's directory.  On Linux and macOS, a `<build-dir>` spelled with `..` is
+then resolved through its last `..` to a physical path, following symlinks, without creating
+anything: Ninja removes `..` without consulting the filesystem, so a spelling such as `link/../build`, where `link` is a symlink, would otherwise name
 one directory to Ninja and another to the compiler.  Windows removes `..` the same way Ninja does.
 
 Two targets with the same `<target>` name in the same package would collide here; the planner

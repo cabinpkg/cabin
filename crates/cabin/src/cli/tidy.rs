@@ -147,11 +147,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // directory `cabin build` would have written into and so the
     // compile database lands at the same path the user already
     // sees in their tree.
-    let (build_dir_input, _) = crate::cli::config::resolve_build_dir_with_env(
-        args.build_dir.as_deref(),
-        &effective_config,
-    );
-    let build_dir = absolutize(&graph.root_dir, &build_dir_input);
+    let build_dir = super::config::resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
 
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
     let absolute_excludes: Vec<PathBuf> =

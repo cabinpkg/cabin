@@ -272,6 +272,33 @@ fn custom_build_directory_is_not_formatted() {
 }
 
 #[test]
+fn relative_build_directory_resolves_against_the_current_directory() {
+    // `cabin build --manifest-path pkg/cabin.toml --build-dir pkg/gen`
+    // writes `pkg/gen`, so `cabin fmt` given the same arguments must
+    // skip it rather than a `gen` below the package.
+    let dir = TempDir::new().unwrap();
+    dir.child("pkg/cabin.toml")
+        .write_str(VALID_MANIFEST)
+        .unwrap();
+    dir.child("pkg/src/main.cc")
+        .write_str("int main() {}\n")
+        .unwrap();
+    dir.child("pkg/gen/dev/scratch.cc")
+        .write_str("int scratch() {}\n")
+        .unwrap();
+
+    cabin_with_fake_formatter()
+        .current_dir(dir.path())
+        .args(["fmt", "--manifest-path", "pkg/cabin.toml"])
+        .args(["--build-dir", "pkg/gen"])
+        .assert()
+        .success();
+
+    assert!(read(&dir.path().join("pkg/src/main.cc")).contains(MARKER));
+    assert!(!read(&dir.path().join("pkg/gen/dev/scratch.cc")).contains(MARKER));
+}
+
+#[test]
 fn vendor_and_cache_directories_are_not_formatted() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
