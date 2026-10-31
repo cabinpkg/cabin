@@ -21,7 +21,7 @@
 //! [`Dialect::static_library_name`], [`Dialect::executable_name`]),
 //! how Ninja discovers header dependencies ([`Dialect::ninja_deps`]),
 //! how its tools read a response file
-//! ([`Dialect::response_file_content`]), and how each [`BuildAction`]
+//! ([`Dialect::response_file_args`]), and how each [`BuildAction`]
 //! is spelled ([`lower()`]).  The planner
 //! and the Ninja writer stay dialect-agnostic: they ask the dialect.
 //!
