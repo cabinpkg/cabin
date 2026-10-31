@@ -78,10 +78,11 @@ fn ask(
     probe(&toolchain, &request, &ProcessRunner)
 }
 
-fn failed_at(answer: Result<Answer, ProbeError>) -> Step {
-    match answer.unwrap() {
+fn failed_at(host: &Host, standard: LanguageStandard, check: Check) -> Step {
+    let label = format!("{check:?}");
+    match ask(host, standard, check, Execution::Native, None).unwrap() {
         Answer::No { step, .. } => step,
-        other => panic!("expected a failing step, got {other:?}"),
+        other => panic!("{label}: expected a failing step, got {other:?}"),
     }
 }
 
@@ -119,7 +120,7 @@ fn c_checks_answer_from_the_real_compiler() {
         Answer::Yes
     );
 
-    let no = |check| failed_at(ask(&host, C, check, Execution::Native, None));
+    let no = |check| failed_at(&host, C, check);
     assert_eq!(
         no(Check::Header("cabin_no_such_header.h".into())),
         Step::Compile
@@ -186,13 +187,7 @@ fn cxx_checks_answer_from_the_real_compiler() {
         Answer::Yes
     );
     assert_eq!(
-        failed_at(ask(
-            &host,
-            CXX,
-            Check::Header("cabin_no_such_header".into()),
-            Execution::Native,
-            None,
-        )),
+        failed_at(&host, CXX, Check::Header("cabin_no_such_header".into())),
         Step::Compile
     );
 }

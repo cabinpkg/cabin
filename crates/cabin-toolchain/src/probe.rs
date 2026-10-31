@@ -53,6 +53,7 @@ pub enum Execution<'a> {
 }
 
 /// The question a probe answers.
+#[derive(Debug)]
 pub enum Check {
     /// `#include <name>` compiles.
     Header(String),
@@ -80,9 +81,10 @@ impl Check {
             }
             // The typedef refuses an expression; an array of it refuses an
             // incomplete type, `void` (whose `sizeof` GNU compilers accept),
-            // and a function type.
+            // and a function type.  MSVC's C compiler gives that `sizeof`
+            // 0 instead, which the negative bound refuses.
             Check::Type { name, includes } => format!(
-                "{}typedef {name} cabin_probe_type;\nint main(void) {{ return sizeof(cabin_probe_type[1]) == 0; }}\n",
+                "{}typedef {name} cabin_probe_type;\ntypedef char cabin_probe_size[sizeof(cabin_probe_type[1]) ? 1 : -1];\nint main(void) {{ return 0; }}\n",
                 include_lines(includes)
             ),
             // Taking the address makes the linker resolve a function or
