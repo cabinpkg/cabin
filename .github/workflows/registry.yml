@@ -147,7 +147,7 @@ jobs:
         with:
           result: ${{ needs.tlc.result }}
           gate-result: ${{ needs.changes.result }}
-          filter-values: ${{ needs.changes.outputs.registry }}
+          filter-values: ${{ needs.changes.outputs.tlc }}
 
   # Feeds archive + metadata pairs freshly produced by the in-tree cabin
   # binary through the server's full publish validation path, so the
@@ -224,10 +224,11 @@ jobs:
   # Model-checks the TLA+ specification of the publish/verification
   # lifecycle (registry/proofs) with the pinned TLC release; the runner's
   # default JDK runs it. An exhaustive check must finish: the timeout
-  # fails the job, never passes it.
+  # fails the job, never passes it. Gated on its own `tlc` filter: the
+  # model's inputs rarely change, and it is the longest registry job.
   tlc:
     needs: changes
-    if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
+    if: github.event_name != 'push' && needs.changes.outputs.tlc == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
