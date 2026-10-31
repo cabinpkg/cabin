@@ -719,7 +719,7 @@ fn parse_revisions(
                     "current revision {id:?} carries `resolution`; its metadata is the version's"
                 )));
             }
-            Some(resolution) => Some(parse_resolution(package, version, resolution)?),
+            Some(resolution) => Some(Box::new(parse_resolution(package, version, resolution)?)),
         };
         revisions.insert(
             id,

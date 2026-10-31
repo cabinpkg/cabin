@@ -163,8 +163,10 @@ pub struct RevisionMetadata {
     pub source: SourceLocation,
     /// This revision's resolution metadata when it differs from the
     /// version's, which belongs to the current revision.  `None` means
-    /// the revision resolves exactly as the version does.
-    pub resolution: Option<ResolutionMetadata>,
+    /// the revision resolves exactly as the version does.  Boxed: few
+    /// revisions carry one, and each `revisions` map node reserves room
+    /// for eleven revisions.
+    pub resolution: Option<Box<ResolutionMetadata>>,
 }
 
 /// The metadata resolution reads from a version, recorded per
