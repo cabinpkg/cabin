@@ -16,6 +16,7 @@ cabin-driver = { workspace = true }
 cabin-env = { workspace = true }
 camino = { workspace = true }
 find-msvc-tools = { workspace = true }
+shared_child = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
