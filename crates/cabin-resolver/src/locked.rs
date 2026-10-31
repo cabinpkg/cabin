@@ -38,7 +38,7 @@ use crate::error::{ResolveError, ResolverConstraint};
 use crate::input::LockedVersion;
 
 /// Run the missing / yanked / checksum checks for a locked
-/// candidate in the order their [`ResolveError`] variants imply.
+/// candidate, in that order.
 pub(crate) fn validate_locked_metadata(
     name: &PackageName,
     locked: &LockedVersion,
@@ -96,13 +96,8 @@ pub(crate) fn validate_locked_metadata(
 }
 
 /// Per-package constraint records observed during `Locked`-mode
-/// resolution.
-///
-/// See the module docs for the invariant: this type is only
-/// safe to read from a `Locked`-mode code path.  Outside that
-/// mode the recorder would mix constraints from backtracked
-/// `PubGrub` attempts with constraints from the eventual
-/// solution.
+/// resolution; see the module docs for why no other mode may hold
+/// one.
 pub(crate) struct LockedConstraintRecorder {
     by_package: RefCell<BTreeMap<PackageName, Vec<ResolverConstraint>>>,
 }

@@ -1,9 +1,10 @@
 //! Local JSON package index for Cabin.
 //!
-//! The on-disk index format is deliberately small: a directory
-//! containing one `<package>.json` file per published package,
-//! each enumerating the package's published versions, their
-//! dependencies on other registry packages, and a `yanked` flag.
+//! The on-disk index format is a directory containing one JSON
+//! document per published package (`<name>.json`, or
+//! `<scope>/<name>.json` for a scoped name), each enumerating the
+//! package's published versions, their dependencies on other
+//! registry packages, and a `yanked` flag.
 //! Each version's `revisions` map points at its downloadable
 //! packaging revisions; the `revision` field names the one currently
 //! served.
@@ -26,8 +27,6 @@ pub use model::{
     RevisionMetadata, SourceLocation, VersionMetadata,
 };
 pub use walk::walk_dependencies;
-// Re-exported so index consumers (the resolver's preference mode and
-// publish lints) can name the standard-metadata types reachable on
-// `VersionMetadata::standards` without depending on `cabin-core`
-// directly.
+// Re-exported so index consumers can name the standard-metadata types
+// reachable on `VersionMetadata::standards` through `cabin_index`.
 pub use cabin_core::{StandardsMetadata, TargetStandards};

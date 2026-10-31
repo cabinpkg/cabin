@@ -122,15 +122,15 @@ pub struct LinkDomain {
     pub local_links: Vec<LinksClaim>,
 }
 
-/// A previously-resolved version copied out of the lockfile.  Kept
-/// resolver-internal so `cabin-resolver` does not depend on
-/// `cabin-lockfile`.
+/// A previously-resolved version copied out of the lockfile.  Defined
+/// here so `cabin-resolver` does not depend on `cabin-lockfile`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedVersion {
     pub version: semver::Version,
-    /// Optional content hash recorded in the lockfile.  In `Locked` mode
-    /// the resolver checks this against the index entry's checksum and
-    /// fails on mismatch.
+    /// The packaging-revision pin recorded in the lockfile.  In
+    /// `Locked` mode, for an index version that has revisions, the
+    /// resolver fails when the pin is `None` or no revision carries
+    /// it; a version without revisions skips the check.
     pub checksum: Option<cabin_core::Checksum>,
 }
 
@@ -146,7 +146,7 @@ pub enum ResolveMode {
     /// hard error.  This is what `--locked` and `--frozen` use.
     Locked,
     /// Ignore the locked map entirely and pick newest compatible
-    /// versions (default behavior).
+    /// versions.
     UpdateAll,
     /// Like `PreferLocked`, but the named package is never preferred -
     /// it is re-resolved from scratch.

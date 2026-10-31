@@ -201,10 +201,8 @@ pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
         })?;
         let entry_path = entry.path();
         if entry_path.is_file() && entry_path.extension().and_then(|e| e.to_str()) == Some("json") {
-            // Skip the registry config when the loader was pointed
-            // at a flat layout that *also* happens to contain a
-            // `config.json` (defensive: the registry-root branch
-            // above already short-circuits this case).
+            // `packages = "."` puts the registry's own `config.json`
+            // beside the package documents; it never names a package.
             let stem = entry_path.file_stem().and_then(|s| s.to_str());
             if stem == Some("config") && packages_dir == path {
                 continue;
@@ -350,10 +348,14 @@ fn load_package_file(path: &Path, scope: Option<&str>) -> Result<IndexEntry, Ind
 /// declared `name`, [`IndexError::InvalidPackageName`] for an invalid
 /// package, dependency, or system-dependency name,
 /// [`IndexError::InvalidVersion`] for a non-SemVer version,
-/// [`IndexError::InvalidRequirement`] for an unparsable dependency
-/// requirement, and [`IndexError::CompilerConditionedDependency`]
+/// [`IndexError::VersionBuildMetadata`] for a version carrying build
+/// metadata, [`IndexError::InvalidRequirement`] for an unparsable
+/// dependency requirement, [`IndexError::CompilerConditionedDependency`]
 /// when a dependency or system-dependency `target` references the
-/// compiler.  It also propagates the source-artifact errors
+/// compiler, [`IndexError::InvalidRevision`] for an invalid `revision`
+/// / `revisions` pair, and [`IndexError::InvalidLinks`] /
+/// [`IndexError::InvalidFeatures`] for an invalid `links` or
+/// `features` table.  It also propagates the source-artifact errors
 /// ([`IndexError::UnsupportedSourceType`],
 /// [`IndexError::UnsupportedSourceFormat`],
 /// [`IndexError::MissingSourcePath`], and any error returned by the
@@ -472,8 +474,7 @@ pub fn parse_package_entry(
 /// target, so a missing row (or its `header-only` flag) marks a
 /// claim the manifest's library-only rule would have rejected.
 /// These are the same rules the manifest parser and the hosted
-/// registry's publish validation enforce, so all three boundaries
-/// tell one story.
+/// registry's publish validation enforce.
 fn validate_links(
     package: &str,
     version: &str,
@@ -501,8 +502,7 @@ fn validate_links(
         }
     }
     // Cross-table pass, after the table's self-contained rules so a
-    // table that violates both reports the grammar/uniqueness error
-    // it always did.
+    // table that violates both reports the grammar/uniqueness error.
     for target in links.keys() {
         match standards.targets.get(target) {
             Some(row) if !row.header_only => {}
@@ -570,12 +570,6 @@ fn parse_kinded_dependencies(
                 source,
             }
         })?;
-        // Index dependency gates are evaluated platform-only (no
-        // toolchain detection runs before resolution), and `cabin
-        // publish` cannot produce compiler-conditioned dependencies -
-        // the manifest layer rejects them.  Reject hand-authored
-        // entries here so an index can never gate resolver / prefetch
-        // edges on the local compiler.
         reject_compiler_condition(package, version, &dep_name, condition.as_ref())?;
         deps.insert(
             dep_name_validated,
@@ -872,8 +866,8 @@ struct RawVersion {
     /// Declared per-target standard-compatibility table.  Optional;
     /// absence (all pre-`standards` entries) is an empty table, i.e.
     /// unconstrained.  Parsed into the typed
-    /// [`cabin_core::StandardsMetadata`], which rejects a populated
-    /// range-validated `max` and a bare-string cell.
+    /// [`cabin_core::StandardsMetadata`], which rejects an empty
+    /// `min` / `max` range and a bare standard-string cell.
     #[serde(default)]
     standards: cabin_core::StandardsMetadata,
     /// Declared per-target `links` identity claims.  Optional;
@@ -955,9 +949,9 @@ struct RawIndexPackageDepTable {
     #[serde(default = "default_true_for_index", rename = "default-features")]
     default_features: bool,
     /// Canonical inner-expression form of a `cfg(...)` predicate
-    /// (`os = "linux"`, `all(os = "linux", arch = "x86_64")`, …).
-    /// Round-tripped via `Condition`'s string serde so older
-    /// metadata that omits this field continues to parse.
+    /// (`os = "linux"`, `all(os = "linux", arch = "x86_64")`, …),
+    /// round-tripped via `Condition`'s string serde.  Optional so
+    /// older metadata that omits this field continues to parse.
     #[serde(default)]
     target: Option<Condition>,
 }
@@ -987,10 +981,10 @@ struct RawRegistryConfig {
     packages: String,
     #[serde(default, rename = "artifacts")]
     _artifacts: String,
-    /// `auth-required`: every request to this registry must carry
-    /// `Authorization: Bearer <token>`.  Accepted for schema
-    /// compatibility (an explicit `null` is still rejected) but
-    /// unused on the local read path, like `artifacts`.
+    /// `auth-required`: every request to this registry except
+    /// `config.json` must carry `Authorization: Bearer <token>`.
+    /// Accepted for schema compatibility (an explicit `null` is still
+    /// rejected) but unused on the local read path, like `artifacts`.
     #[serde(default, rename = "auth-required", deserialize_with = "present_field")]
     _auth_required: Option<bool>,
     /// `api`: absolute base URL of the registry web/API origin.
@@ -2181,9 +2175,8 @@ mod tests {
 
     #[test]
     fn index_loads_without_feature_fields() {
-        // Older index entries - those that predate the field's introduction - must
-        // continue to parse so back-compat with on-disk fixtures is
-        // preserved.
+        // Index entries that predate the `features` field must still
+        // parse.
         let dir = TempDir::new().unwrap();
         dir.child("fmt.json")
             .write_str(

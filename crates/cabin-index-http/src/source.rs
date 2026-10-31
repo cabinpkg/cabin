@@ -12,9 +12,9 @@ use crate::error::IndexHttpError;
 
 /// Package documents the dependency walk requests at once, so a wave
 /// of `n` packages waits about `n / 4` round trips rather than `n`.
-/// More connections would strand one in the
-/// loopback `tiny_http` servers the tests and benchmarks use, whose
-/// four pool threads can miss a fifth new keep-alive connection.
+/// More connections would strand one in the loopback `tiny_http`
+/// servers the tests and benchmarks use, whose four pool threads can
+/// miss a fifth new keep-alive connection.
 pub(crate) const PARALLEL_FETCHES: usize = 4;
 
 /// Parsed-and-validated `<base>/config.json` document.  The fields
@@ -66,7 +66,7 @@ impl HttpIndex {
     /// # Errors
     /// Returns [`IndexHttpError::InvalidUrl`] when `base_url` is
     /// malformed, uses a non-`http(s)` scheme, carries credentials, or
-    /// fails to join the `config.json`/`packages` paths.  Returns
+    /// fails to join the `config.json` path.  Returns
     /// [`IndexHttpError::InvalidConfig`] when `config.json` is not
     /// valid JSON or its `schema`/`kind`/`packages`/`artifacts`/
     /// `auth-required`/`api` fields fail validation.  Propagates the
@@ -252,7 +252,7 @@ impl HttpIndex {
 /// drift on the rule; a scoped name is vetted one URL segment at a
 /// time, so its `/` never smuggles an empty or traversal segment
 /// into the URL builder.  Used both when the user supplies a package
-/// name directly (`fetch_package`) and when the walker queues a
+/// name directly (`fetch_package`) and when the walker fetches a
 /// transitive dependency name parsed from registry metadata
 /// (`load_package_index`).
 fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
@@ -406,11 +406,9 @@ pub(crate) fn redact_raw_url_userinfo(raw: &str) -> String {
 fn make_source_resolver(package_url: url::Url) -> impl Fn(&str) -> Result<String, IndexError> {
     move |raw: &str| {
         resolve_source_url(&package_url, raw).map_err(|err| IndexError::InvalidPackageName {
-            // `IndexError` does not have a dedicated variant for
-            // bad source URLs; reuse `InvalidPackageName`-shape
-            // wording so the caller gets a clear message.  The
-            // `IndexHttpError` wrapper at the source.rs boundary
-            // re-classifies anything left over.
+            // `IndexError` has no variant for a bad source URL; this
+            // reuses `InvalidPackageName`, which `fetch_package`
+            // surfaces wrapped as `IndexHttpError::Index`.
             package: "<source>".to_owned(),
             // `InvalidPackageName` renders `message` raw, so this
             // relies on `resolve_source_url` returning an
@@ -499,13 +497,14 @@ impl HttpIndexConfig {
 ///
 /// `%`, `\`, `?`, and `#` are rejected outright because the two gates
 /// disagree about all four: `Path` treats them as ordinary characters (`\`
-/// off Windows), while the URL parser reads `%2f` / `%2e%2e` as
-/// separator-bearing escapes, `\` as a separator, and `?` / `#` as the
-/// starts of a query and a fragment.  A registry subdirectory has no use
-/// for any of them, and rejecting them keeps the check meaning the same
-/// thing on every host - `..\..\evil` is otherwise a filesystem traversal
-/// on Windows and an opaque name everywhere else, and `pkgs?x=1` ends the
-/// path *before* the subdirectory, so every later join silently drops it
+/// off Windows), while the URL parser reads `%2e%2e` as `..`, `\` as a
+/// separator, and `?` / `#` as the starts of a query and a fragment, and
+/// a server may decode `%2f` as `/` after the path-prefix test passed it
+/// encoded.  A registry subdirectory has no use for any of them, and
+/// rejecting them keeps the check meaning the same thing on every host -
+/// `..\..\evil` is otherwise a filesystem traversal on Windows and an
+/// opaque name everywhere else, and `pkgs?x=1` moves the appended `/`
+/// into the query, so every later join silently drops the subdirectory
 /// while still passing the same-origin and path-prefix tests below.
 ///
 /// What the gates then guarantee is: same origin as the index URL, no
@@ -1019,9 +1018,7 @@ mod tests {
     // -----------------------------------------------------------------
     // URL-reserved characters in package names must be
     // rejected at the same boundary so they never reach
-    // `Url::join`.  This is the regression test the spec calls out
-    // explicitly: "Sparse HTTP package lookup must not call
-    // url::join with an unsafe raw package name."
+    // `Url::join`.
     // -----------------------------------------------------------------
 
     #[test]
@@ -1416,11 +1413,11 @@ mod tests {
     fn package_name_constructor_rejects_url_reserved() {
         // The structural reason `Url::join` cannot be reached: every
         // call site funnels names through `PackageName::new`, whose
-        // bare grammar matches `ensure_path_safe`.  Confirm that path
-        // here so a future refactor cannot quietly weaken the
+        // scope and package-part grammars are subsets of the
+        // per-segment rule `ensure_path_safe` applies.  Confirm that
+        // path here so a future refactor cannot quietly weaken the
         // upstream validation while leaving the downstream checks
-        // intact.  (Scoped names pass construction but not
-        // `ensure_path_safe` - see the test below.)
+        // intact.
         for raw in ["foo?bar", "foo#bar", "foo%2Fbar", "foo:bar"] {
             assert!(
                 PackageName::new(raw).is_err(),

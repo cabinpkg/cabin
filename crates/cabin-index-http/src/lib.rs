@@ -28,7 +28,7 @@
 //!   layers stay HTTP-free.
 //!
 //! HTTP publish, server-side functionality, OCI / GHCR, package
-//! upload, authentication, and ownership are out of scope.
+//! upload, login, and ownership are out of scope.
 
 pub mod client;
 pub mod error;

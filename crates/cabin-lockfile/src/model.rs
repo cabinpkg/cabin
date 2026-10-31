@@ -17,13 +17,12 @@ pub const LOCKFILE_VERSION: u32 = 1;
 pub struct Lockfile {
     /// Schema version (currently always [`LOCKFILE_VERSION`]).
     pub version: u32,
-    /// Resolved registry packages, sorted by name for determinism.
+    /// Resolved registry packages, in file order after parsing;
+    /// [`crate::io::render_lockfile`] writes them sorted by name.
     pub packages: Vec<LockedPackage>,
     /// Active patch entries recorded for stale-detection under
-    /// `--locked`.  Empty for projects with no patches; old
-    /// lockfiles that omit the `[[patch]]` array continue to
-    /// parse cleanly thanks to `#[serde(default)]` on the raw
-    /// shape.
+    /// `--locked`.  Empty when no patch was active, and for a
+    /// lockfile without a `[[patch]]` array.
     pub patches: Vec<LockedPatch>,
     /// Active source-replacement entries, recorded for the same
     /// reason.  Empty for projects with no replacements.
@@ -38,13 +37,12 @@ impl Lockfile {
     }
 
     /// Whether the lockfile's recorded patch + source-replacement
-    /// arrays equal the supplied active policy.  Used by
-    /// `cabin <command> --locked` to detect that the user changed
-    /// patch policy since the lockfile was last written: the
-    /// recorded arrays already serialize deterministically (sorted
-    /// in [`crate::io::render_lockfile`]), so a slice comparison
-    /// is the canonical staleness check and lives next to the
-    /// types it compares.
+    /// arrays equal the supplied active policy; `false` means the
+    /// policy changed since the lockfile was written.  The
+    /// comparison is order-sensitive: callers pass the active
+    /// policy in [`crate::io::render_lockfile`] order (patches by
+    /// package then version, replacements by `original`), and any
+    /// other order reports stale.
     pub fn matches_patch_state(
         &self,
         active_patches: &[LockedPatch],
@@ -69,21 +67,21 @@ pub const PATCH_KIND_PATH: &str = "path";
 pub struct LockedPackage {
     pub name: PackageName,
     pub version: semver::Version,
-    /// Optional content hash copied from the index.  Used by the
-    /// fetch / artifact-verification path; absent for index entries
-    /// that predate checksum support.
+    /// Archive digest of the locked packaging revision, copied from
+    /// the index.  Fetch materializes the revision it names and
+    /// verifies the archive against it.  `None` when the index
+    /// version lists no revisions, which cannot be materialized.
     pub checksum: Option<cabin_core::Checksum>,
     /// Names of other locked packages this one depends on.
     pub dependencies: Vec<PackageName>,
 }
 
 /// One active patch entry recorded for stale-detection under
-/// `--locked`.  Carries enough information to reproduce the
-/// patch decision: package name, patched version, and the path
-/// *as written* in the declaring file (resolved relative to the
-/// declaring file's directory at apply time).  The serialized
-/// `kind` field is always [`PATCH_KIND_PATH`] today, so it is
-/// validated at the parse boundary instead of being modeled.
+/// `--locked`: package name, patched version, provenance, and the
+/// path *as written* in the declaring file (relative to that
+/// file's directory).  The serialized `kind` field is always
+/// [`PATCH_KIND_PATH`], so the parser validates it and the model
+/// omits it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedPatch {
     pub package: PackageName,
@@ -188,12 +186,6 @@ mod tests {
 
     #[test]
     fn matches_patch_state_is_order_sensitive() {
-        // The lockfile's render path sorts both arrays (see
-        // `render_lockfile`), so callers should always supply
-        // sorted active state.  A raw out-of-order comparison
-        // surfacing as "stale" is the correct, conservative
-        // outcome - silent acceptance would let two semantically
-        // different policies look equal.
         let lock = Lockfile {
             version: LOCKFILE_VERSION,
             packages: Vec::new(),

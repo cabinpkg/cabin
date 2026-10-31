@@ -7,8 +7,7 @@ use crate::error::IndexHttpError;
 
 /// Default per-request timeout for the sparse HTTP client.  Static
 /// registries are usually fast (cached object stores or local
-/// servers); a long timeout is rarely useful and surfaces broken
-/// links quickly.
+/// servers), so a short timeout surfaces broken links quickly.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Maximum body size we will read for a single response.  Generous
@@ -96,11 +95,10 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
-    /// Build a client with sensible defaults: 30 s timeout, body
-    /// reads capped at 64 MiB, the default `ureq` TLS configuration,
-    /// and redirects disabled.  Disabling redirects keeps fetches
-    /// pinned to the operator-configured registry origin; the module
-    /// docs already promise this behavior.
+    /// Build a client with a 30 s timeout, body reads capped at
+    /// 64 MiB, the default `ureq` TLS configuration, and redirects
+    /// disabled.  Disabling redirects keeps fetches pinned to the
+    /// operator-configured registry origin.
     pub fn new() -> Self {
         Self::with_redirect_budget(0)
     }
@@ -177,9 +175,6 @@ impl HttpClient {
     /// error.
     #[tracing::instrument(name = "http_get", level = "debug", skip_all, fields(package = %package, status = tracing::field::Empty, bytes = tracing::field::Empty))]
     pub fn get_bytes(&self, url: &str, package: &str) -> Result<Vec<u8>, IndexHttpError> {
-        // The auth decision is per request URL, not per client: the
-        // token is only ever sent to the exact origin it is stored
-        // under, and never in cleartext beyond loopback.
         let auth = self
             .auth
             .as_ref()
@@ -202,9 +197,9 @@ impl HttpClient {
             Ok(response) => {
                 // `.redirects(0)` on the agent means redirects are not
                 // followed, but ureq still returns the 3xx response as
-                // `Ok`.  Reject it explicitly so a registry that 3xx's
-                // out to a different origin surfaces as an error
-                // instead of silently producing an empty body.
+                // `Ok`.  Reject it so a registry that 3xx's out to a
+                // different origin surfaces as an error instead of the
+                // 3xx body being returned as the document.
                 let status = response.status();
                 if (300..400).contains(&status) {
                     return Err(IndexHttpError::ServerError {
@@ -260,8 +255,7 @@ impl HttpClient {
             // - `503` + `registry_over_budget` is the read-side budget
             //   breaker ("Billing model: the governor and the
             //   breaker"): reads are refused service-wide until the
-            //   budget window resets.  It answers `503`, not the `402`
-            //   it used before ("Why 503, not 402").
+            //   budget window resets ("Why 503, not 402").
             // - `429` + `read_rate_limited` is the governor's per-caller
             //   fairness refusal ("The cost governor"): with public
             //   reads every caller - tokened or anonymous - has a daily
@@ -270,13 +264,12 @@ impl HttpClient {
             // `503` is a status Cloudflare's own edge and runtime also
             // emit, so the envelope `code`, not the status, is what
             // identifies a refusal.  Without it either status stays the
-            // generic server error it was before the refusal existed,
-            // rather than blaming a platform outage on the registry's
-            // budget.  `Retry-After` (delta seconds) carries the reset
-            // and is read before the body consumes the response; a
-            // missing or non-numeric value (an HTTP date, say) degrades
-            // to no hint, mirroring the publish-side mapping in
-            // `cabin-registry-api`.
+            // generic server error, so a platform outage is not blamed
+            // on the registry's budget.  `Retry-After` (delta seconds)
+            // carries the reset and is read before the body consumes the
+            // response; a missing or non-numeric value (an HTTP date,
+            // say) degrades to no hint, mirroring the publish-side
+            // mapping in `cabin-registry-api`.
             Err(ureq::Error::Status(status @ (429 | 503), response)) => {
                 let retry_after_secs = response
                     .header("Retry-After")
@@ -809,12 +802,6 @@ mod tests {
         (server, url, thread)
     }
 
-    /// A 503 carrying the `registry_over_budget` code is the registry's
-    /// read-side budget breaker: the message says reads are paused and
-    /// carries the `Retry-After` seconds when the header is usable,
-    /// degrading to "try again later" otherwise. The mapping is shared by
-    /// metadata reads and artifact downloads (`download` remaps only the
-    /// 404).
     /// The governor's per-caller fairness refusal: a coded `429`
     /// carries the daily window's reset in `Retry-After`, and with
     /// public reads it reaches anonymous consumers who cannot fix it
@@ -874,6 +861,12 @@ mod tests {
         let _ = thread.join();
     }
 
+    /// A 503 carrying the `registry_over_budget` code is the registry's
+    /// read-side budget breaker: the message says reads are paused and
+    /// carries the `Retry-After` seconds when the header is usable,
+    /// degrading to "try again later" otherwise. The mapping is shared by
+    /// metadata reads and artifact downloads (`download` remaps only the
+    /// 404).
     #[test]
     fn get_bytes_maps_a_coded_503_to_registry_over_budget() {
         const ENVELOPE: &str = r#"{"errors":[{"detail":"registry downloads are temporarily disabled: the registry's read budget is exhausted","code":"registry_over_budget"}]}"#;
@@ -1004,10 +997,9 @@ mod tests {
     }
 
     /// A 403 on a request that carried no token is not the
-    /// protocol's missing-scope case: it keeps the pre-existing
-    /// generic status mapping, so unauthenticated flows against a
-    /// 403-ing host are not told to debug a nonexistent stored
-    /// token.
+    /// protocol's missing-scope case: it keeps the generic status
+    /// mapping, so unauthenticated flows against a 403-ing host are
+    /// not told to debug a nonexistent stored token.
     #[test]
     fn get_bytes_maps_403_without_credential_to_server_error() {
         let server = AuthServer::start();

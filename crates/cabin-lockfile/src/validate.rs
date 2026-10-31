@@ -4,9 +4,9 @@ use crate::error::LockfileError;
 use crate::model::{LOCKFILE_VERSION, Lockfile};
 
 /// Run the structural checks that must hold for an in-memory
-/// [`Lockfile`].  Called by [`crate::io::parse_lockfile_str`] before
-/// returning the value to the caller; safe to call again on a manually
-/// constructed lockfile.
+/// [`Lockfile`].  [`crate::io::parse_lockfile_str`] and
+/// [`crate::io::render_lockfile`] both call it, so a lockfile that
+/// fails it is neither returned by the parser nor written.
 ///
 /// # Errors
 /// Returns [`LockfileError::UnsupportedVersion`] when `lockfile.version`

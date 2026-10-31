@@ -12,9 +12,10 @@
 //!   per-edge `features = [...]` requests, plus
 //!   `<dep>/<feature>` requests from `[features]`).
 //!
-//! Resolution is deterministic (sorted iteration, fixed-point
-//! worklist) and never touches the network.  It only operates on
-//! the typed package graph that `cabin-workspace` already loaded.
+//! Resolution is deterministic (fixed iteration order, FIFO
+//! fixed-point worklist) and never touches the network.  It only
+//! operates on the typed package graph that `cabin-workspace`
+//! already loaded.
 //!
 //! Feature entry syntax is validated generically by
 //! `cabin-core`'s [`FeatureEntry::parse`]; characters and
@@ -44,14 +45,11 @@ pub struct RootFeatureRequest {
     /// Whether the root packages' `default` feature should be
     /// enabled. `--no-default-features` flips this to `false`.
     pub include_defaults: bool,
-    /// Explicitly requested feature names from `--features` /
-    /// `--all-features`.
-    ///
-    /// If `all_features` is `true`, every declared feature is
-    /// enabled in addition to `default` (when included).  If
-    /// `all_features` is `false`, only the names in
-    /// `explicit_features` are enabled.
+    /// `--all-features`: enable every feature each root declares,
+    /// in addition to `default` when `include_defaults` holds.
     pub all_features: bool,
+    /// `--features` names, requested whatever `all_features` is.
+    /// Each must be `default` or declared by every selected root.
     pub explicit_features: BTreeSet<String>,
 }
 
@@ -68,8 +66,7 @@ impl Default for RootFeatureRequest {
 impl From<&cabin_core::SelectionRequest> for RootFeatureRequest {
     /// Map a CLI [`cabin_core::SelectionRequest`] into a root feature
     /// request, flipping the `no_default_features` polarity into
-    /// `include_defaults`.  Keeping the conversion next to the type
-    /// removes the hand-written converter the CLI used to carry.
+    /// `include_defaults`.
     fn from(request: &cabin_core::SelectionRequest) -> Self {
         Self {
             include_defaults: !request.no_default_features,
@@ -232,10 +229,6 @@ impl std::fmt::Display for FeatureRequestSource {
 /// feature entry referencing a versioned dev dep resolves instead
 /// of erroring pre-fetch.  Activation never propagates: only the
 /// listed packages' dev declarations participate.
-///
-/// The resolver is deterministic: feature names sort, dependency
-/// names sort, and the worklist is drained FIFO so identical
-/// inputs always yield identical outputs.
 ///
 /// # Errors
 /// Returns [`FeatureResolverError::UnknownRootFeature`] when the
@@ -431,15 +424,8 @@ enum WorkItem {
 
 impl ResolverState {
     /// Whether a declared dependency participates in feature
-    /// resolution.  `Normal`-kind declarations always do.
-    /// `Dev`-kind declarations participate only when the owning
-    /// package is in `dev_active_for` - the same name-set policy
-    /// the workspace loader applies via `include_dev_for`, so a
-    /// versioned dev dep participates even before its registry
-    /// edge is materialized.  Ordinary commands pass an empty set
-    /// and see the historical Normal-only behavior; activation
-    /// never propagates because only the selected packages are
-    /// listed.  `Build`-kind declarations participate only in the
+    /// resolution: `Normal` always, `Dev` only when the owning
+    /// package is in `dev_active_for`, `Build` only in the
     /// build-context pass.
     fn dep_participates(&self, pkg: &WorkspacePackage, declared: &cabin_core::Dependency) -> bool {
         match declared.kind {
@@ -550,9 +536,9 @@ impl ResolverState {
                     );
                 }
                 FeatureEntry::OptionalDep(dep_name) => {
-                    // When inactive on this host, a `dep:foo` entry
-                    // is a silent no-op.  When active, the dep must be
-                    // declared optional.
+                    // When inactive on the evaluated platform, a
+                    // `dep:foo` entry is a silent no-op.  When active,
+                    // the dep must be declared optional.
                     if self.assert_optional_dep_active_or_skip(pkg, feature, &dep_name)? {
                         self.work
                             .push_back(WorkItem::EnableOptionalDep { package, dep_name });
@@ -563,9 +549,9 @@ impl ResolverState {
                     feature: requested_feature,
                 } => {
                     let Some(dep_entry) = self.lookup_declared_dep(pkg, feature, &dep)? else {
-                        // Dep is declared only under a
-                        // non-matching `cfg(...)` on this host -
-                        // no work to enqueue for this evaluation.
+                        // Dep is declared only under a `cfg(...)`
+                        // the evaluated platform fails - no work to
+                        // enqueue for this evaluation.
                         continue;
                     };
                     if dep_entry.optional {
@@ -598,9 +584,6 @@ impl ResolverState {
         // target package receives the per-edge `default-features`
         // / `features = [...]` requests (and inherits its own
         // included status through the queued `IncludePackage`).
-        // Conditional declarations whose target condition does
-        // not match the evaluation platform are skipped here so
-        // their feature requests do not propagate.
         for declared in &pkg.package.dependencies {
             if !self.dep_participates(pkg, declared) {
                 continue;
@@ -626,9 +609,8 @@ impl ResolverState {
         if !resolved.enabled_optional_deps.insert(dep_name.to_owned()) {
             return Ok(());
         }
-        // Now expand the corresponding edge (the dep is in the
-        // graph; we gated it).  The edge_expanded set
-        // prevents re-emit if the edge expands to the same target.
+        // `edges_expanded` skips any declaration of `dep_name`
+        // already expanded, e.g. a non-optional one.
         self.expand_edge_for_dep(graph, package, dep_name)
     }
 
@@ -654,9 +636,10 @@ impl ResolverState {
                 .get(&from_package)
                 .is_some_and(|r| r.enabled_optional_deps.contains(dep_name))
         {
-            // Optional dep not enabled: defer (not an error).
-            // The request will be re-emitted when the dep is later
-            // enabled.
+            // Optional dep not enabled: drop the request (not an
+            // error).  Nothing re-emits it; `apply_feature` queues
+            // `EnableOptionalDep` ahead of every request on an
+            // optional dep, so FIFO draining never reaches here.
             return Ok(());
         }
         let Some(edge) = pkg.deps.iter().find(|e| {
@@ -720,10 +703,7 @@ impl ResolverState {
         Ok(())
     }
 
-    /// Drain the worklist to a fixed point.  Each work item either
-    /// includes a package, enables a feature, enables an optional
-    /// dependency, or applies a per-edge feature request;
-    /// bookkeeping prevents revisits.
+    /// Drain the worklist to a fixed point.
     fn drain(&mut self, graph: &PackageGraph) -> Result<(), FeatureResolverError> {
         while let Some(work) = self.pop() {
             match work {
@@ -844,7 +824,7 @@ impl ResolverState {
         })
     }
 
-    /// Returns `Ok(true)` when the dep is active for the host
+    /// Returns `Ok(true)` when the dep is active for the evaluated
     /// platform and is optional (the caller should enable it),
     /// `Ok(false)` when it is declared only under non-matching
     /// `cfg(...)` (the caller should skip), or

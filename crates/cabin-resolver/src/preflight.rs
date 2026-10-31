@@ -12,14 +12,15 @@
 //! * `NoMatchingVersion`
 //! * `AllMatchingVersionsYanked`
 //! * `LockfileMissingPackage`
-//! * every `Locked*` variant for the root's direct
-//!   dependencies (via [`validate_locked_root_dependency`])
+//! * every `Locked*` variant except `LockedVersionLacksFeature`
+//!   (raised by the provider) for the root's direct dependencies
+//!   (via [`validate_locked_root_dependency`])
 //! * `UnknownFeature` for a root feature request no in-range
 //!   version declares.
 //! 3. The returned constraint map seeds the locked-mode
 //!    constraint recorder so a later
 //!    `LockedVersionViolatesConstraint` cites the root
-//!    requirement that the parent originally imposed.
+//!    requirement.
 
 use std::collections::BTreeMap;
 
@@ -112,13 +113,12 @@ pub(crate) fn preflight_root_dependencies(
     Ok(constraints)
 }
 
-/// Run every `Locked`-mode check for a single root dependency in
-/// the order the [`ResolveError`] variants imply.  Shared
-/// metadata checks (missing / yanked / checksum) live in
-/// [`validate_locked_metadata`]; the constraint check is inline
-/// because the root path carries a single [`VersionReq`] while
-/// the transitive path runs across an accumulated constraint
-/// set.
+/// Run every `Locked`-mode check for a single root dependency:
+/// the shared metadata checks (missing / yanked / checksum) of
+/// [`validate_locked_metadata`], then the constraint check.  The
+/// constraint check is inline because the root path carries a
+/// single [`VersionReq`] while the transitive path runs across an
+/// accumulated constraint set.
 fn validate_locked_root_dependency(
     root_name: &PackageName,
     name: &PackageName,

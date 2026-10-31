@@ -88,6 +88,11 @@ pub fn select_locked_revisions(input: &ResolveInput, index: &mut PackageIndex) {
 /// `PubGrub` reports no solution it returns [`ResolveError::Conflict`]; any
 /// provider-side [`ResolveError`] surfaced while choosing versions,
 /// retrieving dependencies, or cancelling is bubbled back unchanged.
+/// Returns [`ResolveError::MetadataNeeded`] when a lazy index lacks
+/// metadata the solve reached, and [`ResolveError::LinksCollision`]
+/// when two packages claim the same `links` identity: anywhere in the
+/// resolved graph, or within one link domain when the input declares
+/// domains.
 #[tracing::instrument(level = "info", skip_all, fields(roots = input.root_dependencies.len(), index_packages = index.packages.len()))]
 pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let mut output = resolve_once(input, index)?;
@@ -120,10 +125,10 @@ pub fn resolve_packages(
 /// resolution to diff against - see [`held_back_report`]).
 fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let output = resolve_once_unchecked(input, index)?;
-    // Post-resolution, whole-graph `links` uniqueness.  Runs here -
-    // not in `resolve` - so `resolve_packages` (build/run/test/
-    // vendor) enforces it too, and before any lockfile is written
-    // from this output.
+    // Post-resolution `links` uniqueness, over the whole graph or
+    // per link domain.  Runs here - not in `resolve` - so
+    // `resolve_packages` (build/run/test/vendor) enforces it too,
+    // and before any lockfile is written from this output.
     if input.link_domains.is_empty() {
         detect_links_collision(&links_claims_of_solution(input, index, &output.packages))?;
     }
@@ -196,10 +201,6 @@ fn resolve_once_unchecked(
         Err(PubGrubError::NoSolution(tree)) => {
             return Err(explain_no_solution(tree, input));
         }
-        // `ErrorChoosingVersion`, `ErrorRetrievingDependencies`,
-        // and `ErrorInShouldCancel` all bubble a provider-side
-        // `ResolveError` back out - surface the original
-        // variant.
         Err(
             PubGrubError::ErrorChoosingVersion { source, .. }
             | PubGrubError::ErrorRetrievingDependencies { source, .. }
@@ -416,9 +417,9 @@ fn held_back_report(
         {
             continue;
         }
-        // Rule-2 case (preference-mode.md section 2): the selected
-        // version is *itself* standard-incompatible because nothing in
-        // range satisfies the consumer.  Report its own unmet
+        // Rule 2 of preference-mode.md section 1: the selected version
+        // is *itself* standard-incompatible because nothing in range
+        // satisfies the consumer.  Section 2 reports its own unmet
         // requirement, with no compatible alternative to name.
         let selected_advertised = index
             .package(&package.name)
@@ -447,12 +448,6 @@ fn held_back_report(
         if *newest <= package.version {
             continue;
         }
-        // A newer pick whose `links` claims collide with the rest of
-        // the fallback solution is unrealizable - no mode yields that
-        // upgrade - so citing it would misattribute the miss to
-        // standards.  Validated per candidate, not on the joint
-        // `Allow` solution: two newer picks colliding only with each
-        // other must not erase a row that is realizable on its own.
         if newer_pick_collides(package, newest, input, index, fallback_packages) {
             continue;
         }
@@ -477,10 +472,7 @@ fn held_back_report(
             // The newer version is compatible, so the only reason
             // fallback passed it over is that it is undeclared and a
             // declared-compatible older version outranks it (tier 1 over
-            // tier 2).  A selected version compatible with a compatible
-            // newer one can only have been the older, declared pick - so
-            // this is always the tier preference.  Report it with no
-            // requirement to cite.
+            // tier 2).  Report it with no requirement to cite.
             Vec::new()
         } else {
             let requirements = blocking_requirements(consumer, advertised);
@@ -815,10 +807,10 @@ mod tests {
         );
     }
 
-    /// Standard-compatibility metadata present on candidate versions
-    /// does not change resolution: this step plumbs the table through
-    /// but never consults it for version selection, so the output is
-    /// byte-for-byte identical with and without it.
+    /// With no consumer standard (the `ResolveInput::new` default),
+    /// standard-compatibility metadata on candidate versions does not
+    /// change resolution: every candidate ranks alike, so the output
+    /// is identical with and without it.
     #[test]
     fn standard_metadata_does_not_change_resolution() {
         use cabin_core::{CxxStandard, Requirement, StandardsMetadata, TargetStandards};
@@ -839,7 +831,6 @@ mod tests {
         let input = make_input(vec![("spdlog", ">=1.0.0")]);
         let baseline = resolve(&input, &make()).unwrap();
 
-        // Populate a per-target table on every candidate version.
         let mut targets = BTreeMap::new();
         targets.insert(
             "fmt".to_owned(),
@@ -1228,7 +1219,6 @@ mod tests {
             .iter()
             .find(|p| p.name.as_str() == "fmt")
             .unwrap();
-        // UpdateAll picks the newest available compatible version.
         assert_eq!(fmt.version, version("10.2.1"));
     }
 
@@ -1264,16 +1254,13 @@ mod tests {
             .iter()
             .find(|p| p.name.as_str() == "fmt")
             .unwrap();
-        // spdlog updated to newest; fmt kept at locked.
         assert_eq!(spdlog.version, version("1.13.0"));
         assert_eq!(fmt.version, version("10.1.0"));
     }
 
-    /// Build an [`IndexEntry`] with a single version whose
-    /// per-kind dependency tables come from the caller.  Each
-    /// caller-supplied dep tuple is `(name, req, optional)`;
-    /// per-version `cfg(...)` predicates are not needed by the
-    /// tests that consume this helper.
+    /// Build an [`IndexEntry`] with a single version whose normal
+    /// dependencies are `(name, req, optional)` tuples, without
+    /// `cfg(...)` conditions.
     fn entry_with_kinded(name: &str, ver_str: &str, normal: Vec<(&str, &str, bool)>) -> IndexEntry {
         use cabin_index::IndexPackageDependency;
         let to_deps = |list: Vec<(&str, &str, bool)>| -> BTreeMap<_, _> {
@@ -1429,9 +1416,11 @@ mod tests {
     // Pre-release boundary
     //
     // Pre-release versions are excluded from candidate selection
-    // unless the requirement is the singleton that contains the
-    // exact pre-release version.  This pins the boundary so future
-    // resolver work cannot silently expand the supported syntax.
+    // unless the requirement opts in: a comparator names the
+    // candidate's `major.minor.patch` with a pre-release tag, or the
+    // range is the singleton containing it.  This pins the boundary
+    // so future resolver work cannot silently expand the supported
+    // syntax.
     // -----------------------------------------------------------------
 
     #[test]
@@ -1707,9 +1696,8 @@ mod tests {
     // -----------------------------------------------------------------
     // miette diagnostic rendering
     //
-    // Verifies that every `ResolveError` variant carries the
-    // stable `cabin::resolver::error` code and the actionable
-    // help text the rendered diagnostic exposes.
+    // Verifies that rendered `ResolveError` diagnostics carry the
+    // stable `cabin::resolver::error` code and actionable help text.
     // -----------------------------------------------------------------
 
     fn render_diagnostic(diag: &dyn miette::Diagnostic) -> String {
@@ -1761,9 +1749,6 @@ mod tests {
         )
         .unwrap_err();
         let rendered = render_diagnostic(&err);
-        // The conflict diagnostic must surface the stable code,
-        // both package names involved, and the version
-        // requirements that failed to align.
         assert!(
             rendered.contains("cabin::resolver::error"),
             "expected diagnostic code in: {rendered}"
@@ -2267,8 +2252,7 @@ mod tests {
     }
 
     /// `allow` ignores standards entirely: it selects the newest
-    /// admissible version (pre-preference-mode behavior) and never
-    /// reports a hold-back.
+    /// admissible version and never reports a hold-back.
     #[test]
     fn allow_ignores_standards() {
         let mut index = build_index(vec![entry(
@@ -2525,7 +2509,7 @@ mod tests {
     /// When no candidate is compatible, the newest is selected (the
     /// post-resolution validation refuses it) and the selected version's
     /// own unmet requirement is reported, with no compatible alternative
-    /// to name (preference-mode.md section 2, rule 2).
+    /// to name (preference-mode.md section 1, rule 2).
     #[test]
     fn no_compatible_candidate_reports_selected_incompatibility() {
         let mut index = build_index(vec![entry(
@@ -2811,8 +2795,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fmt_version(&out), version("1.0.0"));
-        // 2.0.0 is out of range in the final solution: a semver
-        // exclusion, not a standard hold.
         assert!(out.held_back.is_empty(), "held_back: {:?}", out.held_back);
     }
 
@@ -2914,8 +2896,6 @@ mod tests {
             .collect();
         assert_eq!(versions["foo"], "1.0.0");
         assert_eq!(versions["bar"], "1.0.0");
-        // Exactly one standard hold: `foo`.  `bar` is a semver
-        // consequence of the parent choice, not a standard hold.
         assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
         assert_eq!(
             out.held_back[0].message(),
