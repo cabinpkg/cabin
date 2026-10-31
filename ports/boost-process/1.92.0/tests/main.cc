@@ -39,7 +39,11 @@ int main(int argc, char** argv) {
                       bp::process_stdio{{}, out, {}}, bp::process_environment(env));
     std::string text;
     boost::system::error_code ec;  // ends at end of file
-    asio::read(out, asio::dynamic_buffer(text), ec);
+    // Without pidfd (macOS), the process handle's SIGCHLD handler can
+    // interrupt this blocking read, which Asio reports instead of retrying.
+    do {
+        asio::read(out, asio::dynamic_buffer(text), ec);
+    } while (ec == boost::system::errc::interrupted);
     const int code = child.wait();
     return text == "child:42" && code == 7 ? 0 : 1;
 }
