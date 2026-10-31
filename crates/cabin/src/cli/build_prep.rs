@@ -1043,7 +1043,7 @@ fn plan_build_context(
         dialect: cabin_build::Dialect::from_compiler_kind(
             context.detection_report.cxx.identity.kind,
         ),
-        archiver_windows_rsp_quoting: prepared.detection_report.ar.identity.windows_rsp_quoting(),
+        archiver_windows_rsp_quoting: context.detection_report.ar.identity.windows_rsp_quoting(),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &context.detection_report,
             cabin_build::collect_requested_standards(
