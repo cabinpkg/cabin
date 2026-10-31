@@ -10,7 +10,7 @@
 
 use camino::Utf8PathBuf;
 
-use cabin_core::{InstructionSet, LanguageStandard, OptLevel};
+use cabin_core::{InstructionSet, LanguageStandard, OptLevel, Sysroot};
 
 /// A single semantic build step: compile a translation unit, archive
 /// objects into a static library, or link an executable.
@@ -80,6 +80,9 @@ pub struct CompileAction {
     /// `--target=<triple>` right after the driver; `None` keeps the
     /// driver's default.  Set only on the GNU/Clang dialect.
     pub target: Option<String>,
+    /// Sysroot spelled right after the target; `None` keeps the
+    /// driver's default.  Set only on the GNU/Clang dialect.
+    pub sysroot: Option<Sysroot>,
     /// Optional compiler wrapper (e.g. `ccache`) prepended to
     /// the *run* command by lowering.  Never affects
     /// `compile_commands.json`, which records the underlying compiler
@@ -146,6 +149,9 @@ pub struct AssembleAction {
     /// `--target=<triple>` right after the driver; `None` keeps the
     /// driver's default.  Set only on the GNU/Clang dialect.
     pub target: Option<String>,
+    /// Sysroot spelled right after the target; `None` keeps the
+    /// driver's default.  Set only on the GNU/Clang dialect.
+    pub sysroot: Option<Sysroot>,
     /// Absolute path of the assembly source.
     pub source: Utf8PathBuf,
     /// Object file to produce.
@@ -184,6 +190,9 @@ pub struct LinkAction {
     /// `--target=<triple>` right after the driver; `None` keeps the
     /// driver's default.  Set only on the GNU/Clang dialect.
     pub target: Option<String>,
+    /// Sysroot spelled right after the target; `None` keeps the
+    /// driver's default.  Set only on the GNU/Clang dialect.
+    pub sysroot: Option<Sysroot>,
     /// Executable to produce.
     pub output: Utf8PathBuf,
     /// Link inputs (objects then static archives), in link order.

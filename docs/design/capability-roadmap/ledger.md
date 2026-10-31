@@ -28,7 +28,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | implemented |
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | implemented |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | implemented |
-| 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | not started |
+| 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | in progress |
 | 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | not started |
 | 07 | Generated actions and build-machine tools | 4 | `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin-manifest`, `cabin-core` | 02, 04-06; 03's metadata | not started |
 | 08 | Static, shared, and loadable artifacts; PIC, DLLs, runtime lookup | 6 | `cabin-core`, `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin` | 02, 04-07 | not started |
@@ -251,6 +251,9 @@ Stages 04 and 05; validated in 06-10, 12-14.
   build warns when it names another machine.
 - MSVC discovery uses Cabin's own architecture (`cabin-toolchain/src/msvc.rs`); MASM is always
   `ml64.exe`, x64 only (`cabin-driver/src/dialect.rs`, `Dialect::assembler`).
+- `--sysroot` or the `[sysroot]` entry for `--target` reaches every GCC and Clang command of the
+  target context, and Apple Clang builds name the platform's SDK
+  (`cabin-toolchain/src/sysroot.rs`); the build context keeps the compilers' default sysroot.
 
 **Blocked workflow.**  Building an aarch64 Linux binary from an x86-64 machine, or a Windows ARM64
 binary from x64, with the build tools running natively.
@@ -355,10 +358,11 @@ Stages 05 and 04; used by 06-14.
 - Detection runs `--version`, and GCC's `-dumpmachine` under `--target`.  The fingerprint hashes
   tool specs and the `--target` triple, not resolved paths or versions; the toolchain stamp beside
   `build.ninja` records versions, so a compiler whose version changes rebuilds at the same path.
-  MinGW is best-effort.  No sysroot or SDK model.
+  MinGW is best-effort.  A sysroot is explicit (`--sysroot`, `[sysroot]`) or, for Apple Clang
+  only, the SDK `SDKROOT` or `xcrun` names; metadata reports which (`toolchain.sysroot.source`).
 
-**Blocked workflow.**  Generating a configuration header from a compile check; building against an
-explicit sysroot; a supported MinGW toolchain.
+**Blocked workflow.**  Generating a configuration header from a compile check; a supported MinGW
+toolchain.
 
 **Necessary changes.**  Typed compile and link probes whose results record their inputs; sysroot
 and SDK selection with explicit choices over discovery; configured choices distinguished from
@@ -455,6 +459,10 @@ conditions for the platform they build for.  Its pull requests, in order: that l
 a toolchain identity stamp every action depends on; `[build-dependencies]` with build-context units,
 per-context features, and per-context `links`; runners for `cabin run` and `cabin test`, after stage
 11's test-concurrency change.
+
+Stage 05's pull requests, in order: sysroots and the Apple SDK; typed compile and link probes with a
+cache keyed by their inputs; a toolchain per context; MinGW promoted on build, link, run, and CI
+evidence.
 
 **Changes.**  Stage 00: this ledger, the contracts page, and the scope alignment listed above.
 Stage 00 counts as adopted once this ledger is on `main`.
@@ -572,6 +580,18 @@ the triple's entry, without a shell, before falling back to running it directly 
 or refusing; the refusal now names the table.  The executable's path follows the runner's
 arguments, then the executable's own.  A relative program path resolves against the current
 directory, as a `[toolchain]` path does, and a runner that cannot start is named in the test result.
+
+Stage 05, first change: `--sysroot <dir>`, or the top-level `[sysroot]` config entry for the
+`--target` triple, passes GCC and Clang `--sysroot=<dir>`, or `-isysroot <dir>` for an Apple triple,
+on every compile, assemble, and link command of the target context (`cabin-driver/src/lower.rs`);
+`--sysroot` wins, and a sysroot with MSVC or clang-cl is an error
+(`cabin_toolchain::explicit_sysroot`).  Without a choice, an Apple Clang build for macOS or iOS
+names the platform's SDK, an absolute `SDKROOT` or what `xcrun --show-sdk-path` names
+(`cabin_toolchain::discover_apple_sdk`), so an SDK switch reaches the command lines and rebuilds;
+`cabin tidy`'s compile database names it too.  `cabin metadata` reports `toolchain.sysroot` with a
+`cli`, config-file, or `detected` source, and the entries under `config.sysroots`; the
+configuration fingerprint leaves the absolute path out, as it does resolved tool paths.  The build
+context keeps the compilers' default.
 
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
@@ -699,12 +719,25 @@ before its refusal, the relative path's resolution, or the runner's name in the 
 these tests; config unit tests for the table and its rejections; `cargo ci` on macOS.  Verified cross combination: Apple Clang, macOS arm64 to macOS x86_64 through a
 runner.  Not run: an emulator such as `qemu-user`, or Rosetta (not installed here).
 
+Stage 05, first change: on macOS, a CLI test builds a C and a C++ executable with the SDK `xcrun`
+names, then through `--sysroot` under a path with spaces, then with `SDKROOT` naming another of
+Xcode's SDK paths; each switch relinks both, both run, an unchanged rebuild relinks nothing, and
+`cabin tidy` keeps the SDK in the compile database.  Another reads `toolchain.sysroot` for a
+detected SDK, a package-config entry under `--target`, `--sysroot` over that entry, and an entry
+from a relative `CABIN_CONFIG`, which must come out absolute, and `explain build-config` the
+`--sysroot`.  A Linux CLI test builds both through
+`--sysroot` naming `/` under a path with spaces.  Unit tests: the table's rejections and relative
+paths, both lowered spellings, the MSVC-dialect refusal, the SDK `xcrun` names per platform
+(Intel iOS triples included), and `SDKROOT` precedence.  Removing the Apple lowering, the `SDKROOT`
+read, tidy's SDK, or the absolute path fails the macOS CLI tests; `cargo ci` on macOS.  Not run: a sysroot for another machine (none installed here), the Linux test
+outside CI, and iOS SDKs.
+
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
 reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
 despite its timed-out test.
 
-**Unfinished.**  Stages 05-14.  Follow-ups found in stage 01, outside its scope:
+**Unfinished.**  Stage 05's remaining changes and stages 06-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
 "Blocked workflow"); a transitively requested unknown feature is reported as a resolution conflict
 naming `<package>[<feature>]` rather than with the direct-request diagnostic; `metadata` and

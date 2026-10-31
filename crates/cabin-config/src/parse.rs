@@ -38,6 +38,9 @@ pub struct ParsedConfig {
     /// `[runner]`: the program and arguments `cabin run` and `cabin
     /// test` prefix to an executable built for `--target <triple>`.
     pub runners: BTreeMap<String, Vec<String>>,
+    /// `[sysroot]`: the directory a GCC or Clang build for
+    /// `--target <triple>` takes as its sysroot.
+    pub sysroots: BTreeMap<String, Utf8PathBuf>,
 }
 
 /// Validated `[resolver]` table.  `incompatible_standards` is `None`
@@ -152,14 +155,18 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
     };
     let runners = raw.runner.unwrap_or_default();
     for (triple, runner) in &runners {
-        cabin_core::TargetPlatform::from_triple(triple).map_err(|source| {
-            ConfigParseError::InvalidRunnerTriple {
-                triple: triple.clone(),
-                source,
-            }
-        })?;
+        check_triple_key("runner", triple)?;
         if runner.first().is_none_or(String::is_empty) {
             return Err(ConfigParseError::EmptyRunner {
+                triple: triple.clone(),
+            });
+        }
+    }
+    let sysroots = raw.sysroot.unwrap_or_default();
+    for (triple, sysroot) in &sysroots {
+        check_triple_key("sysroot", triple)?;
+        if sysroot.as_str().is_empty() {
+            return Err(ConfigParseError::EmptySysroot {
                 triple: triple.clone(),
             });
         }
@@ -174,7 +181,18 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         patches,
         source_replacements,
         runners,
+        sysroots,
     })
+}
+
+fn check_triple_key(table: &'static str, triple: &str) -> Result<(), ConfigParseError> {
+    cabin_core::TargetPlatform::from_triple(triple)
+        .map(drop)
+        .map_err(|source| ConfigParseError::InvalidTripleKey {
+            table,
+            triple: triple.to_owned(),
+            source,
+        })
 }
 
 fn parsed_resolver_from_raw(raw: RawResolver) -> Result<ParsedResolver, ConfigParseError> {
@@ -761,6 +779,20 @@ mod tests {
             ),
         ] {
             let err = parse_config_str(&format!("[runner]\n{body}\n")).unwrap_err();
+            assert!(err.to_string().contains(expected), "{body}: {err}");
+        }
+    }
+
+    #[test]
+    fn sysroot_rejects_a_bad_triple_or_an_empty_path() {
+        for (body, expected) in [
+            (
+                "nonsense = \"/sysroot\"",
+                "`[sysroot]` key `nonsense` is not a target triple",
+            ),
+            ("x86_64-unknown-linux-gnu = \"\"", "non-empty path"),
+        ] {
+            let err = parse_config_str(&format!("[sysroot]\n{body}\n")).unwrap_err();
             assert!(err.to_string().contains(expected), "{body}: {err}");
         }
     }

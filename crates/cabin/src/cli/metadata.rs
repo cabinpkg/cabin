@@ -274,6 +274,7 @@ pub(crate) struct MetadataInputs<'a> {
     pub(crate) platform: &'a cabin_core::TargetPlatform,
     pub(crate) build_flags: &'a HashMap<usize, cabin_core::ResolvedProfileFlags>,
     pub(crate) detection: Option<&'a cabin_core::ToolchainDetectionReport>,
+    pub(crate) sysroot: Option<&'a crate::cli::build_prep::SysrootChoice>,
     /// Resolved compiler wrapper, if any. `None` is rendered
     /// as `toolchain.compiler_wrapper = null` so consumers do not
     /// have to special-case the absence.
@@ -515,9 +516,19 @@ impl<'a> MetadataView<'a> {
             Some(w) => w.as_json(),
             None => serde_json::Value::Null,
         };
+        // `source` tells a configured sysroot (`cli` or a config
+        // file's source) from an Apple SDK Cabin found (`detected`).
+        let sysroot_view = match inputs.sysroot {
+            Some(choice) => serde_json::json!({
+                "path": choice.sysroot.path.as_str(),
+                "source": choice.source,
+            }),
+            None => serde_json::Value::Null,
+        };
         let toolchain_view = serde_json::json!({
             "tools": toolchain_resolved.as_json(),
             "detected": detected_view,
+            "sysroot": sysroot_view,
             "compiler_wrapper": compiler_wrapper_view,
             "build_flags_per_package": serde_json::Value::Object(per_package_flags),
         });
@@ -595,6 +606,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         profile,
         toolchain,
         detection: detection_report,
+        sysroot,
     } = resolve_inspection_prep(
         &graph,
         args.profile.as_deref(),
@@ -621,6 +633,9 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let mut toolchain_summary =
         cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
     toolchain_summary.target = args.toolchain.target.as_ref().map(|t| t.target.clone());
+    toolchain_summary.sysroot = sysroot
+        .as_ref()
+        .map(|choice| choice.sysroot.path.to_string());
     let (build_flags, _standard_flag_conflicts) = resolve_per_package_build_flags(
         &graph,
         &profile,
@@ -654,6 +669,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         platform: &platform,
         build_flags: &build_flags,
         detection: detection_report.as_ref(),
+        sysroot: sysroot.as_ref(),
         compiler_wrapper: compiler_wrapper.as_ref(),
         config: &effective_config,
         active_patches: &active_patches,

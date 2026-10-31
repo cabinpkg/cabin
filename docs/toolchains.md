@@ -156,8 +156,17 @@ cabin build --target aarch64-unknown-linux-gnu \
   build only the triple's machine, so when it is another machine, a build with build dependencies
   fails there.  `CFLAGS` and
   the other environment flags describe the target and do not reach these units.
-- **Sysroots.**  Cabin discovers no sysroot or SDK; pass one through `[profile]` flags or `CFLAGS` /
-  `CXXFLAGS` / `LDFLAGS` (`--sysroot=<dir>`).  [System dependencies](system-dependencies.md) need a
+- **Sysroots.**  `--sysroot <dir>`, or the [`[sysroot]`](config.md#sysroot) entry for the
+  `--target` triple, names the directory holding the target's headers and libraries; `--sysroot`
+  wins.  Every GCC and Clang compile, assemble, and link command passes `--sysroot=<dir>`, or
+  `-isysroot <dir>` for an Apple triple, right after `--target=`.  MSVC and clang-cl take the
+  Windows SDK from `INCLUDE` and `LIB`, so a sysroot with either is an error.  Without a choice,
+  an Apple Clang build for macOS or iOS, and `cabin tidy`'s compile database, pass the
+  platform's SDK: an absolute `SDKROOT`, else what `xcrun --sdk <sdk> --show-sdk-path` names
+  (`macosx`, `iphoneos`, or `iphonesimulator`).  A sysroot is part of every command line, so
+  switching it, or switching Xcode's SDK, rebuilds.  `cabin metadata` reports it under
+  `toolchain.sysroot`, with a `source` of `cli`, the config file's source, or `detected`.  Build
+  dependencies build with the compilers' own default.  [System dependencies](system-dependencies.md) need a
   pkg-config for the target.
 
 Without `--target`, a compiler whose `--version` banner names another machine draws a warning:
@@ -469,6 +478,9 @@ an input:
   fingerprint.
 - The `CABIN_CACHE_DIR` and `--cache-dir` selection drive where artifacts land on disk but do not
   change the compile / link argv, so they are not in the fingerprint either.
+- The sysroot is reported but not hashed: it is an absolute path, which differs between machines
+  for the same choice (a detected Xcode SDK, a relative `[sysroot]` entry), and a change reaches
+  every compile and link argv, so the build reruns anyway.
 
 ### Direct `ninja` invocation
 
@@ -587,7 +599,8 @@ Items marked *planned* belong to the capability roadmap
 ([ledger](design/capability-roadmap/ledger.md)) and are not implemented yet.
 
 - Compiler probe compilations beyond running `--version` (planned: stage 05).
-- Sysroot or SDK discovery (planned: stage 05).
+- Sysroot discovery beyond Apple SDKs, and a sysroot for the build-machine context (planned:
+  stage 05).
 - A fully supported GCC/Clang-style toolchain on Windows (MinGW / clang).  MSVC is the supported
   Windows dialect; stage 05 promotes MinGW only with real build-and-run CI evidence.
 - A diagnostics abstraction (SARIF / JSON output formats).  Cabin neither detects nor emits either

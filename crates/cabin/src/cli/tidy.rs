@@ -317,6 +317,15 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         build_dir: build_dir.clone(),
         platform: TargetPlatform::current(),
         clang_target: None,
+        // The compile database `cabin build` writes names the same SDK.
+        sysroot: detection_report.as_ref().and_then(|report| {
+            cabin_toolchain::discover_apple_sdk(
+                &platform,
+                report,
+                std::env::var_os("SDKROOT").as_deref(),
+                &cabin_toolchain::ProcessRunner,
+            )
+        }),
         build_context: false,
         profile: profile.clone(),
         selected: Some(tidy_selectors),

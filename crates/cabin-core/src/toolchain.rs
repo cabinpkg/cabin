@@ -95,6 +95,16 @@ pub enum ToolSource {
     Default,
 }
 
+/// The directory a GCC or Clang driver searches for the target's
+/// headers and libraries instead of the build machine's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sysroot {
+    pub path: Utf8PathBuf,
+    /// An Apple SDK: the drivers take it as `-isysroot`, since Apple
+    /// Clang keeps its default SDK's headers under `--sysroot`.
+    pub apple: bool,
+}
+
 /// Either a bare command name (resolved against `PATH`) or an
 /// explicit filesystem path.  The resolver turns either form into a
 /// concrete [`Utf8PathBuf`] when it builds a [`ResolvedTool`].

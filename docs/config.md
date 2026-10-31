@@ -99,6 +99,9 @@ fmt = { path = "../forks/fmt" }
 
 [runner]
 aarch64-unknown-linux-gnu = ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu"]
+
+[sysroot]
+aarch64-unknown-linux-gnu = "/opt/sysroots/aarch64"
 ```
 
 Every other top-level table - and every unknown field inside a known table - is rejected at parse
@@ -257,6 +260,20 @@ without a non-empty first element, is rejected at parse time.  A higher-priority
 for a triple replaces a lower one's.  Without `--target`, no runner applies.  `cabin metadata`
 reports the entries under `config.runners`.  The table plays the role of Cargo's
 `[target.<triple>].runner`, keyed at the top level because config has no `[target]` tables.
+
+### `[sysroot]`
+
+The sysroot GCC and Clang build `--target <triple>` against, keyed by that triple (see
+[`toolchains.md`](toolchains.md#building-for-another-platform)).
+
+| Key        | Type | Notes                                                                       |
+| ---------- | ---- | --------------------------------------------------------------------------- |
+| `<triple>` | path | Relative paths resolve against the config file's directory.                  |
+
+A key that is not a target triple, or an empty path, is rejected at parse time.  A higher-priority
+config file's entry for a triple replaces a lower one's.  Without `--target`, no entry applies, and
+`--sysroot <dir>` overrides the entry.  `cabin metadata` reports the entries under
+`config.sysroots`, and the sysroot in use under `toolchain.sysroot`.
 
 ## Environment variables
 

@@ -43,6 +43,9 @@ pub struct EffectiveConfig {
     /// `[runner]` entries keyed by target triple.  Higher-priority
     /// files override lower files on overlap.
     pub runners: BTreeMap<String, SourcedValue<Vec<String>>>,
+    /// `[sysroot]` entries keyed by target triple.  Higher-priority
+    /// files override lower files on overlap.
+    pub sysroots: BTreeMap<String, EffectivePathSetting>,
     pub loaded_files: Vec<LoadedConfigFile>,
 }
 
@@ -194,6 +197,7 @@ fn apply_file(effective: &mut EffectiveConfig, file: &LoadedConfigFile) {
     apply_parsed(effective, file.source, &base, &file.parsed, file);
 }
 
+#[allow(clippy::too_many_lines)] // one independent merge per config table
 fn apply_parsed(
     effective: &mut EffectiveConfig,
     source: ConfigSource,
@@ -297,6 +301,16 @@ fn apply_parsed(
             .runners
             .insert(triple.clone(), SourcedValue::new(runner.clone(), source));
     }
+    for (triple, sysroot) in &parsed.sysroots {
+        effective.sysroots.insert(
+            triple.clone(),
+            EffectivePathSetting {
+                value: sysroot.clone(),
+                source,
+                base: base.to_path_buf(),
+            },
+        );
+    }
 }
 
 fn source_to_value(source: ConfigSource) -> cabin_core::ConfigValueSource {
@@ -380,6 +394,25 @@ mod tests {
         assert_eq!(cache.value, Utf8PathBuf::from("user-cache"));
         let build_dir = effective.paths.build_dir.expect("workspace build-dir kept");
         assert_eq!(build_dir.source, ConfigSource::Workspace);
+    }
+
+    #[test]
+    fn relative_sysroot_resolves_against_config_directory() {
+        let parsed = ParsedConfig {
+            sysroots: BTreeMap::from([(
+                "aarch64-unknown-linux-gnu".to_owned(),
+                Utf8PathBuf::from("sysroots/arm64"),
+            )]),
+            ..Default::default()
+        };
+        let effective = merge_loaded_files(vec![loaded(
+            ConfigSource::Workspace,
+            "/ws/.cabin/config.toml",
+            parsed,
+        )]);
+        let sysroot = &effective.sysroots["aarch64-unknown-linux-gnu"];
+        assert_eq!(sysroot.absolute(), "/ws/.cabin/sysroots/arm64");
+        assert_eq!(sysroot.source, ConfigSource::Workspace);
     }
 
     #[test]

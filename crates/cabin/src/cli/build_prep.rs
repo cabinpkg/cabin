@@ -43,6 +43,8 @@ pub(crate) struct BuildConfigInputs<'a> {
     pub platform: &'a cabin_core::TargetPlatform,
     /// The `--target` triple, folded into the configuration fingerprint.
     pub target: Option<&'a str>,
+    /// The sysroot path, folded into the configuration fingerprint.
+    pub sysroot: Option<&'a str>,
     pub toolchain: &'a cabin_core::ResolvedToolchain,
     /// Toolchain detection report.  `Some` for the building commands
     /// (fail-hard detection already ran); `None` only when a
@@ -114,6 +116,7 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         compiler_wrapper.as_ref(),
     );
     toolchain_summary.target = inputs.target.map(str::to_owned);
+    toolchain_summary.sysroot = inputs.sysroot.map(str::to_owned);
     Ok(BuildPrep {
         build_flags,
         standard_flag_conflicts,
@@ -133,6 +136,7 @@ pub(crate) struct InspectionPrep {
     /// the rest of the workspace, and compiler cfg conditions then
     /// evaluate as `unknown` with no version.
     pub detection: Option<cabin_core::ToolchainDetectionReport>,
+    pub sysroot: Option<SysrootChoice>,
 }
 
 /// Resolve the profile (`--profile`, no `--release` alias on the
@@ -163,12 +167,73 @@ pub(crate) fn resolve_inspection_prep(
                 None
             }
         };
+    let sysroot = select_sysroot(
+        toolchain_args,
+        effective_config,
+        platform,
+        detection.as_ref(),
+    )?;
     Ok(InspectionPrep {
         manifest_profiles,
         profile,
         toolchain,
         detection,
+        sysroot,
     })
+}
+
+/// The sysroot a command builds with, and where it came from.
+pub(crate) struct SysrootChoice {
+    pub sysroot: cabin_core::Sysroot,
+    /// `cli`, the config file's source, or `detected` for an Apple
+    /// SDK Cabin found itself.
+    pub source: &'static str,
+}
+
+/// `--sysroot`, else the config `[sysroot]` entry for `--target`, else
+/// the Apple SDK Apple Clang would use (contracts: explicit choices
+/// over discovery).  Without a detection report, nothing is
+/// discovered and an explicit choice goes unchecked.
+pub(crate) fn select_sysroot(
+    toolchain_args: &super::ToolchainSelectionArgs,
+    effective_config: &cabin_config::EffectiveConfig,
+    platform: &cabin_core::TargetPlatform,
+    detection: Option<&cabin_core::ToolchainDetectionReport>,
+) -> Result<Option<SysrootChoice>> {
+    let explicit = match &toolchain_args.sysroot {
+        Some(path) => Some((path.clone(), "cli")),
+        None => toolchain_args
+            .target
+            .as_ref()
+            .and_then(|target| effective_config.sysroots.get(&target.target))
+            .map(|setting| {
+                let source = super::config::config_value_source(setting.source).as_key();
+                (setting.absolute().into_std_path_buf(), source)
+            }),
+    };
+    if let Some((path, source)) = explicit {
+        // Ninja runs from the build directory, and a relative
+        // `CABIN_CONFIG` leaves a config entry relative too.
+        let path = super::absolutise(&path)
+            .with_context(|| format!("failed to resolve sysroot {}", path.display()))?;
+        let path = camino::Utf8PathBuf::from_path_buf(path)
+            .map_err(|path| anyhow::anyhow!("sysroot {} is not valid UTF-8", path.display()))?;
+        let sysroot = cabin_toolchain::explicit_sysroot(path, platform, detection)?;
+        return Ok(Some(SysrootChoice { sysroot, source }));
+    }
+    Ok(detection
+        .and_then(|report| {
+            cabin_toolchain::discover_apple_sdk(
+                platform,
+                report,
+                std::env::var_os("SDKROOT").as_deref(),
+                &cabin_toolchain::ProcessRunner,
+            )
+        })
+        .map(|sysroot| SysrootChoice {
+            sysroot,
+            source: "detected",
+        }))
 }
 
 /// Which packages' `[dev-dependencies]` a command activates.
@@ -231,6 +296,9 @@ pub(crate) struct PreparedWorkspace {
     pub platform: cabin_core::TargetPlatform,
     /// See [`cabin_build::PlanRequest::clang_target`].
     pub clang_target: Option<String>,
+    /// See [`cabin_build::PlanRequest::sysroot`].  The build context
+    /// builds with the compilers' default.
+    pub sysroot: Option<cabin_core::Sysroot>,
     /// The `[runner]` config entry for the `--target` triple: the
     /// program and arguments `cabin run` / `cabin test` put before
     /// each executable they run; empty runs it directly.
@@ -566,6 +634,13 @@ pub(crate) fn prepare_workspace(
     for warning in &compiler_targets.warnings {
         reporter.warning(format_args!("{warning}"));
     }
+    let sysroot = select_sysroot(
+        args.toolchain,
+        &effective_config,
+        &platform,
+        Some(&detection_report),
+    )?
+    .map(|choice| choice.sysroot);
     // Feature resolution's reach: the closure through edges active on
     // this platform, now that the graph also holds every other platform's.
     let selected_closure = &feature_resolution.included;
@@ -615,6 +690,7 @@ pub(crate) fn prepare_workspace(
         graph: &graph,
         platform: &platform,
         target: args.toolchain.target.as_ref().map(|t| t.target.as_str()),
+        sysroot: sysroot.as_ref().map(|sysroot| sysroot.path.as_str()),
         toolchain: &toolchain,
         detection: Some(&detection_report),
         cli_compiler_wrapper,
@@ -682,6 +758,7 @@ pub(crate) fn prepare_workspace(
         dev_for,
         platform,
         clang_target: compiler_targets.clang_target,
+        sysroot,
         runner,
         build_context,
     })
@@ -784,6 +861,7 @@ pub(crate) fn plan_prepared(
         enabled_features: Some(&prepared.enabled_features),
         standard_compat: true,
         clang_target: prepared.clang_target.clone(),
+        sysroot: prepared.sysroot.clone(),
         build_context: false,
     })?;
     // `cabin check` reuses the build graph but rewrites it into a
@@ -887,6 +965,7 @@ fn plan_build_context(
         enabled_features: Some(&context.enabled_features),
         standard_compat: true,
         clang_target: None,
+        sysroot: None,
         build_context: true,
     })
     .context("cannot plan the `[build-dependencies]` for the build machine")

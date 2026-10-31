@@ -192,6 +192,10 @@ pub(crate) fn explain(
                     graph: &graph,
                     platform: &platform,
                     target: args.toolchain.target.as_ref().map(|t| t.target.as_str()),
+                    sysroot: inspection
+                        .sysroot
+                        .as_ref()
+                        .map(|choice| choice.sysroot.path.as_str()),
                     toolchain: &inspection.toolchain,
                     detection: inspection.detection.as_ref(),
                     cli_compiler_wrapper,

@@ -767,6 +767,13 @@ pub(crate) struct ToolchainSelectionArgs {
     /// `--target=<TRIPLE>`.  See `docs/toolchains.md`.
     #[arg(long, value_name = "TRIPLE", value_parser = cabin_core::TargetPlatform::from_triple)]
     pub target: Option<cabin_core::TargetPlatform>,
+
+    /// Build against the headers and libraries under this directory:
+    /// GCC and Clang receive `--sysroot=<DIR>`, or `-isysroot <DIR>`
+    /// for an Apple target.  Overrides the config `[sysroot]` entry
+    /// for `--target`.  See `docs/toolchains.md`.
+    #[arg(long, value_name = "DIR")]
+    pub sysroot: Option<PathBuf>,
 }
 
 impl ToolchainSelectionArgs {

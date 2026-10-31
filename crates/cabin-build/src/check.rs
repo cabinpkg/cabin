@@ -128,6 +128,7 @@ mod tests {
             depfile: Some(Utf8PathBuf::from(depfile)),
             compiler: Utf8PathBuf::from("/usr/bin/c++"),
             target: None,
+            sysroot: None,
             compiler_wrapper: None,
             arguments: CompileArguments {
                 opt_level: OptLevel::O0,
@@ -156,6 +157,7 @@ mod tests {
         BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/c++"),
             target: None,
+            sysroot: None,
             output: Utf8PathBuf::from(exe),
             inputs: vec![Utf8PathBuf::from(object_input)],
             arguments: vec![],

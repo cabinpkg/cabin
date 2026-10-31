@@ -110,8 +110,9 @@ pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
 pub use term_text::escape_control_chars;
 pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvError};
 pub use toolchain::{
-    ConditionalToolchainDecl, ResolvedTool, ResolvedToolchain, ToolKind, ToolSelection, ToolSource,
-    ToolSpec, ToolchainDecl, ToolchainResolutionError, ToolchainSelection, ToolchainSettings,
+    ConditionalToolchainDecl, ResolvedTool, ResolvedToolchain, Sysroot, ToolKind, ToolSelection,
+    ToolSource, ToolSpec, ToolchainDecl, ToolchainResolutionError, ToolchainSelection,
+    ToolchainSettings,
 };
 pub use upstream::{
     MAX_COPY_STEPS, MAX_PATCH_BYTES, MAX_PATCH_FILES, MAX_URL_BYTES, UpstreamCopy, UpstreamError,

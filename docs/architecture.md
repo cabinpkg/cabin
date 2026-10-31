@@ -846,7 +846,8 @@ sticking around.  Given a [`cabin_package::StagedPackage`] plus a registry root,
 ### `cabin-toolchain`
 
 Owns toolchain resolution, subprocess-based compiler / archiver detection, compiler-wrapper
-resolution, and Ninja lookup.  The crate must:
+resolution, sysroot selection (`explicit_sysroot`, `discover_apple_sdk`), and Ninja lookup.  The
+crate must:
 
 - not parse TOML;
 - not run dependency resolution;
@@ -1796,8 +1797,9 @@ machine; without it, a compiler for another machine is only a warning.
 
 Detection results are deliberately **not** serialized into package or index metadata.  They are
 local-environment state and would create reproducibility problems if they leaked into a published
-archive.  The build configuration fingerprint is unaffected because the planner still emits the same
-fixed command shapes whether the detected compiler is Clang 17 or GCC 13.
+archive.  The build configuration fingerprint is unaffected: it hashes the tool specs, not what
+detection found, and leaves out the Apple SDK path a detected Apple Clang adds to its commands, as
+it leaves out resolved tool paths.
 
 Detection is parser-only by design: it reads `tool --version` output rather than staging probe
 compilations, which keeps the step fast, deterministic, and free of temporary build artifacts.
@@ -2018,7 +2020,9 @@ documented in `registry/docs/architecture.md`:
   and clang-cl must already build that platform, and Cabin runs what it built for another machine
   only through a configured `[runner]` (see
   [`toolchains.md`](toolchains.md#building-for-another-platform)). `[build-dependencies]` build for
-  the build machine, but nothing runs them yet; sysroot or SDK discovery is not implemented yet. (Windows / MSVC
+  the build machine, but nothing runs them yet. `--sysroot` or a config `[sysroot]` entry passes
+  GCC and Clang a sysroot, and Apple Clang builds name the SDK it would pick; other sysroot
+  discovery is not implemented yet. (Windows / MSVC
   itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate
   lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the detection and dialect
   sections above.)

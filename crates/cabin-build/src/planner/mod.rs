@@ -100,6 +100,9 @@ pub struct PlanRequest<'a> {
     /// `--target=` to a Clang-family driver; `None` keeps the drivers'
     /// default (a native build, or a compiler with a fixed target).
     pub clang_target: Option<String>,
+    /// The sysroot every GNU/Clang compile, assemble, and link
+    /// command passes; `None` keeps the drivers' default.
+    pub sysroot: Option<cabin_core::Sysroot>,
     /// Whether this plan builds the build context: tools for the
     /// build machine, whose units land under
     /// `<profile>/build-machine/packages` instead of
@@ -692,6 +695,7 @@ fn emit_actions(
                 depfile: Some(depfile),
                 compiler: dispatch.driver.to_path_buf(),
                 target: req.clang_target.clone(),
+                sysroot: req.sysroot.clone(),
                 compiler_wrapper,
                 arguments: CompileArguments {
                     opt_level: req.profile.opt_level,
@@ -746,6 +750,7 @@ fn emit_actions(
             actions.push(BuildAction::Assemble(AssembleAction {
                 assembler,
                 target: req.clang_target.clone(),
+                sysroot: req.sysroot.clone(),
                 source: asm.abs_source.clone(),
                 object: asm.object.clone(),
                 depfile: Some(depfile_path(&asm.object)),
@@ -875,6 +880,7 @@ fn emit_actions(
                 actions.push(BuildAction::Link(LinkAction {
                     linker: driver_path.to_path_buf(),
                     target: req.clang_target.clone(),
+                    sysroot: req.sysroot.clone(),
                     output: exe_path.clone(),
                     inputs,
                     arguments: link_arguments,
