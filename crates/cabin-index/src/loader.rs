@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use cabin_core::registry::{
@@ -12,6 +12,7 @@ use crate::model::{
     IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, ResolutionMetadata,
     RevisionMetadata, SourceLocation, VersionMetadata,
 };
+use crate::walk::walk_dependencies;
 
 /// How to interpret a `source.path` value when parsing one
 /// `<name>.json` file.
@@ -43,7 +44,104 @@ impl std::fmt::Debug for SourceContext<'_> {
     }
 }
 
-/// Load every `<package>.json` file under `path` into a [`PackageIndex`].
+/// A file index opened for reading package documents by name, so a
+/// resolution reads the documents it needs rather than the whole
+/// registry.  [`load_index`] describes the layouts it accepts.
+#[derive(Debug, Clone)]
+pub struct FileIndex {
+    root: PathBuf,
+    packages_dir: PathBuf,
+}
+
+impl FileIndex {
+    /// Open the index at `path`, validating its `config.json` when it
+    /// has one.  No package document is read.
+    ///
+    /// # Errors
+    /// Returns [`IndexError::NotADirectory`] when `path` or the
+    /// resolved packages directory is not a directory, and propagates
+    /// the registry-root `config.json` errors (`Io` / `Json` /
+    /// [`IndexError::InvalidRegistryConfig`]).
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, IndexError> {
+        let path = path.as_ref();
+        if !path.is_dir() {
+            return Err(IndexError::NotADirectory {
+                path: path.to_path_buf(),
+            });
+        }
+        let packages_dir = if path.join("config.json").is_file() {
+            load_registry_config(path)?
+        } else {
+            path.to_path_buf()
+        };
+        if !packages_dir.is_dir() {
+            return Err(IndexError::NotADirectory { path: packages_dir });
+        }
+        Ok(Self {
+            root: path.to_path_buf(),
+            packages_dir,
+        })
+    }
+
+    /// The directory the index was opened at.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Read and validate `name`'s document, `<name>.json` or
+    /// `<scope>/<name>.json` under the packages directory, or `None`
+    /// when there is no such file.
+    ///
+    /// # Errors
+    /// Returns [`IndexError::Io`] when the file exists but cannot be
+    /// read, and every error of [`parse_package_entry`].
+    pub fn read_package(&self, name: &PackageName) -> Result<Option<IndexEntry>, IndexError> {
+        let (scope, base) = match name.as_str().split_once('/') {
+            Some((scope, base)) => (Some(scope), base),
+            None => (None, name.as_str()),
+        };
+        // `packages = "."` puts the registry's own `config.json` beside
+        // the package documents; it never names a package.
+        if scope.is_none() && base == "config" && self.packages_dir == self.root {
+            return Ok(None);
+        }
+        let mut path = self.packages_dir.clone();
+        path.extend(scope);
+        path.push(format!("{base}.json"));
+        match load_package_file(&path, scope) {
+            Err(IndexError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                Ok(None)
+            }
+            result => result.map(Some),
+        }
+    }
+
+    /// Read `roots` and every package they reach through non-optional
+    /// edges, skipping the names in `known`; see
+    /// [`walk_dependencies`].  The returned index holds the newly read
+    /// entries only.
+    ///
+    /// # Errors
+    /// Propagates the first error of [`FileIndex::read_package`].
+    #[tracing::instrument(name = "load_file_index", level = "info", skip_all, fields(roots = roots.len(), loaded = tracing::field::Empty))]
+    pub fn load_package_index(
+        &self,
+        roots: &[PackageName],
+        known: &BTreeSet<PackageName>,
+    ) -> Result<PackageIndex, IndexError> {
+        let packages = walk_dependencies(roots, known, |name| self.read_package(name))?;
+        tracing::Span::current().record("loaded", packages.len());
+        Ok(PackageIndex {
+            root: self.root.clone(),
+            packages,
+        })
+    }
+}
+
+/// Load every `<package>.json` file under `path` into a [`PackageIndex`],
+/// validating each one.  Resolution reads only the documents it needs
+/// through [`FileIndex`] instead.
 ///
 /// `path` must point at an existing directory.  Two on-disk shapes
 /// are accepted:
@@ -79,24 +177,9 @@ impl std::fmt::Debug for SourceContext<'_> {
 /// registry-root `config.json` is present it propagates the config
 /// errors (`Io` / `Json` / [`IndexError::InvalidRegistryConfig`]), and
 /// it propagates any per-package parse error from `parse_package_entry`.
-#[tracing::instrument(name = "load_file_index", level = "info", skip_all)]
 pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
     let path = path.as_ref();
-    if !path.is_dir() {
-        return Err(IndexError::NotADirectory {
-            path: path.to_path_buf(),
-        });
-    }
-
-    let packages_dir = if path.join("config.json").is_file() {
-        load_registry_config(path)?
-    } else {
-        path.to_path_buf()
-    };
-
-    if !packages_dir.is_dir() {
-        return Err(IndexError::NotADirectory { path: packages_dir });
-    }
+    let FileIndex { packages_dir, .. } = FileIndex::open(path)?;
 
     let entries = std::fs::read_dir(&packages_dir).map_err(|source| IndexError::Io {
         path: packages_dir.clone(),
@@ -2589,5 +2672,78 @@ mod tests {
             load_index(dir.path()).unwrap_err(),
             IndexError::Json { .. }
         ));
+    }
+
+    /// One version of `name` depending on `deps`, each `(name,
+    /// optional)` at `^1`.
+    fn doc(name: &str, deps: &[(&str, bool)], yanked: bool) -> String {
+        let deps = deps
+            .iter()
+            .map(|(dep, optional)| {
+                format!(r#""{dep}": {{ "version": "^1", "optional": {optional} }}"#)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            r#"{{ "schema": 1, "name": "{name}", "versions": {{ "1.0.0": {{ "dependencies": {{ {deps} }}, "yanked": {yanked} }} }} }}"#
+        )
+    }
+
+    fn names(index: &PackageIndex) -> Vec<&str> {
+        index.packages.keys().map(PackageName::as_str).collect()
+    }
+
+    /// A resolution reads what its roots reach through non-optional
+    /// edges of non-yanked versions, and nothing else: an unrelated
+    /// package's document is never opened, so its damage does not
+    /// fail the load.  A name the index lacks reads as an entry
+    /// without versions, and a `known` name is never read.
+    #[test]
+    fn file_index_reads_only_what_the_roots_reach() {
+        let dir = TempDir::new().unwrap();
+        let write = |path: &str, body: &str| dir.child(path).write_str(body).unwrap();
+        write(
+            "app.json",
+            &doc("app", &[("acme/lib", false), ("opt", true)], false),
+        );
+        write(
+            "acme/lib.json",
+            &doc("acme/lib", &[("missing", false), ("local", false)], false),
+        );
+        write("opt.json", &doc("opt", &[], false));
+        write("old.json", &doc("old", &[("unrelated", false)], true));
+        write("unrelated.json", "{ not json");
+
+        let index = FileIndex::open(dir.path()).unwrap();
+        let roots = [
+            PackageName::new("app").unwrap(),
+            PackageName::new("old").unwrap(),
+        ];
+        let known = BTreeSet::from([PackageName::new("local").unwrap()]);
+        let loaded = index.load_package_index(&roots, &known).unwrap();
+        assert_eq!(names(&loaded), ["acme/lib", "app", "missing", "old"]);
+        assert!(
+            loaded.packages[&PackageName::new("missing").unwrap()]
+                .versions
+                .is_empty()
+        );
+    }
+
+    /// A document resolution needs is validated exactly as the whole
+    /// index loader validates it.
+    #[test]
+    fn file_index_rejects_a_damaged_document_it_reads() {
+        let dir = TempDir::new().unwrap();
+        dir.child("app.json")
+            .write_str(&doc("app", &[("lib", false)], false))
+            .unwrap();
+        dir.child("lib.json")
+            .write_str(&doc("other", &[], false))
+            .unwrap();
+        let err = FileIndex::open(dir.path())
+            .unwrap()
+            .load_package_index(&[PackageName::new("app").unwrap()], &BTreeSet::new())
+            .unwrap_err();
+        assert!(matches!(err, IndexError::NameMismatch { .. }), "{err:?}");
     }
 }

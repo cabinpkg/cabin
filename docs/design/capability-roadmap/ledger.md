@@ -60,8 +60,8 @@ Stages 01 and 03; contexts in 04; validated in 12-14.
   `cabin-feature` resolves the local packages and hands the requests on registry edges to the
   resolver (`FeatureResolution::versioned_requests`); local packages, patch forks included, are
   single-version candidates (`cabin/src/cli/seed.rs`, `local_packages`).  Index metadata loads
-  lazily over sparse HTTP (`ResolveError::MetadataNeeded`); the eager prefetch still walks
-  non-optional edges only (`IndexPackageDependency::is_active_for`).
+  lazily from the file and sparse HTTP indexes (`ResolveError::MetadataNeeded`); the eager prefetch
+  still walks non-optional edges only (`cabin_index::walk_dependencies`).
 - Feature resolution keeps one feature set per package for the whole graph
   (`cabin-feature`, `FeatureResolution`) and propagates dependency-edge feature requests into the
   fetched graph's compiles and target gates (`cabin-ports/sqlite3`'s `single-threaded` reaches

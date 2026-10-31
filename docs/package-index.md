@@ -335,10 +335,15 @@ cannot be fetched.
 
 ## Validation
 
-Loading rejects an index when:
+Resolution reads only the package documents it needs: those of the manifest's versioned
+dependencies and the dependencies they reach, an optional dependency's only once a feature enables
+it.  No other document is read, so a damaged document for an unrelated package cannot fail
+the run.  The same is true of the [sparse HTTP index](#sparse-http-index).
 
-- the path is not a directory
-- a `*.json` file has unknown fields
+Loading fails when the index path is not a directory, or when a document it reads violates one of
+these rules:
+
+- the document has unknown fields
 - `schema` is neither `1` nor `2`
 - the declared `name` doesn't equal the filename stem
 - a version key is not a valid SemVer string, or carries SemVer build metadata

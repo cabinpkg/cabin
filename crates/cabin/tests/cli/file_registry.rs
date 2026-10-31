@@ -611,6 +611,31 @@ fn published_registry_can_be_resolved() {
     );
 }
 
+/// Resolution reads only the documents its dependencies reach: damage
+/// to a package nothing depends on does not fail it, while the same
+/// damage to a required document does.
+#[test]
+fn resolution_reads_only_the_documents_it_needs() {
+    let dir = TempDir::new().unwrap();
+    let registry = publish_simple_package(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
+    let resolve = || {
+        let mut cmd = cabin();
+        cmd.args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(&registry);
+        cmd
+    };
+    fs::write(registry.join("packages/unrelated.json"), "{ not json").unwrap();
+    resolve().assert().success();
+    fs::write(registry.join("packages/fmtlib/fmt.json"), "{ not json").unwrap();
+    resolve()
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to load index"));
+}
+
 #[test]
 fn published_registry_can_be_fetched() {
     let dir = TempDir::new().unwrap();
