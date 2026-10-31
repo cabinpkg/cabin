@@ -13,12 +13,14 @@ use crate::error::NinjaError;
 pub const TOOLCHAIN_STAMP: &str = "cabin-toolchain.json";
 
 /// Write a `build.ninja` describing `graph` to `path`, and
-/// `toolchain_identity` to [`TOOLCHAIN_STAMP`] beside it.
+/// `toolchain_identity` to [`TOOLCHAIN_STAMP`] beside it.  Returns
+/// whether `build.ninja` changed.
 ///
-/// Replacement is atomic: the new bytes land in a sibling
-/// temporary file and only rename onto `path` after a successful
-/// write, so an interrupted run leaves the previous `build.ninja`
-/// in place.  The parent directory must already exist.
+/// Each file is written only when its contents change, and then
+/// atomically: the new bytes land in a sibling temporary file and only
+/// rename onto `path` after a successful write, so an interrupted run
+/// leaves the previous `build.ninja` in place.  The parent directory
+/// must already exist.
 ///
 /// `check_stamp_runner` is the path to the `cabin` executable; the
 /// syntax-check rule invokes it as `cabin stamp` to run the
@@ -26,8 +28,9 @@ pub const TOOLCHAIN_STAMP: &str = "cabin-toolchain.json";
 /// GNU-dialect archive rule as `cabin recreate` (see
 /// [`render_build_ninja`]).
 ///
-/// The stamp is rewritten only when `toolchain_identity` changes: a
-/// fresh modification time is what makes Ninja rebuild every edge.
+/// The stamp's modification time changes only with
+/// `toolchain_identity`, and that is what makes Ninja rebuild every
+/// edge.
 ///
 /// # Errors
 /// Propagates rendering failures from [`render_build_ninja`]
@@ -41,24 +44,31 @@ pub fn write_build_ninja(
     graph: &BuildGraph,
     check_stamp_runner: &Path,
     toolchain_identity: &str,
-) -> Result<(), NinjaError> {
+) -> Result<bool, NinjaError> {
     let body = render_build_ninja(graph, check_stamp_runner)?;
-    atomically_write(path, body.as_bytes())?;
-    let stamp = path.with_file_name(TOOLCHAIN_STAMP);
-    if std::fs::read(&stamp).ok().as_deref() != Some(toolchain_identity.as_bytes()) {
-        atomically_write(&stamp, toolchain_identity.as_bytes())?;
-    }
-    Ok(())
+    let changed = write_if_changed(path, body.as_bytes())?;
+    write_if_changed(
+        &path.with_file_name(TOOLCHAIN_STAMP),
+        toolchain_identity.as_bytes(),
+    )?;
+    Ok(changed)
 }
 
-/// Atomically replace `path` with `body`, tagging any IO error
-/// with `path` so callers can point users at the destination
-/// that failed.
-pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaError> {
+/// Atomically replace `path` with `body` unless it already holds exactly
+/// `body`, and return whether it wrote.  Leaving an identical file alone
+/// keeps its modification time for the tools watching it and skips the
+/// atomic write's fsyncs, which dominate an unchanged build's write cost.
+/// Any IO error is tagged with `path` so callers can point users at the
+/// destination that failed.
+pub(crate) fn write_if_changed(path: &Path, body: &[u8]) -> Result<bool, NinjaError> {
+    if std::fs::read(path).ok().as_deref() == Some(body) {
+        return Ok(false);
+    }
     write_atomic(path, body).map_err(|source| NinjaError::Io {
         path: path.to_path_buf(),
         source,
-    })
+    })?;
+    Ok(true)
 }
 
 /// Render `graph` as a Ninja build file.
@@ -1065,5 +1075,33 @@ mod tests {
             NinjaError::Io { path, .. } => assert_eq!(path, missing_parent),
             other => panic!("expected NinjaError::Io, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn unchanged_build_ninja_keeps_its_modification_time() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("build.ninja");
+        let runner = Path::new("/opt/cabin/bin/cabin");
+        let graph = graph_with(vec![compile_action()], vec![]);
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let modified = || std::fs::metadata(&path).unwrap().modified().unwrap();
+
+        assert!(write_build_ninja(&path, &graph, runner, "{}").unwrap());
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        assert!(!write_build_ninja(&path, &graph, runner, "{}").unwrap());
+        assert_eq!(modified(), old);
+
+        let changed = graph_with(vec![compile_action(), link_action()], vec![]);
+        assert!(write_build_ninja(&path, &changed, runner, "{}").unwrap());
+        assert!(modified() > old);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            render(&changed).unwrap()
+        );
     }
 }

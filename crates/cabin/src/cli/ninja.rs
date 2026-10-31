@@ -537,22 +537,27 @@ pub(crate) fn invoke_ninja_and_report(
 
     let ninja_file = profile_build_root.join("build.ninja");
     let identity = serde_json::to_string_pretty(&req.detection.build_identity())?;
-    cabin_ninja::write_build_ninja(
+    let ninja_changed = cabin_ninja::write_build_ninja(
         &ninja_file,
         req.plan_graph,
         &check_stamp_runner(),
         &identity,
     )?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
-    cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)?;
+    let ccmd_changed = cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)?;
 
     // Implementation-detail status is verbose-only: under `-v` the
     // user sees which files Cabin wrote and how Ninja was invoked,
     // alongside Ninja's own raw banner.
-    req.reporter
-        .verbose(format_args!("cabin: wrote {}", ninja_file.display()));
-    req.reporter
-        .verbose(format_args!("cabin: wrote {}", ccmd_file.display()));
+    for (file, changed) in [(&ninja_file, ninja_changed), (&ccmd_file, ccmd_changed)] {
+        if changed {
+            req.reporter
+                .verbose(format_args!("cabin: wrote {}", file.display()));
+        } else {
+            req.reporter
+                .verbose(format_args!("cabin: {} is up to date", file.display()));
+        }
+    }
     let ninja_verbose = req.reporter.verbosity().shows_verbose();
     req.reporter.verbose(format_args!(
         "cabin: invoking {} {}{}-C {}",
