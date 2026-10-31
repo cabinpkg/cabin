@@ -63,8 +63,9 @@ pub struct ResolveInput {
     /// edge that reaches the name, is exempt from the lockfile, and
     /// is reported as [`ResolvedSource::Local`](crate::ResolvedSource::Local).
     pub local_packages: BTreeMap<PackageName, IndexEntry>,
-    /// Whether `index` holds only the metadata fetched so far (sparse
-    /// HTTP).  A name missing from such an index fails with
+    /// Whether `index` holds only the metadata read so far, as Cabin's
+    /// file and sparse HTTP sources load it.  A name missing from such
+    /// an index fails with
     /// [`ResolveError::MetadataNeeded`](crate::ResolveError::MetadataNeeded)
     /// so the caller can fetch it and resolve again; otherwise a
     /// missing name is a package with no versions.

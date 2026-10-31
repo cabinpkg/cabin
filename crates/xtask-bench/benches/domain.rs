@@ -99,11 +99,6 @@ fn workspace_and_features(c: &mut Criterion) {
 }
 
 fn index_and_resolver(c: &mut Criterion) {
-    c.bench_function("index/load-file-registry", |b| {
-        let packages = registry().join("packages");
-        b.iter(|| cabin_index::load_index(black_box(&packages)).unwrap());
-    });
-    let mut group = c.benchmark_group("resolver");
     let wide: BTreeMap<_, _> = (0..fixture::WIDE.packages)
         .map(|i| {
             (
@@ -112,6 +107,17 @@ fn index_and_resolver(c: &mut Criterion) {
             )
         })
         .collect();
+    // What resolution reads: the documents the wide roots reach.
+    c.bench_function("index/load-file-registry", |b| {
+        let index = cabin_index::FileIndex::open(registry()).unwrap();
+        let roots: Vec<_> = wide.keys().cloned().collect();
+        b.iter(|| {
+            index
+                .load_package_index(black_box(&roots), &BTreeSet::new())
+                .unwrap()
+        });
+    });
+    let mut group = c.benchmark_group("resolver");
     let deep = BTreeMap::from([(
         name(&fixture::DEEP.name(0)),
         semver::VersionReq::parse("^1").unwrap(),

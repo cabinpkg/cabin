@@ -99,7 +99,7 @@ Trace coverage per workflow.  `info` spans mark phases; `debug` spans mark per-i
 | Config discovery | `cabin-config` | `discover_config_files` (debug) | done |
 | Workspace and manifest load | `cabin-workspace`, `cabin-manifest`, `cabin` | `load_workspace_and_patches`, `load_workspace`, `discover_workspace_root`, `load_manifest` (debug), `resolve_package_selection` (debug) | done |
 | Feature resolution | `cabin-feature` | `resolve_features` (`roots`, `packages`) | done |
-| File index | `cabin-index` | `load_file_index`, `parse_package_entry` (debug, `bytes`) | done |
+| File index | `cabin-index` | `load_file_index` (`roots`, `loaded`), `parse_package_entry` (debug, `bytes`) | done |
 | HTTP index | `cabin-index-http` | `open_http_index`, `load_http_index` (`roots`, `fetched`), `http_get` (debug: `package`, `status`, `bytes`) | done |
 | Dependency solving and lazy metadata | `cabin-resolver`, `cabin` | `resolve_with_lazy_index` (`rounds`), `resolve` / `resolve_packages` (`roots`, `index_packages`), `held_back_report`, `select_locked_revisions` (debug) | done |
 | Lockfile | `cabin-lockfile` | `read_lockfile`, `write_lockfile` (debug) | done |
@@ -224,7 +224,6 @@ it was refuted: the coarse tick hid the shims' cost.
   test on the next check, so a test can be reported up to 10 ms after it exits.
 - The lazy HTTP index needs one resolution round per dependency level: `index/http-lazy` takes 8
   rounds for its 8-deep optional chain.
-- The file index parses every package document in the registry, whatever the resolution needs.
 
 ## Investigation: generated-file writes and manifest size
 
@@ -254,6 +253,44 @@ and 15 ms on 8,106 `stat`s (`ninja -d stats`).  Each edge spells its full comman
 target's shared flags into Ninja variables could save at most about half the parse time, under 5%
 of the no-op, and would split commands that the driver lowers whole and that
 `compile_commands.json` must spell out anyway.
+
+## Investigation: file-index reads
+
+Same machine, release builds of `main` (2ccb8f623) and the change, under other load (load average
+10-39); medians from `hyperfine`.  Peak RSS is the largest process's, which is Cabin's here
+because resolution spawns no child; instructions are Cabin's alone.
+
+**Question.**  Resolution over a file index parsed every document under `packages/` before
+solving.  How much of a resolve was that, and how does it grow with the registry?
+
+**Experiment.**  One consumer with a fixed 60-package closure, against registries that add
+unrelated packages around it (15 runs each); documents parsed counted from `parse_package_entry`
+spans:
+
+| Unrelated packages | `main` | Change | Documents parsed |
+| ---: | ---: | ---: | ---: |
+| 0 | 20.6 ms, 17.9 MiB | 13.5 ms, 12.9 MiB | 188 -> 60 |
+| 1,000 | 68.3 ms, 59.1 MiB | 15.6 ms, 13.0 MiB | 1,188 -> 60 |
+| 10,000 | 558.4 ms, 429.3 MiB | 12.8 ms, 13.0 MiB | 10,188 -> 60 |
+
+**Fix.**  Resolution reads, by name, only the documents the roots reach through non-optional
+edges, with the walk the HTTP index uses, and an optional dependency's document once a feature
+enables it.  A damaged document for an unrelated package no longer fails the run; one that
+resolution reads still does.  `cargo perf run --runs 30 --cabin main=... --cabin change=...`:
+
+| Scenario | Wall | Peak RSS | Instructions |
+| --- | ---: | ---: | ---: |
+| `resolve/deep` | -29.4% | -27.8% | -47.0% |
+| `resolve/wide` | -9.7% | -11.6% | -14.4% |
+| `resolve/update-wide` | -9.7% | -12.4% | -14.7% |
+| `artifact/fetch-warm` | -43.4% | -35.0% | -54.2% |
+| `index/http-wide`, `index/http-lazy` (controls) | Unchanged | Unchanged | Unchanged |
+
+Every row is past the harness's noise bound.  The file index now needs one more solve round for
+each optional dependency a feature enables, as the HTTP index does: the `index/http-lazy`
+registry, whose 8-deep optional chain enables one at a time, read from disk takes 8 rounds
+(1.8 ms) instead of 1 (0.2 ms), and still finishes in 17.5 ms instead of 25.6 ms because it
+parses 8 documents instead of 188.
 
 ## Platform verification
 

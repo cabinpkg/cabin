@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 
 use cabin_core::PackageName;
 use cabin_core::registry::{
@@ -154,24 +154,13 @@ impl HttpIndex {
         Ok(entry)
     }
 
-    /// Walk root dependencies (and every package transitively
-    /// referenced from them) by name, fetching each `<name>.json`
-    /// over HTTP, and assemble a [`PackageIndex`] that matches the
-    /// shape produced by the local file loader.
-    ///
-    /// The walker only fetches packages that are reachable from
-    /// `roots` through non-optional edges; a sparse HTTP registry can
-    /// hold thousands of packages, but a single `cabin resolve` run
-    /// only ever references the closure of its declared dependencies.
-    /// Optional dependencies are fetched on demand, once resolution
-    /// enables one.  Names in `known` are never fetched: packages the
-    /// workspace supplies locally, and those an earlier walk loaded.
-    /// The returned index holds the newly fetched entries only.
-    ///
-    /// A name the registry answers with 404 is recorded as an entry
-    /// without versions: whether a package that does not exist
-    /// matters is the resolver's call, since an unselected version's
-    /// dependency must not fail the walk.
+    /// Fetch `roots` and every package they reach through non-optional
+    /// edges, each `<name>.json` over HTTP, skipping the names in
+    /// `known` (see [`cabin_index::walk_dependencies`]), and assemble a
+    /// [`PackageIndex`] of the newly fetched entries.  A sparse registry
+    /// can hold thousands of packages, but one resolution only reads the
+    /// closure of its declared dependencies.  A name the registry
+    /// answers with 404 is recorded as an entry without versions.
     ///
     /// # Errors
     /// Returns [`IndexHttpError::UnsafePackageName`] when any root or
@@ -185,60 +174,13 @@ impl HttpIndex {
         roots: &[PackageName],
         known: &BTreeSet<PackageName>,
     ) -> Result<PackageIndex, IndexHttpError> {
-        let mut packages: BTreeMap<PackageName, IndexEntry> = BTreeMap::new();
-        let mut queue: VecDeque<PackageName> = roots.iter().cloned().collect();
-        // Defense-in-depth: re-validate every root name before
-        // it reaches the URL builder.  `PackageName::new` already
-        // rejects unsafe names, but the walker is the boundary
-        // that turns a `PackageName` into an HTTP path segment
-        // so the explicit gate keeps the rule visible.
-        for name in &queue {
-            ensure_path_safe(name.as_str())?;
-        }
-        while let Some(name) = queue.pop_front() {
-            if packages.contains_key(&name) || known.contains(&name) {
-                continue;
-            }
-            let entry = match self.fetch_package(&name) {
-                Err(IndexHttpError::PackageNotFound { .. }) => IndexEntry {
-                    name: name.clone(),
-                    versions: BTreeMap::new(),
-                },
-                result => result?,
-            };
-            for version_meta in entry.versions.values() {
-                // Mirror the resolver's transitive walk: include
-                // normal deps (dev deps and system deps are not
-                // part of resolve/fetch) whatever their `cfg(...)`
-                // condition, and skip disabled optional deps.  Walking every
-                // version of every reachable package is necessary
-                // because the resolver may select any non-yanked
-                // version.  Yanked versions are skipped outright:
-                // the resolver never selects one (a locked yanked
-                // version fails its own explicit check), so a
-                // yanked release's dead dependency edge must not
-                // 404 the whole walk.
-                if version_meta.yanked {
-                    continue;
-                }
-                let kinded = version_meta.dependencies.iter();
-                for (dep_name, dep_entry) in kinded {
-                    if dep_entry.optional {
-                        continue;
-                    }
-                    // Re-check transitive names too: even though
-                    // `cabin_index::parse_package_entry` constructs
-                    // each `PackageName` through `PackageName::new`,
-                    // this check pins the rule at the URL-building
-                    // boundary.
-                    ensure_path_safe(dep_name.as_str())?;
-                    if !packages.contains_key(dep_name) {
-                        queue.push_back(dep_name.clone());
-                    }
-                }
-            }
-            packages.insert(name, entry);
-        }
+        // `fetch_package` vets every name at the URL-building boundary
+        // before it requests anything.
+        let packages =
+            cabin_index::walk_dependencies(roots, known, |name| match self.fetch_package(name) {
+                Err(IndexHttpError::PackageNotFound { .. }) => Ok(None),
+                result => result.map(Some),
+            })?;
         tracing::Span::current().record("fetched", packages.len());
         Ok(PackageIndex {
             // Use the base URL string as the displayable root.

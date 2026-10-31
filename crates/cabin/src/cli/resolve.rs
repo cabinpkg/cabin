@@ -23,43 +23,65 @@ use super::{
     resolve_invocation_manifest,
 };
 
-/// Resolve `input` against `index`, fetching metadata on demand when
-/// `sparse` serves it: the initial crawl follows non-optional edges
-/// only, so the metadata of an optional dependency a feature enables,
-/// or of a fork's dependency, is fetched here.  The solve itself stays
-/// free of I/O and restarts after each fetch; every round loads a new
-/// name, so the loop ends.  `lean` skips the hold-back report.  Each
-/// round first gives the lockfile's kept pins their revisions'
-/// metadata, which the fetch plan and lockfile writer then read too.
+/// Where resolution reads package metadata: a file registry or a
+/// sparse HTTP one, each read one package document at a time by name.
+enum MetadataSource {
+    File(cabin_index::FileIndex),
+    Http(Box<cabin_index_http::HttpIndex>),
+}
+
+impl MetadataSource {
+    /// Read `roots` and what they reach through non-optional edges,
+    /// skipping the names in `known`.
+    fn load(&self, roots: &[PackageName], known: &BTreeSet<PackageName>) -> Result<PackageIndex> {
+        match self {
+            Self::File(index) => index
+                .load_package_index(roots, known)
+                .with_context(|| format!("failed to load index at {}", index.root().display())),
+            Self::Http(index) => Ok(index.load_package_index(roots, known)?),
+        }
+    }
+}
+
+/// Resolve `input` against the metadata `source` serves, reading it on
+/// demand: the initial walk follows non-optional edges only, so the
+/// metadata of an optional dependency a feature enables, or of a fork's
+/// dependency, is read here.  The solve itself stays free of I/O and
+/// restarts after each read; every round loads a new name, so the loop
+/// ends.  `lean` skips the hold-back report.  Each round first gives the
+/// lockfile's kept pins their revisions' metadata, which the fetch plan
+/// and lockfile writer then read too.  Returns the index the solve read.
 #[tracing::instrument(level = "info", skip_all, fields(rounds = tracing::field::Empty))]
 fn resolve_with_lazy_index(
     input: &ResolveInput,
-    index: &mut PackageIndex,
-    sparse: Option<&cabin_index_http::HttpIndex>,
+    source: &MetadataSource,
     lean: bool,
-) -> Result<ResolveOutput> {
+) -> Result<(ResolveOutput, PackageIndex)> {
+    let roots: Vec<PackageName> = input.root_dependencies.keys().cloned().collect();
+    let mut known: BTreeSet<PackageName> = input.local_packages.keys().cloned().collect();
+    let mut index = source.load(&roots, &known)?;
+    known.extend(index.packages.keys().cloned());
     let mut rounds: u64 = 0;
     loop {
         rounds += 1;
         tracing::Span::current().record("rounds", rounds);
-        cabin_resolver::select_locked_revisions(input, index);
+        cabin_resolver::select_locked_revisions(input, &mut index);
         let result = if lean {
-            cabin_resolver::resolve_packages(input, index)
+            cabin_resolver::resolve_packages(input, &index)
         } else {
-            cabin_resolver::resolve(input, index)
+            cabin_resolver::resolve(input, &index)
         };
-        match (result, sparse) {
-            (Err(cabin_resolver::ResolveError::MetadataNeeded(name)), Some(http)) => {
-                let known: BTreeSet<PackageName> = index
-                    .packages
-                    .keys()
-                    .chain(input.local_packages.keys())
-                    .cloned()
-                    .collect();
-                let fetched = http.load_package_index(&[name], &known)?;
-                index.packages.extend(fetched.packages);
+        match result {
+            Err(cabin_resolver::ResolveError::MetadataNeeded(name)) => {
+                let loaded = source.load(&[name], &known)?;
+                known.extend(loaded.packages.keys().cloned());
+                index.packages.extend(loaded.packages);
             }
-            (result, _) => return result.context("dependency resolution failed"),
+            result => {
+                return result
+                    .map(|output| (output, index))
+                    .context("dependency resolution failed");
+            }
         }
     }
 }
@@ -96,6 +118,8 @@ fn resolve_input(
     input.local_packages = super::seed::local_packages(graph);
     input.local_links.clone_from(&seed.local_links);
     input.link_domains.clone_from(&seed.link_domains);
+    // Both index sources read metadata on demand.
+    input.lazy_index = true;
     input
 }
 
@@ -546,21 +570,17 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         existing_lockfile.as_ref(),
         request.policy.resolve_mode(),
     );
-    let (mut index, sparse_index) = match &effective_index_source {
+    let source = match &effective_index_source {
         cabin_core::SourceLocator::IndexPath { path } => {
-            (load_local_index(path.as_std_path())?, None)
+            MetadataSource::File(open_local_index(path.as_std_path())?)
         }
         // The resolve pipeline performs no artifact downloads, so the
         // HTTP client the helper returns for connection reuse is
-        // dropped here; the opened index is kept for on-demand
-        // metadata.
-        cabin_core::SourceLocator::IndexUrl { url } => {
-            let (index, http_index, _client) =
-                load_http_index(url, index_user_chosen, &input, reporter)?;
-            (index, Some(http_index))
-        }
+        // dropped here.
+        cabin_core::SourceLocator::IndexUrl { url } => MetadataSource::Http(Box::new(
+            open_http_index(url, index_user_chosen, reporter)?.0,
+        )),
     };
-    input.lazy_index = sparse_index.is_some();
     // Standard-aware version preference: the workspace consumer
     // standards order candidates under `fallback` (the default); the
     // knob comes from `[resolver] incompatible-standards` / env.  Never
@@ -582,7 +602,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     input.incompatible_standards =
         crate::cli::config::resolve_incompatible_standards(&effective_config)?;
 
-    let output = resolve_with_lazy_index(&input, &mut index, sparse_index.as_ref(), false)?;
+    let (output, index) = resolve_with_lazy_index(&input, &source, false)?;
     ensure_registry_edges_link(&output, &input, &patched_names)?;
 
     let mut new_lockfile = lockfile_from_resolution(
@@ -918,14 +938,12 @@ pub(crate) fn run_artifact_pipeline(
         existing_lockfile.as_ref(),
         request.policy.resolve_mode(),
     );
-    let (mut index, access, sparse_index) = load_index_for_pipeline(
+    let (source, access) = open_index_for_pipeline(
         request.index_source,
         request.index_user_chosen,
         request.policy.frozen(),
-        &input,
         request.reporter,
     )?;
-    input.lazy_index = sparse_index.is_some();
     // Standard-aware version preference, matching `cabin resolve`, so a
     // fresh `cabin build` writes the same lockfile.  Scoped to the
     // selected closure - an unselected member must not lower it.
@@ -959,7 +977,7 @@ pub(crate) fn run_artifact_pipeline(
     // Build/run/test/vendor consume only the resolved graph (into the
     // lockfile) and never render `held_back`, so use the lean resolve
     // that skips the second `Allow`-mode solve behind the report.
-    let output = resolve_with_lazy_index(&input, &mut index, sparse_index.as_ref(), true)?;
+    let (output, index) = resolve_with_lazy_index(&input, &source, true)?;
     ensure_registry_edges_link(&output, &input, request.patched_names)?;
     let activated_patches = activated_patches(seed, &output, request.patched_names);
 
@@ -1029,53 +1047,47 @@ pub(crate) fn run_artifact_pipeline(
 }
 
 /// Pick the right index source for a fetch / build run, validate
-/// CLI flag combinations, and return both the [`PackageIndex`] the
-/// resolver consumes and a tag describing which access mode the
-/// fetch plan should use.
-fn load_index_for_pipeline(
+/// CLI flag combinations, and return both the metadata source the
+/// resolver reads and a tag describing which access mode the fetch
+/// plan should use.
+fn open_index_for_pipeline(
     index_source: &cabin_core::SourceLocator,
     index_user_chosen: bool,
     frozen: bool,
-    input: &ResolveInput,
     reporter: Reporter,
-) -> Result<(
-    PackageIndex,
-    IndexAccess,
-    Option<cabin_index_http::HttpIndex>,
-)> {
+) -> Result<(MetadataSource, IndexAccess)> {
     match index_source {
         cabin_core::SourceLocator::IndexPath { path } => Ok((
-            load_local_index(path.as_std_path())?,
+            MetadataSource::File(open_local_index(path.as_std_path())?),
             IndexAccess::Local,
-            None,
         )),
         cabin_core::SourceLocator::IndexUrl { url } => {
             if frozen {
                 bail!(FROZEN_INDEX_URL_ERR);
             }
-            let (index, http_index, client) =
-                load_http_index(url, index_user_chosen, input, reporter)?;
-            Ok((index, IndexAccess::Http(client), Some(http_index)))
+            let (http_index, client) = open_http_index(url, index_user_chosen, reporter)?;
+            Ok((
+                MetadataSource::Http(Box::new(http_index)),
+                IndexAccess::Http(client),
+            ))
         }
     }
 }
 
-/// Load a [`PackageIndex`] from a local directory, resolving the
-/// user-supplied path first so error messages name the absolute
-/// location.  Shared by the resolve pipeline and the fetch / build
-/// pipeline so the two paths cannot drift.
-fn load_local_index(path: &Path) -> Result<PackageIndex> {
+/// Open a local directory index, resolving the user-supplied path
+/// first so error messages name the absolute location.  Shared by the
+/// resolve pipeline and the fetch / build pipeline so the two paths
+/// cannot drift.
+fn open_local_index(path: &Path) -> Result<cabin_index::FileIndex> {
     let index_path =
         absolutise(path).with_context(|| format!("failed to resolve {}", path.display()))?;
-    cabin_index::load_index(&index_path)
+    cabin_index::FileIndex::open(&index_path)
         .with_context(|| format!("failed to load index at {}", index_path.display()))
 }
 
-/// Load a [`PackageIndex`] over sparse HTTP for `input`'s root
-/// dependencies, never fetching a locally supplied name.  Returns the
-/// opened index so resolution can fetch further metadata on demand,
-/// and the client so the fetch / build pipeline can reuse the
-/// connection for downloads; the resolve pipeline discards the client.
+/// Open a sparse HTTP index.  Returns the client too, so the fetch /
+/// build pipeline can reuse the connection for downloads; the resolve
+/// pipeline discards it.
 ///
 /// The client carries the stored credential (env override or
 /// `credentials.toml`) for the index origin, so `config.json`,
@@ -1085,26 +1097,18 @@ fn load_local_index(path: &Path) -> Result<PackageIndex> {
 /// `user_chosen` reports how the caller arrived at `url`; it gates
 /// the origin-key-less `CABIN_REGISTRY_TOKEN` override, see
 /// [`index_origin_user_chosen`](crate::cli::config::index_origin_user_chosen).
-pub(crate) fn load_http_index(
+fn open_http_index(
     url: &str,
     user_chosen: bool,
-    input: &ResolveInput,
     reporter: Reporter,
-) -> Result<(
-    PackageIndex,
-    cabin_index_http::HttpIndex,
-    cabin_index_http::HttpClient,
-)> {
+) -> Result<(cabin_index_http::HttpIndex, cabin_index_http::HttpClient)> {
     let mut client = cabin_index_http::HttpClient::new();
     if let Some(auth) = crate::cli::login::registry_auth_for_index_url(url, user_chosen, reporter)?
     {
         client = client.with_auth(auth);
     }
     let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;
-    let names: Vec<PackageName> = input.root_dependencies.keys().cloned().collect();
-    let known: BTreeSet<PackageName> = input.local_packages.keys().cloned().collect();
-    let index = http_index.load_package_index(&names, &known)?;
-    Ok((index, http_index, client))
+    Ok((http_index, client))
 }
 
 /// Build a [`FetchPlan`] from a resolver output, the index it ran

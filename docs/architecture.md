@@ -254,8 +254,10 @@ The crate must:
 
 ### `cabin-index`
 
-Owns the local-filesystem JSON package index format and its loader, including the per-version
-packaging-revision map: it validates that every revision id is the leading hex prefix of its own
+Owns the local-filesystem JSON package index format and its loaders - `load_index` reads every
+document, `FileIndex` reads them by name as resolution needs them - and `walk_dependencies`, the
+dependency walk both index sources share.  For the per-version packaging-revision map, the crate
+validates that every revision id is the leading hex prefix of its own
 checksum and that the version's `revision` pointer names a listed one, and it derives the
 convenience version-level `checksum` / `source` of the current revision so consumers that do not
 care about the axis never touch the map.  A revision whose resolution metadata differs from the
@@ -288,7 +290,8 @@ caller supplies the root's per-dependency feature requests (`ResolveInput::root_
 (`ResolveInput::local_packages`) that replaces any same-named index entry, so registry edges onto
 members, path dependencies, and `[patch]` forks resolve against the local manifest.  The resolver
 performs no I/O: with `ResolveInput::lazy_index` set, a name missing from the index surfaces as
-`ResolveError::MetadataNeeded`, and the CLI fetches that entry and solves again.  Before every
+`ResolveError::MetadataNeeded`, and the CLI loads that entry from the file or HTTP index and
+solves again.  Before every
 solve, the CLI calls `select_locked_revisions`, which gives each pin the mode keeps its pinned
 revision's resolution metadata.
 
@@ -393,8 +396,9 @@ public surface is intentionally small:
   (`404`, `401`/`403` for the authenticated path, `503` for the hosted registry's
   read-side budget breaker, `5xx`) and transport errors to `IndexHttpError` variants;
 - [`cabin_index_http::HttpIndex`] - opens a registry by fetching `<base>/config.json`, validates it,
-  exposes `fetch_package(name) -> IndexEntry` and a walker `load_package_index(roots, known) ->
-  PackageIndex` over non-optional edges that returns the same shape as the local file loader;
+  exposes `fetch_package(name) -> IndexEntry` and `load_package_index(roots, known) ->
+  PackageIndex`, which runs `cabin_index::walk_dependencies` over non-optional edges as the local
+  `FileIndex` does;
 - [`cabin_index_http::RegistryAuth`] - a caller-supplied bearer credential scoped to one normalized
   origin (see [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests
   on that exact origin and never over cleartext `http` beyond loopback hosts.
@@ -1269,7 +1273,9 @@ PackageGraph + ResolvedToolchain --> cabin_build::plan(PlanRequest)
 ### Local index resolution
 
 ```
-<index>/<package>.json files  --> cabin_index::load_index
+<index>/<package>.json files  --> cabin_index::FileIndex::load_package_index(roots, known)
+                                     |  reads only the documents the roots reach
+                                     |  through non-optional edges, by name
                                      |  per-file schema validation
                                      |  filename / name agreement
                                      |  SemVer of every version
@@ -1281,7 +1287,11 @@ ResolveInput (root package + versioned deps + feature requests
                                      |
                                      v
                                 cabin_resolver::resolve
-                                     |
+                                     |  MetadataNeeded(name) (a name the walk did not reach:
+                                     |    an optional dependency a feature enabled, a pinned
+                                     |    revision's own dependency, a local package's
+                                     |    registry dependency) -> load_package_index([name],
+                                     |    known), extend, solve again
                                      v
                                 ResolveOutput { packages: [Root, Index, Local, ...]
                                                 with each package's features }
@@ -1474,7 +1484,7 @@ The registry written by this flow lands at:
 
 Publishing requires scoped names, so new entries always nest one scope directory deep; legacy
 bare-name registries (`packages/<name>.json`,
-`artifacts/<name>/<name>-<version>-<revision>.zip`) stay readable and vendorable.  `cabin-index::load_index` detects `config.json` and reads packages out of
+`artifacts/<name>/<name>-<version>-<revision>.zip`) stay readable and vendorable.  `cabin_index::FileIndex` detects `config.json` and reads packages out of
 the configured `packages/` subdirectory - flat `<name>.json` files as bare names, one-level
 `<scope>/<name>.json` nesting as scoped names - so the same path that publish wrote to is consumable
 by `cabin resolve`, `cabin fetch`, and `cabin build --index-path` without any repackaging step.
@@ -1503,7 +1513,7 @@ PackageIndex { packages: BTreeMap<PackageName, IndexEntry> }   (same shape as th
    |
    v
 cabin_resolver::resolve
-   |  MetadataNeeded(name) (an optional dependency a feature enabled)
+   |  MetadataNeeded(name) (a name the walk did not reach, as for the file index)
    |    -> load_package_index([name], known), extend, solve again
    v
 ResolveOutput
