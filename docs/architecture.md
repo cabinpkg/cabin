@@ -890,7 +890,8 @@ the resulting `BuildGraph` to this crate.
 
 ### `cabin-ninja`
 
-Owns Ninja file generation and Clang-compatible `compile_commands.json` generation.  The crate must:
+Owns Ninja file generation and Clang-compatible `compile_commands.json` generation, and the
+`cabin-toolchain.json` identity file every Ninja edge depends on.  The crate must:
 
 - not parse TOML;
 - not resolve packages;
@@ -1941,7 +1942,7 @@ The request stores a `ToolSpec`; it is never shell-split. Bare names use `PATH` 
 probed directly. Wrapper selection is unconditional and happens before compiler detection.
 
 `cabin metadata` surfaces the resolved wrapper under `toolchain.compiler_wrapper`. The
-build-configuration fingerprint folds in the wrapper kind, spec, source, and version. Workspace
+build-configuration fingerprint folds in the wrapper kind, spec, and version. Workspace
 member manifests that declare `[build] compiler-wrapper` are rejected with
 `MemberDeclaresCompilerWrapper`, so a single invocation cannot silently apply different wrappers to
 different packages. Manifest declarations round-trip through `cabin package`; CLI, environment, and

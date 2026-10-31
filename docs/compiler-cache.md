@@ -76,7 +76,7 @@ Build commands treat a missing wrapper or failed version probe as an error.
 resolved wrapper block.
 
 The build-configuration fingerprint includes the resolved wrapper kind, spec,
-source, and detected version. Selecting, changing, or disabling a wrapper
+and detected version. Selecting, changing, or disabling a wrapper
 therefore changes the fingerprint.
 
 `cabin package` and the file registry preserve the manifest-declared

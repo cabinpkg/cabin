@@ -7,7 +7,13 @@ use cabin_fs::write_atomic;
 
 use crate::error::NinjaError;
 
-/// Write a `build.ninja` describing `graph` to `path`.
+/// The file beside `build.ninja` that records the detected toolchain.
+/// Every edge depends on it, so a compiler replaced at the same path
+/// rebuilds everything.
+pub const TOOLCHAIN_STAMP: &str = "cabin-toolchain.json";
+
+/// Write a `build.ninja` describing `graph` to `path`, and
+/// `toolchain_identity` to [`TOOLCHAIN_STAMP`] beside it.
 ///
 /// Replacement is atomic: the new bytes land in a sibling
 /// temporary file and only rename onto `path` after a successful
@@ -19,6 +25,9 @@ use crate::error::NinjaError;
 /// compiler and stamp the check output without a shell (see
 /// [`render_build_ninja`]).
 ///
+/// The stamp is rewritten only when `toolchain_identity` changes: a
+/// fresh modification time is what makes Ninja rebuild every edge.
+///
 /// # Errors
 /// Propagates rendering failures from [`render_build_ninja`]
 /// ([`NinjaError::PathHasNewline`], [`NinjaError::ValueHasNewline`], or
@@ -29,9 +38,15 @@ pub fn write_build_ninja(
     path: &Path,
     graph: &BuildGraph,
     check_stamp_runner: &Path,
+    toolchain_identity: &str,
 ) -> Result<(), NinjaError> {
     let body = render_build_ninja(graph, check_stamp_runner)?;
-    atomically_write(path, body.as_bytes())
+    atomically_write(path, body.as_bytes())?;
+    let stamp = path.with_file_name(TOOLCHAIN_STAMP);
+    if std::fs::read(&stamp).ok().as_deref() != Some(toolchain_identity.as_bytes()) {
+        atomically_write(&stamp, toolchain_identity.as_bytes())?;
+    }
+    Ok(())
 }
 
 /// Atomically replace `path` with `body`, tagging any IO error
@@ -206,6 +221,9 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
         out.push(' ');
         out.push_str(&escape_path(input.as_str())?);
     }
+    // Relative to the build root Ninja runs in (`-C`).
+    out.push_str(" | ");
+    out.push_str(TOOLCHAIN_STAMP);
     out.push('\n');
 
     // Ninja launches each edge's command itself, so the argv is quoted
@@ -922,7 +940,7 @@ mod tests {
             vec![compile_action()],
             vec![Utf8PathBuf::from("/abs/build/main.o")],
         );
-        write_build_ninja(&path, &graph, Path::new("/opt/cabin/bin/cabin")).unwrap();
+        write_build_ninja(&path, &graph, Path::new("/opt/cabin/bin/cabin"), "{}").unwrap();
         let body = std::fs::read_to_string(&path).unwrap();
         assert_eq!(body, render(&graph).unwrap());
     }
@@ -933,9 +951,71 @@ mod tests {
         let path = dir.path().join("build.ninja");
         std::fs::write(&path, "stale\n").unwrap();
         let graph = graph_with(vec![compile_action()], vec![]);
-        write_build_ninja(&path, &graph, Path::new("/opt/cabin/bin/cabin")).unwrap();
+        write_build_ninja(&path, &graph, Path::new("/opt/cabin/bin/cabin"), "{}").unwrap();
         let body = std::fs::read_to_string(&path).unwrap();
         assert_eq!(body, render(&graph).unwrap());
+    }
+
+    #[test]
+    fn every_edge_depends_on_the_toolchain_stamp() {
+        let c_compile = compile_with(|c| {
+            c.standard = cabin_core::LanguageStandard::C(cabin_core::CStandard::C11);
+            c.source = Utf8PathBuf::from("/abs/src/util.c");
+            c.object = Utf8PathBuf::from("/abs/build/util.o");
+        });
+        let assemble = BuildAction::Assemble(cabin_driver::AssembleAction {
+            assembler: Utf8PathBuf::from("/usr/bin/g++"),
+            target: None,
+            source: Utf8PathBuf::from("/abs/src/jump.S"),
+            object: Utf8PathBuf::from("/abs/build/jump.o"),
+            depfile: None,
+            include_dirs: vec![],
+            defines: vec![],
+            description: "AS /abs/build/jump.o".into(),
+        });
+        let graph = graph_with(
+            vec![
+                compile_action(),
+                c_compile,
+                syntax_check_action(),
+                assemble,
+                archive_action(),
+                link_action(),
+            ],
+            vec![],
+        );
+        let body = render(&graph).unwrap();
+        let edges: Vec<&str> = body.lines().filter(|l| l.starts_with("build ")).collect();
+        assert_eq!(edges.len(), 6, "{body}");
+        assert!(body.contains(": c_compile /abs/src/util.c"), "{body}");
+        for edge in edges {
+            assert!(edge.ends_with(" | cabin-toolchain.json"), "{edge}");
+        }
+    }
+
+    #[test]
+    fn toolchain_stamp_is_rewritten_only_when_the_identity_changes() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("build.ninja");
+        let stamp = dir.path().join(TOOLCHAIN_STAMP);
+        let graph = graph_with(vec![compile_action()], vec![]);
+        let runner = Path::new("/opt/cabin/bin/cabin");
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let modified = || std::fs::metadata(&stamp).unwrap().modified().unwrap();
+
+        write_build_ninja(&path, &graph, runner, "gcc 13").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&stamp)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        write_build_ninja(&path, &graph, runner, "gcc 13").unwrap();
+        assert_eq!(modified(), old);
+
+        write_build_ninja(&path, &graph, runner, "gcc 14").unwrap();
+        assert_eq!(std::fs::read_to_string(&stamp).unwrap(), "gcc 14");
+        assert!(modified() > old);
     }
 
     #[test]
@@ -943,8 +1023,13 @@ mod tests {
         let dir = assert_fs::TempDir::new().unwrap();
         let missing_parent = dir.path().join("nonexistent").join("build.ninja");
         let graph = graph_with(vec![compile_action()], vec![]);
-        let err = write_build_ninja(&missing_parent, &graph, Path::new("/opt/cabin/bin/cabin"))
-            .unwrap_err();
+        let err = write_build_ninja(
+            &missing_parent,
+            &graph,
+            Path::new("/opt/cabin/bin/cabin"),
+            "{}",
+        )
+        .unwrap_err();
         match err {
             NinjaError::Io { path, .. } => assert_eq!(path, missing_parent),
             other => panic!("expected NinjaError::Io, got {other:?}"),

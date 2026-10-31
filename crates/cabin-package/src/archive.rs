@@ -32,6 +32,7 @@ pub const EXCLUDED_FILE_NAMES: &[&str] = &[
     ".DS_Store",
     "compile_commands.json",
     "build.ninja",
+    "cabin-toolchain.json",
     "cabin.lock",
     CREDENTIALS_FILE_NAME,
 ];
@@ -558,6 +559,9 @@ mod tests {
             .write_str("ignore")
             .unwrap();
         dir.child("build.ninja").write_str("ignore").unwrap();
+        dir.child("cabin-toolchain.json")
+            .write_str("ignore")
+            .unwrap();
         dir.child("cabin.lock").write_str("ignore").unwrap();
         dir.child("credentials.toml")
             .write_str("token = \"cabin_secret\"")
@@ -575,6 +579,7 @@ mod tests {
         for excluded in &[
             "compile_commands.json",
             "build.ninja",
+            "cabin-toolchain.json",
             "cabin.lock",
             "credentials.toml",
             "secrets/CREDENTIALS.TOML",

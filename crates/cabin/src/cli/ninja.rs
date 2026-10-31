@@ -492,9 +492,10 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     /// Resolved toolchain, used to decide whether the discovered MSVC
     /// environment overlay applies.
     pub toolchain: &'a cabin_core::ResolvedToolchain,
-    /// Detected C++ compiler family
-    /// (`detection_report.cxx.identity.kind`).
-    pub cxx_kind: cabin_core::CompilerKind,
+    /// Detected toolchain: its C++ compiler family decides the MSVC
+    /// environment overlay, and its tools' identities are what every
+    /// Ninja edge depends on.
+    pub detection: &'a cabin_core::ToolchainDetectionReport,
     /// Resolved feature graph, consumed by the link-failure hint.
     pub feature_resolution: &'a cabin_feature::FeatureResolution,
     /// The platform the build targets, consumed by the link-failure
@@ -533,7 +534,20 @@ pub(crate) fn invoke_ninja_and_report(
     })?;
 
     let ninja_file = profile_build_root.join("build.ninja");
-    cabin_ninja::write_build_ninja(&ninja_file, req.plan_graph, &check_stamp_runner())?;
+    // No paths: a used tool's path is already in its commands, and an
+    // unused one's must not rebuild anything.
+    let detected = req.detection;
+    let identity = serde_json::to_string_pretty(&serde_json::json!({
+        "cc": detected.cc.as_ref().map(|cc| compiler_identity(&cc.identity)),
+        "cxx": compiler_identity(&detected.cxx.identity),
+        "ar": detected.ar.identity.as_json(),
+    }))?;
+    cabin_ninja::write_build_ninja(
+        &ninja_file,
+        req.plan_graph,
+        &check_stamp_runner(),
+        &identity,
+    )?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)?;
 
@@ -572,7 +586,7 @@ pub(crate) fn invoke_ninja_and_report(
         req.reporter,
         req.graph,
         req.plan_graph,
-        discovered_msvc_install_applies(req.toolchain, req.cxx_kind),
+        discovered_msvc_install_applies(req.toolchain, req.detection.cxx.identity.kind),
     )
     .with_context(|| format!("failed to invoke ninja at {}", req.ninja.display()))?;
     if !run.status.success() {
@@ -580,6 +594,19 @@ pub(crate) fn invoke_ninja_and_report(
         anyhow::bail!("ninja exited with {}", run.status);
     }
     Ok(build_started.elapsed())
+}
+
+/// A compiler's identity for the toolchain stamp.  GCC opens its
+/// banner with the name it was invoked as (`cc`, `gcc`, `g++`), which
+/// names no other compiler.
+fn compiler_identity(identity: &cabin_core::CompilerIdentity) -> serde_json::Value {
+    let mut identity = identity.clone();
+    if identity.kind == cabin_core::CompilerKind::Gcc
+        && let Some((_, rest)) = identity.raw_version_line.split_once(' ')
+    {
+        identity.raw_version_line = rest.to_owned();
+    }
+    identity.as_json()
 }
 
 #[cfg(test)]
@@ -676,5 +703,17 @@ mod tests {
             package_segment_candidates("/w/build/dev/packages/tool", Some("/w/build/dev")),
             [Some("tool"), None]
         );
+    }
+
+    #[test]
+    fn compiler_identity_ignores_the_name_gcc_was_invoked_as() {
+        let gcc = |name: &str, version: &str| {
+            compiler_identity(&cabin_core::parse_cxx_version_output(&format!(
+                "{name} (Ubuntu {version}-6ubuntu2) {version}\n\
+                 Copyright (C) 2023 Free Software Foundation, Inc.\n"
+            )))
+        };
+        assert_eq!(gcc("cc", "13.2.0"), gcc("gcc", "13.2.0"));
+        assert_ne!(gcc("gcc", "13.3.0"), gcc("gcc", "13.2.0"));
     }
 }
