@@ -613,7 +613,7 @@ pub(crate) fn prepare_workspace(
         ))?;
     }
 
-    let mut build_dir = super::resolve_build_dir(args.build_dir, &effective_config)?;
+    let mut build_dir = super::config::resolve_build_dir(args.build_dir, &effective_config)?;
     let build_root = build_dir.clone();
     if let Some(target) = &args.toolchain.target {
         build_dir.push(&target.target);

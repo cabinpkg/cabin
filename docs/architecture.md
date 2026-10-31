@@ -1037,8 +1037,8 @@ The crate must:
 ### `cabin-fs`
 
 Small filesystem helpers shared by Cabin's production crates.  Currently provides atomic file
-replacement, lexical path-safety predicates, and the canonicalization shared across crates;
-intentionally narrow rather than a broad filesystem abstraction.
+replacement, lexical path-safety predicates, and the canonicalization and `..` resolution shared
+across crates; intentionally narrow rather than a broad filesystem abstraction.
 
 - Atomic replacement stages bytes in a sibling temporary file and commits with a rename only after
   the write succeeds, so an interrupted run leaves any previous contents of the destination intact.
@@ -1047,8 +1047,11 @@ intentionally narrow rather than a broad filesystem abstraction.
   not yet exist.
 - `canonicalize` resolves symlinks and `..` through the filesystem so one file has one spelling
   across crates; on Windows it also expands 8.3 short names and drops the verbatim `\\?\` prefix
-  MSVC cannot open wherever the path can be spelled without it.  It is the only helper that reads
-  the filesystem.
+  MSVC cannot open wherever the path can be spelled without it.
+- `resolve_dot_dots` spells a path without the `..` components Unix resolves through a symlink,
+  so Ninja, which drops `..` lexically, names the same directory as the OS; it creates nothing and
+  leaves a name that does not exist yet as spelled.  It and `canonicalize` are the only helpers
+  that read the filesystem.
 - The helpers do not create parent directories or enforce archive-, registry-, or config-specific
   policy.  Callers own parent-directory creation.
 - Domain-specific error mapping stays with each consumer so the destination path and user-facing

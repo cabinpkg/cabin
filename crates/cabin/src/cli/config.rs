@@ -487,6 +487,21 @@ pub(crate) fn resolve_pipeline_inputs(
     })
 }
 
+/// The build directory, the same for every command that writes, reads,
+/// or skips it: [`resolve_build_dir_with_env`], with a relative flag,
+/// variable, or default taken against the current directory, and spelled
+/// as Ninja and the OS both read it ([`cabin_fs::resolve_dot_dots`]).
+/// Nothing is created.
+pub(crate) fn resolve_build_dir(
+    cli_value: Option<&Path>,
+    config: &EffectiveConfig,
+) -> Result<PathBuf> {
+    let (input, _) = resolve_build_dir_with_env(cli_value, config);
+    super::absolutise(&input)
+        .and_then(|build_dir| cabin_fs::resolve_dot_dots(&build_dir))
+        .with_context(|| format!("failed to resolve build dir {}", input.display()))
+}
+
 /// Resolve the build directory the CLI should use for a build
 /// invocation, consulting CLI flag → env var → config →
 /// built-in default in that order.

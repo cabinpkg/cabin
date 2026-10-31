@@ -1,7 +1,6 @@
 use super::{
     BTreeMap, BTreeSet, CleanArgs, PathBuf, Reporter, Result, build_workspace_selection,
-    profile_selection_from_flags, resolve_build_dir, resolve_invocation_manifest,
-    workspace_profile_definitions,
+    profile_selection_from_flags, resolve_invocation_manifest, workspace_profile_definitions,
 };
 
 pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
@@ -14,7 +13,7 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     let graph = cabin_workspace::load_workspace(&manifest_path)?;
     let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
-    let build_dir = resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
+    let build_dir = super::config::resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
 
     let package_roots: Vec<PathBuf> = graph
         .packages

@@ -2,16 +2,17 @@
 //!
 //! The crate is intentionally narrow: it owns the atomic-write
 //! boilerplate, the lexical path-safety predicates, and the
-//! canonicalization that multiple production crates would otherwise
-//! duplicate.  Callers keep responsibility for parent-directory
-//! creation, for archive- or context-specific extraction policy, and
-//! for mapping the returned [`std::io::Error`] onto their own domain
-//! error types so the destination path stays visible in diagnostics.
+//! canonicalization and `..` resolution that multiple production
+//! crates would otherwise duplicate.  Callers keep responsibility for
+//! parent-directory creation, for archive- or context-specific
+//! extraction policy, and for mapping the returned [`std::io::Error`]
+//! onto their own domain error types so the destination path stays
+//! visible in diagnostics.
 
 pub mod path;
 
 use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use atomic_write_file::AtomicWriteFile;
 
@@ -76,12 +77,92 @@ pub fn canonicalize_or_input(path: impl AsRef<Path>) -> PathBuf {
     canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Spell the absolute `path` without the `..` components the OS would
+/// resolve through the filesystem, so a tool that drops `..` lexically
+/// (Ninja) names the same directory as the OS.  Nothing is created.
+///
+/// On Unix, `link/../x` is the parent of the symlink's target, not the
+/// directory holding `link`.  Each component up to the last `..`
+/// resolves through the filesystem while it exists; a name that does
+/// not exist yet stays as spelled, and a `..` after it removes it, as
+/// the OS will once it is created.  Windows resolves `..` lexically, so
+/// there `path` comes back as is.
+///
+/// # Errors
+/// A `..` after a file or a dangling symlink, which the OS refuses, or
+/// any other error reading a component.
+pub fn resolve_dot_dots(path: &Path) -> io::Result<PathBuf> {
+    let components: Vec<_> = path.components().collect();
+    let Some(last) = components
+        .iter()
+        .rposition(|component| *component == Component::ParentDir)
+        .filter(|_| cfg!(unix))
+    else {
+        return Ok(path.to_path_buf());
+    };
+    let mut resolved = PathBuf::new();
+    let mut missing = Vec::new();
+    for component in &components[..=last] {
+        match component {
+            Component::ParentDir if missing.pop().is_some() => {}
+            Component::Normal(_) if !missing.is_empty() => missing.push(component.as_os_str()),
+            Component::ParentDir | Component::Normal(_) => {
+                // macOS `realpath` accepts `file/..`; `stat` refuses it.
+                let step = resolved.join(component);
+                match std::fs::metadata(&step).and_then(|_| canonicalize(&step)) {
+                    Ok(path) => resolved = path,
+                    // A dangling symlink is a name the OS cannot pass through.
+                    Err(err)
+                        if err.kind() == io::ErrorKind::NotFound
+                            && std::fs::symlink_metadata(&step).is_err() =>
+                    {
+                        missing.push(component.as_os_str());
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            other => resolved.push(other),
+        }
+    }
+    resolved.extend(missing);
+    resolved.extend(&components[last + 1..]);
+    Ok(resolved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use assert_fs::TempDir;
 
+    #[cfg(unix)]
+    #[test]
+    fn resolve_dot_dots_follows_what_exists_without_creating_anything() {
+        let tmp = TempDir::new().unwrap();
+        let root = canonicalize(tmp.path()).unwrap();
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        std::os::unix::fs::symlink(root.join("a/b"), root.join("link")).unwrap();
+        std::fs::write(root.join("file"), "").unwrap();
+        std::os::unix::fs::symlink(root.join("gone"), root.join("dangling")).unwrap();
+        let resolve = |spelling: &str| resolve_dot_dots(&root.join(spelling));
+        assert_eq!(resolve("link/../build").unwrap(), root.join("a/build"));
+        assert_eq!(
+            resolve("link/new/../build").unwrap(),
+            root.join("a/b/build")
+        );
+        assert_eq!(
+            resolve("link/../new/../x/build").unwrap(),
+            root.join("a/x/build")
+        );
+        assert_eq!(
+            resolve("new/../link/../build").unwrap(),
+            root.join("a/build")
+        );
+        assert_eq!(resolve("link/build").unwrap(), root.join("link/build"));
+        assert!(resolve("file/../build").is_err());
+        assert!(resolve("dangling/../build").is_err());
+        assert!(!root.join("a/b/new").exists() && !root.join("a/new").exists());
+    }
     #[test]
     fn write_atomic_creates_destination_file() {
         let dir = TempDir::new().unwrap();
