@@ -16,8 +16,9 @@
 //! the deflate path inside [`inflate`], the store path against the
 //! slice itself - so the bomb caps hold regardless of
 //! what the deflate layer does; the retained state is the
-//! `cabin.toml` bytes plus the set of entry paths, both bounded by
-//! the caps.  Following the verifier's enforce/client-only split
+//! `cabin.toml` bytes, the declared upstream patch files' bytes, and
+//! each entry's path and SHA-256 digest, all bounded by the caps.
+//! Following the verifier's enforce/client-only split
 //! (see the archive-format spec's "Determinism"), only what changes
 //! what an extractor materializes or how the container parses is
 //! enforced here - producer cosmetics (timestamps, permission bits,
@@ -47,9 +48,9 @@ const ROOT_MANIFEST: &str = "cabin.toml";
 const RATIO_FLOOR_BASE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Worst-case framing per permitted entry, covering a local header
-/// (30 bytes + name), a central header (46 bytes + name), and the
-/// name itself twice; 2 KiB comfortably bounds zip's ~600-byte
-/// per-entry framing at the path-length cap.
+/// (30 bytes + name) and a central header (46 bytes + name); 2 KiB
+/// comfortably bounds zip's ~600-byte per-entry framing at the
+/// default path-length cap.
 const FRAMING_BYTES_PER_ENTRY: u64 = 2048;
 
 // Zip record signatures (little-endian on disk).
@@ -145,10 +146,10 @@ struct Central {
     local_offset: u32,
 }
 
-/// Parse the strict-profile container.  `Ok((manifest, files))` on
-/// success; `Err(reason)` is a rejection verdict.  Bounds failures
-/// map to [`Reason::ArchiveInvalid`]; specific violations return
-/// their own code.
+/// Parse the strict-profile container.  `Ok((manifest, files,
+/// retained))` on success; `Err(reason)` is a rejection verdict.
+/// Bounds failures map to [`Reason::ArchiveInvalid`]; specific
+/// violations return their own code.
 // One linear pass over the strict profile: the shared cursor, decode
 // budget, and dedup sets thread through the whole container, so
 // splitting it would scatter that state across helpers rather than
@@ -180,9 +181,7 @@ fn parse(
     let total = u16_at(bytes, eocd + 10)?;
     let cd_size = u32_at(bytes, eocd + 12)?;
     let cd_offset = u32_at(bytes, eocd + 16)?;
-    // A sentinel in any count/size/offset field is the marker that the
-    // real value lives in a zip64 record. The profile forbids zip64
-    // outright and the reason table names it distinctly, so classify it
+    // The reason table names zip64 distinctly, so classify a sentinel
     // before the ordinary count-agreement check.
     if count_disk == U16_SENTINEL
         || total == U16_SENTINEL
@@ -211,7 +210,7 @@ fn parse(
     }
 
     // Step 4: walk the central directory, consuming exactly
-    // `cd_count` records and exactly `cd_size` bytes.
+    // `total` records and exactly `cd_size` bytes.
     let mut files: Contents = BTreeMap::new();
     let mut folded: HashSet<String> = HashSet::new();
     let mut records: Vec<Central> = Vec::with_capacity(usize::from(total));
@@ -451,8 +450,9 @@ fn entry_type_gate(external_attrs: u32) -> Option<Reason> {
 /// Decompress one entry against the archive-global `budget`,
 /// returning `(crc, produced, consumed)` where `consumed` is
 /// the compressed input the deflate layer read (equal to `produced`
-/// for a stored entry).  Every decompressed byte updates `sha`; the
-/// manifest entry's bytes are additionally collected into `collect`.
+/// for a stored entry).  Every decompressed byte updates `sha`; a
+/// retained entry's bytes (the manifest or a declared patch file) are
+/// additionally collected into `collect`.
 fn decode_entry(
     method: u16,
     data: &[u8],
@@ -479,14 +479,11 @@ fn decode_entry(
             }
             Ok((hasher.finalize(), data.len() as u64, data.len() as u64))
         }
-        // Deflate: the stream must reach its final block, not merely
-        // run out of input. `flate2`'s reader maps an input EOF that
-        // arrives mid-stream to a silent `Ok(0)`, so reading to EOF
-        // does not prove the stream ended - a non-final block followed
-        // by EOF could otherwise produce exactly the declared bytes and
-        // pass. Drive the raw inflater directly and require
-        // `Status::StreamEnd`; `consumed`/`produced` are then checked
-        // against the declared sizes by the caller.
+        // Deflate: `flate2`'s reader maps an input EOF that arrives
+        // mid-stream to a silent `Ok(0)`, so reading to EOF does not
+        // prove the stream ended - a non-final block followed by EOF
+        // could produce exactly the declared bytes and pass.  Hence
+        // the raw inflater in `inflate`.
         8 => inflate(data, budget, sha, collect),
         _ => unreachable!("method restricted to store/deflate in the central-directory walk"),
     }

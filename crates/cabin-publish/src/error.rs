@@ -4,10 +4,12 @@ use crate::lints::LintFinding;
 
 /// Errors produced by the publish workflow.
 ///
-/// `cabin publish` requires either `--dry-run` (stage the package
-/// to a directory without touching any registry) or
-/// `--registry-dir` (publish into a local file registry);
-/// otherwise [`PublishError::DryRunRequired`] is raised.
+/// `cabin publish` raises [`PublishError::DryRunRequired`] when it
+/// has no destination: neither `--dry-run` (stage the package to a
+/// directory without touching any registry) nor `--registry-dir`
+/// (publish into a local file registry) is given and no HTTP index
+/// is configured, or `--output-dir` is given without `--dry-run` or
+/// `--registry-dir`.
 #[derive(Debug, Error)]
 pub enum PublishError {
     #[error(
@@ -24,14 +26,11 @@ pub enum PublishError {
     )]
     BarePackageName { name: String, manifest_path: String },
 
-    /// A registry dependency map carries a bare key.  The
-    /// `dependencies` and `dev-dependencies` maps
-    /// key on canonical `<scope>/<name>` registry names -
-    /// dev-dependency keys denote registry packages too, so one
-    /// grammar covers both - while `system-dependencies` is exempt:
-    /// its keys name system packages, not registry packages.  Raised
-    /// beside [`PublishError::BarePackageName`], before any registry
-    /// or network work.
+    /// A `dependencies` or `dev-dependencies` key is not a scoped
+    /// `<scope>/<name>` registry name (see
+    /// [`crate::require_scoped_dependency_names`]).  Raised beside
+    /// [`PublishError::BarePackageName`], before any registry or
+    /// network work.
     #[error(
         "registry dependencies must use the canonical `<scope>/<name>` grammar (lowercase throughout), but `{name}` in [{table}] does not; in {manifest_path}, change the dependency key to the package's registry name (path dependencies may keep bare names)"
     )]

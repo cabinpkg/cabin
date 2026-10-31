@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 
 /// Layout of an artifact cache rooted at a directory on disk.
 ///
-/// The cache is intentionally checksum-addressed:
+/// The cache is checksum-addressed:
 ///
 /// ```text
 /// <root>/
-/// archives/sha256/<hex>.zip
-/// sources/sha256/<hex>/cabin.toml
-/// /...
+///   archives/sha256/<hex>.zip
+///   sources/sha256/<hex>/cabin.toml
+///                       /...
 /// ```
 ///
 /// No per-package or per-version directories appear at the top level,
@@ -62,7 +62,7 @@ pub fn partial_dir_sibling(dir: &Path) -> PathBuf {
 
 /// Sibling `<source_dir>.ok` extraction-complete marker.  Kept as a
 /// sibling of the source tree (not a file inside it) so an extracted
-/// tarball cannot forge the marker, and so `remove_dir_all` on the
+/// archive cannot forge the marker, and so `remove_dir_all` on the
 /// source tree does not delete it - the caller removes it explicitly
 /// before re-extracting.
 pub fn extraction_marker_path(source_dir: &Path) -> PathBuf {

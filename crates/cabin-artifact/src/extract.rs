@@ -10,12 +10,11 @@ use cabin_fs::path::is_safe_relative_path;
 
 use crate::error::ArtifactError;
 
-/// Maximum decompressed bytes Cabin will write for a single tar
+/// Maximum decompressed bytes Cabin will write for a single archive
 /// entry.  Single source files larger than 256 MiB do not occur in
 /// any C/C++ package this tool is expected to ingest; the cap
-/// exists to refuse a `.tar.gz` whose entry headers claim a huge
-/// `size` and whose gzip stream expands to that size from a tiny
-/// compressed payload (a "decompression bomb").
+/// refuses an entry whose tiny compressed payload expands to a huge
+/// size (a "decompression bomb").
 const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
 
 // POSIX `st_mode` file-type bits (see `<sys/stat.h>`), used to
@@ -31,7 +30,7 @@ const S_IFDIR: u32 = 0o040_000; // directory
 /// user's disk; the aggregate cap bounds total damage to ~1 GiB.
 const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// Maximum number of tar entries Cabin will process from one
+/// Maximum number of entries Cabin will process from one
 /// archive.  Headers alone (no body) can be cheap to ship and
 /// expensive to materialize as filesystem inodes, so the count
 /// is capped independently of the byte caps.
@@ -184,8 +183,7 @@ impl StreamBudget {
 /// [`StreamBudget`] allows.  Unlike [`io::Take`], crossing a budget
 /// is an error (recorded on the budget so the caller can tell a bomb
 /// from a corrupt stream), not a silent EOF - a truncated tar must
-/// never pass as a complete one.  Modeled on the hosted-registry
-/// verifier's reader (`cabin-registry-verify`).
+/// never pass as a complete one.
 struct CappedReader<R> {
     inner: R,
     budget: Rc<StreamBudget>,
@@ -232,9 +230,7 @@ impl<R: Read> Read for CappedReader<R> {
 /// Options accepted by [`safe_extract_tar_gz`] and
 /// [`safe_extract_zip`].
 ///
-/// `Default` produces the original artifact-layer behavior: no
-/// prefix stripping, symlink entries rejected, archive is expected
-/// to contain `cabin.toml` at its root.
+/// `Default` strips no prefix and rejects symlink entries.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SafeExtractOptions<'a> {
     /// If `Some`, every archive entry must start with this single
@@ -244,8 +240,8 @@ pub struct SafeExtractOptions<'a> {
     /// entry, so a malicious archive that ships
     /// `<prefix>/../escape` is rejected after the strip.
     ///
-    /// An archive that does not contain a single entry beginning
-    /// with `strip_prefix` produces
+    /// An entry that does not begin with `strip_prefix`, or an
+    /// archive with no entry that does, produces
     /// [`ArtifactError::MissingStripPrefix`].
     pub strip_prefix: Option<&'a str>,
     /// If `true`, symlink entries are silently skipped instead of
@@ -291,9 +287,13 @@ pub struct SafeExtractOptions<'a> {
 /// zip structure cannot be read, and the same
 /// `UnsafeArchiveEntry` / `ArchiveEntryPathTooLong` /
 /// `DuplicateArchiveEntry` / `ConflictingArchiveEntry` /
-/// `UnsupportedArchiveEntry` / `ArchiveEntryTooLarge` /
-/// `ArchiveTooLarge` / `ArchiveTooManyEntries` /
-/// `MissingStripPrefix` rejections.
+/// `UnsupportedArchiveEntry` / `ArchiveEntryTruncated` /
+/// `ArchiveEntryTooLarge` / `ArchiveTooLarge` /
+/// `ArchiveTooManyEntries` / `MissingStripPrefix` rejections;
+/// additionally [`ArtifactError::ArchiveFileTooLarge`] when the
+/// archive file itself exceeds the aggregate cap and
+/// [`ArtifactError::ArchiveDuplicateNames`] when two central-directory
+/// records share a name.
 pub fn safe_extract_zip(
     archive: &Path,
     dest: &Path,
@@ -382,11 +382,8 @@ fn safe_extract_zip_with_limits(
     // Reject duplicate raw names in the central directory, which the
     // `zip` crate would otherwise collapse "last wins" (see the walk in
     // `zip_duplicate_central_name`) before `TargetTree` below could see
-    // them.  This is now a primary surface, not port-only defense in
-    // depth: published registry package archives extract through this
-    // path.  Walking from the crate's own `central_directory_start` keeps
-    // the check consistent with the directory the crate actually
-    // extracts, so bytes appended after the EOCD cannot hide a duplicate.
+    // them.  Published registry package archives extract through this
+    // path.
     if let Some(name) = zip_duplicate_central_name(
         scan_handle,
         archive,
@@ -689,16 +686,22 @@ pub(crate) fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ArtifactErr
 /// absolute, contain `..`, or escape `dest`;
 /// [`ArtifactError::ArchiveEntryPathTooLong`] for an over-long entry
 /// path; [`ArtifactError::DuplicateArchiveEntry`] for a repeated
-/// destination; [`ArtifactError::UnsupportedArchiveEntry`] for any
+/// destination; [`ArtifactError::ConflictingArchiveEntry`] for a
+/// regular file used as another entry's parent directory;
+/// [`ArtifactError::UnsupportedArchiveEntry`] for any
 /// entry that is not a regular file or directory;
+/// [`ArtifactError::ArchiveEntryTruncated`] for a regular file shorter
+/// than its header's size;
 /// [`ArtifactError::ArchiveEntryTooLarge`],
 /// [`ArtifactError::ArchiveTooLarge`], or
 /// [`ArtifactError::ArchiveTooManyEntries`] when the per-entry, aggregate,
 /// or entry-count cap is exceeded;
 /// [`ArtifactError::ArchiveStreamTooLarge`] when the whole
-/// decompressed stream crosses the compressed-size-derived cap; and
+/// decompressed stream crosses the compressed-size-derived cap;
+/// [`ArtifactError::ArchiveMetadataTooLarge`] when tar framing and
+/// metadata records exceed their budget; and
 /// [`ArtifactError::MissingStripPrefix`] when `options.strip_prefix` is set
-/// but no entry begins with that component.
+/// and an entry does not begin with that component, or no entry does.
 pub fn safe_extract_tar_gz(
     archive: &Path,
     dest: &Path,
@@ -774,16 +777,15 @@ fn extract_tar_entries<R: Read>(
             detail: source.to_string(),
         })?;
         let entry_kind = entry.header().entry_type();
-        // Skip GNU/PAX metadata records (long-path markers, extended
-        // headers, global PAX state) *before* path validation: the
-        // standard tar reader has already consumed their payload to
-        // populate the next real entry's header, and their literal
-        // path is a synthetic marker like `././@LongLink` that fails
-        // the prefix check even though no file is being extracted.
-        // Real archives produced by GNU `tar` routinely include
-        // these records, so deferring this skip to `write_entry`
-        // would let `MissingStripPrefix` reject otherwise-valid
-        // tarballs.
+        // Skip GNU/PAX metadata records *before* path validation.  The
+        // `tar` reader folds a GNU long-name/long-link or PAX local
+        // record into the entry it decorates (yielding it only from a
+        // header in neither GNU nor ustar format), but always yields a
+        // PAX global header such as the `pax_global_header` that
+        // `git archive` emits.  Such a record names no file, and its
+        // literal path fails the prefix check, so deferring this skip
+        // to `write_entry` would let `MissingStripPrefix` reject
+        // otherwise-valid tarballs.
         if matches!(
             entry_kind,
             tar::EntryType::GNULongName
@@ -1101,14 +1103,8 @@ fn write_entry<R: Read>(
             }
             Ok(())
         }
-        // Tar metadata entries carry side-band data the
-        // standard tar reader already consumes (long paths, PAX
-        // extended headers, global PAX state) - the subsequent
-        // real file entry exposes the resolved path via its own
-        // header, so skipping these is correct.  Real source
-        // archives, including ones produced by `git archive` and
-        // GNU `tar` for foundation-port releases, routinely
-        // include such records.
+        // `extract_tar_entries` skips metadata records before calling
+        // `write_entry`.
         tar::EntryType::GNULongName
         | tar::EntryType::GNULongLink
         | tar::EntryType::XHeader
@@ -1365,7 +1361,6 @@ mod tests {
             ArtifactError::UnsafeArchiveEntry(p) => assert!(p.contains("..")),
             other => panic!("expected UnsafeArchiveEntry, got {other:?}"),
         }
-        // Nothing escaped.
         dir.child("escape.txt").assert(predicate::path::missing());
     }
 
@@ -1630,10 +1625,9 @@ mod tests {
 
     #[test]
     fn rejects_archive_entry_exceeding_per_entry_limit() {
-        // A single entry whose decompressed body would exceed the
-        // per-entry cap is refused before the bomb is written to
-        // disk.  The half-written file is removed so a bomb does
-        // not leave a max-size carcass behind.
+        // A single entry whose decompressed body exceeds the
+        // per-entry cap is refused once the cap is crossed, and the
+        // partially written file is removed.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("bomb.tar.gz");
         let body = "x".repeat(2048);
@@ -1778,10 +1772,9 @@ mod tests {
         dest.child("zlib-1.3.1").assert(predicate::path::missing());
     }
 
-    /// GNU tar and `git archive --format=tar` commonly emit
-    /// entries with a leading `./` segment.  The strip-prefix
-    /// matcher must skip those before comparing to the declared
-    /// prefix; otherwise a perfectly valid tarball is rejected.
+    /// GNU tar emits a leading `./` segment on every entry of an
+    /// archive built from `.`.  The strip-prefix matcher must skip
+    /// those before comparing to the declared prefix.
     #[test]
     fn strip_prefix_accepts_leading_dot_slash_segments() {
         let dir = TempDir::new().unwrap();
@@ -1939,10 +1932,8 @@ mod tests {
 
     #[test]
     fn strip_prefix_reports_missing_prefix_on_empty_archive() {
-        // An empty archive (or one whose entries never start
-        // with the declared prefix) surfaces a dedicated
-        // MissingStripPrefix error.  Build a minimal archive
-        // containing only the gzip footer.
+        // An archive holding only the tar end-of-archive marker has
+        // no entry under the declared prefix.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("empty.tar.gz");
         let f = File::create(archive.path()).unwrap();
@@ -1970,8 +1961,8 @@ mod tests {
 
     #[test]
     fn strip_prefix_keeps_path_safety_after_strip() {
-        // Even if the archive's root dir is stripped, the
-        // post-strip path must still pass `is_safe_relative_path`.
+        // `<prefix>/../escape.txt` must not escape `dest` when the
+        // prefix is stripped.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("bad.tar.gz");
         make_archive_with_raw_name(
@@ -2099,8 +2090,6 @@ mod tests {
 
     #[test]
     fn zip_rejects_entry_exceeding_per_entry_limit() {
-        // The cap must bind on the actual decompressed bytes, not
-        // the size the zip headers claim.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("bomb.zip");
         let body = "x".repeat(2048);
@@ -2480,8 +2469,8 @@ mod tests {
 
     /// The file-vs-parent-directory conflict, exercised through the
     /// same `TargetTree::claim` call the tar path uses.  (Two records
-    /// with an *identical* name are caught earlier, by the declared-
-    /// count guard - see `zip_rejects_duplicate_named_records`.)
+    /// with an *identical* name are caught earlier, by the
+    /// central-directory walk - see `zip_rejects_duplicate_named_records`.)
     #[test]
     fn zip_rejects_a_file_used_as_a_parent_directory() {
         let dir = TempDir::new().unwrap();

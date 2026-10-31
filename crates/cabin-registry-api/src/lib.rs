@@ -29,9 +29,10 @@
 //! Every route lives on the registry's `api` origin (the `api` field
 //! of its `config.json`) and, package routes and revocation alike,
 //! authenticates with the `Authorization: Bearer <token>` credential -
-//! except the trusted-publishing exchange, which deliberately sends no
-//! `Authorization` header: the OIDC JWT in its body is the credential,
-//! and API discovery on that leg is an unauthenticated `config.json`
+//! except the two token exchanges (trusted publishing and the
+//! login-session mint), which send no `Authorization` header: the
+//! OIDC JWT or GitHub access token in the body is the credential, and
+//! API discovery on those legs is an unauthenticated `config.json`
 //! read (there is no token yet).  The caller resolves credentials
 //! through `cabin-credentials` (and decides *whether* to exchange -
 //! the GitHub Actions detection and precedence live in the CLI's
@@ -157,7 +158,9 @@ impl RegistryApi {
     /// Returns [`RegistryApiError::UnsafePackageName`] before any
     /// request when `name` is bare or fails the hosted registry's
     /// name grammar (scope: lowercase/digits/interior `-`; name part:
-    /// `[a-z0-9][a-z0-9_-]*`), and
+    /// `[a-z0-9][a-z0-9_-]*`) and
+    /// [`RegistryApiError::VersionBuildMetadata`] when `version`
+    /// carries build metadata, and
     /// [`RegistryApiError::FrameTooLarge`] when either payload
     /// exceeds the `u32` framing limit.  Response statuses map per
     /// `docs/remote-registry.md`: `409` becomes
@@ -227,9 +230,10 @@ impl RegistryApi {
     /// Returns [`RegistryApiError::UnsafePackageName`] before any
     /// request when `name` is bare or fails the hosted registry's
     /// name grammar (scope: lowercase/digits/interior `-`; name part:
-    /// `[a-z0-9][a-z0-9_-]*`).
-    /// Response
-    /// statuses map per `docs/remote-registry.md`; a `404` for an
+    /// `[a-z0-9][a-z0-9_-]*`) and
+    /// [`RegistryApiError::VersionBuildMetadata`] when `version`
+    /// carries build metadata.  Response statuses map per
+    /// `docs/remote-registry.md`; a `404` for an
     /// unknown package or version becomes
     /// [`RegistryApiError::NotFound`].
     pub fn set_yanked(
@@ -509,16 +513,12 @@ impl Refusal {
             429 => RegistryApiError::RateLimited { retry_after_secs },
             // The service-wide budget breaker
             // (`registry/docs/architecture.md`, "Why 503, not
-            // 402"): an operator-side, temporary refusal, so the
-            // registry answers `503` rather than the `402` it
-            // used before - `503` has explicit `Retry-After`
-            // semantics where `402` has none, and nothing the
-            // caller can pay clears the breaker.  Unlike the `402` it
-            // replaces, `503` is a status Cloudflare's own edge
-            // and runtime emit too, so the code identifies the
-            // breaker; an uncoded `503` stays the generic server
-            // error it was before, rather than blaming a
-            // platform outage on the registry's budget.
+            // 402"): an operator-side, temporary refusal with
+            // `Retry-After` semantics.  Cloudflare's edge and
+            // runtime emit `503` too, so only the envelope code
+            // identifies the breaker; an uncoded `503` stays the
+            // generic server error rather than blaming a platform
+            // outage on the registry's budget.
             503 if self.code.as_deref() == Some(OVER_BUDGET_CODE) => {
                 RegistryApiError::RegistryOverBudget { retry_after_secs }
             }
@@ -543,9 +543,9 @@ impl std::fmt::Debug for RegistryApi {
 /// Exchange a GitHub Actions OIDC JWT for a short-lived registry
 /// token: `PUT <api>/api/v1/trusted_publishing/tokens` with
 /// `{"jwt": ...}` as the body (`docs/remote-registry.md`, "Exchanging
-/// an Actions OIDC token").  The one mutation route that carries no
-/// `Authorization` header - the JWT is the credential - so the client
-/// is built tokenless on purpose.
+/// an Actions OIDC token").  The route carries no `Authorization`
+/// header - the JWT is the credential - so the client is built
+/// tokenless.
 ///
 /// # Errors
 /// Returns [`RegistryApiError::TrustedPublishingRefused`] on the
@@ -835,11 +835,6 @@ pub fn poll_device_token(
     loop {
         sleep(Duration::from_secs(interval_secs));
         slept_secs += interval_secs;
-        // Give up once the device code's own lifetime has passed -
-        // measured both in requested sleep (deterministic under the
-        // tests' no-op sleep) and in real elapsed time (slow
-        // responses consume lifetime no sleep accounts for) - before
-        // spending another poll on a code the server would refuse.
         if slept_secs > authorization.expires_in_secs
             || started.elapsed().as_secs() > authorization.expires_in_secs
         {
@@ -1044,8 +1039,8 @@ struct ErrorEntry {
 }
 
 /// Serde shape of a publish success body's optional `"verification"`
-/// field; every other field is ignored on purpose - a registry without
-/// the verification lifecycle simply omits it.
+/// and `"revision"` fields; every other field is ignored, and a
+/// registry that omits either field yields `None` for it.
 #[derive(Deserialize)]
 struct PublishSuccessBody {
     #[serde(default)]
@@ -2299,9 +2294,9 @@ mod tests {
         );
     }
 
-    /// A minted token the client cannot parse is a server-shaped
-    /// failure, surfaced as [`RegistryApiError::GithubOidc`]-distinct
-    /// server error, never a panic or a silent success.
+    /// A minted token the client cannot parse is a
+    /// [`RegistryApiError::ServerError`], never a panic or a silent
+    /// success.
     #[test]
     fn exchange_trusted_publishing_rejects_an_unparsable_token() {
         let mock = MockApi::respond_with(200, r#"{"token":"not a cabin token"}"#);
@@ -2433,7 +2428,7 @@ mod tests {
     }
 
     /// A server that answers pending forever cannot hang the login:
-    /// the loop gives up once the slept time reaches the device
+    /// the loop gives up once the slept time exceeds the device
     /// code's own lifetime.
     #[test]
     fn poll_device_token_gives_up_when_the_device_code_lifetime_elapses() {

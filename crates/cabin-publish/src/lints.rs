@@ -1,12 +1,12 @@
 //! Standard-compatibility publish-time lints
 //! (`docs/design/standard-compatibility/publish-lints.md`).
 //!
-//! Every lint is a **pure function** over its inputs - the resolved
+//! Every lint is a pure function over its inputs - the resolved
 //! manifest being published (spec D6 attributes) and, for PL3, the
 //! already-published versions read from the registry index.  No I/O,
 //! no registry access: the caller loads the inputs and feeds them in,
-//! so a future hosted registry can run the identical checks
-//! server-side.  Spec identifiers (D1-D14, ...) refer to
+//! so the file-registry and remote publish paths run the identical
+//! checks.  Spec identifiers (D1-D14, ...) refer to
 //! `docs/design/standard-compatibility/spec.md`.
 //!
 //! Three lints:
@@ -20,9 +20,7 @@
 //!   language's interface requirement to inference (spec D9 row 3).
 //! - **PL3** (warning): a patch release narrows a declared
 //!   requirement's accepted set (spec D12) versus the immediately
-//!   previous version - a raised minimum, an added or lowered
-//!   maximum, a sideways shift, or a flip to `none`; the check is
-//!   semantic, not an order comparison, because `⊑` is only partial.
+//!   previous version (see [`patch_release_findings`]).
 
 use cabin_core::standard_compatibility::{DependencyKind, dependency_attributes};
 use cabin_core::{
@@ -232,7 +230,7 @@ fn cell_findings<S: Copy + Ord + std::fmt::Display>(
 ///
 /// The baseline is the greatest already-published, non-pre-release
 /// version strictly below `new_version` that shares its `major.minor`
-/// (the release this one patches, per `docs/registry-design.md`).  When
+/// (the release this one patches, per the design doc's PL3 "Baseline").  When
 /// none exists (an `x.y.0`, the first publish of a line, or a
 /// pre-release new version), this is not a patch release and PL3 does
 /// not fire.  This is the precise reading of "the immediately previous

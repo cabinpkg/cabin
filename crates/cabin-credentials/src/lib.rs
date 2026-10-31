@@ -515,9 +515,8 @@ impl CredentialStore {
 /// unparsable or hand-edited file, a malformed token or key.  As a
 /// `SessionStore` such a file mirrors the keychain doctrine: it reads
 /// as absent (with a warning naming the state), the next store
-/// replaces it wholesale, and a removal is a no-op - so the `cabin
-/// login` every such warning recommends actually works.  I/O
-/// failures stay errors.
+/// replaces it wholesale, and a removal is a no-op - so `cabin login`
+/// recovers from it.  I/O failures stay errors.
 fn file_unreadable(err: &CredentialsError) -> bool {
     match err {
         CredentialsError::Parse { .. }
@@ -902,9 +901,12 @@ fn token_from_env_value(env_value: Option<&OsStr>) -> Result<Option<Token>, Cred
 /// # Errors
 /// Rejects a malformed environment override with
 /// [`CredentialsError::InvalidToken`] rather than sending garbage
-/// bytes in an `Authorization` header, and propagates
-/// [`CredentialStore::load`] errors for an unreadable or invalid
-/// credentials file.
+/// bytes in an `Authorization` header.  Propagates
+/// [`CredentialsError::Io`] when the credentials file cannot be read
+/// and [`CredentialsError::InvalidOrigin`] when one of its keys is not
+/// a registry origin.  A file that is not UTF-8 TOML, or that holds an
+/// invalid token or a non-normalized key, reads as absent, with
+/// [`TokenLookup::warning`] set.
 pub fn lookup_token(
     origin: &str,
     allow_env_override: bool,
@@ -1056,8 +1058,9 @@ pub enum CredentialsError {
 
     /// The platform keychain cannot serve this process (no keychain
     /// daemon, no D-Bus session, access denied).  [`SessionStorage`]
-    /// treats this as "fall back to the file", so it only escapes
-    /// when no fallback exists either.
+    /// treats this as "fall back to the file" and does not return it;
+    /// with no file backend, its `store` fails with
+    /// [`CredentialsError::NoConfigHome`] instead.
     #[error("the platform keychain is unavailable: {message}")]
     KeychainUnavailable { message: String },
 }
@@ -1129,7 +1132,7 @@ mod tests {
     /// Login-session tokens (`cabin_ses_<base64url>`) carry `-` and `_`
     /// like trusted-publishing ones; the widened charset is confined to
     /// the `ses_` marker, so plain user tokens stay base62-only
-    /// (`cabin_with-dash1` above keeps rejecting).
+    /// (`cabin_with-dash1` below keeps rejecting).
     #[test]
     fn token_parse_accepts_session_base64url_payloads() {
         for raw in [
@@ -1179,8 +1182,6 @@ mod tests {
         }
     }
 
-    /// The redaction contract: neither `Debug` nor `Display` output
-    /// contains any token bytes.
     #[test]
     fn token_debug_and_display_redact() {
         let token = token();
@@ -1506,8 +1507,6 @@ mod tests {
         }
     }
 
-    /// Unset and empty environment values are "no override", so an
-    /// allowed lookup still answers from parsing alone.
     #[test]
     fn empty_or_absent_env_is_no_override() {
         for env in [None, Some(OsStr::new(""))] {
@@ -1515,9 +1514,6 @@ mod tests {
         }
     }
 
-    /// The env override is honored before storage is even located,
-    /// so it works in home-less environments where no user config
-    /// home resolves.
     #[test]
     fn lookup_token_env_override_applies_before_the_store_is_located() {
         let lookup = lookup_token_with_env(
@@ -1949,9 +1945,6 @@ mod tests {
         );
     }
 
-    /// The stored-session lookup withholds an expired session's token
-    /// and says why, so callers can advise `cabin login` instead of
-    /// sending a credential the registry will refuse.
     #[test]
     fn expired_sessions_are_withheld_with_the_expired_flag() {
         let storage = SessionStorage::from_parts(None, Some(Box::new(MemoryStore::new(false))));

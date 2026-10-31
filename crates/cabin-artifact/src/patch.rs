@@ -6,9 +6,8 @@
 //! the producer and the verifier.  The ports publisher and the
 //! registry's external verifier (`cabin-registry-verify`) both reach
 //! it through [`materialize_upstream`](crate::materialize_upstream).
-//! That symmetry is the whole point:
-//! application is deliberately strict so two runs over the same bytes
-//! can never disagree.
+//! Application is strict so two runs over the same bytes can never
+//! disagree.
 //!
 //! - Text unified diffs only.  Binary hunks (`GIT binary patch`,
 //!   `Binary files ... differ`) and NUL bytes are rejected.
@@ -666,10 +665,10 @@ fn strip_cr(line: &[u8]) -> &[u8] {
 }
 
 /// Parse a `---` / `+++` header path: everything up to the first tab
-/// (GNU diff and git append a tab plus a timestamp there), `-p1`
-/// stripped.  `expected_prefix` is the exact component the `-p1`
-/// strip discards - `a` on the old side, `b` on the new.  `None` is
-/// `/dev/null`.
+/// (GNU diff appends a tab plus a timestamp there; git, a bare tab
+/// after a path containing a space), `-p1` stripped.
+/// `expected_prefix` is the exact component the `-p1` strip discards -
+/// `a` on the old side, `b` on the new.  `None` is `/dev/null`.
 fn header_path(
     patch: &str,
     raw: &[u8],
@@ -938,14 +937,8 @@ fn apply_file_entry(
     let target = root.join(Path::new(&entry.path));
     match entry.op {
         FileOp::Create => {
-            // The target must be materializable: nothing already at the
-            // path, no ancestor occupied by a regular file, and - so
-            // creation matches the case-sensitive Linux verifier - no
-            // component that only case-collides with an existing entry
-            // (on a case-insensitive host `Src/new.c` would otherwise
-            // reuse an existing `src/`, producing `src/new.c`).  The
-            // tree holds no symlinks (extraction skips them), so this
-            // is a plain per-component scan.
+            // The tree holds no symlinks (extraction skips them), so
+            // `create_would_conflict`'s per-component scan is sufficient.
             let conflict =
                 create_would_conflict(root, &entry.path).map_err(|source| PatchError::Io {
                     path: target.clone(),
@@ -1068,11 +1061,6 @@ fn apply_file_entry(
     }
 }
 
-/// Reject a patched or created file whose assembled size exceeds the
-/// per-target byte or line cap, keeping every materialized file
-/// within both bounds the read side relies on - a later patch (or a
-/// re-run) must never find a target this application produced over
-/// either cap.
 /// Charge `bytes` against the slice-wide work budget.  Every byte the
 /// application reads from or writes to the tree is charged, so a
 /// declaration cannot multiply a small patch input into gigabytes of
@@ -1088,6 +1076,11 @@ fn charge_work(work: &mut u64, bytes: u64) -> Result<(), PatchError> {
     Ok(())
 }
 
+/// Reject a patched or created file whose assembled size exceeds the
+/// per-target byte or line cap, keeping every materialized file
+/// within both bounds the read side relies on - a later patch (or a
+/// re-run) must never find a target this application produced over
+/// either cap.
 fn check_output_size(
     patch: &str,
     entry: &FileEntry<'_>,
@@ -1747,7 +1740,7 @@ mod tests {
             }
             other => panic!("expected TooManyFileEntries, got {other:?}"),
         }
-        // Rejected at parse time: not one of the floods files exists.
+        // Rejected at parse time: none of the flood's files exists.
         assert!(!dir.child("f0.txt").path().exists());
     }
 
@@ -2062,8 +2055,8 @@ mod tests {
 
     #[test]
     fn a_normal_git_section_with_a_regular_mode_applies() {
-        // Regression: a regular-file git section (with `index ... 100644`
-        // and a hunk) must still apply after the section tracking.
+        // A regular-file git section (`index ... 100644` plus a hunk)
+        // passes both the mode gate and the hunkless-section guard.
         let dir = tree(&[("f.c", "a\n")]);
         apply(
             &dir,
