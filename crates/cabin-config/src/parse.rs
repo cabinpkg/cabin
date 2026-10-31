@@ -7,6 +7,7 @@
 //! so integration tests can match substrings.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 
 use camino::Utf8PathBuf;
 
@@ -17,7 +18,7 @@ use cabin_core::{
 
 use crate::error::ConfigParseError;
 use crate::raw::{
-    RawBuild, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths, RawRegistry,
+    RawBuild, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawGc, RawPaths, RawRegistry,
     RawResolver, RawTerm, RawToolchain,
 };
 
@@ -30,6 +31,7 @@ pub struct ParsedConfig {
     pub paths: ParsedPaths,
     pub build: ParsedBuild,
     pub resolver: ParsedResolver,
+    pub gc: ParsedGc,
     pub toolchain: ParsedToolchain,
     pub term: ParsedTerm,
     pub patches: BTreeMap<PackageName, PatchSource>,
@@ -49,6 +51,17 @@ pub struct ParsedConfig {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ParsedResolver {
     pub incompatible_standards: Option<IncompatibleStandards>,
+}
+
+/// Validated `[gc]` table.  Unset keys stay `None` so merging keeps a
+/// lower-priority file's value.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ParsedGc {
+    pub auto: Option<bool>,
+    /// Active days; at least 1.
+    pub max_age: Option<NonZeroU32>,
+    /// Logical bytes.
+    pub max_size: Option<u64>,
 }
 
 /// Validated `[term]` table.  Each field is `Option` so an absent
@@ -137,6 +150,10 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         Some(r) => parsed_resolver_from_raw(r)?,
         None => ParsedResolver::default(),
     };
+    let gc = match raw.gc {
+        Some(g) => parsed_gc_from_raw(g)?,
+        None => ParsedGc::default(),
+    };
     let toolchain = match raw.toolchain {
         Some(t) => parsed_toolchain_from_raw(t)?,
         None => ParsedToolchain::default(),
@@ -176,6 +193,7 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         paths,
         build,
         resolver,
+        gc,
         toolchain,
         term,
         patches,
@@ -205,6 +223,29 @@ fn parsed_resolver_from_raw(raw: RawResolver) -> Result<ParsedResolver, ConfigPa
     };
     Ok(ParsedResolver {
         incompatible_standards,
+    })
+}
+
+fn parsed_gc_from_raw(raw: RawGc) -> Result<ParsedGc, ConfigParseError> {
+    let max_age = match raw.max_age {
+        Some(value) => Some(
+            u32::try_from(value)
+                .ok()
+                .and_then(NonZeroU32::new)
+                .ok_or(ConfigParseError::InvalidGcMaxAge { value })?,
+        ),
+        None => None,
+    };
+    let max_size = match raw.max_size {
+        Some(value) => {
+            Some(cabin_core::parse_byte_size(&value).map_err(ConfigParseError::InvalidGcMaxSize)?)
+        }
+        None => None,
+    };
+    Ok(ParsedGc {
+        auto: raw.auto,
+        max_age,
+        max_size,
     })
 }
 
@@ -1182,6 +1223,32 @@ mod tests {
     fn build_jobs_missing_yields_none() {
         let parsed = parse_config_str("[build]\nprofile = \"dev\"\n").unwrap();
         assert!(parsed.build.jobs.is_none());
+    }
+
+    #[test]
+    fn gc_table_parses_and_validates() {
+        let parsed =
+            parse_config_str("[gc]\nauto = false\nmax-age = 7\nmax-size = \"2 GiB\"\n").unwrap();
+        assert_eq!(
+            parsed.gc,
+            ParsedGc {
+                auto: Some(false),
+                max_age: NonZeroU32::new(7),
+                max_size: Some(2 << 30),
+            }
+        );
+        for bad in ["max-age = 0", "max-age = -3", "max-age = 4294967296"] {
+            let err = parse_config_str(&format!("[gc]\n{bad}\n")).unwrap_err();
+            assert!(
+                matches!(err, ConfigParseError::InvalidGcMaxAge { .. }),
+                "{bad}: {err}"
+            );
+        }
+        let err = parse_config_str("[gc]\nmax-size = \"lots\"\n").unwrap_err();
+        assert!(
+            matches!(err, ConfigParseError::InvalidGcMaxSize(_)),
+            "{err}"
+        );
     }
 
     #[test]

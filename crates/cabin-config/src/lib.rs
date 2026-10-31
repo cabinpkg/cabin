@@ -41,9 +41,9 @@ pub use discovery::{
 };
 pub use effective::{
     EffectiveBuild, EffectiveBuildJobs, EffectiveColor, EffectiveCompilerWrapper, EffectiveConfig,
-    EffectivePatch, EffectivePathSetting, EffectivePaths, EffectiveProfile, EffectiveRegistry,
-    EffectiveRegistrySource, EffectiveResolver, EffectiveTerm, EffectiveTool, EffectiveToolchain,
-    EffectiveVerbosity, merge_loaded_files,
+    EffectiveGc, EffectivePatch, EffectivePathSetting, EffectivePaths, EffectiveProfile,
+    EffectiveRegistry, EffectiveRegistrySource, EffectiveResolver, EffectiveTerm, EffectiveTool,
+    EffectiveToolchain, EffectiveVerbosity, merge_loaded_files,
 };
 pub use error::{ConfigError, ConfigParseError};
 pub use parse::{ParsedConfig, ParsedTerm, redact_userinfo, url_contains_credentials};

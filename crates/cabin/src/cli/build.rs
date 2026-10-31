@@ -68,9 +68,10 @@ pub(super) fn build(
     ));
 
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
-    let elapsed =
+    let built =
         crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
             build_dir: &prepared.build_dir,
+            build_root: &prepared.build_root,
             profile: &prepared.profile,
             plan_graph: &plan_graph,
             graph: &prepared.graph,
@@ -81,6 +82,7 @@ pub(super) fn build(
             dev_for: &prepared.dev_for,
             ninja: &prepared.ninja,
             jobs,
+            gc: crate::cli::gc::GcSettings::from_config(&prepared.effective_config),
             reporter,
         })?;
 
@@ -93,7 +95,7 @@ pub(super) fn build(
             "`{}` profile [{}] target(s) in {:.2}s",
             prepared.profile.name.as_str(),
             profile_descriptor(&prepared.profile),
-            elapsed.as_secs_f64(),
+            built.elapsed.as_secs_f64(),
         ),
     );
 

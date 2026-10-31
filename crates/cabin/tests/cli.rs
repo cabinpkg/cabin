@@ -2419,3 +2419,6 @@ mod trace_capture;
 
 #[path = "cli/static_library_rebuild.rs"]
 mod static_library_rebuild;
+
+#[path = "cli/build_gc.rs"]
+mod build_gc;

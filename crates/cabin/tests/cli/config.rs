@@ -126,6 +126,28 @@ fn metadata_reports_runners_with_the_winning_source() {
 }
 
 #[test]
+fn metadata_reports_gc_policy_with_its_sources() {
+    let dir = project_dir(MINIMAL_PROJECT);
+    write_workspace_config(dir.path(), "[gc]\nmax-age = 7\nmax-size = \"2 GiB\"\n");
+    let user_home = TempDir::new().unwrap();
+    let assertion = cabin_with_config()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .assert()
+        .success();
+    let value: serde_json::Value = serde_json::from_slice(&assertion.get_output().stdout).unwrap();
+    assert_eq!(
+        value["config"]["gc"],
+        serde_json::json!({
+            "auto": { "value": true, "value_source": "builtin-default" },
+            "max_age": { "value": 7, "value_source": "package-config" },
+            "max_size": { "value": 2_147_483_648_u64, "value_source": "package-config" },
+        })
+    );
+}
+
+#[test]
 fn metadata_reports_resolver_incompatible_standards() {
     let dir = project_dir(MINIMAL_PROJECT);
     write_workspace_config(

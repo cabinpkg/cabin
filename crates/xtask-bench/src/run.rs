@@ -238,7 +238,7 @@ pub fn measure(
     if let Some(mutation) = &scenario.prepare {
         // hyperfine runs `--prepare` through the platform shell.
         let mut line = vec![ctx.self_exe.display().to_string(), "mutate".to_owned()];
-        line.extend(mutation.args().map(str::to_owned));
+        line.extend(mutation.args());
         cmd.args(["--prepare", &shell_line(&line)]);
     }
     let mut line = vec![binary.path.display().to_string()];
@@ -353,6 +353,13 @@ fn verify(expect: &Expect, dir: &Path, actions: impl Fn() -> Result<Vec<String>>
                 found == *expected,
                 "expected {expected} entries in `{path}`, found {found}"
             );
+        }
+        Expect::Collects { removed, kept } => {
+            ensure!(
+                !dir.join(removed).exists(),
+                "expected `{removed}` to be removed"
+            );
+            ensure!(dir.join(kept).exists(), "expected `{kept}` to be kept");
         }
         Expect::TestCases(report, expected) => {
             no_actions()?;

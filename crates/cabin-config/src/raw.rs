@@ -63,6 +63,8 @@ pub(crate) struct RawConfig {
     #[serde(default)]
     pub(crate) resolver: Option<RawResolver>,
     #[serde(default)]
+    pub(crate) gc: Option<RawGc>,
+    #[serde(default)]
     pub(crate) toolchain: Option<RawToolchain>,
     #[serde(default)]
     pub(crate) term: Option<RawTerm>,
@@ -130,6 +132,18 @@ pub(crate) struct RawBuild {
 pub(crate) struct RawResolver {
     #[serde(default, rename = "incompatible-standards")]
     pub(crate) incompatible_standards: Option<String>,
+}
+
+/// Shape of `[gc]` in a config file: build-output garbage collection.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawGc {
+    #[serde(default)]
+    pub(crate) auto: Option<bool>,
+    #[serde(default, rename = "max-age")]
+    pub(crate) max_age: Option<i64>,
+    #[serde(default, rename = "max-size")]
+    pub(crate) max_size: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

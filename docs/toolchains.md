@@ -485,7 +485,8 @@ an input:
 ### Direct `ninja` invocation
 
 `cabin build` regenerates `build.ninja` and `compile_commands.json` from the current manifest /
-config / toolchain inputs every time it runs.  Direct `ninja -C <build-dir>/<profile>` invocations
+config / toolchain inputs every time it runs, rewriting each only when its contents change so an
+unchanged file keeps its modification time.  Direct `ninja -C <build-dir>/<profile>` invocations
 do *not* re-read `cabin.toml`, `.cabin/config.toml`, or the environment - Ninja rebuilds an output
 only when the command line, an explicit input, the depfile, or the output path changes, or when
 `cabin-toolchain.json` beside `build.ninja` does.  Every edge depends on that file, which records

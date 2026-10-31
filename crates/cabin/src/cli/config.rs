@@ -767,10 +767,35 @@ pub(crate) fn config_view_json(
         "paths": paths,
         "build": build,
         "resolver": resolver,
+        "gc": gc_view_json(config),
         "toolchain": toolchain,
         "compiler_wrapper": compiler_wrapper,
         "runners": runners,
         "sysroots": sysroots,
+    })
+}
+
+fn gc_view_json(config: &EffectiveConfig) -> serde_json::Value {
+    let settings = super::gc::GcSettings::from_config(config);
+    let source = |source: Option<ConfigSource>| {
+        source
+            .map_or(ConfigValueSource::BuiltinDefault, config_value_source)
+            .as_key()
+    };
+    let gc = &config.gc;
+    serde_json::json!({
+        "auto": {
+            "value": settings.auto,
+            "value_source": source(gc.auto.as_ref().map(|v| v.source)),
+        },
+        "max_age": {
+            "value": settings.policy.max_age.get(),
+            "value_source": source(gc.max_age.as_ref().map(|v| v.source)),
+        },
+        "max_size": gc.max_size.as_ref().map(|v| serde_json::json!({
+            "value": v.value,
+            "value_source": config_value_source(v.source).as_key(),
+        })),
     })
 }
 

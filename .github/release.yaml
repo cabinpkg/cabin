@@ -6,6 +6,9 @@ changelog:
     - title: New Features
       labels:
         - feature
+    - title: Performance Improvements
+      labels:
+        - perf
     - title: Fixes
       labels:
         - fix
