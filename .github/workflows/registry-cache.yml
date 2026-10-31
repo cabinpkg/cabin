@@ -6,7 +6,6 @@ name: Registry Cache
 # merge queue restore. The key covers rustc, so dispatch it after a
 # toolchain bump.
 on:
-  pull_request:
   schedule:
     - cron: "11 3 * * *"
   workflow_dispatch:
