@@ -172,6 +172,10 @@ pub struct AssembleAction {
 pub struct ArchiveAction {
     /// Archiver executable (`ar` / `lib`).
     pub archiver: Utf8PathBuf,
+    /// Whether the archiver splits a response file like a command line
+    /// when it runs on Windows
+    /// ([`cabin_core::ArchiverIdentity::windows_rsp_quoting`]).
+    pub windows_rsp_quoting: bool,
     /// Static library to produce.
     pub output: Utf8PathBuf,
     /// Object files to archive, in order.

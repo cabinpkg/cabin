@@ -309,6 +309,20 @@ pub struct ArchiverIdentity {
 }
 
 impl ArchiverIdentity {
+    /// Whether this archiver, run on Windows, splits a response file
+    /// like a command line rather than with GNU rules: `lib.exe` does,
+    /// and `llvm-ar` has since LLVM 11 (unless `--rsp-quoting=posix`).
+    pub fn windows_rsp_quoting(&self) -> bool {
+        match self.kind {
+            ArchiverKind::Lib => true,
+            ArchiverKind::LlvmAr => self
+                .version
+                .as_ref()
+                .is_none_or(|version| version.major >= 11),
+            ArchiverKind::Ar | ArchiverKind::Unknown => false,
+        }
+    }
+
     pub fn as_json(&self) -> serde_json::Value {
         identity_json(
             self.kind.as_key(),

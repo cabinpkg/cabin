@@ -63,6 +63,8 @@ impl ManifestTargetSelector {
 pub const BUILD_CONTEXT_DIR: &str = "build-machine";
 
 /// Inputs to the build planner.
+// Independent inputs that happen to be booleans, not a state machine.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug)]
 pub struct PlanRequest<'a> {
     pub graph: &'a PackageGraph,
@@ -137,6 +139,10 @@ pub struct PlanRequest<'a> {
     /// `<x>.lib`, `<x>` vs `<x>.exe`) and the spelling of every
     /// compile / archive / link command the lowering emits.
     pub dialect: Dialect,
+    /// Whether `toolchain.ar` splits a response file like a command line
+    /// when it runs on Windows
+    /// ([`cabin_core::ArchiverIdentity::windows_rsp_quoting`]).
+    pub archiver_windows_rsp_quoting: bool,
     /// Whether the MSVC-dialect compilers accept the `/external:I`
     /// block ([`crate::msvc_external_includes_supported`]).  When
     /// `false` on an MSVC build, the planner collapses the system
@@ -785,6 +791,7 @@ fn emit_actions(
                     pkg_build_dir.join(req.dialect.static_library_name(target.name.as_str()));
                 actions.push(BuildAction::Archive(ArchiveAction {
                     archiver: req.toolchain.ar.path().to_path_buf(),
+                    windows_rsp_quoting: req.archiver_windows_rsp_quoting,
                     output: lib_path.clone(),
                     inputs: objects,
                     description: format!("AR {lib_path}"),

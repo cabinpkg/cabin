@@ -3,6 +3,8 @@
 use cabin_core::{AssemblySyntax, CompilerKind};
 use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::BuildAction;
+
 /// A compiler command-line family.  Selected from the detected C++
 /// compiler and threaded through planning and Ninja generation so
 /// every artifact name and command line speaks one dialect.
@@ -155,33 +157,42 @@ impl Dialect {
         self == Dialect::Msvc
     }
 
-    /// `args` spelled for a response file that this dialect's archiver
-    /// and linker read in their place, separated by spaces.  GCC, Clang,
+    /// `args` spelled for a response file that `action`'s archiver or
+    /// linker reads in their place, separated by spaces.  GCC, Clang,
     /// and `ar` split a response file at whitespace and honor quotes and
     /// backslash escapes, so every argument is spelled with each
     /// whitespace, quote, and backslash character backslash-escaped.
-    /// MSVC tools split it like a command line.  Neither form can carry
-    /// a NUL.
+    /// MSVC tools split it like a command line, and so does `llvm-ar` 11
+    /// or later on a Windows host: it follows the host's rules, where the
+    /// Clang driver keeps GNU rules everywhere.  Neither form can carry a
+    /// NUL.
     #[must_use]
-    pub fn response_file_args(self, args: &[String]) -> String {
+    pub fn response_file_args(
+        self,
+        action: &BuildAction,
+        windows_host: bool,
+        args: &[String],
+    ) -> String {
+        let windows = self == Dialect::Msvc
+            || (windows_host
+                && matches!(action, BuildAction::Archive(archive) if archive.windows_rsp_quoting));
         let mut out = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
                 out.push(' ');
             }
-            match self {
-                Dialect::Msvc => windows_quote_arg(arg, &mut out),
-                Dialect::GnuLike => {
-                    if arg.is_empty() {
-                        out.push_str("''");
-                    }
-                    for c in arg.chars() {
-                        if c.is_ascii_whitespace() || matches!(c, '\x0b' | '\'' | '"' | '\\') {
-                            out.push('\\');
-                        }
-                        out.push(c);
-                    }
+            if windows {
+                windows_quote_arg(arg, &mut out);
+                continue;
+            }
+            if arg.is_empty() {
+                out.push_str("''");
+            }
+            for c in arg.chars() {
+                if c.is_ascii_whitespace() || matches!(c, '\x0b' | '\'' | '"' | '\\') {
+                    out.push('\\');
                 }
+                out.push(c);
             }
         }
         out
@@ -249,6 +260,38 @@ pub fn windows_quote_arg(arg: &str, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ArchiveAction;
+
+    #[test]
+    fn an_archiver_with_windows_quoting_reads_a_response_file_like_a_command_line_on_windows() {
+        let archive = |windows_rsp_quoting| {
+            BuildAction::Archive(ArchiveAction {
+                archiver: "llvm-ar".into(),
+                windows_rsp_quoting,
+                output: "lib.a".into(),
+                inputs: vec![],
+                description: String::new(),
+            })
+        };
+        let args = ["crs".to_owned(), r"C:\a b\x.o".to_owned()];
+        let gnu = r"crs C:\\a\ b\\x.o";
+        let windows = r#"crs "C:\a b\x.o""#;
+        for (windows_rsp_quoting, windows_host, expected) in [
+            (true, true, windows),
+            (true, false, gnu),
+            (false, true, gnu),
+        ] {
+            assert_eq!(
+                Dialect::GnuLike.response_file_args(
+                    &archive(windows_rsp_quoting),
+                    windows_host,
+                    &args
+                ),
+                expected,
+                "Windows quoting: {windows_rsp_quoting}, on a Windows host: {windows_host}"
+            );
+        }
+    }
 
     #[test]
     fn msvc_compiler_selects_msvc_dialect() {

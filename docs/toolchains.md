@@ -556,15 +556,15 @@ Archive and link commands list every object, so a large target can outgrow the h
 limit: 32,767 characters for `CreateProcess` on Windows, and 128 KiB for the single `/bin/sh -c`
 argument Ninja runs on Linux.  Past 24 KiB on Windows or 120 KiB on Linux, the command passes its
 arguments through a response file beside the output (`ar @libfoo.a+.rsp`, `cl @app.exe+.rsp`) that
-Ninja writes before running it and deletes after it succeeds.  GCC, Clang, GNU `ar`, and `llvm-ar`
-read it with backslash escapes; MSVC tools read it like a command line, as UTF-8 marked by a byte
-order mark, and reject a line of 128 KiB or more (LNK1170), so their inputs go one per line through
-Ninja's `$in_newline`, with the options around them, `/link` and the linker options it starts last,
-on the first and last lines.  On a Windows host `llvm-ar` reads response files like a command line
-instead, so a best-effort GNU toolchain there that archives with it misreads the escaped paths.
-Other hosts limit only the total argument size, and the `ar` of macOS and the BSDs reads no response
-files, so commands there stay inline.  Compile commands stay inline everywhere: their length grows
-with include directories, not with the number of sources in a target.
+Ninja writes before running it and deletes after it succeeds.  GCC, Clang, and GNU `ar` read it with
+backslash escapes, and so does `llvm-ar` except from LLVM 11 on a Windows host, where it reads one
+like a command line and Cabin quotes it to match.  MSVC tools read it like a command line, as UTF-8
+marked by a byte order mark, and reject a line of 128 KiB or more (LNK1170), so their inputs go one
+per line through Ninja's `$in_newline`, with the options around them, `/link` and the linker options
+it starts last, on the first and last lines.  Other hosts limit only the total argument size, and
+the `ar` of macOS and the BSDs reads no response files, so commands there stay inline.  Compile
+commands stay inline everywhere: their length grows with include directories, not with the number of
+sources in a target.
 
 ## Package + index metadata
 

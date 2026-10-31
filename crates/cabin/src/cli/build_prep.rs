@@ -871,6 +871,7 @@ pub(crate) fn plan_prepared(
         dialect: cabin_build::Dialect::from_compiler_kind(
             prepared.detection_report.cxx.identity.kind,
         ),
+        archiver_windows_rsp_quoting: prepared.detection_report.ar.identity.windows_rsp_quoting(),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &prepared.detection_report,
             prepared.approx_standards.has_c_sources(),
@@ -969,6 +970,7 @@ fn plan_build_context(
         dialect: cabin_build::Dialect::from_compiler_kind(
             prepared.detection_report.cxx.identity.kind,
         ),
+        archiver_windows_rsp_quoting: prepared.detection_report.ar.identity.windows_rsp_quoting(),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &prepared.detection_report,
             cabin_build::collect_requested_standards(

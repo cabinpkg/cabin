@@ -900,6 +900,7 @@ mod tests {
     fn gnu_archive_lowers_to_ar_crs_command() {
         let action = BuildAction::Archive(ArchiveAction {
             archiver: Utf8PathBuf::from("/usr/bin/ar"),
+            windows_rsp_quoting: false,
             output: Utf8PathBuf::from("/abs/build/libfoo.a"),
             inputs: vec![
                 Utf8PathBuf::from("/abs/build/a.o"),
@@ -1100,6 +1101,7 @@ mod tests {
     fn msvc_archive_lowers_to_lib_out_command() {
         let action = BuildAction::Archive(ArchiveAction {
             archiver: Utf8PathBuf::from("lib.exe"),
+            windows_rsp_quoting: true,
             output: Utf8PathBuf::from("C:/build/foo.lib"),
             inputs: vec![
                 Utf8PathBuf::from("C:/build/a.obj"),

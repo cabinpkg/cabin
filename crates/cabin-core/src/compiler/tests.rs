@@ -80,6 +80,18 @@ fn parses_llvm_ar_version() {
 }
 
 #[test]
+fn llvm_ar_reads_response_files_like_a_windows_command_line_from_llvm_11() {
+    let llvm_ar = |version| {
+        parse_ar_version_output(&format!(
+            "LLVM (http://llvm.org/):\n  LLVM version {version}\n"
+        ))
+    };
+    assert!(!llvm_ar("10.0.1").windows_rsp_quoting());
+    assert!(llvm_ar("11.0.0").windows_rsp_quoting());
+    assert!(!parse_ar_version_output("GNU ar (GNU Binutils) 2.40\n").windows_rsp_quoting());
+}
+
+#[test]
 fn detects_lib_exe_as_unsupported() {
     let id = parse_ar_version_output(
         "Microsoft (R) Library Manager Version 14.39.33523.0\nCopyright (C) Microsoft Corporation.\n",
