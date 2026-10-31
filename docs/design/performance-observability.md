@@ -415,6 +415,23 @@ including a respun revision pinned by a lockfile.
 features before its range in the provider saved about 0.7% of `resolve/wide`'s instructions,
 which the comparison reports as `Unchanged`.
 
+**`index/http-wide`'s peak RSS.**  The table's 0.27 MiB rise at `index/http-wide` from #2060 to
+`main`, while both resolve scenarios fell, is not memory Cabin allocates.  A library injected with
+`DYLD_INSERT_LIBRARIES` read the process's peak resident memory at exit, split into file-backed and
+anonymous pages (`TASK_VM_INFO`, 30 runs each): the file-backed peak grew from 8.703 to 8.984 MiB,
+18 pages of 16 KiB in every run, and anonymous memory did not grow.  Over those commits the
+binary's `__TEXT` grew 8.6%, and the file-backed peak moves with changes to Ninja handling that
+resolution does not run: #2089 within those commits and #2095 after them moved it by +0.06 and
+-0.16 MiB.  So the resolve path most likely touches more pages of a larger binary (the system
+libraries did not change, but macOS does not show which image a resident page belongs to without
+root), in steps spread over many commits in both directions.  Recovering it would take
+whole-binary size or layout work for 1.6% of the peak, under the policy's 1 MiB floor.  The
+comparison cannot resolve a step this small on macOS anyway: the allocator's cache of freed large
+blocks gives the peak two modes about 0.5 MiB apart, already at #2060 (`MallocLargeCache=0` removes
+the upper one), so the mix alone can move a 40-run median by 0.25 MiB or more.  After a749724e8,
+anonymous memory rose 0.05-0.14 MiB at each of #2095 and #2099, neither on the resolve path, by a
+mechanism not identified.
+
 ## Investigation: file-index reads
 
 Same machine, release builds of `main` (2ccb8f623) and the change, under other load (load average
