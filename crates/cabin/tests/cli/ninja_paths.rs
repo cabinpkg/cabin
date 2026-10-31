@@ -1,0 +1,165 @@
+//! Builds whose paths stress Ninja's manifest and depfile syntax,
+//! checked against real tools: the generated `build.ninja` must parse, a
+//! header edit must rebuild exactly its dependents, and an unchanged
+//! rebuild must do no work.
+
+use super::*;
+
+fn write(dir: &Path, path: &str, body: &str) {
+    assert_fs::fixture::ChildPath::new(dir.join(path))
+        .write_str(body)
+        .unwrap();
+}
+
+fn ninja(build_root: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("ninja")
+        .arg("-C")
+        .arg(build_root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// A C and C++ library whose sources share a header through another
+/// header, one source that includes nothing, and an executable.
+fn write_project(dir: &Path) {
+    write(
+        dir,
+        "cabin.toml",
+        r#"[package]
+name = "fx"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.fx]
+type = "library"
+sources = ["src/a.cc", "src/b.c", "src/plain.cc"]
+include-dirs = ["include"]
+
+[target.app]
+type = "executable"
+sources = ["app/main.cc"]
+deps = ["fx"]
+"#,
+    );
+    write(dir, "include/fx/inner.h", "#define FX_INNER 1\n");
+    write(
+        dir,
+        "include/fx/a.hpp",
+        "#include \"fx/inner.h\"\nint fx_a();\nextern \"C\" int fx_b(void);\n",
+    );
+    write(
+        dir,
+        "src/a.cc",
+        "#include \"fx/a.hpp\"\nint fx_a() { return FX_INNER; }\n",
+    );
+    write(
+        dir,
+        "src/b.c",
+        "#include \"fx/inner.h\"\nint fx_b(void) { return FX_INNER; }\n",
+    );
+    write(dir, "src/plain.cc", "int fx_plain() { return 0; }\n");
+    write(
+        dir,
+        "app/main.cc",
+        "#include \"fx/a.hpp\"\nint main() { return fx_a() == fx_b() ? 0 : 1; }\n",
+    );
+}
+
+#[test]
+fn special_character_paths_rebuild_only_what_changed() {
+    require_c_and_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    // `;` and the others Ninja's depfile parser splits on, `|` that ends a
+    // manifest path, and what both escape.  Windows file names cannot
+    // hold `|`, `"`, `:`, `*`, `?`, `<`, or `>`, and `cl /showIncludes`
+    // reports paths in the ANSI code page.
+    let names: &[&str] = if cfg!(windows) {
+        &[
+            "semi;colon",
+            "single'quote",
+            "sp ace$dollar#hash&amp^caret`tick",
+        ]
+    } else {
+        &[
+            "semi;colon",
+            "single'quote",
+            "pi|pe",
+            "sp ace$dollar:colon#hash\"dq&amp?q*star<lt>gt^caret`tick✓",
+        ]
+    };
+    for name in names {
+        let dir = tmp.path().join(name);
+        write_project(&dir);
+        cabin().arg("build").current_dir(&dir).assert().success();
+        let root = dir.canonicalize().unwrap().join("build").join("dev");
+        assert!(
+            ninja(&root, &["-n"]).contains("no work to do"),
+            "[{name}] an unchanged rebuild has work"
+        );
+        // MSVC dependencies come from `/showIncludes`, which Ninja records
+        // relative to the build root.
+        if !cfg!(windows) {
+            let object = root.join("packages/fx/obj/fx/src/a.cc.o");
+            let header = dir.canonicalize().unwrap().join("include/fx/inner.h");
+            let deps = ninja(&root, &["-t", "deps", object.to_str().unwrap()]);
+            assert!(deps.contains(header.to_str().unwrap()), "[{name}] {deps}");
+        }
+
+        write(&dir, "include/fx/inner.h", "#define FX_INNER 2\n");
+        let plan = ninja(&root, &["-n"]);
+        for object in ["a.cc.o", "b.c.o", "main.cc.o"] {
+            assert!(
+                plan.contains(object),
+                "[{name}] {object} is not rebuilt: {plan}"
+            );
+        }
+        assert!(!plan.contains("plain.cc.o"), "[{name}] {plan}");
+        cabin().arg("build").current_dir(&dir).assert().success();
+        assert!(ninja(&root, &["-n"]).contains("no work to do"), "[{name}]");
+    }
+
+    // A syntax check runs `cabin stamp`, then `cabin depfile`, then the
+    // compiler, and keeps the same dependencies.
+    let dir = tmp.path().join(names[0]);
+    cabin().arg("check").current_dir(&dir).assert().success();
+    cabin()
+        .args(["-v", "check"])
+        .current_dir(&dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ninja: no work to do."));
+
+    // A failing compile through `cabin depfile` fails the build and
+    // recovers once fixed.
+    write(&dir, "src/plain.cc", "int fx_plain() { return }\n");
+    cabin().arg("build").current_dir(&dir).assert().failure();
+    write(&dir, "src/plain.cc", "int fx_plain() { return 0; }\n");
+    cabin().arg("build").current_dir(&dir).assert().success();
+    cabin()
+        .args(["-v", "build"])
+        .current_dir(&dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ninja: no work to do."));
+}
+
+/// Ninja's `deps = msvc` drops every dependency under a `program files`
+/// path, so a project there reruns the compiles `cabin depfile` reports
+/// instead of going stale.  MSVC's own `/showIncludes` dependencies there
+/// are dropped the same way.
+#[cfg(unix)]
+#[test]
+fn compiles_whose_dependencies_ninja_drops_rerun() {
+    require_c_and_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("Program Files/semi;colon");
+    write_project(&dir);
+    cabin().arg("build").current_dir(&dir).assert().success();
+    let root = dir.canonicalize().unwrap().join("build").join("dev");
+    let plan = ninja(&root, &["-n"]);
+    assert!(plan.contains("a.cc.o"), "{plan}");
+}

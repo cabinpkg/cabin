@@ -69,7 +69,8 @@ Two consequences of the spelling are worth knowing:
 
 - The GCC/Clang depfile block is `-MD -MF <file>` (not `-MMD`, which omits system headers): edits
   under an extracted registry tree or a `pkg-config` include dir keep invalidating incremental
-  rebuilds.
+  rebuilds.  A depfile whose paths Ninja cannot read reaches it another way; see
+  [Paths Ninja cannot spell](#paths-ninja-cannot-spell).
 - On MSVC, `/external:I` is version-gated (see the [capability set](#capability-set)); an older `cl`
   falls back to plain `/I` for those directories: the historical command shape without warning
   isolation.
@@ -484,6 +485,35 @@ rebuilds everything, even at the same path.  Run `cabin build` after manifest, c
 edits so the fingerprint and the generated commands reflect the new inputs; running Ninja directly
 against a stale `build.ninja` is intentionally supported (it's how IDEs and editor watchers
 re-invoke the incremental build) but does not pick up Cabin-level changes.
+
+### Paths Ninja cannot spell
+
+Ninja reads paths in two syntaxes: its own manifest, and the Makefile depfiles GCC and Clang write.
+
+- In `build.ninja`, `$`, space, and `:` have `$` escapes.  `|` has none and is spelled `${pipe}`,
+  a reference to a file-level variable holding `|`.  A newline or carriage return cannot appear in
+  a Ninja path, so a path containing one is rejected.
+- Ninja's depfile parser ends a path at `;`, `|`, `*`, `<`, `>`, `^`, `` ` ``, a tab, or a control
+  character, and before Ninja 1.13 also at `'`, `"`, `&`, and `?`, with no escape for any of them;
+  the split path never exists, so such a compile would rerun on every build.  A GCC/Clang compile
+  whose source, output, compiler, include directories, or extra flags contain one of these
+  characters runs as `cabin depfile <depfile> -- <compile>`: after the compiler succeeds, Cabin
+  reads the depfile itself and reports each dependency on the line-based channel Ninja's
+  `deps = msvc` reads.  Every other compile keeps `deps = gcc` and pays nothing extra.
+
+What remains:
+
+- Cabin decides from the paths it passes, so a header whose own file name contains such a
+  character, below an ordinary include directory, still reaches Ninja's parser: that compile reruns
+  on every build instead of going stale.
+- Clang writes a tab in a path unescaped and, on Linux and macOS, writes `\` as `/`, so those paths
+  lose their identity in Clang's depfile, with the same effect.
+- Ninja's `deps = msvc` drops a dependency whose path contains `program files` or
+  `microsoft visual studio` (case-insensitively) as a system header, so `cabin depfile` reports
+  a compile with such a dependency as depending on a file that never exists: it reruns on every
+  build instead of going stale.
+- On Windows, Ninja's `deps = msvc` rejects a dependency path longer than 260 characters, so a
+  best-effort GNU toolchain there fails such a compile.
 
 ## Package + index metadata
 
