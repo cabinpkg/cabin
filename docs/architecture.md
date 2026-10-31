@@ -883,7 +883,8 @@ Owns compiler-dialect lowering: the single boundary where `cabin-build`'s toolch
 `Msvc` (the `cl.exe` / `lib.exe` driver: `/std:c++17`, `/D` / `/I` / `/external:I`,
 `/showIncludes`) - and owns every platform- and toolchain-specific spelling: artifact naming, Ninja
 header-dependency discovery, the assembler for each assembly syntax (the GCC/Clang driver for `.S`,
-`ml64.exe` for `.asm`), and how each action is lowered.  The planner and the Ninja writer stay
+`ml64.exe` for `.asm`), the syntax of the response files its tools read, and how each action is
+lowered.  The planner and the Ninja writer stay
 dialect-agnostic.  The crate must:
 
 - stay pure and deterministic - no I/O, no process invocation;

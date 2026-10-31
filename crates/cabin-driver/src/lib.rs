@@ -20,7 +20,9 @@
 //! decision: how artifacts are named ([`Dialect::object_extension`],
 //! [`Dialect::static_library_name`], [`Dialect::executable_name`]),
 //! how Ninja discovers header dependencies ([`Dialect::ninja_deps`]),
-//! and how each [`BuildAction`] is spelled ([`lower()`]).  The planner
+//! how its tools read a response file
+//! ([`Dialect::response_file_content`]), and how each [`BuildAction`]
+//! is spelled ([`lower()`]).  The planner
 //! and the Ninja writer stay dialect-agnostic: they ask the dialect.
 //!
 //! This split mirrors the way LLVM's `clang` Driver constructs
@@ -37,5 +39,5 @@ pub use action::{
     ArchiveAction, AssembleAction, BuildAction, CompileAction, CompileArguments, CompileMode,
     LinkAction,
 };
-pub use dialect::{Dialect, NinjaDeps};
+pub use dialect::{Dialect, NinjaDeps, windows_quote_arg};
 pub use lower::{LoweredAction, LoweredActionKind, compile_argv, lower};
