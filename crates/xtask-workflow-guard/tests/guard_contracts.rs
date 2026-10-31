@@ -1,7 +1,7 @@
 //! The workflow guards' live contracts: each case spawns the real
 //! binary in a scratch working directory and asserts the exit status
-//! and what it left in `$GITHUB_OUTPUT`, the two channels
-//! `registry.yml` reads.
+//! and what it left in `$GITHUB_OUTPUT`, the two channels the gated
+//! workflows read.
 
 use std::fmt::Write as _;
 use std::fs;

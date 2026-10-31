@@ -28,7 +28,7 @@
 //!   migration awaiting its by-hand apply fails the job instead), so
 //!   the stop means the newer run owning the deploy failed; an
 //!   operator reruns this workflow once a deploy lands.
-//! - A terminal Stop (either arm) requires a CONFIRMED absence: an
+//! - A terminal Stop (every arm) requires a CONFIRMED absence: an
 //!   iteration only Stops when its own `git fetch` succeeded (a
 //!   failed fetch can leave a fresh head unknown, so its ancestor
 //!   check reads false) and its candidate scan was not blind, and
@@ -66,11 +66,10 @@
 //!   there - the malformed capture the length check just survived, a
 //!   missing binary - exits 1 with only its own diagnostic, where
 //!   every other tool failure falls into a branch.
-//! - **Timing is fixed**: 90 iterations, and every path that continues
-//!   waits 40 seconds exactly once - every transient/retry branch and
-//!   the fall-through alike - so the wait sits at the loop's tail
-//!   rather than at each `continue`. The ceiling is 90 waits and then
-//!   the timeout.
+//! - **Timing is fixed**: 90 iterations, and every iteration that does
+//!   not exit waits 40 seconds exactly once - every transient/retry
+//!   branch, the fall-through, and a provisional Stop alike. The
+//!   ceiling is 90 waits and then the timeout.
 //! - **`$GITHUB_SHA` and `$GITHUB_REPOSITORY` read as empty when
 //!   unset** and are spliced into URLs and arguments as-is.
 //!
@@ -292,16 +291,11 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
         return Some(Report::Die);
     }
     let conclusion = text(conclusion);
-    // A same-SHA run that SUCCEEDED without deploying takes one of
-    // two exits rather than idling the publish job into its hour
-    // ceiling.  A `deploy-registry` JOB that itself concluded
-    // `skipped` is the change gate deciding this push touched nothing
-    // registry-relevant - deterministic for the commit, so no deploy
-    // can ever come and the deployed Worker is already current: exit
-    // 0 at once.  A job that ran but skipped its Deploy STEP
-    // (superseded by a newer registry-relevant commit) takes the same
-    // pending-descendant exit the failure path takes, with the reason
-    // named.  A query failure keeps the safe answer (wait).
+    // A same-SHA run that succeeded without deploying exits instead of
+    // idling the publish job into its hour ceiling: a job skip exits 0
+    // at once, and a Deploy-step skip takes the failure path's
+    // pending-descendant exit (`SameShaDeploy`, module doc).  A query
+    // failure keeps the safe answer (wait).
     let same_sha = if conclusion == "success" {
         same_sha_deploy(shell, repository, &runs)
     } else {

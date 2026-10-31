@@ -1,7 +1,6 @@
 //! Local mirror of the CI gate (`rust.yml`, `ci.yml`, `website.yml`).
 //! Expensive checks are scoped to the surfaces changed relative to
-//! `origin/main`, per AGENTS.md ("run only the checks that match the
-//! touched surface").
+//! `origin/main`.
 //!
 //! The signal-safe process management underneath the gate -
 //! [`spawn_tracked`], [`reap`], [`kill_group`], [`arm_teardown`] and
@@ -70,7 +69,7 @@ pub fn repo_root() -> Result<PathBuf> {
 }
 
 /// One concurrent phase: a child, its label, and the log its output
-/// goes to.  The log is replayed only on failure, under a final
+/// goes to.  The log is replayed only on failure, followed by a final
 /// `==> <name>` marker, so the hook adapter's "last `==>` line names
 /// the failed step" contract holds in both modes.
 struct Phase {
@@ -267,16 +266,16 @@ impl Drop for Gate {
         //
         // The whole GROUP, not `Child::kill`: a phase is an `npm` or
         // `cargo` tree, and killing only the direct child on an unwind
-        // leaves its grandchildren (a `wrangler dev` pair included)
-        // running with PPID 1.  Every phase still listed here is one
-        // `finish` never reached (it removes each entry before reaping
-        // it), so none has been reaped: its zombie still pins the pid
-        // and the group kill cannot hit a recycled one.  Every group
-        // is signaled BEFORE the first blocking reap, as the teardown
-        // handler orders it, so one stuck phase cannot delay the
-        // signal to the next; the reaps then clear the teardown table
-        // entries.  A child that ignores TERM hangs the reap - the
-        // exposure the teardown handler documents and accepts.
+        // leaves its grandchildren running with PPID 1.  Every phase
+        // still listed here is one `finish` never reached (it removes
+        // each entry before reaping it), so none has been reaped: its
+        // zombie still pins the pid and the group kill cannot hit a
+        // recycled one.  Every group is signaled BEFORE the first
+        // blocking reap, as the teardown handler orders it, so one
+        // stuck phase cannot delay the signal to the next; the reaps
+        // then clear the teardown table entries.  A child that ignores
+        // TERM hangs the reap - the exposure the teardown handler
+        // documents and accepts.
         for phase in &mut self.phases {
             kill_group(&mut phase.child);
         }
@@ -291,11 +290,11 @@ impl Drop for Gate {
 /// just the process this crate spawned.
 ///
 /// The child's signal mask is reset before exec.  The spawn happens
-/// under [`teardown::masked`], and `exec` preserves the blocked mask:
-/// without the reset every child inherits blocked TERM/INT/HUP and is
-/// permanently immune to the very teardown the mask protects - found
-/// empirically, and invisible to `ps`, which reports the mask as
-/// clear.
+/// under [`teardown::masked`]; `std::process::Command` passes the
+/// parent's mask to the child and `exec` preserves it, so without the
+/// reset every child inherits blocked TERM/INT/HUP and is permanently
+/// immune to the very teardown the mask protects (observed empirically;
+/// `ps` reports such a child's mask as clear).
 #[cfg(unix)]
 fn group(command: &mut Command) -> &mut Command {
     use std::os::unix::process::CommandExt as _;
@@ -318,7 +317,8 @@ fn group(command: &mut Command) -> &mut Command {
 
 /// Spawns a child in its own process group and records it for the
 /// teardown handler, with the teardown signals blocked across both,
-/// so the handler never sees a child its kill loop could miss.
+/// so the handler cannot run between the spawn and the record, when
+/// its kill loop would miss the child.
 ///
 /// Public for the other xtask crates that manage long-running
 /// children (the registry smoke test's dev servers and mocks); the
@@ -335,11 +335,10 @@ pub fn spawn_tracked(command: &mut Command) -> std::io::Result<Child> {
     })
 }
 
-/// Signals a tracked child's whole process group - the direct pid as
-/// the fallback, as the teardown handler falls back - for a caller
-/// that stops and restarts a phase mid-run.  The caller still
-/// [`reap`]s the child afterwards; the group table entry is dropped
-/// there, not here.
+/// Sends SIGTERM to a tracked child's whole process group, falling
+/// back to the direct pid as the teardown handler does (off Unix,
+/// `Child::kill`).  The caller still [`reap`]s the child afterwards;
+/// the group table entry is dropped there, not here.
 pub fn kill_group(child: &mut Child) {
     #[cfg(unix)]
     {
@@ -393,10 +392,6 @@ pub fn reap(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
             status
         })
     } else {
-        // Only reachable if `waitid` failed outright; waiting under
-        // the mask there would defer cancellation for the child's
-        // whole runtime, so take the plain wait and its small window
-        // instead.
         let status = child.wait();
         forget(child.id());
         status
@@ -432,10 +427,8 @@ mod teardown {
         AtomicU32::new(0),
     ];
 
-    /// Whether a cancelled gate should still exit 0.  The hook adapter
-    /// promises that on every path, including this one - a non-zero
-    /// exit there reads as "the hook crashed" rather than as a
-    /// decision.
+    /// Whether a cancelled gate exits 0, as the hook adapter promises
+    /// on every path ([`crate::hook`]).
     static HOOKED: AtomicBool = AtomicBool::new(false);
 
     pub fn hooked() {
@@ -500,14 +493,14 @@ mod teardown {
 
     /// A cancelled gate must not orphan its phases: without this, a
     /// process-directed signal leaves cargo and npm running.  The exit
-    /// code is the conventional 128 + signal.
+    /// code is the conventional 128 + signal, or 0 under [`HOOKED`].
     extern "C" fn handle(signal: libc::c_int) {
         // `arm` masks the other teardown signals for the handler's
         // whole run, so this never nests.  The ordering below - kill
         // everything first, reap and clear after - is still the safe
         // shape on its own: a slot leaves the table only once its
-        // group is dead AND reaped, never while the pid could still
-        // name a live child.
+        // child is signaled AND reaped, never while the pid could
+        // still name a live child.
         for slot in &GROUPS {
             let pid = slot.load(Ordering::SeqCst);
             if pid != 0 {
@@ -545,8 +538,6 @@ mod teardown {
                 unsafe { libc::rename(from, to) };
             }
         }
-        // 128 + signal is the convention, but the hook adapter's
-        // contract outranks it.
         let code = if HOOKED.load(Ordering::SeqCst) {
             0
         } else {

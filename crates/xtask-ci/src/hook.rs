@@ -14,6 +14,11 @@
 use std::fmt::Write as _;
 use std::io::Read as _;
 
+/// POSIX `[[:space:]]` in the C locale, accepted between the key, the
+/// colon and `true`.  Trimming only space and tab would treat a
+/// carriage return as a first stop and block twice.
+const BLANK: [char; 6] = [' ', '\t', '\n', '\r', '\u{b}', '\u{c}'];
+
 /// One blocked stop per natural stop.  `stop_hook_active` means we
 /// already blocked once, and blocking again on an unfixable failure
 /// would loop the agent through the full gate forever.
@@ -23,11 +28,6 @@ use std::io::Read as _;
 /// pretty-printed JSON that the line match misses, and would miss a
 /// nested occurrence the line match finds.  Keeping it infallible
 /// means malformed JSON cannot take the hook down.
-/// POSIX `[[:space:]]` in the C locale, accepted between the key, the
-/// colon and `true`.  Trimming only space and tab would treat a
-/// carriage return as a first stop and block twice.
-const BLANK: [char; 6] = [' ', '\t', '\n', '\r', '\u{b}', '\u{c}'];
-
 #[must_use]
 pub fn already_blocked(input: &str) -> bool {
     input.lines().any(|line| {
@@ -42,7 +42,7 @@ pub fn already_blocked(input: &str) -> bool {
 
 /// The step a failed gate died at: the last `==> ` line of its output.
 ///
-/// `await_phases` re-prints a failed phase's marker *after* its
+/// `Gate::finish` re-prints a failed phase's marker *after* its
 /// output, so this names the phase that failed rather than the last
 /// one launched.  A log with no marker at all means the gate died
 /// before its first step.
@@ -79,9 +79,9 @@ pub fn decision(passed: bool, step: &str, already_blocked: bool) -> String {
     )
 }
 
-/// The step name is a phase label this repository writes, not
-/// arbitrary compiler output, but one bad escape makes the whole hook
-/// output invalid, so it is escaped anyway.
+/// The step name is usually a phase label this repository writes, but
+/// it is the last `==> ` line of a log that also holds replayed child
+/// output, and one bad escape makes the whole hook output invalid.
 fn escape(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {

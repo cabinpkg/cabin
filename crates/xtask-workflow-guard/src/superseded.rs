@@ -1,5 +1,6 @@
-//! The deploy freshness guard: the "Skip when superseded by a newer
-//! main commit" step of `.github/workflows/registry.yml`.
+//! The freshness guard: the "Skip when superseded by a newer main
+//! commit" step of `.github/workflows/registry.yml` and
+//! `.github/workflows/ports-publish.yml`.
 //!
 //! `--relevant-to <filter>` scopes the check through the shared filter
 //! file instead of a duplicated list: only newer commits matching that

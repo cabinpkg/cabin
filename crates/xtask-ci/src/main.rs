@@ -12,9 +12,7 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use xtask_ci::{Gate, arm_teardown, cores, hook, repo_root, scope, teardown_exits_zero};
 
-/// The website phase re-executes this binary with this flag, which is
-/// why the spelling is a constant rather than two string literals that
-/// can drift apart.
+/// The hidden flag the website phase re-executes this binary with.
 const WEBSITE_STEPS: &str = "website-steps";
 
 #[derive(Debug, Parser)]
@@ -276,7 +274,8 @@ fn checks(
 /// doctests either way, via `--all-targets`) but schedules each test
 /// in its own process instead of one binary at a time, which is the
 /// bulk of this phase's wall clock.  It is an optional accelerator:
-/// without it the phase runs CI's exact command.
+/// without it the phase runs CI's command plus the `--jobs` and
+/// `--test-threads` caps.
 fn test_phase(nextest: bool, target: std::path::PathBuf, jobs: &str) -> Command {
     let mut command = Command::new("cargo");
     command
@@ -309,11 +308,6 @@ fn website(
     gate_binary: &std::path::Path,
 ) -> Result<()> {
     if surfaces.website {
-        // `npm test` runs here too, matching `website.yml`: it is the
-        // only check over `src/lib/`, so omitting it let the local gate
-        // print "local CI green" on a change that lands red in CI.
-        // The sequence runs as a re-execution of this binary (see
-        // `website_steps`), not `bash -c`, so no shell is required.
         gate.launch(
             "npm ci && npm run lint && npm test && npm run build (website/)",
             Command::new(gate_binary).arg(format!("--{WEBSITE_STEPS}")),
@@ -347,9 +341,9 @@ fn merge_base(root: &std::path::Path) -> Option<String> {
     None
 }
 
-/// Tracked changes since the base, plus untracked files: a new file
-/// the gate has never seen is exactly the kind that fails CI.  A
-/// rename lists both paths, so moving files out of a surface selects it.
+/// Tracked changes since the base, plus untracked files, which CI sees
+/// once they are committed.  A rename lists both paths, so moving files
+/// out of a surface selects it.
 fn changed_paths(root: &std::path::Path, base: &str) -> Result<Vec<String>> {
     let mut paths = git(root, &["diff", "--no-renames", "--name-only", base, "--"])?;
     paths.extend(git(root, &["ls-files", "--others", "--exclude-standard"])?);

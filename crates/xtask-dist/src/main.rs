@@ -1,5 +1,5 @@
-//! Command-line shim for the dist packaging step; the step itself
-//! lives in the library.
+//! Command-line shim for the dist packaging steps; the steps live in
+//! the library.
 
 use std::process::ExitCode;
 
