@@ -8,9 +8,7 @@
 //! workspace-loader, build-planner, and config layers.  The
 //! fix-mode safety policy (clamping jobs to one) stays in the
 //! orchestration layer; the runner forwards whatever it is
-//! given.  It mirrors the shape of `cabin-fmt` so a developer
-//! reading the two crates side-by-side sees the same pattern
-//! twice.
+//! given.
 //!
 //! Crate boundaries:
 //!
@@ -38,12 +36,8 @@ use thiserror::Error;
 use cabin_core::BuildJobs;
 
 /// Environment variable users can set to override the
-/// `run-clang-tidy` executable Cabin invokes.
-///
-/// Precedence: when `CABIN_TIDY` is set and non-empty its value
-/// is the absolute path / command name Cabin uses verbatim;
-/// otherwise [`DEFAULT_TIDY_EXECUTABLE`] is returned and the
-/// child-process spawn relies on `PATH`.
+/// `run-clang-tidy` executable Cabin invokes; see
+/// [`resolve_tidy_executable`].
 ///
 /// Aliased from [`cabin_env`], the single source of truth for
 /// every `CABIN_*` environment-variable name.
@@ -51,9 +45,7 @@ pub(crate) use cabin_env::CABIN_TIDY as CABIN_TIDY_ENV;
 
 /// Default executable name Cabin spawns when [`CABIN_TIDY_ENV`]
 /// is not set. `run-clang-tidy` is the LLVM-supplied driver that
-/// fans clang-tidy invocations out across a compilation database;
-/// it ships with every modern LLVM install and is the standard
-/// way to drive clang-tidy at package scale.
+/// fans clang-tidy invocations out across a compilation database.
 pub(crate) const DEFAULT_TIDY_EXECUTABLE: &str = "run-clang-tidy";
 
 /// Operation mode the runner should perform.
@@ -62,9 +54,8 @@ pub enum TidyMode {
     /// Analyze only; clang-tidy emits diagnostics but does not
     /// modify any source file.
     Check,
-    /// Apply clang-tidy's suggested fixes back to disk.  Mutually
-    /// exclusive with [`TidyMode::Check`] at the API surface; the
-    /// CLI surface gates this on an explicit `--fix` flag.
+    /// Apply clang-tidy's suggested fixes back to disk.  The CLI
+    /// selects this only for an explicit `--fix` flag.
     Fix,
 }
 
@@ -88,10 +79,6 @@ pub enum TidyVerbosity {
 }
 
 /// Input for [`run_tidy`].
-///
-/// Callers translate CLI flags into this typed shape and hand it
-/// to the runner.  The runner spawns `run-clang-tidy` and reports
-/// the typed outcome.
 #[derive(Debug, Clone)]
 pub struct TidyRequest {
     /// Absolute path or bare command name of the tidy driver
@@ -146,8 +133,8 @@ pub enum TidyReport {
     NoFiles,
     /// `run-clang-tidy` exited with a non-zero status.  The
     /// orchestration layer surfaces this as a Cabin command
-    /// failure; clang-tidy's diagnostics have already been
-    /// emitted on stderr because the runner inherits stderr.
+    /// failure; clang-tidy's diagnostics have already reached the
+    /// inherited stdout / stderr.
     TidyFailed {
         /// Reported exit status of the tidy driver.
         status: ExitStatusKind,
@@ -160,9 +147,6 @@ pub enum TidyReport {
 #[derive(Debug, Error)]
 pub enum TidyError {
     /// The tidy driver executable was not found on the host.
-    /// Surfaces the executable name the runner attempted to spawn
-    /// and an actionable hint that names both the install path
-    /// and the override env var.
     #[error(
         "{executable} was not found on PATH.\n  install `clang-tidy` (LLVM toolchain) and re-run, or set `{env}=/path/to/run-clang-tidy` to a specific binary"
     )]
@@ -220,11 +204,9 @@ where
 /// diagnostic format and turn every upstream change into a Cabin
 /// bug.
 ///
-/// Argument ordering is byte-stable across platforms: the file
-/// list is deduplicated through a [`BTreeSet`] so a caller that
-/// hands the runner an out-of-order list still produces a
-/// command line that very-verbose echoes (and snapshot tests) can
-/// rely on.
+/// The file list is sorted and deduplicated through a
+/// [`BTreeSet`], so the argv order does not depend on the order of
+/// `request.files`.
 ///
 /// # Errors
 /// Returns [`TidyError::ExecutableNotFound`] when the resolved
@@ -239,10 +221,6 @@ pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
         return Ok(TidyReport::NoFiles);
     }
 
-    // Deduplicate by absolute path while preserving sort order.
-    // The orchestration layer is expected to hand us an
-    // already-sorted list, but the explicit `BTreeSet` keeps the
-    // contract honest for direct API consumers.
     let files: BTreeSet<&Path> = request.files.iter().map(PathBuf::as_path).collect();
     let files: Vec<&Path> = files.into_iter().collect();
 
@@ -251,27 +229,14 @@ pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
     // scrub it so the spawned tool can never read the token.
     cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
-    // `-p <dir>` is how `run-clang-tidy` (and `clang-tidy`
-    // directly) discovers a `compile_commands.json` in `<dir>`.
     cmd.arg("-p").arg(&request.compile_database_dir);
     if matches!(request.mode, TidyMode::Fix) {
-        // `-fix` tells `run-clang-tidy` to apply the fixes
-        // clang-tidy emits.  Cabin never enables this implicitly;
-        // the orchestration layer requires an explicit `--fix`
-        // CLI flag.
         cmd.arg("-fix");
     }
     if matches!(request.verbosity, TidyVerbosity::Normal) {
-        // `-quiet` is `run-clang-tidy`'s "no progress chatter"
-        // toggle; clang-tidy diagnostics still appear.
         cmd.arg("-quiet");
     }
     if let Some(jobs) = request.jobs {
-        // `run-clang-tidy` accepts `-j N` (a positional
-        // followed by the count).  We render it as two
-        // arguments because that is the spelling LLVM's own
-        // `--help` uses; the fused `-jN` form is not documented
-        // and historical versions have rejected it.
         cmd.arg("-j").arg(jobs.get().to_string());
     }
     for path in &files {

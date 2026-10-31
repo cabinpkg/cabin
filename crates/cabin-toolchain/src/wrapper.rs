@@ -12,8 +12,8 @@
 //!
 //! The first layer that sets a [`cabin_core::CompilerWrapperRequest`]
 //! wins.  `Disabled` short-circuits the search and returns `None`;
-//! `Use(_)` triggers a `PATH` lookup and an optional `--version`
-//! probe.
+//! `Use { .. }` locates the executable (an explicit path, or a `PATH`
+//! lookup) and optionally probes `--version`.
 //!
 //! Like [`crate::resolve::resolve_toolchain`], the resolver takes
 //! its environment and filesystem access through injectable
@@ -84,8 +84,7 @@ impl<'a> WrapperInputs<'a> {
         }
     }
 
-    /// Builder-style setter for the optional config layer.  Keeps
-    /// `from_process` callers concise when no config is active.
+    /// Builder-style setter for the optional config layer.
     #[must_use]
     pub fn with_config(mut self, layer: ConfigWrapperLayer) -> Self {
         self.config = Some(layer);
@@ -158,15 +157,15 @@ fn source_label(source: CompilerWrapperSource) -> &'static str {
 /// Resolve the compiler wrapper to apply for this build.
 ///
 /// `runner` is consulted only when the resolved wrapper is
-/// `Use(_)`; production callers pass [`crate::ProcessRunner`] and
-/// tests inject a fake.  A `None` runner skips version detection
-/// entirely (used by `cabin metadata`'s fail-soft path so a
-/// misbehaving wrapper does not block inspection).
+/// `Use { .. }`; production callers pass [`crate::ProcessRunner`] and
+/// tests inject a fake.  A `None` runner skips version detection, so
+/// the result's `identity` is `None`.
 ///
 /// # Errors
 /// Returns [`CompilerWrapperResolutionError`]: `EnvParse` when
-/// `CABIN_COMPILER_WRAPPER` holds an invalid value, `NotFound` when
-/// the requested wrapper cannot be located on `PATH`, and
+/// `CABIN_COMPILER_WRAPPER` holds an invalid value, `EnvNotUtf8` when
+/// it is not UTF-8, `NotFound` when the requested wrapper cannot be
+/// located, `NonUtf8Path` when the located path is not UTF-8, and
 /// `SubprocessFailed` when a non-`None` `runner` fails to probe the
 /// wrapper's version.
 pub fn resolve_compiler_wrapper(
@@ -213,9 +212,6 @@ fn pick_request(
     if let Some(value) = (inputs.env)(WRAPPER_ENV_VAR)
         && !value.is_empty()
     {
-        // The wrapper spec becomes Cabin-owned tool-resolution state,
-        // so reject a non-UTF-8 env value rather than lossily mangling
-        // it before the parser sees it.
         let raw = value
             .into_string()
             .map_err(|_| CompilerWrapperResolutionError::EnvNotUtf8)?;
@@ -271,18 +267,15 @@ fn detect_identity(
 
 /// Extract a numeric version substring from a wrapper's
 /// `--version` output. ccache prints `ccache version 4.10.2` on
-/// the first line; sccache prints `sccache 0.7.7`.  The parser
-/// looks for the first dot-separated number group following an
-/// optional `version` keyword.
+/// the first line; sccache prints `sccache 0.7.7`.  Returns the
+/// first run of digits and dots on the first non-empty line that
+/// [`CompilerVersion::parse`] accepts.
 fn parse_wrapper_version(text: &str) -> Option<CompilerVersion> {
     let first = text
         .lines()
         .map(str::trim)
         .find(|l| !l.is_empty())?
         .to_owned();
-    // Skip everything up to the first numeric token.  Using
-    // byte-wise scanning keeps the parser allocation-free until
-    // the matched substring needs cloning.
     let bytes = first.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -383,8 +376,7 @@ mod tests {
         let host = host();
         // A single PATH entry keeps the lookup portable: a `:`-joined
         // list is one entry on Windows (where `PATH` splits on `;`),
-        // which would defeat the search.  The wrapper still resolves by
-        // scanning this directory off `PATH`.
+        // which would defeat the search.
         let env = fake_env(&[("PATH", "/usr/local/bin")]);
         let existing = path_set(&["/usr/local/bin/ccache"]);
         let inputs = make_inputs(Some(request("ccache")), &manifest, &host, env, existing);
@@ -478,9 +470,6 @@ mod tests {
     #[test]
     fn non_utf8_env_value_is_rejected() {
         use std::os::unix::ffi::OsStringExt;
-        // A non-UTF-8 `CABIN_COMPILER_WRAPPER` is a wrapper-spec
-        // input; reject it with a typed error rather than lossily
-        // mangling it into an unintended request.
         let manifest = ManifestWrapper::default();
         let host = host();
         let mut env: HashMap<&'static str, OsString> = HashMap::new();
@@ -601,11 +590,6 @@ mod tests {
         assert!(identity.version.is_none());
     }
 
-    /// Exercise the production runner indirectly: `ProcessRunner` is
-    /// the default for `from_process` and we assert it is `Send +
-    /// Sync` so callers can plug it into `cabin metadata`'s
-    /// fail-soft path.  The actual subprocess invocation lives in
-    /// `detect::tests`.
     #[test]
     fn process_runner_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}

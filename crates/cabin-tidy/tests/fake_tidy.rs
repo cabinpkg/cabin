@@ -3,7 +3,7 @@
 //!
 //! Gated on the `test-fake-tidy` feature so the binary the tests
 //! need is guaranteed to be built; a standalone
-//! `cargo test -p cabin-tidy` (without the feature) compiles
+//! `cargo test -p cabinpkg-tidy` (without the feature) compiles
 //! this file to nothing and the lib unit tests run on their own.
 
 #![cfg(feature = "test-fake-tidy")]

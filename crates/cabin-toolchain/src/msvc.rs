@@ -3,8 +3,8 @@
 //! When Cabin already runs inside an activated MSVC environment - a
 //! *Developer Command Prompt*, or a shell where `vcvarsall.bat` /
 //! `msvc-dev-cmd` has exported `INCLUDE` / `LIB` and put `cl.exe` on
-//! `PATH` - nothing here runs: the existing environment is used as-is,
-//! so a pre-activated build never depends on the discovery path.
+//! `PATH` - discovery does not run: the existing environment is used
+//! as-is, so a pre-activated build never depends on the discovery path.
 //!
 //! Otherwise, on Windows, this probes the registry / COM via
 //! [`find_msvc_tools`] to locate `cl.exe` and the `INCLUDE` / `LIB` /
@@ -29,8 +29,7 @@ struct MsvcInstallation {
 }
 
 /// Whether the current process already runs inside an activated MSVC
-/// environment.  When it does, Cabin uses that environment unchanged and
-/// never probes, so a pre-activated build is unaffected by this module.
+/// environment.
 fn already_activated() -> bool {
     std::env::var_os("INCLUDE").is_some() && std::env::var_os("LIB").is_some()
 }
@@ -38,10 +37,6 @@ fn already_activated() -> bool {
 fn installation() -> Option<&'static MsvcInstallation> {
     static CELL: OnceLock<Option<MsvcInstallation>> = OnceLock::new();
     CELL.get_or_init(|| {
-        // Only meaningful on Windows, and only when the environment is
-        // not already activated. `find_msvc_tools::find_tool` is a no-op
-        // off Windows, but the explicit guard also skips the probe inside
-        // an activated shell.
         if !cfg!(windows) || already_activated() {
             return None;
         }
@@ -105,8 +100,8 @@ pub fn msvc_tool_path(name: &str) -> Option<PathBuf> {
 ///
 /// - On Windows, `VSLANG=1033` pins `cl /showIncludes` to its English
 ///   "Note: including file:" prefix so Ninja's `deps = msvc`
-///   header-dependency scan matches it on localized MSVC installs -
-///   cc-rs sets the same variable for the same reason.  This is needed
+///   header-dependency scan matches it on localized MSVC installs
+///   (cc-rs also sets it to get English MSVC output).  This is needed
 ///   whether or not the toolchain was auto-discovered, because a
 ///   pre-activated localized install emits a localized prefix too.
 /// - When Cabin had to discover the toolchain itself (no pre-activated
@@ -125,8 +120,9 @@ pub fn msvc_tool_path(name: &str) -> Option<PathBuf> {
 ///
 /// Empty off Windows.  On Windows it always carries `VSLANG`; the
 /// `INCLUDE` / `LIB` / `PATH` entries are added only when discovery ran
-/// and was requested.  Applying it is always safe - non-MSVC tools
-/// ignore these variables.
+/// and was requested.  Request the discovered overlay only for an
+/// MSVC-dialect build: a GNU-style toolchain must run in the environment
+/// it was resolved under.
 pub fn msvc_environment(apply_discovered_install: bool) -> Vec<(OsString, OsString)> {
     let mut env = Vec::new();
     if cfg!(windows) {
@@ -148,8 +144,6 @@ mod tests {
         let dir = assert_fs::TempDir::new().unwrap();
         let cl = dir.child("cl.exe");
         cl.write_str("").unwrap();
-        // The same file reached through a `.` detour canonicalizes to one
-        // path, so the differently-spelled forms compare equal.
         let detour = dir.path().join(".").join("cl.exe");
         assert!(same_file(cl.path(), &detour));
     }

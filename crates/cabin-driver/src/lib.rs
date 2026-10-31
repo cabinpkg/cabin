@@ -2,7 +2,7 @@
 //!
 //! Cabin's planner ([`cabin_build`](../cabin_build/index.html))
 //! produces a *toolchain-independent* semantic IR - a list of
-//! [`BuildAction`]s describing what to compile, archive, and link,
+//! [`BuildAction`]s describing what to compile, assemble, archive, and link,
 //! with no compiler flags spelled out.  This crate is the single
 //! boundary where that intent becomes a concrete command line.
 //!
@@ -25,11 +25,8 @@
 //! is spelled ([`lower()`]).  The planner
 //! and the Ninja writer stay dialect-agnostic: they ask the dialect.
 //!
-//! This split mirrors the way LLVM's `clang` Driver constructs
-//! per-toolchain jobs and the way `rustc` selects a `LinkerFlavor`:
-//! one abstract description, many concrete spellings.  Everything
-//! here is pure, deterministic, and free of I/O, so both dialects
-//! are fully unit-testable on any host.
+//! Everything here is pure, deterministic, and free of I/O, so both
+//! dialects are unit-testable on any host.
 
 pub mod action;
 pub mod dialect;

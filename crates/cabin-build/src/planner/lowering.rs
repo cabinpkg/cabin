@@ -102,17 +102,12 @@ pub(super) fn resolve_target_dep(
 
     // Otherwise a bare name that matches a visible dependency
     // package resolves to that package's *sole* library-like target
-    // (library / header-only), whatever it is named - the target key
-    // is a package-local identity, so it need not echo the package
-    // name (`deps = ["zlib"]` links `zlib:z`).  Only
-    // link/interface-bearing kinds participate: an executable would
-    // build but contribute no include dirs or archives, which reads
-    // as a silent no-op link, so the exotic executable-dep case
-    // keeps its explicit `package:target` spelling.  With several
-    // candidates there is no principled pick, so the entry must be
-    // qualified.  Candidate order follows the package's target
-    // list (name-sorted for parsed manifests), keeping the
-    // diagnostic stable.
+    // (library / header-only), whatever it is named
+    // (`deps = ["zlib"]` links `zlib:z`).  An executable contributes
+    // no include dirs or archives, so depending on one needs the
+    // explicit `package:target` spelling.  Several candidates are an
+    // error listing them in the package's target order (name-sorted
+    // for parsed manifests).
     if let Some(dep_idx) = find_dep_edge(raw) {
         let dep_pkg = &graph.packages[dep_idx];
         let candidates: Vec<&Target> = dep_pkg
@@ -230,11 +225,11 @@ pub(super) struct CollectedInterface {
 /// Collect the consumer interface `start` compiles against: each
 /// direct dependency's, plus what that dependency re-exports through
 /// public edges, transitively.  A private edge's own dependencies stay
-/// invisible.  Visits pop a stack pushed in declaration order, the
-/// include search order Cabin has always emitted.  Two visible
-/// dependencies defining one macro differently are recorded against
-/// `object`, one of `start`'s compiles, which the `cabin check`
-/// rewrite prunes the conflict with.
+/// invisible.  Visits pop a stack pushed in declaration order, so the
+/// last-declared dependency is visited first: the include search order
+/// Cabin has always emitted.  Two visible dependencies defining one
+/// macro differently are recorded against `object`, one of `start`'s
+/// compiles, which the `cabin check` rewrite prunes the conflict with.
 #[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn collect_interface(
     start: &TargetId,
@@ -466,11 +461,7 @@ pub(super) fn collect_link_libs(
         .collect()
 }
 
-/// One per-source compile decision.  Naming the components
-/// (driver, flags, action kind, human tag) keeps the planner's
-/// per-source loop legible: the dispatch table is *the* place
-/// where a future language addition would go, and changes here
-/// are mechanically reviewable.
+/// The per-language parts of one source's compile.
 pub(super) struct CompileDispatch<'a> {
     /// Driver executable (the compiler binary).
     pub(super) driver: &'a Utf8Path,
@@ -502,8 +493,8 @@ impl CompileDispatchError {
     }
 }
 
-/// Choose driver / flags / kind for a single compile, given the
-/// classified source language and the resolved toolchain.
+/// Choose the driver and description tag for a single compile, given
+/// the classified source language and the resolved toolchain.
 pub(super) fn compile_dispatch<'a>(
     language: SourceLanguage,
     req: &'a PlanRequest<'a>,

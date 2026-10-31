@@ -12,8 +12,7 @@ use camino::Utf8PathBuf;
 
 use cabin_core::{InstructionSet, LanguageStandard, OptLevel, Sysroot};
 
-/// A single semantic build step: compile a translation unit, archive
-/// objects into a static library, or link an executable.
+/// A single semantic build step.
 ///
 /// Backend- and toolchain-independent: the concrete command argv is
 /// produced later by [`crate::lower()`], not stored here.
@@ -34,8 +33,7 @@ pub enum BuildAction {
 pub enum CompileMode {
     /// Normal compile: emit the object file at [`CompileAction::object`].
     Object,
-    /// Syntax/semantic check only (`cabin check`): emit no object;
-    /// `stamp` is `touch`ed to record a successful check.
+    /// Syntax/semantic check only (`cabin check`): emit no object.
     SyntaxOnly {
         /// Stamp file written on a successful check, in place of the
         /// object.
@@ -66,13 +64,10 @@ pub struct CompileAction {
     pub object: Utf8PathBuf,
     /// Object vs. syntax-only.
     pub mode: CompileMode,
-    /// Header-dependency tracking file.  `Some` records that the
-    /// dialect should wire dependency discovery for this compile -
-    /// the GNU/Clang lowering emits a `-MD -MF <depfile>` Makefile
-    /// depfile here (`-MD`, not `-MMD`, so headers found through a
-    /// system include dir still land in the depfile and keep
-    /// invalidating rebuilds), while the MSVC lowering ignores the
-    /// path and relies on `/showIncludes`.
+    /// Header-dependency tracking file.  `Some` requests dependency
+    /// discovery for this compile: the GNU/Clang lowering writes a
+    /// Makefile depfile here (`-MD -MF <depfile>`); the MSVC lowering
+    /// ignores the path and emits `/showIncludes`.
     pub depfile: Option<Utf8PathBuf>,
     /// Compiler driver executable.
     pub compiler: Utf8PathBuf,
@@ -106,7 +101,7 @@ pub struct CompileArguments {
     /// Optimization level the active profile selected (`-O0` / `/Od`,
     /// …).
     pub opt_level: OptLevel,
-    /// Emit debug information (`-g` / `/Zi`).
+    /// Emit debug information (`-g` / `/Z7`).
     pub debug_info: bool,
     /// Define `NDEBUG` (assertions disabled in the active profile).
     pub define_ndebug: bool,
@@ -201,15 +196,15 @@ pub struct LinkAction {
     pub output: Utf8PathBuf,
     /// Link inputs (objects then static archives), in link order.
     pub inputs: Vec<Utf8PathBuf>,
-    /// Extra linker flags (`ldflags`), inserted after the inputs and
-    /// before the output spelling.
+    /// Extra linker flags (`ldflags`), inserted after the inputs.  On
+    /// MSVC they follow `/link`, so they are `link.exe` options.
     pub arguments: Vec<String>,
     /// System libraries to link, as bare names (e.g. `pthread`, `m`).
     /// Lowered per-dialect - `-l<name>` for GNU-like, `<name>.lib` for
     /// MSVC - and placed after the archive inputs so a static library's
     /// required system libraries resolve left-to-right on the GNU link
-    /// line.  Kept separate from `arguments` (raw `ldflags`) precisely so
-    /// the dialect layer owns the spelling rather than the planner.
+    /// line.  Kept separate from `arguments` (raw `ldflags`) so the
+    /// dialect layer owns the spelling.
     pub link_libs: Vec<String>,
     /// Apple frameworks to link, as bare names, lowered to
     /// `-framework <name>` after `link_libs`.  The planner fills it

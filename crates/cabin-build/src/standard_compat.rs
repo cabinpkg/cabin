@@ -263,8 +263,8 @@ pub(crate) fn edge_violations(
     for (consumer_index, tid) in topo.iter().enumerate() {
         let consumer_target = lookup_target(tid, req.graph)?;
         // A header-only consumer compiles no language: every edge
-        // out of it is compatible vacuously (spec D13); its
-        // requirements still propagated through `effective`.
+        // out of it is compatible vacuously (spec D13); its public
+        // edges still fold their requirements into `effective` (D10).
         if consumer_target.kind.is_header_only() {
             continue;
         }
@@ -459,16 +459,10 @@ fn interface_less_default_origin(
 }
 
 /// Spec D6 attribute mapping for one target, with the declaration
-/// sites behind each populated attribute.
-///
-/// Population contract (D6): `impl_L` is `Some` exactly when the
-/// target itself implements `L` - a compiled target implements `L`
-/// when it has sources of `L` (level via target-over-package
-/// precedence), a header-only target only via a target-level
-/// implementation declaration.  `decl_L` is the explicit interface
-/// declaration only (target over package tier, workspace-inherited
-/// counts as declared) - never the build-time implementation-
-/// standard fallback.
+/// sites behind each populated attribute.  The mapping and its
+/// population contract are
+/// [`cabin_core::standard_compatibility::dependency_attributes`]; only
+/// the declaration-site bookkeeping is local.
 fn dependency_attributes(
     tid: &TargetId,
     target: &Target,
@@ -476,9 +470,6 @@ fn dependency_attributes(
     pkg_settings: &LanguageStandardSettings,
     req: &PlanRequest<'_>,
 ) -> (DependencyAttributes, NodeSites) {
-    // The D6 attribute mapping (population contract included) is shared
-    // with the published-index derivation so the two cannot drift; only
-    // the declaration-site bookkeeping for diagnostics is local here.
     let attributes = cabin_core::standard_compatibility::dependency_attributes(
         target,
         &pkg_standards,

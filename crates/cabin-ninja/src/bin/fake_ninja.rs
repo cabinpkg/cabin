@@ -1,25 +1,15 @@
-//! Test-only stand-in for `ninja`.
-//!
-//! Cabin's CLI integration tests need to assert the exact
-//! argv `cabin build` / `cabin run` / `cabin test` passes to
-//! the build backend.  Real `ninja` isn't guaranteed to be on
-//! every developer's machine, and even when it is, asserting
-//! its observable effect (timing, file outputs, parallelism)
-//! is brittle.  This binary records the invocation argv to a
-//! file specified by `CABIN_FAKE_NINJA_RECORD` and exits with
-//! status 0 - the test then reads the file and asserts the
-//! flags it expects.
+//! Test-only stand-in for `ninja`, so Cabin's CLI integration tests
+//! can assert the exact argv `cabin build` / `cabin run` /
+//! `cabin test` passes to the build backend without a real Ninja.
 //!
 //! The contract:
 //!
 //! - When `CABIN_FAKE_NINJA_RECORD` is set, append a single
 //!   line listing `argv[1..]` separated by `\u{001f}` (unit
 //!   separator) so tests can split unambiguously.  When the
-//!   env var is unset, do nothing - invocations without it
-//!   are silent successes.
-//! - Always exit `0`.  Cabin's pipeline treats anything else
-//!   as a backend failure; tests that need failures wire that
-//!   in directly.
+//!   env var is unset, do nothing.
+//! - Exit `0`, or `2` when the record file cannot be opened or
+//!   written.
 
 use std::io::Write;
 use std::path::PathBuf;
