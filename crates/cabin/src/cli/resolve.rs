@@ -47,10 +47,11 @@ impl MetadataSource {
 /// demand: the initial walk follows non-optional edges only, so the
 /// metadata of an optional dependency a feature enables, or of a fork's
 /// dependency, is read here.  The solve itself stays free of I/O and
-/// restarts after each read; every round loads a new name, so the loop
-/// ends.  `lean` skips the hold-back report.  Each round first gives the
-/// lockfile's kept pins their revisions' metadata, which the fetch plan
-/// and lockfile writer then read too.  Returns the index the solve read.
+/// restarts after each read, which loads every unfetched name the round
+/// reached; every round loads a new name, so the loop ends.  `lean`
+/// skips the hold-back report.  Each round first gives the lockfile's
+/// kept pins their revisions' metadata, which the fetch plan and
+/// lockfile writer then read too.  Returns the index the solve read.
 #[tracing::instrument(level = "info", skip_all, fields(rounds = tracing::field::Empty))]
 fn resolve_with_lazy_index(
     input: &ResolveInput,
@@ -72,8 +73,9 @@ fn resolve_with_lazy_index(
             cabin_resolver::resolve(input, &index)
         };
         match result {
-            Err(cabin_resolver::ResolveError::MetadataNeeded(name)) => {
-                let loaded = source.load(&[name], &known)?;
+            Err(cabin_resolver::ResolveError::MetadataNeeded(names)) => {
+                let names: Vec<PackageName> = names.into_iter().collect();
+                let loaded = source.load(&names, &known)?;
                 known.extend(loaded.packages.keys().cloned());
                 index.packages.extend(loaded.packages);
             }

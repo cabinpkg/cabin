@@ -160,7 +160,8 @@ pub struct Scenario {
     /// Cabin invocations run once before timing (a first build).
     pub setup: Vec<Vec<String>>,
     pub prepare: Option<Mutation>,
-    /// Cabin arguments; `{registry}`, `{http}`, `{ports}`, and
+    /// Cabin arguments; `{registry}`, `{http}`, `{http-rtt}` (the
+    /// same server, each response after a round trip), `{ports}`, and
     /// `{traces}` are substituted per run.
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
@@ -208,7 +209,7 @@ impl Scenario {
     }
 
     pub fn uses_http(&self) -> bool {
-        self.args.iter().any(|arg| arg == "{http}")
+        self.args.iter().any(|arg| arg.starts_with("{http"))
     }
 
     /// File-system-safe form of the name.
@@ -243,6 +244,7 @@ const BUILD: &[&str] = &["build", "--no-compiler-wrapper"];
 const TEST: &[&str] = &["test", "--no-compiler-wrapper", "--junit", "junit.xml"];
 const RESOLVE: &[&str] = &["resolve", "--index-path", "{registry}"];
 const RESOLVE_HTTP: &[&str] = &["resolve", "--index-url", "{http}"];
+const RESOLVE_HTTP_RTT: &[&str] = &["resolve", "--index-url", "{http-rtt}"];
 const FETCH: &[&str] = &[
     "fetch",
     "--index-path",
@@ -343,6 +345,34 @@ fn shared_scenarios() -> Vec<Scenario> {
         Scenario::new("index/http-lazy", Fixture::Consumer("lazy"), RESOLVE_HTTP)
             .prepare(unlock())
             .expect(Expect::Locks(fixture::LAZY.packages)),
+        Scenario::new(
+            "index/rtt-wide",
+            Fixture::Consumer("wide"),
+            RESOLVE_HTTP_RTT,
+        )
+        .prepare(unlock())
+        .expect(Expect::Locks(fixture::WIDE.packages)),
+        Scenario::new(
+            "index/rtt-deep",
+            Fixture::Consumer("deep"),
+            RESOLVE_HTTP_RTT,
+        )
+        .prepare(unlock())
+        .expect(Expect::Locks(fixture::DEEP.packages)),
+        Scenario::new(
+            "index/rtt-lazy",
+            Fixture::Consumer("lazy"),
+            RESOLVE_HTTP_RTT,
+        )
+        .prepare(unlock())
+        .expect(Expect::Locks(fixture::LAZY.packages)),
+        Scenario::new(
+            "index/rtt-lazy-pair",
+            Fixture::Consumer("lazy-pair"),
+            RESOLVE_HTTP_RTT,
+        )
+        .prepare(unlock())
+        .expect(Expect::Locks(fixture::LAZY.packages)),
         Scenario::new("artifact/fetch-cold", Fixture::Consumer("blobs"), FETCH)
             .prepare(Mutation::Remove("cache".to_owned()))
             .expect(archives(fixture::BLOBS.packages)),
@@ -438,6 +468,10 @@ pub fn write_fixture(kind: Fixture, dir: &Path) -> anyhow::Result<()> {
                     .collect(),
                 "deep" => vec![(fixture::DEEP.name(0), "^1", &[][..])],
                 "lazy" => vec![(fixture::LAZY.name(0), "^1", &["next"][..])],
+                // Two halves of the chain, each needing its own rounds.
+                "lazy-pair" => [0, fixture::LAZY.packages / 2]
+                    .map(|i| (fixture::LAZY.name(i), "^1", &["next"][..]))
+                    .into(),
                 "blobs" => (0..fixture::BLOBS.packages)
                     .map(|i| (fixture::BLOBS.name(i), "^1", &[][..]))
                     .collect(),

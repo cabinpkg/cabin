@@ -115,6 +115,8 @@ impl HttpClient {
         let agent = ureq::AgentBuilder::new()
             .timeout(DEFAULT_TIMEOUT)
             .redirects(max_redirects)
+            // Each parallel index fetch keeps its connection for the next wave.
+            .max_idle_connections_per_host(crate::source::PARALLEL_FETCHES)
             .build();
         Self {
             agent,

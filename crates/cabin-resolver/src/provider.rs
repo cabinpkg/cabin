@@ -40,8 +40,9 @@
 //! `Option<LockedConstraintRecorder>` and constructed only in
 //! `Locked` mode - see [`crate::locked`] for the invariant.
 
+use std::cell::RefCell;
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::Bound;
 
@@ -118,7 +119,7 @@ pub(crate) fn lookup<'a>(
         return Ok(Some(entry));
     }
     if input.lazy_index {
-        return Err(ResolveError::MetadataNeeded(name.clone()));
+        return Err(ResolveError::MetadataNeeded(BTreeSet::from([name.clone()])));
     }
     Ok(None)
 }
@@ -208,6 +209,9 @@ pub(crate) struct Provider<'a> {
     root_dependencies: Vec<(PackageName, Ranges<Version>)>,
     locked: BTreeMap<PackageName, LockedVersion>,
     locked_constraints: Option<LockedConstraintRecorder>,
+    /// The names a lazily loaded index has not fetched that the solve
+    /// reached, all reported when it stops for one of them.
+    pub(crate) unfetched: RefCell<BTreeSet<PackageName>>,
 }
 
 impl<'a> Provider<'a> {
@@ -229,6 +233,7 @@ impl<'a> Provider<'a> {
             root_dependencies,
             locked,
             locked_constraints,
+            unfetched: RefCell::default(),
         }
     }
 
@@ -238,6 +243,19 @@ impl<'a> Provider<'a> {
 
     fn is_local(&self, name: &PackageName) -> bool {
         self.input.local_packages.contains_key(name)
+    }
+
+    /// Whether a lazily loaded index has yet to fetch `name`, which
+    /// joins the names this round stops for.
+    fn unfetched(&self, name: &PackageName) -> bool {
+        let unfetched = self.input.lazy_index
+            && !self.is_local(name)
+            && *name != self.input.root_name
+            && self.index.package(name).is_none();
+        if unfetched {
+            self.unfetched.borrow_mut().insert(name.clone());
+        }
+        unfetched
     }
 
     /// Candidate versions of `name` in `range` offering `feature`,
@@ -271,6 +289,12 @@ impl<'a> Provider<'a> {
         name: &PackageName,
         range: &Ranges<Version>,
     ) -> Result<bool, ResolveError> {
+        // The edge requires `name` itself, so a round that reaches it
+        // stops for its metadata before it can succeed; the next round
+        // reads its features.
+        if self.unfetched(name) {
+            return Ok(false);
+        }
         Ok(self.entry(name)?.is_some_and(|entry| {
             entry
                 .versions
@@ -539,6 +563,14 @@ impl DependencyProvider for Provider<'_> {
         range: &Self::VS,
         package_conflicts_counts: &PackageResolutionStatistics,
     ) -> Self::Priority {
+        // A package a lazily loaded index has not fetched goes last, so
+        // a round decides everything it can before it stops, and the
+        // next fetches every name it reached at once.
+        if let Node::Package(name) | Node::Feature(name, _) = node
+            && self.unfetched(name)
+        {
+            return (0, 0, Reverse(usize::MAX));
+        }
         let (count, tier) = match node {
             Node::Root(_) => (usize::from(range.contains(&self.input.root_version)), 0),
             Node::Package(name) => (self.candidate_count(name, range, None), 0),

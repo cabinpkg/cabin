@@ -130,7 +130,9 @@ impl FileIndex {
         roots: &[PackageName],
         known: &BTreeSet<PackageName>,
     ) -> Result<PackageIndex, IndexError> {
-        let packages = walk_dependencies(roots, known, |name| self.read_package(name))?;
+        let packages = walk_dependencies(roots, known, |names| {
+            names.iter().map(|name| self.read_package(name)).collect()
+        })?;
         tracing::Span::current().record("loaded", packages.len());
         Ok(PackageIndex {
             root: self.root.clone(),

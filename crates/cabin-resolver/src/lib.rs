@@ -164,11 +164,34 @@ fn resolve_once_unchecked(
 
     let provider = Provider::new(input, index, locked, root_constraints, root_dependencies);
 
-    let solution = match pubgrub::resolve(
+    let result = pubgrub::resolve(
         &provider,
         Node::Root(input.root_name.clone()),
         input.root_version.clone(),
-    ) {
+    );
+    // A round decides a package missing from the index last, so it can
+    // still find a solution, or none, after backtracking away from it.
+    // Stopping for every one it reached keeps the outcome the one the
+    // full index gives.
+    let mut unfetched = provider.unfetched.take();
+    if let Err(
+        PubGrubError::ErrorChoosingVersion {
+            source: ResolveError::MetadataNeeded(names),
+            ..
+        }
+        | PubGrubError::ErrorRetrievingDependencies {
+            source: ResolveError::MetadataNeeded(names),
+            ..
+        }
+        | PubGrubError::ErrorInShouldCancel(ResolveError::MetadataNeeded(names)),
+    ) = &result
+    {
+        unfetched.extend(names.iter().cloned());
+    }
+    if !unfetched.is_empty() {
+        return Err(ResolveError::MetadataNeeded(unfetched));
+    }
+    let solution = match result {
         Ok(solution) => solution,
         Err(PubGrubError::NoSolution(tree)) => {
             return Err(explain_no_solution(tree, input));
@@ -3533,7 +3556,101 @@ mod tests {
         request(&mut input, "a", &["x"]);
         let err = resolve(&input, &index).unwrap_err();
         assert!(
-            matches!(&err, ResolveError::MetadataNeeded(name) if name.as_str() == "d"),
+            matches!(&err, ResolveError::MetadataNeeded(names) if names.iter().map(PackageName::as_str).eq(["d"])),
+            "{err:?}"
+        );
+    }
+
+    /// A round that backtracks away from an unfetched package still
+    /// stops for it.  With every document, `b 1.0.0` loses to `b 1.1.0`
+    /// and its optional `u`; deciding `u` last, the first round would
+    /// otherwise settle on `a 1.1.0` and `b 1.0.0` without ever reading `u`.
+    #[test]
+    fn lazy_index_stops_for_an_unfetched_package_the_solution_avoids() {
+        let with_f = |deps| featured_version(deps, &[], &[("f", &[])]);
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![
+                    ("1.0.0", with_f(vec![])),
+                    ("1.1.0", with_f(vec![("b", edge("=1.0.0"))])),
+                ],
+            ),
+            featured(
+                "b",
+                vec![
+                    ("1.0.0", with_f(vec![])),
+                    (
+                        "1.1.0",
+                        featured_version(vec![("u", optional("^1"))], &[], &[("f", &["dep:u"])]),
+                    ),
+                    (
+                        "1.2.0",
+                        featured_version(
+                            vec![("z", optional("=1.2.0"))],
+                            &[],
+                            &[("f", &["dep:z"])],
+                        ),
+                    ),
+                ],
+            ),
+        ]);
+        let mut input = make_input(vec![("a", "^1"), ("b", "^1")]);
+        input.lazy_index = true;
+        request(&mut input, "a", &["f"]);
+        request(&mut input, "b", &["f"]);
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(
+            matches!(&err, ResolveError::MetadataNeeded(names) if names.contains(&pkg_name("u"))),
+            "{err:?}"
+        );
+    }
+
+    /// A pure workspace's synthetic root name is never fetched, so a
+    /// lazy round reports it as reserved rather than asking for it.
+    #[test]
+    fn lazy_index_reports_the_reserved_root_name() {
+        let index = build_index(vec![featured(
+            "a",
+            vec![(
+                "1.0.0",
+                featured_version(vec![("app", edge("^0.1"))], &[], &[]),
+            )],
+        )]);
+        let mut input = make_input(vec![("a", "^1")]);
+        input.lazy_index = true;
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(matches!(err, ResolveError::ReservedRootName(_)), "{err:?}");
+    }
+
+    /// A round stops for every unfetched package it reached, not one
+    /// at a time: optional dependencies of two packages, each enabled
+    /// by a feature, are both requested.
+    #[test]
+    fn lazy_index_requests_every_unfetched_package_a_round_reaches() {
+        let index = build_index(vec![
+            featured(
+                "a",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("d", optional("^1"))], &[], &[("x", &["dep:d"])]),
+                )],
+            ),
+            featured(
+                "b",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("e", optional("^1"))], &[], &[("y", &["dep:e"])]),
+                )],
+            ),
+        ]);
+        let mut input = make_input(vec![("a", "^1"), ("b", "^1")]);
+        input.lazy_index = true;
+        request(&mut input, "a", &["x"]);
+        request(&mut input, "b", &["y"]);
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(
+            matches!(&err, ResolveError::MetadataNeeded(names) if names.iter().map(PackageName::as_str).eq(["d", "e"])),
             "{err:?}"
         );
     }

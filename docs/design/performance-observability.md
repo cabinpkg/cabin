@@ -22,8 +22,8 @@ Rules that follow from the table:
 - Summed span time is not elapsed time.  Spans overlap across threads and nest; the summary's
   `total_us` is a per-name sum of inclusive lifetimes and is labeled as such.  No exclusive-time or
   critical-path figure is derived: Cabin's own work is sequential on one thread, apart from
-  writing `build.ninja` and `compile_commands.json` side by side, and the parallel part (Ninja's
-  actions) is shown as Ninja recorded it, not re-derived.
+  short-lived helper threads, and the parallel part (Ninja's actions) is shown as Ninja recorded
+  it, not re-derived.
 - Waiting is not CPU.  The trace shows wall time; CPU time comes from `getrusage` and the
   profilers.
 - A deterministic counter that changes (an extra compile action, an extra metadata request) is a
@@ -53,9 +53,9 @@ Rules that follow from the table:
 - **Scoping.**  The subscriber is installed with `dispatcher::with_default` for the duration of
   `cabin::run`, never globally, so repeated and concurrent in-process invocations each capture
   their own command and cannot fail on a second global initialization.  Cabin's own work runs on
-  one thread, apart from a helper thread that writes `compile_commands.json` beside
-  `build.ninja` and is handed the capture's dispatcher; its other concurrency is child processes
-  (Ninja's actions, test executables), which appear as their own timelines rather than as threads.
+  one thread, apart from short-lived helper threads, each handed the capture's dispatcher; its
+  other concurrency is child processes (Ninja's actions, test executables), which appear as their
+  own timelines rather than as threads.
 - **Files.**  Each capture's stem is `<command>-<unix-ms>-<pid>-<seq>`, unique per process and
   per in-process invocation, so concurrent or nested invocations never write the same file.  The
   trace is written as `<stem>.trace.json.partial` and renamed only after the writer thread has
@@ -144,7 +144,7 @@ Each scenario's check is what keeps a number honest; see `performance.md`.
 | --- | --- | --- | --- | --- |
 | Startup and no-op | `startup/version`, `inspect/metadata-*`, `build/noop-*` | exit 0; no Ninja action | - | done |
 | Resolution | `resolve/wide`, `resolve/deep`, `resolve/update-wide` | exit 0, from no lockfile; the lockfile lists every package | `resolver/wide`, `resolver/deep`, `features/resolve-40` | done |
-| Index and registry metadata | `index/http-wide`, `index/http-lazy` (loopback sparse HTTP) | exit 0, from no lockfile; the lockfile lists every package | `index/load-file-registry` | done; no warm/cold metadata split, because Cabin keeps no metadata cache |
+| Index and registry metadata | `index/http-wide`, `index/http-lazy` (loopback sparse HTTP); `index/rtt-*` (the same with a 20 ms round trip) | exit 0, from no lockfile; the lockfile lists every package | `index/load-file-registry` | done; no warm/cold metadata split, because Cabin keeps no metadata cache |
 | Workspace and planning | `workspace/metadata`, `workspace/tree`, `workspace/build-noop` | exit 0; no Ninja action | `workspace/load-40`, `manifest/parse-*` | done; no planning bench: in a traced `workspace/build-noop`, `plan` takes 1.8 ms of 79 ms, against 40 ms for toolchain detection and 14 ms for writing `build.ninja` and `compile_commands.json` |
 | Clean and incremental builds | `build/clean-*`, `build/touch-source-*`, `build/touch-header-*` | exact compiled-object count from the `.ninja_log` delta | - | done |
 | Build-output collection | `gc/new-day-*`, `gc/clean-10k` | exit 0; the planted unused outputs are gone, and live outputs or the usage records survive | - | done |
@@ -233,7 +233,7 @@ it was refuted: the coarse tick hid the shims' cost.
 - With the fix, the `xcrun` shims are the largest remaining cost of a no-op build on macOS: 15 ms
   of 53 ms, paid on every invocation because detection is not cached.
 - The lazy HTTP index needs one resolution round per dependency level: `index/http-lazy` takes 8
-  rounds for its 8-deep optional chain.
+  rounds for its 8-deep optional chain (see "Registry metadata latency" below).
 
 ## Investigation: generated-file writes and manifest size
 
@@ -316,10 +316,45 @@ resolution reads still does.  `cargo perf run --runs 30 --cabin main=... --cabin
 | `index/http-wide`, `index/http-lazy` (controls) | Unchanged | Unchanged | Unchanged |
 
 Every row is past the harness's noise bound.  The file index now needs one more solve round for
-each optional dependency a feature enables, as the HTTP index does: the `index/http-lazy`
-registry, whose 8-deep optional chain enables one at a time, read from disk takes 8 rounds
+each level of optional dependencies features enable, as the HTTP index does: the `index/http-lazy`
+registry, whose 8-deep optional chain enables one level at a time, read from disk takes 8 rounds
 (1.8 ms) instead of 1 (0.2 ms), and still finishes in 17.5 ms instead of 25.6 ms because it
 parses 8 documents instead of 188.
+
+## Investigation: registry metadata latency
+
+Same machine, release builds of `main` (5acbd263e) and the change, against the harness's loopback
+registry with each response held for 20 ms, as a nearby registry's round trip would take; medians
+of 15 runs.  Wall time is the command's; CPU is user plus system time and instructions are
+Cabin's alone, since resolution spawns no child.  Requests are the `fetched` fields of the
+`load_http_index` spans, rounds the `rounds` field of `resolve_with_lazy_index`.
+
+**Question.**  The HTTP index fetched one package document at a time over one connection, and a
+lazy solve stopped at the first package it lacked.  How much of a resolve against a remote
+registry is waiting, and on what?
+
+| Scenario | Requests | Rounds | Wall | CPU | Instructions |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `index/rtt-wide`: 100 direct dependencies | 100 | 1 | 2.561 s -> 671.2 ms | 32.0 -> 37.2 ms | +2.9% |
+| `index/rtt-deep`: a 60-deep chain | 60 | 1 | 1.540 s -> 1.529 s | 20.9 -> 18.1 ms | Unchanged |
+| `index/rtt-lazy`: an 8-deep optional chain | 8 | 8 | 248.8 -> 234.6 ms | 13.1 -> 8.4 ms | Unchanged |
+| `index/rtt-lazy-pair`: two halves of that chain | 8 | 7 -> 4 | 236.1 -> 138.2 ms | 9.0 -> 8.3 ms | Unchanged |
+| `index/http-wide`: 100 dependencies, no delay | 100 | 1 | 102.4 -> 50.5 ms | 36.7 -> 31.9 ms | +2.2% |
+
+Before the change every request waited its own round trip, so wall time was about 25-30 ms per
+request whatever the shape.
+
+**Fix.**  The dependency walk fetches each wave, every package the previous wave's metadata
+names, over up to 4 connections at once, and a lazy solve decides the packages it lacks last, so
+it reaches every one the round can before it stops and asks for all of them, even one it then
+backtracked away from, so the selection stays the one the full index gives.  The waves fetch what
+the walk always fetched; a batched round can also fetch a package that only an abandoned branch
+reaches.  The cost is the threads and the extra connections: 2-3% more instructions on the wide
+walks.
+
+**Not changed.**  A chain's metadata names its next package only once it arrives, so
+`index/rtt-deep` and `index/rtt-lazy` still pay one round trip per level.  Removing that needs a
+registry that returns a package's dependency closure in one response, a protocol change.
 
 ## Platform verification
 
