@@ -107,6 +107,16 @@ impl Dialect {
         }
     }
 
+    /// Whether the archiver updates an existing library in place, so the
+    /// previous build's archive must be removed first: `ar crs` adds and
+    /// replaces members but never drops one, which would keep the object
+    /// of a source removed or renamed since; `lib /OUT:` always writes the
+    /// library from scratch.
+    #[must_use]
+    pub fn archive_updates_in_place(self) -> bool {
+        matches!(self, Dialect::GnuLike)
+    }
+
     /// How Ninja should discover header dependencies for compiles in
     /// this dialect.
     #[must_use]

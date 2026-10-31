@@ -41,7 +41,8 @@ pub(crate) struct NinjaRun {
 
 /// Path to the running `cabin` executable, used as the `cabin stamp`
 /// runner the syntax-check Ninja rule invokes to run the compiler and
-/// stamp its output without a shell (see [`crate::stamp`]).  Falls back to
+/// stamp its output without a shell, and as the `cabin recreate` runner
+/// of the GNU-dialect archive rule (see [`crate::stamp`]).  Falls back to
 /// the bare name `cabin` (resolved via `PATH`) only if the current-exe
 /// lookup fails, which should not happen in practice.
 pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
