@@ -42,6 +42,8 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
+          # A merge-group cache serves only re-runs of that one queue entry.
+          cache-save-if: ${{ github.event_name != 'merge_group' }}
           rustflags: ""
 
       - parallel:
@@ -156,6 +158,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           cache-on-failure: false
+          cache-save-if: ${{ github.event_name != 'merge_group' }}
           rustflags: ""
 
       - name: Build binary
