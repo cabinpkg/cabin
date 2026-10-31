@@ -31,10 +31,11 @@ fn build_target_rejects_a_gcc_that_builds_for_another_machine() {
         ));
 }
 
-/// A GCC builds only its own target, so it cannot also build a build
-/// dependency for the build machine.
+/// A GCC builds only its own target, so build dependencies build with
+/// the build machine's compilers, chosen by `HOST_CC`, `HOST_CXX`, and
+/// `HOST_AR`.  A build-machine compiler of another dialect is refused.
 #[test]
-fn build_target_rejects_build_dependencies_under_a_cross_gcc() {
+fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
     use std::os::unix::fs::PermissionsExt;
     let dir = TempDir::new().unwrap();
     crate::build_dependencies::write_generator_project(dir.path());
@@ -47,7 +48,8 @@ fn build_target_rejects_build_dependencies_under_a_cross_gcc() {
     .unwrap();
     fs::set_permissions(&gcc, fs::Permissions::from_mode(0o755)).unwrap();
     let ar = fake_tool_with_output(bin.path(), "ar", "GNU ar (GNU Binutils) 2.40\n", "", 0);
-    let command = |subcommand: &str| {
+    let host = fake_tool_with_output(bin.path(), "host-g++", "g++ (GCC) 13.2.0\n", "", 0);
+    let command = |subcommand: &str, host: &Path| {
         let mut command = cabin();
         command
             .current_dir(dir.path().join("app"))
@@ -56,17 +58,96 @@ fn build_target_rejects_build_dependencies_under_a_cross_gcc() {
             .arg("--cxx")
             .arg(&gcc)
             .arg("--ar")
-            .arg(&ar);
+            .arg(&ar)
+            .env("HOST_CC", host)
+            .env("HOST_CXX", host)
+            .env("HOST_AR", &ar);
         command
     };
-    let refusal = "`[build-dependencies]` are built for the build machine";
-    command("build")
+    // The fakes compile nothing, so only the plan is checked.
+    command("build", &host).output().unwrap();
+    let database: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(
+            dir.path()
+                .join("app/build/riscv64-unknown-linux-gnu/dev/compile_commands.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let entries = database.as_array().unwrap();
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry["output"].as_str().unwrap().contains("build-machine")),
+        "{database:#}"
+    );
+    for entry in entries {
+        let compiler = if entry["output"].as_str().unwrap().contains("build-machine") {
+            &host
+        } else {
+            &gcc
+        };
+        assert!(
+            entry["command"]
+                .as_str()
+                .unwrap()
+                .contains(compiler.to_str().unwrap()),
+            "{entry}"
+        );
+    }
+
+    let cl = fake_tool_with_output(
+        bin.path(),
+        "host-cl",
+        "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.0 for x64\n",
+        "",
+        0,
+    );
+    command("build", &cl)
         .assert()
         .failure()
-        .stderr(predicate::str::contains(refusal));
+        .stderr(predicate::str::contains(
+            "one build cannot mix MSVC-style and GCC-style compilers",
+        ));
     // `cabin check` checks only the selected packages' own sources,
-    // so it plans no build context and has nothing to refuse.
-    command("check").assert().success();
+    // so it needs no build-machine toolchain, and it keeps the one the
+    // toolchain stamp recorded rather than rebuilding every edge.
+    command("check", &bin.path().join("no-such-compiler"))
+        .assert()
+        .success();
+    let stamp = fs::read_to_string(
+        dir.path()
+            .join("app/build/riscv64-unknown-linux-gnu/dev/cabin-toolchain.json"),
+    )
+    .unwrap();
+    assert!(stamp.contains("\"build_machine\""), "{stamp}");
+
+    // MSVC links read `LIB`, which both contexts would share.
+    let arm64_cl = fake_tool_with_output(
+        bin.path(),
+        "cl-arm64",
+        "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.0 for ARM64\n",
+        "",
+        0,
+    );
+    let lib = fake_tool_with_output(
+        bin.path(),
+        "fake-lib",
+        "Microsoft (R) Library Manager Version 14.39.33523.0\n",
+        "",
+        0,
+    );
+    cabin()
+        .current_dir(dir.path().join("app"))
+        .args(["build", "--target", "aarch64-pc-windows-msvc", "--cc"])
+        .arg(&arm64_cl)
+        .arg("--cxx")
+        .arg(&arm64_cl)
+        .arg("--ar")
+        .arg(&lib)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("the one `LIB` environment"));
 }
 
 /// Apple Clang builds either macOS architecture on any Mac, so these

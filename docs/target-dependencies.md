@@ -173,7 +173,8 @@ context is deterministic for a given machine and flags and is reported back to t
 `target_platform` in `cabin metadata` so dependency filtering is auditable.  The flag-table-only
 keys read two further inputs: `feature` reads the owning package's resolved feature set, and the
 compiler keys read the resolved toolchain's detection report (the same one `cabin metadata` shows
-under `toolchain.detected`).
+under `toolchain.detected`); a build dependency's under `--target` read the build machine's
+toolchain, which `cabin metadata` does not report.
 
 A package built as a [build dependency](dependency-kinds.md#build-dependencies) runs on the build
 machine, so its own predicates - dependencies, sources, and flag tables - evaluate for the build

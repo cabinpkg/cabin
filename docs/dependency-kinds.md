@@ -97,9 +97,8 @@ package in the **build context**, apart from the packages it links for the platf
 - `links` uniqueness applies per context: a build tool and the program may each link one package
   claiming an identity, but neither may link two.
 - Without `--target`, the build context uses the build's compilers and environment flags
-  (`CFLAGS` and friends).  With `--target`, it uses the same compilers without `--target=` and no
-  environment flags; GCC, MSVC, and clang-cl build only their one target, so a `--target` naming
-  another machine needs Clang when build dependencies exist.  See
+  (`CFLAGS` and friends).  With `--target`, it uses the build machine's own toolchain, chosen by
+  `HOST_CC`, `HOST_CXX`, and `HOST_AR`, and no environment flags.  See
   [toolchains](toolchains.md#building-for-another-platform).
 
 `cabin build`, `run`, and `test` build build dependencies but run nothing: a build step that runs

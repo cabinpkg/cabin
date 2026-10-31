@@ -572,6 +572,9 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     /// environment overlay, and its tools' identities are what every
     /// Ninja edge depends on.
     pub detection: &'a cabin_core::ToolchainDetectionReport,
+    /// The build context's own toolchain in a `--target` build, whose
+    /// identities every Ninja edge depends on too.
+    pub build_machine_detection: Option<&'a cabin_core::ToolchainDetectionReport>,
     /// Resolved feature graph, consumed by the link-failure hint.
     pub feature_resolution: &'a cabin_feature::FeatureResolution,
     /// The platform the build targets, consumed by the link-failure
@@ -641,7 +644,22 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     })?;
 
     let ninja_file = profile_build_root.join("build.ninja");
-    let identity = serde_json::to_string_pretty(&req.detection.build_identity())?;
+    let stamp = profile_build_root.join(cabin_ninja::writer::TOOLCHAIN_STAMP);
+    let mut identity = req.detection.build_identity();
+    // A run that plans no build context (`cabin check`, a narrower
+    // `-p`) keeps the last build machine identity rather than
+    // rebuilding every edge.
+    let build_machine = match req.build_machine_detection {
+        Some(detection) => Some(detection.build_identity()),
+        None => std::fs::read(&stamp)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|recorded| recorded.get("build_machine").cloned()),
+    };
+    if let Some(build_machine) = build_machine {
+        identity["build_machine"] = build_machine;
+    }
+    let identity = serde_json::to_string_pretty(&identity)?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
     // Rendering dominates both writes and neither file depends on the
     // other, so they render side by side.  The trace capture is scoped

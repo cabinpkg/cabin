@@ -152,11 +152,14 @@ cabin build --target aarch64-unknown-linux-gnu \
   Windows x64; for another machine they build, then fail with an error naming what they built:
   Cabin never runs a binary built for another machine on its own.
 - **Build dependencies.**  [Build dependencies](dependency-kinds.md#build-dependencies) build for
-  the build machine under `<build-dir>/<triple>/<profile>/build-machine/`, with the same compilers
-  minus `--target=`, so their default target must be the build machine.  GCC, MSVC, and clang-cl
-  build only the triple's machine, so when it is another machine, a build with build dependencies
-  fails there.  `CFLAGS` and
-  the other environment flags describe the target and do not reach these units.
+  the build machine under `<build-dir>/<triple>/<profile>/build-machine/`, with the build machine's
+  own toolchain: `HOST_CC`, `HOST_CXX`, and `HOST_AR` in place of `CC`, `CXX`, and `AR`, then the
+  manifest's `[toolchain]` tables evaluated for the build machine, then the defaults.  `--cc`,
+  `--cxx`, `--ar`, `CC`, `CXX`, `AR`, and config's `[toolchain]` choose the target's tools only.
+  Both toolchains must take the same command-line dialect, so an MSVC or clang-cl build machine
+  with a GCC-style target, or the reverse, is an error, and an MSVC or clang-cl build for another
+  machine cannot build them at all: both contexts would link against the one `LIB` environment.  `CFLAGS` and the other environment flags
+  describe the target and do not reach these units.
 - **Sysroots.**  `--sysroot <dir>`, or the [`[sysroot]`](config.md#sysroot) entry for the
   `--target` triple, names the directory holding the target's headers and libraries; `--sysroot`
   wins.  Every GCC and Clang compile, assemble, and link command passes `--sysroot=<dir>`, or
@@ -178,7 +181,9 @@ compiler.
 
 Cabin honors `CC`, `CXX`, and `AR` from the running process' environment.  Values are interpreted as
 a single executable path or command name; they are not shell-split.  Empty values are ignored, so
-`CXX=` looks identical to no `CXX` at all.
+`CXX=` looks identical to no `CXX` at all.  Under `--target`, `HOST_CC`, `HOST_CXX`, and `HOST_AR`
+choose the build machine's tools for [build dependencies](#building-for-another-platform) the same
+way.
 
 Cabin also honors `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and `LDFLAGS` as conventional C/C++ build flag
 sources.  Each variable is parsed into argv tokens using POSIX shell-style word splitting (via the
@@ -514,7 +519,8 @@ unchanged file keeps its modification time.  Direct `ninja -C <build-dir>/<profi
 do *not* re-read `cabin.toml`, `.cabin/config.toml`, or the environment - Ninja rebuilds an output
 only when the command line, an explicit input, the depfile, or the output path changes, or when
 `cabin-toolchain.json` beside `build.ninja` does.  Every edge depends on that file, which records
-each detected compiler's and the archiver's family, version, `--version` line, and target, and which
+each detected compiler's and the archiver's family, version, `--version` line, and target (the
+build machine's too, under `--target` with build dependencies), and which
 `cabin build` rewrites only when one of them changes: a compiler whose reported version changes
 rebuilds everything, even at the same path.  Run `cabin build` after manifest, config, or toolchain
 edits so the fingerprint and the generated commands reflect the new inputs; running Ninja directly

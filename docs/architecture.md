@@ -1181,7 +1181,8 @@ Build dependencies resolve with the normal ones into the same lockfile, but are 
 context: `cabin_feature::resolve_build_context_features` resolves the packages they reach as a
 second feature resolution, and the CLI appends a second `cabin_build` plan (`build_context` set)
 for the build machine, its flags, and its `cfg(...)` evaluation, under `<profile>/build-machine/`.
-`links` uniqueness is checked per context.  The build context's tools are never run by Cabin yet
+Under `--target` that plan has the build machine's own toolchain (`HOST_CC`, `HOST_CXX`,
+`HOST_AR`), of the target's command-line dialect.  `links` uniqueness is checked per context.  The build context's tools are never run by Cabin yet
 (stage 07 adds actions).
 
 Workspace inheritance is kind-specific: a member's `{ workspace = true }` opt-in under
@@ -2041,7 +2042,7 @@ documented in `registry/docs/architecture.md`:
   and clang-cl must already build that platform, and Cabin runs what it built for another machine
   only through a configured `[runner]` (see
   [`toolchains.md`](toolchains.md#building-for-another-platform)). `[build-dependencies]` build for
-  the build machine, but nothing runs them yet. `--sysroot` or a config `[sysroot]` entry passes
+  the build machine with its own toolchain, of the target's dialect, but nothing runs them yet. `--sysroot` or a config `[sysroot]` entry passes
   GCC and Clang a sysroot, and Apple Clang builds name the SDK it would pick; other sysroot
   discovery is not implemented yet. (Windows / MSVC
   itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate

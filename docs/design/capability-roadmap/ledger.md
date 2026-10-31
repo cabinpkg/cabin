@@ -244,9 +244,8 @@ Stages 04 and 05; validated in 06-10, 12-14.
   configured for the triple (`cabin-config`), and the build machine's plain pkg-config is refused.
 - `[build-dependencies]` build in a second context for the build machine, under
   `<profile>/build-machine/`, with their own features, flags, `cfg(...)` evaluation, and `links`
-  check (`cabin/src/cli/build_prep.rs`, `plan_build_context`).  Both contexts share the detected
-  compilers, so when `--target` names another machine only Clang-family compilers build them; GCC,
-  MSVC, and clang-cl are refused (`check_build_context_compilers`).
+  check (`cabin/src/cli/build_prep.rs`, `plan_build_context`).  Under `--target` the build
+  context has its own toolchain (`build_machine_toolchain`), of the target's dialect.
 - Clang's `Target:` line and the MSVC banner's architecture fill `CompilerIdentity.target`; a native
   build warns when it names another machine.
 - MSVC discovery uses Cabin's own architecture (`cabin-toolchain/src/msvc.rs`); MASM is always
@@ -569,8 +568,7 @@ build edges of the target context's packages, apart from the target context's; t
 plan for the build machine under `<profile>/build-machine/`, with the build machine's per-package
 flags and `cfg(...)` evaluation.  `cabin check` checks only the selected packages' own sources, so
 it plans no build context.  Under `--target`, the build context passes no `--target=` and receives
-no environment flags, and a toolchain that builds only its target is refused when that target is
-another machine.  `cabin package`
+no environment flags; since stage 05 it has the build machine's own toolchain.  `cabin package`
 refuses build dependencies until index metadata carries them, and `system = true` is refused in the
 build context.
 
@@ -609,6 +607,22 @@ effective standard, GNU mode, `CompileArguments`, and link flags, and `Execution
 `TargetPlatform::runs_on_build_machine`; an `Unknown` must not become a defined macro.  Reusing
 answers across builds needs a key over the compiler path and version banner, dialect, target,
 sysroot, standard, flags, source, and execution; a sysroot's contents are not in it.
+
+Stage 05, third change: under `--target`, the build context builds with a toolchain of its own,
+resolved like the target's but with `HOST_CC`, `HOST_CXX`, and `HOST_AR` for `CC`, `CXX`, and `AR`,
+the manifest's `[toolchain]` tables evaluated for the build machine, no CLI or config layer, and the
+defaults; it replaces `check_build_context_compilers`, so a GCC cross build takes build
+dependencies.  The build machine's detected identities join the toolchain stamp (a run that plans no
+build context keeps the recorded ones, so `cabin check` does not rebuild everything), its
+detection decides the build context's `cfg(cc/cxx/...)` flags, and its standards are validated
+against the build context's compiles.  `cabin check`, which plans no build context, resolves no
+build-machine toolchain.  A build-machine toolchain of another dialect than the target's is refused:
+`render_build_ninja` emits one rule set, archive and depfile handling included, from the graph's
+dialect.  On Windows the default build-machine compiler is `cl`, so a Clang cross build there
+needs `HOST_*` for build dependencies.  An MSVC-style build for another machine still refuses build
+dependencies, since both contexts would link against the one `LIB` environment a Ninja run gets.  `cabin metadata` and
+`cabin explain` report no build-context configuration, so neither the build machine's toolchain nor
+the build context's features and flags reach a `BuildConfiguration` fingerprint.
 
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
@@ -760,6 +774,14 @@ only the SDK's headers and reads the C and C++ `help:` lines.  Run on macOS (App
 and Windows (MSVC) only in CI.  No Linux fixture for the hint: GCC keeps library paths relative to
 its own installation under a sysroot, so a headers-only sysroot can still link there.
 
+Stage 05, third change: a Unix CLI test cross-builds the build-dependency fixture with a fake GCC
+for `riscv64` and fake `HOST_*` compilers and reads `compile_commands.json`: build-context compiles
+use the `HOST_*` compiler and the rest the cross GCC (fails on the target's toolchain); a fake MSVC
+`HOST_CXX` is refused, as is an MSVC build for `aarch64-pc-windows-msvc`; and `cabin check`
+succeeds with a `HOST_CXX` that does not exist (fails when check resolves the build machine's
+toolchain).  Run on macOS; nothing covers a real cross toolchain
+or an in-place upgrade of the build machine's compiler.
+
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
 reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
@@ -785,10 +807,9 @@ Follow-ups found in stage 04: `cabin tree` and `cabin tidy` take no `--target` a
 machine's edges; the build machine's own `env`, `abi`, and `target` values are still derived from
 the OS rather than detected; GNU-dialect executables keep a bare name for a Windows target,
 though MinGW GCC and Clang write `<name>.exe` (stage 05's MinGW work).  From the fourth change:
-both contexts share one toolchain, so GCC, MSVC, and clang-cl cannot build with build dependencies
-for another machine, and environment flags do not reach the build context there (stage 05 gives each
-context its toolchain; `render_build_ninja` then needs rules per dialect, since it emits one rule
-set, archive and depfile handling included, from the graph's dialect); the build context gets no
+environment flags do not reach the build context under `--target`, and since stage 05 its
+toolchain must take the target's dialect (`render_build_ninja` needs rules per dialect for an
+MSVC build machine with a GCC-style target, or the reverse); the build context gets no
 system dependencies (stage 06); index metadata does not carry build dependencies, so a package
 declaring them cannot be published (with stage 07's metadata); `[features]` cannot name a build
 dependency, and `cabin add` has no `--build`; resolution's `links` domains over-approximate a
@@ -809,10 +830,9 @@ Stage 04 leaves these seams:
   carries the target platform, `BuildContextPrep` the build machine's
   (`cabin/src/cli/build_prep.rs`).  Outputs live under `<build-dir>/<triple>/<profile>/`, the build
   context's under `build-machine/` beside `packages/` (`cabin_build::planner::BUILD_CONTEXT_DIR`).
-- **Toolchains (stage 05).**  Both contexts share one detected toolchain, and
-  `cabin_toolchain::check_build_context_compilers` refuses GCC, MSVC, and clang-cl when `--target`
-  names another machine.  A toolchain per context replaces that check; `render_build_ninja` then
-  needs rules per dialect, since `BuildGraph::append` assumes one.  Clang-family compilers get
+- **Toolchains (stage 05).**  Under `--target`, `BuildContextPrep::toolchain` and
+  `detection_report` are the build machine's own (`build_machine_toolchain`), of the target's
+  dialect, since `BuildGraph::append` assumes one.  Clang-family compilers get
   `PlanRequest::clang_target`, which the build context leaves unset.  A probe result that changes
   commands must reach the command lines or the toolchain stamp
   (`cabin_ninja::writer::TOOLCHAIN_STAMP`), the two inputs every edge rebuilds on.

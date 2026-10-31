@@ -38,13 +38,6 @@ pub enum CompilerTargetError {
         "`--target` needs the C and C++ compilers from one family, but the C compiler is {cc} and the C++ compiler is {cxx}"
     )]
     MixedFamilies { cc: CompilerKind, cxx: CompilerKind },
-    #[error(
-        "`[build-dependencies]` are built for the build machine {build_machine}, which {compiler} does not build for next to `--target`; a toolchain that builds both, such as Clang, is needed"
-    )]
-    BuildContext {
-        compiler: String,
-        build_machine: String,
-    },
     #[error("failed to ask {compiler} for its target")]
     Probe {
         compiler: String,
@@ -137,38 +130,6 @@ pub fn check_compiler_targets(
     Ok(CompilerTargets::default())
 }
 
-/// Check that a `--target` build's compilers can also build the build
-/// context, whose units run on the build machine.  A Clang-family
-/// compiler does so by omitting `--target=` when its default target is
-/// the build machine; GCC, MSVC, and clang-cl build only the fixed
-/// target [`check_compiler_targets`] matched to `target`.
-///
-/// # Errors
-/// Returns [`CompilerTargetError::BuildContext`] naming the first
-/// compiler that cannot build for `build_machine`.
-pub fn check_build_context_compilers(
-    report: &ToolchainDetectionReport,
-    target: &TargetPlatform,
-    build_machine: &TargetPlatform,
-) -> Result<(), CompilerTargetError> {
-    for compiler in std::iter::once(&report.cxx).chain(&report.cc) {
-        let builds_for = match compiler.identity.kind {
-            CompilerKind::Clang | CompilerKind::AppleClang => banner_target(&compiler.identity),
-            _ => Some(target.clone()),
-        };
-        // As for native builds, the build machine's env is a guess.
-        if !builds_for.is_some_and(|platform| {
-            platform.arch == build_machine.arch && platform.os == build_machine.os
-        }) {
-            return Err(CompilerTargetError::BuildContext {
-                compiler: compiler.path.to_string(),
-                build_machine: build_machine.target.clone(),
-            });
-        }
-    }
-    Ok(())
-}
-
 fn banner_target(identity: &CompilerIdentity) -> Option<TargetPlatform> {
     TargetPlatform::from_triple(identity.target.as_deref()?).ok()
 }
@@ -240,44 +201,6 @@ mod tests {
         assert_eq!(
             targets.clang_target.as_deref(),
             Some("aarch64-unknown-linux-gnu")
-        );
-    }
-
-    #[test]
-    fn the_build_context_needs_a_compiler_for_the_build_machine() {
-        let macos_arm64 = TargetPlatform::from_triple("aarch64-apple-darwin").unwrap();
-        let macos_x86 = TargetPlatform::from_triple("x86_64-apple-darwin").unwrap();
-        let apple_clang = |target| {
-            report(
-                compiler(CompilerKind::AppleClang, "/bin/c++", Some(target)),
-                Some(compiler(CompilerKind::AppleClang, "/bin/cc", Some(target))),
-            )
-        };
-        check_build_context_compilers(
-            &apple_clang("arm64-apple-darwin25.2.0"),
-            &macos_x86,
-            &macos_arm64,
-        )
-        .unwrap();
-        let err = check_build_context_compilers(
-            &apple_clang("x86_64-apple-darwin25.2.0"),
-            &macos_arm64,
-            &macos_arm64,
-        )
-        .unwrap_err();
-        assert!(
-            matches!(err, CompilerTargetError::BuildContext { .. }),
-            "{err}"
-        );
-
-        // GCC builds only the `--target` it was checked against.
-        let gcc = report(compiler(CompilerKind::Gcc, "/bin/g++", None), None);
-        check_build_context_compilers(&gcc, &linux_arm64(), &linux_arm64()).unwrap();
-        let linux_x86 = TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap();
-        let err = check_build_context_compilers(&gcc, &linux_arm64(), &linux_x86).unwrap_err();
-        assert!(
-            matches!(&err, CompilerTargetError::BuildContext { compiler, .. } if compiler == "/bin/g++"),
-            "{err}"
         );
     }
 

@@ -153,6 +153,7 @@ pub(crate) fn run(
             workspace_selection: &args.workspace_selection,
             toolchain: &args.toolchain,
             dev: DevActivation::Disabled,
+            build_context: true,
         },
         reporter,
     )?;
@@ -190,6 +191,7 @@ pub(crate) fn run(
             graph: &prepared.graph,
             toolchain: &prepared.toolchain,
             detection: &prepared.detection_report,
+            build_machine_detection: prepared.build_machine_detection(),
             feature_resolution: &prepared.feature_resolution,
             platform: &prepared.platform,
             dev_for: &prepared.dev_for,
