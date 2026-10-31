@@ -332,6 +332,7 @@ dependencies = [
  "predicates",
  "semver",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -397,6 +398,7 @@ version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "camino",
+ "tracing",
 ]
 
 [[package]]
@@ -525,6 +527,7 @@ dependencies = [
  "serde_json",
  "shlex 2.0.1",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -659,6 +662,7 @@ dependencies = [
  "cabinpkg-workspace",
  "quick-junit",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -681,6 +685,7 @@ dependencies = [
  "camino",
  "find-msvc-tools",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]

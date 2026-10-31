@@ -20,6 +20,7 @@ use crate::writer::{atomically_write, shell_join};
 /// ([`NinjaError::UnquotableArgument`] or [`NinjaError::Json`]), and
 /// returns [`NinjaError::Io`] when the atomic write to `path` fails (for
 /// example, when the parent directory is missing).
+#[tracing::instrument(level = "info", skip_all)]
 pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), NinjaError> {
     let body = render_compile_commands(graph)?;
     atomically_write(path, body.as_bytes())

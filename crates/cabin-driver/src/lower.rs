@@ -70,6 +70,7 @@ pub enum LoweredActionKind {
 /// [`camino::Utf8Path`], so embedding it in a command line cannot
 /// fail.
 #[must_use]
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn lower(dialect: Dialect, action: &BuildAction) -> LoweredAction {
     match action {
         BuildAction::Compile(compile) => lower_compile(dialect, compile),

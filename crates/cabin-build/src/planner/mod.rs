@@ -190,10 +190,13 @@ struct PreparedAssembly {
 /// source errors ([`BuildError::UnrecognizedSourceExtension`],
 /// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
 /// [`BuildError::MissingCCompiler`]).
+#[tracing::instrument(level = "info", skip_all, fields(actions = tracing::field::Empty))]
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     let selected = select_targets(req)?;
     let resolved = resolve_dependencies(&selected, req)?;
-    emit_actions(&selected, resolved, req)
+    let graph = emit_actions(&selected, resolved, req)?;
+    tracing::Span::current().record("actions", graph.actions.len());
+    Ok(graph)
 }
 
 /// Phase one: resolve the requested selection (or enumerate the

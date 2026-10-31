@@ -36,8 +36,9 @@ directives:
 
 | Filter | Records |
 | --- | --- |
-| `info` (default) | Command phases: workspace load, feature resolution, index loading, solving, and artifact fetching |
-| `debug` | Also each manifest, index document, lockfile read and write, HTTP request, cache lookup, and archive extraction |
+| `info` (default) | Command phases: workspace load, feature resolution, index loading, solving, artifact fetching, toolchain detection, build planning, writing `build.ninja` and `compile_commands.json`, the Ninja run, and test planning and running |
+| `debug` | Also each manifest, index document, lockfile read and write, HTTP request, cache lookup, archive extraction, tool `--version` probe, and each target's usage requirements and link closure |
+| `trace` | Also each build action's lowering to a command line |
 | `cabin_resolver=debug,info` | `debug` for one crate, `info` elsewhere |
 
 A directive without a bare default level (`cabin_resolver=debug` alone) records only that crate,
@@ -50,6 +51,18 @@ is its wall-clock lifetime and includes the spans inside it and any time it spen
 file system, the network, or a child process: a long span is not necessarily CPU work.  Span
 arguments carry counts and sizes (`roots`, `packages`, `bytes`, `rounds`) and cache results
 (`hit` = 1 or 0).
+
+Two more processes show work that runs beside Cabin, at every filter level; overlapping bars go on
+separate rows:
+
+- `ninja`: one bar per action the command's Ninja run performed, named by its output relative to
+  the profile's build directory.  It comes from Ninja's `.ninja_log`, cut to the entries this run
+  appended, so a no-op build shows none and a failed build shows the actions that finished.
+  Ninja times actions from its own start, so the bars sit early by Ninja's startup time.  When
+  Ninja rewrote its log during the run (it compacts the log once it holds many stale entries),
+  the lane is empty and the summary's `ninja_actions` is `null`.
+- `tests`: one bar per test executable `cabin test` ran, named `<package>:<target>`, ending when
+  the runner reported it.
 
 ## Timings summary
 
@@ -66,6 +79,7 @@ names follow the code and can change between commits.
 | `trace_complete` | Whether the trace file was written completely |
 | `wall_time_us` | From the start of argument handling to the end of the command; excludes process creation |
 | `startup_us` | Argument parsing and terminal setup before the capture started, covered by no span |
+| `ninja_actions` | The actions the command's Ninja run performed, or `null` when it ran no Ninja or Ninja rewrote its log |
 | `phases[]` | Per span name: `target`, `name`, `count`, `total_us` (sum of inclusive lifetimes, which exceeds elapsed time when occurrences overlap), `max_us`, and `fields` (each integer field summed over occurrences) |
 | `process` | `getrusage` at exit, or `null` on Windows: `self_peak_rss_bytes`, `self_user_us`, `self_system_us` for Cabin alone; `children_user_us`, `children_system_us` summed over the child processes Cabin waited for; `children_largest_peak_rss_bytes`, the largest single child's peak - child peaks are not simultaneous, so they are never added |
 
@@ -80,11 +94,13 @@ names follow the code and can change between commits.
 
 ## Sharing a trace
 
-A trace records span names, counts, sizes, HTTP status codes, and, at `debug`, the names of the
-packages being loaded or fetched.  It records no file paths, URLs, command lines, environment
-variables, headers, credentials, or response bodies.  The file
-names contain only the subcommand, a timestamp, and a process id.  Package names can still be
-private: check a `debug` trace of a private project before attaching it to a public issue.
+A trace records span names, counts, sizes, HTTP status codes, the outputs Ninja built (relative to
+the profile's build directory, so they name packages, targets, and source files), the tests run,
+and, at `debug`, the names of the packages being loaded or fetched.  It records no absolute paths,
+URLs, command lines, environment variables, headers, credentials, or response bodies.  The file
+names contain only the subcommand, a timestamp, and a process id.  Package, target, and source file
+names can still be private: check a trace of a private project before attaching it to a public
+issue.
 
 ## Benchmarks
 

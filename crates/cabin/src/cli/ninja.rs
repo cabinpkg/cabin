@@ -104,6 +104,7 @@ pub(crate) fn discovered_msvc_install_applies(
 ///
 /// Verbose mode (`-v`) restores the full Ninja output so users
 /// who want to inspect the backend's progress have a knob.
+#[tracing::instrument(level = "info", skip_all)]
 pub(crate) fn run_ninja(
     cmd: &mut std::process::Command,
     profile_build_root: &std::path::Path,
@@ -572,6 +573,7 @@ pub(crate) fn invoke_ninja_and_report(
     if ninja_verbose {
         ninja_cmd.arg("-v");
     }
+    let ninja_log = crate::trace::NinjaLog::snapshot(&profile_build_root);
     let build_started = std::time::Instant::now();
     let run = run_ninja(
         ninja_cmd.arg("-C").arg(&profile_build_root),
@@ -582,6 +584,9 @@ pub(crate) fn invoke_ninja_and_report(
         discovered_msvc_install_applies(req.toolchain, req.detection.cxx.identity.kind),
     )
     .with_context(|| format!("failed to invoke ninja at {}", req.ninja.display()))?;
+    if let Some(ninja_log) = ninja_log {
+        ninja_log.record(build_started);
+    }
     if !run.status.success() {
         emit_link_diagnostic_if_applicable(&run, req);
         anyhow::bail!("ninja exited with {}", run.status);
