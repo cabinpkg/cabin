@@ -1,11 +1,6 @@
-//! End-to-end coverage for the patch / override layer.
-//!
-//! Each test stages a temp workspace plus a sibling
-//! "patched fork" directory that holds a real `cabin.toml`,
-//! then drives `cabin metadata` (or `cabin package`) and
-//! inspects the resulting JSON / errors.  No tests here
-//! perform network access; the patch path is the only source
-//! of truth.
+//! End-to-end coverage for `[patch]` overrides and
+//! `[source-replacement]`.  A patched fork is a sibling directory
+//! holding a real `cabin.toml`.  No test performs network access.
 
 use super::*;
 use std::path::PathBuf;
@@ -555,8 +550,6 @@ fmt = ">=10.0.0 <11.0.0"
         .assert()
         .success();
 
-    // The fork supplies fmt at 10.2.0 - the same version the
-    // resolver picked from the index.
     write_root_manifest(
         &root,
         r#"[package]
@@ -599,10 +592,6 @@ fn locked_fails_when_patch_policy_changed_after_lockfile() {
     );
 }
 
-/// The patch-staleness check does not depend on the resolver
-/// running: the patch covers the only versioned dependency, so the
-/// artifact commands have nothing to resolve or fetch, yet `--locked`
-/// must still refuse - and leave the lockfile bytes alone.
 fn parse_lock(path: &Path) -> cabin_lockfile::Lockfile {
     cabin_lockfile::read_lockfile(path).unwrap()
 }
@@ -629,8 +618,9 @@ fn unlocked_commands_leave_the_lockfile_alone_with_nothing_to_resolve() {
     let lockfile = root.join("cabin.lock");
     let cache_dir = parent.path().join("cache");
     let stamp = pin_mtime(&lockfile);
-    // `build` shares the helper and is pinned by the locked test
-    // below; the fixture's `app` has no target for it to build.
+    // `build` shares `enforce_locked_patch_state` with `fetch` and
+    // `vendor` and is pinned by the locked test below; the fixture's
+    // `app` has no target for it to build.
     for command in ["resolve", "fetch", "vendor"] {
         let mut cmd = cabin();
         cmd.args([command, "--manifest-path"])
@@ -847,6 +837,10 @@ fn workspace_update_after_a_patch_covers_a_members_dependencies() {
     );
 }
 
+/// The patch-staleness check does not depend on the resolver
+/// running: the patch covers the only versioned dependency, so the
+/// artifact commands have nothing to resolve or fetch, yet `--locked`
+/// must still refuse - and leave the lockfile bytes alone.
 #[test]
 fn locked_artifact_commands_refuse_a_patch_policy_change_with_nothing_to_resolve() {
     let parent = TempDir::new().unwrap();
@@ -879,13 +873,10 @@ fn locked_artifact_commands_refuse_a_patch_policy_change_with_nothing_to_resolve
 
 #[test]
 fn source_replacement_self_loop_yields_clear_cycle_error() {
-    // A workspace config whose source-replacement entry
-    // points back at its own original triggers cycle detection
-    // the moment the CLI tries to resolve the index source for
-    // a fetch / resolve invocation that needs versioned deps.
-    // `cabin metadata` is intentionally lazy here - it never
-    // walks the replacement chain - so we drive `resolve`,
-    // which always applies replacement before any fetch.
+    // A source-replacement entry mapping its original to itself is a
+    // cycle, detected when a command that needs versioned deps
+    // resolves the index source.  `cabin metadata` never walks the
+    // replacement chain, so this drives `resolve`.
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("app");
     write_root_manifest(
@@ -1016,12 +1007,11 @@ fmt = "10.2.1"
 
 #[test]
 fn metadata_succeeds_when_only_inactive_dep_mismatches_patch_version() {
-    // The patched fmt is at 0.1.0; the manifest's only
-    // mention of fmt is a *dev* dep with `>= 99` - clearly
-    // unsatisfiable, but dev deps are inactive for the
-    // default invocation, so patch validation must skip the
-    // edge and metadata succeeds.  This is the end-to-end
-    // counterpart to the cabin-workspace patch-gating tests.
+    // The only `fmt` edge is a dev dependency (`>=99`) the 0.1.0
+    // fork cannot satisfy.  Dev dependencies are inactive for a
+    // default invocation, so patch validation must skip the edge.
+    // End-to-end counterpart to the cabin-workspace patch-gating
+    // tests.
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("app");
     write_root_manifest(
@@ -1060,12 +1050,10 @@ version = "0.1.0"
 
 #[test]
 fn resolve_includes_versioned_deps_introduced_by_patched_manifest() {
-    // Regression for the "patched manifest's own
-    // [dependencies] are dropped from the resolver input"
-    // bug: the workspace declares only a patched dep, but
-    // the patched fork itself depends on a registry-only
-    // package.  After the fix, `cabin resolve` must include
-    // the transitive registry edge in its output.
+    // Regression: a patched fork's own `[dependencies]` were dropped
+    // from the resolver input.  The root declares only the patched
+    // `fmt`; the fork depends on registry-only `spdlog`, which
+    // `cabin resolve` must include.
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("app");
     write_root_manifest(
@@ -1081,10 +1069,6 @@ fmt = ">=10.0.0 <11.0.0"
 fmt = { path = "../fmt-fork" }
 "#,
     );
-    // The patched fmt fork carries its own registry-bound
-    // dep on `spdlog`.  Without the patched-deps fix, this
-    // edge never reaches the resolver and the build later
-    // surfaces a missing-include failure.
     write_patched_fork(
         parent.path(),
         "fmt-fork",

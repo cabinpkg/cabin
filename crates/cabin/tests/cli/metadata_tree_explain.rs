@@ -66,7 +66,6 @@ fn tree_human_format_default_emits_box_drawing() {
     assert!(stdout.contains("app v0.1.0"), "got: {stdout}");
     assert!(stdout.contains("lib v0.1.0"), "got: {stdout}");
     assert!(stdout.contains("[normal]"), "got: {stdout}");
-    // Box-drawing must be emitted for the child edge.
     assert!(
         stdout.contains("└── lib") || stdout.contains("├── lib"),
         "got: {stdout}"
@@ -246,13 +245,9 @@ fn explain_target_reports_languages_and_kind() {
             .arg(dir.path().join("cabin.toml"))
             .args(["--format", "json", "target", "lib"]),
     );
-    // Outer tag (the Explanation discriminator).
     assert_eq!(value["kind"], "target");
     assert_eq!(value["package"], "lib");
     assert_eq!(value["target"], "lib");
-    // Inner target_kind field carries the Cabin TargetKind
-    // string.  Renamed from `kind` so it does not collide
-    // with the outer discriminator.
     assert_eq!(value["target_kind"], "library");
     assert!(value["is_buildable"].as_bool().unwrap());
     let langs = value["languages"].as_array().unwrap();

@@ -143,8 +143,6 @@ members = ["packages/*"]
 "#,
         )
         .unwrap();
-    // a declares ssl; b does not.  Selecting -p a --features ssl
-    // must succeed.
     dir.child("packages/a/cabin.toml")
         .write_str(
             r#"[package]
@@ -346,9 +344,8 @@ members = []
         .stderr(predicate::str::contains("nested workspace"));
 }
 
-/// `cabin update --package <name>` keeps its
-/// dep-targeted-update meaning.  Unknown name reports the
-/// "not a versioned dependency" error consistently.
+/// `cabin update --package <name>` names a direct versioned
+/// dependency, not a workspace member.
 #[test]
 fn update_package_back_compat() {
     let dir = TempDir::new().unwrap();

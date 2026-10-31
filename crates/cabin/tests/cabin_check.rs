@@ -1,7 +1,7 @@
-//! End-to-end tests for `cabin check`.  They prove that `-fsyntax-only`
-//! is in effect: the generated `build.ninja` carries the flag
-//! and uses the check rule, and a successful run produces no object
-//! files, archives, or binaries - only `.check` stamps and depfiles.
+//! End-to-end tests for `cabin check`.  They prove that syntax-only mode
+//! (`-fsyntax-only` / `/Zs`) is in effect: the generated `build.ninja`
+//! carries the flag and uses the check rule, and a successful run produces
+//! `.check` stamps but no object files, archives, or binaries.
 
 use std::path::{Path, PathBuf};
 
@@ -48,9 +48,6 @@ fn collect_files(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Whether any collected file has the given extension.  Uses
-/// `Path::extension` rather than a string suffix so a `.o` object is
-/// distinguished from a `.o.check` stamp or a `.o.d` depfile.
 fn any_with_ext(files: &[PathBuf], ext: &str) -> bool {
     files
         .iter()
@@ -136,8 +133,8 @@ fn check_fails_on_semantic_error() {
              [target.broken]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n",
         )
         .unwrap();
-    // Body-level use of an undeclared identifier: a front-end
-    // (semantic) error `-fsyntax-only` catches, NOT a link error.
+    // An undeclared identifier is a front-end error, which syntax-only
+    // mode reports; a link error would pass `cabin check`.
     dir.child("src/main.cc")
         .write_str("int main() { return undeclared_symbol(); }\n")
         .unwrap();
@@ -165,7 +162,6 @@ fn check_fails_on_semantic_error() {
         "expected the compiler's semantic diagnostic in the output, got:\n{combined}"
     );
 
-    // Even on failure, no object file is produced.
     let files = collect_files(&dir.path().join("build"));
     assert!(
         !any_with_ext(&files, "o"),

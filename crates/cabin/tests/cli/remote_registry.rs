@@ -54,7 +54,7 @@ fn remote_registry_feature_is_recognized() {
 }
 
 /// An unknown `-Z` value is rejected with the full recognized list,
-/// which now names `remote-registry`.
+/// which names `remote-registry`.
 #[test]
 fn unknown_feature_error_lists_remote_registry() {
     let assertion = cabin()
@@ -236,8 +236,8 @@ const GITHUB_ACCESS_TOKEN: &str = "gho_testAccessSecret";
 const DEVICE_USER_CODE: &str = "ABCD-1234";
 
 /// Seed `home/credentials.toml` with a session for `origin`, exactly
-/// as a `cabin login` against it would leave it, with `api_url` as
-/// the revocation origin and mode 0600.
+/// as a `cabin login` against it would leave it, with `origin` as the
+/// `api-url` revocation origin and mode 0600.
 fn write_session_credentials_full(home: &Path, origin: &str, token: &str, expires_at: &str) {
     fs::create_dir_all(home).unwrap();
     let credentials_path = home.join("credentials.toml");
@@ -705,8 +705,8 @@ fn login_ignores_project_config_when_choosing_the_registry() {
 }
 
 /// A loopback address whose port was just released: connecting fails
-/// immediately, which is how the login-probe tests exercise the
-/// offline path without external DNS or timeouts.
+/// immediately, without external DNS or timeouts, so tests use it for
+/// a registry that must never be contacted.
 fn dead_loopback_url() -> String {
     let addr = {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
@@ -962,8 +962,9 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
     write_registry(&registry, r#", "auth-required": true"#);
     let server = AuthRegistryServer::serve(registry, TEST_TOKEN);
 
-    // Tokenless: the very first request (config.json) is refused and
-    // the error advises `cabin login --index-url <origin>`.
+    // Tokenless: `config.json` is public, so the first refused request
+    // is the package read, and the error advises
+    // `cabin login --index-url <origin>`.
     let assertion = cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -1030,7 +1031,7 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
         .success()
         .stdout(predicate::str::contains("fmt"));
 
-    // A wrong stored token surfaces the revoked/expired wording.
+    // A wrong env token surfaces the revoked/expired wording.
     let assertion = cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -1053,9 +1054,9 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
 /// A login-session token (`cabin_ses_<base64url>`, carrying `-` and `_`)
 /// is a first-class bearer at the CLI seam: a stored session survives
 /// the credentials round-trip with those bytes intact, and a later
-/// `resolve` loads it and authenticates with no env override - the
-/// user-facing half of the `Token::parse` widening that lets
-/// `cabin_ses_` tokens through.
+/// `resolve` loads it through `Token::parse`, which admits the
+/// base64url `cabin_ses_` payload, and authenticates with no env
+/// override.
 #[test]
 fn a_stored_session_token_authenticates_reads() {
     const SESSION_TOKEN: &str = "cabin_ses_abcdefghij-klmnopqrst_uvwxyzABCDEFGHIJKLMNO";
@@ -1323,7 +1324,6 @@ version = "0.1.0"
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
         .success();
-    // The extracted source tree is in the cache, manifest included.
     let sources = cache.join("sources/sha256");
     assert!(sources.is_dir());
     let found_cabin_toml = fs::read_dir(&sources)
@@ -1894,8 +1894,9 @@ struct CapturedPut {
 /// (nothing is published yet), and answers mutation requests under
 /// `/api/v1/packages/` with the configured status sequence (the last
 /// entry repeats), capturing each one.  With `require_auth`, every
-/// route 401s tokenless requests - the `auth-required` registry
-/// shape, where even `config.json` is behind auth.
+/// route, `config.json` included, 401s tokenless requests; this is
+/// stricter than the protocol's `auth-required` shape, whose
+/// `config.json` stays public.
 struct RemoteRegistryServer {
     server: std::sync::Arc<tiny_http::Server>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -2276,7 +2277,7 @@ fn publish_uploads_bytes_identical_to_cabin_package() {
     );
 }
 
-/// The amended credential-destination rule (`docs/remote-registry.md`,
+/// The credential-destination rule (`docs/remote-registry.md`,
 /// "When the token is sent"): a token stored under the index origin is
 /// sent to that origin's reads *and* to the `api` origin its
 /// authenticated `config.json` declares - here a different server, the
@@ -3250,7 +3251,7 @@ fn yank_never_auto_exchanges_under_github_actions() {
 
 /// The run's OIDC JWT is itself a credential: a project-steered
 /// loopback index whose config.json names a non-loopback `api` must
-/// be refused BEFORE the JWT is even fetched, or the named origin
+/// be refused before the JWT is even fetched, or the named origin
 /// could exchange the unconsumed JWT against the real registry.
 #[test]
 fn a_loopback_index_cannot_route_the_jwt_off_loopback() {
@@ -3277,7 +3278,7 @@ fn a_loopback_index_cannot_route_the_jwt_off_loopback() {
 }
 
 /// A loopback index reaches the exchange only through an explicit
-/// `--index-url`: when project/user CONFIG selects the same loopback
+/// `--index-url`: when project or user config selects the same loopback
 /// registry, the run's OIDC token is never fetched - a checked-out
 /// project's config could otherwise steer the JWT to a daemon its own
 /// build code left listening.  The publish itself proceeds tokenless.
@@ -3318,10 +3319,10 @@ fn a_config_selected_loopback_index_never_exchanges() {
     assert_eq!(captured[0].authorization, None);
 }
 
-/// The point of the batch: however many packages one invocation
-/// publishes, the trusted-publishing leg fetches ONE OIDC token and
-/// performs ONE exchange - the minted token serves every upload, in
-/// the order the manifests were given, and revokes once at the end.
+/// However many packages one invocation publishes, the
+/// trusted-publishing leg fetches one OIDC token and performs one
+/// exchange: the minted token serves every upload, in the order the
+/// manifests were given, and is revoked once at the end.
 #[test]
 fn a_batch_publish_exchanges_exactly_once() {
     let registry = TrustpubRegistryServer::start(&[201]);
@@ -3414,7 +3415,7 @@ fn an_in_batch_earlier_version_joins_the_lint_baseline() {
 }
 
 /// A lint rejection renders target names, not package names; the
-/// batch flow's context must say WHICH member to fix - and the
+/// batch flow's context must say which member to fix - and the
 /// rejection publishes nothing (lints run before the first upload).
 #[test]
 fn a_batch_lint_rejection_names_the_failing_member() {
@@ -3467,8 +3468,8 @@ interface-cxx-standard = "c++20"
 
 /// A `429` mid-batch is paced, not fatal: the rate-limited upload
 /// retries after the advertised delay and the batch completes.  The
-/// pacing is batch-only - a single-package publish keeps its
-/// historical fail-fast `429`, pinned by the second half.
+/// pacing is batch-only: a single-package publish fails fast on
+/// `429`, pinned by the second half.
 #[test]
 fn a_rate_limited_upload_is_paced_in_a_batch_and_fatal_alone() {
     // First upload (zlib) succeeds, second (demo) is limited once.
@@ -3638,7 +3639,7 @@ fn a_batch_publishes_to_the_shared_user_config_registry() {
 }
 
 /// Two different config files resolving to the same URL agree - but
-/// consolidating them must not make the origin MORE trusted than it
+/// consolidating them must not make the origin more trusted than it
 /// would be for an individual member: one member picking the origin
 /// through its project config drops `CABIN_REGISTRY_TOKEN`
 /// eligibility for the whole batch, exactly as it would publishing

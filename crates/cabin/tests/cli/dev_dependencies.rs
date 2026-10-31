@@ -99,8 +99,6 @@ fn build_keeps_dev_path_dependency_declaration_only() {
         .arg(&build_dir)
         .assert()
         .success();
-    // The dev dep never enters the ordinary build: no compile,
-    // archive, or link action mentions it.
     let ninja = fs::read_to_string(build_dir.join("dev/build.ninja")).unwrap();
     assert!(
         !ninja.contains("harness"),
@@ -693,8 +691,7 @@ deps = ["devkit"]
 
     // Under `cabin build` the dev dep is not activated, so the
     // enabled default feature's `devkit/simd` entry still
-    // surfaces the unknown-dependency error - the ordinary
-    // command behavior is unchanged.
+    // surfaces the unknown-dependency error.
     cabin()
         .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
@@ -708,9 +705,6 @@ deps = ["devkit"]
 fn test_resolves_versioned_dev_dependency_and_locks_it() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // Registry package `devcheck` is declared only under
-    // `[dev-dependencies]`; `cabin test` must resolve, fetch,
-    // build, and link it - and record it in the lockfile.
     let archive = dir.path().join("artifacts/devcheck-1.2.0.zip");
     let hex = make_archive(
         &archive,
@@ -793,8 +787,6 @@ deps = ["devcheck"]
         "test executable linking the versioned dev dep should run: {stdout}"
     );
 
-    // The activated dev dep is a real resolution input, so the
-    // lockfile records it.
     let lock = fs::read_to_string(dir.path().join("app/cabin.lock")).unwrap();
     assert!(
         lock.contains(r#"name = "devcheck""#),

@@ -17,8 +17,6 @@ type = "executable"
 sources = ["src/main.cc"]
 "#;
 
-/// Write a single-package manifest into a fresh temp dir and return the
-/// dir.
 fn package_dir() -> TempDir {
     let dir = TempDir::new().expect("tempdir");
     dir.child("cabin.toml").write_str(PACKAGE_MANIFEST).unwrap();
@@ -28,8 +26,7 @@ fn package_dir() -> TempDir {
 #[test]
 fn add_hints_to_link_the_dep_in_a_target() {
     // `[dependencies]` only declares a dep; cabin requires a target's
-    // `deps` list to link it. `cabin add` should remind the
-    // user of that follow-up step.
+    // `deps` list to link it.
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     cabin()
@@ -302,7 +299,6 @@ fn add_targets_selected_workspace_member() {
             "Adding fmtlib/fmt@^10 to dependencies",
         ));
 
-    // The member's manifest is edited; the workspace root is untouched.
     let member = fs::read_to_string(dir.path().join("packages/app/cabin.toml")).unwrap();
     assert!(
         member.contains("\"fmtlib/fmt\" = \"^10\""),

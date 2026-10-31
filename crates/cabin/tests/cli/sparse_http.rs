@@ -74,8 +74,8 @@ impl Drop for TestServer {
 /// registry through the real `cabin publish --registry-dir` flow, so
 /// the fixture served over HTTP has exactly the scoped layout the
 /// hosted registry speaks: `packages/fmtlib/fmt.json` and
-/// `artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip`, linked by the
-/// canonical `../../artifacts/...` source path.
+/// `artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-<revision>.zip`, linked by
+/// the canonical `../../artifacts/...` source path.
 fn publish_scoped_fmt_to_registry(dir: &Path) -> PathBuf {
     let pkg_root = dir.join("pkg");
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
@@ -110,10 +110,9 @@ include-dirs = ["include"]
 }
 
 /// Hand-assemble a *bare*-name registry (`packages/fmt.json`,
-/// `artifacts/fmt/fmt-10.2.1.zip`) from ungated `cabin package`
-/// staging output.  Bare names stay legal in locally-produced file
-/// registries, and serving one over HTTP must keep working; `cabin
-/// publish` requires scoped names, hence the by-hand assembly.
+/// `artifacts/fmt/fmt-10.2.1.zip`) from `cabin package` staging
+/// output: `cabin publish` requires scoped names, `cabin package`
+/// does not.
 fn assemble_bare_fmt_registry(dir: &Path) -> PathBuf {
     let pkg_root = dir.join("pkg");
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
@@ -504,9 +503,6 @@ fn cross_origin_http_artifact_url_is_rejected() {
 fn http_artifact_checksum_mismatch_fails() {
     let dir = TempDir::new().unwrap();
     let registry = publish_scoped_fmt_to_registry(dir.path());
-    // Tamper with the published `fmt.json` to advertise a wrong
-    // checksum so the artifact bytes the server returns will
-    // mismatch what the index claims.
     let pkg_index = registry.join("packages/fmtlib/fmt.json");
     let mut value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
@@ -610,10 +606,9 @@ fn resolve_frozen_rejects_config_index_url() {
 }
 
 /// A fork dependency of a transitively-activated patch can name a
-/// package the pre-activation sparse crawl never fetched (nothing in
-/// the upstream metadata closure references it).  The activation
-/// loop extends the index instead of failing the re-solve with an
-/// unknown package.
+/// package no upstream metadata references, so the initial metadata
+/// walk never reads it.  Resolution reads it on demand instead of
+/// failing with an unknown package.
 #[test]
 fn index_url_extends_crawl_for_transitively_activated_patch_deps() {
     let dir = TempDir::new().unwrap();

@@ -7,10 +7,10 @@ use std::path::PathBuf;
 const FAIL_MARKER: &str = "// CABIN-TIDY-FAIL";
 
 /// A stand-in compiler that exists on every host (the bundled fake
-/// ninja binary).  The tidy planner resolves a toolchain only to
-/// thread the compiler path into `compile_commands.json`; it never
-/// runs it as a compiler. `/bin/sh` would serve on Unix but is
-/// absent on Windows, so a built binary is used instead.
+/// ninja binary).  `cabin tidy` threads the compiler path into
+/// `compile_commands.json` and never compiles with it; its compiler
+/// detection is fail-soft, so a non-compiler binary is accepted.
+/// `/bin/sh` would serve on Unix but is absent on Windows.
 fn tidy_dummy_compiler() -> PathBuf {
     workspace_test_bin("cabin-ninja-fake-ninja")
 }
@@ -28,9 +28,9 @@ fn cabin_with_fake_tidy() -> Command {
     cmd.env("CXX", &dummy);
     cmd.env("CC", &dummy);
     cmd.env("AR", &dummy);
-    // Poison the environment with a registry credential: the fake
-    // tidy hard-fails when it sees the variable, so every test in
-    // this module enforces the child-env scrub.
+    // Poison the environment with registry credentials: the fake
+    // tidy hard-fails when it sees either variable, so every test
+    // using this command enforces the child-env scrub.
     cmd.env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234");
     cmd.env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-oidc-secret");
     cmd
@@ -291,10 +291,6 @@ fn fix_flag_is_passed_to_tidy_driver() {
 
 #[test]
 fn fix_mode_clamps_jobs_to_one() {
-    // The historical C++ tidy implementation forced `-j 1`
-    // in `--fix` mode; preserve the policy here.  Verbose
-    // mode prints the override notice so the user can see
-    // why their `--jobs 4` was dropped.
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let record = dir.path().join("argv.log");
@@ -364,9 +360,8 @@ fn invalid_jobs_value_is_rejected_at_parse_time() {
 
 #[test]
 fn no_files_succeeds_with_message() {
-    // No `[target.*]` declared → no compile commands → no
-    // files to check.  Should succeed cleanly with a
-    // status line, not error.
+    // No `[target.*]` is declared, so there is no C/C++ target to
+    // check.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str("[package]\nname = \"empty\"\nversion = \"0.1.0\"\n")
@@ -538,12 +533,10 @@ fn no_ignore_vcs_includes_gitignored_files() {
 fn build_and_cache_directories_are_not_checked() {
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
-    // Drop fake artifacts under directories that source
-    // discovery is contracted to skip.  None of these
-    // declare a target so they could not appear in
-    // compile_commands either, but the assertion is the
-    // negative one: no path that includes any of them
-    // should reach the tidy driver.
+    // Sources under directories that source discovery always
+    // skips.  None is a target source, so the compile-database
+    // filter would also drop them; the test pins only that none
+    // reaches the tidy driver.
     dir.child("build/dev/scratch.cc")
         .write_str("int s() {}\n")
         .unwrap();
@@ -656,11 +649,6 @@ fn cabin_tidy_env_override_routes_through_named_binary() {
 
 #[test]
 fn clang_tidy_config_survives_unmodified_after_tidy() {
-    // Cabin must not generate, modify, or delete a
-    // `.clang-tidy` file the user committed alongside their
-    // sources.  The integration here is the negative
-    // assertion that Cabin does not interfere with
-    // clang-tidy's own config story.
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let cfg_path = dir.path().join(".clang-tidy");
@@ -909,11 +897,6 @@ helper = {{ path = "helper" }}
 
 #[test]
 fn versioned_dependency_produces_actionable_error() {
-    // `cabin tidy` does not run the artifact pipeline; if a
-    // selected package declares a versioned registry dep we
-    // surface a clear unsupported-shape diagnostic instead of
-    // letting the planner fail with a confusing downstream
-    // error.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 

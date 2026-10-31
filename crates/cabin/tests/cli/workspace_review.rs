@@ -22,7 +22,6 @@ members = ["packages/*"]
     }
 }
 
-/// Blocking 1: workspace.members with `..` must be rejected.
 #[test]
 fn member_with_parent_dir_rejected_at_cli() {
     let dir = TempDir::new().unwrap();
@@ -53,16 +52,13 @@ members = ["../outside"]
         .stderr(predicate::str::contains("../outside"));
 }
 
-/// Blocking 1: workspace.exclude with absolute path must be
-/// rejected.
 #[test]
 fn exclude_absolute_path_rejected_at_cli() {
     let dir = TempDir::new().unwrap();
-    // An absolute exclude path must be rejected.  Absoluteness is
-    // platform-specific: `/tmp/outside` is not absolute on
-    // Windows (no drive), so use a host-absolute path (with TOML
-    // backslash escaping) to exercise the same rejection branch
-    // on every host.
+    // Absoluteness is platform-specific: `/tmp/outside` is not
+    // absolute on Windows (no drive), so use a host-absolute path
+    // (with TOML backslash escaping) to exercise the same rejection
+    // branch on every host.
     let absolute_exclude = if cfg!(windows) {
         r"C:\\tmp\\outside"
     } else {
@@ -84,8 +80,8 @@ fn exclude_absolute_path_rejected_at_cli() {
         .stderr(predicate::str::contains("workspace.exclude"));
 }
 
-/// Blocking 3: building a package whose dep tree has no C/C++
-/// targets must not silently build every other package.
+/// Building a package whose dep tree has no C/C++ targets must not
+/// build every other package.
 #[test]
 fn select_package_without_cpp_target_errors_clearly() {
     require_cxx_build_tools();
@@ -101,8 +97,6 @@ members = ["packages/*"]
     dir.child("packages/empty/cabin.toml")
         .write_str("[package]\nname = \"empty\"\nversion = \"0.1.0\"\n")
         .unwrap();
-    // peer: a real C++ executable that should NOT be built when
-    // the user selects only `empty`.
     dir.child("packages/peer/cabin.toml")
         .write_str(
             r#"[package]
@@ -134,9 +128,9 @@ sources = ["src/main.cc"]
     );
 }
 
-/// Blocking 2: `cabin fetch -p missing` must fail at the
-/// selection-validation step even when the workspace has no
-/// versioned dependencies (and thus no fetch happens).
+/// `cabin fetch -p missing` must fail at the selection-validation
+/// step even when the workspace has no versioned dependencies (and
+/// thus no fetch happens).
 #[test]
 fn fetch_unknown_package_errors_without_versioned_deps() {
     let dir = TempDir::new().unwrap();
@@ -207,10 +201,8 @@ fn resolve_pure_workspace_refuses_an_index_naming_the_synthetic_root() {
     }
 }
 
-/// Blocking 2: `cabin resolve` over a pure-workspace root
-/// (no `[package]`) collects member versioned deps and writes a
-/// lockfile.  An earlier baseline failed with "pure-workspace
-/// roots are not supported".
+/// `cabin resolve` over a pure-workspace root (no `[package]`)
+/// collects member versioned deps and writes a lockfile.
 #[test]
 fn resolve_pure_workspace_root_with_member_versioned_deps() {
     let dir = TempDir::new().unwrap();
@@ -270,9 +262,9 @@ fmt = ">=10.0.0 <11.0.0"
     );
 }
 
-/// Blocking 2: `cabin resolve -p app` selects exactly one
-/// member's deps.  With only `app` selected, sibling members'
-/// requirements do not contribute.
+/// `cabin resolve -p app` selects exactly one member's deps.  With
+/// only `app` selected, sibling members' requirements do not
+/// contribute.
 #[test]
 fn resolve_explicit_package_selection() {
     let dir = TempDir::new().unwrap();
@@ -294,9 +286,8 @@ fmt = ">=10.0.0 <11.0.0"
 "#,
         )
         .unwrap();
-    // sibling depends on a name that is NOT in the index.  If
-    // the resolver sees both, it would error out.  With
-    // `-p app`, only fmt should be considered.
+    // `unknown` is absent from the index, so resolution fails if
+    // `sibling`'s requirements contribute.
     dir.child("packages/sibling/cabin.toml")
         .write_str(
             r#"[package]
@@ -342,20 +333,14 @@ unknown = ">=1"
     assert!(!lockfile.contains("unknown"));
 }
 
-/// Blocking 2: `cabin update --update-package <name>` is the
-/// renamed dep-update flag that used to be `cabin update
-/// --package <name>`.  The new `--package` is the workspace
-/// selector and is validated against the graph.
 #[test]
 fn update_split_flag_names() {
-    // `cabin update --package <name>` is the dep-targeted
-    // refresh flag.  Workspace member scoping on
-    // `cabin update` uses `--workspace`, `--default-members`,
-    // and `--exclude` - not `-p`.  The workspace here declares
-    // no versioned deps, so any `--package` value reports
-    // "not a versioned dependency" rather than "not a member";
-    // the test asserts that the back-compat flag spelling
-    // stays accepted.
+    // On `cabin update`, `--package <name>` refreshes a direct
+    // versioned dependency; member scoping uses `--workspace`,
+    // `--default-members`, and `--exclude`, not `-p`.  The
+    // workspace here declares no versioned deps, so any
+    // `--package` value is rejected as "not a direct versioned
+    // dependency" rather than "not a member".
     let dir = TempDir::new().unwrap();
     write_three_member_workspace_no_default(dir.path());
     cabin()
@@ -369,11 +354,8 @@ fn update_split_flag_names() {
         ));
 }
 
-/// Non-blocking 4: `--manifest-path cabin.toml` from inside a
-/// workspace member must load the *member* manifest, not the
-/// workspace root.  The default-no-flag invocation still walks
-/// up to the workspace root (covered by another upward-walk
-/// test in this file).
+/// `--manifest-path cabin.toml` from inside a workspace member
+/// must load the *member* manifest, not the workspace root.
 #[test]
 fn explicit_manifest_path_overrides_root_discovery() {
     let dir = TempDir::new().unwrap();
@@ -394,9 +376,8 @@ fn explicit_manifest_path_overrides_root_discovery() {
     assert_eq!(pkgs[0]["name"], "beta");
 }
 
-/// Non-blocking 4 corollary: with no `--manifest-path`, root
-/// discovery still finds the workspace root from a member
-/// directory.
+/// With no `--manifest-path`, root discovery still finds the
+/// workspace root from a member directory.
 #[test]
 fn default_manifest_path_walks_up_to_workspace_root() {
     let dir = TempDir::new().unwrap();

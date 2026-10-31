@@ -17,10 +17,9 @@ use super::*;
 const CONDITION_MAIN_CC: &str = "int main() { return 0; }\n";
 
 /// `cabin()` with the ambient `CC` / `CXX` selection restored.  The
-/// shared helper scrubs them for hermeticity; these tests are
-/// *about* the host compiler, and the CI compiler matrix pins the
-/// compiler under test through exactly these variables (the
-/// documented opt-back-in pattern from the testing rules).
+/// shared helper scrubs them, but these tests are about the host
+/// compiler, and the CI compiler matrix selects it through these
+/// variables.
 fn cabin_with_host_toolchain() -> Command {
     let mut cmd = cabin();
     for key in ["CC", "CXX"] {

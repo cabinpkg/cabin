@@ -79,7 +79,6 @@ fn published_package_index_is_well_formed() {
     let rev_entry = &entry["revisions"][revision];
     let checksum = rev_entry["checksum"].as_str().unwrap();
     assert!(checksum.starts_with("sha256:"));
-    // The revision id is the checksum's 16-hex prefix.
     assert_eq!(&checksum["sha256:".len()..][..16], revision);
     assert!(
         rev_entry["published-at"]
@@ -455,7 +454,6 @@ fn dry_run_against_registry_does_not_mutate() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("dry-run") || stdout.contains("dry run"));
     assert!(stdout.contains("No registry was modified"));
-    // Registry must NOT have been initialized.
     assert!(!registry.join("config.json").exists());
     assert!(!registry.join("packages").exists());
     assert!(!registry.join("artifacts").exists());
@@ -652,7 +650,6 @@ fn published_registry_can_be_fetched() {
         .arg(&cache)
         .assert()
         .success();
-    // Source extracted into cache.
     let sources = cache.join("sources/sha256");
     let mut found_cabin_toml = false;
     for entry in fs::read_dir(&sources).unwrap() {
@@ -851,7 +848,7 @@ version = "0.2.0"
 
 /// Distinct package names can flatten to one artifact stem
 /// (`a-b/c` and `a/b-c`), and a staging-only batch shares one
-/// `--output-dir`: the collision fails CLOSED on the second member
+/// `--output-dir`: the collision fails closed on the second member
 /// (nothing is clobbered), naming the member via the batch context.
 /// Stem-colliding same-version packages need separate invocations
 /// with separate output directories.
@@ -897,7 +894,7 @@ c-standard = "c11"
     );
 }
 
-/// A manifest that fails to RESOLVE stops the batch before any work:
+/// A manifest that fails to resolve stops the batch before any work:
 /// every path is parsed and selected up front, so a broken manifest
 /// anywhere leaves the registry untouched.  (On this local
 /// `--registry-dir` flow, later per-package staging failures are not

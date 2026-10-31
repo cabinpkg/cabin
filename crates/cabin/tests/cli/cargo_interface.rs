@@ -1,10 +1,10 @@
 use super::*;
 use std::path::PathBuf;
 
-/// `main.cc` that prints argv (one arg per line) plus the
-/// injected `CABIN_PACKAGE_NAME` / `CABIN_PROFILE` env vars
-/// so a single run can confirm `--` arg forwarding and the
-/// `CABIN_*` overlay together.
+/// `main.cc` that prints argv (one arg per line), the injected
+/// `CABIN_PACKAGE_NAME` / `CABIN_PROFILE`, and whether either
+/// credential env var reached it, so one run checks `--` arg
+/// forwarding, the `CABIN_*` overlay, and credential scrubbing.
 const ARGV_AND_ENV_MAIN_CC: &str = r#"
 #include <cstdio>
 #include <cstdlib>
@@ -127,8 +127,6 @@ sources = ["src/main.cc"]
 fn run_with_bin_flag_picks_named_target() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // Two executable targets with distinct sources;
-    // --bin selects which one runs.
     dir.child("cabin.toml")
         .write_str(
             r#"[package]
@@ -374,8 +372,8 @@ fn cabin_build_dir_env_var_overrides_default_directory() {
     );
 }
 
-/// `--target-dir` is not a Cargo compatibility alias; Cabin reserves
-/// `--target` terminology for future platform/toolchain selection.
+/// `--target-dir` is not a Cargo compatibility alias: `--target`
+/// selects the platform triple and `--build-dir` the output directory.
 #[test]
 fn target_dir_is_not_a_cabin_alias() {
     let assertion = cabin()
@@ -415,11 +413,10 @@ fn cli_build_dir_flag_wins_over_cabin_build_dir_env() {
     );
 }
 
-/// An explicit `--build-dir build` that happens to spell the
-/// built-in default literal must still beat `CABIN_BUILD_DIR`.
-/// Without value-source-aware detection the precedence check
-/// can't tell the user-supplied value from the clap default
-/// and silently routes outputs to the env-supplied directory.
+/// An explicit `--build-dir build`, which spells the built-in
+/// default, must still beat `CABIN_BUILD_DIR`.  Precedence keys on
+/// whether the flag was passed (`resolve_build_dir_with_env`); a
+/// clap default would make the two indistinguishable.
 #[test]
 fn cli_build_dir_default_literal_wins_over_cabin_build_dir_env() {
     require_cxx_build_tools();

@@ -16,9 +16,7 @@ fn archive_url(archive_name: &str) -> String {
 }
 
 /// Test fixture builder for local Cabin ports whose archives are
-/// seeded into the cache.  It keeps test bodies focused on port
-/// topology while the tarball, checksum, and manifest plumbing stay
-/// in one place.
+/// seeded into the cache.
 pub struct FakePortRepo {
     root: PathBuf,
 }
@@ -55,9 +53,7 @@ pub struct FakeArchive {
 
 impl FakePort {
     /// Seed the archive bytes into `cache_dir`'s content-addressed
-    /// `ports` slot.  The manifest already pins the matching
-    /// unreachable `https://` URL, so the cache-first lookup resolves
-    /// without a server or the network.
+    /// `ports` slot.
     pub fn seed_archive_into_cache(&self, cache_dir: &Path) {
         let slot = cache_dir
             .join("ports")

@@ -160,7 +160,6 @@ fn package_json_format_emits_machine_readable_summary() {
 fn package_excludes_generated_and_vcs_files() {
     let dir = TempDir::new().unwrap();
     write_simple_package(dir.path());
-    // Files that must NOT appear in the archive.
     dir.child(".git/config").write_str("leak-this").unwrap();
     dir.child("build/build.ninja")
         .write_str("leak-this")
@@ -208,11 +207,8 @@ fn package_excludes_generated_and_vcs_files() {
 
 #[test]
 fn package_excludes_in_tree_custom_output_dir() {
-    // A custom --output-dir living inside the package source
-    // tree (and not on the hard-coded EXCLUDED_DIR_NAMES list)
-    // must be skipped during staging so the next archive does
-    // not embed last run's `.zip` / `.json` and the
-    // idempotent-rewrite check stays meaningful.
+    // An --output-dir inside the package tree and not in
+    // `EXCLUDED_DIR_NAMES` must be skipped during staging.
     let dir = TempDir::new().unwrap();
     write_simple_package(dir.path());
     let out = dir.path().join("myoutput");
@@ -223,11 +219,8 @@ fn package_excludes_in_tree_custom_output_dir() {
         .arg(&out)
         .assert()
         .success();
-    // Second run uses the same in-tree output dir.  With the
-    // bug present, the staging walker pulls last run's
-    // archive into the new archive, the bytes drift, and the
-    // idempotent rewrite refuses the differing existing
-    // archive.  With the fix, the second run is a no-op.
+    // Staging `myoutput/` would embed the first run's archive, so
+    // the idempotent rewrite would refuse the differing bytes.
     cabin()
         .args(["package", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -264,11 +257,8 @@ fn package_rejects_output_dir_equal_to_package_root() {
 
 #[test]
 fn package_is_byte_deterministic_across_runs() {
-    // Write the package and the two output directories in
-    // *separate* trees: `pkg-a/` and `pkg-b/`.  Both packages have
-    // identical source content.  Each run targets an output dir
-    // outside the package root so neither archive picks up the
-    // other run's `dist-*/` contents.
+    // Identical packages in separate roots.  Each output dir lies
+    // outside both roots, so neither archive can pick up a `dist-*/`.
     let dir = TempDir::new().unwrap();
     let pkg_a = dir.path().join("pkg-a");
     let pkg_b = dir.path().join("pkg-b");
@@ -389,8 +379,6 @@ version = "0.1.0"
 "#,
         )
         .unwrap();
-    // `cabin package` against a workspace root must refuse
-    // without a single `--package <name>` selection.
     cabin()
         .args(["package", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -433,7 +421,6 @@ fn package_overwrite_with_different_bytes_fails() {
         .arg(&dist)
         .assert()
         .success();
-    // Stomp on the existing archive with junk; a re-run must fail.
     assert_fs::fixture::ChildPath::new(dist.join("fmt-10.2.1.zip"))
         .write_binary(b"not the same bytes")
         .unwrap();

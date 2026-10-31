@@ -11,8 +11,8 @@ fn cabin_with_fake_formatter() -> Command {
     let mut cmd = cabin();
     let path = fake_formatter_path();
     cmd.env("CABIN_FMT", path);
-    // Poison the environment with a registry credential: the fake
-    // formatter hard-fails when it sees the variable, so every test
+    // Poison the environment with registry credentials: the fake
+    // formatter exits 4 when it sees either variable, so every test
     // in this module enforces the child-env scrub.
     cmd.env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234");
     cmd.env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-oidc-secret");
@@ -67,13 +67,10 @@ fn check_mode_fails_when_files_would_be_reformatted() {
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
-    // No `--verbose` flag: at default verbosity, `cabin fmt
-    // --check` must surface *two* signals so CI users see
-    // both *why* the command exited non-zero (the
-    // formatter's per-file diagnostic on stderr, mirroring
-    // `cargo fmt --check`'s rustfmt-diff passthrough) and a
-    // Cabin-owned summary banner on stdout that fires even
-    // when a custom `CABIN_FMT` wrapper emits no stderr.
+    // At default verbosity a failing `--check` reports both the
+    // formatter's per-file diagnostic on stderr and a Cabin-owned
+    // banner on stdout; the banner appears even when a custom
+    // `CABIN_FMT` wrapper writes nothing to stderr.
     let assertion = cabin_with_fake_formatter()
         .current_dir(dir.path())
         .args(["fmt", "--check"])
@@ -90,7 +87,6 @@ fn check_mode_fails_when_files_would_be_reformatted() {
         "expected Cabin-owned failure banner on stdout, got: {stdout}"
     );
 
-    // Check mode must not modify files.
     let body = read(&dir.path().join("src/main.cc"));
     assert!(!body.contains(MARKER), "check mode mutated file: {body}");
 }
@@ -305,17 +301,14 @@ fn vendor_and_cache_directories_are_not_formatted() {
     dir.child("src/main.cc")
         .write_str("int main() {}\n")
         .unwrap();
-    // `target/` and `dist/` are part of the built-in
-    // excluded-name set in source discovery.
+    // `target`, `dist`, and `node_modules` are in source
+    // discovery's built-in excluded-name set.
     dir.child("target/leftover.cc")
         .write_str("int t() {}\n")
         .unwrap();
     dir.child("dist/staging.cc")
         .write_str("int d() {}\n")
         .unwrap();
-    // `node_modules` is on the excluded-name set too -
-    // documentation sites sometimes ship one inside a
-    // Cabin tree.
     dir.child("node_modules/dep/main.cc")
         .write_str("int dep() {}\n")
         .unwrap();
@@ -367,12 +360,8 @@ fn missing_formatter_produces_actionable_error() {
 
 #[test]
 fn cabin_fmt_env_override_routes_through_named_binary() {
-    // This test is the same surface as
-    // `write_mode_formats_in_place`, but asserted from the
-    // angle of the env-var contract: if `CABIN_FMT` is set
-    // to the fake formatter's path, Cabin spawns *that*
-    // binary, not the system clang-format.  The fake
-    // formatter's sentinel marker confirms it ran.
+    // `CABIN_FMT` names the binary Cabin spawns in place of the
+    // system clang-format; only the fake formatter writes `MARKER`.
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
 
@@ -447,11 +436,8 @@ fn very_verbose_lists_command_lines() {
 
 #[test]
 fn nested_workspace_member_is_not_walked_from_outer_root() {
-    // Verifies that when a workspace member lives inside
-    // another package's directory, walking the outer
-    // package does not pick up the inner package's
-    // sources.  The inner package would be walked
-    // independently when selected.
+    // A member nested inside another package's directory is walked
+    // only when it is itself selected.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -483,8 +469,6 @@ version = "0.1.0"
         .write_str("int nested() {}\n")
         .unwrap();
 
-    // Select only `outer`; the walker must skip
-    // `outer/nested/...`.
     cabin_with_fake_formatter()
         .current_dir(dir.path())
         .args(["fmt", "-p", "outer"])

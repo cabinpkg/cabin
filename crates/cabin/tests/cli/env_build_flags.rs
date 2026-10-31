@@ -16,11 +16,10 @@ fn package_build_flags(view: &serde_json::Value) -> &serde_json::Value {
 
 /// Read the build-configuration fingerprint of the
 /// (sole) primary package via `cabin explain build-config`.
-/// `metadata`'s JSON view only exposes per-package
-/// configurations when features are non-empty; `explain
-/// build-config` always renders the full configuration block
-/// including the fingerprint, so we route the fingerprint
-/// assertions through it.
+/// `metadata`'s JSON view exposes a package's configuration
+/// only when it declares features or a language setting (a
+/// standard or `gnu-extensions`); `explain build-config` always
+/// renders it.
 fn fingerprint_for(dir: &Path, cmd_env: &[(&str, &str)], package: &str) -> String {
     let mut cmd = cabin();
     for (k, v) in cmd_env {
@@ -72,9 +71,6 @@ fn cppflags_appear_in_language_neutral_compile_args() {
         extras.contains(&"-I/opt/include".to_owned()),
         "CPPFLAGS tokens preserved verbatim: {extras:?}",
     );
-    // CPPFLAGS must not leak into the C-only / C++-only
-    // buckets - that would defeat the documented per-bucket
-    // routing.
     let c_only: Vec<String> = pkg["cflags"]
         .as_array()
         .unwrap()
@@ -188,9 +184,7 @@ fn empty_and_whitespace_env_vars_are_ignored() {
     write_hello_project(dir.path());
     // Metadata only emits a per-package build-flags block
     // when the package contributes at least one non-empty
-    // bucket.  Empty / whitespace env vars must produce no
-    // contribution, so the map stays empty and the
-    // fingerprint matches the no-env baseline.
+    // bucket.
     let view_empty = metadata_view(
         &[
             ("CPPFLAGS", ""),
@@ -208,8 +202,6 @@ fn empty_and_whitespace_env_vars_are_ignored() {
         "empty / whitespace env vars must produce no flag contribution: {per_package:?}",
     );
 
-    // Mirror through the fingerprint: identical to the
-    // unset baseline.
     let base_fp = fingerprint_for(dir.path(), &[], "hello");
     let empty_fp = fingerprint_for(
         dir.path(),
@@ -228,8 +220,9 @@ fn empty_and_whitespace_env_vars_are_ignored() {
 fn quoted_and_escaped_arguments_parse_correctly() {
     let dir = TempDir::new().unwrap();
     write_hello_project(dir.path());
-    // Single-quoted run preserves spaces verbatim; the whole
-    // -DNAME="hello world" is one argv element.
+    // POSIX word splitting: the single-quoted run and the
+    // backslash-escaped space each stay inside one argv element,
+    // and the quoting characters are removed.
     let view = metadata_view(&[("CXXFLAGS", "-DNAME='hello world' -O\\ 2")], dir.path());
     let pkg = package_build_flags(&view);
     let cxx: Vec<String> = pkg["cxxflags"]
@@ -452,8 +445,7 @@ sources = ["src/main.cc", "src/helper.c"]
     let mut c_seen = false;
     for entry in entries {
         let file = entry["file"].as_str().unwrap();
-        // The compile DB stores each invocation as a single
-        // `command` string; the planner does not emit the
+        // Cabin writes each entry's `command` string, never the
         // alternate `arguments` array form.
         let command = entry["command"].as_str().unwrap();
         if file.ends_with("main.cc") {
@@ -488,10 +480,8 @@ sources = ["src/main.cc", "src/helper.c"]
 #[test]
 fn cabin_build_ldflags_appear_in_ninja_link_command() {
     require_cxx_build_tools();
-    // Use a benign LDFLAG the host linker accepts silently
-    // so the build phase succeeds and we can read the
-    // generated artifacts. `-L<path>` adds a library search
-    // path with no requirement that the path exist.
+    // Linkers accept `-L` naming a missing directory (Apple ld
+    // only warns), so the build succeeds.
     let dir = TempDir::new().unwrap();
     write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
@@ -508,7 +498,6 @@ fn cabin_build_ldflags_appear_in_ninja_link_command() {
         ninja_text.contains(distinctive),
         "LDFLAGS must reach the link command in build.ninja: {ninja_text}",
     );
-    // And must NOT contaminate compile lines.
     let cc = std::fs::read_to_string(build_dir.join("dev").join("compile_commands.json")).unwrap();
     assert!(
         !cc.contains(distinctive),
@@ -613,9 +602,7 @@ sources = ["src/test.cc"]
 #[test]
 fn cabin_tidy_compile_db_sees_env_flags() {
     require_cxx_build_tools();
-    // Use the fake tidy so the test does not require a real
-    // clang-tidy install; cabin still regenerates the
-    // compile database before invoking the tool. `cabin
+    // The fake tidy removes the clang-tidy requirement.  `cabin
     // tidy` reads the build directory via `CABIN_BUILD_DIR`.
     let fake_tidy = fake_tidy_path();
     let dir = TempDir::new().unwrap();
@@ -694,8 +681,6 @@ zlib = { version = "", system = true }
         .iter()
         .map(|v| v.as_str().unwrap().to_owned())
         .collect();
-    // pkg-config contributed `-DZLIB_CONST`; env adds
-    // `-DFROM_ENV`.  The pkg-config entry must come first.
     let env_pos = extras
         .iter()
         .position(|s| s == "-DFROM_ENV")
@@ -729,16 +714,12 @@ zlib = { version = "", system = true }
     );
 }
 
-/// `cabin fmt` must ignore the build-flag environment.
-/// Regression: a bad CFLAGS should not block formatter
-/// invocations.
+/// `cabin fmt` must ignore the build-flag environment, so a
+/// malformed `CXXFLAGS` cannot block it.
 #[test]
 fn cabin_fmt_unaffected_by_build_flag_env() {
-    // `cabin fmt --check` may succeed or fail depending on
-    // whether a real `clang-format` is on PATH; either is
-    // acceptable.  The only behavior we forbid is the
-    // env-flag parser leaking through - stderr must never
-    // name CXXFLAGS for an `fmt` invocation.
+    // The exit status depends on whether `clang-format` is on
+    // PATH, so only stderr is asserted.
     let dir = TempDir::new().unwrap();
     write_hello_project(dir.path());
     let assertion = cabin()

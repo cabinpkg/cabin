@@ -172,7 +172,6 @@ sources = ["src/lib.cc"]
         .assert()
         .success();
     let body = fs::read_to_string(out.join("demo-0.1.0.json")).unwrap();
-    // Detected info must never leak into published metadata.
     assert!(!body.contains("CABIN_CXX_COMPILER_KIND"), "{body}");
     assert!(!body.contains("\"detected\""), "{body}");
     assert!(!body.contains("clang version"), "{body}");
@@ -182,13 +181,6 @@ sources = ["src/lib.cc"]
 #[cfg(unix)]
 #[test]
 fn metadata_toolchain_block_is_a_stable_golden_for_a_fixed_toolchain() {
-    // Pin the JSON shape of `cabin metadata`'s
-    // `toolchain.detected` block end-to-end.  Uses fake
-    // compiler / archiver wrappers so the golden does not
-    // depend on whichever clang/gcc happens to be installed;
-    // absolute paths are normalized back to placeholders
-    // before the snapshot comparison so the assertion does
-    // not embed machine-specific data.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

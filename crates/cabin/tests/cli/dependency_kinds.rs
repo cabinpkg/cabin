@@ -1,13 +1,12 @@
 //! End-to-end coverage for the dependency-kind feature: every
 //! kind shows up in `cabin metadata`, the resolver only sees
-//! resolvable kinds, dev deps stay declaration-only, system
-//! deps never reach the registry, and unsupported syntax is
-//! rejected with clear errors.
+//! resolvable kinds, dev deps stay declaration-only outside
+//! `cabin test`, system deps never reach the registry, and
+//! unsupported syntax is rejected with clear errors.
 
 use super::*;
 
-/// Single-package manifest declaring one dep of every kind.
-/// Used by the `cabin metadata` shape tests below.
+/// Single-package manifest declaring a dependency of every kind.
 const MIXED_KINDS_MANIFEST: &str = r#"[package]
 name = "demo"
 version = "0.1.0"
@@ -71,8 +70,6 @@ fn metadata_lists_every_dependency_kind_with_explicit_kind_field() {
         .unwrap();
     let value = run_mixed_kinds_metadata(&dir.path().join("cabin.toml"));
     let demo = package_in(&value, "demo");
-    // Each Cabin package dep is listed once with an explicit
-    // `dependency_kind` field.
     for (name, kind) in [("fmt", "normal"), ("gtest", "dev")] {
         let dep = dep_entry(demo, name, kind);
         assert_eq!(dep["kind"], "version", "{name} should be a version source");
@@ -118,7 +115,7 @@ fn metadata_dependency_listing_is_sorted_by_kind_then_name() {
         })
         .collect();
     // Canonical kind order: normal, dev.  Within each kind,
-    // names are sorted ascending (BTreeMap iteration).
+    // names are sorted ascending.
     assert_eq!(
         listed,
         vec![
@@ -130,10 +127,6 @@ fn metadata_dependency_listing_is_sorted_by_kind_then_name() {
 
 #[test]
 fn metadata_keeps_existing_shape_for_dependencies_only_manifest() {
-    // A manifest that only uses `[dependencies]` should still
-    // surface its single dep through the metadata view, with
-    // the same source/kind layout existing tooling already
-    // expects.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -181,8 +174,6 @@ gtest = "^1.14"
 "#,
         )
         .unwrap();
-    // Index covers fmt but *not* gtest.  If dev deps were
-    // resolved, `gtest` would be missing.
     write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
     let assertion = cabin()
         .args(["resolve", "--manifest-path"])
@@ -226,8 +217,6 @@ zlib = { version = ">=1.2", system = true }
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
-    // The lockfile / report mentions fmt but not zlib (system
-    // deps never enter the resolver).
     assert!(stdout.contains("fmt"));
     assert!(
         !stdout.contains("zlib"),
@@ -237,11 +226,8 @@ zlib = { version = ">=1.2", system = true }
 
 #[test]
 fn optional_dependency_in_system_section_is_rejected_at_cli() {
-    // Optional Cabin package dependencies are supported for
-    // normal kind.  System dependencies (`system = true`)
-    // remain declaration-only and may *not* carry `optional =
-    // true`.  Mixing the flags surfaces an explicit `system =
-    // true is incompatible with optional` error.
+    // `optional = true` is valid on a normal Cabin package
+    // dependency but incompatible with `system = true`.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -310,15 +296,10 @@ fmt = { workspace = true }
 
 #[test]
 fn package_metadata_round_trips_every_dependency_kind() {
-    // `cabin package` writes canonical metadata; we read it
-    // back as JSON and confirm each kind survives the
-    // round-trip.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(MIXED_KINDS_MANIFEST)
         .unwrap();
-    // `cabin package` rejects path / workspace deps and
-    // requires a writable output dir.
     let out = dir.path().join("dist");
     cabin()
         .args(["package", "--manifest-path"])
