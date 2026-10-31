@@ -43,7 +43,8 @@ pub(crate) struct BuildConfigInputs<'a> {
     pub platform: &'a cabin_core::TargetPlatform,
     /// The `--target` triple, folded into the configuration fingerprint.
     pub target: Option<&'a str>,
-    /// The sysroot path, folded into the configuration fingerprint.
+    /// The sysroot as the user wrote it, folded into the configuration
+    /// fingerprint; `None` for none or a detected SDK.
     pub sysroot: Option<&'a str>,
     pub toolchain: &'a cabin_core::ResolvedToolchain,
     /// Toolchain detection report.  `Some` for the building commands
@@ -188,6 +189,10 @@ pub(crate) struct SysrootChoice {
     /// `cli`, the config file's source, or `detected` for an Apple
     /// SDK Cabin found itself.
     pub source: &'static str,
+    /// The choice as the user wrote it, which the configuration
+    /// fingerprint hashes like a tool spec; `None` for a detected SDK,
+    /// a local fact like a resolved tool path.
+    pub written: Option<String>,
 }
 
 /// `--sysroot`, else the config `[sysroot]` entry for `--target`, else
@@ -201,17 +206,18 @@ pub(crate) fn select_sysroot(
     detection: Option<&cabin_core::ToolchainDetectionReport>,
 ) -> Result<Option<SysrootChoice>> {
     let explicit = match &toolchain_args.sysroot {
-        Some(path) => Some((path.clone(), "cli")),
+        Some(path) => Some((path.clone(), "cli", path.to_string_lossy().into_owned())),
         None => toolchain_args
             .target
             .as_ref()
             .and_then(|target| effective_config.sysroots.get(&target.target))
             .map(|setting| {
                 let source = super::config::config_value_source(setting.source).as_key();
-                (setting.absolute().into_std_path_buf(), source)
+                let written = setting.value.to_string();
+                (setting.absolute().into_std_path_buf(), source, written)
             }),
     };
-    if let Some((path, source)) = explicit {
+    if let Some((path, source, written)) = explicit {
         // Ninja runs from the build directory, and a relative
         // `CABIN_CONFIG` leaves a config entry relative too.
         let path = super::absolutise(&path)
@@ -219,7 +225,11 @@ pub(crate) fn select_sysroot(
         let path = camino::Utf8PathBuf::from_path_buf(path)
             .map_err(|path| anyhow::anyhow!("sysroot {} is not valid UTF-8", path.display()))?;
         let sysroot = cabin_toolchain::explicit_sysroot(path, platform, detection)?;
-        return Ok(Some(SysrootChoice { sysroot, source }));
+        return Ok(Some(SysrootChoice {
+            sysroot,
+            source,
+            written: Some(written),
+        }));
     }
     Ok(detection
         .and_then(|report| {
@@ -233,6 +243,7 @@ pub(crate) fn select_sysroot(
         .map(|sysroot| SysrootChoice {
             sysroot,
             source: "detected",
+            written: None,
         }))
 }
 
@@ -659,13 +670,16 @@ pub(crate) fn prepare_workspace(
     for warning in &compiler_targets.warnings {
         reporter.warning(format_args!("{warning}"));
     }
-    let sysroot = select_sysroot(
+    let sysroot_choice = select_sysroot(
         args.toolchain,
         &effective_config,
         &platform,
         Some(&detection_report),
-    )?
-    .map(|choice| choice.sysroot);
+    )?;
+    let written_sysroot = sysroot_choice
+        .as_ref()
+        .and_then(|choice| choice.written.clone());
+    let sysroot = sysroot_choice.map(|choice| choice.sysroot);
     // Feature resolution's reach: the closure through edges active on
     // this platform, now that the graph also holds every other platform's.
     let selected_closure = &feature_resolution.included;
@@ -715,7 +729,7 @@ pub(crate) fn prepare_workspace(
         graph: &graph,
         platform: &platform,
         target: args.toolchain.target.as_ref().map(|t| t.target.as_str()),
-        sysroot: sysroot.as_ref().map(|sysroot| sysroot.path.as_str()),
+        sysroot: written_sysroot.as_deref(),
         toolchain: &toolchain,
         detection: Some(&detection_report),
         cli_compiler_wrapper,

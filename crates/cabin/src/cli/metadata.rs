@@ -633,9 +633,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let mut toolchain_summary =
         cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
     toolchain_summary.target = args.toolchain.target.as_ref().map(|t| t.target.clone());
-    toolchain_summary.sysroot = sysroot
-        .as_ref()
-        .map(|choice| choice.sysroot.path.to_string());
+    toolchain_summary.sysroot = sysroot.as_ref().and_then(|choice| choice.written.clone());
     let (build_flags, _standard_flag_conflicts) = resolve_per_package_build_flags(
         &graph,
         &profile,

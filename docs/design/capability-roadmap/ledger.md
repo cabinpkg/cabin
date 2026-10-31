@@ -590,7 +590,8 @@ names the platform's SDK, an absolute `SDKROOT` or what `xcrun --show-sdk-path` 
 (`cabin_toolchain::discover_apple_sdk`), so an SDK switch reaches the command lines and rebuilds;
 `cabin tidy`'s compile database names it too.  `cabin metadata` reports `toolchain.sysroot` with a
 `cli`, config-file, or `detected` source, and the entries under `config.sysroots`; the
-configuration fingerprint leaves the absolute path out, as it does resolved tool paths.  The build
+configuration fingerprint hashes an explicit sysroot as written and leaves a detected SDK out, as it
+leaves out resolved tool paths.  The build
 context keeps the compilers' default.
 
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
@@ -724,11 +725,12 @@ names, then through `--sysroot` under a path with spaces, then with `SDKROOT` na
 Xcode's SDK paths; each switch relinks both, both run, an unchanged rebuild relinks nothing, and
 `cabin tidy` keeps the SDK in the compile database.  Another reads `toolchain.sysroot` for a
 detected SDK, a package-config entry under `--target`, `--sysroot` over that entry, and an entry
-from a relative `CABIN_CONFIG`, which must come out absolute, and `explain build-config` the
-`--sysroot`.  A Linux CLI test builds both through
+from a relative `CABIN_CONFIG`, which must come out absolute; `explain build-config` records a
+choice as written and no detected SDK.  A Linux CLI test builds both through
 `--sysroot` naming `/` under a path with spaces.  Unit tests: the table's rejections and relative
 paths, both lowered spellings, the MSVC-dialect refusal, the SDK `xcrun` names per platform
-(Intel iOS triples included), and `SDKROOT` precedence.  Removing the Apple lowering, the `SDKROOT`
+(Intel iOS triples included), `SDKROOT` precedence, and the fingerprint following the written
+choice.  Removing the Apple lowering, the `SDKROOT`
 read, tidy's SDK, or the absolute path fails the macOS CLI tests; `cargo ci` on macOS.  Not run: a sysroot for another machine (none installed here), the Linux test
 outside CI, and iOS SDKs.
 

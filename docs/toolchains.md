@@ -444,6 +444,7 @@ identical `ToolchainDetectionReport`s.
 | toolchain                | `(kind, spec)` pairs, sorted by tool key                                                |
 | compiler-wrapper         | kind, spec, version (or `none`)                                                         |
 | target                   | the `--target` triple; absent for a build-machine build                                 |
+| sysroot                  | the `--sysroot` or `[sysroot]` value as written; absent for none or a detected Apple SDK |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from environment and system dependencies |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
 | instruction-sets         | Every target's per-source [`instruction-sets`](targets.md#per-source-instruction-sets), as declared |
@@ -478,9 +479,8 @@ an input:
   fingerprint.
 - The `CABIN_CACHE_DIR` and `--cache-dir` selection drive where artifacts land on disk but do not
   change the compile / link argv, so they are not in the fingerprint either.
-- The sysroot is reported but not hashed: it is an absolute path, which differs between machines
-  for the same choice (a detected Xcode SDK, a relative `[sysroot]` entry), and a change reaches
-  every compile and link argv, so the build reruns anyway.
+- A detected Apple SDK is reported (`toolchain.sysroot`) but not hashed: like a resolved tool path,
+  it differs between machines, and a change still reaches every compile and link argv.
 
 ### Direct `ninja` invocation
 

@@ -434,9 +434,9 @@ pub struct ToolchainSummary {
     /// The `--target` triple; `None` for a build-machine build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
-    /// The sysroot the compiles and links pass; `None` keeps the
-    /// compilers' default.  Left out of the fingerprint: it is an
-    /// absolute path, and the command lines carry it.
+    /// The sysroot the user chose, as written (`--sysroot` or a
+    /// `[sysroot]` entry); `None` for none or a detected Apple SDK,
+    /// which stays out of the fingerprint like a resolved tool path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sysroot: Option<String>,
 }
@@ -655,6 +655,9 @@ fn compute_fingerprint(
     }
     if let Some(target) = &toolchain.target {
         hasher.update(format!("target={target}\n").as_bytes());
+    }
+    if let Some(sysroot) = &toolchain.sysroot {
+        hasher.update(format!("sysroot={sysroot}\n").as_bytes());
     }
     hasher.update(b"build-flags\n");
     hasher.update(b"defines\n");
@@ -1577,7 +1580,7 @@ mod tests {
     }
 
     #[test]
-    fn as_json_renders_the_sysroot_the_fingerprint_leaves_out() {
+    fn fingerprint_and_json_follow_the_chosen_sysroot() {
         let configuration = |sysroot: &str| {
             BuildConfiguration::resolve(BuildConfigurationInput {
                 targets: &[],
@@ -1594,9 +1597,9 @@ mod tests {
             })
             .unwrap()
         };
-        let (a, b) = (configuration("/sdks/A.sdk"), configuration("/sdks/B.sdk"));
-        assert_eq!(a.fingerprint, b.fingerprint);
-        assert_eq!(a.as_json()["toolchain"]["sysroot"], "/sdks/A.sdk");
+        let (a, b) = (configuration("sdks/A.sdk"), configuration("sdks/B.sdk"));
+        assert_ne!(a.fingerprint, b.fingerprint);
+        assert_eq!(a.as_json()["toolchain"]["sysroot"], "sdks/A.sdk");
     }
 
     #[test]

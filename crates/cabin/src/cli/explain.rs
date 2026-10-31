@@ -195,7 +195,7 @@ pub(crate) fn explain(
                     sysroot: inspection
                         .sysroot
                         .as_ref()
-                        .map(|choice| choice.sysroot.path.as_str()),
+                        .and_then(|choice| choice.written.as_deref()),
                     toolchain: &inspection.toolchain,
                     detection: inspection.detection.as_ref(),
                     cli_compiler_wrapper,

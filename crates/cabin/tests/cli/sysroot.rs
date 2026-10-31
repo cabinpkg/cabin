@@ -169,14 +169,23 @@ fn metadata_tells_a_configured_sysroot_from_a_detected_sdk() {
         metadata(&["--target", triple, "--sysroot", cli_sdk], None)["toolchain"]["sysroot"],
         serde_json::json!({"path": cli_sdk, "source": "cli"})
     );
-    let explain = cabin_with_config()
-        .current_dir(dir.path())
-        .args(["explain", "--format", "json", "--sysroot", cli_sdk])
-        .args(["build-config", "app"])
-        .output()
-        .unwrap();
-    let explain: serde_json::Value = serde_json::from_slice(&explain.stdout).unwrap();
-    assert_eq!(explain["configuration"]["toolchain"]["sysroot"], cli_sdk);
+    // The configuration records a choice as written, and leaves out
+    // the detected SDK, a local fact.
+    let configured = |args: &[&str]| {
+        let output = cabin_with_config()
+            .current_dir(dir.path())
+            .args(["explain", "--format", "json"])
+            .args(args)
+            .args(["build-config", "app"])
+            .env_remove("SDKROOT")
+            .output()
+            .unwrap();
+        let explain: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        explain["configuration"]["toolchain"]["sysroot"].clone()
+    };
+    assert_eq!(configured(&["--sysroot", cli_sdk]), cli_sdk);
+    assert_eq!(configured(&["--target", triple]), "sdks/Pinned.sdk");
+    assert_eq!(configured(&[]), serde_json::Value::Null);
     // A relative `CABIN_CONFIG` still yields an absolute sysroot, since
     // Ninja runs the commands from the build directory.
     let explicit =
