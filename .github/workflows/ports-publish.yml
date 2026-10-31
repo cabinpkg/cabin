@@ -1,23 +1,8 @@
 name: Ports Publish
 
-# Publishes the committed foundation ports as `cabin-ports/*`
-# registry packages through the repository tool
-# (crates/xtask-port-publish). Pull requests matching the `ports`
-# filter (.github/path-filters.yml) run the complete preflight as a
-# dry-run with no credentials. Publishing is manual
-# only: a dispatch from main publishes the set (dispatching any
-# other ref runs the dry-run instead, never a publish), so a merged
-# ports change reaches the registry at the next dispatch, and the
-# same dispatch is the recovery path after a pre-launch registry
-# wipe. Dispatching with the exchange-check input instead only
-# proves the trusted-publishing binding without publishing. No
-# long-lived credential exists anywhere in this workflow: `cabin
-# publish` exchanges the run's OIDC token for a short-lived registry
-# token and revokes it on exit
-# (docs/remote-registry.md, "Publishing from GitHub Actions"). The
-# ports tree and this workflow live in cabinpkg/cabin - the
-# cabin-ports GitHub organization is the registry scope authority,
-# not a separate source repository.
+# Publishes the committed foundation ports as `cabin-ports/*` registry
+# packages through crates/xtask-port-publish (docs/foundation-ports.md,
+# "Publish automation"). Only a dispatch from main publishes.
 on:
   pull_request:
   workflow_dispatch:
@@ -57,10 +42,8 @@ jobs:
 
   dry-run:
     # Pull requests, plus manual dispatch from a non-main ref (which
-    # must never publish). --dry-run runs the publish path's preflight
-    # (stage every port into a temporary file registry and build every
-    # port's probe against it), then runs each probe, on each platform
-    # the ports must support.
+    # must never publish): the publish preflight, then each port's
+    # probe, on each platform the ports must support.
     needs: changes
     if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.ports == 'true') || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.exchange-check)) }}
     runs-on: ${{ matrix.os }}
@@ -82,13 +65,9 @@ jobs:
           cache-on-failure: false
           rustflags: ""
 
-      # Restored archives are never trusted: the tool re-hashes every
-      # cached archive against the SHA-256 its port's `[package.upstream]`
-      # pins before use, and re-downloads on mismatch
-      # (xtask-port-publish::preflight),
-      # so this cache saves bandwidth without vouching for bytes. Only
-      # archives/ is cached - extracted sources/ trees are not
-      # integrity-checked on reuse and stay run-local.
+      # Untrusted: the tool re-hashes each restored archive against its
+      # port's pinned SHA-256 and re-downloads on mismatch. Cache only
+      # archives/: extracted sources/ trees are not re-verified on reuse.
       - name: Cache upstream archives
         uses: actions/cache@v6.1.0
         with:
@@ -144,9 +123,8 @@ jobs:
           cache-on-failure: false
           rustflags: ""
 
-      # Same checksum discipline as the dry-run job: restored bytes
-      # are re-hashed against the committed SHA-256 pin before use, so
-      # a poisoned cache entry cannot alter what publishes.
+      # Re-hashed as in the dry-run job, so a poisoned entry cannot
+      # alter what publishes.
       - name: Cache upstream archives
         uses: actions/cache@v6.1.0
         with:
@@ -157,24 +135,15 @@ jobs:
       - name: Build cabin and the publisher
         run: cargo build --locked -p cabinpkg -p xtask-port-publish
 
-      # Checked immediately before the publish command, after the long
-      # build: the concurrency group serializes runs but does not
-      # order them, and an out-of-order stale run would publish an
-      # intermediate state of a version as an otherwise-unnecessary
-      # packaging revision. Skip instead when main already carries a
-      # newer ports-relevant commit (the `ports` list in
-      # .github/path-filters.yml) - the next dispatch publishes the
-      # full set.
-      #
-      # Accepted residual window: the publish command below runs the
-      # tool's own preflight (minutes) before uploading, so a newer
-      # commit can land after this check and before the upload. That
-      # cannot be closed without a compare-and-swap the registry does
-      # not have - only shrunk by re-running the entire preflight or
-      # coupling the tool to git ordering. It needs two byte-divergent
-      # edits of one published version inside a single run's window,
-      # and the recovery is the next dispatch: its upload supersedes
-      # the stale revision (docs/foundation-ports.md).
+      # Checked after the long build, immediately before publishing: an
+      # out-of-order stale run would publish an intermediate state of a
+      # version as an otherwise-unnecessary packaging revision.
+      # Accepted residual window: a newer commit can land during the
+      # publish command's own preflight. Closing it needs a
+      # compare-and-swap the registry does not have; it matters only for
+      # two byte-divergent edits of one version within one run, and the
+      # next dispatch's upload supersedes the stale revision
+      # (docs/foundation-ports.md, "Publish automation").
       - name: Skip when superseded by a newer main commit
         id: freshness
         run: cargo workflow-superseded --relevant-to ports
@@ -182,30 +151,18 @@ jobs:
       # A commit can change both the publish client and the Worker's
       # accepted metadata schema (registry/src mirrors the canonical
       # document under deny_unknown_fields), and registry.yml deploys
-      # independently of this workflow. Publishing before the same-SHA
-      # deploy lands would 400 every upload against the old Worker, so
-      # wait for that run when one exists - and require the Deploy
-      # *step* to have run: a superseded deploy-registry job goes green
-      # with the step skipped and the old Worker live (a D1 migration
-      # awaiting its by-hand apply fails the job instead). When the
-      # same-SHA run itself skipped its Deploy and no pending run can
-      # still deliver one, the wait fails FAST with the reason instead
-      # of idling into its hour ceiling; rerun this workflow once the
-      # deploy lands.
-      # The gate is otherwise satisfied by ANY successful main
-      # Deploy whose head CONTAINS this SHA (ancestor check): when a
-      # newer registry commit supersedes this SHA's run, its deploy
-      # carries this SHA's schema changes, and inspecting only the
-      # same-SHA run would deadlock every rerun on the permanently
-      # skipped step. A commit whose Registry run skipped its registry
-      # jobs through the change gate publishes against the
-      # already-deployed Worker unchanged; every main push registers
-      # a Registry run, so a SHA with none listed waits a few minutes
-      # for it to register and then fails closed (residual: an
-      # *earlier* registry commit whose deploy never landed is not
-      # detected here; that commit's own red deploy job is the
-      # alert). Transient API errors retry on the next iteration; the
-      # ceiling covers registry.yml's cold-cache gate.
+      # independently of this workflow, so publishing before this SHA's
+      # deploy lands would 400 every upload against the old Worker. Any
+      # successful main Registry run whose head contains this SHA and
+      # whose Deploy step ran satisfies the wait: a newer registry
+      # commit's deploy carries this SHA's schema, and waiting only on
+      # the same-SHA run would deadlock every rerun once a newer run
+      # supersedes it (its Deploy step stays skipped). Residual:
+      # an earlier registry commit whose deploy never landed is not
+      # detected here; that commit's own red deploy job is the alert.
+      # The hour ceiling covers registry.yml's cold-cache gate. The
+      # other answers and failure directions are in
+      # crates/xtask-workflow-guard/src/await_deploy.rs.
       - name: Wait for a registry deploy containing this SHA
         if: steps.freshness.outputs.superseded != 'true'
         env:
@@ -220,15 +177,12 @@ jobs:
             --cache-dir "$RUNNER_TEMP/cabin-cache"
 
   exchange-check:
-    # Dispatch-only probe: exchange the run's OIDC token and revoke
-    # the minted registry token immediately, proving the registered
-    # binding end to end - config row, claimed scope, mint, revocation
-    # - while publishing nothing. Plain curl rather than the cabin
-    # client, which only exchanges as part of a real publish. The
-    # registered config pins refs/heads/main, so dispatching any other
-    # ref answers the registry's deliberately uniform 401 and fails
-    # this job. No checkout: the probe needs only the run's OIDC
-    # identity.
+    # Dispatch-only probe of the registered binding end to end (config
+    # row, claimed scope, mint, revocation); publishes nothing. curl,
+    # because the cabin client exchanges only inside a real publish.
+    # The registered config pins refs/heads/main, so any other ref gets
+    # the registry's uniform 401. No checkout: the probe needs only the
+    # run's OIDC identity.
     if: github.event_name == 'workflow_dispatch' && inputs.exchange-check
     runs-on: ubuntu-latest
     permissions:
@@ -238,10 +192,9 @@ jobs:
       - name: Exchange and immediately revoke a trusted-publishing token
         # Explicit bash for pipefail, so a failed fetch cannot feed an
         # empty value downstream; `jq -e` fails on a missing field for
-        # the same reason. Both secrets are masked the moment they
-        # exist. The DELETE asserts the 204: unlike the publish path's
-        # best-effort revocation, proving revocation works is half of
-        # what this probe is for.
+        # the same reason. The DELETE fails the job on an HTTP error:
+        # unlike the publish path's best-effort revocation, proving
+        # revocation works is half of what this probe is for.
         shell: bash
         run: |
           jwt="$(curl -sSf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=cabinpkg.com" | jq -er .value)"

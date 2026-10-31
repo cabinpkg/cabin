@@ -32,8 +32,8 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install -q "cargo-fuzz@=0.13.2" --locked
 
-      # A pull request's run cannot write a cache its base branch
-      # restores, so only main's own runs grow the corpus they restore.
+      # A run restores caches saved on its own ref or on main, so only
+      # main's runs grow the corpus main restores.
       - name: Restore the corpus
         uses: actions/cache/restore@v6.1.0
         with:

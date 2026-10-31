@@ -59,9 +59,6 @@ jobs:
           path: artifacts
 
       - name: Release
-        # Swapping the release action for a `gh release` script would
-        # change release behavior; AGENTS.md forbids changing release
-        # workflow behavior as part of unrelated work.
         uses: softprops/action-gh-release@v3.0.3
         with: # zizmor: ignore[superfluous-actions] -- AGENTS.md defers release-behavior changes; a gh-cli migration is separate release work
           draft: false

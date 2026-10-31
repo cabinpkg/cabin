@@ -12,7 +12,6 @@ on:
     paths: [".github/**"]
   workflow_dispatch:
 
-# Deny-all by default; the job below requests only what it needs.
 permissions: {}
 
 # A newer push to a PR branch cancels the PR's stale runs. Every other

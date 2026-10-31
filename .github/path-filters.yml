@@ -1,16 +1,14 @@
 # Shared per-component change filters. Two consumers: the shared
-# `changes` gate (.github/workflows/changes.yml, dorny/paths-filter)
-# that each workflow calls to gate its work jobs on these lists -
-# jobs, not `paths:` triggers, and the required contexts are
-# always() aggregates that fail closed on a failed gate - and
-# `cargo workflow-superseded --relevant-to <filter>`,
-# which scopes the deploy and publish freshness guards. Keep entries
-# double-quoted on comment-free lines (in the lists the guards read,
-# the strict parser otherwise fails the steps they gate), and keep
-# the lists coarse. Each workflow's gate list ends with the CI files
-# it consumes - its own workflow file, the shared gate workflow, any
-# local action, and this filter file - so an edit to any of them
-# re-runs exactly the workflows it affects and nothing else.
+# `changes` gate (.github/workflows/changes.yml, dorny/paths-filter),
+# which each workflow calls to gate its work jobs on these lists, and
+# `cargo workflow-superseded --relevant-to <filter>`, which scopes the
+# deploy and publish freshness guards. Keep entries double-quoted on
+# comment-free lines (in the lists the guards read, the strict parser
+# otherwise fails the steps they gate), and keep the lists coarse.
+# Each workflow's gate list ends with the CI files it consumes - its
+# own workflow file, the shared gate workflow, any local action, and
+# this filter file - so an edit to any of them re-runs exactly the
+# workflows it affects.
 
 # rust.yml: the workspace and everything its tests stage (examples/
 # run under the CLI tests, ports/ feed the publisher tests). Carries
