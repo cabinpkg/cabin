@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use cabin_build::BuildGraph;
-use cabin_driver::{BuildAction, LoweredAction, LoweredActionKind, NinjaDeps, lower};
+use cabin_driver::{BuildAction, Dialect, LoweredAction, LoweredActionKind, NinjaDeps, lower};
 use cabin_fs::write_atomic;
 
 use crate::error::NinjaError;
@@ -22,7 +22,8 @@ pub const TOOLCHAIN_STAMP: &str = "cabin-toolchain.json";
 ///
 /// `check_stamp_runner` is the path to the `cabin` executable; the
 /// syntax-check rule invokes it as `cabin stamp` to run the
-/// compiler and stamp the check output without a shell (see
+/// compiler and stamp the check output without a shell, and the
+/// GNU-dialect archive rule as `cabin recreate` (see
 /// [`render_build_ninja`]).
 ///
 /// The stamp is rewritten only when `toolchain_identity` changes: a
@@ -133,8 +134,9 @@ pub fn render_build_ninja(
         out.push_str("  description = $description\n\n");
     }
 
-    out.push_str("rule cxx_archive\n");
-    out.push_str("  command = $command\n");
+    out.push_str("rule cxx_archive\n  command = ");
+    out.push_str(&archive_command_line(check_stamp_runner, graph.dialect)?);
+    out.push('\n');
     out.push_str("  description = $description\n\n");
 
     out.push_str("rule link_executable\n");
@@ -190,9 +192,27 @@ fn deps_lines(deps: NinjaDeps) -> String {
 /// `/bin/sh` does not expand it. `$out` and `$checkcmd` stay raw so Ninja
 /// expands them as the edge's stamp output and per-edge compiler argv.
 fn check_command_line(runner: &Path) -> Result<String, NinjaError> {
+    Ok(format!("{} stamp $out -- $checkcmd", runner_token(runner)?))
+}
+
+/// The `command` line for the archive rule.  An archiver that updates
+/// the library in place runs through the shell-free `cabin recreate
+/// $out -- $archivecmd`, which removes `$out` first.
+fn archive_command_line(runner: &Path, dialect: Dialect) -> Result<String, NinjaError> {
+    if dialect.archive_updates_in_place() {
+        Ok(format!(
+            "{} recreate $out -- $archivecmd",
+            runner_token(runner)?
+        ))
+    } else {
+        Ok("$archivecmd".to_owned())
+    }
+}
+
+/// The `cabin` runner path as one host-quoted, Ninja-escaped token.
+fn runner_token(runner: &Path) -> Result<String, NinjaError> {
     let runner_str = runner.to_string_lossy().into_owned();
-    let runner_token = escape_value(&command_line(std::slice::from_ref(&runner_str))?)?;
-    Ok(format!("{runner_token} stamp $out -- $checkcmd"))
+    escape_value(&command_line(std::slice::from_ref(&runner_str))?)
 }
 
 fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError> {
@@ -234,14 +254,15 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
     // Check edges bind the argv to `$checkcmd` so the `c_check` /
     // `cxx_check` rule can run it through the shell-free
     // `cabin stamp $out -- $checkcmd` witness writer (which stamps
-    // `$out` only on a zero exit); every other edge binds the plain
-    // `command` the rule runs verbatim.
+    // `$out` only on a zero exit), and archive edges to `$archivecmd`
+    // so the archive rule can wrap it in `cabin recreate`; every other
+    // edge binds the plain `command` the rule runs verbatim.
     let command_var = match action.kind {
         LoweredActionKind::SyntaxCheckC | LoweredActionKind::SyntaxCheckCpp => "checkcmd",
+        LoweredActionKind::ArchiveStaticLibrary => "archivecmd",
         LoweredActionKind::CompileC
         | LoweredActionKind::CompileCpp
         | LoweredActionKind::Assemble
-        | LoweredActionKind::ArchiveStaticLibrary
         | LoweredActionKind::LinkExecutable => "command",
     };
     write_var(out, command_var, &command_value)?;
@@ -671,6 +692,15 @@ mod tests {
     fn archive_edge_uses_archive_rule() {
         let body = render(&graph_with(vec![archive_action()], vec![])).unwrap();
         assert!(body.contains("build /abs/build/libfoo.a: cxx_archive /abs/build/main.o"));
+        assert!(
+            body.contains("command = /opt/cabin/bin/cabin recreate $out -- $archivecmd\n"),
+            "{body}"
+        );
+        let msvc = render(&msvc_graph_with(vec![archive_action()])).unwrap();
+        assert!(
+            msvc.contains("rule cxx_archive\n  command = $archivecmd\n"),
+            "{msvc}"
+        );
     }
 
     #[test]

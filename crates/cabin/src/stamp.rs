@@ -1,4 +1,5 @@
-//! The internal `cabin stamp` command - a shell-free witness writer.
+//! The internal `cabin stamp` and `cabin recreate` commands - shell-free
+//! Ninja plumbing.
 //!
 //! A `cabin check` syntax-only compile (`-fsyntax-only` / `/Zs`) produces
 //! no object, so Ninja needs a witness file to track the edge
@@ -8,10 +9,14 @@
 //! `()` / `$` need no metacharacter escaping - and writes the witness
 //! only on a zero exit.
 //!
-//! `cabin stamp` is dispatched in [`crate::run`] *before* clap, so it
-//! stays out of the user-facing command surface entirely: it never
-//! appears in `--help`, `--list`, shell completions, or man pages, and so
-//! needs no special-case filtering in any of them.
+//! The GNU-dialect archive rule runs `ar crs` through `cabin recreate
+//! <archive> -- <argv…>`, which removes the archive before spawning the
+//! archiver so it never updates the previous build's archive in place.
+//!
+//! Both are dispatched in [`crate::run`] *before* clap, so they stay out
+//! of the user-facing command surface entirely: they never appear in
+//! `--help`, `--list`, shell completions, or man pages, and so need no
+//! special-case filtering in any of them.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -21,30 +26,32 @@ use anyhow::anyhow;
 use cabin_core::ColorChoice;
 use clap::Parser;
 
-/// The `argv[1]` token that selects the internal witness writer.
-const COMMAND: &str = "stamp";
+/// The `argv[1]` tokens that select the internal commands.
+const STAMP: &str = "stamp";
+const RECREATE: &str = "recreate";
 
-/// If this process was invoked as `cabin stamp …`, run the witness
-/// writer and return its exit code; otherwise return `None` so normal
-/// CLI parsing proceeds. `argv` is the full process argument vector,
-/// including `argv[0]`.
+/// If this process was invoked as `cabin stamp …` or `cabin recreate …`,
+/// run that command and return its exit code; otherwise return `None` so
+/// normal CLI parsing proceeds. `argv` is the full process argument
+/// vector, including `argv[0]`.
 pub(crate) fn dispatch(argv: &[OsString]) -> Option<ExitCode> {
-    let operands = match argv.get(1) {
-        Some(first) if first == COMMAND => &argv[2..],
-        _ => return None,
+    let Some(verb @ (STAMP | RECREATE)) = argv.get(1).and_then(|first| first.to_str()) else {
+        return None;
     };
+    let operands = &argv[2..];
     // Parse with a synthetic program name so any usage / error text reads
-    // as `cabin stamp …` rather than the bare binary path.
-    let program_name = OsString::from("cabin stamp");
+    // as `cabin stamp …` / `cabin recreate …` rather than the bare binary
+    // path.
+    let program_name = OsString::from(format!("cabin {verb}"));
     let parsed = match StampArgs::try_parse_from(
         std::iter::once(program_name).chain(operands.iter().cloned()),
     ) {
         Ok(parsed) => parsed,
         Err(err) => err.exit(),
     };
-    Some(match execute(&parsed) {
+    Some(match execute(verb, &parsed) {
         Ok(code) => code,
-        // `cabin stamp` is Ninja-invoked plumbing; route genuine failures
+        // Both commands are Ninja-invoked plumbing; route genuine failures
         // through the same diagnostic channel as the rest of the CLI
         // (never a bare `eprintln!`).  Color is off because Ninja captures
         // the output.
@@ -56,10 +63,11 @@ pub(crate) fn dispatch(argv: &[OsString]) -> Option<ExitCode> {
 }
 
 /// `cabin stamp <FILE> -- <COMMAND>…`: run `COMMAND`; on a zero exit,
-/// create the witness `FILE`.
+/// create the witness `FILE`.  `cabin recreate <FILE> -- <COMMAND>…`:
+/// remove `FILE`, then run `COMMAND`, which writes it from scratch.
 #[derive(Parser)]
 struct StampArgs {
-    /// Witness file to create when the command exits zero.
+    /// Witness file to create (`stamp`) or output to remove (`recreate`).
     #[arg(value_name = "FILE")]
     file: PathBuf,
 
@@ -73,23 +81,36 @@ struct StampArgs {
     command: Vec<String>,
 }
 
-/// Run `args.command` and, on a zero exit, create `args.file`.
+/// Run `args.command` and, for `stamp`, create `args.file` on a zero
+/// exit.  `recreate` removes `args.file` first.
 ///
 /// The command's stdout / stderr are inherited so Ninja still surfaces
 /// the compiler's diagnostics; the witness is written only on success, so
 /// a failed check leaves the edge dirty and Ninja re-runs it next time.  A
 /// non-zero command exit is propagated verbatim and stays silent (the
 /// compiler already printed its own diagnostics); only Cabin-level
-/// failures (un-spawnable program, unwritable witness) surface as a
-/// rendered error.
-fn execute(args: &StampArgs) -> anyhow::Result<ExitCode> {
+/// failures (un-spawnable program, unwritable witness, unremovable
+/// output) surface as a rendered error.
+fn execute(verb: &str, args: &StampArgs) -> anyhow::Result<ExitCode> {
     let Some((program, rest)) = args.command.split_first() else {
         // `required = true` already makes clap reject an empty argv; this
         // is defensive only.
-        anyhow::bail!("cabin stamp: missing command after `--`");
+        anyhow::bail!("cabin {verb}: missing command after `--`");
     };
+    if verb == RECREATE
+        && let Err(err) = std::fs::remove_file(&args.file)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        anyhow::bail!(
+            "cabin recreate: failed to remove {}: {err}",
+            args.file.display()
+        );
+    }
     match std::process::Command::new(program).args(rest).status() {
         Ok(status) if status.success() => {
+            if verb == RECREATE {
+                return Ok(ExitCode::SUCCESS);
+            }
             std::fs::write(&args.file, []).map_err(|err| {
                 anyhow!(
                     "cabin stamp: failed to write {}: {err}",
@@ -101,6 +122,6 @@ fn execute(args: &StampArgs) -> anyhow::Result<ExitCode> {
         Ok(status) => Ok(ExitCode::from(
             u8::try_from(status.code().unwrap_or(1)).unwrap_or(1),
         )),
-        Err(err) => Err(anyhow!("cabin stamp: failed to run {program}: {err}")),
+        Err(err) => Err(anyhow!("cabin {verb}: failed to run {program}: {err}")),
     }
 }

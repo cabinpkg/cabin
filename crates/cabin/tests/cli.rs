@@ -466,6 +466,25 @@ fn stamp_writes_witness_only_on_command_success() {
 }
 
 #[test]
+fn recreate_propagates_a_failed_archiver_without_the_old_archive() {
+    // `cabin recreate` (used by the GNU archive Ninja rule) removes the
+    // previous archive, then runs the archiver; a failing archiver must
+    // fail the edge.  The `cabin` binary stands in for the archiver.
+    let dir = TempDir::new().expect("tempdir should be created");
+    let output = dir.path().join("libfoo.a");
+    fs::write(&output, "previous archive").unwrap();
+    cabin()
+        .arg("recreate")
+        .arg(&output)
+        .arg("--")
+        .arg(assert_cmd::cargo::cargo_bin("cabin"))
+        .arg("--definitely-not-a-real-flag")
+        .assert()
+        .failure();
+    assert!(!output.exists(), "the previous archive must be removed");
+}
+
+#[test]
 fn stamp_command_is_absent_from_the_clap_tree_and_completions() {
     // `cabin stamp` is dispatched before clap, so it must never leak into
     // the user-facing surface: not as a subcommand, not in `--list`, not
@@ -2390,3 +2409,6 @@ mod curated_help_and_list;
 
 #[path = "cli/trace_capture.rs"]
 mod trace_capture;
+
+#[path = "cli/static_library_rebuild.rs"]
+mod static_library_rebuild;

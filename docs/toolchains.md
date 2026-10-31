@@ -344,6 +344,12 @@ The basename-based fallback is intentionally narrow: only archivers named `ar`, 
 (with optional version suffix or `.exe`) are reclassified by name.  Anything else remains `unknown`
 and is rejected.
 
+`ar crs` adds and replaces members but never drops one, so the GCC/Clang dialect removes the
+library before each archive step, through the same kind of shell-free runner as `cabin stamp`
+(`cabin recreate <lib> -- ar crs <lib> <objs>`).  A source removed from, or renamed in, a library's
+`sources` therefore leaves no stale object behind on the next build.  `lib /OUT:` always writes the
+library from scratch, so the MSVC dialect runs it directly.
+
 ### Capability set
 
 Each compiler detection records a typed [`CompilerCapabilities`] with these fields:

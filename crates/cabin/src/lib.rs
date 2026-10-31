@@ -125,10 +125,11 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    // `cabin stamp <FILE> -- <CMD>` is internal build plumbing (the Ninja
-    // syntax-check rule's witness writer); dispatch it before clap so it
-    // never enters the user-facing command surface - no `--help`,
-    // `--list`, completions, or man pages, and no special-case filtering.
+    // `cabin stamp|recreate <FILE> -- <CMD>` is internal build plumbing
+    // (the Ninja syntax-check rule's witness writer and the archive rule's
+    // runner); dispatch it before clap so it never enters the user-facing
+    // command surface - no `--help`, `--list`, completions, or man pages,
+    // and no special-case filtering.
     let started = std::time::Instant::now();
     let arguments: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
     if let Some(code) = stamp::dispatch(&arguments) {
