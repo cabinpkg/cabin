@@ -2413,5 +2413,8 @@ mod curated_help_and_list;
 #[path = "cli/trace_capture.rs"]
 mod trace_capture;
 
+#[path = "cli/ninja_paths.rs"]
+mod ninja_paths;
+
 #[path = "cli/static_library_rebuild.rs"]
 mod static_library_rebuild;

@@ -909,8 +909,9 @@ the resulting `BuildGraph` to this crate.
 
 ### `cabin-ninja`
 
-Owns Ninja file generation and Clang-compatible `compile_commands.json` generation, and the
-`cabin-toolchain.json` identity file every Ninja edge depends on.  The crate must:
+Owns Ninja file generation and Clang-compatible `compile_commands.json` generation, the
+`cabin-toolchain.json` identity file every Ninja edge depends on, and the reader `cabin depfile`
+uses to hand Ninja a GCC-style depfile its own parser would misread.  The crate must:
 
 - not parse TOML;
 - not resolve packages;
