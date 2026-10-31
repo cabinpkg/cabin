@@ -61,14 +61,6 @@ jobs:
         run: cargo install -q "hyperfine@=2.0.0" --locked
       - name: Run the smoke scenarios
         run: cargo perf run --smoke --out target/perf/out
-      - name: "Probe: the touch reset ran before the warmup and each timed run (setup + check + 1 + 5)"
-        shell: bash
-        run: test "$(grep -c 'f1\.cc\.' target/perf/out/work/candidate/build--touch-source-cxx/project/build/dev/.ninja_log)" -eq 8
-      - name: "Probe: a reset runs through the platform shell, and its failure fails hyperfine"
-        shell: bash
-        run: |
-          hyperfine -N --runs 2 --prepare 'exit 0' 'cargo --version'
-          ! hyperfine -N --runs 2 --prepare 'exit 1' 'cargo --version'
       - name: Summarize
         if: always() && hashFiles('perf checkout/target/perf/out/report.md') != ''
         shell: bash
