@@ -852,14 +852,14 @@ sticking around.  Given a [`cabin_package::StagedPackage`] plus a registry root,
 ### `cabin-toolchain`
 
 Owns toolchain resolution, subprocess-based compiler / archiver detection, compiler-wrapper
-resolution, sysroot selection (`explicit_sysroot`, `discover_apple_sdk`), and Ninja lookup.  The
-crate must:
+resolution, sysroot selection (`explicit_sysroot`, `discover_apple_sdk`), compile / link / run
+probes (`probe`), and Ninja lookup.  The crate must:
 
 - not parse TOML;
 - not run dependency resolution;
 - not read or write `cabin.lock`;
-- not write build plans, and not compile probe sources until toolchain probes land (planned:
-  capability roadmap stage 05).
+- not write build plans; a probe spells its commands through `cabin-driver`'s lowering, as the
+  build does.
 
 ### `cabin-build`
 
@@ -1821,6 +1821,7 @@ it leaves out resolved tool paths.
 
 Detection is parser-only by design: it reads `tool --version` output rather than staging probe
 compilations, which keeps the step fast, deterministic, and free of temporary build artifacts.
+Probes (`cabin_toolchain::probe`) are a separate step that runs only where a command needs one.
 
 Full protocol in [`toolchains.md`](toolchains.md).
 

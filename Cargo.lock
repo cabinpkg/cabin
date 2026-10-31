@@ -684,6 +684,7 @@ version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-driver",
  "cabinpkg-env",
  "camino",
  "find-msvc-tools",

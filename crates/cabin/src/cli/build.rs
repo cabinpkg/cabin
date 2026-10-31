@@ -83,6 +83,7 @@ pub(super) fn build(
             ninja: &prepared.ninja,
             jobs,
             gc: crate::cli::gc::GcSettings::from_config(&prepared.effective_config),
+            configured_sysroot: prepared.configured_sysroot,
             reporter,
         })?;
 

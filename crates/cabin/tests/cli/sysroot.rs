@@ -214,3 +214,39 @@ fn a_sysroot_path_with_spaces_builds_c_and_cxx() {
     assert!(commands.contains("/my root"), "{commands}");
     run_both(dir.path(), &build_dir);
 }
+
+// GCC on Linux keeps library paths relative to its own installation
+// under a sysroot, so a headers-only sysroot can still link there.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_failed_build_names_a_sysroot_that_compiles_but_cannot_link() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_project(dir.path());
+    // The SDK's headers and none of its libraries.
+    let sdk = std::process::Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .output()
+        .unwrap();
+    let include = PathBuf::from(String::from_utf8(sdk.stdout).unwrap().trim()).join("usr/include");
+    fs::create_dir_all(dir.path().join("headers only/usr")).unwrap();
+    std::os::unix::fs::symlink(include, dir.path().join("headers only/usr/include")).unwrap();
+    // Cabin absolutises the sysroot through the canonical current directory.
+    let sysroot = fs::canonicalize(dir.path().join("headers only")).unwrap();
+    let output = cabin()
+        .current_dir(dir.path())
+        .env_remove("SDKROOT")
+        .args(["build", "--sysroot", "headers only"])
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    for language in ["C", "C++"] {
+        let help = format!(
+            "help: a minimal {language} program compiles against the configured sysroot {} but does not link:",
+            sysroot.display()
+        );
+        assert!(stderr.contains(&help), "{stderr}");
+    }
+}

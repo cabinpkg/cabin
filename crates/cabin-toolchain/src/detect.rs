@@ -112,8 +112,18 @@ fn run_process_with_timeout(
     args: &[&str],
     timeout: Duration,
 ) -> Result<RunOutput, RunError> {
-    let mut child = Command::new(path)
-        .args(args)
+    let mut command = Command::new(path);
+    command.args(args);
+    run_command_with_timeout(command, path, timeout)
+}
+
+/// Run `command`, whose program is `path`, and capture its output.
+pub(crate) fn run_command_with_timeout(
+    mut command: Command,
+    path: &Path,
+    timeout: Duration,
+) -> Result<RunOutput, RunError> {
+    let mut child = command
         // The registry credential is Cabin's input, not the probed
         // tool's: scrub it so a custom compiler / archiver / wrapper
         // binary can never read the token.
