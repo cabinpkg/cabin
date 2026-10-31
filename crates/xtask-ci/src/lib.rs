@@ -629,6 +629,27 @@ pub fn arm_teardown() {}
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::io::Read as _;
+
+    /// Fails the test after killing the phase group, so nothing is
+    /// left running.  Called only right after a read found the write
+    /// end open: a live member keeps the group's id from naming
+    /// anyone else's.
+    fn fail(group: libc::pid_t, message: &str) -> ! {
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+        panic!("{message}");
+    }
+
+    /// What the holder wrote since the last call: empty at
+    /// end-of-file, `None` while the write end is open and silent.
+    fn available(reader: &mut std::fs::File) -> Option<Vec<u8>> {
+        let mut buf = [0u8; 64];
+        match reader.read(&mut buf) {
+            Ok(n) => Some(buf[..n].to_vec()),
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => None,
+            Err(err) => panic!("reading the fifo failed: {err}"),
+        }
+    }
 
     /// Dropping a gate with a live phase terminates the phase's whole
     /// process group - the grandchild too, which killing the leader
@@ -640,11 +661,23 @@ mod tests {
     #[test]
     fn a_dropped_gate_kills_the_whole_phase_group() {
         use std::os::unix::ffi::OsStrExt as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        use std::time::{Duration, Instant};
 
         let scratch = assert_fs::TempDir::new().expect("a scratch directory");
-        let fifo = scratch.path().join("held");
-        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).expect("the fifo path");
-        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let [held, blocker] = ["held", "blocker"].map(|name| {
+            let fifo = scratch.path().join(name);
+            let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).expect("the fifo path");
+            assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+            fifo
+        });
+        // Open before the launch and without blocking, so neither side
+        // ever waits on the other to open the fifo.
+        let mut reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&held)
+            .expect("the fifo's read end");
 
         let mut gate = Gate::new(
             scratch.path().to_path_buf(),
@@ -652,35 +685,92 @@ mod tests {
             Box::new(std::io::sink()),
             false,
         );
-        // The path travels as a shell ARGUMENT, never interpolated
-        // into the script: a scratch directory with spaces or
-        // metacharacters in it must not change what the redirect
-        // opens.
+        // The grandchild, a backgrounded subshell, announces the
+        // phase's group (`$$` is the phase's pid) once it runs shell
+        // code, then blocks opening a fifo nobody writes: no `exec` is
+        // left for the teardown signal to land in.  The paths travel as
+        // shell ARGUMENTS, never interpolated into the script: a scratch
+        // directory with spaces or metacharacters in it must not change
+        // what the redirects open.
         gate.launch(
             "grandchild holder",
             Command::new("sh")
                 .arg("-c")
-                .arg(r#"sleep 300 > "$1" & wait"#)
+                .arg(r#"{ echo $$; read line < "$2"; } > "$1" & wait"#)
                 .arg("sh")
-                .arg(&fifo),
+                .arg(&held)
+                .arg(&blocker),
         )
         .expect("launch the phase");
-        // Blocks until the grandchild has the write end open: the
-        // phase-has-started signal, so the drop below races nothing.
-        let mut held = std::fs::File::open(&fifo).expect("the fifo's read end");
-        drop(gate);
 
-        let (sender, receiver) = std::sync::mpsc::channel();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut announced = Vec::new();
+        // Until the grandchild opens the write end, a read sees
+        // end-of-file.
+        while !announced.ends_with(b"\n") {
+            announced.extend(available(&mut reader).unwrap_or_default());
+            assert!(
+                Instant::now() < deadline,
+                "the grandchild never started: it announced {announced:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let group: libc::pid_t = String::from_utf8_lossy(&announced)
+            .trim()
+            .parse()
+            .expect("the announced group");
+
+        // On another thread: a leader that outlived the signal would
+        // hang the drop's reap, which must fail this test, not stall it.
+        let (dropped, teardown) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let mut byte = [0u8; 1];
-            let _ = sender.send(std::io::Read::read(&mut held, &mut byte));
+            drop(gate);
+            let _ = dropped.send(());
         });
-        let read = receiver
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .expect("the grandchild survived the gate's teardown");
-        assert!(
-            matches!(read, Ok(0)),
-            "the fifo answered {read:?} instead of end-of-file"
-        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        // The group's members at the deadline, reported only once another
+        // read finds the write end still open, so that read, not the
+        // snapshot, is what the kill follows.
+        let mut survivors = None;
+        loop {
+            match available(&mut reader) {
+                Some(bytes) if bytes.is_empty() => break,
+                Some(bytes) => fail(
+                    group,
+                    &format!("the grandchild wrote {bytes:?} after its announcement"),
+                ),
+                None => match survivors.take() {
+                    Some(members) => fail(
+                        group,
+                        &format!(
+                            "the grandchild survived the gate's teardown; group {group} still holds {members:#?}"
+                        ),
+                    ),
+                    None if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    None => {
+                        let ps = Command::new("ps")
+                            .args(["-A", "-o", "pgid=,pid=,stat=,command="])
+                            .output()
+                            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+                            .unwrap_or_default();
+                        survivors = Some(
+                            ps.lines()
+                                .filter(|line| {
+                                    line.split_whitespace().next() == Some(&group.to_string())
+                                })
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+                },
+            }
+        }
+        // With the grandchild gone the leader's `wait` returns, so a
+        // drop that is still running is stuck on its own.
+        teardown
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the gate's drop never returned");
     }
 }
