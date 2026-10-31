@@ -716,12 +716,11 @@ system dependencies (stage 06); index metadata does not carry build dependencies
 declaring them cannot be published (with stage 07's metadata); `[features]` cannot name a build
 dependency, and `cabin add` has no `--build`; resolution's `links` domains over-approximate a
 context by following every resolved edge, including optional edges only the other context enables,
-a fork reached through a registry edge claims in both contexts, and the resolver's held-back pruning
-stays graph-wide, while the build's per-context check is exact; feature requests look a dependency
-up by name, so one name declared as an optional normal and a build dependency of one build-context
-package reads the first declaration, as normal and dev do under `cabin test`; `compile_commands.json`
-lists a source built in both contexts twice; `cabin tree` and `cabin explain` walk build edges with
-one platform.  Found alongside, in both contexts: a target's `deps` entry naming a disabled optional
+a fork reached through a registry edge claims in both contexts and offers its build dependencies
+to the resolver as normal ones (so build dependencies only such a fork declares get no domain of
+their own), and the resolver's held-back pruning stays graph-wide, while the build's per-context
+check is exact; `compile_commands.json` lists a source built in both contexts twice; `cabin tree`
+and `cabin explain` walk build edges with one platform.  Found alongside, in both contexts: a target's `deps` entry naming a disabled optional
 dependency still builds and links it (`cabin-build/src/planner/lowering.rs`, `resolve_target_dep`),
 though [features](features.md) says a disabled optional dependency never links.
 

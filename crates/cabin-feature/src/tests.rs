@@ -928,3 +928,53 @@ fn build_edges_resolve_a_separate_context() {
         resolve_build_context_features(&graph, &target, Some(&windows), Some(&linux)).unwrap();
     assert!(build.included.is_empty());
 }
+
+/// A build tool declaring `util` both as a disabled optional
+/// dependency and as a build dependency with `features = ["fast"]`
+/// and no defaults: only the build declaration applies.
+#[test]
+fn a_disabled_optional_declaration_does_not_shadow_another_kind() {
+    let root = make_project(
+        "root",
+        vec![Dependency {
+            kind: DependencyKind::Build,
+            ..dep_normal("gen", false)
+        }],
+        empty_features(),
+    );
+    let generator = make_project(
+        "gen",
+        vec![
+            dep_normal("util", true),
+            Dependency {
+                kind: DependencyKind::Build,
+                ..dep_normal_with("util", false, &["fast"], false)
+            },
+        ],
+        empty_features(),
+    );
+    let util = make_project(
+        "util",
+        Vec::new(),
+        features(&["base"], &[("base", &[]), ("fast", &[])]),
+    );
+    let graph = make_graph(vec![
+        (root, vec![(1, DependencyKind::Build)]),
+        (
+            generator,
+            vec![(2, DependencyKind::Normal), (2, DependencyKind::Build)],
+        ),
+        (util, Vec::new()),
+    ]);
+    let target = resolve_features(
+        &graph,
+        &[0],
+        &RootFeatureRequest::default(),
+        None,
+        &no_dev(),
+    )
+    .unwrap();
+    let build = resolve_build_context_features(&graph, &target, None, None).unwrap();
+    assert_eq!(build.included, BTreeSet::from([1, 2]));
+    assert_eq!(names(&build.for_package(2).enabled_features), vec!["fast"]);
+}
