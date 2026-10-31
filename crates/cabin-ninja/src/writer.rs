@@ -276,8 +276,8 @@ fn runner_token(runner: &Path) -> Result<String, NinjaError> {
 /// through `cabin depfile` and Ninja's `deps = msvc` line format
 /// instead.  The paths checked are the ones a depfile is spelled from:
 /// the source, the outputs, the compiler (whose built-in include
-/// directories sit beside it), the include directories, and the
-/// escape-hatch flags other than `-D` defines.  A header whose own name has such a byte below an
+/// directories sit beside it), the sysroot, the include directories, and
+/// the escape-hatch flags other than `-D` defines.  A header whose own name has such a byte below an
 /// ordinary include directory is not foreseen: Ninja then records paths
 /// that do not exist, so the compile reruns on every build rather than
 /// going stale.
@@ -297,6 +297,7 @@ fn depfile_needs_translation(action: &BuildAction) -> bool {
                 .into_iter()
                 .chain(&compile.depfile)
                 .chain(stamp)
+                .chain(compile.sysroot.as_ref().map(|sysroot| &sysroot.path))
                 .chain(&compile.arguments.include_dirs)
                 .chain(&compile.arguments.system_include_dirs)
                 .any(|path| unreadable(path.as_str()))
@@ -310,6 +311,7 @@ fn depfile_needs_translation(action: &BuildAction) -> bool {
             [&assemble.source, &assemble.object, &assemble.assembler]
                 .into_iter()
                 .chain(&assemble.depfile)
+                .chain(assemble.sysroot.as_ref().map(|sysroot| &sysroot.path))
                 .chain(&assemble.include_dirs)
                 .any(|path| unreadable(path.as_str()))
         }
@@ -1211,6 +1213,26 @@ mod tests {
             compile_with(|c| c.arguments.include_dirs = vec!["/abs/a|b/include".into()]),
             compile_with(|c| c.arguments.system_include_dirs = vec!["/abs/a*b".into()]),
             compile_with(|c| c.arguments.extra_flags = vec!["-I/abs/a&b".into()]),
+            compile_with(|c| {
+                c.sysroot = Some(cabin_core::Sysroot {
+                    path: "/abs/a;b/sdk".into(),
+                    apple: false,
+                });
+            }),
+            BuildAction::Assemble(cabin_driver::AssembleAction {
+                assembler: Utf8PathBuf::from("/usr/bin/g++"),
+                target: None,
+                sysroot: Some(cabin_core::Sysroot {
+                    path: "/abs/a;b/sdk".into(),
+                    apple: false,
+                }),
+                source: Utf8PathBuf::from("/abs/src/main.S"),
+                object: Utf8PathBuf::from("/abs/build/main.o"),
+                depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
+                include_dirs: vec![],
+                defines: vec![],
+                description: "AS /abs/build/main.o".into(),
+            }),
         ];
         for edge in edges {
             let body = render(&graph_with(vec![edge], vec![])).unwrap();
