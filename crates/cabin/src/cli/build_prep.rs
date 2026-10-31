@@ -622,6 +622,27 @@ pub(crate) fn prepare_workspace(
         reporter,
     })?;
     let enabled_features = super::enabled_features_by_package(&feature_resolution);
+    // Ninja drops `..` lexically, while Unix resolves it after any
+    // symlink before it, so `link/../build` would name one directory to
+    // Ninja (and the `cabin recreate` it runs on `$out`) and another to
+    // the compiler and archiver.  Resolving the path up to its last `..`
+    // gives the spelling both agree on; Windows drops `..` lexically too.
+    let components: Vec<_> = build_dir.components().collect();
+    if cfg!(unix)
+        && let Some(last) = components
+            .iter()
+            .rposition(|component| *component == std::path::Component::ParentDir)
+    {
+        let (head, tail) = components.split_at(last + 1);
+        let head: PathBuf = head.iter().collect();
+        // The OS resolves `..` only after a directory that exists.
+        std::fs::create_dir_all(&head)
+            .with_context(|| format!("failed to create build directory {}", head.display()))?;
+        build_dir = cabin_fs::canonicalize(&head)
+            .with_context(|| format!("failed to resolve build dir {}", build_dir.display()))?
+            .join(tail.iter().collect::<PathBuf>());
+    }
+
     let build_context = if build_features.included.is_empty() {
         None
     } else {
