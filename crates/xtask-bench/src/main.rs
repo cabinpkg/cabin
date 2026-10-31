@@ -82,9 +82,10 @@ struct RunArgs {
     /// Cargo profile for the binaries this command builds.
     #[arg(long, default_value = "release")]
     profile: String,
-    /// Exact run count; by default hyperfine runs each scenario at
-    /// least 10 times and for at least 3 seconds.
-    #[arg(long)]
+    /// Exact run count per binary; by default each scenario runs at
+    /// least 10 times, and for at least 3 seconds at its check run's
+    /// pace.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
     runs: Option<u32>,
     /// Results directory [default: target/perf/runs/<unix time>].
     #[arg(long)]
@@ -223,22 +224,21 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
     }
 
     let ctx = run::Harness::new(&repo, checkout, out.clone(), &scenarios)?;
-    let hyperfine_args: Vec<String> = match (args.runs, args.smoke) {
-        (Some(runs), _) => vec![
-            "--warmup".into(),
-            "1".into(),
-            "--runs".into(),
-            runs.to_string(),
-        ],
-        (None, true) => vec!["--warmup".into(), "1".into(), "--runs".into(), "5".into()],
-        (None, false) => vec![
-            "--warmup".into(),
-            "2".into(),
-            "--min-runs".into(),
-            "10".into(),
-        ],
+    let schedule = match (args.runs, args.smoke) {
+        (Some(runs), _) => run::Schedule {
+            warmup: 1,
+            runs: run::Runs::Exact(runs),
+        },
+        (None, true) => run::Schedule {
+            warmup: 1,
+            runs: run::Runs::Exact(5),
+        },
+        (None, false) => run::Schedule {
+            warmup: 2,
+            runs: run::Runs::AtLeast(10),
+        },
     };
-    let all = run::suite(&ctx, &scenarios, &binaries, &hyperfine_args)?;
+    let all = run::suite(&ctx, &scenarios, &binaries, &schedule)?;
 
     for results in &all {
         let path = out.join(format!("{}.json", results.label));
