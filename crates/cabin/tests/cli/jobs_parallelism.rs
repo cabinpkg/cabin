@@ -370,35 +370,37 @@ fn run_jobs_after_doubledash_does_not_reach_ninja() {
 }
 
 #[test]
-fn metadata_output_is_byte_identical_with_and_without_jobs_env() {
-    // The `--jobs` contract forbids polluting machine-readable
-    // output with jobs-related information.  The strongest
-    // assertion is that `cabin metadata`'s stdout is
-    // byte-identical whether `CABIN_BUILD_JOBS` is set or not
-    // - that catches both accidental metadata extension and
-    //   any incidental status-line
-    //   leak.
+fn jobs_env_reaches_metadata_only_as_config_build_jobs() {
+    // The job count never changes what is built, so it must not
+    // reach build configurations or fingerprints: apart from the
+    // `config.build.jobs` report, the JSON stays the same.
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
-    let baseline = cabin()
-        .current_dir(dir.path())
-        .args(["metadata"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let with_jobs = cabin()
-        .current_dir(dir.path())
-        .env("CABIN_BUILD_JOBS", "4")
-        .args(["metadata"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
+    let metadata = |jobs: Option<&str>| {
+        let mut cmd = cabin();
+        if let Some(jobs) = jobs {
+            cmd.env("CABIN_BUILD_JOBS", jobs);
+        }
+        let output = cmd
+            .current_dir(dir.path())
+            .arg("metadata")
+            .assert()
+            .success();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&output.get_output().stdout).unwrap();
+        let reported = value["config"]["build"]
+            .as_object_mut()
+            .unwrap()
+            .remove("jobs")
+            .unwrap();
+        (value, reported)
+    };
+    let (baseline, unset) = metadata(None);
+    let (with_jobs, set) = metadata(Some("4"));
+    assert_eq!(unset, serde_json::Value::Null);
     assert_eq!(
-        baseline, with_jobs,
-        "CABIN_BUILD_JOBS must not change `cabin metadata` JSON",
+        set,
+        serde_json::json!({ "value": 4, "value_source": "env" })
     );
+    assert_eq!(baseline, with_jobs);
 }

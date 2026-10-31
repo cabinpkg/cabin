@@ -15,10 +15,10 @@
 use cabin_config::{
     ConfigDiscoveryInputs, EffectiveConfig, discover_config_files, merge_loaded_files,
 };
-use cabin_core::{ColorChoice, ColorEnvError};
+use cabin_core::{ColorChoice, ColorEnvError, ConfigValueSource};
 
 /// Discover the user-level Cabin config (no workspace context)
-/// and return its `term.color` value if any.  Errors are
+/// and return its `term.color` value and source, if any.  Errors are
 /// swallowed: a missing or unparsable config must not block
 /// the early `render_error` path.  A subcommand that
 /// subsequently loads its own [`EffectiveConfig`] (with the
@@ -30,11 +30,14 @@ use cabin_core::{ColorChoice, ColorEnvError};
 /// workspace.  It honors `CABIN_NO_CONFIG`, `CABIN_CONFIG`, and
 /// `CABIN_CONFIG_HOME` exactly as discovery does for the rest
 /// of Cabin.
-pub(crate) fn discover_early_config_color() -> Option<ColorChoice> {
+pub(crate) fn discover_early_config_color() -> Option<(ColorChoice, ConfigValueSource)> {
     let inputs = ConfigDiscoveryInputs::from_process(None);
     let discovery = discover_config_files(&inputs).ok()?;
     let effective: EffectiveConfig = merge_loaded_files(discovery.loaded_files);
-    effective.term.color.map(|c| c.choice)
+    effective
+        .term
+        .color
+        .map(|c| (c.choice, crate::cli::config::config_value_source(c.source)))
 }
 
 /// Clap-facing color-choice enum.  Mirrors
@@ -66,7 +69,9 @@ impl From<CliColorChoice> for ColorChoice {
 /// 1. `--color` flag (`cli`),
 /// 2. `CABIN_TERM_COLOR` env var (looked up via `env`),
 /// 3. config `term.color` (`config`),
-/// 4. default [`ColorChoice::Auto`].
+/// 4. default [`ColorChoice::Auto`],
+///
+/// returning the choice and the layer it came from.
 ///
 /// The function is pure: callers pass an env lookup closure
 /// so tests can drive every branch without touching the
@@ -81,25 +86,22 @@ impl From<CliColorChoice> for ColorChoice {
 pub(crate) fn resolve_color_choice<F>(
     cli: Option<ColorChoice>,
     env: F,
-    config: Option<ColorChoice>,
-) -> Result<ColorChoice, ColorEnvError>
+    config: Option<(ColorChoice, ConfigValueSource)>,
+) -> Result<(ColorChoice, ConfigValueSource), ColorEnvError>
 where
     F: Fn(&str) -> Option<String>,
 {
     if let Some(choice) = cli {
-        return Ok(choice);
+        return Ok((choice, ConfigValueSource::Cli));
     }
-    if let Some(raw) = env(cabin_env::CABIN_TERM_COLOR) {
-        // An empty `CABIN_TERM_COLOR=` is a common pattern for
-        // "unset"; treat it as if the variable were absent so
-        // shell scripts that clear it via `CABIN_TERM_COLOR=`
-        // do not see a hard error.
-        if raw.is_empty() {
-            return Ok(config.unwrap_or_default());
-        }
-        return ColorChoice::from_env_value(&raw);
+    // An empty `CABIN_TERM_COLOR=` is a common pattern for
+    // "unset"; treat it as if the variable were absent so
+    // shell scripts that clear it via `CABIN_TERM_COLOR=`
+    // do not see a hard error.
+    if let Some(raw) = env(cabin_env::CABIN_TERM_COLOR).filter(|raw| !raw.is_empty()) {
+        return Ok((ColorChoice::from_env_value(&raw)?, ConfigValueSource::Env));
     }
-    Ok(config.unwrap_or_default())
+    Ok(config.unwrap_or((ColorChoice::default(), ConfigValueSource::BuiltinDefault)))
 }
 
 #[cfg(test)]
@@ -122,7 +124,10 @@ mod tests {
     #[test]
     fn defaults_to_auto_with_no_inputs() {
         let resolved = resolve_color_choice(None, no_env, None).unwrap();
-        assert_eq!(resolved, ColorChoice::Auto);
+        assert_eq!(
+            resolved,
+            (ColorChoice::Auto, ConfigValueSource::BuiltinDefault)
+        );
     }
 
     #[test]
@@ -151,7 +156,7 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(resolved, ColorChoice::Auto);
+        assert_eq!(resolved, (ColorChoice::Auto, ConfigValueSource::Cli));
     }
 
     #[test]
@@ -159,10 +164,10 @@ mod tests {
         let resolved = resolve_color_choice(
             None,
             env_with(&[(cabin_env::CABIN_TERM_COLOR, "never")]),
-            Some(ColorChoice::Always),
+            Some((ColorChoice::Always, ConfigValueSource::UserConfig)),
         )
         .unwrap();
-        assert_eq!(resolved, ColorChoice::Never);
+        assert_eq!(resolved, (ColorChoice::Never, ConfigValueSource::Env));
     }
 
     #[test]
@@ -173,9 +178,12 @@ mod tests {
         let resolved = resolve_color_choice(
             None,
             env_with(&[(cabin_env::CABIN_TERM_COLOR, "")]),
-            Some(ColorChoice::Always),
+            Some((ColorChoice::Always, ConfigValueSource::ExplicitConfig)),
         )
         .unwrap();
-        assert_eq!(resolved, ColorChoice::Always);
+        assert_eq!(
+            resolved,
+            (ColorChoice::Always, ConfigValueSource::ExplicitConfig)
+        );
     }
 }

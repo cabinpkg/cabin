@@ -9,15 +9,15 @@
 //! dispatcher passes down: a [`ColorChoice`] and a
 //! pre-configured [`Reporter`].
 //!
-//! Workspace-level overrides are intentionally *not* resolved
-//! here - subcommands that load their own [`EffectiveConfig`]
-//! see them through their own loop.  The early resolve only
-//! observes the user-level config, which is the right shape
-//! when no workspace context is available yet.
+//! This is the only place terminal settings are resolved, and
+//! it runs before any workspace is located, so it observes only
+//! the user-level config (or the `CABIN_CONFIG` file): a
+//! workspace or package `.cabin/config.toml` `[term]` table does
+//! not apply.
 
 use std::process::ExitCode;
 
-use cabin_core::ColorChoice;
+use cabin_core::{ColorChoice, ConfigValueSource, Verbosity};
 use termcolor::StandardStream;
 
 use crate::cli::term_color::CliColorChoice;
@@ -30,6 +30,31 @@ use crate::error_rendering::write_plain_error;
 pub(crate) struct EarlyTerminalState {
     pub(crate) color: ColorChoice,
     pub(crate) reporter: Reporter,
+}
+
+/// A color choice and verbosity, each with the layer it came from.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TerminalSettings {
+    pub(crate) color: ColorChoice,
+    pub(crate) color_source: ConfigValueSource,
+    pub(crate) verbosity: Verbosity,
+    pub(crate) verbosity_source: ConfigValueSource,
+}
+
+impl TerminalSettings {
+    /// `cabin metadata`'s `config.term` block.
+    pub(crate) fn as_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "color": {
+                "value": self.color.as_str(),
+                "value_source": self.color_source.as_key(),
+            },
+            "verbosity": {
+                "value": self.verbosity.as_str(),
+                "value_source": self.verbosity_source.as_key(),
+            },
+        })
+    }
 }
 
 /// Map a [`ColorChoice`] to a [`termcolor::ColorChoice`].
@@ -68,7 +93,7 @@ pub(crate) fn resolve_early_terminal_state(
     quiet: bool,
 ) -> Result<EarlyTerminalState, ExitCode> {
     let config_color = crate::cli::term_color::discover_early_config_color();
-    let color = match crate::cli::term_color::resolve_color_choice(
+    let (color, _) = match crate::cli::term_color::resolve_color_choice(
         cli_color.map(Into::into),
         |key| std::env::var(key).ok(),
         config_color,
@@ -88,7 +113,7 @@ pub(crate) fn resolve_early_terminal_state(
         quiet,
     };
     let early_config_verbosity = discover_early_config_verbosity();
-    let verbosity = match resolve_verbosity(
+    let (verbosity, _) = match resolve_verbosity(
         cli_verbosity,
         |key| std::env::var(key).ok(),
         &early_config_verbosity,
@@ -103,6 +128,31 @@ pub(crate) fn resolve_early_terminal_state(
     let reporter = Reporter::with_color(verbosity, color);
 
     Ok(EarlyTerminalState { color, reporter })
+}
+
+/// The color choice and verbosity a command run without `--color`,
+/// `-v`, or `-q` uses: [`resolve_early_terminal_state`]'s resolution
+/// minus the flags.  `cabin metadata` reports these as `config.term`;
+/// like `-j`, the flags configure one invocation and are left out.
+pub(crate) fn configured_terminal_settings() -> anyhow::Result<TerminalSettings> {
+    let env = |key: &str| std::env::var(key).ok();
+    let (color, color_source) = crate::cli::term_color::resolve_color_choice(
+        None,
+        env,
+        crate::cli::term_color::discover_early_config_color(),
+    )?;
+    let no_flags = CliVerbosity {
+        verbose_count: 0,
+        quiet: false,
+    };
+    let (verbosity, verbosity_source) =
+        resolve_verbosity(no_flags, env, &discover_early_config_verbosity())?;
+    Ok(TerminalSettings {
+        color,
+        color_source,
+        verbosity,
+        verbosity_source,
+    })
 }
 
 #[cfg(test)]
