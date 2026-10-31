@@ -585,7 +585,7 @@ on every compile, assemble, and link command of the target context (`cabin-drive
 `--sysroot` wins, and a sysroot with MSVC or clang-cl is an error
 (`cabin_toolchain::explicit_sysroot`).  Without a choice, an Apple Clang build for macOS or iOS
 names the platform's SDK, an absolute `SDKROOT` or what `xcrun --show-sdk-path` names
-(`cabin_toolchain::discover_apple_sdk`), so an SDK switch reaches the command lines and rebuilds;
+(`cabin_toolchain::detect_toolchain_and_apple_sdk`), so an SDK switch reaches the command lines and rebuilds;
 `cabin tidy`'s compile database names it too.  `cabin metadata` reports `toolchain.sysroot` with a
 `cli`, config-file, or `detected` source, and the entries under `config.sysroots`; the
 configuration fingerprint hashes an explicit sysroot as written and leaves a detected SDK out, as it

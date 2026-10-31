@@ -30,7 +30,7 @@ pub use probe::{
 pub use resolve::{
     ConfigToolEntry, ConfigToolchainLayer, Inputs as ResolveInputs, resolve_toolchain,
 };
-pub use sysroot::{SysrootDialectError, discover_apple_sdk, explicit_sysroot};
+pub use sysroot::{SysrootDialectError, detect_toolchain_and_apple_sdk, explicit_sysroot};
 pub use target::{
     BuildMachineToolchainError, CompilerTargetError, CompilerTargets, check_build_machine_beside,
     check_build_machine_compilers, check_compiler_targets,
