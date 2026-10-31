@@ -1,4 +1,5 @@
 use std::fmt::Write as _;
+use std::io::Read as _;
 use std::path::Path;
 
 use cabin_build::BuildGraph;
@@ -84,15 +85,37 @@ pub fn write_build_ninja(
 /// atomic write's fsyncs, which dominate an unchanged build's write cost.
 /// Any IO error is tagged with `path` so callers can point users at the
 /// destination that failed.
+#[tracing::instrument(
+    level = "debug",
+    skip_all,
+    fields(bytes = body.len(), changed = tracing::field::Empty)
+)]
 pub(crate) fn write_if_changed(path: &Path, body: &[u8]) -> Result<bool, NinjaError> {
-    if std::fs::read(path).ok().as_deref() == Some(body) {
-        return Ok(false);
+    let changed = !holds(path, body);
+    tracing::Span::current().record("changed", u8::from(changed));
+    if changed {
+        write_atomic(path, body).map_err(|source| NinjaError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
     }
-    write_atomic(path, body).map_err(|source| NinjaError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Ok(true)
+    Ok(changed)
+}
+
+/// Whether `path` holds exactly `body`, read a block at a time so a
+/// large file is never in memory twice.  Unreadable means no.
+fn holds(path: &Path, body: &[u8]) -> bool {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    if file.metadata().map(|m| m.len()).ok() != u64::try_from(body.len()).ok() {
+        return false;
+    }
+    let mut block = vec![0; 64 * 1024];
+    body.chunks(block.len()).all(|expected| {
+        let block = &mut block[..expected.len()];
+        file.read_exact(block).is_ok() && block == expected
+    }) && file.read(&mut block).is_ok_and(|read| read == 0)
 }
 
 /// Render `graph` as a Ninja build file.
@@ -112,6 +135,7 @@ pub(crate) fn write_if_changed(path: &Path, body: &[u8]) -> Result<bool, NinjaEr
 /// description value contains a newline or carriage return, and
 /// [`NinjaError::UnquotableArgument`] when a command argument cannot be
 /// shell-quoted.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn render_build_ninja(
     graph: &BuildGraph,
     check_stamp_runner: &Path,
@@ -1312,5 +1336,24 @@ mod tests {
             ),
             "{body}"
         );
+    }
+
+    #[test]
+    fn a_difference_anywhere_in_a_multi_block_file_is_written() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("big");
+        // Three full 64 KiB blocks and a partial one.
+        let body = vec![b'a'; 200 * 1024];
+        assert!(write_if_changed(&path, &body).unwrap());
+        assert!(!write_if_changed(&path, &body).unwrap());
+
+        let mut last_byte = body.clone();
+        *last_byte.last_mut().unwrap() = b'b';
+        assert!(write_if_changed(&path, &last_byte).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), last_byte);
+
+        let shorter = &last_byte[..last_byte.len() - 1];
+        assert!(write_if_changed(&path, shorter).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), shorter);
     }
 }

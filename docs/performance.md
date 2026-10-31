@@ -37,7 +37,7 @@ directives:
 | Filter | Records |
 | --- | --- |
 | `info` (default) | Command phases: workspace load, feature resolution, index loading, solving, artifact fetching, toolchain detection, build planning, writing `build.ninja` and `compile_commands.json`, the Ninja run, and test planning and running |
-| `debug` | Also each manifest, index document, lockfile read and write, HTTP request, cache lookup, archive extraction, tool `--version` probe, and each target's usage requirements and link closure |
+| `debug` | Also each manifest, index document, lockfile read and write, HTTP request, cache lookup, archive extraction, tool `--version` probe, rendering and comparing each generated build file, and each target's usage requirements and link closure |
 | `trace` | Also each build action's lowering to a command line |
 | `cabin_resolver=debug,info` | `debug` for one crate, `info` elsewhere |
 
