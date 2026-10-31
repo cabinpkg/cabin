@@ -1,15 +1,18 @@
 //! Local file-registry layout, package-index mutation, and
 //! atomic publish for Cabin.
 //!
-//! Introduces a registry shape that the existing read path
-//! already understands:
+//! Layout with the default `config.json` subdirectories; `cabin-index`
+//! reads the same shape:
 //!
 //! ```text
 //! <registry>/
 //! config.json
-//! packages/<name>.json
-//! artifacts/<name>/<name>-<version>-<revision>.zip
+//! packages/<scope>/<name>.json
+//! artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip
 //! ```
+//!
+//! A legacy bare name has no `<scope>/` directory and no `<scope>-`
+//! filename prefix.
 //!
 //! This crate owns the layout, the package-index file format, the
 //! atomic write helpers that keep partially-written state from
@@ -23,9 +26,8 @@
 //! - it must not run the resolver, parse arbitrary `cabin.toml`s, or
 //!   build packages - `cabin-package` produces the
 //!   [`cabin_package::StagedPackage`] this crate consumes;
-//! - actual real-world `cabin publish` orchestration lives in
-//!   `cabin-publish`, which combines staging with this crate's
-//!   writers.
+//! - `cabin publish` orchestration lives in `cabin-publish`, which
+//!   combines staging with this crate's writers.
 
 #![allow(
     // `field: Default::default()` in the test-fixture builders reads

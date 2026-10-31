@@ -118,7 +118,6 @@ mod tests {
         let err = RegistryLock::acquire(dir.path()).unwrap_err();
         assert!(matches!(err, RegistryError::Locked));
         drop(lock);
-        // After release, a fresh acquire works.
         let _again = RegistryLock::acquire(dir.path()).unwrap();
     }
 

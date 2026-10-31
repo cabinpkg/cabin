@@ -182,8 +182,8 @@ pub enum Reason {
     /// recorded.
     ChecksumMismatch,
     /// Any other canonical-metadata field (schema, features,
-    /// profiles, toolchain, build, compiler wrapper, yanked flag,
-    /// source block) disagrees with what the manifest derives.
+    /// profiles, toolchain, build, compiler wrapper, links, yanked
+    /// flag, source block) disagrees with what the manifest derives.
     MetadataMismatch,
     /// The bytes are not a well-formed zip container in the strict
     /// profile: a bad or misplaced EOCD, a non-contiguous layout, or
@@ -220,8 +220,12 @@ pub enum Reason {
     /// cannot address the tree), `missing target` (the patched file
     /// is absent), `target conflict` (the patched or created path
     /// cannot name a regular file), `target too large` (the patched
-    /// file exceeds the per-file size cap), or `context mismatch`
-    /// (the tree's bytes do not match the patch context exactly).
+    /// file exceeds the per-file size cap), `too many file entries`
+    /// (the patch list carries more file entries than the engine
+    /// accepts), `work budget exceeded` (applying the list would read
+    /// or rewrite more of the tree than the engine allows), or
+    /// `context mismatch` (the tree's bytes do not match the patch
+    /// context exactly).
     UpstreamPatchInvalid(&'static str),
     /// The published source tree is not the declared transformation
     /// of the pinned upstream archive.  The detail names the first
@@ -384,7 +388,8 @@ pub fn inspect_bytes(
 
     // The scan retains the bytes of every entry the stored metadata
     // declares as an upstream patch file (the upstream pass applies
-    // them; no other entry is kept decompressed).  The list
+    // them; apart from the root manifest, no other entry is kept
+    // decompressed).  The list
     // is peeked tolerantly: the declaration is only *enforced* after
     // the consistency pass proves the stored document equals what the
     // manifest derives, and a garbage `patches` value simply retains

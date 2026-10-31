@@ -4,12 +4,10 @@
 //! the declared patches - in exactly that order, which
 //! `docs/manifest.md` pins as normative.
 //!
-//! The registry verifier replays every declaration through this
-//! module, and it is the one shared pipeline for the ports publisher
-//! too: every committed port stages through it, so a byte the
-//! publisher assembles is a byte the verifier derives.  Only what
-//! genuinely differs stays with the caller: where patch bytes come
-//! from, and what happens to the assembled tree afterwards.
+//! The registry verifier and the ports publisher both run every
+//! declaration through this module, so a byte the publisher assembles
+//! is a byte the verifier derives.  The caller keeps only where patch
+//! bytes come from and what happens to the assembled tree afterwards.
 //!
 //! Error channel: defects ([`MaterializeDefect`]) are deterministic
 //! consequences of the declared inputs - the pinned bytes, the
@@ -504,10 +502,6 @@ mod tests {
         assert!(fs::read_dir(&dest).unwrap().next().is_none());
     }
 
-    /// A declared patch path that names a file the assembled tree
-    /// produces is the `shadows tree` defect: the published archive
-    /// could only carry one file there, and declared patch entries
-    /// are exempt from the verifier's tree comparison.
     /// The remaining engine caps, each driven end to end: their
     /// details are rendered verbatim as rejection reasons too, and
     /// none of them may reclassify as an environment error.
@@ -536,7 +530,7 @@ mod tests {
         );
 
         // A target one byte over the per-target cap: "target too
-        // large".  16 MiB + 1 of zeros stays under the extractor's
+        // large".  16 MiB + 1 of newlines stays under the extractor's
         // 64 MiB ratio floor, so the ratio cap never engages.
         let dir = assert_fs::TempDir::new().unwrap();
         let big = vec![b'\n'; usize::try_from(crate::patch::MAX_PATCH_TARGET_BYTES + 1).unwrap()];
@@ -556,10 +550,10 @@ mod tests {
         );
 
         // The work-budget cap alone cannot be driven end to end
-        // affordably (crossing 128 MiB of rewrites needs a fixture
-        // past the 64 MiB ratio floor, i.e. ~150 MiB incompressible
-        // per run); the engine's own tests cover it firing, and the
-        // detail mapping it routes through is pinned directly.
+        // affordably (crossing it means charging over 128 MiB of
+        // patch reads and writes per run); the engine's own tests
+        // cover it firing, and the detail mapping it routes through is
+        // pinned directly.
         assert_eq!(
             patch_error_detail(&PatchError::WorkBudgetExceeded { total: 2, limit: 1 }),
             "work budget exceeded"
@@ -615,10 +609,6 @@ mod tests {
     /// shadows an upstream `Readme`, because macOS and Windows
     /// resolve the two to one file, so the published archive could
     /// not carry both and the upstream bytes would go unverified.
-    /// Deliberately folded where the pre-refactor verifier compared
-    /// exact paths: the same input was still rejected there, but
-    /// only later, by the published-archive scan as a `CaseConflict`
-    /// - this classifies it at its cause, the declared patch path.
     #[test]
     fn a_fold_shadowing_patch_path_is_refused() {
         let dir = assert_fs::TempDir::new().unwrap();
@@ -638,6 +628,10 @@ mod tests {
         );
     }
 
+    /// A declared patch path that names a file the assembled tree
+    /// produces is the `shadows tree` defect: the published archive
+    /// could only carry one file there, and declared patch entries
+    /// are exempt from the verifier's tree comparison.
     #[test]
     fn a_patch_path_shadowing_the_assembled_tree_is_refused() {
         let dir = assert_fs::TempDir::new().unwrap();

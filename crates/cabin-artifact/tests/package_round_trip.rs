@@ -31,7 +31,7 @@ fn examples_dir() -> PathBuf {
 }
 
 /// Every directory under `examples/` that holds a `cabin.toml`,
-/// including workspace members (a workspace root is packageable as a
+/// including workspace roots (a workspace root is packageable as a
 /// tree even when `cabin package` would want `--manifest-path`; the
 /// archive writer and the extractor are what this test exercises).
 fn example_packages() -> Vec<PathBuf> {

@@ -17,7 +17,7 @@
 //!   functionality;
 //! - extraction is fail-closed: archive entries that escape the
 //!   destination, declare absolute paths, contain `..` components, or
-//!   use unsupported tar entry types are rejected.
+//!   use unsupported entry types are rejected.
 
 pub mod cache;
 pub mod error;

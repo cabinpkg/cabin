@@ -19,13 +19,6 @@
 //!   higher-level (CLI flag handling, output formatting) belongs
 //!   here.
 
-// `PublishError` aggregates package, registry-file, and dry-run
-// errors.  The union crosses clippy's default
-// `result_large_err` threshold once `cabin_package::PackageError`
-// (which flows in via `?`) gains its own larger variants.
-// Boxing the enum at every call site would be churny; we accept
-// the larger `Result` instead.
-
 pub mod dry_run;
 pub mod error;
 pub mod lints;

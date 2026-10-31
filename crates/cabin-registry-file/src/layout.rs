@@ -114,8 +114,8 @@ impl FileRegistry {
         })
     }
 
-    /// Open the registry, creating `config.json` and the layout
-    /// directories if `root` does not yet contain them.
+    /// Open the registry, first creating `config.json` and the layout
+    /// directories when `root` has no `config.json`.
     ///
     /// # Errors
     /// When `config.json` already exists, propagates the errors of
@@ -236,8 +236,8 @@ impl FileRegistry {
             .join(format!("{}-{version}-{revision}.zip", name.artifact_stem()))
     }
 
-    /// `source.path` value to embed in package index metadata, given
-    /// the `(name, version)` pair.  The path is forward-slashed and
+    /// `source.path` value to embed in package index metadata for one
+    /// `(name, version, revision)`.  The path is forward-slashed and
     /// relative to the package index file's parent directory so
     /// static sparse-HTTP serving sees consistent links.
     ///
@@ -250,10 +250,11 @@ impl FileRegistry {
     /// validation, so legal-but-unnormalized values (`./packages`,
     /// `packages/`, platform separators) climb and render exactly
     /// where the index document really sits.  For the default config
-    /// this yields the same canonical shapes the hosted registry
-    /// validates: `../artifacts/<name>/<name>-<version>-<revision>.zip`
-    /// and
-    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`.
+    /// this yields `../artifacts/<name>/<name>-<version>-<revision>.zip`
+    /// for a bare name and
+    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
+    /// for a scoped one; only the scoped shape is one the hosted
+    /// registry accepts.
     pub fn relative_source_path(
         &self,
         name: &PackageName,

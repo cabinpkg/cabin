@@ -17,7 +17,7 @@ pub struct RegistryPublishWorkflow<'a> {
     /// Pre-resolved `Package` from the workspace
     /// loader. `cabin` populates this when publishing a member
     /// of a workspace so that any `dep = { workspace = true }`
-    /// Entry is substituted with its concrete requirement before
+    /// entry is substituted with its concrete requirement before
     /// the package metadata is written.  Standalone callers leave
     /// it as `None`.
     pub resolved_project: Option<cabin_core::Package>,
@@ -64,10 +64,15 @@ pub struct RegistryPublishReport {
 ///
 /// # Errors
 /// Returns [`PublishError::Package`] when staging the package fails
-/// (propagated from `stage_with_project`), or
-/// [`PublishError::Registry`] when the registry write fails -
-/// propagated from `publish_to_registry` (unsafe package name,
-/// a respin without the opt-in, registry config/index problems, or I/O).
+/// (propagated from `stage_with_project`),
+/// [`PublishError::BarePackageName`] or
+/// [`PublishError::InvalidDependencyName`] for an unscoped package
+/// name or registry dependency key,
+/// [`PublishError::StandardCompatibility`] when a PL1 lint rejects
+/// the package, or [`PublishError::Registry`] when reading the PL3
+/// baseline or the registry write fails - the latter propagated from
+/// `publish_to_registry` (unsafe package name, a respin without the
+/// opt-in, registry config/index problems, or I/O).
 pub fn publish_to_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
@@ -79,11 +84,10 @@ pub fn publish_to_file_registry(
 /// `registry_modified` flag is `false`.
 ///
 /// # Errors
-/// Returns [`PublishError::Package`] when staging the package fails
-/// (propagated from `stage_with_project`), or
-/// [`PublishError::Registry`] when a pre-write check fails -
-/// propagated from `validate_publish` (unsafe package name,
-/// a respin without the opt-in, or registry config/index problems).
+/// Returns the same errors as [`publish_to_file_registry`], except
+/// that [`PublishError::Registry`] comes from reading the PL3
+/// baseline or from `validate_publish` (unsafe package name, a
+/// respin without the opt-in, or registry config/index problems).
 pub fn dry_run_against_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {

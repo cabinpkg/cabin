@@ -236,8 +236,6 @@ fn compare_trees(
 ) -> Option<Reason> {
     for (path, digest) in expected {
         match published.get(path) {
-            // The published archive lacks a file the declared
-            // upstream transformation produces.
             None => return Some(Reason::UpstreamTreeMismatch("missing file")),
             Some(actual) if actual != digest => {
                 return Some(Reason::UpstreamTreeMismatch("file contents"));
@@ -247,8 +245,6 @@ fn compare_trees(
     }
     for path in published.keys() {
         if !excluded_from_published_sweep(declared, path) && !expected.contains_key(path) {
-            // The published archive carries a file the upstream
-            // transformation does not explain.
             return Some(Reason::UpstreamTreeMismatch("extra file"));
         }
     }
@@ -282,10 +278,6 @@ mod tests {
         compare_trees(&declaration(&[]), expected, published)
     }
 
-    /// The checksum verdict must outrank scratch-directory failures:
-    /// with a mismatching archive AND an unusable scratch path, the
-    /// caller needs the terminal `UpstreamChecksumMismatch`, not an
-    /// `Io` that leaves the version pending and retried forever.
     /// The scratch here is a directory whose read-only subdirectory
     /// makes `remove_dir_all` fail, so any pre-checksum scratch work
     /// would surface as `Io` and fail this test.
@@ -367,8 +359,9 @@ mod tests {
 
     #[test]
     fn published_root_manifest_is_always_ignored() {
-        // The expected side never records cabin.toml (the collector
-        // skips it); the published side always has one.
+        // The expected side never records cabin.toml
+        // (`check_extracted` drops it); the published side always
+        // has one.
         let expected = map(&[]);
         let published = map(&[("cabin.toml", "m")]);
         assert_eq!(compare(&expected, &published), None);

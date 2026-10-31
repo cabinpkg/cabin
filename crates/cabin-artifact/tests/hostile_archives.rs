@@ -1,17 +1,17 @@
 //! The adversarial corpus for `cabin-artifact`'s extractor.
 //!
 //! Every archive here is generated programmatically - no opaque
-//! binary fixtures - and every case asserts the same three
-//! invariants that make extraction safe against a hostile or
-//! compromised registry:
+//! binary fixtures - and every hostile case asserts the invariants
+//! that make extraction safe against a hostile or compromised
+//! registry:
 //!
 //! 1. the extraction fails with a *typed* error that names the
 //!    offending entry (or the cap it crossed);
 //! 2. nothing is written outside the extraction target - a canary
 //!    file sits beside the target, and the whole tempdir is checked
 //!    for stray entries;
-//! 3. the bytes written stay bounded by the caps, and the fetch
-//!    layer leaves no partial state behind.
+//! 3. where a byte cap is involved, the bytes written stay bounded
+//!    by it.
 //!
 //! The client cannot assume a well-behaved registry, so these rules
 //! hold for archives from any source: the hosted registry, a
@@ -331,7 +331,7 @@ fn duplicate_paths_are_rejected_instead_of_last_wins() {
 fn a_regular_file_used_as_a_parent_directory_is_rejected() {
     // `src` as a file plus `src/main.cc` has no consistent
     // extraction; without the typed check it surfaces as a bare
-    // filesystem error (or, in the other order, silently clobbers).
+    // filesystem error in either order.
     for (first, second) in [("src", "src/main.cc"), ("src/main.cc", "src")] {
         let corpus = Corpus::new();
         let mut b = builder(corpus.archive().path());
@@ -378,11 +378,10 @@ fn windows_aliasing_and_device_paths_are_rejected() {
     // collide) or routes to a device.  Rejected on every platform so
     // an archive built on Linux cannot smuggle them to a Windows
     // client.
-    // `\` is deliberately not in this tar list: the tar reader
-    // normalizes `\` to a path separator (harmless nesting) on every
-    // platform, so it never reaches the portability check here.  (The
-    // zip path, which sees the raw name, is covered in the unit
-    // tests.)  Every case below is rejected everywhere.
+    // `\` is not in this list: on Windows the `tar` crate treats `\`
+    // as a path separator (this harness writes `a\b` as `a/b`), so the
+    // entry is harmless nesting there and is not rejected on every
+    // platform.  `cabin_fs::path`'s unit tests cover the `\` rule.
     for name in [
         "cabin.toml.",       // trailing dot: Win32 strips it
         "cabin.toml ",       // trailing space: same
@@ -460,7 +459,7 @@ fn an_entry_count_flood_is_rejected_at_the_cap() {
 
 #[test]
 fn a_high_ratio_decompression_bomb_is_rejected() {
-    // ~256 MiB of zeros in a handful of compressed KiB.  The stream
+    // ~256 MiB of zeros in a few hundred compressed KiB.  The stream
     // cap - a multiple of the compressed size, floored - stops it
     // long before either the per-entry or the aggregate cap could,
     // and disk stays bounded by that same cap.

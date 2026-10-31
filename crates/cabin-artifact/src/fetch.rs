@@ -261,8 +261,7 @@ fn ensure_source(
     // Extract and validate in a sibling temp directory, renamed
     // into place only on success: a hostile archive rejected
     // mid-extraction (or a crash) never leaves a partial tree at
-    // the final path, mirroring the stage-then-rename protocol the
-    // archive download above uses.
+    // the final path.
     let tmp_dir = partial_dir_sibling(source_dir);
     if tmp_dir.exists() {
         fs::remove_dir_all(&tmp_dir).map_err(|source| ArtifactError::Io {
@@ -283,10 +282,10 @@ fn ensure_source(
     // Rename the validated tree into place.  A failure - including a
     // concurrent process having populated `source_dir` first, which
     // makes the rename onto a non-empty directory fail - removes the
-    // scratch so no partial state leaks, and surfaces the error so the
-    // caller retries rather than adopting a tree it did not build.
-    // The cache is content-addressed, so a retry finds the winner's
-    // now-valid entry on its cache-hit check.
+    // scratch so no partial state leaks, and surfaces the error rather
+    // than adopting a tree this process did not build.  The cache is
+    // content-addressed, so a re-run finds the winner's now-valid
+    // entry on its cache-hit check.
     if let Err(source) = fs::rename(&tmp_dir, source_dir) {
         let _ = fs::remove_dir_all(&tmp_dir);
         return Err(ArtifactError::Io {
@@ -511,7 +510,6 @@ mod tests {
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
-        // Now run with frozen - cache hit should succeed.
         fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap();
     }
 
@@ -557,11 +555,9 @@ mod tests {
 
     #[test]
     fn re_extracts_when_marker_missing_even_if_manifest_present() {
-        // Simulates an interrupted previous run that wrote
-        // `cabin.toml` (the archive lists the manifest first)
-        // before crashing without finishing the rest of the
-        // source tree.  The next fetch must re-extract rather
-        // than treat the directory as a complete cache hit.
+        // A source tree without the completion marker is not a
+        // cache hit, even when its `cabin.toml` validates: the next
+        // fetch re-extracts it.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("artifacts/fmt.tar.gz");
         let hex = write_archive(
@@ -574,8 +570,6 @@ mod tests {
         let cache = cache_root(dir.path());
         let extracted = cache.source_dir(&hex);
         let marker = extraction_marker_path(&extracted);
-        // Pretend a previous run extracted the manifest alone and
-        // crashed.  No completion marker is written.
         fs::create_dir_all(&extracted).unwrap();
         fs::write(extracted.join("cabin.toml"), manifest("fmt", "10.2.1")).unwrap();
         assert!(!marker.is_file());
@@ -595,12 +589,8 @@ mod tests {
 
     #[test]
     fn marker_sibling_path_resists_tarball_forgery() {
-        // The completion marker is a sibling of `source_dir`,
-        // not inside it.  Even if a published archive were named
-        // to look like the marker, `extract_zip` would only
-        // place it under `source_dir` and our check would still
-        // miss.  Confirm the marker path does not start with
-        // `source_dir` so the invariant is visible to readers.
+        // Every archive entry extracts under `source_dir`, so none
+        // can land on the sibling marker path.
         let dir = TempDir::new().unwrap();
         let cache = cache_root(dir.path());
         let extracted = cache.source_dir(&"a".repeat(64));
@@ -611,10 +601,7 @@ mod tests {
 
     #[test]
     fn frozen_fails_when_marker_missing_even_if_manifest_present() {
-        // Same setup as the marker-missing test above, but in
-        // frozen mode.  The incomplete cache must surface as a
-        // FrozenCacheMiss rather than being silently treated as
-        // valid.
+        // The marker-missing setup above, in frozen mode.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("artifacts/fmt.tar.gz");
         let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);

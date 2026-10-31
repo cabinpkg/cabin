@@ -10,7 +10,7 @@ use crate::error::RegistryError;
 use crate::layout::FileRegistry;
 
 /// Schema version of a package index file whose revisions all resolve
-/// as their version does.  Matches the index shape.
+/// as their version does.
 pub const PACKAGE_INDEX_SCHEMA: u32 = 1;
 
 /// Schema version of a package index file in which some revision
@@ -18,9 +18,9 @@ pub const PACKAGE_INDEX_SCHEMA: u32 = 1;
 /// file instead of resolving that revision with the current metadata.
 const REVISION_RESOLUTION_SCHEMA: u32 = 2;
 
-/// Read `<registry>/packages/<name>.json`, plus return the parsed
-/// document.  Returns `Ok(None)` when the file does not exist (a
-/// fresh package).
+/// Read and parse the package index at `path`
+/// (`<registry>/packages/<name>.json`).  Returns `Ok(None)` when the
+/// file does not exist (a fresh package).
 ///
 /// # Errors
 /// Returns [`RegistryError::Io`] when the file exists but cannot be
@@ -28,8 +28,7 @@ const REVISION_RESOLUTION_SCHEMA: u32 = 2;
 /// valid package-index JSON, and
 /// [`RegistryError::PackageIndexUnsupportedSchema`] when the parsed
 /// schema is neither [`PACKAGE_INDEX_SCHEMA`] nor the
-/// per-revision-resolution schema.  A missing file is not an error
-/// (`Ok(None)`).
+/// per-revision-resolution schema.
 pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError> {
     if !path.exists() {
         return Ok(None);
@@ -56,19 +55,17 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
 /// trailing newline.  `path` is the index file's on-disk location,
 /// used only for error context.
 ///
-/// `versions` is serialized in **SemVer-ascending** order so existing
-/// versions stay grouped together for human readers, regardless of
-/// what order they were inserted in.  The on-disk shape matches what
-/// `cabin-index` reads back.
+/// `versions` is serialized in SemVer-ascending order for human
+/// readers.  The on-disk shape matches what `cabin-index` reads back.
 ///
 /// # Errors
 /// Returns [`RegistryError::PackageIndexInvalid`] when a version key in
-/// `index` is not valid `SemVer`, and [`RegistryError::Json`] (via `?`)
-/// when serializing the document to JSON fails.
+/// `index` is not valid `SemVer`, and [`RegistryError::Json`] when
+/// serializing the document to JSON fails.
 pub fn render(index: &PackageIndex, path: &Path) -> Result<String, RegistryError> {
-    // Build the JSON value by hand so we can pin version order.  A
-    // plain `serde_json::Map` would sort keys lexicographically,
-    // which makes "10.x" < "9.x" - confusing for humans.
+    // `index.versions` iterates lexicographically ("10.x" < "9.x").
+    // Re-insert in SemVer order into a `serde_json::Map`, which keeps
+    // insertion order under the workspace's `preserve_order` feature.
     let mut versions: Vec<(semver::Version, &serde_json::Value)> = index
         .versions
         .iter()
@@ -167,13 +164,13 @@ pub(crate) fn revision_of(metadata: &PackageMetadata) -> &str {
 /// `existing` (or build a fresh index if `existing` is `None`),
 /// stamping `published_at` on the new revision.
 ///
-/// Revision semantics ([`crate::publish`] module docs have the full
-/// contract): a byte-identical republication is a no-op; different
-/// bytes for an existing version require `allow_new_revision` (the
-/// `--new-revision` opt-in).  The new revision becomes the version's
-/// current one (a file registry has no verification lifecycle), and
-/// its resolution metadata the version's; superseded revisions stay
-/// listed and fetchable, each resolving as it was published.
+/// Revision semantics: a byte-identical republication is a no-op;
+/// different bytes for an existing version require
+/// `allow_new_revision` (the `--new-revision` opt-in).  The new
+/// revision becomes the version's current one (a file registry has no
+/// verification lifecycle), and its resolution metadata the version's;
+/// superseded revisions stay listed and fetchable, each resolving as
+/// it was published.
 pub(crate) fn insert_version(
     existing: Option<PackageIndex>,
     metadata: &PackageMetadata,
@@ -341,8 +338,7 @@ fn resolution_fields(
 /// In-memory representation of one `<registry>/packages/<name>.json`
 /// file.  The `versions` map keeps each version's payload as an
 /// opaque [`serde_json::Value`] so the registry crate doesn't have
-/// to mirror every `cabin-package` metadata field; callers feed in
-/// new versions via `insert_version`.
+/// to mirror every `cabin-package` metadata field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageIndex {
     pub schema: u32,
@@ -352,23 +348,19 @@ pub struct PackageIndex {
 }
 
 /// The per-version document written into `packages/<name>.json`,
-/// projected from a [`PackageMetadata`].  A typed struct (rather than
-/// a hand-rolled `serde_json::json!` literal plus conditional
-/// inserts) so the exact field set and order are visible in one
-/// place and a new metadata field cannot silently slip into - or out
-/// of - the published index.
+/// projected from a [`PackageMetadata`].  The struct fixes the
+/// published field set: a field added to [`PackageMetadata`] is not
+/// published until it is added here.
 ///
 /// Field declaration order is the wire order; `serde_json`'s
 /// `preserve_order` keeps it.  The optional blocks are emitted only
 /// when non-empty, matching the shape older readers and existing
 /// fixtures expect for packages without that metadata.
 ///
-/// `dev_dependencies` and `system_dependencies` are deliberately NOT
-/// projected here: the published index version document only carries
-/// the resolution-relevant `dependencies`.  The index reader
-/// (`cabin-index`) still round-trips dev/system deps opaquely, so
-/// this is a known field-selection decision to revisit if the
-/// published shape ever needs them - not an accidental omission.
+/// `dev_dependencies` and `system_dependencies` are not projected: the
+/// version document carries only the resolution-relevant
+/// `dependencies`.  `cabin-index` reads an absent `dev-dependencies` or
+/// `system-dependencies` key as empty.
 #[derive(Serialize)]
 struct IndexVersionWire<'a, D: Serialize> {
     dependencies: &'a D,
@@ -377,8 +369,9 @@ struct IndexVersionWire<'a, D: Serialize> {
     /// published last; there is no verification lifecycle).
     revision: &'a str,
     /// Every published revision, the current one included.  The map
-    /// value is carried opaquely so previously recorded revisions
-    /// round-trip byte-for-byte.
+    /// value is carried opaquely, so a recorded revision is rewritten
+    /// unchanged except for the `resolution` that
+    /// `keep_superseded_resolution` may add.
     revisions: serde_json::Map<String, serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     features: Option<&'a cabin_core::Features>,
@@ -722,7 +715,6 @@ mod tests {
     #[test]
     fn name_mismatch_fails() {
         let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
-        // Existing index says "fmt" but caller hands us spdlog.
         let err = insert_new(Some(initial), &metadata("spdlog", "1.13.0")).unwrap_err();
         assert!(matches!(
             err,
@@ -752,8 +744,8 @@ mod tests {
         let pos_9 = body.find("\"9.9.9\"").unwrap();
         let pos_101 = body.find("\"10.1.0\"").unwrap();
         let pos_102 = body.find("\"10.2.1\"").unwrap();
-        // 9.9.9 < 10.1.0 < 10.2.1 by SemVer despite lexicographic
-        // would say "10.x" < "9.9.9".
+        // SemVer order; lexicographic order would put "10.x" before
+        // "9.9.9".
         assert!(pos_9 < pos_101);
         assert!(pos_101 < pos_102);
     }
@@ -767,10 +759,10 @@ mod tests {
     }
 
     /// A populated `standards` table is projected into the version
-    /// document in the documented wire shape: sorted targets, fixed
-    /// `c` / `c++` order, `"none"` for forbidden, `{min}` for minima
-    /// (an absent `max` omitted), unconstrained language keys omitted,
-    /// and the two per-target flags emitted only when set.
+    /// document in the documented wire shape: `"none"` for forbidden,
+    /// `{min}` for minima (an absent `max` omitted), unconstrained
+    /// language keys omitted, and the two per-target flags emitted only
+    /// when set.
     #[test]
     fn render_projects_standards_table() {
         use cabin_core::{CStandard, CxxStandard, Requirement, StandardsMetadata, TargetStandards};
@@ -808,7 +800,6 @@ mod tests {
 
         assert_eq!(standards["clib"]["gnu-extensions"], true);
         assert_eq!(standards["clib"]["interface"]["c"]["min"], "c11");
-        // Unconstrained C++ -> the language key is omitted.
         assert!(standards["clib"]["interface"].get("c++").is_none());
     }
 

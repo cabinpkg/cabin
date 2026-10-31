@@ -44,10 +44,11 @@ pub struct RegistryPublishOutcome {
 }
 
 /// Mutate the file registry: place the artifact, then update the
-/// per-package index file.  Both writes go through atomic-rename
-/// guards; if the index update fails after the artifact rename,
-/// the artifact is removed so the registry never holds an
-/// orphaned binary.
+/// per-package index file.  Each write is an atomic rename.  If the
+/// index write fails, the just-placed artifact is removed.  A crash
+/// between the two renames, or a failed removal, leaves an artifact
+/// the index does not record; repeating the publish then fails with
+/// [`RegistryError::OrphanedArtifact`] until the file is removed.
 ///
 /// # Errors
 /// Returns [`RegistryError::BarePackageName`] for an unscoped name,
@@ -67,7 +68,9 @@ pub struct RegistryPublishOutcome {
 /// ([`RegistryError::NewRevisionRequiresOptIn`],
 /// [`RegistryError::RevisionCollision`]),
 /// [`RegistryError::OrphanedArtifact`], index parse/render failures,
-/// and [`RegistryError::Io`] from the atomic writes.
+/// [`RegistryError::Io`] from the atomic writes, and
+/// [`RegistryError::PublishRollback`] when the index write fails and
+/// removing the just-placed artifact fails too.
 pub fn publish_to_registry(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
@@ -80,8 +83,6 @@ pub fn publish_to_registry(
     })?;
     let lock = RegistryLock::acquire(registry_dir)?;
     let result = publish_locked(request);
-    // Drop runs even if `result` is Err, so the lock is always
-    // released.
     drop(lock);
     result
 }
@@ -217,9 +218,10 @@ fn publish_locked(
     // Phase 1: place the artifact via atomic rename.
     atomically_write(&plan.outcome.artifact_path, &request.staged.archive_bytes)?;
 
-    // Phase 2: update the index.  If anything goes wrong, undo the
-    // artifact placement so the registry never carries an orphaned
-    // file.
+    // Phase 2: update the index.  On failure, remove the phase-1
+    // artifact: `plan_publish` found no file at that path and the
+    // lock excludes other publishers, so the removal deletes only
+    // this run's bytes.
     let write_index = || -> Result<(), RegistryError> {
         let body = render(&plan.new_index, &plan.outcome.package_index_path)?;
         atomically_write(&plan.outcome.package_index_path, body.as_bytes())
@@ -245,10 +247,8 @@ fn publish_locked(
     })
 }
 
-/// Both registry paths always nest at least one directory below the
-/// registry root.  Use `if let` rather than `.expect(...)` so a
-/// future change that returns a bare filename surfaces as a clean
-/// skip rather than a panic in a recoverable function.
+/// Both registry paths nest at least one directory below the registry
+/// root, so `parent()` is always `Some`.
 fn ensure_parent_dir(path: &Path) -> Result<(), RegistryError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| RegistryError::Io {
@@ -301,8 +301,6 @@ fn plan_publish(
         insert_version(existing, metadata, &publish_stamp(), request.new_revision)?;
 
     if disposition == InsertDisposition::Inserted && artifact_path.exists() {
-        // Artifact present but index does not record this revision:
-        // refuse to silently overwrite.
         return Err(RegistryError::OrphanedArtifact {
             name: metadata.name.clone(),
             version: metadata.version.clone(),
@@ -421,9 +419,7 @@ mod tests {
                 upstream: None,
                 yanked: false,
                 checksum,
-                // `staged_metadata_for_registry` overrides this, but
-                // give it a sane default for tests that bypass that
-                // path.
+                // `staged_metadata_for_registry` overrides this.
                 source: SourceMetadata {
                     kind: "archive".to_owned(),
                     path: {

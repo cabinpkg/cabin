@@ -6,15 +6,13 @@
 //! Client-side publish derived the stored document via
 //! `cabin_package::metadata::canonical_metadata` from this same
 //! manifest; the verifier re-derives the document through that exact
-//! seam and requires field-by-field agreement (JSON value equality,
-//! not textual: key order and whitespace do not matter, but a
-//! different value, a missing field, or an extra field does), so a
-//! publisher cannot ship metadata (dependencies, standards, build
-//! settings, ...) that the archive's manifest does not back.  The
-//! manifest must also pass `cabin-package`'s publishability rules -
-//! the real client cannot produce an archive that violates them, and
-//! several of them (escaping source paths, `[patch]` tables) never
-//! surface in the metadata document at all.
+//! seam and requires field-by-field JSON value equality (see
+//! `check`), so a publisher cannot ship metadata (dependencies,
+//! standards, build settings, ...) that the archive's manifest does
+//! not back.  The manifest must also pass `cabin-package`'s
+//! publishability rules - the real client cannot produce an archive
+//! that violates them, and several of them (escaping source paths,
+//! `[patch]` tables) never surface in the metadata document at all.
 //!
 //! The registry dependency-key grammar (canonical `<scope>/<name>`
 //! keys in `dependencies` and `dev-dependencies`) needs no

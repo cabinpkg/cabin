@@ -22,10 +22,9 @@ pub struct DryRunRequest<'a> {
 
 /// Result of a publish dry run.
 ///
-/// `registry_modified` is always `false` for the dry-run flow -
-/// the field is kept on the surface so JSON consumers can read
-/// it and so registry-aware publish paths can flip it when they
-/// mutate a registry.
+/// `registry_modified` is always `false`; it exists so the JSON report
+/// carries the same `registry_modified` key as the file-registry
+/// publish report.
 #[derive(Debug, Clone)]
 pub struct DryRunReport {
     pub name: PackageName,
@@ -56,7 +55,10 @@ pub struct DryRunReport {
 /// to compare against and skips it, flagging the skip in the report.
 ///
 /// # Errors
-/// Returns [`PublishError::StandardCompatibility`] when a PL1 lint
+/// Returns [`PublishError::BarePackageName`] or
+/// [`PublishError::InvalidDependencyName`] for an unscoped package
+/// name or registry dependency key,
+/// [`PublishError::StandardCompatibility`] when a PL1 lint
 /// rejects the package, and [`PublishError::Package`] when staging,
 /// archiving, or writing the artifacts fails - it propagates every
 /// `cabin_package::PackageError` raised by `stage_with_project` /
@@ -71,8 +73,7 @@ pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError>
         &request.workspace_dep_requirements,
     )?;
     // A dry-run rehearses a publish, so the bare-name gates fire
-    // here too - the point of `--dry-run` is to surface exactly what
-    // the real publish would reject.
+    // here too.
     crate::registry::require_scoped_name(&staged.name, request.manifest_path)?;
     crate::registry::require_scoped_dependency_names(&staged.metadata, request.manifest_path)?;
     // Reject on a PL1 error before writing any staging output.

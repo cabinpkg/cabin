@@ -313,7 +313,6 @@ fn assert_rejected(archive: &std::path::Path, pending: &PendingVersion, reason: 
     assert_eq!(verdict, Verdict::Rejected(vec![reason]));
 }
 
-/// A one-entry hostile archive is common enough to name.
 fn hostile_one(dir: &TempDir, entry: Entry) -> (PathBuf, PendingVersion) {
     hostile_pending(dir, &assemble(&[entry]))
 }
@@ -398,7 +397,7 @@ fn scoped_archive_verifies() {
 
 #[test]
 fn long_paths_within_the_cap_verify() {
-    // A 120-byte path is well under the 256-byte default cap; the real
+    // A 127-byte path is well under the 256-byte default cap; the real
     // packager emits it as an ordinary long name field and the
     // verifier must tolerate it.
     let dir = TempDir::new().unwrap();
@@ -660,10 +659,10 @@ fn entry_flood_is_rejected() {
 
 #[test]
 fn decompression_bomb_is_rejected() {
-    // A tiny deflate body that declares a 64 MiB uncompressed size: the
-    // cheap pre-check on the declared sum aborts before anything is
-    // inflated, well under the ratio floor (~24 MiB for the default
-    // entry cap).
+    // A tiny deflate body that declares a 64 MiB uncompressed size,
+    // well over the ratio floor (~24 MiB for the default entry cap):
+    // the cheap pre-check on the declared sum aborts before anything
+    // is inflated.
     let dir = TempDir::new().unwrap();
     let mut entry = Entry::deflated("cabin.toml", b"x");
     entry.usize_ = 64 * 1024 * 1024;
@@ -1043,8 +1042,8 @@ fn a_revision_contradicting_the_checksum_is_an_operational_failure() {
 #[test]
 fn a_revisionless_source_path_is_rejected() {
     // The canonical `source.path` embeds the packaging revision; a
-    // stored document carrying the pre-revision filename no longer
-    // matches what the archived manifest derives.
+    // stored document whose filename lacks it does not match what the
+    // archived manifest derives.
     let dir = TempDir::new().unwrap();
     let (archive, mut pending) = benign(&dir);
     pending.metadata["source"]["path"] = serde_json::json!("../artifacts/demo/demo-1.2.3.zip");
@@ -1053,8 +1052,8 @@ fn a_revisionless_source_path_is_rejected() {
 
 #[test]
 fn a_build_metadata_version_is_rejected_as_unpublishable() {
-    // `+cabin.N` was the old packaging axis; the revision id replaced
-    // it, so such a manifest is no longer publishable and an archive
+    // The packaging axis is the revision id, so a version carrying
+    // build metadata (`+cabin.N`) is not publishable and an archive
     // carrying one can never verify.
     let dir = TempDir::new().unwrap();
     let manifest = "[package]\nname = \"demo\"\nversion = \"1.2.3+cabin.1\"\n";
@@ -1095,7 +1094,7 @@ fn standards_table_mismatch_is_rejected() {
     assert_rejected(&archive, &pending, Reason::LanguageStandardMismatch);
 }
 
-/// The workflow scripts against the binary's stdout JSON and exit
+/// `cargo registry-verify` parses the binary's stdout JSON and exit
 /// codes; pin that contract.
 mod binary {
     use super::*;
@@ -1228,9 +1227,10 @@ mod binary {
 //
 // A provenance-bearing package must be the declared transformation
 // of its pinned upstream archive: extract (with `strip-prefix`),
-// apply the copy steps, collect under the packaging include/exclude
-// policy, and match the published tree byte-for-byte except the root
-// `cabin.toml`.
+// apply the copy steps and declared patches, collect under the
+// packaging include/exclude policy, and match the published tree
+// byte-for-byte except the root `cabin.toml` and the declared patch
+// files.
 
 const UPSTREAM_LIB_CC: &str = "int lib() { return 42; }\n";
 const UPSTREAM_LIB_H: &str = "#pragma once\nint lib();\n";
@@ -1948,9 +1948,8 @@ fn a_patch_path_shadowing_an_upstream_file_is_rejected() {
     // A publisher declares a real upstream source file as a "patch"
     // and ships arbitrary bytes there; without the shadow guard the
     // exclusion would launder those bytes past the tree comparison.
-    // The patch file must be a valid no-op diff so it parses and
-    // applies (the attack's premise); the shadow check rejects it
-    // regardless.
+    // The shadow check runs after the patches apply, so the patch
+    // file must be a valid no-op diff to reach it.
     let dir = TempDir::new().unwrap();
     let (upstream, hex) = patched_upstream(&dir);
     let manifest = format!(
@@ -1961,10 +1960,8 @@ fn a_patch_path_shadowing_an_upstream_file_is_rejected() {
          [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
          interface-cxx-standard = \"c++17\"\n"
     );
-    // A valid no-op modify diff against include/lib.h.  It must be a
-    // pure diff: the grammar rejects any free text around it (the
-    // C/diff-polyglot guard), so the shadow check is the layer this
-    // test exercises - it fires even for bytes that survive parsing.
+    // A no-op modify diff against include/lib.h.  Free text around it
+    // would reject as `malformed` first (the C/diff-polyglot guard).
     let backdoor_diff = "--- a/include/lib.h\n+++ b/include/lib.h\n@@ -1,2 +1,2 @@\n \
          #pragma once\n int lib();\n";
     let (archive, pending) = hand_pending(
@@ -1987,12 +1984,12 @@ fn a_patch_path_shadowing_an_upstream_file_is_rejected() {
 #[test]
 fn a_polyglot_patch_doubling_as_a_build_input_is_rejected() {
     // The complement of the shadow test: the declared patch path does
-    // NOT exist upstream, so the exclusion would exempt its bytes from
+    // not exist upstream, so the exclusion would exempt its bytes from
     // the tree comparison entirely, and the manifest also lists the
     // path as a target source.  The shipped bytes are valid C followed
-    // by a comment-wrapped no-op diff - a C/diff polyglot the old
-    // preamble-skipping parser applied cleanly, which would have
-    // verified publisher-authored source that no declared
+    // by a comment-wrapped no-op diff - a C/diff polyglot that a
+    // parser skipping free-text preamble would apply cleanly,
+    // verifying publisher-authored source that no declared
     // transformation produced.  The strict grammar rejects the free
     // text as `malformed` before any application.
     let dir = TempDir::new().unwrap();

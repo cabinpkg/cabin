@@ -76,11 +76,10 @@ fn skeleton(name: &str) -> String {
 
 /// Hand-maintained, unambiguous slurs only; the charter is "a name
 /// containing this going live unreviewed would be an incident",
-/// nothing milder.  Substring matching over the skeleton fold on
-/// purpose - separator- and homoglyph-laundered spellings
-/// (`n-igger`, `n1gger`) still match, and the Scunthorpe false
-/// positive costs a delay, never a rejection.  Deliberately not a
-/// general profanity vocabulary.
+/// nothing milder.  Substring matching over the skeleton fold, so
+/// separator- and homoglyph-laundered spellings (`n-igger`,
+/// `n1gger`) still match; the Scunthorpe false positive costs a
+/// delay, never a rejection.
 const PROFANITY: &[&str] = &["nigger", "nigga", "faggot", "kike"];
 
 /// Run every name advisory for the candidate against the corpus.
@@ -88,9 +87,6 @@ const PROFANITY: &[&str] = &["nigger", "nigga", "faggot", "kike"];
 /// findings are deterministic: package collisions in corpus order,
 /// then scope collisions in lexicographic order, then profanity.
 pub fn advise(scope: &str, name: &str, corpus: &Corpus) -> Vec<Finding> {
-    // The vetted-once skip: a verified version means the name was
-    // accepted exactly once already (advisories proceeded, or an
-    // operator approved it past an abstain).
     if corpus
         .packages
         .iter()
@@ -222,8 +218,8 @@ mod tests {
 
     #[test]
     fn a_vetted_name_skips_every_advisory() {
-        // The name itself carries a slur-free but confusable spelling;
-        // its own verified sibling version turns everything off.
+        // Confusable with `fmtl1b/fmt`, but a verified version of its
+        // own package skips every advisory.
         let vetted = corpus(&[("fmtlib", "fmt", true), ("fmtl1b", "fmt", false)]);
         assert!(advise("fmtlib", "fmt", &vetted).is_empty());
         // An unvetted flag (pending- or rejected-only) does not: a
