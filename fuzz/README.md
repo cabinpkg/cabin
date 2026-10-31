@@ -69,9 +69,9 @@ the extraction targets, writes the patch seeds with `git diff` against
 a copy of the harness's tree, and collects every `cabin.toml` under
 `examples/` and `ports/`. `dicts/` holds the libFuzzer dictionaries.
 
-`Cargo.lock` was seeded from the root lockfile, so the shared
-dependencies (`zip`, `toml`, the deflate backend, ...) started at the
-versions Cabin ships; Dependabot updates the two lockfiles separately.
+The fuzz crate has its own `Cargo.lock`; Dependabot updates it
+separately from the root lockfile, so shared dependencies (`zip`, `toml`,
+the deflate backend, ...) can drift from the versions Cabin ships.
 
 ## OSS-Fuzz
 

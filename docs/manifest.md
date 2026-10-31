@@ -353,9 +353,10 @@ naming both dependency paths; agreeing values (`FOO` and `FOO=1`) count once.  A
 `defines` and its package's `[profile]` `defines` override an incoming interface definition of the
 same macro.
 
-Before this rule, every edge carried include directories to all transitive consumers.  A consumer
-that compiled only because of that leak now misses a header - or, worse, silently finds a system
-copy of it while linking the dependency's archive.  The fix depends on who includes the header:
+A consumer that includes a header reachable only through another target's private edge (as
+`app` reaches `util` above) misses it - or, worse, silently finds a system copy of it while
+linking the dependency's archive.  The fix depends on who
+includes the header:
 when the consumer's own sources do, it declares that dependency itself; when a library's public
 headers do, the library marks its edge public.  A registry library needs a corrected release (or
 packaging revision) for the latter.  No linter flags under-declaration yet.

@@ -106,13 +106,6 @@ cxx-standard = { workspace = true }
 - See [`language-standards.md`](language-standards.md) for the full semantics: precedence, the
   escape-hatch conflict rule, interface enforcement, and publish-time archive normalization.
 
-### Backwards compatibility
-
-- Manifests without `[workspace]` keep behaving as single-package projects.
-- Manifests with `[workspace] members = [...]` keep working unchanged.  All `[workspace]` fields
-  beyond `members` are optional.
-- Older lockfiles, package archives, and registry index entries are unaffected.
-
 ## Workspace root discovery
 
 When the user runs `cabin <subcommand>` without an explicit `--manifest-path`, Cabin walks
@@ -181,9 +174,8 @@ The same flag bundle applies to `cabin build`, `cabin metadata`, `cabin resolve`
 
 - `--workspace`, `-p / --package`, and `--default-members` are mutually exclusive.
 - **Selection flags:** `--exclude` is only valid in combination with `--workspace` or
-  `--default-members`.  Older behavior also accepted `--exclude` with the no-flag "current package"
-  default; Cabin made the rule stricter (closer to Cargo) so a typo on a single-package project
-  surfaces a clear error rather than silently doing the wrong thing.
+  `--default-members`, so a typo on a single-package project surfaces a clear error rather than
+  silently doing the wrong thing.
 - Unknown package names (whether selected or excluded) produce `package 'foo' is not a member of
   this workspace; available members: alpha, beta, gamma`.
 
@@ -198,12 +190,12 @@ The same flag bundle applies to `cabin build`, `cabin metadata`, `cabin resolve`
   the smallest graph that covers the request.
 - **`cabin resolve`** walks the **selected package closure** - the resolved selection plus every
   local path-dependency reachable from it - and unions every reachable member's versioned
-  dependencies into a single resolution.  The workspace loader added the closure walk so a registry
-  dep declared by a path-dep `lib` reaches the resolver when the user picks `app`.  The
+  dependencies into a single resolution, so a registry dep declared by a path-dep `lib` reaches
+  the resolver when the user picks `app`.  The
   selection-aware closure extends all the way down into *registry materialization*: when the loader
   expands versioned dependencies into the package graph, it only requires registry entries for
   packages reachable from the selected closure.  Versioned deps of unrelated workspace members (or
-  unrelated path-deps) are silently skipped, so `cabin resolve -p app` no longer requires the index
+  unrelated path-deps) are silently skipped, so `cabin resolve -p app` does not require the index
   to know about an unrelated member's dependency on `spdlog`.  The lockfile, by contrast, is still
   workspace-wide once produced - a member-scoped run rewrites the entries its closure resolves and
   keeps the rest (only a selection covering every member, root package included, prunes), so
@@ -214,11 +206,10 @@ that only has members with `[dependencies]` produces a lockfile rooted at a synt
 `cabin/workspace` 0.0.0 identity.  The hosted registry reserves the `cabin` scope, and resolving
 a pure workspace against any other index that carries or depends on `cabin/workspace` fails.  Member-level requirement conflicts (`fmt = "^10"` and `fmt
 = "^11"` in two members) surface as a clear `incompatible workspace requirements for 'fmt'` error.
-- **`cabin update`** keeps its historical `--package <name>` meaning: refresh only the named
-  registry dependency.  To avoid colliding with that flag, `cabin update` exposes a *reduced*
+- **`cabin update`** takes `--package <name>` as the registry dependency to refresh, not as a
+  workspace member.  To avoid colliding with that flag, `cabin update` exposes a *reduced*
   workspace-selection bundle - `--workspace`, `--default-members`, and `--exclude` - but **not**
-  `-p` / `--package`.  Existing scripts that pass `cabin update --package <dep>` keep working
-  unchanged.
+  `-p` / `--package`.
 
 Cabin makes the scope explicit: `cabin update --package
   <name>` only targets *direct* versioned dependencies of the
@@ -320,6 +311,5 @@ settings, compiler-cache settings, config discovery, patches, source replacement
 offline mode, and dev / test / example target kinds all participate in workspace selection where
 their owning feature requires it.
 
-The remaining non-goals are network-side registry operation and remote publication.  Cabin can read
-sparse HTTP indexes and publish to a local file registry, but it does not implement a registry
-server, HTTP publish, registry authentication, or a remote build cache.
+Registry access is not workspace-specific: [`remote-registry.md`](remote-registry.md) covers
+reading from, publishing to, and logging in to a remote registry.  Cabin has no remote build cache.

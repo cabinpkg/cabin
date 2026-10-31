@@ -361,8 +361,7 @@ a conservative fallback.
 
 Language-standard support is validated separately, against the standards the selected packages
 request rather than a fixed capability field: see the threshold tables in
-[Language standards](language-standards.md).  The fixed `std_flag` / `cxx_standard_17` /
-`c_standard_11` capability fields were removed along with the fixed standards.
+[Language standards](language-standards.md).
 
 Archiver detection records a smaller [`ArchiverCapabilities`] set:
 
@@ -377,12 +376,12 @@ Before any Ninja file is written, `cabin build` runs the detection report throug
 `cabin_build::validate_toolchain_for_backend`.  The validator surfaces clear errors when:
 
 - the C++ compiler is `unknown`, or lacks the capabilities its dialect needs (GCC/Clang:
-  `gcc_style_flags`, `depfile_mmd_mf`; MSVC: `msvc_style_flags`).  The C compiler, when a `.c`
-  source exists, must likewise satisfy its dialect's contract;
+  `gcc_style_flags`, `depfile_mmd_mf`; MSVC: `msvc_style_flags`).  The C compiler, when a C compile
+  is planned, must likewise satisfy its dialect's contract;
 - a compiler does not accept the flag spelling for one of the *requested* language standards (the
-  effective standards of the selected packages' compiles - default `c++17`, plus `c11` when a `.c`
-  source exists), so e.g. a too-old `cl` or GCC is rejected up front with the offending standard
-  named.  See the threshold tables in [Language standards](language-standards.md);
+  effective standards of the planned compiles), so e.g. a too-old `cl` or GCC is rejected up front
+  with the offending standard named.  See the threshold tables in
+  [Language standards](language-standards.md);
 - the archiver is `unknown`, or cannot produce a static library in its dialect (GNU `ar crs`, or
   MSVC `lib /OUT:`);
 - the resolved tools span **both** dialects - an MSVC `cl` paired with a GNU `ar`, or a GCC/Clang
@@ -543,15 +542,14 @@ explicitly selected toolset is honored.
 
 - **A GCC/Clang-style toolchain on Windows (MinGW, clang) is best-effort, not a CI-tested
   configuration.** The names resolve - the Windows fallback lists include `clang` / `gcc` / `g++` /
-  `llvm-ar` / `ar` - and the rough edges that used to make it fail outright are gone: a C++-only GNU
-  build no longer trips the single-dialect check on a defaulted `cc=cl` (the C compiler is validated
-  only when a `.c` source exists); `cabin tidy` spells its compile database in the *resolved*
-  compiler's dialect, not the host default; and the archiver fallback is `llvm-ar` (an `ar
-  crs`-compatible tool) rather than the `lib.exe`-only `llvm-lib`.  Even so, MSVC is the only
-  Windows dialect CI exercises, so a GNU toolchain on Windows is unsupported in the sense that it is
-  untested.  Set `CC`, `CXX`, **and** `AR` together to one toolchain's tools: the resolver fills
-  each slot from its own host default, so mixing a GNU `CXX` with a defaulted MSVC `AR` (or a
-  defaulted MSVC `CC` once a `.c` source is present) is still rejected by the
+  `llvm-ar` / `ar` - a C++-only GNU build does not trip the single-dialect check on a defaulted
+  `cc=cl` (the C compiler is validated only when a planned compile uses it), and `cabin tidy` spells
+  its compile database in the *resolved* compiler's dialect, not the host default.  Even so, MSVC is
+  the only Windows dialect CI exercises, so a GNU toolchain on Windows is unsupported in the sense
+  that it is untested.  Set `CC`, `CXX`, **and** `AR` together to one toolchain's tools: the
+  resolver fills each slot from its own host default, and the archiver list tries `lib` and
+  `llvm-lib` before `llvm-ar` / `ar`, so mixing a GNU `CXX` with a defaulted MSVC `AR` (or a
+  defaulted MSVC `CC` once a C compile is planned) is still rejected by the
   [single-dialect validation](#validation-against-the-c-backend).
 - **`system = true` dependencies are not supported under MSVC.** They are resolved with pkg-config,
   whose GNU-style `-L` / `-lfoo` / `-pthread` output the MSVC `cl` / `link` command line cannot

@@ -121,10 +121,10 @@ WWW-Authenticate: Cabin login_url="https://cabinpkg.com/docs/remote-registry"
 The grammar is the scheme token `Cabin` (ASCII case-insensitive, per RFC 7235) followed by a
 quoted `login_url` parameter carrying an absolute `http(s)` URL.  The header is byte-identical
 on every path and failure reason - a missing token on the mutation surface, an invalid token,
-and an unknown path all answer the same challenge - so the 401s the Bearer plane still emits
-stay indistinguishable from one another.  Because the read plane serves unauthenticated `GET`s,
-reads themselves no longer challenge; the challenge survives on every non-read-plane path of
-the index host.
+and an unknown path all answer the same challenge - so the Bearer plane's 401s stay
+indistinguishable from one another.  Because the read plane serves unauthenticated `GET`s,
+anonymous reads are never challenged; the challenge answers every non-read-plane path of the
+index host and any read whose presented token fails to validate.
 
 ## Client-side token handling
 

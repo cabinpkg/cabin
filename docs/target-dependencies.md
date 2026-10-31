@@ -222,8 +222,8 @@ platforms that cannot agree on a version fail resolution, as two unconditional o
 graph, so two packages that claim one native identity collide, and two path dependencies that point
 at each other form a cycle, even when gated to different platforms.
 
-A lockfile written before Cabin locked every platform lacks the dependencies gated to other
-platforms; `--locked` reports it out of date until one unlocked resolution adds them.
+An older lockfile can lack the dependencies gated to other platforms; see
+[`lockfile.md`](lockfile.md#format).
 
 ## CLI behavior
 

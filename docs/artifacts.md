@@ -140,8 +140,8 @@ differs only in how archive bytes arrive at `cabin-artifact`:
    existing artifact path verifies SHA-256, atomic-renames the bytes into
    `<cache>/archives/sha256/<hex>.zip`, and safely extracts into `<cache>/sources/sha256/<hex>/`.
 
-For local archive sources, cache-hit behavior is unchanged: an archive whose SHA-256 is already
-present in the artifact cache is not read again from the source path.  For HTTP sources, Cabin
+For local archive sources, an archive whose SHA-256 is already present in the artifact cache is
+not read again from the source path.  For HTTP sources, Cabin
 currently downloads the archive bytes before `cabin-artifact` can observe the cache hit; the
 existing cache entry is still verified and reused, but the HTTP archive request still happens once
 per resolved package in that run.

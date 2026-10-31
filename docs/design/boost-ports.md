@@ -2,8 +2,9 @@
 
 This is the working ledger for porting every Boost 1.92.0 library as a `cabin-ports/boost-*`
 [foundation port](foundation-ports.md).  It records the inventory, the rules each port follows
-and the evidence behind them, the Cabin gaps the work found, and per-library status.  It is
-reconciled against the repository, open pull requests, and the registry whenever the work resumes.
+and the evidence behind them, the Cabin gaps that still block libraries, and per-library status.
+It is reconciled against the repository, open pull requests, and the registry whenever the work
+resumes.
 
 ## Release
 
@@ -14,7 +15,7 @@ reconciled against the repository, open pull requests, and the registry whenever
   "<repo>-boost-1.92.0"`, pinned by SHA-256.
 - Nothing publishes until the whole corpus is merged and locally validated.  Then one
   `ports-publish.yml` dispatch publishes the set, and `registry-verify.yml` and a clean
-  credential-free consumer confirm it.
+  credential-free consumer confirm it.  No Boost port has been published yet.
 
 ## Inventory
 
@@ -84,6 +85,19 @@ Each patch is the smallest correction that makes the port correct under Cabin.
 | `boost-sort` | `common/util/algorithm.hpp` and `common/scheduler.hpp` include `<cstdint>` | the headers use `uint32_t` and friends without the include, which fails on libstdc++ |
 | `boost-sort` | `common/util/traits.hpp` includes `<string>` | the header uses `std::string` without the include, which fails on MSVC |
 
+### Platform and consumer build settings
+
+These upstream build settings map to manifest features, not patches:
+
+- Platform-specific sources go in `[target.'cfg(...)'.sources]` tables (`atomic`, `context`,
+  `coroutine`, `fiber`, `filesystem`, `locale`, `log`, `stacktrace`, `thread`).
+- x86 instruction-set variants use `[target.<name>.instruction-sets]` (`atomic`, `log`); the
+  library picks one by CPUID unless the compiler's baseline already has it.
+- Defines that upstream requires of every consumer of the static library are target
+  `interface-defines`: `BOOST_CONTRACT_STATIC_LINK` and `BOOST_STACKTRACE_STATIC_LINK`.
+- No port needs MSVC `/bigobj`: the Windows dry-run builds `json`, `log`, `xpressive`, and the
+  large consumer tests without it.
+
 ### Consumer tests
 
 Every port has a consumer test at `ports/boost-<x>/1.92.0/tests/main.cc` that includes the
@@ -95,20 +109,27 @@ macOS, and Windows.
 
 ## Cabin gaps and blockers
 
-| Gap | Libraries | State |
+Ports may not declare system dependencies, and the SDKs below cannot be built as ports.  Their
+libraries are `blocked`, and the listed parts of merged ports are unavailable: the SSL headers
+compile only for a consumer that supplies OpenSSL itself, the MPI and OpenCL headers also need a
+blocked library ([Dependencies](#dependencies)), and `boost_cobalt_io_ssl` is left out of its port.
+
+| SDK | Blocked libraries | Unavailable parts of merged ports |
 | --- | --- | --- |
-| Platform-specific sources are not self-guarded | `thread`, `locale`, `log`, `fiber`, `stacktrace`, `context`, others | done: `[target.'cfg(...)'.sources]` tables (#2035) |
-| Assembly sources (`.S` through the GCC/Clang driver, MSVC `.asm` through `ml64`) | `context`, and through it `coroutine`, `coroutine2`, `fiber`, `cobalt`, `asio`, `beast`, `process`, `log` | done: `.S` and `.asm` sources (#2037) |
-| Archive above the operator `max_archive_bytes` (16 MiB) | `math` (30.6 MB compressed; the cap is the same in every quota class), and everything that depends on it | done: `[package] include` archives only the listed paths (#2038); `include/` alone is 2.4 MB |
-| Defines a consumer must set: Cabin propagated no defines to consumers | `stacktrace` (`BOOST_STACKTRACE_LINK`); `contract` shipped header-only instead of requiring `BOOST_CONTRACT_STATIC_LINK` | done: target `interface-defines` (#2056) carry upstream's public `*_STATIC_LINK` |
-| Per-source instruction sets: ports cannot pass `-m<isa>` | `atomic` (SSE2/SSE4.1 address search), `log` (SSSE3/AVX2 dump) | done: `[target.<name>.instruction-sets]` (#2058); the variants build on x86, and the library picks one by CPUID unless the compiler's baseline already has it |
-| MSVC `/bigobj`: ports cannot pass compiler flags | `json`, `log`, `xpressive`, and the large consumer tests | not hit: the Windows dry-run builds them and their consumer tests without it (#2052) |
-| SDKs Cabin cannot provide: ports may not declare system dependencies, and these SDKs cannot be built as ports | `python`, `parameter_python` (Python); `mpi`, `graph_parallel`, `property_map_parallel` (MPI); `compute` (OpenCL); `mysql`, `redis` (OpenSSL) | decided: the SDKs become ordinary Cabin packages and the final consumer may select a system provider ([capability roadmap](design/capability-roadmap/ledger.md) stages 06, 12, 13) |
+| Python | `python`, `parameter_python` | |
+| MPI | `mpi`, `graph_parallel`, `property_map_parallel` | `odeint`'s MPI backend |
+| OpenCL | `compute` | `odeint`'s and `ublas`'s OpenCL headers |
+| OpenSSL | `mysql`, `redis` | the SSL headers of `asio`, `beast`, and `mqtt5`; `cobalt`'s `boost_cobalt_io_ssl` |
+
+The decided approach makes each SDK an ordinary Cabin package whose final consumer may select a
+system provider.  It is not implemented: it lands through
+[capability roadmap](design/capability-roadmap/ledger.md) stages 06, 12, and 13.
 
 ## Status
 
-`not_started` -> `in_progress` -> `locally_validated` (the port and its consumer test pass the
-local preflight against a disposable registry) -> `merged` -> `published_pending` -> `verified`.
+`merged` means the port and its consumer test passed the local preflight against a disposable
+registry and are in `ports/`; it does not mean published.  After the publish, a port is
+`published_pending` until registry verification and a clean consumer confirm it as `verified`.
 `blocked` names its blocker.
 
 | Module | Package | Commit | Kind | Std | Direct deps | Status | Notes |
@@ -137,7 +158,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `config` | `boost-config` | `115e718e0fd72329e69fc776dac99811385d6f77` | header-only | c++98 | 0 | merged |  |
 | `container` | `boost-container` | `f74270de43714edccf17b33eca454348d47402b7` | compiled | c++14 | 4 | merged | `alloc_lib.c` is C, so its four C++-only edges carry `ignore-interface-standard` |
 | `container_hash` | `boost-container-hash` | `2698b43803c012601e6bb1a6116e83767b97986c` | header-only | c++11 | 3 | merged |  |
-| `context` | `boost-context` | `cc1b9e02cd530d6607becc984e1e5bfa4f7b3600` | compiled | c++14 | 7 | merged | fcontext with each platform's `.S` or MSVC `.asm` sources (#2037); Windows is x64 only, since arm64 MSVC needs armasm |
+| `context` | `boost-context` | `cc1b9e02cd530d6607becc984e1e5bfa4f7b3600` | compiled | c++14 | 7 | merged | fcontext with each platform's `.S` or MSVC `.asm` sources; Windows is x64 only, since arm64 MSVC needs armasm |
 | `contract` | `boost-contract` | `723fe65e41c1c942e6b7637c3bdc72e283d7beca` | compiled | c++14 | 15 | merged |  |
 | `conversion` | `boost-conversion` | `71b14ad1dae1d2be91ad310007c749ca93dc2e72` | header-only | c++11 | 4 | merged |  |
 | `convert` | `boost-convert` | `6dd61f248aba9e895346bc1c3bacc2ad007bcc9c` | header-only | c++14 | 11 | merged | `boost/convert/charconv.hpp` needs C++17 |
@@ -188,7 +209,7 @@ local preflight against a disposable registry) -> `merged` -> `published_pending
 | `lockfree` | `boost-lockfree` | `9a06cd191f3226d4b77a1bc304df991ab470246f` | header-only | c++14 | 8 | merged |  |
 | `log` | `boost-log` | `f0d196ee03609d8cea8448bc4ad5889d52d9e4a0` | compiled | c++14 | 36 | merged | `boost_log` and `boost_log_setup`; SSSE3/AVX2 dump on x86; Windows builds without the event log, which needs `mc.exe` |
 | `logic` | `boost-logic` | `9b8703a2d6623405323b892f1d126a6b17ca1651` | header-only | c++98 | 2 | merged |  |
-| `math` | `boost-math` | `f12be767c04d9499aaa6f88b22d5f1b464c1c27a` | header-only | c++14 | 9 | merged | `[package] include` archives `LICENSE` and `include/` (#2038); the 30.6 MB release tree is above the 16 MiB archive cap |
+| `math` | `boost-math` | `f12be767c04d9499aaa6f88b22d5f1b464c1c27a` | header-only | c++14 | 9 | merged | `[package] include` archives `LICENSE` and `include/`; the 30.6 MB release tree is above the 16 MiB archive cap, which is the same in every quota class |
 | `metaparse` | `boost-metaparse` | `5a7d50bda78dc7a2ef667a3b10ddef05f26c0256` | header-only | c++98 | 5 | merged |  |
 | `move` | `boost-move` | `b1ecb39a75ed2de17c23c46a005ac79f59a528ca` | header-only | c++98 | 1 | merged |  |
 | `mp11` | `boost-mp11` | `c3eba6ac6be2e21af33a1b2ec97634cd01bcc447` | header-only | c++11 | 0 | merged |  |

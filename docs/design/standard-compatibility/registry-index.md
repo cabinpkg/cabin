@@ -9,12 +9,10 @@ where those inputs live in the index so that index consumers - the resolver's pr
 (`preference-mode.md`), publish lints (`publish-lints.md`), and registry UIs - can evaluate them
 without downloading source archives.
 
-**Why the schema is designed before the registry ships.**  Retrofitting is the expensive path.
+**Why the field is part of the first registry format.**  Retrofitting is the expensive path.
 The index loader rejects unknown fields (`docs/package-index.md`, "Validation"), so a field added
 after public registries exist forces a lockstep migration: every published index document and
-every deployed loader must move together.  Designed now - while `docs/registry-design.md` still
-scopes Cabin to the local file registry and the read-only sparse HTTP client - the field is part
-of the first public registry format and acceptance ships in loaders before any registry emits it.
+every deployed loader must move together.
 A package-level summary is listed only as a fallback if index size ever becomes a problem
 (section 7); it is not the design.
 
@@ -186,15 +184,11 @@ negligible next to each version's `dependencies` map.
 ## 6. Migration
 
 - The field is additive and optional; the document stays `schema = 1`, no version bump.
-- Because loaders reject unknown fields, **loader acceptance of `standards` must ship before any
-  registry emits it**.  No public registry exists yet, so shipping acceptance first costs
-  nothing - this ordering is the retrofit-cost rationale of section 1 in concrete form.  (Once
-  the writer lands, a local file registry produced by a newer Cabin is unreadable by older
-  Cabins; acceptable pre-1.0, to be called out in release notes.)
-- The existing `language` passthrough on version metadata (the `[package]`-level manifest fields,
-  preserved as-is, round-trip only, never consumed by the resolver) is unchanged and stays.
-  `standards` is the typed, evaluated, per-target consumption form; the passthrough remains
-  archival.
+- Because loaders reject unknown fields, a Cabin that predates `standards` cannot read an index
+  entry that carries it, including a local file registry written by a newer Cabin.
+- The `language` passthrough on version metadata (the `[package]`-level manifest fields,
+  preserved as-is, round-trip only, never consumed by the resolver) stays archival; `standards`
+  is the typed, evaluated, per-target consumption form.
 
 ## 7. Fallback: package-level summary (not chosen)
 

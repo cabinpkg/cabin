@@ -3,7 +3,7 @@
 ## 1. Status and scope
 
 This document is the **normative** specification of resolver-level language-standard
-compatibility filtering.  Where implementation code and this document disagree, this document
+compatibility.  Where implementation code and this document disagree, this document
 wins.  Existing type names in the code (for example those in
 `crates/cabin-core/src/language_standard.rs`) are non-authoritative implementation detail; the
 implementation must be brought into agreement with this document, not the other way around.
@@ -18,8 +18,8 @@ In scope:
 - How a dependency target's declarations map to a requirement on consumers, including
   header-only inference and the cross-language defaults.
 - How requirements propagate along public dependency edges.
-- Edge compatibility and package-version viability, as used by the resolver to filter candidate
-  versions.
+- Edge compatibility and package-version viability, as used by the resolver to order candidate
+  versions (D14).
 - Proofs of the algebraic and computational properties the implementation and its tests rely on.
 
 Out of scope (specified elsewhere, consumed here as resolved inputs):
@@ -170,7 +170,7 @@ set of directed dependency edges $E \subseteq T \times T$, where $(c, d) \in E$ 
 depends on target $d$.  Each edge is classified **public** or **private**;
 $E_{\mathrm{pub}} \subseteq E$ is the set of public edges.  The graph $(T, E)$ is acyclic;
 acyclicity is guaranteed by resolution before this model applies (a dependency cycle is an error
-upstream of compatibility filtering).
+upstream of compatibility evaluation).
 
 The intended semantics of the classification, which T4 makes precise as a premise: across any
 edge $(c, d) \in E$, the consumer $c$'s translation units may include $d$'s public headers; the
