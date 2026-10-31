@@ -12,10 +12,12 @@ digest check, archive inspection (an oracle), operator resolutions, and
 verdict `PATCH` progress on their own schedule against the server's
 rules.
 
-CI runs the configurations marked below on every registry-relevant change
-(`.github/workflows/registry.yml`, job `tlc`, feeding the required
-`registry-build` aggregate). A missing tool, a digest mismatch, a
-violation, or the job timeout fails the check. The job then runs each
+CI runs the configurations marked below whenever the model, its
+configurations, or the witness-check xtask change
+(`.github/workflows/registry.yml`, job `tlc`, gated by the `tlc` list in
+`.github/path-filters.yml` and feeding the required `registry-build`
+aggregate). A missing tool, a digest mismatch, a violation, or the job
+timeout fails the check. The job then runs each
 witness trap alone, where the reverse holds: a trap TLC does not report
 violated fails it ("Non-vacuity").
 

@@ -727,7 +727,8 @@ Actions' OIDC mint, where the other legs hand-build their verdicts.  The crate m
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the static guards `registry.yml` runs on every registry-touching pull request (the
-`registry` filter in `.github/path-filters.yml`), reached through the
+`registry` filter in `.github/path-filters.yml`; the witness guard runs with TLC under the
+narrower `tlc` filter), reached through the
 `cargo check-sql`, `cargo check-r2`, `cargo check-deploy`, `cargo check-kani-report` and
 `cargo check-tlc-witnesses` aliases.  They read the committed `registry/` tree - and, for the
 deploy guard, the bundle `worker-build` just produced, for the Kani guard, the report the proof

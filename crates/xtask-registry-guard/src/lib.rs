@@ -1,6 +1,7 @@
 //! Guards over the hosted registry Worker (`registry/`), run by
 //! `registry.yml` on every registry-relevant pull request (the
-//! `registry` filter in `.github/path-filters.yml`).
+//! `registry` filter in `.github/path-filters.yml`; the witness guard
+//! runs with TLC under the narrower `tlc` filter).
 //!
 //! Crate boundaries: the guards inspect committed sources,
 //! configuration, the TLA+ model, and the outputs of the job's own

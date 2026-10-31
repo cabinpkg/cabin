@@ -22,6 +22,8 @@ on:
         value: ${{ jobs.changes.outputs.website }}
       registry:
         value: ${{ jobs.changes.outputs.registry }}
+      tlc:
+        value: ${{ jobs.changes.outputs.tlc }}
       ports:
         value: ${{ jobs.changes.outputs.ports }}
       docker:
@@ -41,6 +43,7 @@ jobs:
       fuzz: ${{ steps.filter.outputs.fuzz }}
       website: ${{ steps.filter.outputs.website }}
       registry: ${{ steps.filter.outputs.registry }}
+      tlc: ${{ steps.filter.outputs.tlc }}
       ports: ${{ steps.filter.outputs.ports }}
       docker: ${{ steps.filter.outputs.docker }}
       dist: ${{ steps.filter.outputs.dist }}
