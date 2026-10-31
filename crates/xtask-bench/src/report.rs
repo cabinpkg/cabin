@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 /// Bumped when a results field changes name, unit, or meaning.
-pub const RESULTS_FORMAT_VERSION: u32 = 1;
+pub const RESULTS_FORMAT_VERSION: u32 = 2;
 
 /// One binary's results for one run of the suite.
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,11 +17,70 @@ pub struct Results {
     pub format_version: u32,
     pub label: String,
     pub cabin_version: String,
+    pub build: Build,
+    /// The checkout `cargo perf` itself was built from, which defines
+    /// the scenarios and fixtures.
+    pub harness: Checkout,
     pub fixture_version: u32,
     pub host: Host,
     pub hyperfine: String,
     pub ninja: Option<String>,
     pub scenarios: Vec<ScenarioResult>,
+}
+
+/// A git checkout; `None` where git could not tell.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Checkout {
+    pub commit: Option<String>,
+    /// Whether tracked or untracked files differ from `commit`.
+    pub dirty: Option<bool>,
+}
+
+/// How a measured binary was built.  Every field is `None` for a
+/// `--cabin` binary: the harness did not build it and does not guess.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Build {
+    pub source: Checkout,
+    pub profile: Option<String>,
+    /// `rustc -V` in the build's environment.
+    pub rustc: Option<String>,
+}
+
+impl Build {
+    pub const UNKNOWN: Self = Self {
+        source: Checkout {
+            commit: None,
+            dirty: None,
+        },
+        profile: None,
+        rustc: None,
+    };
+
+    fn describe(&self) -> String {
+        if *self == Self::UNKNOWN {
+            return "prebuilt; source, profile, and toolchain unknown".to_owned();
+        }
+        let unknown = || "unknown".to_owned();
+        format!(
+            "built from {}, {} profile, {}",
+            self.source.describe(),
+            self.profile.clone().unwrap_or_else(unknown),
+            self.rustc
+                .clone()
+                .unwrap_or_else(|| "rustc unknown".to_owned())
+        )
+    }
+}
+
+impl Checkout {
+    fn describe(&self) -> String {
+        let commit = self.commit.as_deref().unwrap_or("an unknown commit");
+        match self.dirty {
+            Some(true) => format!("{commit} with uncommitted changes"),
+            Some(false) => commit.to_owned(),
+            None => format!("{commit} (cleanliness unknown)"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +102,10 @@ pub struct ScenarioResult {
     pub samples: Samples,
     /// The check run's `CABIN_TRACE_DIR` timings summary phases.
     pub phases: serde_json::Value,
+    /// The check run's `getrusage` block from the same summary, which
+    /// separates Cabin alone from its largest child; `Null` where the
+    /// summary has none.
+    pub process: serde_json::Value,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -55,17 +118,21 @@ pub struct Samples {
 }
 
 pub fn read(path: &Path) -> Result<Results> {
+    #[derive(Deserialize)]
+    struct Format {
+        format_version: u32,
+    }
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    let results: Results =
-        serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", path.display()))?;
-    if results.format_version != RESULTS_FORMAT_VERSION {
+    let parse = || format!("parsing {}", path.display());
+    let format: Format = serde_json::from_slice(&bytes).with_context(parse)?;
+    if format.format_version != RESULTS_FORMAT_VERSION {
         bail!(
-            "{} has results format {}, this harness reads {RESULTS_FORMAT_VERSION}",
+            "{} has results format {}, this harness reads {RESULTS_FORMAT_VERSION}; measure that binary again with this harness",
             path.display(),
-            results.format_version
+            format.format_version
         );
     }
-    Ok(results)
+    serde_json::from_slice(&bytes).with_context(parse)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -227,11 +294,33 @@ pub fn write_compare(
     candidate: &Results,
     rows: &[Comparison],
 ) -> Result<()> {
-    std::fs::write(out.join("compare.json"), serde_json::to_vec_pretty(rows)?)?;
-    let mut md = format!(
-        "# Cabin benchmark comparison\n\nBaseline `{}` ({}) vs candidate `{}` ({}).\n\n",
-        baseline.label, baseline.cabin_version, candidate.label, candidate.cabin_version
-    );
+    let side = |r: &Results| {
+        serde_json::json!({
+            "label": r.label,
+            "cabin_version": r.cabin_version,
+            "build": r.build,
+            "harness": r.harness,
+        })
+    };
+    let json = serde_json::json!({
+        "format_version": RESULTS_FORMAT_VERSION,
+        "baseline": side(baseline),
+        "candidate": side(candidate),
+        "comparisons": rows,
+    });
+    std::fs::write(out.join("compare.json"), serde_json::to_vec_pretty(&json)?)?;
+    let mut md = String::from("# Cabin benchmark comparison\n\n");
+    for (side, results) in [("Baseline", baseline), ("Candidate", candidate)] {
+        writeln!(
+            md,
+            "- {side} `{}`: {}, {}; measured by the harness at {}.",
+            results.label,
+            results.cabin_version,
+            results.build.describe(),
+            results.harness.describe()
+        )?;
+    }
+    writeln!(md, "\n{}\n", scopes(&candidate.host.os))?;
     if baseline.host != candidate.host || baseline.fixture_version != candidate.fixture_version {
         md.push_str(
             "**Warning:** the two sides ran on different hosts or fixtures; the numbers are not comparable.\n\n",
@@ -273,19 +362,29 @@ pub fn write_report(out: &Path, all: &[Results]) -> Result<()> {
     if let Some(first) = all.first() {
         writeln!(
             md,
-            "Host: {} {} ({} CPUs); {}; ninja {}; fixtures v{}.\n",
+            "Host: {} {} ({} CPUs); {}; ninja {}; fixtures v{}; harness {}.\n",
             first.host.os,
             first.host.arch,
             first.host.cpus,
             first.hyperfine,
             first.ninja.as_deref().unwrap_or("not found"),
-            first.fixture_version
+            first.fixture_version,
+            first.harness.describe()
         )?;
+        writeln!(md, "{}\n", scopes(&first.host.os))?;
     }
     for results in all {
-        writeln!(md, "## `{}`: {}\n", results.label, results.cabin_version)?;
-        md.push_str("| Scenario | Check | Median | IQR | User | System | Peak RSS | Instructions | Slowest phases |\n");
-        md.push_str("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n");
+        writeln!(
+            md,
+            "## `{}`: {}\n\n{}.\n",
+            results.label,
+            results.cabin_version,
+            results.build.describe()
+        )?;
+        md.push_str("| Scenario | Check | Median | IQR | User | System | Peak RSS | Instructions | Check run: Cabin alone | Check run: largest child | Slowest phases |\n");
+        md.push_str(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n",
+        );
         for s in &results.scenarios {
             let med = |values: &[f64], metric: &str| {
                 Stats::of(values).map_or("-".to_owned(), |st| format_metric(metric, st.median))
@@ -293,9 +392,22 @@ pub fn write_report(out: &Path, all: &[Results]) -> Result<()> {
             let iqr = Stats::of(&s.samples.wall_s).map_or("-".to_owned(), |st| {
                 format!("{:.1}%", st.relative_spread() * 100.0)
             });
+            let usage = |key: &str| s.process[key].as_f64();
+            let cabin = usage("self_peak_rss_bytes")
+                .zip(usage("self_user_us").zip(usage("self_system_us")))
+                .map_or("-".to_owned(), |(rss, (user, system))| {
+                    format!(
+                        "{}, {} CPU",
+                        format_metric("peak_rss", rss),
+                        format_metric("wall", (user + system) / 1e6)
+                    )
+                });
+            let child = usage("children_largest_peak_rss_bytes")
+                .filter(|&rss| rss > 0.0)
+                .map_or("-".to_owned(), |rss| format_metric("peak_rss", rss));
             writeln!(
                 md,
-                "| {} | {} | {} | {iqr} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {iqr} | {} | {} | {} | {} | {cabin} | {child} | {} |",
                 s.name,
                 if s.valid {
                     "ok".to_owned()
@@ -314,6 +426,25 @@ pub fn write_report(out: &Path, all: &[Results]) -> Result<()> {
     }
     std::fs::write(out.join("report.md"), md)?;
     Ok(())
+}
+
+/// What hyperfine 2's per-run metrics cover on `os`, which differs by
+/// platform.  The check-run columns come from Cabin's own `getrusage`.
+fn scopes(os: &str) -> &'static str {
+    match os {
+        "linux" => {
+            "Scopes: User and System sum Cabin and every process it waited for; Peak RSS is the largest single process, never a sum and never below hyperfine's own peak; Instructions sum Cabin and its children, user mode only; a check run's largest child is never below Cabin's own peak when it started."
+        }
+        "macos" => {
+            "Scopes: User and System sum Cabin and every process it waited for; Peak RSS is the largest single process, never a sum; Instructions are Cabin's own, user and kernel mode."
+        }
+        "windows" => {
+            "Scopes: User and System sum every process in Cabin's job; Peak RSS and Instructions are not measured."
+        }
+        _ => {
+            "Scopes: User and System sum Cabin and every process it waited for; Peak RSS is the largest single process, never a sum; Instructions are not measured."
+        }
+    }
 }
 
 /// A failure detail fit for a table cell: no escape sequences, no line
@@ -383,6 +514,11 @@ mod tests {
             format_version: RESULTS_FORMAT_VERSION,
             label: label.to_owned(),
             cabin_version: "cabin 0.0.0".to_owned(),
+            build: Build::UNKNOWN,
+            harness: Checkout {
+                commit: Some("0123abc".to_owned()),
+                dirty: Some(false),
+            },
             fixture_version: 1,
             host: Host {
                 os: "linux".to_owned(),
@@ -402,6 +538,7 @@ mod tests {
                         ..Samples::default()
                     },
                     phases: serde_json::Value::Null,
+                    process: serde_json::Value::Null,
                 })
                 .collect(),
         }

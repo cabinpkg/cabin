@@ -188,6 +188,9 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
         })
         .collect::<Result<Vec<_>>>()?;
     check_labels(&specs, args.base.is_some())?;
+    // Before `--out` exists: inside the checkout it would count as a
+    // change.
+    let checkout = run::checkout(&repo);
     let out = args.out.unwrap_or_else(default_out);
     std::fs::create_dir_all(&out)?;
     // Scenario commands run from their own directories.  Not
@@ -208,6 +211,7 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
     if specs.is_empty() {
         binaries.push(run::build(
             &repo,
+            checkout.clone(),
             &repo.join("target"),
             &args.profile,
             "candidate",
@@ -218,7 +222,7 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
         binaries.push(run::binary(label, std::path::absolute(path)?, &out)?);
     }
 
-    let ctx = run::Harness::new(&repo, out.clone(), &scenarios)?;
+    let ctx = run::Harness::new(&repo, checkout, out.clone(), &scenarios)?;
     let hyperfine_args: Vec<String> = match (args.runs, args.smoke) {
         (Some(runs), _) => vec![
             "--warmup".into(),
@@ -338,7 +342,13 @@ fn exec(name: &str, cabin: PathBuf, repeat: usize) -> Result<ExitCode> {
     let repo = repo_root();
     let out = repo.join("target/perf/exec");
     let binary = run::binary("exec", std::path::absolute(cabin)?, &out)?;
-    let ctx = run::Harness::new(&repo, out.clone(), std::slice::from_ref(&scenario))?;
+    let checkout = run::checkout(&repo);
+    let ctx = run::Harness::new(
+        &repo,
+        checkout,
+        out.clone(),
+        std::slice::from_ref(&scenario),
+    )?;
     let prepared = run::prepare(&ctx, &scenario, &binary, &out.join(scenario.slug()))?;
     for _ in 0..repeat {
         if let Some(mutation) = &scenario.prepare {
