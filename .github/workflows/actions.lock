@@ -13,7 +13,6 @@ workflows:
     '.github/workflows/codeql.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'
-        - 'github/codeql-action@v4.39.0'
     '.github/workflows/conventional-release-labels.yml':
         - 'bcoe/conventional-release-labels@v1.3.1'
     '.github/workflows/dist.yml':
@@ -67,8 +66,6 @@ workflows:
     '.github/workflows/website.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
-    '.github/workflows/zizmor.yml':
-        - 'actions/checkout@v7.0.1'
 dependencies:
     'actions-rust-lang/setup-rust-toolchain@v2.0.0':
         ref: 'v2.0.0'
@@ -187,8 +184,8 @@ dependencies:
     'softprops/action-gh-release@v3.0.3':
         ref: 'v3.0.3'
         commit: 'sha1-efb35369e0ad2afab669f228072c1b0d510eae64'
-        owner_id: 2242
-        repo_id: 204253808
+        owner_id: 36412122
+        repo_id: 181782286
     'swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6':
         ref: 'v2.9.2'
         commit: 'sha1-6323deb102c322ba6fcbdcafc7e3dddab59af2b6'
