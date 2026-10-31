@@ -69,7 +69,7 @@ chain as every other read-side variable:
 
 1. **`--color <when>`** on the command line.
 2. **`CABIN_TERM_COLOR=<when>`** environment variable.
-3. **`[term] color = "<when>"`** in a config file.
+3. **`[term] color = "<when>"`** in the user config file (see [`config.md`](config.md#term)).
 4. **Default**: `auto`.
 
 `<when>` is one of:
@@ -96,7 +96,8 @@ Cabin-owned status output follows this precedence chain:
 
 1. **`-q` / `--quiet`** or **`-v` / `--verbose`** on the command line.
 2. **`CABIN_TERM_QUIET=<bool>`** or **`CABIN_TERM_VERBOSE=<bool>`**.
-3. **`[term] quiet = <bool>`** or **`[term] verbose = <bool>`** in a config file.
+3. **`[term] quiet = <bool>`** or **`[term] verbose = <bool>`** in the user config file (see
+   [`config.md`](config.md#term)).
 4. **Default**: normal status output.
 
 The two environment variables use the truthy / falsy spellings listed above.  If both are truthy in

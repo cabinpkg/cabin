@@ -147,6 +147,152 @@ fn metadata_reports_gc_policy_with_its_sources() {
     );
 }
 
+fn metadata_config(cmd: &mut assert_cmd::Command, dir: &Path) -> serde_json::Value {
+    let assertion = cmd
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.join("cabin.toml"))
+        .assert()
+        .success();
+    let value: serde_json::Value = serde_json::from_slice(&assertion.get_output().stdout).unwrap();
+    value["config"].clone()
+}
+
+#[test]
+fn metadata_reports_unset_jobs_and_default_terminal_settings() {
+    let dir = project_dir(MINIMAL_PROJECT);
+    // `cabin()` pins `CABIN_TERM_COLOR=never`; drop it to see the default.
+    let config = metadata_config(cabin().env_remove("CABIN_TERM_COLOR"), dir.path());
+    // Without `CABIN_BUILD_JOBS` or `build.jobs`, Ninja picks the
+    // count, so there is no number to report.
+    assert_eq!(config["build"]["jobs"], serde_json::Value::Null);
+    assert_eq!(
+        config["term"],
+        serde_json::json!({
+            "color": { "value": "auto", "value_source": "builtin-default" },
+            "verbosity": { "value": "normal", "value_source": "builtin-default" },
+        })
+    );
+    // Reporting settings writes nothing.
+    dir.child("build").assert(predicate::path::missing());
+}
+
+#[test]
+fn metadata_reports_layered_jobs_and_user_terminal_settings() {
+    let dir = project_dir(MINIMAL_PROJECT);
+    let user_home = TempDir::new().unwrap();
+    write_user_config(
+        user_home.path(),
+        "[build]\njobs = 2\n\n[term]\ncolor = \"never\"\nverbose = true\n",
+    );
+    // The package file's `jobs` wins over the user file's.  Its
+    // `[term]` table does not apply: terminal settings are resolved
+    // before the workspace is located, from the user config alone.
+    write_workspace_config(
+        dir.path(),
+        "[build]\nprofile = \"release\"\njobs = 6\n\n[term]\ncolor = \"always\"\nquiet = true\n",
+    );
+    let config = metadata_config(
+        cabin_with_config()
+            .env("CABIN_CONFIG_HOME", user_home.path())
+            .env_remove("CABIN_TERM_COLOR"),
+        dir.path(),
+    );
+    assert_eq!(
+        config["build"],
+        serde_json::json!({
+            "profile": { "name": "release", "value_source": "package-config" },
+            "jobs": { "value": 6, "value_source": "package-config" },
+        })
+    );
+    assert_eq!(
+        config["term"],
+        serde_json::json!({
+            "color": { "value": "never", "value_source": "user-config" },
+            "verbosity": { "value": "verbose", "value_source": "user-config" },
+        })
+    );
+}
+
+#[test]
+fn metadata_reports_env_and_cli_overrides_of_jobs_and_terminal_settings() {
+    let dir = project_dir(MINIMAL_PROJECT);
+    let user_home = TempDir::new().unwrap();
+    write_user_config(
+        user_home.path(),
+        "[build]\njobs = 2\n\n[term]\ncolor = \"never\"\nverbose = true\n",
+    );
+    let with_config = || {
+        let mut cmd = cabin_with_config();
+        cmd.env("CABIN_CONFIG_HOME", user_home.path())
+            .env_remove("CABIN_TERM_COLOR");
+        cmd
+    };
+
+    let config = metadata_config(
+        with_config()
+            .env("CABIN_BUILD_JOBS", "3")
+            .env("CABIN_TERM_COLOR", "always")
+            .env("CABIN_TERM_QUIET", "1"),
+        dir.path(),
+    );
+    assert_eq!(
+        config["build"]["jobs"],
+        serde_json::json!({ "value": 3, "value_source": "env" })
+    );
+    assert_eq!(
+        config["term"],
+        serde_json::json!({
+            "color": { "value": "always", "value_source": "env" },
+            "verbosity": { "value": "quiet", "value_source": "env" },
+        })
+    );
+
+    // An empty variable counts as unset.
+    let config = metadata_config(
+        with_config()
+            .env("CABIN_BUILD_JOBS", "")
+            .env("CABIN_TERM_COLOR", ""),
+        dir.path(),
+    );
+    assert_eq!(
+        config["build"]["jobs"],
+        serde_json::json!({ "value": 2, "value_source": "user-config" })
+    );
+    assert_eq!(config["term"]["color"]["value_source"], "user-config");
+
+    // Global flags configure only this invocation, so, like `-j`,
+    // they do not show up.
+    let config = metadata_config(
+        with_config()
+            .args(["--color", "auto", "-q"])
+            .env("CABIN_TERM_COLOR", "always"),
+        dir.path(),
+    );
+    assert_eq!(
+        config["term"],
+        serde_json::json!({
+            "color": { "value": "always", "value_source": "env" },
+            "verbosity": { "value": "verbose", "value_source": "user-config" },
+        })
+    );
+}
+
+#[test]
+fn metadata_rejects_invalid_jobs_like_a_build_does() {
+    let dir = project_dir(MINIMAL_PROJECT);
+    for value in ["0", "many"] {
+        cabin()
+            .args(["metadata", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .env("CABIN_BUILD_JOBS", value)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(format!(
+                "invalid CABIN_BUILD_JOBS value {value:?}"
+            )));
+    }
+}
+
 #[test]
 fn metadata_reports_resolver_incompatible_standards() {
     let dir = project_dir(MINIMAL_PROJECT);

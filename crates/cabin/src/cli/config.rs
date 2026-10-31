@@ -543,8 +543,18 @@ pub(crate) fn resolve_build_jobs(
     cli_value: Option<cabin_core::BuildJobs>,
     config: &EffectiveConfig,
 ) -> Result<Option<cabin_core::BuildJobs>> {
+    resolve_build_jobs_sourced(cli_value, config).map(|jobs| jobs.map(|(value, _)| value))
+}
+
+/// Like [`resolve_build_jobs`], but also returns the layer the job
+/// count came from.  `cabin metadata` renders this so `config.build.jobs`
+/// follows the same precedence a build does.
+pub(crate) fn resolve_build_jobs_sourced(
+    cli_value: Option<cabin_core::BuildJobs>,
+    config: &EffectiveConfig,
+) -> Result<Option<(cabin_core::BuildJobs, ConfigValueSource)>> {
     if let Some(jobs) = cli_value {
-        return Ok(Some(jobs));
+        return Ok(Some((jobs, ConfigValueSource::Cli)));
     }
     if let Some(raw) = std::env::var_os(cabin_env::CABIN_BUILD_JOBS) {
         // The job count feeds the typed validator below, so reject a
@@ -563,13 +573,14 @@ pub(crate) fn resolve_build_jobs(
                     env = cabin_env::CABIN_BUILD_JOBS
                 )
             })?;
-            return Ok(Some(jobs));
+            return Ok(Some((jobs, ConfigValueSource::Env)));
         }
     }
-    if let Some(setting) = &config.build.jobs {
-        return Ok(Some(setting.value));
-    }
-    Ok(None)
+    Ok(config
+        .build
+        .jobs
+        .as_ref()
+        .map(|setting| (setting.value, config_value_source(setting.source))))
 }
 
 /// Resolve the standard-aware version-preference mode for a
@@ -681,6 +692,8 @@ pub(crate) fn config_profile_selection(
 pub(crate) fn config_view_json(
     config: &EffectiveConfig,
     resolver_incompatible_standards: (cabin_core::IncompatibleStandards, ConfigValueSource),
+    build_jobs: Option<(cabin_core::BuildJobs, ConfigValueSource)>,
+    terminal: crate::term_setup::TerminalSettings,
 ) -> serde_json::Value {
     let loaded_files: Vec<serde_json::Value> = config
         .loaded_files
@@ -720,6 +733,10 @@ pub(crate) fn config_view_json(
             }),
             None => serde_json::Value::Null,
         },
+        "jobs": build_jobs.map(|(jobs, source)| serde_json::json!({
+            "value": jobs.get(),
+            "value_source": source.as_key(),
+        })),
     });
 
     // Effective value + source (env > config > builtin default), not
@@ -768,6 +785,7 @@ pub(crate) fn config_view_json(
         "build": build,
         "resolver": resolver,
         "gc": gc_view_json(config),
+        "term": terminal.as_json(),
         "toolchain": toolchain,
         "compiler_wrapper": compiler_wrapper,
         "runners": runners,

@@ -60,7 +60,7 @@ the explicit file as the sole config layer.  The metadata view reports its prove
 `explicit-config`.
 
 `cabin metadata` reports every effective config value paired with its `value_source` (one of `cli`,
-`env`, `user-config`, `workspace-config`, `project-config`, `explicit-config`, `manifest`,
+`env`, `user-config`, `workspace-config`, `package-config`, `explicit-config`, `manifest`,
 `builtin-default`) so the precedence is auditable without re-deriving it.
 
 ## Schema
@@ -78,6 +78,7 @@ build-dir = "build"
 
 [build]
 profile = "release"
+jobs = 8
 compiler-wrapper = "ccache"
 
 [gc]
@@ -94,6 +95,8 @@ ar = "llvm-ar"
 
 [term]
 color = "auto"
+verbose = false
+quiet = false
 
 [patch]
 fmt = { path = "../forks/fmt" }
@@ -165,6 +168,14 @@ built-in `dev`.
 `CABIN_BUILD_JOBS` - > `build.jobs` config - > build backend default.  For `cabin test` it limits the
 build only; `--test-jobs` limits how many tests run at once.
 
+`cabin metadata` reports the configured profile as `config.build.profile` (`{"name",
+"value_source"}`, from config files only; the profile the command itself resolved, including
+`--profile`, is `profiles.selected`).  It reports the job count a build without `-j` would use as
+`config.build.jobs`: `{"value": 8, "value_source": "env"}` when `CABIN_BUILD_JOBS` sets it, a config
+source when `build.jobs` does, and `null` when neither does and the build backend picks the count.
+`-j` belongs to one `build`, `check`, `run`, `test`, or `tidy` invocation, so it never appears there,
+and an invalid `CABIN_BUILD_JOBS` fails `cabin metadata` the way it fails a build.
+
 `compiler-wrapper` accepts any single executable name or path and is not
 shell-split. Precedence is `--compiler-wrapper` / `--no-compiler-wrapper` →
 `CABIN_COMPILER_WRAPPER` → config `[build] compiler-wrapper` → workspace-root
@@ -235,15 +246,34 @@ The full schema, validation rules, and lockfile / metadata behavior live in
 
 ### `[term]`
 
-Persistent default for the terminal-color choice.
+Persistent defaults for terminal color and Cabin's status output.
 
-| Key     | Type   | Notes                                                       |
-| ------- | ------ | ----------------------------------------------------------- |
-| `color` | string | One of `auto`, `always`, `never`.  Other values are rejected at parse time. |
+| Key       | Type    | Notes                                                       |
+| --------- | ------- | ----------------------------------------------------------- |
+| `color`   | string  | One of `auto`, `always`, `never`.  Other values are rejected at parse time. |
+| `verbose` | boolean | `true` selects verbose status output.                       |
+| `quiet`   | boolean | `true` silences status output.  Setting both `verbose` and `quiet` to `true` is rejected at parse time. |
 
-Precedence: `--color <when>` - > `CABIN_TERM_COLOR=<when>` - > `[term].color` config - > default
-`auto`.  See [`environment-variables.md`](environment-variables.md) for the full table of values and
-their behavior.
+Color precedence: `--color <when>` - > `CABIN_TERM_COLOR=<when>` - > `[term].color` config - >
+default `auto`.  Verbosity precedence: `-q` / `-v` - > `CABIN_TERM_QUIET` / `CABIN_TERM_VERBOSE` - >
+`[term]` `quiet` / `verbose` config - > normal.  See
+[`environment-variables.md`](environment-variables.md) for the values and their behavior.
+
+Cabin settles these before it locates the workspace, so `[term]` is read from the user config, or
+from the `CABIN_CONFIG` file when that is set; a workspace or package `.cabin/config.toml` `[term]`
+table has no effect.
+
+`cabin metadata` reports, under `config.term`, the color and verbosity a command run without
+`--color`, `-v`, or `-q` uses, each with the environment variable, config file, or default it came
+from.  Like `-j`, those flags belong to one invocation and never appear there.  `quiet` and
+`verbose` fold into the single verbosity level (`quiet`, `normal`, `verbose`, or `very-verbose`):
+
+```json
+"term": {
+  "color": { "value": "auto", "value_source": "builtin-default" },
+  "verbosity": { "value": "verbose", "value_source": "user-config" }
+}
+```
 
 ### `[toolchain]`
 
@@ -260,7 +290,7 @@ Per-tool precedence: `--cc` / `--cxx` / `--ar` - > `CC` / `CXX` / `AR` env - > `
 `[toolchain]` - > Cabin's documented fallback list.
 
 The same `--cxx` / `CXX` / `[toolchain].cxx` value is read at every layer; the resolver's source
-label distinguishes which layer ultimately won (`user-config`, `workspace-config`, `project-config`,
+label distinguishes which layer ultimately won (`user-config`, `workspace-config`, `package-config`,
 or `explicit-config` for the config layer).
 
 ### `[runner]`

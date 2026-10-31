@@ -30,7 +30,7 @@ use std::io::Write;
 use cabin_config::{
     ConfigDiscoveryInputs, EffectiveConfig, discover_config_files, merge_loaded_files,
 };
-use cabin_core::{Verbosity, VerbosityEnvError};
+use cabin_core::{ConfigValueSource, Verbosity, VerbosityEnvError};
 
 /// Discover the user-level Cabin config (no workspace context)
 /// and return an [`EffectiveConfig`] suitable for passing to
@@ -81,7 +81,9 @@ impl CliVerbosity {
 /// 1. `--quiet` / `-v` / `--verbose` flags;
 /// 2. `CABIN_TERM_QUIET` / `CABIN_TERM_VERBOSE` env vars;
 /// 3. config `term.quiet` / `term.verbose`;
-/// 4. default [`Verbosity::Normal`].
+/// 4. default [`Verbosity::Normal`],
+///
+/// returning the level and the layer it came from.
 ///
 /// The function is pure: callers pass an env lookup closure so
 /// tests can drive every branch without touching the process
@@ -93,12 +95,12 @@ pub(crate) fn resolve_verbosity<F>(
     cli: CliVerbosity,
     env: F,
     config: &EffectiveConfig,
-) -> Result<Verbosity, VerbosityEnvError>
+) -> Result<(Verbosity, ConfigValueSource), VerbosityEnvError>
 where
     F: Fn(&str) -> Option<String>,
 {
     if let Some(level) = cli.into_verbosity() {
-        return Ok(level);
+        return Ok((level, ConfigValueSource::Cli));
     }
 
     let env_quiet = read_bool_env(&env, cabin_env::CABIN_TERM_QUIET)?;
@@ -115,14 +117,17 @@ where
                     value: "1".to_owned(),
                 })?;
         if let Some(level) = combined {
-            return Ok(level);
+            return Ok((level, ConfigValueSource::Env));
         }
     }
 
     if let Some(setting) = &config.term.verbosity {
-        return Ok(setting.level);
+        return Ok((
+            setting.level,
+            crate::cli::config::config_value_source(setting.source),
+        ));
     }
-    Ok(Verbosity::default())
+    Ok((Verbosity::default(), ConfigValueSource::BuiltinDefault))
 }
 
 fn read_bool_env<F>(env: &F, key: &'static str) -> Result<bool, VerbosityEnvError>
@@ -397,8 +402,9 @@ mod tests {
 
     #[test]
     fn defaults_to_normal_with_no_inputs() {
-        let resolved = resolve_verbosity(cli(0, false), no_env, &cfg()).unwrap();
+        let (resolved, source) = resolve_verbosity(cli(0, false), no_env, &cfg()).unwrap();
         assert_eq!(resolved, Verbosity::Normal);
+        assert_eq!(source, ConfigValueSource::BuiltinDefault);
         assert!(!resolved.shows_verbose());
     }
 
@@ -410,7 +416,7 @@ mod tests {
             &cfg_with_verbosity(Verbosity::Verbose),
         )
         .unwrap();
-        assert_eq!(resolved, Verbosity::Quiet);
+        assert_eq!(resolved, (Verbosity::Quiet, ConfigValueSource::Cli));
     }
 
     #[test]
@@ -421,7 +427,7 @@ mod tests {
             &cfg_with_verbosity(Verbosity::Verbose),
         )
         .unwrap();
-        assert_eq!(resolved, Verbosity::Quiet);
+        assert_eq!(resolved, (Verbosity::Quiet, ConfigValueSource::Env));
     }
 
     #[test]
@@ -463,7 +469,10 @@ mod tests {
             &cfg_with_verbosity(Verbosity::Verbose),
         )
         .unwrap();
-        assert_eq!(resolved, Verbosity::Verbose);
+        assert_eq!(
+            resolved,
+            (Verbosity::Verbose, ConfigValueSource::UserConfig)
+        );
     }
 
     #[test]
@@ -474,6 +483,6 @@ mod tests {
             &cfg_with_verbosity(Verbosity::Quiet),
         )
         .unwrap();
-        assert_eq!(resolved, Verbosity::Quiet);
+        assert_eq!(resolved, (Verbosity::Quiet, ConfigValueSource::UserConfig));
     }
 }

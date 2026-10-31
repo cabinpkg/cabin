@@ -54,7 +54,7 @@ For each patched package name, Cabin walks the following layers top-down and kee
 declares an entry.  Higher layers fully replace lower layers on overlap.
 
 1. `[patch]` in the file pointed at by `CABIN_CONFIG` (`explicit-config`).
-2. `[patch]` in the project-local `<root>/.cabin/config.toml` (`project-config`).
+2. `[patch]` in the project-local `<root>/.cabin/config.toml` (`package-config`).
 3. `[patch]` in the workspace-level `<workspace-root>/.cabin/config.toml` (`workspace-config`).
 4. `[patch]` in `$XDG_CONFIG_HOME/cabin/config.toml` (or its `$HOME` fallback) (`user-config`).
 5. `[patch]` in the workspace-root `cabin.toml` (`manifest`).

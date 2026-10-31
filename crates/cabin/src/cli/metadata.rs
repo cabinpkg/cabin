@@ -292,6 +292,12 @@ pub(crate) struct MetadataInputs<'a> {
         cabin_core::IncompatibleStandards,
         cabin_core::ConfigValueSource,
     ),
+    /// Build-job count a build without `-j` would use, and its layer
+    /// (env > config); `None` leaves the count to the build backend.
+    pub(crate) build_jobs: Option<(cabin_core::BuildJobs, cabin_core::ConfigValueSource)>,
+    /// Color choice and verbosity a command run without terminal flags
+    /// uses.
+    pub(crate) terminal: crate::term_setup::TerminalSettings,
     /// Active patch set after manifest+config merging and
     /// validation.  Empty when no patches apply.
     pub(crate) active_patches: &'a cabin_workspace::ActivePatchSet,
@@ -535,6 +541,8 @@ impl<'a> MetadataView<'a> {
         let config_view = crate::cli::config::config_view_json(
             inputs.config,
             inputs.resolver_incompatible_standards,
+            inputs.build_jobs,
+            inputs.terminal,
         );
         let patches_view = crate::cli::patch::patch_view_json(inputs.active_patches);
         let source_replacements_view = crate::cli::patch::source_replacement_view_json(
@@ -655,6 +663,9 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     )?;
     let resolver_incompatible_standards =
         crate::cli::config::resolve_incompatible_standards_sourced(&effective_config)?;
+    // `cabin metadata` has no `-j`; report what a build without one uses.
+    let build_jobs = crate::cli::config::resolve_build_jobs_sourced(None, &effective_config)?;
+    let terminal = crate::term_setup::configured_terminal_settings()?;
     let view = MetadataView::from_graph_and_lock(&MetadataInputs {
         graph: &graph,
         lockfile: lockfile.as_ref(),
@@ -673,6 +684,8 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         active_patches: &active_patches,
         no_patches: args.no_patches,
         resolver_incompatible_standards,
+        build_jobs,
+        terminal,
     });
     match args.format {
         ResolveFormat::Json => {
