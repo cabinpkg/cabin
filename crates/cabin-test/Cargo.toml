@@ -16,6 +16,7 @@ cabin-core = { workspace = true }
 cabin-env = { workspace = true }
 cabin-workspace = { workspace = true }
 quick-junit = { workspace = true }
+shared_child = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 

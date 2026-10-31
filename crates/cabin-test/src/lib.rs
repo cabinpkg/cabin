@@ -25,7 +25,7 @@ use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -35,6 +35,7 @@ use cabin_build::{BuildGraph, Dialect};
 use cabin_core::{ExitStatusKind, TargetKind, exit_status_kind};
 use cabin_workspace::{PackageGraph, WorkspacePackage};
 use quick_junit::{NonSuccessKind, Report, TestCase, TestCaseStatus, TestSuite};
+use shared_child::SharedChild;
 use thiserror::Error;
 
 /// One executable in a [`TestPlan`].
@@ -398,7 +399,7 @@ pub struct TestRunOptions {
 ///
 /// # Errors
 /// Returns [`TestRunError`] when the runner itself fails: `Wait` or
-/// `Kill` if polling or killing a running child fails, `OutputIo` if
+/// `Kill` if waiting for or killing a running child fails, `OutputIo` if
 /// reading a child's stdout/stderr fails, and `SinkIo` if forwarding
 /// output or a result to `sink` fails.  Every test still running is
 /// killed before the error returns.
@@ -438,22 +439,34 @@ pub fn run_tests<S: TestOutputSink>(
         if running.is_empty() {
             break;
         }
-        // One event per pass, then a look at every child, so a test
+        // One event per pass, then a look at every test, so a test
         // flooding its pipes cannot hold off the others' timeouts.
-        // The runner keeps a sender, so the only error is a timeout.
-        if let Ok(event) = rx.recv_timeout(POLL_INTERVAL) {
+        // Without a deadline the wait cannot hang: every running test
+        // still owes an exit or end-of-file event.  The runner keeps a
+        // sender, so the only error is a timeout.
+        let next = running
+            .iter()
+            .filter_map(|test| test.deadline(options.timeout))
+            .min();
+        let event = match next {
+            Some(deadline) => rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .ok(),
+            None => rx.recv().ok(),
+        };
+        if let Some(event) = event {
             // Readers a cut-off test left behind may still deliver
             // events after it finished; they are dropped.
             if let Some(test) = running.iter_mut().find(|test| test.index == event.index) {
                 test.record(event.kind, live, sink)?;
             }
         }
-        // Sink writes block this loop, so a deadline is enforced at the
-        // next poll; a test that exited meanwhile keeps its own status.
+        // Sink writes block this loop, so a deadline is enforced late;
+        // a test that exited before its kill keeps its own status.
         let now = Instant::now();
         let mut i = 0;
         while i < running.len() {
-            running[i].poll(options.timeout, now)?;
+            running[i].enforce_timeout(options.timeout, now)?;
             if let Some((exited_at, status)) = running[i].finished(now).cloned() {
                 let test = running.swap_remove(i);
                 let index = test.index;
@@ -469,22 +482,21 @@ pub fn run_tests<S: TestOutputSink>(
     })
 }
 
-/// How long the runner waits for output before checking every
-/// running child for an exit or a passed timeout.
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// How long the runner keeps reading a test's output after the test
 /// exits.  A process the test started inherits its pipes and may
 /// hold them open indefinitely.
 const OUTPUT_GRACE: Duration = Duration::from_secs(1);
 
 /// A test process the runner started and has not reported yet.
-/// Dropping it before the child is reaped kills the child, so an
+/// Dropping it before the child exits kills the child, so an
 /// early error return or a panic never leaves a test running behind
 /// Cabin.
 struct RunningTest<'a> {
     index: usize,
     executable: &'a TestExecutable,
-    child: Child,
+    /// Shared with a thread that waits for the exit, so the runner
+    /// can kill the child meanwhile without racing PID reuse.
+    child: Arc<SharedChild>,
     started: Instant,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
@@ -495,7 +507,7 @@ struct RunningTest<'a> {
     pipes_closed: Arc<AtomicU8>,
     /// The timeout, once it passed and the child was killed.
     timed_out: Option<Duration>,
-    /// When the child was reaped, and how it ended.
+    /// When the runner saw the child exit, and how it ended.
     exited: Option<(Instant, TestRunStatus)>,
 }
 
@@ -504,7 +516,7 @@ impl<'a> RunningTest<'a> {
         index: usize,
         executable: &'a TestExecutable,
         options: &TestRunOptions,
-        events: &mpsc::Sender<OutputEvent>,
+        events: &mpsc::Sender<TestEvent>,
     ) -> io::Result<Self> {
         let mut command = match options.runner.split_first() {
             Some((program, runner_args)) => {
@@ -537,8 +549,8 @@ impl<'a> RunningTest<'a> {
         // writable fd to this file briefly inherited in its
         // not-yet-`execve`d child, which makes our own `execve`
         // race-fail.  The window clears within milliseconds.
-        let mut child = retry_on_etxtbsy(SPAWN_RETRY_ATTEMPTS, SPAWN_RETRY_BASE_DELAY, || {
-            command.spawn()
+        let child = retry_on_etxtbsy(SPAWN_RETRY_ATTEMPTS, SPAWN_RETRY_BASE_DELAY, || {
+            SharedChild::spawn(&mut command)
         })
         .map_err(|error| match options.runner.first() {
             // The result line names the test, not the runner that failed.
@@ -546,17 +558,15 @@ impl<'a> RunningTest<'a> {
             None => error,
         })?;
         let stdout = child
-            .stdout
-            .take()
+            .take_stdout()
             .expect("stdout is piped before child spawn");
         let stderr = child
-            .stderr
-            .take()
+            .take_stderr()
             .expect("stderr is piped before child spawn");
         let test = Self {
             index,
             executable,
-            child,
+            child: Arc::new(child),
             started: Instant::now(),
             stdout: Vec::new(),
             stderr: Vec::new(),
@@ -580,77 +590,109 @@ impl<'a> RunningTest<'a> {
             events.clone(),
             closed.clone(),
         );
+        let child = Arc::clone(&test.child);
+        let events = events.clone();
+        thread::spawn(move || {
+            let kind = TestEventKind::Exited(child.wait());
+            let _ = events.send(TestEvent { index, kind });
+        });
         Ok(test)
     }
 
     fn record<S: TestOutputSink>(
         &mut self,
-        event: OutputEventKind,
+        event: TestEventKind,
         live: bool,
         sink: &mut S,
     ) -> Result<(), TestRunError> {
         match event {
-            OutputEventKind::Output(OutputStream::Stdout, bytes) => {
+            TestEventKind::Output(OutputStream::Stdout, bytes) => {
                 if live {
                     sink.write_stdout(self.executable, &bytes)
                         .map_err(TestRunError::SinkIo)?;
                 }
                 self.stdout.extend_from_slice(&bytes);
             }
-            OutputEventKind::Output(OutputStream::Stderr, bytes) => {
+            TestEventKind::Output(OutputStream::Stderr, bytes) => {
                 if live {
                     sink.write_stderr(self.executable, &bytes)
                         .map_err(TestRunError::SinkIo)?;
                 }
                 self.stderr.extend_from_slice(&bytes);
             }
-            OutputEventKind::Closed => self.open_streams -= 1,
-            OutputEventKind::ReadFailed(source) => return Err(TestRunError::OutputIo(source)),
+            TestEventKind::Closed => self.open_streams -= 1,
+            TestEventKind::ReadFailed(source) => return Err(TestRunError::OutputIo(source)),
+            TestEventKind::Exited(status) => self.record_exit(status)?,
         }
         Ok(())
     }
 
-    /// Reap the child if it exited, or kill it once `timeout` has
-    /// passed.  An observed exit wins over the deadline, and after a
-    /// kill the child is polled like any other rather than waited
-    /// on, so one stuck kill cannot stall the other tests.
-    fn poll(&mut self, timeout: Option<Duration>, now: Instant) -> Result<(), TestRunError> {
+    /// Record the exit as seen now, which starts the output grace.
+    /// The deadline check may have seen it first; the waiter's report
+    /// then changes nothing.
+    fn record_exit(&mut self, status: io::Result<ExitStatus>) -> Result<(), TestRunError> {
         if self.exited.is_some() {
             return Ok(());
         }
-        match self.child.try_wait() {
-            Ok(Some(status)) => {
-                let status = match self.timed_out {
-                    Some(limit) => TestRunStatus::TimedOut(limit),
-                    None if status.success() => TestRunStatus::Passed,
-                    None => TestRunStatus::Failed(exit_status_kind(status)),
-                };
-                self.exited = Some((now, status));
-            }
-            Ok(None) => {
-                let expired = timeout.filter(|&limit| {
-                    self.timed_out.is_none() && now.duration_since(self.started) >= limit
-                });
-                if let Some(limit) = expired {
-                    self.child.kill().map_err(|source| TestRunError::Kill {
-                        package: self.executable.package.clone(),
-                        target: self.executable.target.clone(),
-                        executable: self.executable.executable.clone(),
-                        source,
-                    })?;
-                    self.timed_out = Some(limit);
-                }
-            }
-            Err(source) => {
-                return Err(TestRunError::Wait {
-                    package: self.executable.package.clone(),
-                    target: self.executable.target.clone(),
-                    executable: self.executable.executable.clone(),
-                    source,
-                });
-            }
-        }
+        let status = status.map_err(|source| TestRunError::Wait {
+            package: self.executable.package.clone(),
+            target: self.executable.target.clone(),
+            executable: self.executable.executable.clone(),
+            source,
+        })?;
+        let status = match self.timed_out {
+            Some(limit) => TestRunStatus::TimedOut(limit),
+            None if status.success() => TestRunStatus::Passed,
+            None => TestRunStatus::Failed(exit_status_kind(status)),
+        };
+        self.exited = Some((Instant::now(), status));
         Ok(())
+    }
+
+    /// Kill the child once `timeout` has passed.  The kill does not
+    /// wait: the exit arrives as an event like any other, so one stuck
+    /// kill cannot stall the other tests.
+    fn enforce_timeout(
+        &mut self,
+        timeout: Option<Duration>,
+        now: Instant,
+    ) -> Result<(), TestRunError> {
+        if self.exited.is_some() || self.timed_out.is_some() {
+            return Ok(());
+        }
+        let Some(limit) = timeout.filter(|&limit| now.duration_since(self.started) >= limit) else {
+            return Ok(());
+        };
+        // An exit still queued behind the sink's writes keeps its own
+        // status.
+        if let Some(status) = self.child.try_wait().transpose() {
+            return self.record_exit(status);
+        }
+        self.child.kill().map_err(|source| TestRunError::Kill {
+            package: self.executable.package.clone(),
+            target: self.executable.target.clone(),
+            executable: self.executable.executable.clone(),
+            source,
+        })?;
+        self.timed_out = Some(limit);
+        Ok(())
+    }
+
+    /// When the runner must look at this test without an event: at
+    /// its timeout while it runs, or once its output grace ends.
+    /// `None` when only an event can move it on.
+    fn deadline(&self, timeout: Option<Duration>) -> Option<Instant> {
+        match &self.exited {
+            None if self.timed_out.is_none() => self.started.checked_add(timeout?),
+            Some((exited_at, _)) if self.only_held() => exited_at.checked_add(OUTPUT_GRACE),
+            // Killed and awaiting its exit, or a pipe's end of file is queued.
+            _ => None,
+        }
+    }
+
+    /// Every pipe at end of file has been handled; the rest are held.
+    fn only_held(&self) -> bool {
+        self.open_streams == 2 - self.pipes_closed.load(Ordering::Relaxed)
     }
 
     /// The test's status once it has exited and its output has been
@@ -659,10 +701,8 @@ impl<'a> RunningTest<'a> {
     /// closed is always handled to its end, however slow the sink.
     fn finished(&self, now: Instant) -> Option<&(Instant, TestRunStatus)> {
         let exited = self.exited.as_ref()?;
-        // Every pipe at end of file has been handled; the rest are held.
-        let only_held = self.open_streams == 2 - self.pipes_closed.load(Ordering::Relaxed);
-        let done =
-            self.open_streams == 0 || (only_held && now.duration_since(exited.0) >= OUTPUT_GRACE);
+        let done = self.open_streams == 0
+            || (self.only_held() && now.duration_since(exited.0) >= OUTPUT_GRACE);
         done.then_some(exited)
     }
 
@@ -737,18 +777,21 @@ enum OutputStream {
     Stderr,
 }
 
-/// What a reader thread observed on one of a test's pipes.
-struct OutputEvent {
+/// What a reader thread observed on one of a test's pipes, or the
+/// waiter thread on its process.
+struct TestEvent {
     /// The test's position in the plan.
     index: usize,
-    kind: OutputEventKind,
+    kind: TestEventKind,
 }
 
-enum OutputEventKind {
+enum TestEventKind {
     Output(OutputStream, Vec<u8>),
     /// The pipe reached end of file.
     Closed,
     ReadFailed(io::Error),
+    /// The process exited, or waiting for it failed.
+    Exited(io::Result<ExitStatus>),
 }
 
 /// Forward `reader` to the runner until end of file.  The thread is
@@ -759,7 +802,7 @@ fn spawn_output_reader<R: Read + Send + 'static>(
     index: usize,
     stream: OutputStream,
     mut reader: R,
-    events: mpsc::Sender<OutputEvent>,
+    events: mpsc::Sender<TestEvent>,
     pipes_closed: Arc<AtomicU8>,
 ) {
     thread::spawn(move || {
@@ -768,13 +811,13 @@ fn spawn_output_reader<R: Read + Send + 'static>(
             let (kind, last) = match reader.read(&mut buf) {
                 Ok(0) => {
                     pipes_closed.fetch_add(1, Ordering::Relaxed);
-                    (OutputEventKind::Closed, true)
+                    (TestEventKind::Closed, true)
                 }
-                Ok(n) => (OutputEventKind::Output(stream, buf[..n].to_vec()), false),
+                Ok(n) => (TestEventKind::Output(stream, buf[..n].to_vec()), false),
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) => (OutputEventKind::ReadFailed(err), true),
+                Err(err) => (TestEventKind::ReadFailed(err), true),
             };
-            if events.send(OutputEvent { index, kind }).is_err() || last {
+            if events.send(TestEvent { index, kind }).is_err() || last {
                 break;
             }
         }
@@ -917,7 +960,7 @@ fn xml_text(output: &[u8]) -> String {
 /// out, or cannot start is a [`TestRunStatus`], not an error.
 #[derive(Debug, Error)]
 pub enum TestRunError {
-    /// Checking whether a running test executable has exited failed.
+    /// Waiting for a running test executable to exit failed.
     #[error("failed to wait for test target `{package}:{target}` ({}): {source}", .executable.display())]
     Wait {
         package: String,
@@ -1411,6 +1454,82 @@ exit 42
 
     #[test]
     #[cfg(unix)]
+    fn run_tests_credits_each_silent_exit_to_its_own_test() {
+        let dir = TempDir::new().unwrap();
+        // Silent tests have nothing but their exit to tell apart, and
+        // distinct exit codes show an exit credited to the wrong test.
+        let plan = TestPlan {
+            executables: (0..12)
+                .map(|code| script(&dir, &format!("t{code:02}_test"), &format!("exit {code}\n")))
+                .collect(),
+        };
+
+        let summary = run_tests(&plan, &options(4, None), &mut Recorder::default()).unwrap();
+
+        let statuses: Vec<TestRunStatus> = summary.results.into_iter().map(|r| r.status).collect();
+        let expected: Vec<TestRunStatus> = (0..12)
+            .map(|code| match code {
+                0 => TestRunStatus::Passed,
+                code => TestRunStatus::Failed(ExitStatusKind::Code(code)),
+            })
+            .collect();
+        assert_eq!(statuses, expected);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn run_tests_keeps_the_status_of_a_test_that_exited_before_its_kill() {
+        // Long enough for the test to start and print on a loaded host.
+        const LIMIT: Duration = Duration::from_secs(2);
+        // Holds the runner until the test has exited and its timeout has
+        // passed, so the runner kills a test whose exit is still queued
+        // behind its output.
+        struct StallingSink(PathBuf);
+        impl TestOutputSink for StallingSink {
+            fn write_stdout(&mut self, _e: &TestExecutable, _b: &[u8]) -> io::Result<()> {
+                std::fs::write(self.0.join("seen"), b"")?;
+                let pid = std::fs::read_to_string(self.0.join("test.pid"))?;
+                let started = Instant::now();
+                while Command::new("kill")
+                    .args(["-0", pid.trim()])
+                    .stderr(Stdio::null())
+                    .status()?
+                    .success()
+                {
+                    assert!(
+                        started.elapsed() < Duration::from_secs(10),
+                        "test never exited"
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                }
+                thread::sleep(LIMIT);
+                Ok(())
+            }
+            fn write_stderr(&mut self, _e: &TestExecutable, _b: &[u8]) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let dir = TempDir::new().unwrap();
+        let plan = TestPlan {
+            executables: vec![script(
+                &dir,
+                "quick_test",
+                "echo $$ > test.pid\necho hi\nwhile [ ! -f seen ]; do sleep 0.01; done\nexit 3\n",
+            )],
+        };
+        let mut sink = StallingSink(dir.path().to_path_buf());
+
+        let summary = run_tests(&plan, &options(1, Some(LIMIT)), &mut sink).unwrap();
+
+        assert_eq!(
+            summary.results[0].status,
+            TestRunStatus::Failed(ExitStatusKind::Code(3))
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn run_tests_stops_reading_output_a_leftover_process_holds() {
         let dir = TempDir::new().unwrap();
         // The background `sleep` inherits the test's stdout and
@@ -1431,6 +1550,46 @@ exit 42
             render_result_line(result),
             "test demo:leak_test ... ok (output cut off)"
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn run_tests_starts_the_output_grace_when_it_sees_the_exit() {
+        // Holds the runner past the test's exit and its grace second.
+        // The test waits for `seen`, so it exits only once the runner
+        // is stalled here.
+        struct StallingSink(PathBuf);
+        impl TestOutputSink for StallingSink {
+            fn write_stdout(&mut self, _e: &TestExecutable, b: &[u8]) -> io::Result<()> {
+                if b.starts_with(b"before") {
+                    std::fs::write(self.0.join("seen"), b"")?;
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+                Ok(())
+            }
+            fn write_stderr(&mut self, _e: &TestExecutable, _b: &[u8]) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let dir = TempDir::new().unwrap();
+        // `after` is written within a second of the exit, by a leftover
+        // that keeps stdout open.
+        let plan = TestPlan {
+            executables: vec![script(
+                &dir,
+                "late_test",
+                "echo before\nwhile [ ! -f seen ]; do sleep 0.01; done\n\
+                 (sleep 0.3; echo after; sleep 30) &\n",
+            )],
+        };
+        let mut sink = StallingSink(dir.path().to_path_buf());
+
+        let summary = run_tests(&plan, &options(1, None), &mut sink).unwrap();
+
+        let result = &summary.results[0];
+        assert!(result.output_cut_off);
+        assert_eq!(result.stdout, b"before\nafter\n");
     }
 
     #[test]
