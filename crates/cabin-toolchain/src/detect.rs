@@ -57,9 +57,9 @@ pub struct RunOutput {
 
 impl RunOutput {
     /// Combined `stdout + stderr` string used by the parsers.
-    /// Some toolchains print version info on stderr (notably
-    /// older GCCs); concatenating both lets us recognize them
-    /// without per-tool branching.
+    /// Some tools print version info on stderr (MSVC `cl.exe`
+    /// prints its banner there); concatenating both lets us
+    /// recognize them without per-tool branching.
     pub fn combined(&self) -> String {
         let mut s = self.stdout.clone();
         if !self.stderr.is_empty() {
@@ -128,13 +128,12 @@ pub(crate) fn run_command_with_timeout(
 ) -> Result<RunOutput, RunError> {
     let child = SharedChild::spawn(
         command
-            // The registry credential is Cabin's input, not the probed
-            // tool's: scrub it so a custom compiler / archiver / wrapper
-            // binary can never read the token.
+            // The registry credentials are Cabin's input, not the probed
+            // tool's: scrub them so a custom compiler / archiver / wrapper
+            // binary can never read them from its environment.
             .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
             .env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN)
-            // Give the subprocess a clean stdin so detectors that
-            // read from stdin (some old GCC wrappers do) cannot wait
+            // A null stdin keeps a tool that reads stdin from waiting
             // for user input.
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -248,7 +247,8 @@ fn kind_label(kind: ToolKind) -> &'static str {
 /// Returns [`DetectionError::SubprocessFailed`] when `runner` fails
 /// to spawn or capture output from a tool's `--version` probe; the
 /// underlying [`RunError`] is propagated as its source.  A non-zero
-/// exit status is not an error (the tool is recorded as unknown).
+/// exit status is not an error: the captured output is still
+/// classified.
 #[tracing::instrument(level = "info", skip_all)]
 pub fn detect_toolchain(
     toolchain: &ResolvedToolchain,
@@ -295,15 +295,11 @@ fn detect_cxx(
             source,
         })?;
     let combined = output.combined();
-    // Parse the captured banner regardless of exit status.  Some
-    // compilers always print their version banner but still exit
-    // non-zero on `--version`: MSVC `cl.exe` prints its
-    // `Microsoft (R) ... Compiler Version ...` banner to stderr and
-    // then treats `--version` as a bogus source file and fails.
-    // Gating parsing on a zero exit would misclassify every such
-    // compiler as unknown, so we parse first and only fall back to
-    // the status-based unknown when the banner itself is
-    // unrecognizable (a broken or silent tool).
+    // Parse the captured banner regardless of exit status: MSVC
+    // `cl.exe` prints its `Microsoft (R) ... Compiler Version ...`
+    // banner to stderr, then fails for want of a source file
+    // (`D8003`).  Only an unrecognizable banner with a non-zero exit
+    // (a broken or silent tool) takes the status-based unknown.
     let mut identity = parse_cxx_version_output(&combined);
     if matches!(identity.kind, cabin_core::CompilerKind::Unknown) && output.status != 0 {
         // Keep the captured first line so metadata and errors can
@@ -337,15 +333,10 @@ fn detect_ar(
             spec: tool.spec.display(),
             source,
         })?;
-    // Try to parse the captured output first.  BSD `ar` (notably
-    // Apple's) does not accept `--version` and prints a usage
-    // banner instead, so identity-by-output is unreliable for
-    // archivers.  When parsing yields `Unknown`, fall back to a
-    // conservative name-based classification - archivers that are
-    // *named* `ar` or `llvm-ar` (or `lib.exe`) reliably behave as
-    // their family does.  The strict name check is acceptable here
-    // because, unlike compilers, we do not have a portable
-    // `--version` invocation to rely on.
+    // BSD `ar` (Apple's included) and `llvm-lib` do not implement
+    // `--version`, so identity-by-output is unreliable for
+    // archivers.  When parsing yields `Unknown`, fall back to the
+    // conservative name-based `classify_ar_by_basename`.
     let combined = output.combined();
     let mut identity = parse_ar_version_output(&combined);
     if matches!(identity.kind, cabin_core::ArchiverKind::Unknown)
@@ -375,8 +366,8 @@ fn invoked_as_clang_cl(tool: &ResolvedTool) -> bool {
 
 /// Conservative basename-based classification used as a fallback
 /// for archivers that do not implement `--version`.  Recognizes
-/// only the families Cabin already supports plus the unsupported
-/// `lib.exe`.  Anything else stays [`cabin_core::ArchiverKind::Unknown`].
+/// only the `lib` / `llvm-lib`, `llvm-ar`, and `ar` families.
+/// Anything else stays [`cabin_core::ArchiverKind::Unknown`].
 fn classify_ar_by_basename(tool: &ResolvedTool) -> Option<cabin_core::ArchiverKind> {
     let basename = tool.path.file_name().unwrap_or("").to_ascii_lowercase();
     let stem = basename.strip_suffix(".exe").unwrap_or(&basename);
@@ -714,8 +705,8 @@ mod tests {
     #[test]
     fn detects_msvc_compiler_despite_nonzero_exit_on_version() {
         // Real `cl.exe` does not implement `--version`: it always
-        // prints its banner to *stderr*, then treats `--version` as
-        // a bogus source file and exits non-zero.  Detection must
+        // prints its banner to *stderr*, then exits non-zero for want
+        // of a source file (`D8003`).  Detection must
         // still identify it as MSVC from the banner - otherwise the
         // dialect falls back to GCC-style and the build is rejected.
         let cxx = tool(ToolKind::CxxCompiler, "/bin/cl", "cl");

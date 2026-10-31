@@ -128,8 +128,6 @@ fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
             .any(|l| l.contains("cxx_compile") && l.starts_with("build ")),
         "no cxx_compile build edges expected for pure-C package: {ninja}"
     );
-    // Link command line: must include `cc` (or `clang` / `gcc`)
-    // not `c++` / `clang++` / `g++`.
     let runner_target = host_path("/runner");
     let link_line = ninja
         .lines()
@@ -168,7 +166,6 @@ fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
         .assert()
         .success();
     let ninja = fs::read_to_string(dir.path().join("build/dev/build.ninja")).unwrap();
-    // Both compile rules are exercised - one per language.
     assert!(
         ninja.contains("c_compile"),
         "expected a C compile edge for mixed package: {ninja}"
@@ -177,8 +174,6 @@ fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
         ninja.contains("cxx_compile"),
         "expected a C++ compile edge for mixed package: {ninja}"
     );
-    // Link line must use the C++ driver because the closure
-    // contains a C++ object.
     let link_cmds = compile_command_lines_for_rule(&ninja, "link_executable");
     assert_eq!(link_cmds.len(), 1, "expected one link edge");
     assert_eq!(
@@ -193,17 +188,11 @@ fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
 fn link_driver_path_matches_resolved_cc_path_for_pure_c_target() {
     // Structural variant of
     // `build_c_only_project_emits_c_compile_rule_and_c_link_driver`:
-    // instead of pattern-matching driver-name substrings
-    // (`cc` / `clang` / `gcc`) on the link command, this
-    // test reads the resolved CC path from `cabin metadata`
-    // and asserts the link command's first argument equals
-    // it.  Decouples the assertion from how the host names
-    // its C compiler.
+    // the link command's program must equal the resolved CC path
+    // from `cabin metadata`, whatever the host names its C compiler.
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_c_only_library(dir.path());
-    // First, ask metadata for the resolved toolchain so the
-    // assertion below knows the host's *actual* CC path.
     let metadata = run_metadata(&dir.path().join("cabin.toml"));
     // The resolved CC path lives under
     // `toolchain.detected.cc.path` - `toolchain.tools.cc`
@@ -213,7 +202,6 @@ fn link_driver_path_matches_resolved_cc_path_for_pure_c_target() {
     let cc_path = metadata["toolchain"]["detected"]["cc"]["path"]
         .as_str()
         .expect("metadata must report a resolved cc path on this host");
-    // Then build, and inspect the link edge's command.
     cabin()
         .args(["build", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -355,11 +343,6 @@ sources = ["src/c_part.c", "src/cpp_part.cc"]
         .assert()
         .success();
     let ninja = fs::read_to_string(dir.path().join("build/dev/build.ninja")).unwrap();
-    // Locate compile command lines by walking the build edges
-    // and inspecting the rule name on each `build` line.
-    // Anchoring on the rule (rather than on a hardcoded
-    // standard flag like `-std=c11`) keeps the test stable if
-    // the planner's default standard ever changes.
     let c_compile_lines = compile_command_lines_for_rule(&ninja, "c_compile");
     let cxx_compile_lines = compile_command_lines_for_rule(&ninja, "cxx_compile");
     assert!(
@@ -453,8 +436,6 @@ deps = ["clib"]
         stdout.contains("test interop:cpp_test ... ok"),
         "expected passing C++ test that consumes a C library, got: {stdout}"
     );
-    // Both compile rules must have been used and the link
-    // must use a C++ driver because the test sources are C++.
     let ninja = fs::read_to_string(dir.path().join("build/dev/build.ninja")).unwrap();
     let c_compile_lines = compile_command_lines_for_rule(&ninja, "c_compile");
     let cxx_compile_lines = compile_command_lines_for_rule(&ninja, "cxx_compile");
@@ -473,8 +454,8 @@ deps = ["clib"]
 #[test]
 fn executable_takes_main_from_a_c_library() {
     // link.exe infers the subsystem before it searches archives, and
-    // nothing else pulls in the member defining `main`, so this link
-    // failed with LNK1561 on MSVC.
+    // nothing else pulls in the member defining `main`, so on MSVC this
+    // link fails with LNK1561 unless the link names `/SUBSYSTEM:CONSOLE`.
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -517,9 +498,8 @@ deps = ["entry"]
 
 #[test]
 fn cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order() {
-    // A workspace with two test targets - one C, one C++ -
-    // must run in `(package, target)` ascending order
-    // regardless of TOML declaration order.
+    // `zz_cpp_test` is declared first; results must follow
+    // `(package, target)` ascending order, not declaration order.
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -591,11 +571,6 @@ sources = ["src/lib.c"]
     dir.child("src/lib.c")
         .write_str("int needscc_value(void) { return 0; }\n")
         .unwrap();
-    // Build a non-existent path inside the temp dir so the
-    // test does not depend on a hardcoded host-specific
-    // path like `/this/path/does/not/exist/cc`.  The path
-    // must not resolve to an executable; nothing
-    // here is invoked.
     let missing_cc = dir.path().join("missing-cc");
     let assertion = cabin()
         .args(["build", "--manifest-path"])
@@ -614,8 +589,7 @@ sources = ["src/lib.c"]
 }
 
 /// Return the `command = ...` lines for every Ninja edge
-/// whose rule equals `rule_name`.  The returned slices are
-/// owned `String`s for ergonomics.  Anchoring on the rule
+/// whose rule equals `rule_name`.  Anchoring on the rule
 /// name decouples assertions from incidental command-line
 /// content (standard flag, optimization level, etc.).
 fn compile_command_lines_for_rule(ninja: &str, rule_name: &str) -> Vec<String> {
@@ -626,11 +600,9 @@ fn compile_command_lines_for_rule(ninja: &str, rule_name: &str) -> Vec<String> {
         if !line.starts_with("build ") || !line.contains(&needle) {
             continue;
         }
-        // The next non-blank line of an edge starts with
-        // ` command = ...`.  Walk forward until we find it,
-        // stopping at the next blank line that terminates
-        // the edge so a malformed `build.ninja` doesn't
-        // silently hide regressions.
+        // Scan the edge's indented variable lines for `command`; a
+        // blank line ends the edge, so a command is never taken from
+        // a later edge.
         for inner in lines.by_ref() {
             if inner.is_empty() {
                 break;

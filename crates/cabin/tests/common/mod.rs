@@ -1,5 +1,5 @@
 //! Shared test-support harness for Cabin's integration test
-//! binaries (`cli.rs`, `cabin_examples.rs`).
+//! binaries (`cli.rs`, `cabin_check.rs`, `cabin_examples.rs`).
 //!
 //! This module exists so the `cabin()` command builder - and in
 //! particular its environment-scrub list, which is the harness's
@@ -8,9 +8,8 @@
 //! private submodule of that binary (Cargo does not treat
 //! `tests/common/mod.rs` as its own test target).
 //!
-//! Each test binary uses a different subset of these helpers, so the
-//! ones a given binary does not reach are not dead code in any
-//! meaningful sense - silence the per-binary `dead_code` lint here.
+//! Each test binary uses a different subset of these helpers, so
+//! the per-binary `dead_code` lint is silenced here.
 #![allow(dead_code)]
 
 use assert_cmd::Command;
@@ -29,9 +28,7 @@ pub use foundation_port_smoke::{PortBuildRun, run_port_build_then_run};
 pub use ports_registry::{RegistryConsumer, committed_ports_registry, stage_ports_registry};
 
 /// File name of the executable built from `stem` in the host's
-/// build dialect (`app` on Unix, `app.exe` on Windows).  Single
-/// source of truth so path/artifact assertions speak the host's
-/// dialect instead of hardcoding the POSIX spelling.
+/// build dialect (`app` on Unix, `app.exe` on Windows).
 pub fn host_exe(stem: &str) -> String {
     Dialect::host_default().executable_name(stem)
 }
@@ -140,27 +137,20 @@ pub fn manifest_dir_read_error() -> &'static str {
 /// the full environment scrub every integration test relies on so a
 /// test only ever sees the inputs it sets explicitly.
 ///
-/// The env-scrub list below is the harness's correctness contract:
-/// toolchain / wrapper / build-flag / cache / pkg-config / color
-/// leaks are the most common reason a test that passes locally fails
-/// in CI (or vice versa).  Tests that exercise env precedence opt back
-/// in by calling `.env(KEY, VALUE)` *after* this helper - `assert_cmd`
-/// applies env mutations in declaration order, so a later `.env(...)`
-/// overrides this `.env_remove(...)`.
+/// Tests that exercise env precedence opt back in by calling
+/// `.env(KEY, VALUE)` *after* this helper: `assert_cmd` applies env
+/// mutations in declaration order, so a later `.env(...)` overrides
+/// an `.env_remove(...)` or `.env(...)` here.
 pub fn cabin() -> Command {
     let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
     // Isolate every integration test from a developer's own
     // `~/.config/cabin/config.toml`.  Tests that exercise config
-    // discovery on purpose explicitly re-enable it via
-    // `.env_remove("CABIN_NO_CONFIG")` or a custom
-    // `CABIN_CONFIG_HOME`.
+    // discovery re-enable it with `.env_remove("CABIN_NO_CONFIG")`;
+    // a `CABIN_CONFIG_HOME` alone does not.
     cmd.env("CABIN_NO_CONFIG", "1").env_remove("CABIN_CONFIG");
-    // `CABIN_CONFIG_HOME` must be *pinned*, not removed: the
-    // credential store resolves the platform config home when the
-    // variable is unset (`CABIN_NO_CONFIG` only disables config-file
-    // discovery), so an unpinned test could read the developer's real
-    // `credentials.toml` - or, for a `cabin login` under test, write
-    // into it.  Credential tests override this with their own home.
+    // `CABIN_CONFIG_HOME` is pinned, not removed: `CABIN_NO_CONFIG`
+    // disables only config-file discovery, and the credential store
+    // still resolves a config home (see `pin_test_user_config_home`).
     pin_test_user_config_home(&mut cmd);
     for key in [
         "CC",
@@ -219,10 +209,10 @@ pub fn cabin() -> Command {
         "PKG_CONFIG_PATH",
         "PKG_CONFIG_LIBDIR",
         "PKG_CONFIG_SYSROOT_DIR",
-        // termcolor's `Auto` decision honors `NO_COLOR`,
-        // `CLICOLOR`, and `CLICOLOR_FORCE`.  Strip them so a
-        // developer's shell configuration does not flip the
-        // default away from "no color".
+        // Automatic color detection honors `NO_COLOR` (termcolor) and
+        // `CLICOLOR` / `CLICOLOR_FORCE` (clap's anstream).  Strip them
+        // so a developer's shell configuration cannot change what
+        // `auto` resolves to.
         "NO_COLOR",
         "CLICOLOR",
         "CLICOLOR_FORCE",
@@ -235,14 +225,10 @@ pub fn cabin() -> Command {
     ] {
         cmd.env_remove(key);
     }
-    // Force the default test binary to emit no color so
-    // existing substring-based assertions stay byte-stable
-    // regardless of whether the test harness's stderr
-    // ultimately resolves to a terminal.  Tests that exercise
-    // the color contract (in `mod color_control`) override
-    // this with `--color` or `CABIN_TERM_COLOR` explicitly;
-    // assert_cmd applies env mutations in declaration order so
-    // a later `.env(...)` overrides this default.
+    // Force no color so substring assertions stay byte-stable
+    // whether or not the harness's stderr is a terminal.  Tests
+    // that exercise the color contract (in `mod color_control`)
+    // override this with `--color` or `CABIN_TERM_COLOR`.
     cmd.env("CABIN_TERM_COLOR", "never");
     pin_test_cache_home(&mut cmd);
     cmd
@@ -303,18 +289,14 @@ pub fn command_exists(name: &str) -> bool {
 
 /// Whether Ninja is available on `PATH`.  Cabin invokes Ninja
 /// directly for every `cabin build` / `cabin test` integration
-/// test that produces real artifacts; tests gate on this
-/// helper to skip cleanly on environments without it.
+/// test that produces real artifacts.
 pub fn ninja_available() -> bool {
     command_exists("ninja")
 }
 
 /// Whether a C compiler Cabin can drive is available - `cc` /
 /// `clang` / `gcc` on `PATH`, or MSVC `cl` on Windows (see
-/// [`msvc_cl_available`]).  Tests that compile `.c` translation
-/// units gate on this so they do not silently fall through to a
-/// `MissingCCompiler` error at planner time on a system that has
-/// only a C++ compiler.
+/// [`msvc_cl_available`]).
 pub fn c_compiler_available() -> bool {
     ["cc", "clang", "gcc"]
         .iter()

@@ -21,10 +21,10 @@ use crate::source::{ConfigSource, LoadedConfigFile, SourcedValue};
 
 /// Fully merged config consumed by the rest of the workspace.
 ///
-/// Every leaf field is `Option<SourcedValue<...>>`: `None` means
-/// no config file declared a value at all, in which case higher
-/// layers (CLI, env, manifest, built-in defaults) take over via
-/// the existing per-feature precedence chain.
+/// Every leaf setting records which config file it came from.  An
+/// absent setting (`None`, or a missing map key) means no config file
+/// declared it; the other layers (CLI, env, manifest, built-in
+/// defaults) then apply through each setting's precedence chain.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EffectiveConfig {
     pub registry: EffectiveRegistry,
@@ -94,11 +94,9 @@ pub struct EffectivePaths {
     pub build_dir: Option<EffectivePathSetting>,
 }
 
-/// One path setting from a config file. `value` is left as the
-/// path the user wrote - relative paths are resolved against the
-/// `base` directory at the consumption site (see
-/// [`EffectivePathSetting::absolute`]) so the merge stage stays
-/// pure.
+/// One path setting from a config file.  `value` is the path as
+/// written; [`EffectivePathSetting::absolute`] resolves a relative one
+/// against `base`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectivePathSetting {
     pub value: Utf8PathBuf,
@@ -175,8 +173,8 @@ pub struct EffectiveCompilerWrapper {
 
 /// One config-derived patch entry, ready for the orchestration
 /// layer to consume.  Carries the source value as the user wrote
-/// it plus the directory of the config file that declared it so
-/// callers can absolutise relative paths against the right base.
+/// it plus the path of the config file that declared it, against
+/// whose directory callers resolve relative paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectivePatch {
     pub spec: PatchSource,
@@ -403,7 +401,6 @@ mod tests {
             loaded(ConfigSource::User, "/u/.config/cabin/config.toml", user),
             loaded(ConfigSource::Workspace, "/ws/.cabin/config.toml", workspace),
         ]);
-        // Profile overlap: workspace wins.
         assert_eq!(
             effective.build.profile,
             Some(EffectiveProfile {
@@ -411,8 +408,6 @@ mod tests {
                 source: ConfigSource::Workspace,
             })
         );
-        // Non-overlap: user contributes cache-dir, workspace
-        // contributes build-dir.
         let cache = effective.paths.cache_dir.expect("user cache-dir kept");
         assert_eq!(cache.source, ConfigSource::User);
         assert_eq!(cache.value, Utf8PathBuf::from("user-cache"));
@@ -522,11 +517,9 @@ mod tests {
             loaded(ConfigSource::User, "/u/.config/cabin/config.toml", user),
             loaded(ConfigSource::Workspace, "/ws/.cabin/config.toml", workspace),
         ]);
-        // CXX comes from user (workspace did not declare it).
         let cxx = effective.toolchain.cxx.expect("user cxx kept");
         assert_eq!(cxx.source, ConfigSource::User);
         assert_eq!(cxx.spec, ToolSpec::Name("clang++".into()));
-        // AR comes from workspace (override).
         let ar = effective.toolchain.ar.expect("workspace ar wins");
         assert_eq!(ar.source, ConfigSource::Workspace);
         assert_eq!(ar.spec, ToolSpec::Name("llvm-ar".into()));

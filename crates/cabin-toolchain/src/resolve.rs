@@ -13,7 +13,9 @@
 //! 5. `[toolchain]` table in the workspace root manifest.
 //! 6. Cabin's built-in default lookup (`c++` / `clang++` / `g++`
 //!    for the C++ compiler; `cc` / `clang` / `gcc` for the C
-//!    compiler; `ar` for the archiver).
+//!    compiler; `ar` for the archiver).  On Windows, `cl` replaces
+//!    `c++` and `cc`, and the archiver list is `lib` / `llvm-lib` /
+//!    `llvm-ar` / `ar`.
 //!
 //! The first layer that yields a non-empty spec wins.  Whichever
 //! layer wins is recorded on the resulting [`cabin_core::ResolvedTool`]
@@ -42,8 +44,8 @@ pub type EnvLookup<'a> = Box<dyn Fn(&str) -> Option<OsString> + 'a>;
 pub type ExecutableProbe<'a> = Box<dyn Fn(&Path) -> bool + 'a>;
 
 /// Toolchain inputs the resolver consumes.  Production callers use
-/// [`Inputs::from_process`]; tests inject a fake env via the more
-/// granular constructor.
+/// [`Inputs::from_process`]; tests build the struct directly with a
+/// fake env and probe.
 pub struct Inputs<'a> {
     pub selection: &'a ToolchainSelection,
     /// Optional config-supplied layer that slots between
@@ -132,8 +134,10 @@ impl<'a> Inputs<'a> {
 /// Returns [`ToolchainResolutionError`]: `ToolNotFound` when an
 /// explicitly selected tool cannot be located, `NoDefault` when a
 /// required tool (`cxx` or `ar`) has neither an explicit selection
-/// nor a resolvable default, and `UnsupportedCompiler` when a
-/// compiler slot names `link` or `lib` (the MSVC linker and archiver).
+/// nor a resolvable default, `UnsupportedCompiler` when a
+/// compiler slot names `link` or `lib` (the MSVC linker and archiver),
+/// and `NonUtf8Path` when a `CC` / `CXX` / `AR` value or a located
+/// tool path is not UTF-8.
 ///
 /// # Panics
 /// Panics if resolving a required tool (`cxx` or `ar`) succeeds yet
@@ -305,9 +309,8 @@ fn reject_unsupported_compiler(
         .unwrap_or(&display)
         .to_ascii_lowercase();
     let stem = basename.trim_end_matches(".exe");
-    // `cl` is a supported compiler now; `link` (the linker) and `lib`
-    // (the archiver) are never compilers, so naming one for the C/C++
-    // slot is still a clear mistake worth catching early.
+    // `link` (the MSVC linker) and `lib` (the MSVC archiver) are never
+    // compilers, so naming one for a C/C++ slot is a mistake caught here.
     if matches!(stem, "link" | "lib") {
         return Err(ToolchainResolutionError::UnsupportedCompiler {
             kind,
@@ -569,8 +572,6 @@ mod tests {
 
     #[test]
     fn lib_named_as_a_compiler_is_rejected() {
-        // The MSVC archiver is not a compiler; naming it for the C++
-        // slot is still a clear mistake.
         let selection = ToolchainSelection::default()
             .with_cli(ToolKind::CxxCompiler, ToolSpec::Name("lib".into()));
         let manifest = ToolchainSettings::default();
