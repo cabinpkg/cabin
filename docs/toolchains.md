@@ -566,6 +566,11 @@ What remains:
   than going stale or failing.  On Windows, Ninja resolves that file's name against the
   directory it runs in (`build/dev`) within 260 characters, so a path to that directory of 233
   characters or more still fails such a build.
+- A `cl` or `clang-cl` compile's own `/showIncludes` output goes through the same filter, so its
+  object does not depend on a header whose path contains either string, which the Windows SDK's and
+  MSVC's headers do where they install by default.  Editing or updating such a header rebuilds
+  nothing unless `cabin-toolchain.json` changes too, as it does when a compiler or the archiver
+  reports a new version, and that rebuilds everything.
 
 ### Long command lines
 
