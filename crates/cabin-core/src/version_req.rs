@@ -2,17 +2,12 @@
 //!
 //! `semver::VersionReq` only accepts comma-separated comparator
 //! lists.  Cabin manifests and index entries follow the
-//! npm-flavored form where space and comma are both accepted, so
-//! the two crates that read `SemVer` requirements from disk
-//! (`cabin-manifest` and `cabin-index`) used to carry an
-//! identical normalization routine.  They now both consume this
-//! shared helper.
+//! npm-flavored form where space and comma are both accepted.
 
 /// Parse `raw` as a `SemVer` requirement, accepting either comma-
 /// or space-separated comparator lists.  Bare operators (`>= 1.2`)
-/// are rejoined with their version.  Returns the original parse
-/// error when the input cannot be coerced into either form so
-/// callers' diagnostics keep pointing at the user's text.
+/// are rejoined with their version.  The error is the one for `raw`
+/// itself, so callers' diagnostics keep pointing at the user's text.
 ///
 /// # Errors
 /// Returns the [`semver::Error`] from parsing `raw` when it parses neither
@@ -33,9 +28,7 @@ pub fn parse_lenient(raw: &str) -> Result<semver::VersionReq, semver::Error> {
 /// Convert a space-separated list of `SemVer` comparators into the
 /// comma-separated form `semver::VersionReq::parse` accepts.
 /// Operators detached from their version (`>= 1.2.3`) are
-/// re-attached.  Exposed alongside [`parse_lenient`] so callers
-/// that want to display the canonical comma-separated form can
-/// reuse the same normalization.
+/// re-attached.
 pub(crate) fn normalize(input: &str) -> String {
     let tokens: Vec<&str> = input.split_whitespace().collect();
     let mut comparators: Vec<String> = Vec::new();
@@ -84,17 +77,13 @@ pub(crate) fn normalize(input: &str) -> String {
 #[must_use]
 pub fn caret_upper_bound(major: u64, minor: u64, patch: u64) -> Option<(u64, u64, u64)> {
     if major > 0 {
-        // Bump the major; nothing sits above it, so a major already at
-        // the `u64` ceiling has no representable upper bound.
         major.checked_add(1).map(|m| (m, 0, 0))
     } else if minor > 0 {
-        // Bump the minor; a minor at the ceiling carries into the major.
         Some(match minor.checked_add(1) {
             Some(m) => (0, m, 0),
             None => (1, 0, 0),
         })
     } else {
-        // Bump the patch; a patch at the ceiling carries into the minor.
         Some(match patch.checked_add(1) {
             Some(p) => (0, 0, p),
             None => (0, 1, 0),
@@ -138,11 +127,8 @@ mod tests {
 
     #[test]
     fn caret_upper_bound_bumps_leftmost_nonzero_segment() {
-        // major nonzero ⇒ bump major
         assert_eq!(caret_upper_bound(1, 2, 3), Some((2, 0, 0)));
-        // major zero, minor nonzero ⇒ bump minor
         assert_eq!(caret_upper_bound(0, 2, 3), Some((0, 3, 0)));
-        // major and minor zero ⇒ bump patch
         assert_eq!(caret_upper_bound(0, 0, 3), Some((0, 0, 4)));
         assert_eq!(caret_upper_bound(0, 0, 0), Some((0, 0, 1)));
     }
@@ -150,11 +136,8 @@ mod tests {
     #[test]
     fn caret_upper_bound_carries_or_drops_at_u64_ceiling() {
         let max = u64::MAX;
-        // A patch at the ceiling carries into the next minor.
         assert_eq!(caret_upper_bound(0, 0, max), Some((0, 1, 0)));
-        // A minor at the ceiling carries into the next major.
         assert_eq!(caret_upper_bound(0, max, 7), Some((1, 0, 0)));
-        // A major at the ceiling has no representable upper bound.
         assert_eq!(caret_upper_bound(max, 0, 0), None);
         assert_eq!(caret_upper_bound(max, 5, 7), None);
     }

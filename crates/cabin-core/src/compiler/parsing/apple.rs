@@ -1,7 +1,7 @@
 //! Apple clang (Xcode) banner version extraction, covering both
 //! the modern `Apple clang version N.N.N` banner and the
-//! pre-Xcode-10 `Apple LLVM version N.N.N` era.  Both number
-//! spaces are Apple's own (not LLVM release numbers).
+//! `Apple LLVM version N.N.N` banner of Xcode 10 and earlier.  Both
+//! number spaces are Apple's own (not LLVM release numbers).
 
 use crate::compiler::identity::CompilerVersion;
 

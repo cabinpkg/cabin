@@ -1,10 +1,11 @@
-//! Shared file-registry `config.json` contract.
+//! Registry contract constants and predicates shared by Cabin's
+//! registry clients and writers.
 //!
 //! The schema version, the `kind` discriminant, and the
 //! relative-subdirectory safety rule for a file registry's
 //! `config.json` live here so the readers (`cabin-index`,
 //! `cabin-index-http`) and the writer (`cabin-registry-file`)
-//! validate one identical contract instead of three drifting copies.
+//! validate one contract.
 //! `cabin-core` carries no I/O - each crate keeps its own error type
 //! and maps the shared predicates and message helpers into its own
 //! diagnostic.
@@ -16,12 +17,11 @@ pub const REGISTRY_CONFIG_SCHEMA: u32 = 1;
 
 /// Length, in lowercase hex characters, of a packaging-revision
 /// identifier: the leading prefix of the canonical archive's SHA-256.
-/// Deriving the id from the archive bytes is what makes byte-identical
-/// republication map onto the already-existing revision; 16 hex chars
-/// (64 bits) keep filenames and display short while a same-version
-/// collision of *different* archives stays negligible - and writers
-/// detect that case loudly because the full checksum stored next to
-/// the id would disagree.
+/// Deriving the id from the archive bytes maps a byte-identical
+/// republication onto the existing revision.  16 hex chars (64 bits)
+/// keep filenames and display short; a same-version collision of
+/// *different* archives is negligible, and writers reject it because
+/// the full checksum stored next to the id disagrees.
 pub const PACKAGING_REVISION_HEX_LEN: usize = 16;
 
 /// Whether `value` is a well-formed packaging-revision identifier
@@ -40,9 +40,7 @@ pub const REGISTRY_KIND: &str = "file-registry";
 /// Cabin's default hosted-registry index origin: the sparse HTTP
 /// index a command falls back to when it needs an index and neither
 /// the CLI (`--index-path` / `--index-url`) nor the config
-/// (`[registry]`) names one.  Lives beside the other registry
-/// contract constants so the CLI and any future consumer agree on
-/// one spelling.
+/// (`[registry]`) names one.
 pub const DEFAULT_INDEX_URL: &str = "https://registry.cabinpkg.com";
 
 /// Error message for a registry *mutation* surface (`cabin publish
@@ -59,10 +57,10 @@ pub fn remote_registry_command_error(command: &str) -> String {
 
 /// Validate a registry config `api` value: the absolute `http(s)`
 /// base URL of the registry's web/API origin.  Returns `None` when
-/// valid and `Some(message)` naming what is wrong.  Uses the same
-/// URL parser as the sparse HTTP client's index-URL hygiene, so the
-/// acceptance rules cannot drift: `http` / `https` schemes only, a
-/// well-formed host, and no `userinfo` credentials.  The message
+/// valid and `Some(message)` naming what is wrong.  Applies the same
+/// `url` parser and rules as the sparse HTTP client's index-URL check
+/// (`cabin-index-http`'s `parse_base_url`): `http` / `https` schemes
+/// only, a well-formed host, and no `userinfo` credentials.  The message
 /// never echoes the raw value (`url::ParseError` renders a static
 /// description), so a credential-bearing URL cannot leak into logs.
 #[must_use]
@@ -85,7 +83,9 @@ pub fn api_url_error(value: &str) -> Option<String> {
 /// config field (`packages` / `artifacts`): non-empty, not absolute,
 /// and composed only of normal path components (a leading / interior
 /// `.` is tolerated).  Rejects `..`, absolute paths, and OS root /
-/// prefix components so a config cannot point outside the registry.
+/// prefix components so the value, joined onto the registry root,
+/// stays lexically inside it.  This is a filesystem rule only:
+/// `cabin-index-http` adds URL checks before joining it onto a URL.
 pub fn relative_subdir_is_safe(value: &str) -> bool {
     !value.is_empty() && cabin_fs::path::is_safe_relative_path(Path::new(value))
 }

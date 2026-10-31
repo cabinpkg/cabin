@@ -22,9 +22,8 @@ use thiserror::Error;
 use crate::{ResolvedProfileFlags, SourceLanguage, Target, classify_source};
 
 /// C language standards Cabin can request, oldest to newest.  The
-/// `Ord` derive follows declaration order, which is the plain
-/// chronological chain (in particular `c11 < c17`).  Implements the
-/// level chain `Level_C` of spec D2
+/// `Ord` derive follows declaration order, implementing the level
+/// chain `Level_C` of spec D2
 /// (`docs/design/standard-compatibility/spec.md`): chronological
 /// enumeration order, not numeric (`c89 < c11`), with no
 /// equivalence special case anywhere in the chain.  The `c90` alias
@@ -400,9 +399,6 @@ impl<'de, S: Deserialize<'de> + StandardLevel> Deserialize<'de> for StandardRequ
             #[serde(default = "none")]
             max: Option<S>,
         }
-        // `#[serde(default)]` needs a fn item; `Option::default`
-        // would also work but reads as a value default rather than
-        // "absent max".
         fn none<S>() -> Option<S> {
             None
         }
@@ -906,9 +902,8 @@ fn interface_resolution<S: Copy>(
 /// Effective C interface requirement for a library-like target:
 /// target interface ▶ package interface (literal or
 /// workspace-inherited) ▶ the target's effective implementation
-/// standard, when one is declared (an interface may still default
-/// from an explicit implementation standard).  `None` when no tier
-/// yields a value.
+/// standard, when one is declared.  `None` when no tier yields a
+/// value.
 #[must_use]
 pub fn interface_c(
     package: &ResolvedLanguageStandards,
@@ -1047,8 +1042,6 @@ pub fn find_standard_flag_conflicts(
     flags: &ResolvedProfileFlags,
 ) -> Vec<StandardFlagConflict> {
     let mut out = Vec::new();
-    // C and C++ follow identical conflict logic; only the language,
-    // field / flag-list names, and standard declarations differ.
     let mut check = |language: SourceLanguage,
                      field: &'static str,
                      flag_list: &'static str,
@@ -1142,8 +1135,7 @@ pub enum InterfaceStandardContradiction {
 /// Detect interface/implementation contradictions: for each
 /// library-like target and language it compiles, the effective
 /// implementation standard must lie inside the effective interface
-/// range - not below its minimum, not above its maximum (the
-/// target's own translation units include its own public headers).
+/// range - not below its minimum, not above its maximum.
 /// Runs on resolved declarations, after workspace-marker
 /// resolution.  The compile-standard interface fallback equals the
 /// implementation standard, so it can never contradict.
@@ -2033,10 +2025,7 @@ mod tests {
             "message must state the reason plainly: {message}"
         );
 
-        // An implementation inside the declared range is fine, and
-        // one below the min plus above the max double-reports only
-        // through the two distinct variants (impossible for a single
-        // language: min <= max is validated, so impl cannot be both).
+        // An implementation inside the declared range is fine.
         let lib = target(
             TargetKind::Library,
             &["a.cc"],

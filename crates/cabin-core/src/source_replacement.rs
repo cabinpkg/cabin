@@ -31,12 +31,6 @@ use thiserror::Error;
 use crate::ConfigValueSource;
 
 /// Stable, typed identifier for one supported source/index.
-///
-/// Keeping this enum closed (instead of stringly-typed `(kind,
-/// value)` pairs) means every consumer - resolver, lockfile,
-/// metadata view - agrees on what each variant means and which
-/// data it carries.  New supported kinds extend the enum
-/// explicitly.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SourceLocator {
@@ -44,16 +38,15 @@ pub enum SourceLocator {
     /// orchestration layer absolutises against the declaring
     /// file's directory before consulting the index loader.
     IndexPath { path: Utf8PathBuf },
-    /// Sparse-HTTP index.  Carries the URL verbatim; the
-    /// orchestration layer rejects credential-bearing URLs at
-    /// parse time so credentials never leak into the
-    /// effective configuration.
+    /// Sparse-HTTP index.  Carries the URL verbatim; `cabin-config`
+    /// rejects credential-bearing URLs at parse time so credentials
+    /// never leak into the effective configuration.
     IndexUrl { url: String },
 }
 
 impl SourceLocator {
-    /// Stable lower-case label used for metadata + lockfile
-    /// output.  Matches the serde `kind` tag.
+    /// Stable lower-case label used in metadata output.  Matches
+    /// the serde `kind` tag.
     pub fn kind_key(&self) -> &'static str {
         match self {
             SourceLocator::IndexPath { .. } => "index-path",
@@ -77,10 +70,7 @@ impl fmt::Display for SourceLocator {
     }
 }
 
-/// One source-replacement declaration.  The orchestration layer
-/// folds these into a [`SourceReplacementSettings`] map keyed by
-/// `original`, so a higher-precedence config layer overrides a
-/// lower one entry by entry.
+/// One source-replacement declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceReplacementEntry {
     pub original: SourceLocator,
@@ -94,12 +84,9 @@ pub struct SourceReplacementEntry {
 /// Collection of source-replacement entries plus typed
 /// resolution / cycle detection.
 ///
-/// Built by `cabin-config`'s merger from the highest-priority
-/// config file's `[source-replacement]` table; lower-priority
-/// files contribute additional entries when their `original`
-/// key is not already covered, so the resulting map preserves
-/// the same "higher level overrides" semantics the rest of the
-/// config layer uses.
+/// Built by `cabin-config`'s merger: for each `original`, the
+/// highest-precedence config file's entry wins, as for every other
+/// config setting.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceReplacementSettings {
     /// `(original -> entry)` keyed by the source being
@@ -110,21 +97,14 @@ pub struct SourceReplacementSettings {
 }
 
 impl SourceReplacementSettings {
-    /// Whether the table carries no entries.  Used by the
-    /// workspace loader / metadata view to skip emitting empty
-    /// blocks.
+    /// Whether the table carries no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     /// Resolve `initial` through the replacement chain.  Returns
-    /// the terminal source plus the chain of intermediate
-    /// originals (in walk order) so the lockfile / metadata view
-    /// can record the full hop list.
-    ///
-    /// Cycles surface a [`SourceReplacementError::Cycle`]
-    /// carrying the offending hop list so users see exactly
-    /// which entries form the loop.
+    /// the terminal source plus every `original` walked through,
+    /// in walk order.
     ///
     /// # Errors
     /// Returns [`SourceReplacementError::Cycle`] when the replacement chain
@@ -171,9 +151,8 @@ pub struct SourceReplacementResolution {
 /// match substrings.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SourceReplacementError {
-    /// `replace-with` (or the inline `index-path` /
-    /// `index-url`) was missing - every entry must declare a
-    /// replacement.
+    /// The entry declares neither `index-path` nor `index-url`, or
+    /// its only replacement key is empty or whitespace-only.
     #[error(
         "source replacement for `{original}` is missing a replacement; expected `index-path = \"...\"` or `index-url = \"...\"`"
     )]

@@ -1,24 +1,22 @@
 //! Typed semantic build flags.
 //!
-//! Cabin recognizes explicit, semantic build flags that compose
-//! across these layers, in order:
+//! Build flags compose across these layers, in order:
 //!
-//! 1. Built-in backend defaults (currently empty for `[profile]`:
-//!    the effective per-target standard flag comes from the
-//!    language-standard model in [`crate::language_standard`], and
-//!    the profile's `-O0` / `-g` etc. come from the resolved
-//!    profile - neither is a `[profile]` layer).
-//! 2. Per-package general `[profile]` flags from the manifest.
-//! 3. Per-package matching `[target.'cfg(...)'.profile]` flags.
-//! 4. For each profile in the selected root-to-leaf inheritance
+//! 1. Per-package general `[profile]` flags from the manifest.
+//! 2. Per-package matching `[target.'cfg(...)'.profile]` flags.
+//! 3. For each profile in the selected root-to-leaf inheritance
 //!    chain, workspace-root `[profile.<name>]` flags followed by
 //!    matching package
 //!    `[target.'cfg(...)'.profile.<name>]` overlays.
 //!
-//! Manifest-declared fields are intentionally explicit: defines,
-//! include directories, C-only compile arguments, C++-only compile
-//! arguments, and link arguments.  The C/C++ argv spaces stay
-//! separate all the way to the planner.
+//! No built-in layer precedes them: the per-target standard flag comes
+//! from [`crate::language_standard`], and `-O0` / `-g` etc. come from
+//! the resolved profile.
+//!
+//! Manifest-declared fields: defines, include directories, C-only
+//! compile arguments, C++-only compile arguments, link arguments, link
+//! libraries, and frameworks.  The C/C++ argv spaces stay separate all
+//! the way to the planner.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -34,15 +32,14 @@ use crate::profile::{ProfileDefinition, ProfileName, ResolvedProfile};
 /// `[target.'cfg(...)'.profile]` / `[profile.<name>]` table.
 ///
 /// Every field is optional so omission means "no contribution at
-/// this layer".  The TOML parser rejects unknown fields explicitly
-/// so a future field cannot silently slip through.
+/// this layer".  The manifest parser rejects unknown fields.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileFlags {
     /// Preprocessor macro definitions, one per entry.  Each value
     /// is either `"NAME"` (defines without a value) or
-    /// `"NAME=value"` (defines with an explicit value).  Names are
-    /// validated at parse time; the planner emits `-DNAME` /
-    /// `-DNAME=value` directly.
+    /// `"NAME=value"` (defines with an explicit value).  Parse time
+    /// rejects an empty entry and one with no name (`"=value"`); the
+    /// planner emits `-DNAME` / `-DNAME=value` directly.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub defines: Vec<String>,
     /// Additional include directories.  Paths are validated at
@@ -109,7 +106,7 @@ impl ProfileFlags {
     /// - Defines must be non-empty and must not start with `=`.
     /// - Include directories must be relative and must not contain
     ///   any `..` component.
-    /// - Link libraries must be safe bare library names (see
+    /// - Link libraries and frameworks must be safe bare names (see
     ///   [`is_safe_link_lib`]).
     ///
     /// # Errors
@@ -202,10 +199,10 @@ impl ProfileSettings {
 
 /// Final, deterministic build-flag set fed to the planner.
 ///
-/// `defines` is sorted-and-deduplicated (defines are commutative
-/// for our purposes); include and argv lists keep user-visible
-/// order, with first-occurrence dedup for include dirs to mirror
-/// the existing planner behavior.
+/// `defines` is sorted and deduplicated; every other list keeps
+/// declaration order, and `include_dirs`, `system_include_dirs`,
+/// `link_libs`, and `frameworks` also drop repeats after the first
+/// occurrence.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfileFlags {
     pub defines: Vec<String>,
@@ -364,10 +361,8 @@ fn apply_layer(target: &mut ResolvedProfileFlags, layer: &ProfileFlags) {
     target.cflags.extend(layer.cflags.iter().cloned());
     target.cxxflags.extend(layer.cxxflags.iter().cloned());
     target.ldflags.extend(layer.ldflags.iter().cloned());
-    // Link libraries dedup by first occurrence and keep order:
-    // `-l` resolution is order-sensitive, and a duplicate `-lm`
-    // is noise, so we mirror the include-dir treatment rather
-    // than the append-verbatim used for the raw flag arrays.
+    // `-l` resolution is order-sensitive, so link libraries keep
+    // first-occurrence order and drop repeats such as a second `-lm`.
     extend_dedup_first_occurrence(&mut target.link_libs, &layer.link_libs);
     extend_dedup_first_occurrence(&mut target.frameworks, &layer.frameworks);
 }
@@ -383,15 +378,11 @@ fn extend_dedup_first_occurrence<T: PartialEq + Clone>(target: &mut Vec<T>, item
 }
 
 fn finalize(target: &mut ResolvedProfileFlags) {
-    // Defines are commutative: `-DA -DB` and `-DB -DA` produce the
-    // same preprocessor state, so a stable sort + dedup gives us a
-    // deterministic shape that does not depend on declaration
-    // order across layers.
+    // Defines with distinct names commute (`-DA -DB` and `-DB -DA`
+    // produce the same preprocessor state), so sort + dedup gives a
+    // shape that does not depend on declaration order across layers.
     let dedup: BTreeSet<String> = target.defines.drain(..).collect();
     target.defines = dedup.into_iter().collect();
-    // Include dirs already deduplicated by `apply_layer` while
-    // preserving first-seen order; nothing more to do here.
-    // Argument lists preserve user order; no sorting.
 }
 
 /// Errors produced while validating a manifest-side build-flags
@@ -1125,8 +1116,6 @@ mod tests {
 
     #[test]
     fn link_libs_survive_untrusted_packages() {
-        // Unlike ldflags, validated link_libs are kept for untrusted
-        // (registry) packages because they cannot smuggle a flag.
         let mut p = ProfileSettings::default();
         p.general.link_libs = vec!["pthread".into()];
         p.general.frameworks = vec!["CoreFoundation".into()];

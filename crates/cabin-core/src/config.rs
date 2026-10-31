@@ -6,7 +6,7 @@
 //! graph; the resolver expands defaults plus user requests by
 //! transitive closure.  Feature entries can enable optional
 //! dependencies (`dep:foo`) and request features on dependency
-//! packages (`crate/feature`).
+//! packages (`dep/feature`).
 //!
 //! All declarations live on `cabin_core::Package`.  Selection happens
 //! through [`BuildConfiguration::resolve`], which consumes the
@@ -234,10 +234,9 @@ impl Features {
 /// list (`feature_name`, `dep:dependency_name`, or
 /// `dependency_name/feature_name`).
 ///
-/// `cabin-core` parses the form lazily - the on-disk shape stays
-/// the original string - so older readers are unaffected.  The
-/// feature resolver consumes the typed view to decide which
-/// effects an entry has.
+/// `cabin-core` parses the form lazily; the on-disk shape stays the
+/// original string (see [`Features`]).  The feature resolver
+/// consumes the typed view to decide which effects an entry has.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeatureEntry {
     /// Enables another local feature on the same package.
@@ -383,7 +382,7 @@ pub struct SelectionRequest {
 /// - which profile its compile / link flags come from;
 /// - which toolchain compiled it;
 /// - which semantic build flags applied;
-/// - the deterministic fingerprint that future cache logic can hash on.
+/// - the deterministic build-configuration fingerprint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildConfiguration {
     pub enabled_features: BTreeSet<String>,
@@ -421,14 +420,14 @@ pub struct ToolchainSummary {
     /// PATH discovery are deliberately omitted.
     pub tools: BTreeMap<String, String>,
     /// `(kind -> source label) ` parallel to `tools`.  Source
-    /// labels are stable strings (`cli`, `env`, `manifest`,
-    /// `manifest-conditional`, `default`).
+    /// labels are the stable [`crate::ToolSource`] strings (`cli`,
+    /// `env`, `*-config`, `manifest`, `manifest-conditional`,
+    /// `default`).
     pub sources: BTreeMap<String, String>,
     /// Optional compiler wrapper (e.g. `ccache`, `sccache`)
-    /// applied on top of the C++ compiler.  `None` when no wrapper
-    /// is selected; otherwise the kind/spec/source/version are
-    /// folded into the configuration fingerprint so a build with a
-    /// different wrapper choice reuses neither cache layer.
+    /// applied to C and C++ compile commands.  `None` when no
+    /// wrapper is selected; otherwise the kind/spec/version are
+    /// folded into the configuration fingerprint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compiler_wrapper: Option<CompilerWrapperSummary>,
     /// The `--target` triple; `None` for a build-machine build.
@@ -442,9 +441,7 @@ pub struct ToolchainSummary {
 }
 
 impl ToolchainSummary {
-    /// Build a summary from a `ResolvedToolchain`.  Storage is
-    /// deterministic: tools iterate in sorted [`crate::ToolKind`]
-    /// order via [`ResolvedToolchain::iter`].
+    /// Build a summary from a `ResolvedToolchain`.
     pub fn from_resolved(toolchain: &ResolvedToolchain) -> Self {
         Self::from_resolved_parts(toolchain, None)
     }
@@ -478,13 +475,6 @@ impl ToolchainSummary {
 }
 
 /// Bundled inputs for [`BuildConfiguration::resolve`].
-///
-/// `BuildConfiguration` ties together every per-package input the
-/// resolver evaluates (declared features, the requested selection,
-/// and the already-resolved profile / toolchain / build flags).
-/// Threading them through one struct keeps the call signature stable
-/// as new inputs land and stops `cabin metadata` orchestration from
-/// needing to remember a fixed positional order.
 #[derive(Debug)]
 pub struct BuildConfigurationInput<'a> {
     /// Package name.  Used only to render clear validation errors.
@@ -508,7 +498,6 @@ pub struct BuildConfigurationInput<'a> {
 
 impl BuildConfiguration {
     /// Resolve a [`SelectionRequest`] against a set of declarations.
-    /// `input.package` is used only to make error messages clear.
     ///
     /// # Errors
     /// Returns [`ValidationError::UnknownFeature`] when the request names a
@@ -684,13 +673,12 @@ fn compute_fingerprint(
         hasher.update(a.as_bytes());
         hasher.update(b"\n");
     }
-    // The C-only and C++-only escape hatches change the
-    // generated compile commands and the resulting object
-    // contents, so they must move the fingerprint.  Each section
-    // is anchored by a labeled header so a future addition
-    // (e.g. extra-asm-compile-args) cannot accidentally collide
-    // with one of the existing buckets and produce the same
-    // fingerprint as a different input.
+    // Each section starts with its own labeled header, so moving a
+    // value between sections (e.g. one flag from `cflags` to
+    // `cxxflags`) changes the hashed bytes.  Values are not escaped,
+    // so the encoding is not injective: a value equal to a later
+    // header label (`cflags = ["cxxflags"]` vs `cxxflags =
+    // ["cxxflags"]`) hashes the same.
     hasher.update(b"cflags\n");
     for a in &build_flags.cflags {
         hasher.update(a.as_bytes());
@@ -765,10 +753,6 @@ mod tests {
     };
     use camino::Utf8PathBuf;
 
-    /// The dep/feature split is on the *last* `/`: legacy
-    /// `dep/feature` keeps its meaning and a scoped dependency
-    /// (`<scope>/<name>`) is addressable in both `dep:` and
-    /// `<dep>/<feature>` entries.
     #[test]
     fn feature_entries_accept_scoped_dependency_references() {
         assert_eq!(
@@ -1063,9 +1047,7 @@ mod tests {
         assert_ne!(cfg_empty.fingerprint, cfg_simd.fingerprint);
     }
     /// Helper: resolve a `BuildConfiguration` with the supplied
-    /// build flags.  Every other input is the boring default so
-    /// the only difference between two calls is the `flags` arg
-    /// - used for the fingerprint-input regression tests below.
+    /// build flags; every other input is the boring default.
     fn resolve_with_flags(flags: ResolvedProfileFlags) -> BuildConfiguration {
         BuildConfiguration::resolve(BuildConfigurationInput {
             targets: &[],
@@ -1303,13 +1285,6 @@ mod tests {
 
     #[test]
     fn fingerprint_differs_when_cflags_change() {
-        // The per-language escape hatches must each contribute
-        // their own fingerprint bucket.  A C compile command's
-        // argv changes when this slot changes, which means the
-        // resulting `.o` bytes can change too - a future on-disk
-        // artifact cache *must* see a different fingerprint or it
-        // would silently reuse a stale object.  The fingerprint
-        // must move.
         let baseline = resolve_with_flags(ResolvedProfileFlags::default());
         let added = resolve_with_flags(ResolvedProfileFlags {
             cflags: vec!["-std=c99".to_owned()],
@@ -1320,8 +1295,6 @@ mod tests {
 
     #[test]
     fn fingerprint_differs_when_cxxflags_change() {
-        // Mirror of the C-only test: a C++ compile command's
-        // argv must move the fingerprint too.
         let baseline = resolve_with_flags(ResolvedProfileFlags::default());
         let added = resolve_with_flags(ResolvedProfileFlags {
             cxxflags: vec!["-fno-rtti".to_owned()],
@@ -1332,13 +1305,9 @@ mod tests {
 
     #[test]
     fn fingerprint_distinguishes_c_only_from_cxx_only_extra_args() {
-        // Belt-and-suspenders: putting the *same* flag string in
-        // the C-only slot vs. the C++-only slot must produce
-        // different fingerprints because the two slots route to
-        // different compile commands.  Without this guarantee,
-        // future cache logic could accidentally serve a C-only
-        // object for a C++-only request that happens to share an
-        // argv string.
+        // The C-only and C++-only slots route to different compile
+        // commands, so the same flag string in each must produce
+        // different fingerprints.
         let c_only = resolve_with_flags(ResolvedProfileFlags {
             cflags: vec!["-Wsome-warning".to_owned()],
             ..ResolvedProfileFlags::default()
@@ -1362,9 +1331,6 @@ mod tests {
 
     #[test]
     fn fingerprint_differs_when_link_libs_change() {
-        // `link-libs` change the generated link command, so two
-        // configurations differing only in their system libraries must
-        // not share a build fingerprint.
         let baseline = resolve_with_flags(ResolvedProfileFlags::default());
         let added = resolve_with_flags(ResolvedProfileFlags {
             link_libs: vec!["pthread".to_owned()],
@@ -1423,9 +1389,6 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_same_build_flags() {
-        // Determinism: identical inputs produce identical
-        // fingerprints.  The fingerprint serialiser sorts every
-        // map / set; this test pins that contract.
         let flags = ResolvedProfileFlags {
             defines: vec!["FOO=1".to_owned(), "BAR=2".to_owned()],
             include_dirs: vec![

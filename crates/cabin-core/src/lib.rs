@@ -1,13 +1,13 @@
 //! Stable internal data model for Cabin.
 //!
 //! This crate defines the validated, format-agnostic types that the rest of
-//! the workspace builds on.  Manifest parsing, the CLI, and (later) the build
+//! the workspace builds on.  Manifest parsing, the CLI, and the build
 //! graph all consume the same `Package` value, so changes here ripple
 //! everywhere - keep this surface small.
 //!
 //! Crate boundaries:
 //! - this crate must not depend on `clap`, `toml`, or any raw manifest
-//!   Structs;
+//!   structs;
 //! - manifest-shaped serde structs live in `cabin-manifest`;
 //! - CLI dispatch lives in `cabin`.
 

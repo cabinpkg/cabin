@@ -30,7 +30,8 @@ pub enum ToolKind {
     /// C compiler (driver, e.g. `cc`, `clang`, `gcc`).
     CCompiler,
     /// C++ compiler (driver, e.g. `c++`, `clang++`, `g++`).  Also
-    /// drives linking in the current backend.
+    /// the link driver for targets with C++ objects (see
+    /// [`crate::link_driver_language`]).
     CxxCompiler,
     /// Static-library archiver (e.g. `ar`, `llvm-ar`).
     Archiver,
@@ -85,13 +86,16 @@ pub enum ToolSource {
     /// `CABIN_CONFIG` environment variable.
     ExplicitConfig,
     /// Set by a `[target.'cfg(...)'.toolchain]` table that matches
-    /// the host platform.
+    /// the platform the build is for (the build machine, or the
+    /// `--target` platform).
     ManifestConditional,
     /// Set by the workspace-root `[toolchain]` table.
     Manifest,
     /// Auto-detected from PATH using Cabin's documented fallback
     /// list (`c++` / `clang++` / `g++` for the C++ compiler, `cc` /
-    /// `clang` / `gcc` for the C compiler, `ar` for the archiver).
+    /// `clang` / `gcc` for the C compiler, `ar` for the archiver; on
+    /// Windows, `cl` replaces `c++` and `cc`, and the archiver list is
+    /// `lib` / `llvm-lib` / `llvm-ar` / `ar`).
     Default,
 }
 
@@ -178,8 +182,8 @@ fn looks_like_path(raw: &str) -> bool {
 /// CLI / orchestration-supplied request for one tool.
 ///
 /// `ToolSelection::default()` is "no preference"; the resolver
-/// then consults environment variables, manifest tables, and
-/// finally the built-in default list.
+/// then consults environment variables, config files, manifest
+/// tables, and finally the built-in default list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ToolSelection {
     /// Set when the user passed a CLI flag for this tool.  Highest
@@ -323,10 +327,7 @@ pub(crate) fn tool_source_label(source: ToolSource) -> &'static str {
 
 /// Fully-resolved C/C++ toolchain.
 ///
-/// The build planner reads `cxx`, `cc`, and `ar` directly.  Build
-/// scripts get every entry exposed through `CABIN_*` environment
-/// variables. `cabin metadata` reports the same struct serialized
-/// to JSON.
+/// The build planner reads `cxx`, `cc`, and `ar` directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedToolchain {
     /// C++ compiler.  Always populated.  Used for `.cc` / `.cpp` /
@@ -337,11 +338,11 @@ pub struct ResolvedToolchain {
     pub ar: ResolvedTool,
     /// C compiler.  Used for `.c` compiles and as the link driver
     /// for targets whose objects are pure C.  Optional: the resolver
-    /// also probes the documented fallback list (`cc`, `clang`,
-    /// `gcc`) so any standard system populates this without an
-    /// explicit selection.  Only `None` when no candidate exists on
-    /// `PATH`; the planner then errors with `MissingCCompiler` if a
-    /// `.c` source is encountered.
+    /// also probes the fallback list ([`ToolSource::Default`]) so any
+    /// standard system populates this without an explicit selection.
+    /// Only `None` when no candidate exists on `PATH`; the planner
+    /// then errors with `MissingCCompiler` if a `.c` source is
+    /// encountered.
     pub cc: Option<ResolvedTool>,
 }
 
@@ -358,8 +359,7 @@ impl ResolvedToolchain {
         entries.into_iter()
     }
 
-    /// Compact JSON view used by `cabin metadata` and
-    /// `CABIN_BUILD_CONFIGURATION_JSON`.
+    /// Compact JSON view used by `cabin metadata`.
     pub fn as_json(&self) -> serde_json::Value {
         let entries: BTreeMap<String, serde_json::Value> = self
             .iter()
@@ -399,10 +399,8 @@ pub enum ToolchainResolutionError {
         label = kind.human_label()
     )]
     UnsupportedCompiler { kind: ToolKind, spec: String },
-    /// A tool was located on `PATH` but the resolved path is not
-    /// valid UTF-8.  Cabin's toolchain model assumes UTF-8 paths, so
-    /// an executable under a non-UTF-8 directory is surfaced here
-    /// rather than aborting the process.
+    /// A resolved tool path, or a `CC` / `CXX` / `AR` value, is not
+    /// valid UTF-8.  Cabin's toolchain model assumes UTF-8 paths.
     #[error(
         "resolved {label} path `{path}` is not valid UTF-8",
         label = kind.human_label(),

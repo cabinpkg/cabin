@@ -127,15 +127,12 @@ fn gcc_standard_capabilities_are_version_gated_per_standard() {
         target: None,
         raw_version_line: format!("g++ {v}"),
     };
-    // GCC 4.8: c++11 yes, c++14/17 (>= 5) no.
     assert!(cxx_standard_capability(&gcc("4.8.5"), CxxStandard::Cxx11).supported);
     assert!(!cxx_standard_capability(&gcc("4.8.5"), CxxStandard::Cxx17).supported);
-    // `-std=c++20`: GCC 10; `-std=c++23`: GCC 11.
     assert!(cxx_standard_capability(&gcc("10.1.0"), CxxStandard::Cxx20).supported);
     assert!(!cxx_standard_capability(&gcc("9.4.0"), CxxStandard::Cxx20).supported);
     assert!(cxx_standard_capability(&gcc("11.4.0"), CxxStandard::Cxx23).supported);
     assert!(!cxx_standard_capability(&gcc("10.5.0"), CxxStandard::Cxx23).supported);
-    // C side: `-std=c17` from GCC 8, `-std=c23` from GCC 14.
     assert!(c_standard_capability(&gcc("8.1.0"), CStandard::C17).supported);
     assert!(!c_standard_capability(&gcc("7.5.0"), CStandard::C17).supported);
     assert!(c_standard_capability(&gcc("14.1.0"), CStandard::C23).supported);
@@ -156,8 +153,6 @@ fn clang_and_apple_clang_standard_gates_follow_the_audited_table() {
         target: None,
         raw_version_line: format!("clang version {v}"),
     };
-    // `-std=c++20` spelling shipped in Clang 10 (9 only had c++2a:
-    // the `release/10.x` LangStandards.def already names `c++20`).
     assert!(
         cxx_standard_capability(&make(CompilerKind::Clang, "10.0.0"), CxxStandard::Cxx20).supported
     );
@@ -173,8 +168,6 @@ fn clang_and_apple_clang_standard_gates_follow_the_audited_table() {
     );
     assert!(c_standard_capability(&make(CompilerKind::Clang, "18.1.0"), CStandard::C23).supported);
     assert!(!c_standard_capability(&make(CompilerKind::Clang, "17.0.6"), CStandard::C23).supported);
-    // Apple clang gates follow the LLVM-base mapping: every Apple
-    // clang 12 is at least LLVM-10-based, which spells c++20.
     assert!(
         cxx_standard_capability(
             &make(CompilerKind::AppleClang, "12.0.0"),
@@ -209,7 +202,6 @@ fn cxx26_gates_follow_the_audited_table_and_have_no_msvc_flag() {
         target: None,
         raw_version_line: format!("compiler {v}"),
     };
-    // `-std=c++26`: GCC 14, Clang 17, Apple clang 16 (LLVM-17-based).
     assert!(
         cxx_standard_capability(&make(CompilerKind::Gcc, "14.1.0"), CxxStandard::Cxx26).supported
     );
@@ -237,7 +229,6 @@ fn cxx26_gates_follow_the_audited_table_and_have_no_msvc_flag() {
         )
         .supported
     );
-    // The MSVC dialect has no stable `/std:c++26` at any version.
     for kind in [CompilerKind::Msvc, CompilerKind::ClangCl] {
         let cap = cxx_standard_capability(&make(kind, "19.39.0"), CxxStandard::Cxx26);
         assert!(!cap.supported, "{kind}");
@@ -285,9 +276,6 @@ fn ar_capabilities_recognize_gnu_ar() {
 
 #[test]
 fn msvc_lib_archives_without_ar_crs() {
-    // `lib.exe` rejects GNU `crs` mode flags.  It still produces
-    // a static library (`lib /OUT:`), so metadata
-    // must report `static_library_output` as supported.
     let id = ArchiverIdentity {
         kind: ArchiverKind::Lib,
         version: None,
@@ -301,8 +289,6 @@ fn msvc_lib_archives_without_ar_crs() {
 
 #[test]
 fn validate_accepts_msvc_cxx() {
-    // MSVC drives the `cl.exe` backend; detection reports
-    // `msvc_style_flags`, so validation must accept it.
     let id = CompilerIdentity {
         kind: CompilerKind::Msvc,
         version: None,
@@ -325,8 +311,6 @@ fn msvc_identity(version: &str) -> CompilerIdentity {
 
 #[test]
 fn msvc_std_capabilities_are_version_gated() {
-    // `/std:c++17` needs cl 19.11 (VS2017 15.3); `/std:c11` needs
-    // cl 19.28 (VS2019 16.8); stable `/std:c++20` needs cl 19.29.
     let modern = msvc_identity("19.39.33523");
     let cap = cxx_standard_capability(&modern, CxxStandard::Cxx17);
     assert!(cap.supported);
@@ -334,8 +318,6 @@ fn msvc_std_capabilities_are_version_gated() {
     assert!(c_standard_capability(&modern, CStandard::C11).supported);
     assert!(cxx_standard_capability(&modern, CxxStandard::Cxx20).supported);
 
-    // cl 19.20 (VS2019 16.0) takes /std:c++17 but predates /std:c11
-    // and /std:c++20.
     let mid = msvc_identity("19.20.0");
     assert!(cxx_standard_capability(&mid, CxxStandard::Cxx17).supported);
     let cap = c_standard_capability(&mid, CStandard::C11);
@@ -343,7 +325,6 @@ fn msvc_std_capabilities_are_version_gated() {
     assert_eq!(cap.source, CapabilitySource::Version);
     assert!(!cxx_standard_capability(&mid, CxxStandard::Cxx20).supported);
 
-    // cl 19.00 (VS2015) predates every gated switch.
     let old = msvc_identity("19.00.24210");
     assert!(!cxx_standard_capability(&old, CxxStandard::Cxx17).supported);
     assert!(!c_standard_capability(&old, CStandard::C11).supported);
@@ -372,9 +353,6 @@ fn msvc_has_no_stable_flag_for_old_or_new_standards() {
 
 #[test]
 fn msvc_unparsed_version_assumes_modern_support() {
-    // A real `cl` always reports a version; a parse miss
-    // (`version: None`) must NOT reject an otherwise-modern
-    // compiler, so the gate defaults to supported/assumed-default.
     let id = CompilerIdentity {
         kind: CompilerKind::Msvc,
         version: None,
@@ -413,8 +391,6 @@ fn gnu_c_standard_11_is_unconditional() {
 
 #[test]
 fn external_include_dirs_capability_is_version_gated_for_msvc() {
-    // `cl /external:I` left `/experimental:external` in VS2019 16.10
-    // (`cl` 19.29); older toolsets reject the switch outright.
     let modern = derive_cxx_capabilities(&msvc_identity("19.29.30133"));
     assert!(modern.external_include_dirs.supported);
     assert_eq!(
@@ -429,8 +405,6 @@ fn external_include_dirs_capability_is_version_gated_for_msvc() {
 
 #[test]
 fn external_include_dirs_capability_is_unconditional_for_gnu_style() {
-    // `-isystem` is part of the base GCC/Clang command line, so every
-    // recognized GNU-dialect compiler supports the distinction.
     for kind in [
         CompilerKind::Gcc,
         CompilerKind::Clang,
@@ -444,8 +418,6 @@ fn external_include_dirs_capability_is_unconditional_for_gnu_style() {
         };
         assert!(derive_cxx_capabilities(&id).external_include_dirs.supported);
     }
-    // Unknown compilers stay conservative: the GNU lowering they
-    // fall back to must not assume `-isystem` semantics.
     let unknown = derive_cxx_capabilities(&CompilerIdentity::unknown("strange compiler"));
     assert!(!unknown.external_include_dirs.supported);
     assert_eq!(
@@ -456,7 +428,6 @@ fn external_include_dirs_capability_is_unconditional_for_gnu_style() {
 
 #[test]
 fn external_include_dirs_capability_is_version_gated_for_clang_cl() {
-    // `clang-cl` understands the `/external:` block since clang 13.
     let make = |version: &str| CompilerIdentity {
         kind: CompilerKind::ClangCl,
         version: CompilerVersion::parse(version),
@@ -529,10 +500,6 @@ fn validate_standards_rejects_msvc_too_old_for_std_flags() {
 
 #[test]
 fn clang_cl_has_msvc_dialect_with_clang_diagnostics() {
-    // `clang-cl` reports a clang version, but speaks the MSVC
-    // dialect: MSVC-style flags yes, GCC-style/depfile no, while
-    // keeping Clang's color/json/response-file capabilities and
-    // version-independent C++17/C11 support.
     let id = CompilerIdentity {
         kind: CompilerKind::ClangCl,
         version: CompilerVersion::parse("17.0.6"),
@@ -546,8 +513,6 @@ fn clang_cl_has_msvc_dialect_with_clang_diagnostics() {
     assert!(caps.msvc_style_flags.supported);
     assert!(!caps.gcc_style_flags.supported);
     assert!(!caps.depfile_mmd_mf.supported);
-    // clang-cl 17: /std:c++17 always; /std:c11 / /std:c17 since 13;
-    // /std:c++20 since 13; no stable /std:c++23.
     assert!(cxx_standard_capability(&id, CxxStandard::Cxx17).supported);
     assert!(c_standard_capability(&id, CStandard::C11).supported);
     assert!(cxx_standard_capability(&id, CxxStandard::Cxx20).supported);
@@ -561,7 +526,6 @@ fn clang_cl_has_msvc_dialect_with_clang_diagnostics() {
     assert!(!c_standard_capability(&old, CStandard::C11).supported);
     assert!(!cxx_standard_capability(&old, CxxStandard::Cxx20).supported);
 
-    // Validates against both the C++ and C MSVC backends.
     assert!(validate_cxx_for_backend("clang-cl", &id, &caps).is_ok());
     assert!(validate_cc_for_backend("clang-cl", &id, &caps).is_ok());
 }
@@ -680,7 +644,7 @@ fn validate_cc_rejects_unknown_compiler_without_gcc_style() {
 
 #[test]
 fn validate_cc_rejects_gcc_without_depfile_support() {
-    // GCC identity but without `-MMD -MF` support - Cabin
+    // GCC identity but without `-MD -MF` support - Cabin
     // emits a depfile flag for every compile so the C
     // contract requires it.
     let id = CompilerIdentity {
@@ -700,7 +664,6 @@ fn validate_cc_rejects_gcc_without_depfile_support() {
 
 #[test]
 fn validate_accepts_msvc_archiver() {
-    // `lib.exe` is the MSVC static-library archiver.
     let id = ArchiverIdentity {
         kind: ArchiverKind::Lib,
         version: None,
@@ -721,13 +684,9 @@ fn version_display_truncates_unset_components() {
 }
 
 // --------------------------------------------------------------
-// Golden / fixture tests.
-//
-// These pin the JSON shape that downstream tooling
-// (`cabin metadata`, IDE integrations) reads out of a
-// `ToolchainDetectionReport`.  Any accidental change to the
-// field names or serialization order here is user-visible
-// and should be deliberate.
+// Golden tests.  These pin the JSON shape `cabin metadata` emits
+// for a `ToolchainDetectionReport`; field names and order are
+// user-visible.
 // --------------------------------------------------------------
 
 fn pretty(value: &serde_json::Value) -> String {
@@ -858,11 +817,6 @@ fn snapshot_msvc_identity_and_capabilities() {
     let actual = cxx_identity_and_capabilities_json(
         "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.33523 for x64\n",
     );
-    // A modern `cl` (19.39 == VS2022 17.9) accepts the
-    // `/std:c++17` and `/std:c11` switches Cabin emits, so both
-    // standard capabilities are version-supported; the GCC-style
-    // and depfile capabilities stay unsupported because MSVC
-    // drives its own dialect.
     let expected = r#"{
   "identity": {
     "kind": "msvc",
@@ -1056,7 +1010,7 @@ struct CxxBannerCase {
 
 /// Real captured `--version` first lines (plus follow-up lines where
 /// the real tool prints them) across families, versions, and vendor
-/// patches.  Every parser change must keep this table green.
+/// patches.
 const CXX_BANNER_CORPUS: &[CxxBannerCase] = &[
     // --- GCC ---
     CxxBannerCase {
@@ -1212,7 +1166,7 @@ const CXX_BANNER_CORPUS: &[CxxBannerCase] = &[
         version: Some((18, Some(1), Some(8))),
         target: Some("x86_64-pc-windows-msvc"),
     },
-    // --- Apple clang (Xcode), incl. the pre-Xcode-10 "Apple LLVM" era ---
+    // --- Apple clang (Xcode), incl. the Xcode <= 10 "Apple LLVM" era ---
     CxxBannerCase {
         banner: "Apple clang version 16.0.0 (clang-1600.0.26.4)\nTarget: arm64-apple-darwin24.0.0\nThread model: posix\n",
         kind: CompilerKind::AppleClang,

@@ -11,8 +11,8 @@ use super::capabilities::{
 use super::identity::{ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind};
 use crate::language_standard::{CStandard, CxxStandard};
 
-/// Errors produced while validating a detection report against
-/// the current C++ backend's required capability set.
+/// Errors produced while validating detected tools against a
+/// backend's required capabilities and the requested standards.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ToolDetectionError {
     #[error("selected C++ compiler `{spec}` cannot be matched to a supported C++ backend")]
@@ -73,27 +73,25 @@ pub enum ToolDetectionError {
 /// Validate that the resolved C++ compiler can drive one of
 /// Cabin's two C++ backends.
 ///
-/// An MSVC compiler drives the `cl.exe` backend, which speaks the
-/// MSVC command-line dialect (`/std:`, `/showIncludes`,
-/// `/D` / `/I` / `/c` / `/Fo`).  Every other recognized compiler
-/// drives the GCC/Clang backend, which requires `-MMD -MF` and
-/// GCC-style `-D` / `-I` / `-c` / `-o`.  A compiler that fits
-/// neither contract is a hard error.  Support for the *requested*
-/// language standards is validated separately by
+/// An MSVC-dialect compiler (`cl`, `clang-cl`) drives the `cl.exe`
+/// backend, which speaks the MSVC command-line dialect (`/std:`,
+/// `/showIncludes`, `/D` / `/I` / `/c` / `/Fo`).  Every other
+/// recognized compiler drives the GCC/Clang backend, which requires
+/// `-MD -MF` and GCC-style `-D` / `-I` / `-c` / `-o`.  A compiler
+/// that fits neither contract is a hard error.  Support for the
+/// *requested* language standards is validated separately by
 /// [`validate_cxx_standards`] / [`validate_c_standards`].
 ///
 /// # Errors
 /// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler fits
 /// no backend, [`ToolDetectionError::UnknownCxxRequiresGccStyle`] when an
 /// unidentified compiler lacks GCC-style flags, and
-/// [`ToolDetectionError::CxxLacksDepfile`] when `-MMD -MF` is unsupported.
+/// [`ToolDetectionError::CxxLacksDepfile`] when `-MD -MF` is unsupported.
 pub fn validate_cxx_for_backend(
     spec_display: &str,
     identity: &CompilerIdentity,
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
-    // MSVC-dialect compilers (`cl`, `clang-cl`) drive the `cl.exe`
-    // backend.
     if identity.kind.speaks_msvc_dialect() {
         if !capabilities.msvc_style_flags.supported {
             return Err(ToolDetectionError::UnsupportedCxxBackend {
@@ -173,25 +171,23 @@ pub fn validate_c_standards(
 }
 
 /// Validate that the resolved C compiler supports the C-side
-/// command shape the active backend emits.  An MSVC compiler
-/// drives the `cl.exe` backend; every other recognized compiler
-/// drives the GCC/Clang backend, which needs GCC-style flags
-/// plus `-MMD -MF` depfile generation.  Support for the requested
-/// C standards is validated separately by
+/// command shape the active backend emits.  An MSVC-dialect compiler
+/// (`cl`, `clang-cl`) drives the `cl.exe` backend; every other
+/// recognized compiler drives the GCC/Clang backend, which needs
+/// GCC-style flags plus `-MD -MF` depfile generation.  Support for
+/// the requested C standards is validated separately by
 /// [`validate_c_standards`].
 ///
 /// # Errors
 /// Returns [`ToolDetectionError::UnsupportedCBackend`] when the compiler fits
 /// no backend, [`ToolDetectionError::UnknownCRequiresGccStyle`] when an
 /// unidentified compiler lacks GCC-style flags, and
-/// [`ToolDetectionError::CLacksDepfile`] when `-MMD -MF` is unsupported.
+/// [`ToolDetectionError::CLacksDepfile`] when `-MD -MF` is unsupported.
 pub fn validate_cc_for_backend(
     spec_display: &str,
     identity: &CompilerIdentity,
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
-    // MSVC-dialect compilers (`cl`, `clang-cl`) drive the `cl.exe`
-    // backend; the GCC/Clang contract below does not apply to them.
     if identity.kind.speaks_msvc_dialect() {
         if !capabilities.msvc_style_flags.supported {
             return Err(ToolDetectionError::UnsupportedCBackend {
@@ -234,8 +230,6 @@ pub fn validate_ar_for_backend(
     identity: &ArchiverIdentity,
     capabilities: &ArchiverCapabilities,
 ) -> Result<(), ToolDetectionError> {
-    // `lib.exe` is the MSVC static-library backend's archiver; it
-    // produces the `.lib` the `cl.exe` link step consumes.
     if identity.kind == ArchiverKind::Lib {
         return Ok(());
     }

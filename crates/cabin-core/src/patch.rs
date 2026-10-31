@@ -13,9 +13,10 @@
 //! - any `.cabin/config.toml`'s `[patch]` table (user / workspace
 //!   / package / explicit policy from the config layer).
 //!
-//! Both forms produce the same typed model.  The orchestration
-//! layer in `cabin` merges the two and the workspace loader
-//! stitches the patched packages into the package graph.
+//! Both forms produce the same typed model.  `cabin-workspace`
+//! merges the two (a config entry overrides the manifest entry for
+//! the same package) and its loader stitches the patched packages
+//! into the package graph.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -27,10 +28,9 @@ use thiserror::Error;
 
 use crate::ConfigValueSource;
 
-/// Kind of source a patch points at.  Today only local paths are
-/// supported.  The enum is closed: adding new source kinds is a
-/// deliberate change that requires matching parser, validator,
-/// and resolver work.
+/// Kind of source a patch points at.  Only local paths are
+/// supported; a new kind needs matching parser, validator, and
+/// resolver work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PatchSourceKind {
@@ -57,12 +57,6 @@ impl fmt::Display for PatchSourceKind {
 
 /// What a patch redirects the patched package to.  Each variant
 /// pairs the [`PatchSourceKind`] with its concrete data.
-///
-/// Rationale: keeping the variant data closed (instead of a
-/// stringly-typed "spec" string) means the resolver, fetch
-/// pipeline, and metadata view all agree on what each patch
-/// points at.  Future kinds (artifact archive, local
-/// index reference) extend this enum explicitly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum PatchSource {
@@ -74,20 +68,17 @@ pub enum PatchSource {
 }
 
 impl PatchSource {
-    /// Stable kind label, useful for metadata / lockfile output.
+    /// Stable kind label, used in `cabin metadata` output.
     pub fn kind(&self) -> PatchSourceKind {
         match self {
             PatchSource::Path { .. } => PatchSourceKind::Path,
         }
     }
 
-    /// Build a [`PatchSource`] from a `[patch]` row's `path` field -
-    /// the only supported patch grammar today.  Requires the path,
-    /// trims it, and rejects empty / whitespace, surfacing
-    /// [`PatchValidationError::MissingSource`] on failure.  Shared by
-    /// the manifest and config parsers so the path→source rule lives
-    /// next to the type; each caller keeps its own outer error
-    /// wrapping and its own package-name validation.
+    /// Build a [`PatchSource`] from a `[patch]` row's `path` field,
+    /// trimmed.  Shared by the manifest and config parsers; each
+    /// caller keeps its own outer error wrapping and its own
+    /// package-name validation.
     ///
     /// # Errors
     /// Returns [`PatchValidationError::MissingSource`] when `raw_path` is
@@ -144,36 +135,28 @@ impl fmt::Display for PatchProvenance {
 /// rejects them - so reading off the root is sufficient.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchManifestSettings {
-    /// `(package name -> source)`.  Iteration is deterministic
-    /// via [`BTreeMap`].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub entries: BTreeMap<crate::PackageName, PatchSource>,
 }
 
 impl PatchManifestSettings {
-    /// Whether the table carries no entries.  Mirrors the
-    /// `is_empty` helpers on the other workspace-root-only
-    /// settings types so the workspace loader can reject member
-    /// manifests with a uniform check.
+    /// Whether the table carries no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
 
-/// Errors produced while validating patch declarations.  Wording
-/// is intentionally stable so integration tests can match
-/// substrings.
+/// Errors produced while validating patch declarations.  Integration
+/// tests match substrings of these messages.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PatchValidationError {
-    /// A patch table did not declare any source.  The expected
-    /// shape is `{ path = "..." }`; the parser surfaces this when
-    /// no recognized key was supplied.
+    /// A patch entry has no `path`, or its `path` is empty or
+    /// whitespace-only.
     #[error("patch for package `{package}` is missing a source; expected `path = \"...\"`")]
     MissingSource { package: String },
 
     /// The patched package directory does not contain a
-    /// `cabin.toml`.  Cabin prefers a clear early error to the
-    /// later confusing "manifest not found" failure.
+    /// `cabin.toml`.
     #[error(
         "patch for package `{package}` points to `{path}`, but that path does not contain a cabin.toml"
     )]

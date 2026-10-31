@@ -6,9 +6,9 @@
 //! `cabin metadata` reports every effective setting paired with one
 //! of these labels so users can audit a build without re-deriving
 //! the precedence by hand.  Crates that produce effective values
-//! (cabin's orchestration layer; cabin-config's merge layer;
-//! the toolchain / wrapper resolvers) populate the matching variant
-//! and the metadata serializer renders the stable kebab-case form.
+//! (cabin's orchestration layer; cabin-config's merge layer)
+//! populate the matching variant and the metadata serializer renders
+//! the stable kebab-case form.
 
 use std::fmt;
 
@@ -17,10 +17,10 @@ use serde::{Deserialize, Serialize};
 /// Stable, ordered enum describing every layer Cabin's effective
 /// configuration can come from.
 ///
-/// The `cli`, `env`, and `*-config` variants are the only ones a
-/// caller assigns directly today; manifest-derived values stay on
-/// their dedicated tool/wrapper enums to preserve the existing
-/// metadata shape.
+/// No caller assigns `Manifest`: manifest-derived toolchain and
+/// wrapper values carry [`crate::ToolSource`] and
+/// [`crate::CompilerWrapperSource`] to preserve the existing metadata
+/// shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConfigValueSource {

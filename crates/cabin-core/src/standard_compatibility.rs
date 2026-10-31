@@ -1,14 +1,14 @@
 //! Resolver-level standard-compatibility core.
 //!
 //! One-to-one implementation of the normative specification in
-//! `docs/design/standard-compatibility/spec.md`; every public item
-//! cites the definition (D1, D2, ...) or lemma (L1, ...) it
-//! implements, and the tests cite the lemma they verify.  Pure data
+//! `docs/design/standard-compatibility/spec.md`; public items cite
+//! the definition (D1, D2, ...) or lemma (L1, ...) they implement,
+//! and the tests cite the lemma they verify.  Pure data
 //! and logic only: no I/O, no logging, no globals.
 //!
 //! The requirement domain is the interval domain of spec D3/D4:
 //! joins intersect accepted ranges, an empty intersection is
-//! `forbidden`, and the strictness order is a partial order - no
+//! `forbidden`, and the strictness order is not total - no
 //! code here or downstream may assume two requirements are
 //! comparable, or that one source alone determines a composed
 //! value (a range's bounds may come from different targets).
@@ -42,7 +42,7 @@ use crate::{SourceLanguage, Target, classify_source};
 /// set of consumer levels it accepts: everything, an up-set
 /// `[min, ∞)`, an inclusive interval `[min, max]`, or nothing.
 /// The strictness order `⊑` is reverse inclusion of the denoted
-/// sets; it is a **partial** order (two disjoint or overlapping
+/// sets; it is not total (two disjoint or partially overlapping
 /// intervals are incomparable), so there is no `Ord` here and no
 /// code may assume one requirement of a pair is the stricter.
 /// `Min(m)` and a `Bounded` range `[m, top]` denote the same
@@ -375,9 +375,10 @@ fn req_of<S: Copy + Ord>(
 /// declaration only (target over package tier, workspace-inherited
 /// counting as declared) - never the build-time implementation-
 /// standard fallback.  This is the single source of truth for the
-/// mapping, shared by the resolver-graph pass (`cabin-build`) and the
-/// published-index derivation (`crate::index_standards`), so the two
-/// cannot drift.
+/// mapping, shared by the post-resolution check (`cabin-build`), the
+/// published-index derivation (`crate::index_standards`), the
+/// resolver's consumer standards (`cabin-workspace`), and the publish
+/// lints (`cabin-publish`), so they cannot drift.
 #[must_use]
 pub fn dependency_attributes(
     target: &Target,
@@ -625,10 +626,9 @@ mod tests {
             .collect()
     }
 
-    /// L4 (now the definition of D4): `Sat(r1 ⊔ r2) = Sat(r1) ∩
-    /// Sat(r2)` - exhaustively over every requirement pair and
-    /// triple of both languages, with the empty join denoting all
-    /// of `Level_L`.
+    /// L4: `Sat(r1 ⊔ r2) = Sat(r1) ∩ Sat(r2)` - exhaustively over
+    /// every requirement pair of both languages, with the empty join
+    /// denoting all of `Level_L`.
     #[test]
     fn join_is_intersection_of_satisfaction_sets() {
         fn check<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
@@ -746,9 +746,9 @@ mod tests {
         }
     }
 
-    /// The strictness order is genuinely partial now: disjoint (and
-    /// merely overlapping) ranges are incomparable, so no code may
-    /// pick "the stricter" of two requirements.
+    /// L1: the strictness order is not total - disjoint and partially
+    /// overlapping ranges are incomparable, so no code may pick "the
+    /// stricter" of two requirements.
     #[test]
     fn strictness_is_a_partial_order_with_incomparable_ranges() {
         let levels = &CxxStandard::ALL;
@@ -794,9 +794,8 @@ mod tests {
 
     /// Satisfaction sets are convex, and upward closure fails
     /// exactly for bounded shapes capped below the top of the chain
-    /// (spec L6).  This is the deliberate reversal of the old
-    /// minimum-only lemma - remedies must not unconditionally say
-    /// "raise your standard".
+    /// (spec L6), so remedies must not unconditionally say "raise
+    /// your standard".
     #[test]
     fn satisfaction_is_convex_and_upward_closure_fails_only_below_the_top() {
         fn convex<S: Copy + Ord>(requirement: Requirement<S>, levels: &[S]) -> bool {
