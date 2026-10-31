@@ -4,14 +4,11 @@
 
 use super::*;
 
-/// A triple naming the build machine, which the detected toolchain
-/// builds for: its C++ compiler's own default target, or on Windows the
-/// architecture with no environment, as MSVC, clang-cl, and MinGW each
-/// name a different one.
+/// A triple the detected C++ compiler builds for, which a `--target`
+/// build accepts without a cross toolchain: the banner's target, as
+/// `cabin metadata` reports it, or GCC's `-dumpmachine`.  On a Windows
+/// ARM runner that is x64, the architecture its MSVC targets.
 fn build_machine_triple() -> String {
-    if cfg!(windows) {
-        return format!("{}-pc-windows", std::env::consts::ARCH);
-    }
     let tmp = TempDir::new().unwrap();
     tmp.child("cabin.toml")
         .write_str("[package]\nname = \"probe\"\nversion = \"0.1.0\"\n")
@@ -22,10 +19,12 @@ fn build_machine_triple() -> String {
         .assert()
         .success();
     let value: serde_json::Value = serde_json::from_slice(&metadata.get_output().stdout).unwrap();
-    let cxx = value["toolchain"]["detected"]["cxx"]["path"]
-        .as_str()
-        .unwrap();
-    let output = std::process::Command::new(cxx)
+    let cxx = &value["toolchain"]["detected"]["cxx"];
+    if let Some(target) = cxx["identity"]["target"].as_str() {
+        return target.to_owned();
+    }
+    // GCC's `--version` names no target.
+    let output = std::process::Command::new(cxx["path"].as_str().unwrap())
         .arg("-dumpmachine")
         .output()
         .unwrap();
