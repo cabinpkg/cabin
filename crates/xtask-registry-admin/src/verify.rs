@@ -36,20 +36,16 @@
 //! verifier child that fails counts one failure and moves on, while a
 //! field read that fails aborts the WHOLE run, leaving that version and
 //! every unprocessed one pending.  The corpus download aborts the run
-//! too, and a failed upstream download reads as an absent upstream.  Malformed listing data therefore stops
-//! the run rather than rejecting or skipping a package.  A field read
-//! renders a missing or null field as the literal string `null`, so an
-//! entry without a `name` goes on to verify a package called `null`.
+//! too, and a failed upstream download reads as an absent upstream.
+//! Malformed listing data therefore stops the run rather than rejecting
+//! or skipping a package.  A field read renders a missing or null field
+//! as the literal string `null`, so an entry without a `name` goes on
+//! to verify a package called `null`.
 //!
-//! The verifier child inherits the whole environment, minus the OIDC
-//! mint pair and any inherited `CABIN_REGISTRY_TOKEN`, all scrubbed
-//! (`capture`): the pair could mint the verdict-delivering JWT, and
-//! the token variable - never set by the workflow, but a local
-//! operator shell may export it (`registry/docs/runbook.md`) - is a
-//! credential the child has no use for.  The run's own registry token
-//! is minted at start and lives only in driver memory.  The
-//! publisher-controlled upstream download is the one request that
-//! never sees a credential, and it runs on its own agent so it cannot.
+//! The verifier child inherits the whole environment minus the
+//! credentials (`capture`).  The publisher-controlled upstream download
+//! is the one request that never sees a credential, and it runs on its
+//! own agent so it cannot.
 //!
 //! Ceilings, each either invisible on the ephemeral runner this is
 //! scheduled on or fail-safe:
@@ -99,10 +95,10 @@ use base64ct::{Base64UrlUnpadded, Encoding as _};
 use rand::seq::SliceRandom as _;
 use serde_json::{Map, Value};
 
-/// A relative path resolved against the working directory, which the
-/// Cargo alias makes the repository root.  Deliberately not anchored
-/// to this crate's manifest directory: the binary is a build artifact
-/// of the workspace, not of the tool.
+/// A relative path resolved against the working directory, which is the
+/// repository root because the workflow runs the Cargo alias there.
+/// Deliberately not anchored to this crate's manifest directory: the
+/// binary is a build artifact of the workspace, not of the tool.
 const VERIFIER: &str = "target/release/cabin-registry-verify";
 
 /// The aggregate seconds one run may spend on upstream archives.
@@ -206,9 +202,8 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
     let resolution = resolution();
 
     // The run's registry credential is minted, not configured: the
-    // exchange stands in for the retired `REGISTRY_VERIFY_TOKEN`
-    // secret, and its refusal fails the run before any listing is
-    // read, so every version stays pending.
+    // exchange's refusal fails the run before any listing is read, so
+    // every version stays pending.
     let agent = plane_agent();
     let token =
         exchange(&agent, &minter, &api_base).context("the trusted-publishing exchange failed")?;
@@ -230,8 +225,9 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
     // integer zero is "nothing pending"; one that is no integer at all
     // - a float length, a multi-document listing, an empty body - still
     // prints the headline and fetches the corpus, and then walks
-    // nothing ([`loop_indices`]).  Only a listing that will not parse,
-    // or a `versions` with no length, aborts.
+    // nothing ([`loop_indices`]).  A listing that will not parse, a
+    // document that is neither an object nor `null`, or a `versions`
+    // with no length aborts.
     let listing = plane
         .get(&format!("{api_base}/api/v1/admin/versions?status=pending"))
         .context("the pending listing request failed")?;
@@ -1435,9 +1431,6 @@ mod tests {
         assert_eq!(captured("\r\n"), "\r");
     }
 
-    /// The NULs vanish from the BYTE stream before the text is read
-    /// off it: a NUL splitting a UTF-8 sequence heals into the
-    /// character it split, never into replacement characters.
     #[test]
     fn a_captured_body_drops_nul_bytes_before_decoding() {
         assert_eq!(captured_bytes(b"\xc2\x00\xa0"), "\u{a0}");
@@ -1446,9 +1439,6 @@ mod tests {
         assert_eq!(captured_bytes(b"\xff"), "\u{fffd}");
     }
 
-    /// A field read renders a missing field and an explicit `null`
-    /// alike, as the literal `null`, and a composite takes the indented
-    /// form.
     #[test]
     fn a_raw_read_renders_null_as_its_own_text() {
         let entry = serde_json::json!({
@@ -1470,11 +1460,6 @@ mod tests {
         assert_eq!(field(&Value::Null, "name").unwrap(), "null");
     }
 
-    /// A verifier that exits 0 having printed nothing is not malformed
-    /// data: no input renders nothing, so the field read is empty and
-    /// the version counts one failure and stays pending.  Anything else
-    /// it cannot parse aborts the whole run - documents before the
-    /// malformed point notwithstanding.
     #[test]
     fn an_empty_child_answer_is_no_input_rather_than_a_parse_failure() {
         assert!(answer("", "an answer").unwrap().is_none());
@@ -1488,24 +1473,14 @@ mod tests {
         assert!(answer("garbage", "an answer").is_err());
         assert!(answer("{", "an answer").is_err());
         assert!(answer(r#"{"advice":"proceed"} garbage"#, "an answer").is_err());
-        // One leading byte-order mark is skipped, and a mark alone is
-        // still no input at all.
         assert_eq!(
             advice("\u{feff}{\"advice\":\"proceed\"}").unwrap(),
             "proceed"
         );
         assert!(answer("\u{feff}", "an answer").unwrap().is_none());
-        // "No input" is JSON's own whitespace alone: an NBSP-only
-        // capture is a parse error, so it aborts the run rather than
-        // reading as blank.
         assert!(answer("\u{a0}", "an answer").is_err());
     }
 
-    /// A multi-document answer is read once per document, and the
-    /// capture strips what a trailing empty rendering leaves behind: a
-    /// two-line advice matches no arm and counts a failure, while a
-    /// trailing `""` document vanishes into the arm its predecessor
-    /// named.
     #[test]
     fn a_multi_document_answer_reads_one_line_per_document() {
         let advice = |text: &str| {
@@ -1543,7 +1518,7 @@ mod tests {
     }
 
     /// A listing with no `versions` key at all is "nothing pending",
-    /// not an error - which is what keeps an empty admin answer from
+    /// not an error - which is what keeps a `{}` admin answer from
     /// failing the run.
     #[test]
     fn a_listing_without_versions_is_nothing_pending() {
@@ -1596,9 +1571,9 @@ mod tests {
         assert!(url(r#"{"metadata":"oops"}"#).is_err());
     }
 
-    /// Both URLs are concatenated, and both carry a `/` inside a single
-    /// path segment: percent-encoding either one would name a route the
-    /// registry does not serve.
+    /// Both URLs are concatenated around the scoped name's `/`:
+    /// percent-encoding it would name a route the registry does not
+    /// serve.
     #[test]
     fn the_urls_are_concatenated_around_a_scoped_name() {
         assert_eq!(
@@ -1707,9 +1682,6 @@ mod tests {
         assert!(loop_indices("three").is_empty());
     }
 
-    /// The redirect scheme matches case-insensitively, so an uppercase
-    /// redirect hop is followed where a cleartext or
-    /// relative one fails the download.
     #[test]
     fn the_redirect_scheme_matches_case_insensitively() {
         assert!(is_https("https://example.invalid/a"));

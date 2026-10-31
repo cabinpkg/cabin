@@ -57,8 +57,7 @@ const DEPLOYED_V1_MIGRATION: &str = r#"{"tag":"v1","new_sqlite_classes":["Govern
 const RATE_LIMITERS: [&str; 2] = ["OIDC_LIMITER", "JWKS_LIMITER"];
 
 /// The exact sets the Rust code reads. A misspelled name parses fine and
-/// is silently ignored, which is the worst failure mode of all (the
-/// operator believes the override is live).
+/// is silently ignored while the operator believes the override is live.
 const LIMIT_VARS: [&str; 15] = [
     // src/governor.rs storage_env_var / op_env_var
     "GOVERNOR_STORAGE_PRIMARY_BYTES",
@@ -105,8 +104,7 @@ const BUNDLE_MISSING: &str =
 /// deploys against.
 ///
 /// A file the guard cannot read is reported like a file that does not
-/// parse - the same stream shape, the same summary - rather than as an
-/// error: CI reads the summary line, not the exit path.
+/// parse: one failure line and the same summary, not an error.
 pub fn check(registry_dir: &Path, require_bundle: bool) -> Report {
     let bundle_path = registry_dir.join("build/index.js");
     if require_bundle && !bundle_path.is_file() {
@@ -363,9 +361,9 @@ fn validate_durable_objects(config: &Value, failures: &mut Vec<String>) -> Vec<S
     );
     let migrations = array(config, "migrations");
     require_array_valued(migrations, failures);
-    // A missing or null tag is the empty tag, and a tag that is not a
-    // string at all is malformed - refusing it keeps the uniqueness
-    // comparison below on plain strings, where it means what it says.
+    // A missing, null, or non-string tag reads as the empty tag, which
+    // the next check refuses, so the uniqueness check compares plain
+    // strings and never JSON renderings.
     let tags: Vec<&str> = migrations
         .iter()
         .map(|migration| {
@@ -461,8 +459,9 @@ fn validate_limit_vars(config: &Value, failures: &mut Vec<String>) {
         // whitespace-padded BUDGET_* value would silently revert to the
         // default at runtime and must be refused here, while the same
         // padding on a GOVERNOR_* var is fine. A value past u64::MAX
-        // fails Rust's parse and lands on the same fail-closed zero, so
-        // the range is checked too.
+        // fails Rust's parse like any malformed value (zero for
+        // GOVERNOR_*, the default for BUDGET_*), so the range is checked
+        // too.
         let parsed = value.as_str().map(|text| {
             if name.starts_with("GOVERNOR_") {
                 text.trim()
@@ -612,10 +611,10 @@ fn exported_names(bundle: &str) -> Vec<String> {
 }
 
 /// The name an export-list entry actually exports: the last piece of a
-/// split on ` as ` (one or more spaces, `as`, one or more spaces).
-/// Deliberately NOT the last whitespace-delimited token - an entry
-/// carrying a trailing comment (`Foo // Governor`) would then read as an
-/// export of the commented name.
+/// split on ` as ` (one or more spaces, `as`, one or more spaces). The
+/// last whitespace-delimited token would misread an entry carrying a
+/// trailing comment (`Foo // Governor`) as an export of the commented
+/// name.
 fn renamed_export(entry: &str) -> String {
     let mut piece = 0;
     let mut cursor = 0;

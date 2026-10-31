@@ -6,8 +6,8 @@
 //! Signal path.  `Drop` does not run on SIGINT, so [`DevServers`]
 //! splits the teardown: `xtask_ci::arm_teardown` kills the process
 //! groups and restores `.dev.vars` before `_exit`, but the D1
-//! `service_mode` reset is deliberately *not* on that path - spawning
-//! wrangler from a signal handler is not async-signal-safe.  A run
+//! `service_mode` reset is not on that path: spawning wrangler from a
+//! signal handler is not async-signal-safe.  A run
 //! killed inside a breaker leg therefore leaves the pinned mode behind
 //! in the local database, and [`seed_tokens`] normalizes it on the next
 //! tokened run.
@@ -352,11 +352,6 @@ const WEB_CONFIG: &str = r#"{
 }
 "#;
 
-/// Writes [`WEB_WORKER`] and [`WEB_CONFIG`] into `dir`.
-///
-/// # Errors
-///
-/// If either file cannot be written.
 fn write_web_worker(dir: &Path) -> Result<()> {
     fs::write(dir.join("index.js"), WEB_WORKER).context("write the website-role worker")?;
     fs::write(dir.join("wrangler.json"), WEB_CONFIG).context("write the website-role config")
@@ -437,8 +432,6 @@ impl DevServers {
             self.ports.registry
         ));
         self.start_registry_dev()?;
-        // Started second so the first instance's build is already
-        // cached.
         step(&format!(
             "starting the website-role wrangler dev on port {}",
             self.ports.web
@@ -951,8 +944,6 @@ mod tests {
 
     #[test]
     fn the_seeding_sql_carries_the_token_hashes() {
-        // shasum -a 256 of "cabin_smoke", "cabin_smoke-verify", and
-        // "cabin_smoke-noverify".
         let sql = seed_sql(
             &sha256_hex(b"cabin_smoke"),
             &sha256_hex(b"cabin_smoke-verify"),

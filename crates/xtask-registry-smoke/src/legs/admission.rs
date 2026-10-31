@@ -37,7 +37,8 @@ const VERDICT_PATH: &str = "/api/v1/admin/versions/smoke/withdep/0.1.0";
 const EXPECTED_429: &str =
     r#"{"errors":[{"detail":"request rate limit exceeded; retry later","code":"rate_limited"}]}"#;
 
-/// The wrangler.jsonc budgets the assertions below count against.
+/// `JWKS_LIMITER`'s per-minute limit in wrangler.jsonc, and a burst cap
+/// above `OIDC_LIMITER`'s 60.
 const JWKS_BUDGET: u64 = 6;
 const ADMISSION_BURST: u32 = 70;
 

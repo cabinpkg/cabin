@@ -23,11 +23,10 @@
 //!
 //! Properties:
 //!
-//! - **The refusals' order is deliberate**, and is not the order that
-//!   reads most naturally: the missing-file and
-//!   edited-in-place refusals both come BEFORE the "nothing pending"
-//!   early exit, so a run with nothing to apply still refuses a
-//!   corrupt state rather than reporting the stamp current.
+//! - **The missing-file and edited-in-place refusals both come BEFORE
+//!   the "nothing pending" early exit**, so a run with nothing to apply
+//!   still refuses a corrupt state rather than reporting the stamp
+//!   current.
 //! - **The stamp written at the end is computed before the apply**, over
 //!   ALL migration files.  It is the digest the deploy gate will
 //!   compare against, and computing it after the apply would let a
@@ -43,9 +42,6 @@
 //!   [`migrations_pending::applied`].  A missing stamp file ends the
 //!   run: read as empty, it would say every applied file was edited in
 //!   place.
-//! - **The confirmation** has leading and trailing spaces and tabs
-//!   stripped but keeps a trailing `\r`, and an answer that is not
-//!   newline-terminated refuses.
 //! - **The migrations glob and digest** are the deploy gate's own
 //!   [`migration_files`] and [`digest`], so the two
 //!   readings of the stamp cannot drift.

@@ -4,7 +4,7 @@
 //! every way executed SQL could grow outside `src/sql/` - a literal, a
 //! `format!`, a dynamic argument, the multi-line spelling, the
 //! raw-identifier and UFCS spellings, and D1's unprepared `exec` - stays
-//! caught. An untested guard is the one that rots.
+//! caught.
 
 use assert_cmd::Command;
 use predicates::str::contains;
@@ -103,7 +103,7 @@ fn executed_sql_outside_the_sql_module_is_caught() {
             "db./* sneaky */prepare(dynamic_sql).run().await?;",
         ),
         (
-            // a line-oriented match would miss this; the scan must not be.
+            // A line-oriented match would miss this.
             "comment_between_receiver_and_name_across_lines",
             "db.\n/* explanation */\nprepare(dynamic_sql)\n.run()\n.await?;",
         ),
@@ -244,7 +244,7 @@ fn the_governor_carve_outs_do_not_follow_the_file_name() {
 }
 
 /// A violation names the file, the line, and enough of the argument to
-/// find the call - the diagnostic is the whole point of the guard.
+/// find the call.
 #[test]
 fn a_violation_names_its_call_site() {
     let dir = scratch(
@@ -305,7 +305,6 @@ fn violations_are_reported_pass_by_pass_then_in_path_order() {
     );
 }
 
-/// The committed Worker sources pass.
 #[test]
 fn the_committed_worker_sources_pass() {
     let violations = sql::check(&registry_dir()).expect("run the guard");

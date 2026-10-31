@@ -2,12 +2,13 @@
 //! zip-container profile, the governor's hard limits across two mid-run
 //! dev-server restarts, the admin governor endpoint, the real
 //! verification driver's pass over two fresh versions (`driver_pass`),
-//! and the bounded-concurrency finale that closes the run with `smoke OK`.
+//! the bounded-concurrency leg, and the admission leg, after which the
+//! run closes with `smoke OK`.
 //!
-//! The concurrency finale runs its waves on threads released by a
-//! [`Barrier`].  Deliberately not `xtask_ci::spawn_tracked`: those are
-//! for children the teardown must kill, its table holds eight, and wave
-//! two alone wants ten.  Each thread builds its own `ureq` agent.
+//! The concurrency leg runs its waves on threads released by a
+//! [`Barrier`], not as `xtask_ci::spawn_tracked` children: that table is
+//! for children the teardown must kill, it holds eight, and wave two
+//! alone wants ten.
 
 use std::fs;
 use std::io::Read as _;
@@ -28,8 +29,6 @@ use crate::servers::{DevServers, d1, d1_quiet, d1_rows};
 use crate::step;
 use crate::text::{capture, contains, grep_lines, read, write};
 
-/// A poll budget trimmed to what it takes locally turns a negative
-/// assertion into a race that passes for the wrong reason.
 const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
 
@@ -110,7 +109,7 @@ pub struct FinaleInputs<'a> {
     /// The mock directory, whose `dump.sql` the stored backup must
     /// equal.
     pub mock_dir: &'a Path,
-    /// The verifier binary, runnable from this process's directory.
+    /// The verifier binary, next to this tool's own binary.
     pub verifier_bin: &'a Path,
     /// The fixture's package.
     pub scope: &'a str,
@@ -644,8 +643,6 @@ fn source_reads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
 /// allowance for spend that already happened.
 fn admin_governor(smoke: &mut Smoke) -> Result<()> {
     step("the admin governor endpoint reports usage and takes operator actions");
-    // The verify-scope gate's negative subject is the no-verify CI
-    // credential (the seeded publisher session carries verify).
     smoke.as_ci_publisher();
     smoke.wcheck(GOVERNOR, &[403])?;
     smoke.expect_body("verify scope")?;
@@ -688,7 +685,8 @@ fn admin_reconcile(smoke: &mut Smoke) -> Result<()> {
             capture(&smoke.body)
         );
     }
-    // Exactly-one-of holds for the new arm too.
+    // The body names exactly one action, so `reconcile` with `wipe` is a
+    // 400.
     smoke.wrequest(
         "POST",
         GOVERNOR,
@@ -719,7 +717,7 @@ fn cron_reconcile(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     if !await_log(&log, mark, "primary/committed=")? {
         bail!("the rebuilt primary ledger never appeared in the usage snapshot");
     }
-    // ...and refuses while the registry is launched (the wipe guard).
+    // The wipe refuses while the registry is launched (the wipe guard).
     d1_quiet("UPDATE meta SET value = 'true' WHERE key = 'launched';")?;
     smoke.wrequest("POST", GOVERNOR, br#"{"wipe":true}"#, &[403])?;
     smoke.expect_body("launched")?;
@@ -765,7 +763,7 @@ fn concurrency(
     // Wave 1: one request per artifact, all distinct, all uncached -
     // the only way any of them answers 200 is one fresh charged read,
     // and no request path charges more than once per attempt, so the
-    // ledger delta must equal the success count EXACTLY.  (The snapshot
+    // ledger delta must equal the success count exactly.  (The snapshot
     // is aggregate, so this pins totals, not per-request attribution.)
     let mut attempts = wave.fire(&fixtures.load, 1, 1)?;
     let wave1_successes = attempts
@@ -1288,8 +1286,8 @@ fn key_values(rows: &[Map<String, Value>]) -> std::collections::HashMap<String, 
 }
 
 /// `wrangler r2 object get … --file <path> --local`, both streams
-/// discarded: the caller polls on the exit status, and a miss is the
-/// expected answer for most of a poll.
+/// discarded: every caller words its own miss, and the backup poll and
+/// the refused-publish check expect one.
 fn r2_get(key: &str, file: &Path) -> Result<bool> {
     let path = file.to_str().context("an R2 destination is not UTF-8")?;
     let status = wrangler(&["r2", "object", "get", key, "--file", path, "--local"])
@@ -1372,9 +1370,9 @@ fn tail(log: &Path, from: usize) -> Result<String> {
     Ok(rest.to_owned())
 }
 
-/// `date -u +%F`.  UTC, not local: the backup key, the sidecar's name
-/// and the month window guard all read this, and a local date crosses
-/// midnight at the wrong moment.
+/// `date -u +%F`.  UTC, not local: the backup key and the sidecar's
+/// name read this, and a local date crosses midnight at the wrong
+/// moment.
 fn utc_today() -> Result<String> {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)

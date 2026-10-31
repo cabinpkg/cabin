@@ -4,7 +4,7 @@
 //! export-API mock and a local GitHub mock, driven through a fixed
 //! step sequence.
 //!
-//!   `cargo registry-smoke`                                   healthz + 401 only
+//!   `cargo registry-smoke`                                   the unauthenticated legs only
 //!   `CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke`   full run
 //!
 //! The token is seeded into the local D1 state before the checks, so

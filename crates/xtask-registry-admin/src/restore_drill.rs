@@ -87,9 +87,8 @@ impl Drop for Scratch {
         if !self.created {
             return;
         }
-        // Both streams discarded: a delete that fails leaves the
-        // database and says nothing.
-        // The teardown on the passing path is the loud one.
+        // Both streams discarded. The passing path's teardown, through
+        // `quiet`, is the one that reports a failed delete.
         let _ = wrangler(&["d1", "delete", SCRATCH, "-y"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -378,10 +377,6 @@ fn spot_check() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    //! These live here rather than in `tests/` because none of what
-    //! they exercise - the dump key's grammar, the sidecar check, the
-    //! two rendered lines - is this crate's API.
-
     use super::*;
 
     /// Exactly the keys the grammar admits, and no others.  The
@@ -412,9 +407,6 @@ mod tests {
         }
     }
 
-    /// The count line's widths are minimums: an over-long name pushes
-    /// the columns right rather than being cut, and the marker carries
-    /// its own leading space.
     #[test]
     fn the_count_line_pads_to_minimum_widths() {
         assert_eq!(

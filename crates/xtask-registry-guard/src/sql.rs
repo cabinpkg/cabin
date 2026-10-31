@@ -38,7 +38,7 @@ use anyhow::Result;
 use crate::lexical::blank_comments_and_strings;
 use crate::source::{is_space, is_word, line_of, matching_lines, rust_sources};
 
-/// The two commissioned literal patterns, matched on the source as
+/// The two forbidden literal patterns, matched on the source as
 /// written (comments and strings included) rather than on the blanked
 /// copy the scans below use.
 const LITERAL_PATTERNS: [&[u8]; 2] = [b"prepare(\"", b"prepare(&format!"];

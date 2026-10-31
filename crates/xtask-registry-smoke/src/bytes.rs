@@ -4,7 +4,7 @@
 
 use sha2::Digest as _;
 
-/// `frame`: the publish body,
+/// The publish body,
 /// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`.
 #[must_use]
 pub fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
@@ -24,10 +24,10 @@ pub fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `revision_of`: the packaging revision id, the leading 16 hex of the
-/// archive's SHA-256.  The immutable unit is (scope, name, version,
-/// revision), and both the artifact route and the canonical source
-/// path spell the id out.
+/// The packaging revision id, the leading 16 hex of the archive's
+/// SHA-256.  The immutable unit is (scope, name, version, revision), and
+/// both the artifact route and the canonical source path spell the id
+/// out.
 #[must_use]
 pub fn revision_of(archive: &[u8]) -> String {
     cabin_core::Checksum::of_bytes(archive)
@@ -41,13 +41,12 @@ pub fn sha256_hex(data: &[u8]) -> String {
     cabin_core::hash::hex_digest(&sha2::Sha256::digest(data))
 }
 
-/// `retarget_hash`: rewrite a canonical metadata document onto an
-/// archive with `new` as its digest.  Two TEXTUAL global
-/// substitutions over the raw bytes, never a JSON edit (a re-serialize
-/// would change the document's own bytes, hence its sha256, hence the
-/// packaging revision and every derived artifact path): `checksum`
-/// carries all 64 hex, `source.path` only the leading 16.  The full
-/// digest goes first - the prefix rewrite would otherwise corrupt it.
+/// Rewrites a canonical metadata document onto an archive with `new` as
+/// its digest.  Two textual global substitutions over the raw bytes,
+/// never a JSON edit, so every byte outside the digests stays as
+/// written: `checksum` carries all 64 hex, `source.path` only the
+/// leading 16.  The full digest goes first - the prefix rewrite would
+/// otherwise corrupt it.
 #[must_use]
 pub fn retarget_hash(document: &[u8], old: &str, new: &str) -> Vec<u8> {
     let full = replace_all(document, old.as_bytes(), new.as_bytes());
@@ -74,11 +73,11 @@ pub fn replace_all(haystack: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8
     out
 }
 
-/// `tamper_zip`: one interior byte flipped so the bytes (and thus the
-/// checksum) change while the container stays well formed - the
-/// worker's fixed-offset sanity check reads only the four-byte
-/// local-header prefix and the trailing EOCD, so touching the middle
-/// keeps the request on the immutability/verification path.  The flip
+/// One interior byte flipped so the bytes (and thus the checksum)
+/// change while the container stays well formed - the worker's
+/// fixed-offset sanity check reads only the four-byte local-header
+/// prefix and the trailing EOCD, so touching the middle keeps the
+/// request on the immutability/verification path.  The flip
 /// mask is `seed`'s low byte, or 1 when that is zero, so seeds sharing
 /// a mask (0, 1 and 256 all flip bit 0) yield the same bytes.
 #[must_use]
@@ -106,8 +105,6 @@ mod tests {
         assert_eq!(&framed[12..], b"archive!");
     }
 
-    /// The full digest is rewritten before its prefix: the reverse
-    /// order would corrupt every full occurrence.
     #[test]
     fn retargeting_rewrites_full_then_prefix() {
         let old = "aaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbccccccccccccccccdddddddddddddddd";

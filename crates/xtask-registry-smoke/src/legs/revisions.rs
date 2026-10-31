@@ -2,8 +2,7 @@
 //! ranged session reads and the two service-mode gates.
 //!
 //! Its last statements build the `0.2.1` fixtures the shared-blob leg
-//! consumes, which is why [`run`] returns them rather than printing
-//! anything.
+//! consumes, which [`run`] returns.
 //!
 //! The two `sleep`s here precede assertions that a counter did **not**
 //! move; trimming them turns those into races that pass for the wrong
@@ -179,9 +178,9 @@ fn artifact_checksum(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<(
     if !capture(inputs.fixture_metadata).contains(&format!("sha256:{old_hash}")) {
         bail!("fixture metadata does not carry sha256:{old_hash}");
     }
-    // The pre-revision filename is not a route any more: it does not
-    // parse, so it never reaches storage and answers like any unknown
-    // path - the uniform 401, token or not.
+    // The unrevisioned filename does not parse as an artifact route, so
+    // it never reaches storage and answers like any unknown path - the
+    // uniform 401, token or not.
     let unrevisioned = format!(
         "/artifacts/{scope}/{name}/{scope}-{name}-{version}.zip",
         scope = inputs.scope,
@@ -372,8 +371,9 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     if got != 200 {
         bail!("the verifier arm under writes_blocked answered {got}, expected 200");
     }
-    // Revocation skips the gate too; revoking here both proves that
-    // positively and leaves no live credential behind.
+    // Revocation skips the gate too (blocking it would keep a live
+    // credential alive); revoking here both proves that positively and
+    // leaves no live credential behind.
     let minted: Value = serde_json::from_slice(&smoke.body).context("parse the exchange answer")?;
     let token = minted
         .get("token")
@@ -385,10 +385,9 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     if got != 204 {
         bail!("revoking the verifier-arm token under writes_blocked answered {got}, expected 204");
     }
-    // Revocation deliberately skips the gate (blocking it would keep a
-    // live credential alive), so even blocked, the answer is its kind
-    // guard's: the publisher's session-kind token is refused with the
-    // uniform 401 - never a 503, and never a deletion.
+    // Even blocked, the answer is the kind guard's: the publisher's
+    // session-kind token is refused with the uniform 401 - never a 503,
+    // and never a deletion.
     let auth = smoke.auth.clone();
     uniform_401_with(
         smoke,
@@ -438,7 +437,7 @@ fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
     }
     over_budget(smoke, "the read 503 must carry Retry-After: 900")?;
     // The artifact and config routes are the verify scope's exemption,
-    // which the session-shaped publisher token now rides - the gated
+    // which the session-shaped publisher token rides - the gated
     // answer needs the no-verify credential.
     smoke.as_ci_publisher();
     smoke.check(inputs.artifact_path, &[503])?;
@@ -521,8 +520,8 @@ fn shared_bucket(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
 /// fixtures.  `0.2.1` carries the exact archive `0.2.0` published, so
 /// this version's first revision carries the same id.
 fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
-    // The PUTs above consumed the publish bucket's full burst; give the
-    // next leg its own by resetting the user's bucket columns.
+    // `shared_bucket` drained the publish bucket; give the next leg a
+    // full burst by resetting the user's bucket columns.
     d1(RESET_PUBLISH_BUCKET)?;
     let version2 = "0.2.1";
     let rev = revision_of(inputs.fixture_archive);
@@ -546,8 +545,7 @@ fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
     })
 }
 
-/// `/api/v1/admin/versions/<scope>/<name>/<version>`, the verdict route
-/// this span patches at three versions.
+/// `/api/v1/admin/versions/<scope>/<name>/<version>`, the verdict route.
 fn verdict_path(inputs: &RevisionInputs<'_>, version: &str) -> String {
     format!(
         "/api/v1/admin/versions/{}/{}/{version}",
@@ -555,8 +553,6 @@ fn verdict_path(inputs: &RevisionInputs<'_>, version: &str) -> String {
     )
 }
 
-/// `Range: bytes=-22`, the suffix read every session-plane source
-/// probe in this span asks for.
 fn suffix_range() -> Vec<(String, String)> {
     vec![("Range".to_owned(), "bytes=-22".to_owned())]
 }
@@ -803,8 +799,9 @@ mod tests {
         assert!(!names_a_header(""));
     }
 
-    /// The `0.2.1` metadata is a textual replace, so `source.path`
-    /// moves with `version` and every other byte is untouched.
+    /// The `0.2.1` metadata is a textual replace: every `0.2.0`,
+    /// `source.path`'s included, becomes `0.2.1`, and every other byte
+    /// is untouched.
     #[test]
     fn the_second_version_metadata_is_a_textual_replace() {
         let metadata =

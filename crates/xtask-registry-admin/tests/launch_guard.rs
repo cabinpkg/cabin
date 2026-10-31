@@ -203,8 +203,8 @@ fn refuses_when_launched() {
     let message = stderr(&output);
     assert!(message.contains("launched"), "stderr: {message}");
     assert!(message.contains("forbidden"), "stderr: {message}");
-    // `cargo registry-smoke` checks a refused wipe's error for
-    // exactly this substring; it is load-bearing, not decoration.
+    // `cargo registry-smoke` matches a refused wipe's error on exactly
+    // this substring.
     assert!(
         message.contains("meta.launched = 'true'"),
         "stderr: {message}"
@@ -226,7 +226,7 @@ fn refuses_fail_safe_on_a_missing_row() {
 #[test]
 fn refuses_fail_safe_on_an_unexpected_value() {
     // Only the exact string 'false' passes - not casing variants, and
-    // not a trailing newline.
+    // not a trailing space.
     for value in ["False", "TRUE", "yes", "", "false "] {
         let shim = Shim::new(FakeWrangler::Respond(&meta_response(value)));
         let output = shim.run(&["--remote"]);

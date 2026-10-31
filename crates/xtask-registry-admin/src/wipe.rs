@@ -58,11 +58,7 @@
 //!   that fails partway - a token that cannot list or delete, a refused
 //!   key - leaves the launch guard's flag readable and a re-run of this
 //!   command resumes it.
-//! - **A sweep drains the listing by re-fetching the first page** until
-//!   a listing comes back empty, the only proof it accepts.  Deleting
-//!   drains it, so no cursor is handled at all (opaque cursors carry
-//!   URL-hostile characters); a key listed again after its delete
-//!   answered success ends the run instead of looping.
+//! - **A sweep ends only on an empty listing** - see `sweep` below.
 //! - **The stamp is refreshed from [`migrations_pending::stamp`]**, the
 //!   deploy gate's own reading of `migrations/*.sql`, so it cannot
 //!   drift from the gate's or from `cargo registry-migrate`'s.  The
@@ -183,9 +179,9 @@ pub fn run(mode: Mode) -> Result<()> {
     }
 }
 
-/// The local analogue of the whole remote procedure: the emulated D1 and
-/// R2 state under `.wrangler/` simply goes away, and migrations recreate
-/// the schema from zero.  No config ids, no deploy.
+/// The local analogue of the whole remote procedure: the emulated D1,
+/// R2, Durable Object and cache state under `.wrangler/` goes away, and
+/// migrations recreate the schema from zero.  No config ids, no deploy.
 fn local(old: &str, new: i64) -> Result<()> {
     let root = registry_root();
     step("deleting the local D1, R2, Durable Object, and cache state");
@@ -249,7 +245,8 @@ fn remote(old: &str, new: i64) -> Result<()> {
 
     // The nightly dump exports whatever `D1_DATABASE_ID` names, and the
     // binding deploys whatever `database_id` names - both must be the
-    // recreated id before migrating and deploying (docs/runbook.md).
+    // recreated id before migrating and deploying
+    // (`registry/docs/runbook.md`).
     let path = root.join("wrangler.jsonc");
     let config =
         std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;

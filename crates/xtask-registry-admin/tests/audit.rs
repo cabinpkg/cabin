@@ -65,7 +65,6 @@ fn a_declared_id_skips_bom_but_not_next_line_whitespace() {
         ("no-break space", "\u{a0}", true),
         ("byte-order mark", "\u{feff}", true),
         ("ideographic space", "\u{3000}", true),
-        // Rust's `char::is_whitespace` trims this one; `\s` does not.
         ("next line", "\u{85}", false),
     ] {
         let text = format!("{{\"database_id\":{space}\"{id}\"}}");

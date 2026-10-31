@@ -1,10 +1,9 @@
 //! The shared lexical half of the source guards: blanking comment and
 //! string bodies so the guards' scans can match across lines without a
 //! comment hiding a call, faking one, or swallowing the code after a
-//! URL.  One copy on purpose - the blanker is what makes the guards
-//! evasion-resistant, and two drifting copies would be an evasion
-//! vector of their own - which is why both guards live in this crate
-//! rather than growing a second blanker each.
+//! URL.  Both source guards live in this crate so they share this one
+//! blanker: it is what makes them evasion-resistant, and two drifting
+//! copies would be an evasion vector of their own.
 
 /// The source with every comment and string body blanked, newlines kept
 /// (so reported line numbers still point at the source).  Rust's block

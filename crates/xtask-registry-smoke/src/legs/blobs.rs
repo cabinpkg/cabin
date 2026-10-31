@@ -7,9 +7,9 @@
 //! byte-identical restart, and the byte-identical refusal an unclaimed
 //! and a foreign scope must both answer.
 //!
-//! Three legs here compare a response against one an *earlier* request
-//! left in the shared buffer: each is a clone taken before the next
-//! request overwrites it, compared over raw bytes.  Parsing either side
+//! Three comparisons here check a response against one an *earlier*
+//! request left in the shared buffer: each reads a clone taken before
+//! the next request overwrites it, over raw bytes.  Parsing either side
 //! would weaken "byte-identical refusal" to "same fields", which is the
 //! property these legs exist to prove.
 //!
@@ -33,7 +33,7 @@ use crate::step;
 use crate::text::{capture, contains};
 
 /// What the publish/verify phases before this one computed and this
-/// leg reads: the fixture identity, the two derived request paths for
+/// leg reads: the fixture identity, the derived request paths for
 /// `0.2.1`, the bodies already framed, and the minted session cookie.
 pub struct BlobInputs<'a> {
     pub scope: &'a str,

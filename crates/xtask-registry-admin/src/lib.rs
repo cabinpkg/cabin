@@ -21,9 +21,9 @@
 //! D1 and the R2 object commands go through the pinned `wrangler`
 //! ([`wrangler`]), the only supported path to them from outside the
 //! Worker.  Listing a bucket is the exception: wrangler exposes no
-//! command for it, and no bulk mode for deleting one - so the audit and
-//! the wipe's sweep call Cloudflare's R2 REST API directly with the
-//! operator's `CLOUDFLARE_API_TOKEN`.
+//! command for it, and no bulk mode for deleting one - so the audit, the
+//! governor's evidence checks and the wipe's sweep call Cloudflare's R2
+//! REST API directly with the operator's `CLOUDFLARE_API_TOKEN`.
 
 pub mod audit;
 pub mod backfill;
@@ -45,10 +45,11 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 /// The BACKUP bucket, which more than one command reaches: the
-/// backfill writes to it, the audit and the governor's evidence checks
-/// read it, and the pre-launch wipe empties it.  Outside that wipe its
-/// `blobs/` namespace is append-only (`registry/docs/runbook.md`,
-/// "Disaster recovery"), so nothing else here deletes from it.
+/// backfill writes to it, the audit, the governor's evidence checks and
+/// the restore drill read it, and the pre-launch wipe empties it.
+/// Outside that wipe its `blobs/` namespace is append-only
+/// (`registry/docs/runbook.md`, "Disaster recovery"), so nothing else
+/// here deletes from it.
 pub const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
 /// The PRIMARY blob bucket, which more than one command reaches: the
@@ -253,7 +254,7 @@ pub fn display(value: &serde_json::Value) -> String {
 ///
 /// # Errors
 ///
-/// If the row carries neither pair: a row that is not the shape the
+/// If the row lacks `key` or `value`: a row that is not the shape the
 /// query asked for means the answer is not the one asked for, and this
 /// crate reports that rather than showing the operator a line they
 /// cannot act on.
