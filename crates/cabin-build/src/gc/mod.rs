@@ -29,9 +29,14 @@
 //! so recording a use reads and rewrites only the shards of the
 //! directories the plan writes, at most once per active day.  Shards and
 //! the clock are rewritten atomically; one that cannot be read, or was
-//! written by a newer format, authorizes no removal.  Two commands
-//! recording into one shard at once can lose one's update, so a product
-//! can look older than it is; the cost is a rebuild.
+//! written by a newer format, authorizes no removal.  Commands record
+//! one at a time under the catalog's own lock, since two rewriting one
+//! shard from the same snapshot would lose one's update.  A plan already
+//! recorded on the current active day is remembered by digest and not
+//! recorded again: collection never lowers a stamp of the current day,
+//! and replacing an unreadable shard, which drops its stamps, forgets
+//! every remembered plan, so a remembered plan's shards still hold
+//! everything it would write.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -59,7 +64,11 @@ pub use lock::{BuildDirLock, LOCK_FILENAME};
 /// Directory under the build directory that holds the catalog.
 pub const CATALOG_DIR: &str = ".cabin-gc";
 const STATE_FILE: &str = "state.json";
+const RECORDED_FILE: &str = "recorded.json";
 const SHARDS_DIR: &str = "dirs";
+/// Plans [`Recorded`] remembers per active day; recording another
+/// forgets the oldest.
+const RECORDED_PLANS: usize = 16;
 const FORMAT_VERSION: u32 = 1;
 /// Products used this many active days ago or more recently are never
 /// collected.
@@ -181,6 +190,17 @@ impl Shard {
     }
 }
 
+/// The plans whose products are all stamped with active day `index`, so
+/// recording one of them again on that day changes nothing.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Recorded {
+    version: u32,
+    index: u64,
+    /// [`plan_digest`]s, oldest first.
+    plans: Vec<String>,
+}
+
 #[derive(Deserialize)]
 struct Header {
     version: u32,
@@ -214,6 +234,24 @@ fn load<T: DeserializeOwned>(path: &Path) -> Result<Loaded<T>, GcError> {
 fn store<T: Serialize>(path: &Path, value: &T) -> Result<(), GcError> {
     let bytes = serde_json::to_vec(value).expect("catalog records serialize");
     cabin_fs::write_atomic(path, bytes).map_err(io_err(path))
+}
+
+/// [`store`] without the sync.  Staged in a file `create_new` makes,
+/// which never opens through a symlink, and renamed over `path`, which
+/// replaces whatever is there rather than writing through it.
+fn store_unsynced<T: Serialize>(path: &Path, value: &T) -> Result<(), GcError> {
+    use std::io::Write as _;
+    let bytes = serde_json::to_vec(value).expect("catalog records serialize");
+    let staging = path.with_extension(format!("{}.tmp", std::process::id()));
+    // Left by a process that died with this id.
+    let _ = fs::remove_file(&staging);
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)
+        .and_then(|mut file| file.write_all(&bytes))
+        .map_err(io_err(&staging))?;
+    fs::rename(&staging, path).map_err(io_err(path))
 }
 
 /// Today as a UTC day number, the clock [`record_use`] takes.
@@ -275,7 +313,26 @@ pub fn record_use<'a>(
         }
     }
 
+    let products: Vec<&Utf8Path> = products.into_iter().collect();
+    let plan = plan_digest(&products);
     let state_path = catalog.join(STATE_FILE);
+    let recorded_path = catalog.join(RECORDED_FILE);
+    if let Loaded::Ok(state) = load::<State>(&state_path)?
+        && state.day == today
+        && let Loaded::Ok(recorded) = load::<Recorded>(&recorded_path)?
+        && recorded.index == state.index
+        && recorded.plans.contains(&plan)
+    {
+        return Ok(state.collected < state.index);
+    }
+
+    // The build directory lock's mechanism, on the catalog: held only
+    // while recording, so commands sharing the build directory wait on
+    // each other no longer than that.  A whole `cabin clean` removes its
+    // file with the catalog, which no command holds or waits on then:
+    // Cabin records only under the build directory lock held shared,
+    // and that clean holds it exclusively.
+    let _recording = BuildDirLock::exclusive(&catalog, || {})?;
     let (mut state, mut state_changed) = match load::<State>(&state_path)? {
         Loaded::Ok(state) => (state, false),
         // A lost clock restarts at 1; products stamped under the old
@@ -289,7 +346,7 @@ pub fn record_use<'a>(
     }
 
     let relative: Vec<String> = products
-        .into_iter()
+        .iter()
         .filter_map(|product| relative_to(build_dir, product))
         .collect();
     let mut by_dir: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
@@ -304,12 +361,24 @@ pub fn record_use<'a>(
             Loaded::Ok(shard) if shard.is_valid() => shard,
             Loaded::Newer(_) => continue,
             // Replacing an unreadable shard forgets what it listed: those
-            // files are never collected, the safe direction.
-            _ => Shard {
-                version: FORMAT_VERSION,
-                dir: dir.to_owned(),
-                entries: BTreeMap::new(),
-            },
+            // files are never collected, the safe direction.  Plans
+            // recorded today may be among them, so they are forgotten
+            // first, and record again even if this recording fails.
+            loaded => {
+                if !matches!(loaded, Loaded::Missing) {
+                    match fs::remove_file(&recorded_path) {
+                        Err(err) if err.kind() != io::ErrorKind::NotFound => {
+                            return Err(io_err(&recorded_path)(err));
+                        }
+                        _ => {}
+                    }
+                }
+                Shard {
+                    version: FORMAT_VERSION,
+                    dir: dir.to_owned(),
+                    entries: BTreeMap::new(),
+                }
+            }
         };
         let mut changed = false;
         for rest in rests {
@@ -322,6 +391,35 @@ pub fn record_use<'a>(
         if changed {
             store(&path, &shard)?;
             written += 1;
+        }
+    }
+    let mut recorded = match load::<Recorded>(&recorded_path)? {
+        Loaded::Ok(recorded) if recorded.index == state.index => recorded,
+        _ => Recorded {
+            version: FORMAT_VERSION,
+            index: state.index,
+            plans: Vec::new(),
+        },
+    };
+    if !recorded.plans.contains(&plan) {
+        if recorded.plans.len() == RECORDED_PLANS {
+            recorded.plans.remove(0);
+        }
+        recorded.plans.push(plan);
+        // Unsynced, unlike the shards and the clock: a crash that tears
+        // or loses it only sends a command down the slow path, and the
+        // shards it vouches for were synced before.  More plans a day
+        // than it holds then cost a recording each, not a sync each.
+        match store_unsynced(&recorded_path, &recorded) {
+            // Another process staged under the same id, which only a
+            // file system without locks, shared between machines, allows:
+            // the plan goes unremembered.
+            Err(GcError::Io { source, .. })
+                if matches!(
+                    source.kind(),
+                    io::ErrorKind::AlreadyExists | io::ErrorKind::NotFound
+                ) => {}
+            result => result?,
         }
     }
     let span = tracing::Span::current();
@@ -725,6 +823,16 @@ fn join(dir: &str, rest: &str) -> String {
     } else {
         format!("{dir}/{rest}")
     }
+}
+
+/// Names a plan in [`Recorded`]: a digest of its products in plan order.
+fn plan_digest(products: &[&Utf8Path]) -> String {
+    let mut bytes = Vec::new();
+    for product in products {
+        bytes.extend_from_slice(product.as_str().as_bytes());
+        bytes.push(0);
+    }
+    cabin_core::hash::hash_reader(bytes.as_slice()).expect("reading a slice cannot fail")
 }
 
 fn shard_path(shards_dir: &Path, dir: &str) -> PathBuf {

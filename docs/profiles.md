@@ -396,8 +396,8 @@ source-archive cache, vendored sources, and compiler-cache data are not build ou
 `<build-dir>/.cabin-build.lock` while they use outputs; `run` and `test` hold it until the program
 or tests exit.  Collection and `cabin clean` take it exclusively.  The lock is advisory, so it orders
 Cabin processes only; Cabin releases without it do not take it, and a file system without file
-locks orders nothing.  Two builds of one profile at once can each overwrite the other's usage
-record, so an output can look older than it is and be rebuilt after a collection.  An unreadable or
+locks orders nothing.  Commands record their use one at a time, under a second lock inside
+`.cabin-gc` with the same limits, so two builds at once keep both records.  An unreadable or
 newer-format usage record makes collection keep the outputs it lists.
 
 ## Build configuration fingerprint
