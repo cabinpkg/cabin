@@ -75,6 +75,50 @@ fn removing_a_library_source_drops_its_member() {
     }
 }
 
+/// Ninja drops `..` lexically, so `proj/../link/missing/../../build`
+/// names `build` beside `proj` to it while the OS resolves `real/build`
+/// through the `link` symlink and the not yet created `missing`.  Every
+/// output must land in, and be removed from, the directory the OS
+/// resolves.
+#[cfg(unix)]
+#[test]
+fn a_build_dir_through_a_symlink_and_dot_dot_keeps_one_identity() {
+    require_c_and_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let scratch = tmp.path().canonicalize().unwrap();
+    fs::create_dir_all(scratch.join("real/inner")).unwrap();
+    std::os::unix::fs::symlink("real/inner", scratch.join("link")).unwrap();
+    let dir = &scratch.join("proj");
+    write(
+        dir,
+        "cabin.toml",
+        &stale_manifest(r#""src/keep.c", "src/gone.c""#),
+    );
+    write(dir, "src/keep.c", "int keep_fn(void) { return 1; }\n");
+    write(dir, "src/gone.c", "int gone_fn(void) { return 2; }\n");
+    write(
+        dir,
+        "src/main.c",
+        "int keep_fn(void);\nint gone_fn(void);\nint main(void) { return keep_fn() + gone_fn() == 3 ? 0 : 1; }\n",
+    );
+    let build_dir = "../link/missing/../../build";
+    cabin_in(dir, build_dir, &["build"]).success();
+    assert!(
+        scratch
+            .join("real/build/dev/packages/stale/libstale.a")
+            .exists()
+    );
+    assert!(!scratch.join("build").exists());
+    cabin_in(dir, build_dir, &["-v", "build"])
+        .success()
+        .stdout(predicate::str::contains("ninja: no work to do."));
+
+    write(dir, "cabin.toml", &stale_manifest(r#""src/keep.c""#));
+    cabin_in(dir, build_dir, &["build"])
+        .failure()
+        .stdout(predicate::str::contains("gone_fn"));
+}
+
 #[test]
 fn renaming_a_library_source_replaces_its_member() {
     require_cxx_build_tools();
