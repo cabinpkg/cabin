@@ -196,8 +196,8 @@ baseline, and after a semicolon the smaller differences reported as `Increased` 
 | Rank test alone, then minimum effect and floor | 13 / 13; 11 / 11 | 2 / 2; 12 / 12 |
 | Rank test and past the interquartile range, then minimum effect and floor | 8 / 8; 5 / 5 | 2 / 2; 3 / 3 |
 
-**Why.**  A scenario's runs are two blocks, all of one binary's and then all of the other's (the
-harness alternates which goes first).  Load that changes between the blocks moves every sample of
+**Why.**  A scenario's runs were two blocks, all of one binary's and then all of the other's (the
+harness alternated which went first).  Load that changes between the blocks moves every sample of
 one side, which no statistic over the samples can tell from a real change: in the loaded run the
 same binary's `build/touch-source-cxx` medians were 983 ms and 580 ms, with 98 of the 100 pairs of
 the two sides' samples ordered one way.  Instruction counts drift too: the toolchain probes were polled every
@@ -215,13 +215,45 @@ the quieter run's A/A shifts: 2 ms of wall time (scenarios under 30 ms moved up 
 of peak RSS (up to 544 KiB), 1 million instructions (up to 0.48 million, but for the load-dependent
 3.6 million of `artifact/fetch-cold` and 929 million of `gc/clean-10k`).  A real difference below
 the policy is reported as `Increased` or `Decreased` rather than hidden, and a metric only one side
-recorded is `Incomparable` rather than dropped.  The false rows that remain are drift, which no
-threshold over the samples removes: `--fail-on-regression` can still fail a run of one binary
-against itself.
+recorded is `Incomparable` rather than dropped.  The false rows that remained were drift, which
+no threshold over the samples removes; interleaving the runs (below) reduces it.
 
-**Not changed.**  Interleaving the two binaries' runs within a scenario, in short alternating
-batches, would let the test's assumption hold under drifting load; it changes how the harness
-schedules every run.
+**Interleaving.**  Each binary's runs of a scenario are now split into up to 10 blocks, taken in
+turns in an order that rotates every round, so drift reaches every side alike.  Calibration: one
+release binary of 7325ca99c under two labels, `a` and `b`, beside `r`, the same source with a
+3 ms sleep and 3.02 million instructions added at startup (`cargo perf run --cabin a=... --cabin
+b=... --cabin r=...`, every scenario but the ports ones, default run counts), compared both ways.
+Four runs alternated the block harness and the interleaved one while other sessions loaded the
+machine.  Under exchangeable samples the rank test's z has a mean square of 1 and passes the 1%
+level in 0.35 of 35 rows; drift between blocks inflates both.  The calibrated harness reversed
+the order every round rather than rotating it, which is the same for two binaries but never let
+the middle one, `b`, run twice in a row.
+
+| Run | Harness | Load average | A/A rows, counted as above | Mean z², wall / instructions | Rows past 1%, wall / instructions | Median runs |
+| --- | --- | --- | --- | --- | --- | ---: |
+| 1 | Blocks | 27 -> 48 | 3 / 3; 3 / 3 | 8.1 / 8.8 | 12 / 9 | 26 |
+| 2 | Interleaved | 48 -> 29 | 0 / 0; 0 / 0 | 1.2 / 1.9 | 2 / 2 | 17 |
+| 3 | Interleaved | 29 -> 114 | 0 / 0; 0 / 0 | 0.8 / 0.9 | 0 / 0 | 18 |
+| 4 | Blocks | 114 -> 37 | 0 / 0; 0 / 0 | 5.0 / 4.0 | 3 / 5 | 34 |
+
+Interleaved, the A/A comparisons reported nothing and the rank test came close to its assumption,
+but not all the way: in run 2, 2 rows of each metric passed 1%, and `b` retired 12% fewer
+instructions than `a` at `artifact/fetch-warm`, a row only the interquartile-range guard kept
+`Unchanged`.  A loaded machine can still produce a false difference between interleaved binaries,
+only more rarely.  In blocks, the mean square of z ran 4-9 times too large, though those runs also
+took more samples, which separates the same drift more readily; again only the interquartile-range
+guard kept most of those separations from becoming verdicts.  `gc/clean-10k`'s instructions, which
+moved 3-7% before, moved 0.2-0.4% between `a` and `b` interleaved (5.7% and 0.4% in blocks).  Drift
+also inflates real differences: at `workspace/build-noop`, `r` retired 17.9 million more
+instructions than `a` in run 1, 8.4 million in run 2, and 3.9-4.0 million in runs 3 and 4.  Against
+`r`, the instruction rows where the injected count alone passes the policy (27, those under 151
+million) were `Regressed` in 23-26 of 27 in every run and both directions; the misses had noise
+above the change.  The 3 ms sleep passes the wall-time policy only below 60 ms, and those rows were
+`Regressed` in 5 and 2 of 12 and 11 in run 1, 12 and 8 of 15 and 16 in run 4, and 2-6 of 11-13 in
+the interleaved runs, which took fewer runs and, in run 3, ran under the heaviest load.  The
+interleaved harness sizes a scenario from its check run, which is cold and traced, so it takes fewer
+runs than `hyperfine`'s own sizing did; `--runs` buys power where wall time matters.  Each block
+costs a `hyperfine` start, about 17 ms.
 
 ## Investigation: no-op build latency
 

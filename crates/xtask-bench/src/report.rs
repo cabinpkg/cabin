@@ -292,9 +292,9 @@ pub enum Verdict {
 /// Classify every scenario both sides measured.  A difference is real
 /// when the samples' ranks separate (`rank_sum_z`) and the medians move
 /// further than the noise, and the policy counts a real one only past
-/// the metric's minimum effect and floor.  Each side's samples are
-/// taken one after another, so load that changes in between can still
-/// make a false difference.
+/// the metric's minimum effect and floor.  Sides measured in separate
+/// runs did not share the machine's load, which can still make a false
+/// difference.
 pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();

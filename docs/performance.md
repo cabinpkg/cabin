@@ -198,11 +198,13 @@ Every scenario and binary works on a private copy.
   fixture version, each binary's build, and the harness's own checkout.  A comparison names both
   sides' builds and says so when they ran on different hosts or fixtures, or were measured by
   different harness checkouts, whose scenarios may differ.
-- **Interleaved.**  With two binaries, each scenario runs for both back to back, so drift slower
-  than a scenario reaches both, and which binary goes first alternates per scenario.  Within a
-  scenario each binary's runs are still one block, so faster drift can separate the two (see
-  "Baselines and regressions").  The first scenario of a run is the noisiest, measured while the machine is still settling; before
-  trusting a change there, rerun that scenario alone with the `--cabin` order swapped.
+- **Interleaved.**  With two or more binaries, each scenario is checked for every one, then timed in
+  turns: each binary's runs are split into up to 10 blocks of equal size, and the binaries take
+  turns block by block in an order that rotates every round (A B C, B C A, C A B, ...), starting one
+  place further on every scenario.  Load that comes and goes, or drifts, during a scenario therefore
+  reaches every binary alike instead of one binary's runs.  Only each binary's first block takes the
+  warmup runs.  `--runs` counts each binary's runs; without it, a scenario runs at least 10 times,
+  and for at least 3 seconds at the pace of its slowest check run.
 - **Your machine stays as it is.**  The harness changes no system setting.  Close heavy
   applications and keep a laptop on power; retired instructions move far less than wall time and
   are the metric to trust first on a noisy host.  On macOS they cover Cabin's own process only, so
@@ -238,12 +240,14 @@ minimum effect (5% for wall time and peak memory, 2% for instructions) and its a
 
 With untied samples of equal size, the test needs at least 6 runs on each side before any
 difference can reach 1%, so comparing `--smoke` runs, 5 each, can report a real change in wall
-time or instructions as `Unchanged`.  It also assumes both sides ran under the same conditions, but each binary's runs of a
-scenario follow one another, so load that changes in between can still produce a false
-difference: two runs of one binary against itself report some `Regressed` or `Improved` rows, more
-on a busy machine (see the calibration in
-[`design/performance-observability.md`](design/performance-observability.md)).  Rerun a
-surprising row on a quieter machine before acting on it.
+time or instructions as `Unchanged`.
+
+The test also assumes both sides ran under the same conditions.  Binaries measured by one
+`cargo perf run` (`--base`, or several `--cabin`) come closest, since their runs interleave; a saved
+baseline was measured at another time, under whatever load the machine had then, so comparing
+against it can report a false difference.  On a loaded machine even one run can, though more
+rarely.  Before acting on a surprising row, measure both binaries in one run, and repeat it (see
+the calibration in [`design/performance-observability.md`](design/performance-observability.md)).
 
 ### Micro-benchmarks
 

@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail, ensure};
 use serde::Deserialize;
@@ -199,12 +200,61 @@ fn isolate(cmd: &mut Command, out: &Path) {
     }
 }
 
-pub fn measure(
+/// How many timed runs each binary gets per scenario, after `warmup`
+/// untimed ones.
+pub struct Schedule {
+    pub warmup: u32,
+    pub runs: Runs,
+}
+
+pub enum Runs {
+    Exact(u32),
+    /// At least this many, and enough to fill [`MIN_TIME`] at the
+    /// check run's pace, as hyperfine's own default does.
+    AtLeast(u32),
+}
+
+const MIN_TIME: Duration = Duration::from_secs(3);
+
+/// The most blocks a binary's runs of one scenario are split into.
+const MAX_BLOCKS: u32 = 10;
+
+impl Schedule {
+    /// The run count of each block, in order.  `pace` is the slowest
+    /// binary's check run.
+    fn blocks(&self, pace: Duration) -> Vec<u32> {
+        let runs = match self.runs {
+            Runs::Exact(runs) => runs,
+            Runs::AtLeast(runs) => {
+                let fill = MIN_TIME.as_micros().div_ceil(pace.as_micros().max(1_000));
+                runs.max(u32::try_from(fill).unwrap_or(u32::MAX))
+            }
+        };
+        let blocks = runs.min(MAX_BLOCKS);
+        (0..blocks)
+            .map(|block| runs / blocks + u32::from(block < runs % blocks))
+            .collect()
+    }
+}
+
+/// The order the binaries time their blocks in, in `round` of the
+/// `scenario`th scenario.  It rotates every round (A B C, B C A,
+/// C A B, ...), so each binary takes every place in turn and load that
+/// comes and goes, or drifts, reaches every binary alike; each scenario
+/// starts one place further on, so no binary always goes first.
+fn turns(binaries: usize, scenario: usize, round: usize) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..binaries).collect();
+    order.rotate_left((scenario + round) % binaries);
+    order
+}
+
+/// Prepare and check `scenario` for `binary`: the result so far, and
+/// what timing it needs when the check passed.
+fn checked(
     ctx: &Harness,
     scenario: &Scenario,
     binary: &Binary,
-    hyperfine_args: &[String],
-) -> Result<ScenarioResult> {
+) -> (ScenarioResult, Option<(Prepared, Duration)>) {
     let work = ctx
         .out
         .join("work")
@@ -222,9 +272,10 @@ pub fn measure(
         Ok(prepared) => prepared,
         Err(err) => {
             result.detail = format!("{err:#}");
-            return Ok(result);
+            return (result, None);
         }
     };
+    let started = Instant::now();
     match check(ctx, scenario, binary, &prepared) {
         Ok(timings) => {
             result.valid = true;
@@ -233,22 +284,33 @@ pub fn measure(
             if timings["format_version"].as_u64() >= Some(2) {
                 result.process = timings["process"].clone();
             }
+            (result, Some((prepared, started.elapsed())))
         }
         Err(err) => {
             result.detail = format!("{err:#}");
-            return Ok(result);
+            (result, None)
         }
     }
+}
 
-    let json = work.join("hyperfine.json");
+/// Time one block of `runs` runs with hyperfine, exporting to `json`.
+fn time_block(
+    ctx: &Harness,
+    scenario: &Scenario,
+    binary: &Binary,
+    prepared: &Prepared,
+    json: &Path,
+    warmup: u32,
+    runs: u32,
+) -> Result<Vec<Measurement>> {
     let mut cmd = Command::new("hyperfine");
     cmd.current_dir(&prepared.dir);
     isolate(&mut cmd, &ctx.out);
     cmd.envs(prepared.env.iter().map(|(k, v)| (k, v)))
-        .args(["-N", "--style", "basic", "--export-json"])
-        .arg(&json)
+        .args(["-N", "--style", "none", "--export-json"])
+        .arg(json)
         .args(["--command-name", &scenario.name])
-        .args(hyperfine_args);
+        .args(["--warmup", &warmup.to_string(), "--runs", &runs.to_string()]);
     if let Some(mutation) = &scenario.prepare {
         // hyperfine runs `--prepare` through the platform shell.
         let mut line = vec![ctx.self_exe.display().to_string(), "mutate".to_owned()];
@@ -260,13 +322,8 @@ pub fn measure(
     // `-N` splits the command with POSIX word rules on every platform.
     cmd.arg(posix_line(&line));
     let status = cmd.status().context("running hyperfine")?;
-    if !status.success() {
-        result.valid = false;
-        result.detail = format!("hyperfine exited with {status}");
-        return Ok(result);
-    }
-    result.samples = read_hyperfine(&json)?;
-    Ok(result)
+    ensure!(status.success(), "hyperfine exited with {status}");
+    read_hyperfine(json)
 }
 
 /// Run the scenario once, untimed and traced, and confirm it did what
@@ -430,7 +487,7 @@ struct Quantity {
     value: f64,
 }
 
-fn read_hyperfine(path: &Path) -> Result<Samples> {
+fn read_hyperfine(path: &Path) -> Result<Vec<Measurement>> {
     let export: HyperfineExport = serde_json::from_slice(&fs::read(path)?)
         .with_context(|| format!("parsing {}", path.display()))?;
     ensure!(
@@ -438,12 +495,15 @@ fn read_hyperfine(path: &Path) -> Result<Samples> {
         "hyperfine export schema {} (this harness reads hyperfine 2's schema 2)",
         export.schema_version
     );
-    let runs = export
+    Ok(export
         .results
         .into_iter()
         .next()
         .context("hyperfine exported no result")?
-        .measurements;
+        .measurements)
+}
+
+fn samples(runs: &[Measurement]) -> Samples {
     let all = |f: fn(&Measurement) -> Option<f64>| -> Vec<f64> {
         let values: Vec<f64> = runs.iter().filter_map(f).collect();
         // A counter missing from any run is unusable for all of them.
@@ -453,7 +513,7 @@ fn read_hyperfine(path: &Path) -> Result<Samples> {
             Vec::new()
         }
     };
-    Ok(Samples {
+    Samples {
         wall_s: all(|m| Some(m.time_wall_clock.value)),
         user_s: all(|m| Some(m.time_user.value)),
         system_s: all(|m| Some(m.time_system.value)),
@@ -466,7 +526,7 @@ fn read_hyperfine(path: &Path) -> Result<Samples> {
                 .map(|q| q.value)
                 .filter(|&count| count > 0.0)
         }),
-    })
+    }
 }
 
 pub fn posix_line(words: &[String]) -> String {
@@ -690,7 +750,7 @@ pub fn suite(
     ctx: &Harness,
     scenarios: &[Scenario],
     binaries: &[Binary],
-    hyperfine_args: &[String],
+    schedule: &Schedule,
 ) -> Result<Vec<Results>> {
     let hyperfine = tool_version("hyperfine").context("hyperfine 2 is required on PATH")?;
     if !hyperfine.starts_with("hyperfine 2.") {
@@ -716,26 +776,60 @@ pub fn suite(
             scenarios: Vec::new(),
         })
         .collect();
-    // Scenario-major order: the binaries under comparison run back to
-    // back, so drift slower than a scenario reaches both, and
-    // which one goes first alternates, so neither always inherits a
-    // cold machine.
     for (index, scenario) in scenarios.iter().enumerate() {
-        let mut order: Vec<usize> = (0..binaries.len()).collect();
-        if index % 2 == 1 {
-            order.reverse();
-        }
-        for i in order {
-            let binary = &binaries[i];
-            eprintln!("perf: {} [{}]", scenario.name, binary.label);
-            let result = measure(ctx, scenario, binary, hyperfine_args)?;
+        let mut results = Vec::new();
+        let mut ready = Vec::new();
+        for binary in binaries {
+            let (result, prepared) = checked(ctx, scenario, binary);
             if !result.valid {
                 eprintln!(
                     "perf: {} [{}] FAILED its check: {}",
                     scenario.name, binary.label, result.detail
                 );
             }
-            all[i].scenarios.push(result);
+            results.push(result);
+            ready.push(prepared);
+        }
+        let pace = ready.iter().flatten().map(|(_, pace)| *pace).max();
+        let blocks = pace.map(|pace| schedule.blocks(pace)).unwrap_or_default();
+        if !blocks.is_empty() {
+            eprintln!(
+                "perf: {} ({} runs per binary in {} interleaved blocks)",
+                scenario.name,
+                blocks.iter().sum::<u32>(),
+                blocks.len()
+            );
+        }
+        let mut runs: Vec<Vec<Measurement>> = binaries.iter().map(|_| Vec::new()).collect();
+        for (round, &size) in blocks.iter().enumerate() {
+            for i in turns(binaries.len(), index, round) {
+                let Some((prepared, _)) = &ready[i] else {
+                    continue;
+                };
+                let json = prepared
+                    .dir
+                    .with_file_name(format!("hyperfine-{round}.json"));
+                let warmup = if round == 0 { schedule.warmup } else { 0 };
+                match time_block(ctx, scenario, &binaries[i], prepared, &json, warmup, size) {
+                    Ok(block) => runs[i].extend(block),
+                    Err(err) => {
+                        eprintln!(
+                            "perf: {} [{}] FAILED: {err:#}",
+                            scenario.name, binaries[i].label
+                        );
+                        results[i].valid = false;
+                        results[i].detail = format!("{err:#}");
+                        ready[i] = None;
+                    }
+                }
+            }
+        }
+        for ((result, runs), all) in results.into_iter().zip(runs).zip(&mut all) {
+            let mut result = result;
+            if result.valid {
+                result.samples = samples(&runs);
+            }
+            all.scenarios.push(result);
         }
     }
     Ok(all)
@@ -758,6 +852,42 @@ mod tests {
     }
 
     #[test]
+    fn binaries_alternate_block_by_block() {
+        let order = |scenario| -> Vec<usize> {
+            (0..4).flat_map(|round| turns(2, scenario, round)).collect()
+        };
+        assert_eq!(order(0), [0, 1, 1, 0, 0, 1, 1, 0]);
+        assert_eq!(order(1), [1, 0, 0, 1, 1, 0, 0, 1]);
+        // Reversed, the middle one of three would never run twice in a
+        // row, while the others would.
+        let three: Vec<usize> = (0..3).flat_map(|round| turns(3, 0, round)).collect();
+        assert_eq!(three, [0, 1, 2, 1, 2, 0, 2, 0, 1]);
+    }
+
+    #[test]
+    fn runs_split_into_at_most_ten_blocks() {
+        let exact = |runs| {
+            Schedule {
+                warmup: 1,
+                runs: Runs::Exact(runs),
+            }
+            .blocks(Duration::from_secs(1))
+        };
+        assert_eq!(exact(5), [1; 5]);
+        assert_eq!(exact(23), [3, 3, 3, 2, 2, 2, 2, 2, 2, 2]);
+        let at_least = |pace| {
+            Schedule {
+                warmup: 2,
+                runs: Runs::AtLeast(10),
+            }
+            .blocks(Duration::from_millis(pace))
+        };
+        // A slow scenario gets the floor, a fast one 3 s at its pace.
+        assert_eq!(at_least(2_000).iter().sum::<u32>(), 10);
+        assert_eq!(at_least(30), [10; 10]);
+    }
+
+    #[test]
     fn a_zero_instruction_count_is_missing_not_measured() {
         let run = |user: f64, instructions: f64| {
             serde_json::json!({
@@ -774,7 +904,7 @@ mod tests {
             let json =
                 serde_json::json!({"schema_version": 2, "results": [{"measurements": runs}]});
             fs::write(&path, json.to_string()).unwrap();
-            read_hyperfine(&path).unwrap()
+            samples(&read_hyperfine(&path).unwrap())
         };
 
         let measured = export(vec![run(0.0, 5e7), run(0.03, 6e7)]);
