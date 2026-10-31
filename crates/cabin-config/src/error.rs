@@ -108,6 +108,17 @@ pub enum ConfigParseError {
     #[error("config key `toolchain.{key}` must be a non-empty tool spec")]
     EmptyToolSpec { key: &'static str },
 
+    /// A `[runner]` key is not a target triple.
+    #[error("config table `[runner]` key `{triple}` is not a target triple: {source}")]
+    InvalidRunnerTriple {
+        triple: String,
+        source: cabin_core::TargetTripleError,
+    },
+
+    /// A `[runner]` entry names no program.
+    #[error("config key `runner.{triple}` must start with a non-empty program")]
+    EmptyRunner { triple: String },
+
     /// `[term].color` carried a value that is not one of
     /// `auto` / `always` / `never`.  The wording lists the legal
     /// set so the user can fix the file without consulting the
@@ -165,7 +176,7 @@ pub enum ConfigParseError {
     /// A top-level table the parser did not recognize.  Lists the
     /// supported tables so users can see the full surface.
     #[error(
-        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, toolchain, term, patch, source-replacement"
+        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, toolchain, term, patch, source-replacement, runner"
     )]
     UnknownTopLevelTable { table: String },
 

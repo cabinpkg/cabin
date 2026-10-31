@@ -267,4 +267,65 @@ cxxapp = ["src/aarch64.c"]
                 "for {triple}, but ran none"
             )));
     }
+
+    #[test]
+    fn run_and_test_hand_target_executables_to_the_configured_runner() {
+        require_c_and_cxx_build_tools();
+        let dir = TempDir::new().unwrap();
+        write_project(dir.path());
+        let (triple, ..) = cross();
+        // Records its arguments instead of running anything.  It is
+        // named relative to `tools/`, where both commands start, while
+        // `cabin test` runs each test from the package directory.
+        let tools = dir.path().join("tools");
+        fs::create_dir(&tools).unwrap();
+        let runner = tools.join("runner.sh");
+        fs::write(&runner, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$0.log\"\n").unwrap();
+        fs::set_permissions(&runner, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        fs::create_dir(dir.path().join(".cabin")).unwrap();
+        fs::write(
+            dir.path().join(".cabin/config.toml"),
+            format!("[runner]\n\"{triple}\" = [\"./runner.sh\", \"--emulate\"]\n"),
+        )
+        .unwrap();
+
+        cabin_with_config()
+            .current_dir(&tools)
+            .args([
+                "run",
+                "--manifest-path",
+                "../cabin.toml",
+                "--target",
+                triple,
+            ])
+            .args(["--bin", "capp", "--", "arg"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("/tools/runner.sh --emulate /"))
+            .stdout(predicate::str::contains(format!(
+                "/build/{triple}/dev/packages/app/capp`"
+            )));
+        cabin_with_config()
+            .current_dir(&tools)
+            .args([
+                "test",
+                "--manifest-path",
+                "../cabin.toml",
+                "--target",
+                triple,
+            ])
+            .assert()
+            .success();
+
+        let log = fs::read_to_string(tools.join("runner.sh.log")).unwrap();
+        let lines: Vec<&str> = log.lines().collect();
+        let built = format!("/build/{triple}/dev/packages/app/");
+        assert_eq!(lines.len(), 5, "{log}");
+        assert_eq!(
+            [lines[0], lines[2], lines[3]],
+            ["--emulate", "arg", "--emulate"]
+        );
+        assert!(lines[1].ends_with(&format!("{built}capp")), "{log}");
+        assert!(lines[4].ends_with(&format!("{built}smoke")), "{log}");
+    }
 }

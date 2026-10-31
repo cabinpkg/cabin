@@ -361,6 +361,9 @@ pub struct TestRunOptions {
     pub jobs: NonZeroUsize,
     /// Wall-clock limit per executable; `None` waits indefinitely.
     pub timeout: Option<Duration>,
+    /// A program and its arguments that run each executable, which
+    /// they receive after `runner[1..]`; empty runs it directly.
+    pub runner: Vec<String>,
 }
 
 /// Run every executable in `plan`, starting them in the order
@@ -416,7 +419,7 @@ pub fn run_tests<S: TestOutputSink>(
             let Some((index, executable)) = queue.next() else {
                 break;
             };
-            match RunningTest::spawn(index, executable, &options.args, &events) {
+            match RunningTest::spawn(index, executable, options, &events) {
                 Ok(test) => running.push(test),
                 Err(source) => {
                     let result = TestRunResult {
@@ -500,12 +503,19 @@ impl<'a> RunningTest<'a> {
     fn spawn(
         index: usize,
         executable: &'a TestExecutable,
-        args: &[OsString],
+        options: &TestRunOptions,
         events: &mpsc::Sender<OutputEvent>,
     ) -> io::Result<Self> {
-        let mut command = Command::new(&executable.executable);
+        let mut command = match options.runner.split_first() {
+            Some((program, runner_args)) => {
+                let mut command = Command::new(program);
+                command.args(runner_args).arg(&executable.executable);
+                command
+            }
+            None => Command::new(&executable.executable),
+        };
         command
-            .args(args)
+            .args(&options.args)
             .current_dir(&executable.working_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -529,6 +539,11 @@ impl<'a> RunningTest<'a> {
         // race-fail.  The window clears within milliseconds.
         let mut child = retry_on_etxtbsy(SPAWN_RETRY_ATTEMPTS, SPAWN_RETRY_BASE_DELAY, || {
             command.spawn()
+        })
+        .map_err(|error| match options.runner.first() {
+            // The result line names the test, not the runner that failed.
+            Some(program) => io::Error::new(error.kind(), format!("runner `{program}`: {error}")),
+            None => error,
         })?;
         let stdout = child
             .stdout
@@ -1286,6 +1301,7 @@ exit 42
             args: Vec::new(),
             jobs: NonZeroUsize::new(jobs).unwrap(),
             timeout,
+            runner: Vec::new(),
         }
     }
 
@@ -1477,6 +1493,68 @@ exit 42
         }
         assert_eq!(summary.failed(), 2);
         assert_eq!(sink.finished(), ["a_test", "b_test"]);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn run_tests_hands_each_executable_to_the_runner() {
+        let dir = TempDir::new().unwrap();
+        let runner = dir.child("runner");
+        write_executable(&runner, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
+        // Not executable: only the runner can start it.
+        let test = dir.child("cross_test");
+        test.write_str("").unwrap();
+        let plan = TestPlan {
+            executables: vec![TestExecutable {
+                package: "demo".into(),
+                target: "cross_test".into(),
+                executable: test.to_path_buf(),
+                working_dir: dir.path().to_path_buf(),
+                env: BTreeMap::new(),
+            }],
+        };
+        let options = TestRunOptions {
+            args: vec!["--filter".into()],
+            runner: vec![runner.to_str().unwrap().to_owned(), "-L".to_owned()],
+            ..options(1, None)
+        };
+
+        let summary = run_tests(&plan, &options, &mut Recorder::default()).unwrap();
+
+        assert!(summary.all_passed(), "{summary:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&summary.results[0].stdout),
+            format!("-L\n{}\n--filter\n", test.display())
+        );
+    }
+
+    #[test]
+    fn run_tests_names_a_runner_that_cannot_start() {
+        let dir = TempDir::new().unwrap();
+        let plan = TestPlan {
+            executables: vec![TestExecutable {
+                package: "demo".into(),
+                target: "cross_test".into(),
+                executable: dir.path().join("cross_test"),
+                working_dir: dir.path().to_path_buf(),
+                env: BTreeMap::new(),
+            }],
+        };
+        let missing = dir.path().join("no-such-runner");
+        let options = TestRunOptions {
+            runner: vec![missing.to_str().unwrap().to_owned()],
+            ..options(1, None)
+        };
+
+        let summary = run_tests(&plan, &options, &mut Recorder::default()).unwrap();
+
+        let TestRunStatus::SpawnFailed(error) = &summary.results[0].status else {
+            panic!("{summary:?}");
+        };
+        assert!(
+            error.contains(&format!("runner `{}`", missing.display())),
+            "{error}"
+        );
     }
 
     #[test]

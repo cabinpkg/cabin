@@ -2013,12 +2013,12 @@ documented in `registry/docs/architecture.md`:
   of scope.
 - **No administrative policy surfaces.**
 - **No remote / binary build cache.** The artifact cache stores source archives only.
-- **Cross-compilation is partial** (planned: roadmap stages 04-05). `--target <triple>` selects the
+- **Cross-compilation is partial** (planned: roadmap stage 05). `--target <triple>` selects the
   platform `[target.'cfg(...)']` predicates evaluate for and passes Clang `--target=`; GCC, MSVC,
-  and clang-cl must already build that platform, and Cabin never runs what it built for another
-  machine (see [`toolchains.md`](toolchains.md#building-for-another-platform)).
-  `[build-dependencies]` build for the build machine, but nothing runs them yet; runners and sysroot
-  or SDK discovery are not implemented yet. (Windows / MSVC
+  and clang-cl must already build that platform, and Cabin runs what it built for another machine
+  only through a configured `[runner]` (see
+  [`toolchains.md`](toolchains.md#building-for-another-platform)). `[build-dependencies]` build for
+  the build machine, but nothing runs them yet; sysroot or SDK discovery is not implemented yet. (Windows / MSVC
   itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate
   lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the detection and dialect
   sections above.)

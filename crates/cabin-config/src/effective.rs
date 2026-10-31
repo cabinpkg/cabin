@@ -40,6 +40,9 @@ pub struct EffectiveConfig {
     /// Active config-derived source replacements keyed by the
     /// original [`cabin_core::SourceLocator`].
     pub source_replacements: SourceReplacementSettings,
+    /// `[runner]` entries keyed by target triple.  Higher-priority
+    /// files override lower files on overlap.
+    pub runners: BTreeMap<String, SourcedValue<Vec<String>>>,
     pub loaded_files: Vec<LoadedConfigFile>,
 }
 
@@ -288,6 +291,11 @@ fn apply_parsed(
                 provenance: source_to_value(source),
             },
         );
+    }
+    for (triple, runner) in &parsed.runners {
+        effective
+            .runners
+            .insert(triple.clone(), SourcedValue::new(runner.clone(), source));
     }
 }
 

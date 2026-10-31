@@ -743,6 +743,18 @@ pub(crate) fn config_view_json(
         None => serde_json::Value::Null,
     };
 
+    let runners: serde_json::Map<String, serde_json::Value> = config
+        .runners
+        .iter()
+        .map(|(triple, runner)| {
+            let view = serde_json::json!({
+                "command": runner.value,
+                "value_source": config_value_source(runner.source).as_key(),
+            });
+            (triple.clone(), view)
+        })
+        .collect();
+
     serde_json::json!({
         "loaded_files": loaded_files,
         "registry": registry,
@@ -751,6 +763,7 @@ pub(crate) fn config_view_json(
         "resolver": resolver,
         "toolchain": toolchain,
         "compiler_wrapper": compiler_wrapper,
+        "runners": runners,
     })
 }
 

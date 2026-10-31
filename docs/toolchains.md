@@ -139,10 +139,17 @@ cabin build --target aarch64-unknown-linux-gnu \
 - **Output.**  The build writes under `<build-dir>/<triple>/<profile>/`, beside the build machine's
   `<build-dir>/<profile>/`, so the two builds never share an object; `cabin clean --target
   <triple>` cleans that tree.
-- **Running.**  When the triple names another machine, `cabin run --target` and `cabin test
-  --target` build, then fail with an error naming what they built: Cabin never runs a binary built
-  for another machine.  A triple with the build machine's `os` and `arch` runs as usual, as does x86
-  on Windows x64.
+- **Running.**  `cabin run --target` and `cabin test --target` run each executable through the
+  [`[runner]`](config.md#runner) configured for the triple, such as an emulator:
+
+  ```toml
+  [runner]
+  aarch64-unknown-linux-gnu = ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu"]
+  ```
+
+  Without one, a triple with the build machine's `os` and `arch` runs as usual, as does x86 on
+  Windows x64; for another machine they build, then fail with an error naming what they built:
+  Cabin never runs a binary built for another machine on its own.
 - **Build dependencies.**  [Build dependencies](dependency-kinds.md#build-dependencies) build for
   the build machine under `<build-dir>/<triple>/<profile>/build-machine/`, with the same compilers
   minus `--target=`, so their default target must be the build machine.  GCC, MSVC, and clang-cl
