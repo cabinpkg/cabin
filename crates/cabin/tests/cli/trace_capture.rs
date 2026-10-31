@@ -66,7 +66,7 @@ fn traced_metadata_keeps_stdout_byte_identical() {
             .any(|e| e["ph"] == "B" && e["name"] == "cabin" && e["args"]["command"] == "metadata"),
         "the root span names the command"
     );
-    assert_eq!(timings["format_version"], 1);
+    assert_eq!(timings["format_version"], 2);
     assert_eq!(timings["command"], "metadata");
     assert_eq!(timings["outcome"], "success");
     assert_eq!(timings["trace_complete"], true);
@@ -294,4 +294,52 @@ sources = ["tests/cxx_test.cc"]
         .collect();
     tests.sort_unstable();
     assert_eq!(tests, ["demo:c_test", "demo:cxx_test"]);
+}
+
+#[test]
+fn process_usage_keeps_the_largest_child_apart_from_cabin() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.big]
+type = "test"
+sources = ["tests/big.c"]
+"#,
+        )
+        .unwrap();
+    // Touch every page of 64 MiB so it is resident.
+    dir.child("tests/big.c")
+        .write_str(
+            "#include <stdlib.h>\n\
+             int main(void) {\n\
+             size_t n = (size_t)64 << 20;\n\
+             volatile char *p = malloc(n);\n\
+             if (!p) return 1;\n\
+             for (size_t i = 0; i < n; i += 4096) p[i] = 1;\n\
+             return 0;\n\
+             }\n",
+        )
+        .unwrap();
+    // A parent larger than both: Linux carries a spawning process's
+    // high-water mark into the child's `ru_maxrss`.
+    let parent = std::hint::black_box(vec![1_u8; 96 << 20]);
+    let traces = dir.path().join("traces");
+    traced(dir.path(), &traces).arg("test").assert().success();
+    drop(parent);
+
+    let (_, timings) = only_capture(&traces);
+    let process = &timings["process"];
+    if cfg!(windows) {
+        assert!(process.is_null());
+        return;
+    }
+    let mib = |key: &str| process[key].as_u64().unwrap() >> 20;
+    assert!(mib("children_largest_peak_rss_bytes") >= 64, "{process}");
+    assert!(mib("self_peak_rss_bytes") < 64, "{process}");
 }

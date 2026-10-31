@@ -72,7 +72,7 @@ names follow the code and can change between commits.
 
 | Field | Meaning |
 | --- | --- |
-| `format_version` | Schema version, currently `1` |
+| `format_version` | Schema version, currently `2`: before it, Linux's `self_peak_rss_bytes` could be the spawning process's peak |
 | `cabin_version` | The binary's package version |
 | `command` | The subcommand, or `cabin` when none was given |
 | `outcome` | `success` when the command exited with status 0, else `failure` |
@@ -81,7 +81,7 @@ names follow the code and can change between commits.
 | `startup_us` | Argument parsing and terminal setup before the capture started, covered by no span |
 | `ninja_actions` | The actions the command's Ninja run performed, or `null` when it ran no Ninja or Ninja rewrote its log |
 | `phases[]` | Per span name: `target`, `name`, `count`, `total_us` (sum of inclusive lifetimes, which exceeds elapsed time when occurrences overlap), `max_us`, and `fields` (each integer field summed over occurrences) |
-| `process` | `getrusage` at exit, or `null` on Windows: `self_peak_rss_bytes`, `self_user_us`, `self_system_us` for Cabin alone; `children_user_us`, `children_system_us` summed over the child processes Cabin waited for; `children_largest_peak_rss_bytes`, the largest single child's peak - child peaks are not simultaneous, so they are never added |
+| `process` | `getrusage` at exit, or `null` on Windows: `self_peak_rss_bytes`, `self_user_us`, `self_system_us` for Cabin alone (the peak from `/proc/self/status` `VmHWM` on Linux, where `getrusage` starts at the spawning process's peak); `children_user_us`, `children_system_us` summed over the child processes Cabin waited for; `children_largest_peak_rss_bytes`, the largest single child's peak, which on Linux is never below Cabin's own when that child started - child peaks are not simultaneous, so they are never added |
 
 ## When capture fails
 
@@ -120,11 +120,33 @@ $ cargo perf run --cabin a=/path/to/cabin --cabin b=/path/to/other/cabin
 A run writes into `target/perf/runs/<unix time>/` (or `--out`):
 
 - `<label>.json` for each binary: the raw per-run samples (wall, user, and system time, peak
-  resident memory of the largest process, and retired instructions where the host exposes the
-  counter: on Linux those of Cabin and every process it starts, on macOS Cabin's own only), the
-  check result, and the phases of the check run's trace.  `format_version` is `1`.
-- `report.md`: per scenario, the median, the spread, and the three costliest phases.
-- `compare.md` and `compare.json` when two binaries ran.
+  resident memory, and retired instructions, each with the scope below), the check result, the
+  `phases` and `process` blocks of the check run's timings summary, and where the numbers came
+  from: `build` (the commit the binary was built from, whether that checkout had uncommitted
+  changes, the profile, and `rustc -V`; all `null` for a `--cabin` binary, which the harness did
+  not build and does not guess about) and `harness` (the commit and cleanliness of the checkout
+  `cargo perf` was built from, which defines the scenarios).  `format_version` is `2`.
+- `report.md`: per scenario, the median, the spread, the check run's figures for Cabin alone and
+  its largest child, and the three costliest phases.
+- `compare.md` and `compare.json` when two binaries ran: each side's label, version, build, and
+  harness, and a row per scenario and metric.  `compare` refuses a results file of another
+  `format_version`; measure that binary again.
+
+What each number covers depends on the platform, and `report.md` and `compare.md` state it:
+
+| Number | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| User and system time | Cabin and every process it waited for, summed | Cabin and every process it waited for, summed | Every process in Cabin's job, summed |
+| Peak RSS | The largest single process, never a sum, and never below hyperfine's own peak so far, which Linux carries into a started process | The largest single process, never a sum | Not measured |
+| Instructions | Cabin and its children, summed, user mode only | Cabin alone, user and kernel mode | Not measured |
+| Check run: Cabin alone | Cabin's own peak RSS and CPU time, from one traced run | Same | Not measured |
+| Check run: largest child | The largest child's peak RSS, never below Cabin's own when that child started | The largest child's peak RSS | Not measured |
+
+A metric that is not measured has no samples, never zeros.  A Linux counter that was never
+scheduled reads zero instructions, so a zero instruction count in any run drops instructions for
+the scenario rather than entering the median.  Zero CPU time is kept: Windows charges CPU time in
+clock ticks, so a short run can read zero, and a failed Windows job query, which hyperfine also
+writes as zero, cannot be told apart from it.
 
 ### Scenarios
 
@@ -159,7 +181,9 @@ Every scenario and binary works on a private copy.
   nothing it must keep.  A scenario that fails its check is reported as `FAILED` with the
   reason and no numbers, and `cargo perf run` exits 1, unless only the `--base` revision failed
   it: an older Cabin without a flag the scenario uses leaves that scenario uncompared.  A
-  binary from before trace capture is checked and timed all the same, without phases.
+  binary from before trace capture is checked and timed all the same, without phases, and one
+  from before timings `format_version` 2 without the check run's Cabin-alone and largest-child
+  figures.
 - **State reset outside the timing.**  hyperfine's `--prepare` removes the build directory,
   cache, or output, or touches a source, before every run.
 - **Isolated.**  Every invocation gets a private `CABIN_CONFIG_HOME` and `CABIN_CACHE_HOME` and
@@ -169,7 +193,9 @@ Every scenario and binary works on a private copy.
   build.  Your configuration and caches are neither read nor touched.  `CC`, `CXX`, and `AR`
   still choose the toolchain.
 - **Recorded.**  Results name the hyperfine and Ninja versions, the OS, architecture, CPU count,
-  and fixture version; a comparison across different hosts or fixtures says so.
+  fixture version, each binary's build, and the harness's own checkout.  A comparison names both
+  sides' builds and says so when they ran on different hosts or fixtures, or were measured by
+  different harness checkouts, whose scenarios may differ.
 - **Interleaved.**  With two binaries, each scenario runs for both back to back, so drift in the
   machine's state affects both alike, and which binary goes first alternates per scenario.  The
   first scenario of a run is the noisiest, measured while the machine is still settling; before

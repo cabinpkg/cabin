@@ -10,7 +10,7 @@ use std::process::{Command, Output};
 use anyhow::{Context as _, Result, bail, ensure};
 use serde::Deserialize;
 
-use crate::report::{self, Host, Results, Samples, ScenarioResult};
+use crate::report::{self, Build, Checkout, Host, Results, Samples, ScenarioResult};
 use crate::scenario::{Expect, Scenario};
 use crate::{ports, serve};
 use xtask_bench::fixture::{self, FIXTURE_VERSION};
@@ -19,11 +19,13 @@ pub struct Binary {
     pub label: String,
     pub path: PathBuf,
     pub version: String,
+    pub build: Build,
 }
 
 /// Shared inputs for every scenario of one invocation.
 pub struct Harness {
     pub out: PathBuf,
+    pub checkout: Checkout,
     pub self_exe: PathBuf,
     registry: Option<PathBuf>,
     ports: Option<PathBuf>,
@@ -32,7 +34,12 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub fn new(repo: &Path, out: PathBuf, scenarios: &[Scenario]) -> Result<Self> {
+    pub fn new(
+        repo: &Path,
+        checkout: Checkout,
+        out: PathBuf,
+        scenarios: &[Scenario],
+    ) -> Result<Self> {
         fs::create_dir_all(&out)?;
         let perf = repo.join("target/perf");
         let fixtures = fixture::cache_root(&perf)?;
@@ -77,6 +84,7 @@ impl Harness {
         };
         Ok(Self {
             out,
+            checkout,
             self_exe: std::env::current_exe()?,
             registry,
             ports,
@@ -207,6 +215,7 @@ pub fn measure(
         detail: String::new(),
         samples: Samples::default(),
         phases: serde_json::Value::Null,
+        process: serde_json::Value::Null,
     };
     let prepared = match prepare(ctx, scenario, binary, &work) {
         Ok(prepared) => prepared,
@@ -216,9 +225,13 @@ pub fn measure(
         }
     };
     match check(ctx, scenario, binary, &prepared) {
-        Ok(phases) => {
+        Ok(timings) => {
             result.valid = true;
-            result.phases = phases;
+            result.phases = timings["phases"].clone();
+            // Before format 2, Linux's own peak could be the harness's.
+            if timings["format_version"].as_u64() >= Some(2) {
+                result.process = timings["process"].clone();
+            }
         }
         Err(err) => {
             result.detail = format!("{err:#}");
@@ -256,7 +269,8 @@ pub fn measure(
 }
 
 /// Run the scenario once, untimed and traced, and confirm it did what
-/// the scenario claims to measure.  Returns the trace's phases.
+/// the scenario claims to measure.  Returns the trace's timings
+/// summary, or `Null` from a revision without trace capture.
 pub fn check(
     ctx: &Harness,
     scenario: &Scenario,
@@ -299,8 +313,7 @@ pub fn check(
     let Some(timings) = timings else {
         return Ok(serde_json::Value::Null);
     };
-    let timings: serde_json::Value = serde_json::from_slice(&fs::read(timings)?)?;
-    Ok(timings["phases"].clone())
+    Ok(serde_json::from_slice(&fs::read(timings)?)?)
 }
 
 /// Confirm the check run did what the scenario claims.  `actions`
@@ -455,7 +468,14 @@ fn read_hyperfine(path: &Path) -> Result<Samples> {
         user_s: all(|m| Some(m.time_user.value)),
         system_s: all(|m| Some(m.time_system.value)),
         peak_rss_bytes: all(|m| m.memory_peak_resident.as_ref().map(|q| q.value)),
-        instructions: all(|m| m.instructions.as_ref().map(|q| q.value)),
+        // Zero instructions is a Linux counter that never got
+        // scheduled, not a measurement.
+        instructions: all(|m| {
+            m.instructions
+                .as_ref()
+                .map(|q| q.value)
+                .filter(|&count| count > 0.0)
+        }),
     })
 }
 
@@ -503,6 +523,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 /// the results directory, so a later rebuild cannot change it mid-run.
 pub fn build(
     source: &Path,
+    checkout: Checkout,
     target_dir: &Path,
     profile: &str,
     label: &str,
@@ -512,8 +533,19 @@ pub fn build(
         "perf: building `{label}` ({profile} profile) in {}",
         source.display()
     );
+    // The build gets the compiler it is recorded with: as `RUSTC` it
+    // also overrides a `build.rustc` in a Cargo config file.
+    let rustc = std::env::var_os("RUSTC")
+        .or_else(|| std::env::var_os("CARGO_BUILD_RUSTC"))
+        .unwrap_or_else(|| "rustc".into());
+    let provenance = Build {
+        source: checkout,
+        profile: Some(profile.to_owned()),
+        rustc: rustc_version(&rustc, source),
+    };
     let status = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
         .args(["build", "--locked", "-p", "cabinpkg", "--profile", profile])
+        .env("RUSTC", &rustc)
         .env("CARGO_TARGET_DIR", target_dir)
         .current_dir(source)
         .status()?;
@@ -528,7 +560,44 @@ pub fn build(
         .join(format!("cabin{}", std::env::consts::EXE_SUFFIX));
     fs::create_dir_all(path.parent().unwrap())?;
     fs::copy(&built, &path).with_context(|| format!("copying {}", built.display()))?;
-    binary(label, path, out)
+    Ok(Binary {
+        build: provenance,
+        ..binary(label, path, out)?
+    })
+}
+
+/// The checkout at `dir`, as far as git can tell.
+pub fn checkout(dir: &Path) -> Checkout {
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    };
+    Checkout {
+        commit: git(&["rev-parse", "HEAD"]),
+        dirty: git(&["status", "--porcelain", "--untracked-files=normal"])
+            .map(|status| !status.is_empty()),
+    }
+}
+
+/// `rustc -V`, run as the build in `dir` runs it.
+fn rustc_version(rustc: &std::ffi::OsStr, dir: &Path) -> Option<String> {
+    let output = Command::new(rustc)
+        .arg("-V")
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 /// Build a git revision in a throwaway worktree.  Revisions share one
@@ -567,6 +636,7 @@ pub fn build_revision(
     ])?;
     let built = build(
         &source,
+        checkout(&source),
         &repo.join("target/perf/target-revisions"),
         profile,
         label,
@@ -582,7 +652,8 @@ pub fn build_revision(
 }
 
 /// A binary to measure, identified by its `--version`, which runs as
-/// isolated as every scenario command.
+/// isolated as every scenario command.  Its build is unknown until
+/// [`build`] fills it in.
 pub fn binary(label: &str, path: PathBuf, out: &Path) -> Result<Binary> {
     ensure_plain("binary label", label)?;
     let mut cmd = Command::new(&path);
@@ -600,6 +671,7 @@ pub fn binary(label: &str, path: PathBuf, out: &Path) -> Result<Binary> {
         label: label.to_owned(),
         version: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
         path,
+        build: Build::UNKNOWN,
     })
 }
 
@@ -645,6 +717,8 @@ pub fn suite(
             format_version: report::RESULTS_FORMAT_VERSION,
             label: b.label.clone(),
             cabin_version: b.version.clone(),
+            build: b.build.clone(),
+            harness: ctx.checkout.clone(),
             fixture_version: FIXTURE_VERSION,
             host: host(),
             hyperfine: hyperfine.clone(),
@@ -675,4 +749,39 @@ pub fn suite(
         }
     }
     Ok(all)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_zero_instruction_count_is_missing_not_measured() {
+        let run = |user: f64, instructions: f64| {
+            serde_json::json!({
+                "time_wall_clock": {"value": 0.1},
+                "time_user": {"value": user},
+                "time_system": {"value": 0.0},
+                "memory_peak_resident": {"value": 1e7},
+                "instructions": {"value": instructions},
+            })
+        };
+        let export = |runs: Vec<serde_json::Value>| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("hyperfine.json");
+            let json =
+                serde_json::json!({"schema_version": 2, "results": [{"measurements": runs}]});
+            fs::write(&path, json.to_string()).unwrap();
+            read_hyperfine(&path).unwrap()
+        };
+
+        let measured = export(vec![run(0.0, 5e7), run(0.03, 6e7)]);
+        // Zero CPU time can be real: Windows charges it in clock ticks.
+        assert_eq!(measured.user_s, [0.0, 0.03]);
+        assert_eq!(measured.instructions, [5e7, 6e7]);
+
+        let failed = export(vec![run(0.02, 0.0), run(0.03, 6e7)]);
+        assert_eq!(failed.user_s, [0.02, 0.03]);
+        assert!(failed.instructions.is_empty());
+    }
 }

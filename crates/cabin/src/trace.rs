@@ -48,7 +48,7 @@ use crate::cli::term_verbosity::Reporter;
 
 /// The `*.timings.json` schema version.  Bump it when a field changes
 /// meaning or is removed; adding a field keeps the version.
-const TIMINGS_FORMAT_VERSION: u32 = 1;
+const TIMINGS_FORMAT_VERSION: u32 = 2;
 
 /// The span levels recorded when `CABIN_TRACE_FILTER` is unset: the
 /// command's phases, without per-package and per-request detail.
@@ -677,14 +677,37 @@ fn process_usage() -> Option<ProcessUsage> {
     };
     let own = rusage(libc::RUSAGE_SELF)?;
     let children = rusage(libc::RUSAGE_CHILDREN)?;
+    // Linux carries the spawning process's high-water mark into
+    // `ru_maxrss` across `exec`, so there Cabin's own peak is its
+    // address space's.
+    let self_peak_rss_bytes = if cfg!(target_os = "linux") {
+        vm_hwm()?
+    } else {
+        u64::try_from(own.ru_maxrss).unwrap_or(0) * rss_unit
+    };
     Some(ProcessUsage {
-        self_peak_rss_bytes: u64::try_from(own.ru_maxrss).unwrap_or(0) * rss_unit,
+        self_peak_rss_bytes,
         self_user_us: micros(own.ru_utime),
         self_system_us: micros(own.ru_stime),
         children_largest_peak_rss_bytes: u64::try_from(children.ru_maxrss).unwrap_or(0) * rss_unit,
         children_user_us: micros(children.ru_utime),
         children_system_us: micros(children.ru_stime),
     })
+}
+
+/// `VmHWM` from `/proc/self/status`, in bytes.
+#[cfg(unix)]
+fn vm_hwm() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let kib = status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(kib * 1024)
 }
 
 #[cfg(not(unix))]
