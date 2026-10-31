@@ -59,8 +59,10 @@ separate rows:
   the profile's build directory.  It comes from Ninja's `.ninja_log`, cut to the entries this run
   appended, so a no-op build shows none and a failed build shows the actions that finished.
   Ninja times actions from its own start, so the bars sit early by Ninja's startup time.  When
-  Ninja rewrote its log during the run (it compacts the log once it holds many stale entries),
-  the lane is empty and the summary's `ninja_actions` is `null`.
+  Ninja compacts its log on load (it does once the log holds many stale entries), the run's
+  entries are those after the compacted ones.  When Ninja rewrote its log any other way (it
+  upgrades or starts over on a log of another format), the lane is empty and the summary's
+  `ninja_actions` is `null`.
 - `tests`: one bar per test executable `cabin test` ran, named `<package>:<target>`, ending when
   the runner reported it.
 
@@ -79,7 +81,7 @@ names follow the code and can change between commits.
 | `trace_complete` | Whether the trace file was written completely |
 | `wall_time_us` | From the start of argument handling to the end of the command; excludes process creation |
 | `startup_us` | Argument parsing and terminal setup before the capture started, covered by no span |
-| `ninja_actions` | The actions the command's Ninja run performed, or `null` when it ran no Ninja or Ninja rewrote its log |
+| `ninja_actions` | The actions the command's Ninja run performed, or `null` when it ran no Ninja or Ninja rewrote its log other than by compacting it |
 | `phases[]` | Per span name: `target`, `name`, `count`, `total_us` (sum of inclusive lifetimes, which exceeds elapsed time when occurrences overlap), `max_us`, and `fields` (each integer field summed over occurrences) |
 | `process` | `getrusage` at exit, or `null` on Windows: `self_peak_rss_bytes`, `self_user_us`, `self_system_us` for Cabin alone (the peak from `/proc/self/status` `VmHWM` on Linux, where `getrusage` starts at the spawning process's peak); `children_user_us`, `children_system_us` summed over the child processes Cabin waited for; `children_largest_peak_rss_bytes`, the largest single child's peak, which on Linux is never below Cabin's own when that child started - child peaks are not simultaneous, so they are never added |
 

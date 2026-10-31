@@ -27,7 +27,7 @@
 //! their own capture.  A thread spawned inside the command records
 //! spans only if it is handed the dispatcher.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Read as _, Seek as _, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
@@ -484,15 +484,22 @@ fn lexically_normal(path: &Path) -> PathBuf {
     normal
 }
 
-/// The actions in `after` past its prefix `before`, as `(start_ms,
-/// end_ms, output, command_hash)`.  `None` when `after` does not start
-/// with `before`: Ninja rewrote the log (it recompacts it at startup),
-/// so this run's entries cannot be told from earlier ones.
+/// The actions this run added to `before` to make `after`, as
+/// `(start_ms, end_ms, output, command_hash)`.  `None` when Ninja
+/// rewrote the log other than by compacting it (it upgrades or starts
+/// over on a log of another format), so this run's entries cannot be
+/// told from earlier ones.
 fn appended_actions<'a>(
     before: &[u8],
     after: &'a [u8],
 ) -> Option<Vec<(u32, u32, &'a str, &'a str)>> {
-    let appended = std::str::from_utf8(after.strip_prefix(before)?).ok()?;
+    let appended = match after.strip_prefix(before) {
+        Some(appended) => std::str::from_utf8(appended).ok()?,
+        None => past_compaction(
+            std::str::from_utf8(before).ok()?,
+            std::str::from_utf8(after).ok()?,
+        )?,
+    };
     // `# ninja log vN`, then `start \t end \t mtime \t output \t hash`.
     let mut actions: Vec<_> = appended
         .lines()
@@ -508,6 +515,27 @@ fn appended_actions<'a>(
     // the command's start, end, and hash.
     actions.dedup_by_key(|&mut (start, end, _, hash)| (start, end, hash));
     Some(actions)
+}
+
+/// The lines this run appended after Ninja compacted `before` on load,
+/// as it does past 100 entries with more than three per output: the
+/// compacted log is `before`'s header, then each kept output's latest
+/// line exactly as `before` has it.  A line Ninja logs records a time
+/// from its own run, so none repeats an earlier line; an earlier line
+/// after a new one is some other rewrite.
+fn past_compaction<'a>(before: &str, after: &'a str) -> Option<&'a str> {
+    let mut lines = before.lines();
+    let header = lines.next()?;
+    let earlier: HashSet<&str> = lines.collect();
+    let mut rest = after.strip_prefix(header)?.strip_prefix('\n')?;
+    while let Some((line, next)) = rest.split_once('\n')
+        && earlier.contains(line)
+    {
+        rest = next;
+    }
+    rest.lines()
+        .all(|line| !earlier.contains(line))
+        .then_some(rest)
 }
 
 /// A [`cabin_test::TestOutputSink`] that also adds each finished test
@@ -962,18 +990,42 @@ mod tests {
     }
 
     #[test]
-    fn a_parent_relative_build_root_collapses_as_ninja_logs_it() {
-        let root = Path::new("/work/app/../build/./dev");
-        assert_eq!(lexically_normal(root), Path::new("/work/build/dev"));
+    fn a_log_ninja_compacted_on_load_still_yields_only_this_runs_actions() {
+        let before = format!("{LOG}1\t3\t2\t/b/gone.o\tdd\n0\t7\t2\t/b/old.o\tab\n");
+        // `old.o`'s latest line, without the dead `gone.o`.
+        let compacted = "# ninja log v7\n0\t7\t2\t/b/old.o\tab\n";
+        let new = "5\t20\t9\t/b/old.o\tab\n";
+        assert_eq!(
+            appended_actions(before.as_bytes(), format!("{compacted}{new}").as_bytes()),
+            Some(vec![(5, 20, "/b/old.o", "ab")])
+        );
+        assert_eq!(
+            appended_actions(before.as_bytes(), compacted.as_bytes()),
+            Some(vec![]),
+            "a no-op build after compaction ran nothing"
+        );
+        assert_eq!(
+            appended_actions(
+                before.as_bytes(),
+                format!("# ninja log v8\n{new}").as_bytes()
+            ),
+            None,
+            "a log of another format starts over"
+        );
+        assert_eq!(
+            appended_actions(
+                before.as_bytes(),
+                format!("{compacted}{new}{compacted}").as_bytes()
+            ),
+            None,
+            "an earlier line after a new one is not a compaction"
+        );
     }
 
     #[test]
-    fn a_rewritten_log_has_no_actions_rather_than_old_ones() {
-        let recompacted = "# ninja log v7\n5\t20\t2\t/b/x.o\tbb\n";
-        assert_eq!(
-            appended_actions(LOG.as_bytes(), recompacted.as_bytes()),
-            None
-        );
+    fn a_parent_relative_build_root_collapses_as_ninja_logs_it() {
+        let root = Path::new("/work/app/../build/./dev");
+        assert_eq!(lexically_normal(root), Path::new("/work/build/dev"));
     }
 
     fn interval(lane: (u32, &'static str), name: &str, start_us: u64, dur_us: u64) -> Interval {

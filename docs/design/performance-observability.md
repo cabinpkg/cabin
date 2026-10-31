@@ -80,8 +80,18 @@ on one side only as a change in instrumentation, not a regression.
 A persistent `.ninja_log` holds earlier builds' entries, so the timeline must be cut to the current
 invocation: Cabin keeps the log's contents from before it starts Ninja, and reads only the entries
 appended after them.  A no-op build therefore reports zero actions rather than the previous
-build's.  If the prefix changed (Ninja recompacts the log at startup once it holds enough stale
-entries) the action timeline is reported as unavailable, never as zero.
+build's.  Ninja compacts the log when it loads one past 100 entries with more than three per
+output (`BuildLog::Load` and `BuildLog::Recompact` in its `src/build_log.cc`, the same from 1.10
+through 1.13): it writes the same header, then each kept output's latest entry exactly as the old
+log had it, and the run appends after those.  Every entry a run logs carries a modification time
+from that run (Ninja 1.12 logs the command's start; earlier versions the output's, which every
+Cabin command rewrites), so none repeats an earlier line; Cabin skips the leading lines found in
+the old log and reads the rest, provided none of those is an old line either.  Any other rewrite
+reports the action timeline as unavailable, never as zero: a log of another format, which Ninja
+upgrades or starts over (Ninja before 1.12 also compacts a newer one under its own header).
+Compacting the log with `ninja -t recompact` before the build would keep the prefix, but that tool
+also compacts `.ninja_deps` against the current manifest, so a traced build would drop dependency
+records before an untraced one would.
 Ninja writes an entry only for an action that succeeded, so a failed build lists its completed
 actions and says the failed one is absent.  Several outputs of one command share one entry's
 start, end, and command hash and count as one action.  Ninja's times are milliseconds from its own
