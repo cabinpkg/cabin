@@ -1,6 +1,6 @@
 //! Local preflight: materialize every conversion, publish it into a
-//! temporary file registry, and build every port *from that
-//! registry* in publication order.
+//! temporary file registry in publication order, and build every
+//! port *from that registry*, the probes in parallel.
 //!
 //! The preflight is the gate in front of any remote mutation: a port
 //! that cannot fetch, extract, package, publish, resolve, or compile
@@ -21,10 +21,15 @@
 //! `--publish` only builds them, keeping upstream code from running
 //! beside the job's OIDC token.
 
+use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Write as _};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus};
+use std::sync::{Mutex, MutexGuard, PoisonError, mpsc};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use cabin_publish::RegistryPublishWorkflow;
@@ -60,16 +65,24 @@ pub struct PreflightReport {
     pub package_dirs: Vec<PathBuf>,
 }
 
-/// Run the full local preflight: for each conversion in publication
-/// order, materialize it, publish it into the temporary file
-/// registry, and immediately build its probe against the registry -
-/// so a failure surfaces at the first port it affects.
+/// Run the full local preflight.  This thread materializes each
+/// conversion and publishes it into the temporary file registry in
+/// publication order, handing every staged port to a pool of one probe
+/// worker per available CPU, which builds (and, with `run_probes`,
+/// runs) its probe against the registry.  Publication order stages a
+/// version satisfying each of a port's dependencies before it, so its
+/// probe can start the moment the port is staged.  A newer version
+/// staged meanwhile may also satisfy one; the probe then resolves it,
+/// as a consumer of the published registry would.
 ///
 /// # Errors
-/// Returns the first failure: archive fetch or checksum mismatch,
-/// preparation, staging or publish-lint rejection, file-registry
-/// write, or a probe build (or, with `run_probes`, run) exiting
-/// non-zero.
+/// Returns the failure of the earliest failing port in publication
+/// order: archive fetch or checksum mismatch, preparation, staging or
+/// publish-lint rejection, file-registry write, or a probe build (or,
+/// with `run_probes`, run) exiting non-zero.  Staging and probes past
+/// the earliest failure seen so far are skipped; those before it
+/// always finish.
+#[allow(clippy::too_many_lines)] // one stager feeding one probe pool through shared failure state
 pub fn preflight(request: &PreflightRequest<'_>) -> Result<PreflightReport> {
     // The tool owns everything under `run/` and nothing else; a
     // reused work dir therefore cannot trip the file registry's
@@ -82,39 +95,192 @@ pub fn preflight(request: &PreflightRequest<'_>) -> Result<PreflightReport> {
     let registry_dir = run_dir.join("registry");
     let sources_dir = run_dir.join("src");
     let ports_cache = request.cache_dir.join("ports");
+    let started = Instant::now();
+    let workers = thread::available_parallelism().map_or(1, NonZeroUsize::get);
+    println!(
+        "preflight: staging into {} with {workers} probe workers",
+        registry_dir.display()
+    );
 
-    let mut package_dirs = Vec::with_capacity(request.conversions.len());
-    for conversion in request.conversions {
-        let (package_dir, report) = stage_conversion(
-            conversion,
-            &ports_cache,
-            &sources_dir,
-            &registry_dir,
-            ArchiveFetch::CacheOrDownload,
-        )?;
-        for warning in &report.warnings {
-            eprintln!("warning: {warning}");
+    // The earliest failing port in publication order, and its error.
+    let failure: Mutex<Option<(usize, anyhow::Error)>> = Mutex::new(None);
+    let failed_before = |index| {
+        lock(&failure)
+            .as_ref()
+            .is_some_and(|(first, _)| *first < index)
+    };
+    let fail = |index, err| {
+        let mut failure = lock(&failure);
+        if failure.as_ref().is_none_or(|(first, _)| index < *first) {
+            *failure = Some((index, err));
         }
-        println!(
-            "preflight: staged {} {} into {}",
-            conversion.scoped_name.as_str(),
-            conversion.published_version,
-            report.registry_dir.display()
-        );
+    };
+    let timings = Mutex::new(vec![PortTimings::default(); request.conversions.len()]);
+    let (queue, inbox) = mpsc::channel::<usize>();
+    let inbox = Mutex::new(inbox);
 
-        build_probe_against_registry(request, conversion, &run_dir, &registry_dir)?;
-        println!(
-            "preflight: built {} {} from the preflight registry",
-            conversion.scoped_name.as_str(),
-            conversion.published_version
-        );
-        package_dirs.push(package_dir);
+    let package_dirs = thread::scope(|scope| {
+        // Owned by this closure, so leaving it - by any path - closes
+        // the queue and lets the workers drain and exit.
+        let queue = queue;
+        let (failed_before, timings, fail, inbox) = (&failed_before, &timings, &fail, &inbox);
+        let (run_dir, registry_dir) = (&run_dir, &registry_dir);
+        for worker in 0..workers {
+            // Concurrent Cabin processes must not share a source
+            // cache: one extracting a package can remove the tree
+            // another is still adopting.
+            let cache_dir = run_dir.join("cache").join(worker.to_string());
+            scope.spawn(move || {
+                loop {
+                    let next = lock(inbox).recv();
+                    let Ok(index) = next else { break };
+                    if failed_before(index) {
+                        continue;
+                    }
+                    let conversion = &request.conversions[index];
+                    match build_probe_against_registry(
+                        request,
+                        conversion,
+                        run_dir,
+                        registry_dir,
+                        &cache_dir,
+                    ) {
+                        Ok((build, run)) => {
+                            let timing = &mut lock(timings)[index];
+                            timing.build = build;
+                            timing.run = run;
+                        }
+                        Err(err) => fail(index, err),
+                    }
+                }
+            });
+        }
+
+        let mut package_dirs = Vec::with_capacity(request.conversions.len());
+        for (index, conversion) in request.conversions.iter().enumerate() {
+            if failed_before(index) {
+                break;
+            }
+            match stage(
+                conversion,
+                &ports_cache,
+                &sources_dir,
+                registry_dir,
+                ArchiveFetch::CacheOrDownload,
+            ) {
+                Ok((package_dir, report, timing)) => {
+                    for warning in &report.warnings {
+                        eprintln!("warning: {warning}");
+                    }
+                    println!(
+                        "preflight: staged {} {} ({timing})",
+                        conversion.scoped_name.as_str(),
+                        conversion.published_version
+                    );
+                    lock(timings)[index] = timing;
+                    package_dirs.push(package_dir);
+                    // Cannot fail: `inbox` outlives the scope.
+                    let _ = queue.send(index);
+                }
+                Err(err) => {
+                    fail(index, err);
+                    break;
+                }
+            }
+        }
+        package_dirs
+    });
+
+    if let Some((_, err)) = failure.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        return Err(err);
     }
-
+    report_timings(
+        request.conversions,
+        &timings.into_inner().unwrap_or_else(PoisonError::into_inner),
+        started.elapsed(),
+    );
     Ok(PreflightReport {
         registry_dir,
         package_dirs,
     })
+}
+
+/// A worker that panicked while holding a lock already fails the
+/// whole preflight when the scope rejoins it, so a poisoned lock's
+/// data is still fine to read.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Wall time each preflight phase took for one port.
+#[derive(Debug, Clone, Copy, Default)]
+struct PortTimings {
+    /// Cached-archive verification, or the download on a miss.
+    fetch: Duration,
+    /// Extraction, `strip-prefix`, copy steps, and patches.
+    materialize: Duration,
+    /// Packaging and the file-registry write.
+    publish: Duration,
+    /// The probe's `cabin build`.
+    build: Duration,
+    /// The probe's `cabin run`s (dry-run only).
+    run: Duration,
+}
+
+impl PortTimings {
+    fn total(&self) -> Duration {
+        self.fetch + self.materialize + self.publish + self.build + self.run
+    }
+}
+
+impl fmt::Display for PortTimings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let phases = [
+            ("fetch", self.fetch),
+            ("materialize", self.materialize),
+            ("publish", self.publish),
+            ("build", self.build),
+            ("run", self.run),
+        ];
+        let mut sep = "";
+        for (name, duration) in phases {
+            if !duration.is_zero() {
+                write!(f, "{sep}{name} {:.2}s", duration.as_secs_f64())?;
+                sep = ", ";
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Print the wall time, each phase summed over every port, and the
+/// slowest ports - where the next preflight speedup has to come from.
+fn report_timings(conversions: &[PortConversion], timings: &[PortTimings], elapsed: Duration) {
+    let summed = timings
+        .iter()
+        .fold(PortTimings::default(), |sum, timing| PortTimings {
+            fetch: sum.fetch + timing.fetch,
+            materialize: sum.materialize + timing.materialize,
+            publish: sum.publish + timing.publish,
+            build: sum.build + timing.build,
+            run: sum.run + timing.run,
+        });
+    println!(
+        "preflight: {} ports in {:.1}s; summed over ports: {summed}",
+        conversions.len(),
+        elapsed.as_secs_f64()
+    );
+    let mut slowest: Vec<(&PortConversion, &PortTimings)> =
+        conversions.iter().zip(timings).collect();
+    slowest.sort_by_key(|(_, timing)| std::cmp::Reverse(timing.total()));
+    println!("preflight: slowest ports:");
+    for (conversion, timing) in slowest.into_iter().take(10) {
+        println!(
+            "preflight:   {} {}: {timing}",
+            conversion.scoped_name.as_str(),
+            conversion.published_version
+        );
+    }
 }
 
 /// Where [`stage_conversion`] may get a conversion's pinned archive.
@@ -151,7 +317,21 @@ pub fn stage_conversion(
     registry_dir: &Path,
     fetch: ArchiveFetch,
 ) -> Result<(PathBuf, cabin_publish::RegistryPublishReport)> {
-    let package_dir = materialize(conversion, ports_cache, sources_dir, fetch)?;
+    stage(conversion, ports_cache, sources_dir, registry_dir, fetch)
+        .map(|(package_dir, report, _)| (package_dir, report))
+}
+
+/// [`stage_conversion`], also returning how long each phase took.
+fn stage(
+    conversion: &PortConversion,
+    ports_cache: &Path,
+    sources_dir: &Path,
+    registry_dir: &Path,
+    fetch: ArchiveFetch,
+) -> Result<(PathBuf, cabin_publish::RegistryPublishReport, PortTimings)> {
+    let started = Instant::now();
+    let (package_dir, fetched) = materialize(conversion, ports_cache, sources_dir, fetch)?;
+    let materialized = started.elapsed();
     let report = cabin_publish::publish_to_file_registry(RegistryPublishWorkflow {
         manifest_path: &package_dir.join("cabin.toml"),
         registry_dir,
@@ -168,18 +348,25 @@ pub fn stage_conversion(
             conversion.published_version
         )
     })?;
-    Ok((package_dir, report))
+    let timing = PortTimings {
+        fetch: fetched,
+        materialize: materialized.saturating_sub(fetched),
+        publish: started.elapsed().saturating_sub(materialized),
+        ..PortTimings::default()
+    };
+    Ok((package_dir, report, timing))
 }
 
 /// Materialize one conversion into a staging directory and write the
-/// manifest that publishes with it.  The committed sources and the
+/// manifest that publishes with it, returning the directory and the
+/// time spent getting the archive.  The committed sources and the
 /// shared port cache are never mutated.
 fn materialize(
     conversion: &PortConversion,
     ports_cache: &Path,
     sources_dir: &Path,
     fetch: ArchiveFetch,
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, Duration)> {
     let package_dir = sources_dir
         .join(conversion.scoped_name.base_name())
         .join(conversion.published_version.to_string());
@@ -194,7 +381,7 @@ fn materialize(
             package_dir.display()
         );
     }
-    materialize_package(conversion, ports_cache, &package_dir, fetch)?;
+    let fetched = materialize_package(conversion, ports_cache, &package_dir, fetch)?;
 
     // Written LAST, deliberately: the upstream archive extracts on
     // top of `package_dir`, so an upstream shipping its own root
@@ -202,21 +389,24 @@ fn materialize(
     // and publish in its place.
     fs::write(package_dir.join("cabin.toml"), &conversion.manifest)
         .with_context(|| format!("writing the manifest into {}", package_dir.display()))?;
-    Ok(package_dir)
+    Ok((package_dir, fetched))
 }
 
 /// Materialize a port's declared provenance through the shared
 /// pipeline (`cabin_artifact::materialize_upstream`) - the same
 /// implementation the registry verifier replays - then lay the
-/// committed patch files on top at their declared paths.
+/// committed patch files on top at their declared paths.  Returns the
+/// time spent getting the archive.
 fn materialize_package(
     conversion: &PortConversion,
     ports_cache: &Path,
     package_dir: &Path,
     fetch: ArchiveFetch,
-) -> Result<()> {
+) -> Result<Duration> {
     let upstream = conversion.upstream.as_ref();
+    let started = Instant::now();
     let archive = resolve_package_archive(conversion, ports_cache, fetch)?;
+    let fetched = started.elapsed();
     fs::create_dir_all(package_dir)
         .with_context(|| format!("creating {}", package_dir.display()))?;
 
@@ -260,7 +450,7 @@ fn materialize_package(
         }
         fs::copy(&committed, &placed).with_context(|| format!("placing {}", placed.display()))?;
     }
-    Ok(())
+    Ok(fetched)
 }
 
 /// Resolve a declared patch path inside the committed package
@@ -378,17 +568,20 @@ fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
 }
 
 /// Build the port from the preflight registry through a generated
-/// probe package that depends on the exact published version.  The
-/// probe's standards (`c11` / `c++17`) sit at or above every
-/// committed port's interface floor.  `--offline` enforces that
-/// the file registry and the run-local cache satisfy the whole
-/// build.
+/// probe package that depends on the exact published version, and
+/// return how long the build and the probe runs took.  The probe's
+/// standards (`c11` / `c++17`) sit at or above every committed port's
+/// interface floor.  `--offline` enforces that the file registry and
+/// the worker's run-local cache satisfy the whole build.  Probes build
+/// concurrently, so each one's output prints as a single block once it
+/// finishes.
 fn build_probe_against_registry(
     request: &PreflightRequest<'_>,
     conversion: &PortConversion,
     run_dir: &Path,
     registry_dir: &Path,
-) -> Result<()> {
+    cache_dir: &Path,
+) -> Result<(Duration, Duration)> {
     let probe_dir = run_dir
         .join("probes")
         .join(conversion.scoped_name.base_name())
@@ -404,43 +597,77 @@ fn build_probe_against_registry(
         .with_context(|| format!("writing probe source into {}", probe_dir.display()))?;
     }
 
-    let cabin = |command: &[&str]| {
-        Command::new(request.cabin)
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let mut cabin = |command: &[&str]| -> Result<ExitStatus> {
+        let output = Command::new(request.cabin)
             .args(command)
             .arg("--manifest-path")
             .arg(probe_dir.join("cabin.toml"))
             .arg("--index-path")
             .arg(registry_dir)
             .arg("--cache-dir")
-            .arg(run_dir.join("cache"))
+            .arg(cache_dir)
             .arg("--build-dir")
             .arg(probe_dir.join("build"))
             .arg("--offline")
-            .status()
-            .with_context(|| format!("running {} {}", request.cabin.display(), command[0]))
+            // One worker per CPU, each at Ninja's default of CPUs + 2,
+            // would run that many heavy C++ compilations at once; two
+            // per probe still splits the late, largest ports' builds.
+            .args(["--jobs", "2"])
+            .output()
+            .with_context(|| format!("running {} {}", request.cabin.display(), command[0]))?;
+        stdout.extend(output.stdout);
+        stderr.extend(output.stderr);
+        Ok(output.status)
     };
-    let status = cabin(&["build"])?;
-    if !status.success() {
-        bail!(
-            "preflight build of {} {} against the generated registry failed ({status})",
+    let started = Instant::now();
+    let probed = (|| {
+        let status = cabin(&["build"])?;
+        if !status.success() {
+            bail!(
+                "preflight build of {} {} against the generated registry failed ({status})",
+                conversion.scoped_name.as_str(),
+                conversion.published_version
+            );
+        }
+        let built = started.elapsed();
+        if request.run_probes {
+            for consumer in probe_consumers(conversion) {
+                let status = cabin(&["run", "--bin", consumer.target])?;
+                if !status.success() {
+                    bail!(
+                        "preflight probe `{}` of {} {} failed ({status})",
+                        consumer.target,
+                        conversion.scoped_name.as_str(),
+                        conversion.published_version
+                    );
+                }
+            }
+        }
+        Ok((built, started.elapsed().saturating_sub(built)))
+    })();
+
+    // Both locks, stdout first everywhere, so no other probe's block
+    // lands inside this one.  A failed write loses only log text.
+    let (mut out, mut err) = (io::stdout().lock(), io::stderr().lock());
+    let _ = out.write_all(&stdout);
+    let _ = out.flush();
+    let _ = err.write_all(&stderr);
+    let _ = err.flush();
+    if let Ok((build, run)) = probed {
+        let timing = PortTimings {
+            build,
+            run,
+            ..PortTimings::default()
+        };
+        let _ = writeln!(
+            out,
+            "preflight: built {} {} from the preflight registry ({timing})",
             conversion.scoped_name.as_str(),
             conversion.published_version
         );
     }
-    if request.run_probes {
-        for consumer in probe_consumers(conversion) {
-            let status = cabin(&["run", "--bin", consumer.target])?;
-            if !status.success() {
-                bail!(
-                    "preflight probe `{}` of {} {} failed ({status})",
-                    consumer.target,
-                    conversion.scoped_name.as_str(),
-                    conversion.published_version
-                );
-            }
-        }
-    }
-    Ok(())
+    probed
 }
 
 /// A probe consumer's source: the port's committed consumer test for
@@ -797,7 +1024,7 @@ mod tests {
         .unwrap();
         conversion.manifest = COMMITTED.to_owned();
 
-        let package_dir = materialize(
+        let (package_dir, _) = materialize(
             &conversion,
             &cache,
             &dir.path().join("src"),

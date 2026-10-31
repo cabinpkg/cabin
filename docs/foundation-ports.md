@@ -247,8 +247,12 @@ those: `cl.exe` has no `/std:` flag for C99 or C++11.
 Both modes run the complete local preflight first: fetch or reuse every pinned upstream archive
 (SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard safe
 materialization pipeline (extraction, `strip-prefix`, copy steps, patches),
-package each port, publish it into a temporary file registry, and build every port against the generated packages in
-publication order.  Each port is built through a generated probe package that depends on the
+package each port and publish it into a temporary file registry in publication order, and build
+every port against the generated packages.  The probe builds run in parallel, one worker per CPU
+with two build jobs each, each probe starting as soon as its port is staged; a failure still
+reports the earliest failing port in publication order, and a successful run ends with each phase's
+time summed over the ports and the slowest ports.  Each port is built through a generated probe
+package that depends on the
 just-published version, so the build consumes the registry artifact itself - resolution, checksum,
 archived manifest, source materialization, and compilation of every compiled library target.
 Exercising a port's *API* (including its headers, calling its symbols) needs per-library
