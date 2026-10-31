@@ -312,6 +312,9 @@ impl ArchiverIdentity {
     /// Whether this archiver, run on Windows, splits a response file
     /// like a command line rather than with GNU rules: `lib.exe` does,
     /// and `llvm-ar` has since LLVM 11 (unless `--rsp-quoting=posix`).
+    /// An `llvm-ar` whose version was not read counts as 11 or later;
+    /// the build also passes it `--rsp-quoting=windows`, which an older
+    /// one rejects rather than misreading the file.
     pub fn windows_rsp_quoting(&self) -> bool {
         match self.kind {
             ArchiverKind::Lib => true,

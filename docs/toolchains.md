@@ -575,7 +575,9 @@ argument Ninja runs on Linux.  Past 24 KiB on Windows or 120 KiB on Linux, the c
 arguments through a response file beside the output (`ar @libfoo.a+.rsp`, `cl @app.exe+.rsp`) that
 Ninja writes before running it and deletes after it succeeds.  GCC, Clang, and GNU `ar` read it with
 backslash escapes, and so does `llvm-ar` except from LLVM 11 on a Windows host, where it reads one
-like a command line and Cabin quotes it to match.  MSVC tools read it like a command line, as UTF-8
+like a command line and Cabin quotes it to match.  There Cabin also passes `--rsp-quoting=windows`:
+an `llvm-ar` whose version it could not read is taken to be 11 or later, and an older one rejects
+the option instead of misreading the file.  MSVC tools read it like a command line, as UTF-8
 marked by a byte order mark, and reject a line of 128 KiB or more (LNK1170), so their inputs go one
 per line through Ninja's `$in_newline`, with the options around them, `/link` and the linker options
 it starts last, on the first and last lines.  Other hosts limit only the total argument size, and

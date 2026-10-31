@@ -92,6 +92,41 @@ fn llvm_ar_reads_response_files_like_a_windows_command_line_from_llvm_11() {
 }
 
 #[test]
+fn llvm_ar_versions_are_read_through_vendor_names_and_suffixes() {
+    for (banner, major) in [
+        ("Homebrew LLVM version 23.1.4\n  Optimized build.\n", 23),
+        ("Ubuntu LLVM version 18.1.3\n  Optimized build.\n", 18),
+        ("LLVM (http://llvm.org/):\n  LLVM version 21.0.0git\n", 21),
+        ("LLVM (http://llvm.org/):\n  LLVM version 19.1.0-rc2\n", 19),
+        ("LLVM (http://llvm.org/):\n  LLVM version 10.0.0git\n", 10),
+    ] {
+        let id = parse_ar_version_output(banner);
+        assert_eq!(id.kind, ArchiverKind::LlvmAr, "{banner}");
+        assert_eq!(id.version.map(|v| v.major), Some(major), "{banner}");
+    }
+}
+
+#[test]
+fn an_llvm_ar_without_a_readable_version_is_assumed_to_quote_like_windows() {
+    // The build passes such an archiver `--rsp-quoting=windows`, so an
+    // `llvm-ar` older than 11 fails on the option instead of misreading
+    // its response file.
+    for banner in [
+        "LLVM (http://llvm.org/):\n  LLVM version unknown\n",
+        "LLVM (http://llvm.org/):\n  LLVM version\n",
+        "llvm-ar: error: unsupported\n",
+    ] {
+        let id = parse_ar_version_output(banner);
+        assert_eq!(id.kind, ArchiverKind::LlvmAr, "{banner}");
+        assert_eq!(id.version, None, "{banner}");
+        assert!(id.windows_rsp_quoting(), "{banner}");
+    }
+    let unknown = parse_ar_version_output("usage: ar -d [-TLsv] archive file ...\n");
+    assert_eq!(unknown.kind, ArchiverKind::Unknown);
+    assert!(!unknown.windows_rsp_quoting());
+}
+
+#[test]
 fn detects_lib_exe_as_unsupported() {
     let id = parse_ar_version_output(
         "Microsoft (R) Library Manager Version 14.39.33523.0\nCopyright (C) Microsoft Corporation.\n",
