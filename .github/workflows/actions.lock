@@ -52,6 +52,9 @@ workflows:
     '.github/workflows/proofs.yml':
         - 'actions/checkout@v7.0.1'
         - 'leanprover/lean-action@v1.6.2'
+    '.github/workflows/registry-cache.yml':
+        - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/registry-verify.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'

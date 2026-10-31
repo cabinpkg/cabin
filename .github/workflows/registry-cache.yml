@@ -1,0 +1,58 @@
+name: Registry Cache
+
+# Not a required check. Builds what registry.yml's registry-build-work
+# compiles, worker-build included, and saves it under that job's cache
+# key: only a main run writes the scope that both pull requests and the
+# merge queue restore. The key covers rustc, so dispatch it after a
+# toolchain bump.
+on:
+  schedule:
+    - cron: "11 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: registry
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # registry-build-work's inputs, which also key the cache.
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          target: wasm32-unknown-unknown
+          cache-on-failure: false
+          cache-shared-key: registry-build-work
+          cache-workspaces: |
+            .
+            registry
+          rustflags: ""
+
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo test --locked --no-run
+        env:
+          RUSTFLAGS: -D warnings
+
+      # The guards' and the local smoke's xtasks, and the verifier the
+      # smoke builds, one package at a time as their aliases build them.
+      - run: cargo build --locked -p xtask-registry-guard
+        working-directory: .
+      - run: cargo build --locked -p xtask-registry-smoke
+        working-directory: .
+      - run: cargo build --locked -p cabinpkg-registry-verify
+        working-directory: .
+
+      - run: |
+          cargo install -q "worker-build@=0.8.5" --locked
+          worker-build --release
