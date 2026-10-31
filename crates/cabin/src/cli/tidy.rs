@@ -328,6 +328,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: None,
         dialect,
+        // Tidy writes no archive commands.
+        archiver_windows_rsp_quoting: false,
         // Mirrors the fail-soft dialect fallback above: without a
         // detection report tidy cannot know the `cl` version, so it
         // conservatively spells dependency includes as plain `/I`.

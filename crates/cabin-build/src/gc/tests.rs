@@ -544,6 +544,7 @@ fn plan_products_lists_every_product_and_depfile() {
             ),
             BuildAction::Archive(ArchiveAction {
                 archiver: "ar".into(),
+                windows_rsp_quoting: false,
                 output: "/b/liba.a".into(),
                 inputs: vec!["/b/a.o".into()],
                 description: String::new(),

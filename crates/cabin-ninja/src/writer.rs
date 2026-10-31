@@ -229,6 +229,7 @@ fn render_with_inline_limit(
         let depfile_runner = depfile_needs_translation(action).then_some(check_stamp_runner);
         write_edge(
             &mut out,
+            action,
             &lowered,
             graph.dialect,
             depfile_runner,
@@ -360,6 +361,7 @@ fn depfile_needs_translation(action: &BuildAction) -> bool {
 /// than `inline_limit` passes its arguments through a response file.
 fn write_edge(
     out: &mut String,
+    build_action: &BuildAction,
     action: &LoweredAction,
     dialect: Dialect,
     depfile_runner: Option<&Path>,
@@ -433,7 +435,7 @@ fn write_edge(
         // can have this name.
         let path = format!("{}+.rsp", action.outputs[0]);
         command_value = command_line(&[program.clone(), format!("@{path}")])?;
-        response_file = response_file_bindings(action, args, dialect, path);
+        response_file = response_file_bindings(build_action, action, args, dialect, path);
     }
     // Check edges bind the argv to `$checkcmd` so the `c_check` /
     // `cxx_check` rule can run it through the shell-free
@@ -471,12 +473,14 @@ fn write_edge(
 /// The edge bindings that hand `args` to the tool through the response
 /// file at `path`.
 fn response_file_bindings(
+    build_action: &BuildAction,
     action: &LoweredAction,
     args: &[String],
     dialect: Dialect,
     path: String,
 ) -> Vec<(&'static str, String)> {
     let header = dialect.response_file_header();
+    let spell = |args: &[String]| dialect.response_file_args(build_action, cfg!(windows), args);
     // The rule's `$in_newline` writes the edge's inputs one per line,
     // quoted for the host as `$in` is, which is how MSVC tools read
     // them on Windows; the arguments around them keep their places.
@@ -495,19 +499,13 @@ fn response_file_bindings(
             let (before, rest) = args.split_at(start);
             vec![
                 ("rsp_file", path),
-                (
-                    "rsp_head",
-                    format!("{header}{}", dialect.response_file_args(before)),
-                ),
-                ("rsp_tail", dialect.response_file_args(&rest[inputs..])),
+                ("rsp_head", format!("{header}{}", spell(before))),
+                ("rsp_tail", spell(&rest[inputs..])),
             ]
         }
         None => vec![
             ("rspfile", path),
-            (
-                "rspfile_content",
-                format!("{header}{}", dialect.response_file_args(args)),
-            ),
+            ("rspfile_content", format!("{header}{}", spell(args))),
         ],
     }
 }
@@ -682,6 +680,7 @@ mod tests {
     fn archive_action() -> BuildAction {
         BuildAction::Archive(ArchiveAction {
             archiver: Utf8PathBuf::from("/usr/bin/ar"),
+            windows_rsp_quoting: false,
             output: Utf8PathBuf::from("/abs/build/libfoo.a"),
             inputs: vec![Utf8PathBuf::from("/abs/build/main.o")],
             description: "AR /abs/build/libfoo.a".into(),
@@ -1340,6 +1339,7 @@ mod tests {
     fn long_archive_and_link_commands_pass_arguments_in_a_response_file() {
         let archive = BuildAction::Archive(ArchiveAction {
             archiver: Utf8PathBuf::from("/usr/bin/ar"),
+            windows_rsp_quoting: false,
             output: Utf8PathBuf::from("/abs/build/libfoo.a"),
             inputs: vec![
                 Utf8PathBuf::from("/abs/build/a b.o"),
@@ -1371,9 +1371,36 @@ mod tests {
     }
 
     #[test]
+    fn llvm_ar_response_files_are_quoted_like_a_command_line_on_windows() {
+        let archive = BuildAction::Archive(ArchiveAction {
+            archiver: Utf8PathBuf::from("/usr/bin/llvm-ar"),
+            windows_rsp_quoting: true,
+            output: Utf8PathBuf::from("/abs/build/libfoo.a"),
+            inputs: vec![Utf8PathBuf::from("/abs/build/a b.o")],
+            description: "AR /abs/build/libfoo.a".into(),
+        });
+        let body = render_with_inline_limit(
+            &graph_with(vec![archive], vec![]),
+            Path::new("/opt/cabin/bin/cabin"),
+            0,
+        )
+        .unwrap();
+        let content = if cfg!(windows) {
+            "crs /abs/build/libfoo.a \"/abs/build/a b.o\""
+        } else {
+            "crs /abs/build/libfoo.a /abs/build/a\\ b.o"
+        };
+        assert!(
+            body.contains(&format!("  rspfile_content = {content}\n")),
+            "{body}"
+        );
+    }
+
+    #[test]
     fn msvc_response_files_list_inputs_one_per_line_after_a_byte_order_mark() {
         let archive = BuildAction::Archive(ArchiveAction {
             archiver: Utf8PathBuf::from("C:/VC/lib.exe"),
+            windows_rsp_quoting: true,
             output: Utf8PathBuf::from("C:/b/foo.lib"),
             inputs: vec![
                 Utf8PathBuf::from("C:/b/a b.obj"),

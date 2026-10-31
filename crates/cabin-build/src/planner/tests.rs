@@ -246,6 +246,7 @@ fn plan_request<'a>(
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        archiver_windows_rsp_quoting: false,
         msvc_external_includes: true,
         clang_cl: Vec::new(),
         enabled_features: None,

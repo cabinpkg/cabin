@@ -147,6 +147,7 @@ mod tests {
     fn archive(object_input: &str, lib: &str) -> BuildAction {
         BuildAction::Archive(ArchiveAction {
             archiver: Utf8PathBuf::from("/usr/bin/ar"),
+            windows_rsp_quoting: false,
             output: Utf8PathBuf::from(lib),
             inputs: vec![Utf8PathBuf::from(object_input)],
             description: format!("AR {lib}"),
