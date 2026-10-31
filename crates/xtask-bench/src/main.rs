@@ -41,8 +41,8 @@ enum Command {
         /// target/perf/runs/<unix time>].
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Exit with status 1 when any metric regressed or could not be
-        /// compared.
+        /// Exit with status 1 when any metric regressed or the candidate
+        /// failed or lacks a scenario.
         #[arg(long)]
         fail_on_regression: bool,
     },
@@ -247,7 +247,14 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
     }
     report::write_report(&out, &all)?;
     eprintln!("perf: report {}", out.join("report.md").display());
-    let invalid = all
+    // A `--base` revision can predate a flag the scenarios use; its
+    // failed checks only leave those scenarios uncompared.
+    let judged = if args.base.is_some() {
+        &all[1..]
+    } else {
+        &all[..]
+    };
+    let invalid = judged
         .iter()
         .flat_map(|r| &r.scenarios)
         .filter(|s| !s.valid)

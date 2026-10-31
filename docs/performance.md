@@ -139,8 +139,9 @@ Every scenario and binary works on a private copy.
   a test run rebuilds nothing and its JUnit report lists every test, a resolution locks every
   package, a fetch leaves one archive per dependency in the cache, and packaging and vendoring
   write every expected file.  A scenario that fails its check is reported as `FAILED` with the
-  reason and no numbers, and `cargo perf run` exits 1.  A binary from before trace capture is
-  checked and timed all the same, without phases.
+  reason and no numbers, and `cargo perf run` exits 1, unless only the `--base` revision failed
+  it: an older Cabin without a flag the scenario uses leaves that scenario uncompared.  A
+  binary from before trace capture is checked and timed all the same, without phases.
 - **State reset outside the timing.**  hyperfine's `--prepare` removes the build directory,
   cache, or output, or touches a source, before every run.
 - **Isolated.**  Every invocation gets a private `CABIN_CONFIG_HOME` and `CABIN_CACHE_HOME` and
@@ -173,9 +174,9 @@ $ cargo perf compare before-candidate target/perf/after/candidate.json --out tar
 metric (wall time, peak memory, instructions) it compares the medians.  A change counts only when
 it exceeds both the metric's minimum effect (5% for wall time and peak memory, 2% for
 instructions) and the noise, the larger relative interquartile range of the two sides.  Each row
-is `Regressed`, `Improved`, or `Unchanged`, or `Invalid` when a side failed its check or lacks the
-scenario.  `--fail-on-regression` (on `run` or `compare`) exits 1 on any `Regressed` or `Invalid`
-row.
+is `Regressed`, `Improved`, or `Unchanged`; `Invalid` when the candidate failed its check or lacks
+the scenario; or `NoBaseline` when only the baseline did.  `--fail-on-regression` (on `run` or
+`compare`) exits 1 on any `Regressed` or `Invalid` row.
 
 ### Micro-benchmarks
 
