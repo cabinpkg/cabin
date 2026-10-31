@@ -545,19 +545,27 @@ Ninja reads paths in two syntaxes: its own manifest, and the Makefile depfiles G
   reads the depfile itself and reports each dependency on the line-based channel Ninja's
   `deps = msvc` reads.  Every other compile keeps `deps = gcc` and pays nothing extra.
 
+`cabin depfile` reads a path the way GCC and Clang write it: every byte other than an unescaped
+space, carriage return, or newline is part of it, so a tab, which GCC escapes and Clang writes as
+is, stays in the name.  Where Ninja's parser reads a depfile right, both record the same dependencies.
+
 What remains:
 
 - Cabin decides from the paths it passes, so a header whose own file name contains such a
   character, below an ordinary include directory, still reaches Ninja's parser: that compile reruns
   on every build instead of going stale.
-- Clang writes a tab in a path unescaped and, on Linux and macOS, writes `\` as `/`, so those paths
-  lose their identity in Clang's depfile, with the same effect.
+- On Linux and macOS, Clang writes `\` in a path as `/`, so such a path loses its identity in
+  Clang's depfile, with the same effect.
+- Ninja's `.ninja_log` separates its fields with tabs, so a command whose output path holds a tab,
+  such as one below a build directory named with a tab, is never found there and reruns on every
+  build.
 - Ninja's `deps = msvc` drops a dependency whose path contains `program files` or
-  `microsoft visual studio` (case-insensitively) as a system header, so `cabin depfile` reports
-  a compile with such a dependency as depending on a file that never exists: it reruns on every
-  build instead of going stale.
-- On Windows, Ninja's `deps = msvc` rejects a dependency path longer than 260 characters, so a
-  best-effort GNU toolchain there fails such a compile.
+  `microsoft visual studio` (case-insensitively) as a system header, and on Windows rejects one
+  longer than 260 characters, failing the build.  `cabin depfile` reports a compile with such a
+  dependency as depending on a file that never exists instead: it reruns on every build rather
+  than going stale or failing.  On Windows, Ninja resolves that file's name against the
+  directory it runs in (`build/dev`) within 260 characters, so a path to that directory of 233
+  characters or more still fails such a build.
 
 ### Long command lines
 

@@ -3,14 +3,19 @@
 
 use crate::writer::DEPFILE_DEPS_PREFIX;
 
+/// The longest dependency path Ninja's `deps = msvc` accepts on Windows,
+/// where it fails the edge on a longer one.
+const MAX_MSVC_DEPS_PATH: usize = 260;
+
 /// What `cabin depfile` prints for Ninja's `deps = msvc`: a line of
 /// [`DEPFILE_DEPS_PREFIX`] and the path for each prerequisite of the
 /// depfile `content`.
 ///
 /// Ninja drops a dependency whose path contains `program files` or
-/// `microsoft visual studio` as a system header.  When one would be
-/// dropped, the report also names a file that never exists, so the
-/// compile reruns on every build instead of going stale.
+/// `microsoft visual studio` as a system header, and on Windows rejects
+/// one longer than 260 bytes.  Such a path is left out and the report
+/// names a file that never exists instead, so the compile reruns on
+/// every build.
 #[must_use]
 pub fn msvc_deps_report(content: &[u8]) -> Vec<u8> {
     let mut report = Vec::new();
@@ -23,10 +28,15 @@ pub fn msvc_deps_report(content: &[u8]) -> Vec<u8> {
     let mut dropped = false;
     for path in depfile_prerequisites(content) {
         let lower = path.to_ascii_lowercase();
-        dropped |= [&b"program files"[..], b"microsoft visual studio"]
-            .iter()
-            .any(|name| lower.windows(name.len()).any(|window| window == *name));
-        line(&path);
+        if (cfg!(windows) && path.len() > MAX_MSVC_DEPS_PATH)
+            || [&b"program files"[..], b"microsoft visual studio"]
+                .iter()
+                .any(|name| lower.windows(name.len()).any(|window| window == *name))
+        {
+            dropped = true;
+        } else {
+            line(&path);
+        }
     }
     // Relative, so Ninja looks for it in the build root, where Cabin never
     // creates it, and the build root's own path, which may hold one of
@@ -39,14 +49,16 @@ pub fn msvc_deps_report(content: &[u8]) -> Vec<u8> {
 
 /// The prerequisites a GCC/Clang `-MD` depfile names, in order.
 ///
-/// Undoes the compilers' escaping as Ninja does: a space or tab preceded
-/// by 2N+1 backslashes is N backslashes and that character, `\#` and
-/// `\:` are `#` and `:` (unless the `:` ends a target), and `$$` is `$`.
-/// An unescaped space, tab, or newline and a backslash before a newline
-/// separate words, an unescaped newline ends a rule, and the words of a
-/// rule up to one ending in `:` are its targets.  Unlike Ninja, which
-/// ends a path at `;`, `|`, `'`, and similar bytes, every other byte is
-/// part of the path.
+/// Undoes the compilers' escaping: a space or tab preceded by 2N+1
+/// backslashes is N backslashes and that character, `\#` and `\:` are
+/// `#` and `:` (unless the `:` ends a target), and `$$` is `$`.  An
+/// unescaped space, carriage return, or newline and a backslash before a
+/// newline separate words, an unescaped newline ends a rule, and the
+/// words of a rule up to one ending in `:` are its targets.  Unlike
+/// Ninja, which ends a path at `;`, `|`, a tab, and similar bytes and
+/// keeps the backslash of an escaped tab, every other byte is part of
+/// the path: GCC escapes a tab and Clang writes it as is, and neither
+/// separates words with one.
 fn depfile_prerequisites(content: &[u8]) -> Vec<Vec<u8>> {
     let mut prerequisites = Vec::new();
     let mut rule: Vec<Vec<u8>> = Vec::new();
@@ -95,7 +107,7 @@ fn depfile_prerequisites(content: &[u8]) -> Vec<Vec<u8>> {
                 word.push(b'$');
                 i += 1;
             }
-            b' ' | b'\t' | b'\r' | b'\n' => {
+            b' ' | b'\r' | b'\n' => {
                 rule.extend((!word.is_empty()).then(|| std::mem::take(&mut word)));
                 if byte == b'\n' {
                     end_rule(&mut rule, &mut prerequisites);
@@ -177,6 +189,13 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_raw_tab_as_part_of_a_path() {
+        // Clang 23 writes a tab in a path as is.
+        let depfile = "/b/x.o: /p/ta\tb/x.c \\\n  /p/ta\tb/h.h\n";
+        assert_eq!(parse(depfile), ["/p/ta\tb/x.c", "/p/ta\tb/h.h"]);
+    }
+
+    #[test]
     fn reads_escaped_colons_and_keeps_other_control_bytes() {
         // ccache escapes the colons of the depfiles it rewrites, as Ninja
         // reads them; a form feed is part of a name, not a separator.
@@ -201,8 +220,44 @@ mod tests {
         );
         assert_eq!(
             report("/b/x.o: /p/a;b/x.c C:/Program\\ Files/sdk/api.h\n"),
-            "cabin-depfile: /p/a;b/x.c\ncabin-depfile: C:/Program Files/sdk/api.h\n\
-             cabin-depfile: cabin-untracked-dependency\n"
+            "cabin-depfile: /p/a;b/x.c\ncabin-depfile: cabin-untracked-dependency\n"
         );
+        let long = format!("/b/x.o: /p/a;b/x.c /p/{}.h\n", "d".repeat(300));
+        assert_eq!(
+            report(&long),
+            if cfg!(windows) {
+                "cabin-depfile: /p/a;b/x.c\ncabin-depfile: cabin-untracked-dependency\n".to_owned()
+            } else {
+                format!(
+                    "cabin-depfile: /p/a;b/x.c\ncabin-depfile: /p/{}.h\n",
+                    "d".repeat(300)
+                )
+            }
+        );
+    }
+
+    #[test]
+    fn arbitrary_bytes_read_into_no_more_bytes() {
+        // Seeded xorshift, so a failure reproduces.
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        // Weighted toward the bytes the reader branches on.
+        let special = b"\\ \t\r\n:#$";
+        for _ in 0..2000 {
+            let len = usize::try_from(next() % 512).unwrap();
+            let content: Vec<u8> = (0..len)
+                .map(|_| match next() % 4 {
+                    0 => special[usize::from(next().to_le_bytes()[0]) % special.len()],
+                    _ => next().to_le_bytes()[0],
+                })
+                .collect();
+            let read: usize = depfile_prerequisites(&content).iter().map(Vec::len).sum();
+            assert!(read <= content.len(), "{content:?}");
+        }
     }
 }

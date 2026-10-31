@@ -122,6 +122,30 @@ fn special_character_paths_rebuild_only_what_changed() {
         assert!(ninja(&root, &["-n"]).contains("no work to do"), "[{name}]");
     }
 
+    // GCC escapes a tab in a depfile and Clang writes it as is.  Ninja's
+    // log separates its fields with tabs, so the outputs live elsewhere.
+    if !cfg!(windows) {
+        let dir = tmp.path().join("ta\tb");
+        write_project(&dir);
+        let build = tmp.path().join("tab-build");
+        let build_tab = || {
+            cabin()
+                .arg("build")
+                .arg("--build-dir")
+                .arg(&build)
+                .current_dir(&dir)
+                .assert()
+                .success();
+        };
+        build_tab();
+        let root = build.canonicalize().unwrap().join("dev");
+        assert!(ninja(&root, &["-n"]).contains("no work to do"));
+        write(&dir, "include/fx/inner.h", "#define FX_INNER 2\n");
+        assert!(ninja(&root, &["-n"]).contains("a.cc.o"));
+        build_tab();
+        assert!(ninja(&root, &["-n"]).contains("no work to do"));
+    }
+
     // A syntax check runs `cabin stamp`, then `cabin depfile`, then the
     // compiler, and keeps the same dependencies.
     let dir = tmp.path().join(names[0]);
@@ -145,6 +169,87 @@ fn special_character_paths_rebuild_only_what_changed() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ninja: no work to do."));
+}
+
+/// Where Ninja's own depfile parser reads a depfile right - names made
+/// of the bytes every Ninja since 1.10 takes as plain text, with the
+/// escapes compilers write - Ninja records the same dependencies through
+/// `cabin depfile` and `deps = msvc` as through `deps = gcc`.
+#[cfg(unix)]
+#[test]
+fn cabin_depfile_reads_what_ninja_reads() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fmt::Write as _;
+
+    const PLAIN: &[&str] = &[
+        "a", "Z", "0", "+", ",", "_", ".", "~", "(", ")", "{", "}", "%", "=", "@", "[", "]", "!",
+        "-", "é", "✓",
+    ];
+    const ESCAPED: &[&str] = &["\\ ", "\\\\\\ ", "\\#", "\\\\#", "$$", "\\x"];
+    const SEPARATORS: &[&str] = &[" ", "  ", " \\\n ", " \\\r\n  "];
+
+    // Seeded xorshift, so a failure reproduces.
+    let mut state = 0x2545_f491_4f6c_dd1d_u64;
+    let mut next = move |bound: usize| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        usize::try_from(state % u64::try_from(bound).unwrap()).unwrap()
+    };
+
+    let tmp = TempDir::new().unwrap();
+    let cabin = assert_cmd::cargo::cargo_bin("cabin");
+    let mut manifest = format!(
+        "rule gcc\n  command = touch $out\n  depfile = $out.d\n  deps = gcc\n\
+         rule cabin\n  command = '{}' depfile $out.d -- touch $out\n  deps = msvc\n  \
+         msvc_deps_prefix = cabin-depfile:\n",
+        cabin
+            .to_str()
+            .unwrap()
+            .replace('\'', "'\\''")
+            .replace('$', "$$"),
+    );
+    for edge in 0..100 {
+        let mut prerequisites = String::new();
+        for _ in 0..=next(8) {
+            prerequisites += SEPARATORS[next(SEPARATORS.len())];
+            // A leading letter keeps a name from being `.` or `..`.
+            prerequisites.push('w');
+            for _ in 0..next(6) {
+                prerequisites += if next(3) == 0 {
+                    ESCAPED[next(ESCAPED.len())]
+                } else {
+                    PLAIN[next(PLAIN.len())]
+                };
+            }
+        }
+        for out in [format!("gcc{edge}"), format!("cabin{edge}")] {
+            write(
+                tmp.path(),
+                &format!("{out}.d"),
+                &format!("{out}:{prerequisites}\n"),
+            );
+        }
+        writeln!(manifest, "build gcc{edge}: gcc\nbuild cabin{edge}: cabin").unwrap();
+    }
+    write(tmp.path(), "build.ninja", &manifest);
+    ninja(tmp.path(), &[]);
+
+    let deps = ninja(tmp.path(), &["-t", "deps"]);
+    let mut recorded: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut target = "";
+    for line in deps.lines() {
+        if let Some(dep) = line.strip_prefix("    ") {
+            recorded.entry(target).or_default().insert(dep);
+        } else if let Some((name, _)) = line.split_once(": #deps") {
+            target = name;
+        }
+    }
+    for edge in 0..100 {
+        let gcc = &recorded[format!("gcc{edge}").as_str()];
+        assert!(!gcc.is_empty(), "{deps}");
+        assert_eq!(gcc, &recorded[format!("cabin{edge}").as_str()], "{edge}");
+    }
 }
 
 /// Ninja's `deps = msvc` drops every dependency under a `program files`
