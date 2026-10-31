@@ -129,6 +129,7 @@ pub fn prepare(
             "{registry}" => path(&ctx.registry, "the synthetic registry")?,
             "{ports}" => path(&ctx.ports, "the ports registry")?,
             "{http}" => ctx.http.as_ref().context("no HTTP server")?.url.clone(),
+            "{http-rtt}" => format!("{}/rtt", ctx.http.as_ref().context("no HTTP server")?.url),
             "{traces}" => traces_arg.clone(),
             _ => arg.clone(),
         })

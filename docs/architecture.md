@@ -289,9 +289,9 @@ caller supplies the root's per-dependency feature requests (`ResolveInput::root_
 `cabin-feature`'s pass over the local packages) and every local package as a single-version entry
 (`ResolveInput::local_packages`) that replaces any same-named index entry, so registry edges onto
 members, path dependencies, and `[patch]` forks resolve against the local manifest.  The resolver
-performs no I/O: with `ResolveInput::lazy_index` set, a name missing from the index surfaces as
-`ResolveError::MetadataNeeded`, and the CLI loads that entry from the file or HTTP index and
-solves again.  Before every
+performs no I/O: with `ResolveInput::lazy_index` set, the solve decides a package missing from
+the index last and then stops with `ResolveError::MetadataNeeded`, naming every missing package it
+reached; the CLI loads those entries from the file or HTTP index and solves again.  Before every
 solve, the CLI calls `select_locked_revisions`, which gives each pin the mode keeps its pinned
 revision's resolution metadata.
 
@@ -398,7 +398,7 @@ public surface is intentionally small:
 - [`cabin_index_http::HttpIndex`] - opens a registry by fetching `<base>/config.json`, validates it,
   exposes `fetch_package(name) -> IndexEntry` and `load_package_index(roots, known) ->
   PackageIndex`, which runs `cabin_index::walk_dependencies` over non-optional edges as the local
-  `FileIndex` does;
+  `FileIndex` does, fetching each wave of the walk over up to 4 connections at once;
 - [`cabin_index_http::RegistryAuth`] - a caller-supplied bearer credential scoped to one normalized
   origin (see [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests
   on that exact origin and never over cleartext `http` beyond loopback hosts.
@@ -1290,10 +1290,10 @@ ResolveInput (root package + versioned deps + feature requests
                                      |
                                      v
                                 cabin_resolver::resolve
-                                     |  MetadataNeeded(name) (a name the walk did not reach:
-                                     |    an optional dependency a feature enabled, a pinned
-                                     |    revision's own dependency, a local package's
-                                     |    registry dependency) -> load_package_index([name],
+                                     |  MetadataNeeded(names) (names the walk did not reach:
+                                     |    optional dependencies a feature enabled, a pinned
+                                     |    revision's own dependencies, a local package's
+                                     |    registry dependencies) -> load_package_index(names,
                                      |    known), extend, solve again
                                      v
                                 ResolveOutput { packages: [Root, Index, Local, ...]
@@ -1516,8 +1516,8 @@ PackageIndex { packages: BTreeMap<PackageName, IndexEntry> }   (same shape as th
    |
    v
 cabin_resolver::resolve
-   |  MetadataNeeded(name) (a name the walk did not reach, as for the file index)
-   |    -> load_package_index([name], known), extend, solve again
+   |  MetadataNeeded(names) (names the walk did not reach, as for the file index)
+   |    -> load_package_index(names, known), extend, solve again
    v
 ResolveOutput
    |

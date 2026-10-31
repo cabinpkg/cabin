@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use cabin_core::PackageName;
 use miette::Diagnostic;
 use thiserror::Error;
@@ -57,13 +59,13 @@ pub enum ResolveError {
     )]
     ReservedRootName(String),
 
-    /// The resolver needs `0`'s index metadata, which a lazily loaded
-    /// index ([`crate::ResolveInput::lazy_index`]) has not fetched
-    /// yet.  The caller fetches it and resolves again; it never
-    /// reaches users.
-    #[error("index metadata for package {0:?} has not been loaded")]
+    /// The resolver needs these packages' index metadata, which a
+    /// lazily loaded index ([`crate::ResolveInput::lazy_index`]) has
+    /// not fetched yet: every such package the solve reached.  The
+    /// caller fetches them and resolves again; it never reaches users.
+    #[error("index metadata for packages {0:?} has not been loaded")]
     #[diagnostic(code(cabin::resolver::error))]
-    MetadataNeeded(PackageName),
+    MetadataNeeded(BTreeSet<PackageName>),
 
     #[error("all matching versions of {0:?} are yanked")]
     #[diagnostic(

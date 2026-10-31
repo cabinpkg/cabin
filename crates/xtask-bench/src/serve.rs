@@ -1,12 +1,19 @@
 //! A loopback static server for the HTTP index scenarios: it serves a
-//! file registry the way a static host would, one request at a time.
+//! file registry the way a static host would, each request on a thread
+//! of its own.  Below `rtt/` every response first waits [`RTT`], a
+//! nearby registry's round trip, so concurrent requests overlap their
+//! waits as they would over a network.
 
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
+
+/// The round trip a request below `rtt/` waits before its response.
+pub const RTT: Duration = Duration::from_millis(20);
 
 pub struct Server {
     listener: Arc<tiny_http::Server>,
@@ -22,15 +29,26 @@ pub fn serve(root: PathBuf) -> Result<Server> {
         .ok_or_else(|| anyhow!("loopback server has no IP address"))?
         .port();
     let worker = Arc::clone(&server);
+    let root = Arc::new(root);
     let thread = thread::spawn(move || {
         for request in worker.incoming_requests() {
-            let file = file_for(&root, request.url())
-                .and_then(|path| File::open(path).ok())
-                .filter(|file| file.metadata().is_ok_and(|m| m.is_file()));
-            let _ = match file {
-                Some(file) => request.respond(tiny_http::Response::from_file(file)),
-                None => request.respond(tiny_http::Response::empty(404)),
-            };
+            let root = Arc::clone(&root);
+            thread::spawn(move || {
+                let url = match request.url().strip_prefix("/rtt/") {
+                    Some(url) => {
+                        thread::sleep(RTT);
+                        url
+                    }
+                    None => request.url(),
+                };
+                let file = file_for(&root, url)
+                    .and_then(|path| File::open(path).ok())
+                    .filter(|file| file.metadata().is_ok_and(|m| m.is_file()));
+                let _ = match file {
+                    Some(file) => request.respond(tiny_http::Response::from_file(file)),
+                    None => request.respond(tiny_http::Response::empty(404)),
+                };
+            });
         }
     });
     Ok(Server {

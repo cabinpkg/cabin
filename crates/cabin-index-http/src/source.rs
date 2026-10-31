@@ -10,6 +10,13 @@ use serde::Deserialize;
 use crate::client::HttpClient;
 use crate::error::IndexHttpError;
 
+/// Package documents the dependency walk requests at once, so a wave
+/// of `n` packages waits about `n / 4` round trips rather than `n`.
+/// More connections would strand one in the
+/// loopback `tiny_http` servers the tests and benchmarks use, whose
+/// four pool threads can miss a fifth new keep-alive connection.
+pub(crate) const PARALLEL_FETCHES: usize = 4;
+
 /// Parsed-and-validated `<base>/config.json` document.  The fields
 /// mirror `cabin_registry_file::RegistryConfig`; we re-implement the
 /// shape here so `cabin-index-http` does not depend on that crate.
@@ -177,15 +184,52 @@ impl HttpIndex {
         // `fetch_package` vets every name at the URL-building boundary
         // before it requests anything.
         let packages =
-            cabin_index::walk_dependencies(roots, known, |name| match self.fetch_package(name) {
-                Err(IndexHttpError::PackageNotFound { .. }) => Ok(None),
-                result => result.map(Some),
-            })?;
+            cabin_index::walk_dependencies(roots, known, |names| self.fetch_wave(names))?;
         tracing::Span::current().record("fetched", packages.len());
         Ok(PackageIndex {
             // Use the base URL string as the displayable root.
             root: std::path::PathBuf::from(self.base.as_str()),
             packages,
+        })
+    }
+
+    /// Fetch one wave of the dependency walk, `names` in order, over up
+    /// to [`PARALLEL_FETCHES`] threads, this one included; a 404 is
+    /// `None`.  The trace capture is scoped to this thread, so each
+    /// helper is handed its dispatcher.
+    fn fetch_wave(&self, names: &[PackageName]) -> Result<Vec<Option<IndexEntry>>, IndexHttpError> {
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
+        let fetch = |chunk: &[PackageName]| {
+            tracing::dispatcher::with_default(&dispatch, || {
+                chunk
+                    .iter()
+                    .map(|name| match self.fetch_package(name) {
+                        Err(IndexHttpError::PackageNotFound { .. }) => Ok(None),
+                        result => result.map(Some),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+        };
+        let mut chunks = names.chunks(names.len().div_ceil(PARALLEL_FETCHES).max(1));
+        let first = chunks.next().unwrap_or_default();
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = chunks
+                .map(|chunk| scope.spawn(move || fetch(chunk)))
+                .collect();
+            let first = fetch(first);
+            let rest: Vec<_> = threads
+                .into_iter()
+                .map(|thread| {
+                    thread
+                        .join()
+                        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                })
+                .collect();
+            let mut entries = first?;
+            for chunk in rest {
+                entries.extend(chunk?);
+            }
+            Ok(entries)
         })
     }
 
@@ -1235,6 +1279,42 @@ mod tests {
             .load_package_index(&[fmt, ghost.clone()], &BTreeSet::from([ghost.clone()]))
             .unwrap();
         assert!(!loaded.packages.contains_key(&ghost));
+    }
+
+    /// A wave fails at the first error each of its threads meets: eight
+    /// roots over four threads cost four failed requests, not eight.
+    #[test]
+    fn a_wave_stops_each_thread_at_its_first_error() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let server = tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback");
+        let url = format!(
+            "http://{}/",
+            server.server_addr().to_ip().expect("loopback addr")
+        );
+        let requests = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while let Ok(req) = server.recv() {
+                    let response = if req.url() == "/config.json" {
+                        tiny_http::Response::from_string(
+                            r#"{"schema": 1, "kind": "file-registry", "packages": "packages", "artifacts": "artifacts"}"#,
+                        )
+                    } else {
+                        requests.fetch_add(1, Ordering::SeqCst);
+                        tiny_http::Response::from_string("").with_status_code(500)
+                    };
+                    let _ = req.respond(response);
+                }
+            });
+            let index = HttpIndex::open(&url, HttpClient::new()).unwrap();
+            let roots: Vec<_> = (0..8)
+                .map(|i| PackageName::new(format!("p{i}")).unwrap())
+                .collect();
+            assert!(index.load_package_index(&roots, &BTreeSet::new()).is_err());
+            server.unblock();
+        });
+        assert_eq!(requests.into_inner(), PARALLEL_FETCHES);
     }
 
     /// End-to-end auth flow over the real `open` / `fetch_package`
