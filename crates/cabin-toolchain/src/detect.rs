@@ -1,8 +1,8 @@
 //! Compiler / tool detection on top of a [`ResolvedToolchain`].
 //!
 //! Detection runs three short-lived subprocesses in the worst
-//! case (`cxx --version`, `cc --version`, `ar --version`),
-//! captures their output, and hands it to the pure parsers in
+//! case (`cxx --version`, `cc --version`, `ar --version`) side by
+//! side, captures their output, and hands it to the pure parsers in
 //! `cabin_core::compiler`.  The result is a typed
 //! [`ToolchainDetectionReport`] that downstream crates consume
 //! without re-running anything.
@@ -30,8 +30,9 @@ use thiserror::Error;
 /// The trait abstracts over `std::process::Command` so the unit
 /// tests in this module can drive every detection branch without
 /// real binaries on PATH.  The default production runner is
-/// [`ProcessRunner`].
-pub trait ToolRunner {
+/// [`ProcessRunner`].  Detection runs several tools at once, so a
+/// runner is shared between threads.
+pub trait ToolRunner: Sync {
     /// Spawn `path` with `args` and capture its stdout/stderr.
     /// The runner must not hang on hostile binaries: a deadline
     /// or fast subprocess form is the implementation's
@@ -235,13 +236,32 @@ pub fn detect_toolchain(
     toolchain: &ResolvedToolchain,
     runner: &dyn ToolRunner,
 ) -> Result<ToolchainDetectionReport, DetectionError> {
-    let cxx = detect_cxx(&toolchain.cxx, runner)?;
-    let cc = match toolchain.cc.as_ref() {
-        Some(tool) => Some(detect_cxx(tool, runner)?),
-        None => None,
-    };
-    let ar = detect_ar(&toolchain.ar, runner)?;
-    Ok(ToolchainDetectionReport { cxx, cc, ar })
+    // A probe mostly waits for the tool to load (an `xcrun` shim
+    // finds and starts the real tool first), so the probes run side
+    // by side.  The trace capture is scoped to this thread, so each
+    // helper is handed its dispatcher.
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    thread::scope(|scope| {
+        let cc = toolchain.cc.as_ref().map(|tool| {
+            scope
+                .spawn(|| tracing::dispatcher::with_default(&dispatch, || detect_cxx(tool, runner)))
+        });
+        let ar = scope.spawn(|| {
+            tracing::dispatcher::with_default(&dispatch, || detect_ar(&toolchain.ar, runner))
+        });
+        let cxx = detect_cxx(&toolchain.cxx, runner);
+        Ok(ToolchainDetectionReport {
+            cxx: cxx?,
+            cc: cc.map(join).transpose()?,
+            ar: join(ar)?,
+        })
+    })
+}
+
+fn join<T>(thread: thread::ScopedJoinHandle<'_, T>) -> T {
+    thread
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 #[tracing::instrument(name = "version_probe", level = "debug", skip_all, fields(tool = tool.kind.as_key()))]
@@ -703,6 +723,45 @@ mod tests {
         assert_eq!(report.cxx.identity.kind, CompilerKind::Msvc);
         assert!(report.cxx.capabilities.msvc_style_flags.supported);
         assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
+    }
+
+    #[test]
+    fn probes_run_side_by_side() {
+        // Each probe waits for the other two to start; one after
+        // another, the first would give up instead.
+        struct Rendezvous(std::sync::Mutex<usize>, std::sync::Condvar);
+        impl ToolRunner for Rendezvous {
+            fn run(&self, path: &Path, _: &[&str]) -> Result<RunOutput, RunError> {
+                let timeout = Duration::from_secs(10);
+                let mut started = self.0.lock().unwrap();
+                *started += 1;
+                self.1.notify_all();
+                let (started, wait) = self
+                    .1
+                    .wait_timeout_while(started, timeout, |started| *started < 3)
+                    .unwrap();
+                drop(started);
+                if wait.timed_out() {
+                    return Err(RunError::Timeout {
+                        path: path.to_path_buf(),
+                        timeout,
+                    });
+                }
+                Ok(RunOutput {
+                    status: 0,
+                    stdout: "clang version 17.0.6\n".to_owned(),
+                    stderr: String::new(),
+                })
+            }
+        }
+        let toolchain = ResolvedToolchain {
+            cxx: tool(ToolKind::CxxCompiler, "/bin/clang++", "clang++"),
+            cc: Some(tool(ToolKind::CCompiler, "/bin/clang", "clang")),
+            ar: tool(ToolKind::Archiver, "/bin/ar", "ar"),
+        };
+        let runner = Rendezvous(std::sync::Mutex::new(0), std::sync::Condvar::new());
+        let report = detect_toolchain(&toolchain, &runner).unwrap();
+        assert_eq!(report.cxx.identity.kind, CompilerKind::Clang);
     }
 
     #[test]

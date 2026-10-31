@@ -1774,8 +1774,8 @@ build-flag-independent.  Full protocol in [`toolchains.md`](toolchains.md).
 ### Compiler / tool capability detection - implemented
 
 After `cabin-toolchain::resolve_toolchain` returns a `ResolvedToolchain`,
-`cabin-toolchain::detect_toolchain` runs each picked tool with `--version`, captures the output, and
-hands it to the pure parsers in `cabin-core::compiler`.  The result is a typed
+`cabin-toolchain::detect_toolchain` runs each picked tool with `--version`, all at once, captures the
+output, and hands it to the pure parsers in `cabin-core::compiler`.  The result is a typed
 `ToolchainDetectionReport` carrying a `CompilerIdentity` / `ArchiverIdentity` (kind, version, target
 where reported) and a `CompilerCapabilities` / `ArchiverCapabilities` set per tool.  Capability
 decisions record their source (`version`, `assumed-default`, `unsupported`) so consumers can audit
