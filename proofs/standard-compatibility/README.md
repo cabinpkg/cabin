@@ -74,8 +74,8 @@ Nothing in the spec was weakened.  Two items need a modeling note:
 - **T3 (complexity).**  The decidability half of T3 is mechanized (`T3_*_decidable`; every
   predicate in the development is a computable `Bool`).  The `O(1)` / `O(|V| + |E|)` complexity
   bounds are claims about an execution cost model, which plain Lean terms do not carry; they
-  are not stated in Lean.  This is a scope limit of the mechanization, reported here rather
-  than silently dropped - the spec's pen-and-paper argument stands on its own.
+  are not stated in Lean.  This is a scope limit of the mechanization; the spec's
+  pen-and-paper argument stands on its own.
 - **"Finite DAG" hypothesis.**  The spec's finite acyclic graph enters Lean as
   well-foundedness of the public-dependency relation (`WellFounded (DepRel deps)`), which is
   exactly what the spec's longest-path height function provides on a finite DAG, and is the
@@ -83,7 +83,7 @@ Nothing in the spec was weakened.  Two items need a modeling note:
   (`reachList`); duplicate entries are harmless by idempotence
   (`JSL.joinList_congr_mem`), which is also how T1's order-independence is stated.
 
-Two spec statements have shapes worth calling out (both faithful, not weakened):
+Three spec statements have shapes worth calling out (all faithful, not weakened):
 
 - **Two orders, one join.**  The generic graph layer derives its order structurally
   (`JSL.le a b := join a b = b`), which is finer than the spec's denotational `⊑`

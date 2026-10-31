@@ -12,8 +12,8 @@ detail pages are pre-rendered, and `/packages.json` is generated for
 client-side search.
 
 The output in `dist/` can be served by Cloudflare Pages, Cloudflare Workers
-Static Assets, or any static file host. No Next.js, Vercel runtime, SSR adapter,
-API routes, or server functions are required.
+Static Assets, or any static file host. No SSR adapter, API routes, or server
+functions are required.
 
 ### Development
 
@@ -128,7 +128,7 @@ loads them, `src/pages/docs/[...slug].astro` renders each page, and
 
 ### Known limitation
 
-Package detail routes use `/packages/<group>/<name>`, matching the previous site
-and Cabin's current two-segment package naming. Packages with names that do not
+Package detail routes use `/packages/<group>/<name>`, matching Cabin's
+two-segment package naming. Packages with names that do not
 fit exactly one slash are included in `/packages.json` but do not get a generated
 detail page; the search UI renders them as non-clickable cards.

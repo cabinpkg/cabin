@@ -173,9 +173,3 @@ These are Cargo / Rust concepts that do not (yet) translate to Cabin's C/C++ sco
 
 If a later iteration wants to add one of these, it should land alongside an explicit motivation
 rather than as an opportunistic addition.
-
-## Where the audit lives
-
-The full audit checklist is captured by the Cargo-inspired interface section in
-[`architecture.md`](architecture.md).  When this page changes, that section in the architecture
-document should be updated in the same commit.

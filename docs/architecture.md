@@ -117,6 +117,7 @@ docs/
   package-index.md   package index schema
   foundation-ports.md  the curated foundation ports and how they publish
   design/
+    boost-ports.md     Boost 1.92.0 port inventory, rules, and remaining blockers
     capability-roadmap/
       contracts.md       shared contracts for the capability roadmap's stages (design)
       ledger.md          per-area evidence, stage map, and status of the roadmap
@@ -137,7 +138,7 @@ new crate only when an established responsibility or dependency boundary justifi
 
 Stable, format-agnostic types: `Package`, `Target`, `TargetKind`, `PackageName`, `TargetName`,
 `Dependency`, `DependencySource::{Path, Version}`, plus the build-configuration model - `Features`,
-`SelectionRequest`, and `BuildConfiguration` (with a deterministic SHA-256 fingerprint that now also
+`SelectionRequest`, and `BuildConfiguration` (with a deterministic SHA-256 fingerprint that
 includes the selected profile's relevant fields and the effective language standards).  The cfg /
 target-condition AST also lives here as `Condition`, `ConditionKey`, and `TargetPlatform`, the
 build-profile model lives here as `ProfileName`, `OptLevel`, `BuiltinProfile`, `ProfileDefinition`,
@@ -201,16 +202,15 @@ are intentionally not traversed here.  Current invariants:
 - `[workspace]` expansion supports `members`, `exclude`, and `default-members`, plus workspace
   dependency inheritance via `dep = { workspace = true }`.
 - A `PackageSelection` model turns CLI flags into a deterministic list of selected packages.
-  `ResolvedSelection::closure(graph)` and `collect_closure_versioned_deps(graph, closure)` extend
+  `ResolvedSelection::closure(graph)` and `collect_closure_versioned_deps_excluding_with_dev` extend
   that selection over local path-dep edges so commands scoped to one member can still see the
   registry deps of the path-deps they pull in.
-- Workspace loading exposes two registry-aware entry points: `load_workspace_with_registry` (strict
-  - every versioned dep in the workspace must be resolved) and
-  `load_workspace_with_registry_for_selection(manifest, registry, strict_packages)`.  The
-  selection-aware variant is what the CLI calls when the user has scoped a command to a subset of
-  the workspace: registry entries are required only for packages reachable from the selected
-  closure, so unrelated workspace members' versioned deps are silently skipped during loading rather
-  than being materialized into the package graph.
+- Registry-aware loading goes through `load_workspace_with_options`, whose `RegistryPolicy` is
+  `Strict` (every versioned dep in the workspace must be resolved) or `StrictFor(packages)`.  The
+  CLI passes `StrictFor` when the user has scoped a command to a subset of the workspace: registry
+  entries are required only for packages reachable from the selected closure, so unrelated workspace
+  members' versioned deps are silently skipped during loading rather than being materialized into
+  the package graph.
 - `PackageName` accepts a bare `name` or a scoped `<scope>/<name>` with exactly one `/`, and is the
   one package-name grammar for every identity boundary (manifests, dependency keys, workspace
   members, lockfiles, indexes, both registry kinds, CLI package arguments).  The package part is
@@ -1061,7 +1061,7 @@ validation errors, and the stable-code constants the CLI attaches to rendered er
 `#[diagnostic(code(...))]` attributes are the canonical source of every stable code; a constant
 exists only for the codes the CLI needs as a `&str` value.
 
-Depends only on `miette`, `termcolor`, and `thiserror`.  Domain crates that own source spans
+Depends only on `miette` and `termcolor`.  Domain crates that own source spans
 (today: `cabin-manifest`'s `ManifestParseError`) depend on `miette` for the `Diagnostic` derive and
 pass the typed value up; the CLI orchestrator (`cabin`) routes it through
 `cabin_diagnostics::render` so the user sees a stable `error[code]: message` block plus optional
@@ -1083,7 +1083,8 @@ Adding a new diagnostic-bearing error is a three-step pattern:
    actionable next step;
 2. for source-annotated cases, expose `#[source_code]` / `#[label]` so
    `cabin_diagnostics::render` picks the values up automatically;
-3. extend `cabin/src/main.rs::downcast_diagnostic` so the typed error participates in the renderer.
+3. extend `cabin/src/diagnostic_registry.rs::downcast_diagnostic` so the typed error participates
+   in the renderer.
 
 ### `cabin`
 
@@ -1142,8 +1143,9 @@ The kind information flows through the system at each layer:
                   v                     v                          v
             collect_closure        cabin-build target         cabin-package
             _versioned_deps        dep resolution             canonical metadata
-            (Normal-only)          (Normal-only edges)        (per-kind tables +
-            -> ResolveInput        for `target.<X>.deps`)      system-dependencies)
+            _excluding_with_dev    (Normal-only edges)        (per-kind tables +
+            (Normal-only)          for `target.<X>.deps`)      system-dependencies)
+            -> ResolveInput
                   |
                   v
             cabin_resolver         (resolver never sees Dev or System)
@@ -1156,8 +1158,9 @@ The kind information flows through the system at each layer:
 
 System dependencies branch off at the manifest layer and never enter the resolver / fetcher / cache.
 Dev dependencies flow through `Package::dependencies` for metadata round-tripping but are filtered
-out at the `collect_closure_versioned_deps` boundary and at the workspace path-dep traversal so they
-do not affect ordinary builds.
+out at the `collect_closure_versioned_deps_excluding_with_dev` boundary and at the workspace
+path-dep traversal so they do not affect ordinary builds; `cabin test` activates them for its
+selected packages only ([`dependency-kinds.md`](dependency-kinds.md#resolver-behavior)).
 
 Workspace inheritance is kind-specific: a member's `{ workspace = true }` opt-in under
 `[<kind>-dependencies]` looks up the matching `[workspace.<kind>-dependencies]` table only - there
@@ -1337,7 +1340,7 @@ FetchResult { packages: [FetchedPackage { name, version, archive_path,
                                           source_dir, checksum }] }
    |
    v
-cabin_workspace::load_workspace_with_registry(manifest, fetched)
+cabin_workspace::load_workspace_with_options(manifest, registry = fetched)
    |  walk root + every extracted source manifest;
    |  versioned dependencies resolve via the registry map by name;
    |  return a unified PackageGraph (Local + Registry packages).
@@ -1576,11 +1579,10 @@ today, so future contributors do not silently regress them by porting more Cargo
   but are excluded from the default `cabin build` enumeration.  `test` targets are built and run by
   `cabin test`, which selects every test target in the selected packages - or only the named ones
   when `--test <name>` is given.  `example` targets reach the build graph only as transitive deps of
-  a selected target - Cabin does not yet expose a single-example selector flag, and the historic
-  `--target` overload is gone: `--target` names the platform triple to build for.  A future
-  `--example <name>` selector would follow the same
-  distinct-flag pattern as `cabin test --test <name>`.  Dependencies of dev-only targets follow the
-  same `target.<X>.deps` rules as an `executable`: include and link interfaces propagate from the
+  a selected target; Cabin has no single-example selector flag, and `--target` names the platform
+  triple to build for.  A future `--example <name>` selector would follow the same distinct-flag
+  pattern as `cabin test --test <name>`.  Dependencies of dev-only targets follow the same
+  `target.<X>.deps` rules as an `executable`: include and link interfaces propagate from the
   libraries they pull in, but the dev-only targets never contribute include or link interface back
   to ordinary production targets.
 
@@ -1615,8 +1617,8 @@ than carved out into ad-hoc places.
 
 A content-addressed cache and source / archive fetcher that turns a locked package set into actual
 on-disk source trees, verifying checksums recorded in `cabin.lock`.  Implemented as `cabin-artifact`
-for local filesystem source archives.  Future transports (OCI / Git) may be added without
-changing the cache shape.
+for local archive sources and archive bytes downloaded over HTTP.  Future transports (OCI / Git)
+may be added without changing the cache shape.
 
 ### Package / archive layer
 
@@ -1812,7 +1814,7 @@ cabin_workspace::resolve_active_patches
 ActivePatchSet (sorted by name)
       |
       v
-cabin_workspace::load_workspace_with_registry_and_patches
+cabin_workspace::load_workspace_with_options (patches = the active set)
       |
       v
 PackageGraph augmented with patched packages
@@ -1842,10 +1844,10 @@ artifact pipeline + lockfile [[source-replacement]] array
 ```
 
 `cabin`'s `cli::patch` module owns the orchestration glue: typed inputs in, typed values out, no
-business logic in `cli/mod.rs`.  The lockfile gains optional `[[patch]]` and
-`[[source-replacement]]` arrays (default-empty so old lockfiles remain valid), and `--locked` errors
-if the recorded arrays differ from the active policy.  `cabin metadata` adds two top-level arrays
-(`patches`, `source_replacements`) for deterministic auditability.
+business logic in `cli/mod.rs`.  The lockfile carries optional `[[patch]]` and
+`[[source-replacement]]` arrays (default-empty, so a lockfile without them stays valid), and
+`--locked` errors if the recorded arrays differ from the active policy.  `cabin metadata` emits two
+top-level arrays (`patches`, `source_replacements`) for deterministic auditability.
 
 Local override policy never enters published artifacts: `cabin-package` rejects manifests with a
 non-empty `[patch]` table; `.cabin/config.toml` (which carries config patches + source replacement)
@@ -1862,7 +1864,7 @@ a single project want to apply across many invocations.  Config sits between the
 *package source spec*) and the CLI / environment so existing per-command flags keep their highest
 precedence.
 
-`cabin-config` (a new crate) owns the entire surface:
+`cabin-config` owns the entire surface:
 
 ```
 [user, workspace/project, explicit]
@@ -1899,9 +1901,10 @@ the existing resolvers consume:
   `cabin_toolchain::resolve_toolchain`.
 - `cabin_toolchain::ConfigWrapperLayer` slots between the `CABIN_COMPILER_WRAPPER` env variable and
   the manifest in `cabin_toolchain::resolve_compiler_wrapper`.
-- The build-side helpers (`profile_selection_for_build`, `resolve_index_source`,
-  `resolve_cache_dir`, `resolve_build_dir`) consult the same `EffectiveConfig` and return a typed
-  value plus its `ConfigValueSource`.
+- The build-side helpers (`config_profile_selection`, `resolve_cache_dir`,
+  `resolve_build_dir_with_env`) consult the same `EffectiveConfig` and return a typed value plus its
+  `ConfigValueSource`.  `resolve_index_source` consults it too, but records only whether the user
+  rather than the project chose the source.
 
 The metadata view emits a top-level `config` block with the loaded files plus every effective
 config-derived setting, paired with its `value_source` so consumers can audit provenance without
@@ -1918,11 +1921,11 @@ registry index:
   never contain config-derived fields.
 - `cabin-publish` does not read config for authentication.
 
-Auth tokens and new registry protocols are *deliberately* out of scope; `cabin-config`'s parser
-rejects auth/credential/token keys with a dedicated error message so a typo cannot smuggle a secret
-into a published archive.  Source replacement and vendoring are implemented local-policy/read-path
-features; they remain excluded from package archives, canonical package metadata, and registry
-authentication.  Full protocol in [`config.md`](config.md).
+Credentials never live in config: `cabin-config`'s parser rejects auth/credential/token keys with
+a dedicated error message so a typo cannot smuggle a secret into a published archive, and
+`cabin-credentials` owns tokens.  Source replacement and vendoring are implemented
+local-policy/read-path features; they remain excluded from package archives, canonical package
+metadata, and registry authentication.  Full protocol in [`config.md`](config.md).
 
 ### Compiler wrappers
 
@@ -1970,16 +1973,14 @@ Full protocol in [`compiler-cache.md`](compiler-cache.md).
 
 ### Non-Local Registry Control Planes
 
-This repository implements the local registry interface: local file registries, package archives,
-and a read-only sparse HTTP client for a static layout.  Account systems, hosted write paths,
-ownership workflows, package yanking, signing policy, and administrative control planes are outside
-this local-core boundary.  See [`registry-design.md`](registry-design.md) for the concrete read-path
-and file-registry shape this repository supports.  The *client* side of a remote
-registry is specified in [`remote-registry.md`](remote-registry.md): reads (public on the
-hosted registry, token-optional in the protocol) and the
-default hosted index origin are stable, while publish and yank stay gated behind
-`-Z remote-registry`; the registry service's hosted implementation lives under `registry/` in
-this repository, outside the OSS-core boundary.
+The local core implements local file registries, package archives, and an HTTP index client. Account
+systems, hosted write paths, ownership workflows, signing policy, and administrative control planes
+are outside this local-core boundary.  See [`registry-design.md`](registry-design.md) for the
+concrete read-path and file-registry shape this repository supports.  The *client* side of a remote
+registry is specified in [`remote-registry.md`](remote-registry.md): reads (public on the hosted
+registry, token-optional in the protocol) and the default hosted index origin are stable, while
+publish and yank stay gated behind `-Z remote-registry`; the registry service's hosted
+implementation lives under `registry/` in this repository, outside the OSS-core boundary.
 
 ## Scope and limitations
 
@@ -2064,9 +2065,8 @@ Planned work is implemented only through its stage; everything else above stays 
 ## Contributor-facing architecture guardrails
 
 The architecture document is the canonical source for crate boundaries, ownership rules, and scope
-limits.  `CONTRIBUTING.md` points here rather than restating those rules.  If code moves across
-crate boundaries, update this document plus the relevant `AGENTS.md` routing file in the same
-change.
+limits.  If code moves across crate boundaries, update this document plus the relevant
+`AGENTS.md` routing file in the same change.
 
 Architecture-sensitive behavior changes should add focused unit coverage in the owning crate and CLI
 integration coverage when the behavior is user-facing.  Observable output used by tooling or tests

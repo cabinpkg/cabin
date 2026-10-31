@@ -256,9 +256,8 @@ appended.  When `CABIN_CONFIG_HOME` is unset, Cabin uses the platform user confi
 the `etcetera` crate (which on Linux and macOS honors `XDG_CONFIG_HOME` and `HOME` per the XDG Base
 Directory specification) and looks for `cabin/config.toml` below it.
 
-Existing env variables Cabin already honors (`CC`, `CXX`, `AR`, `CABIN_COMPILER_WRAPPER`,
-`CABIN_CACHE_DIR`) are unchanged.  They take precedence over the config layer per the precedence
-ladder above.
+The environment variables `CC`, `CXX`, `AR`, `CABIN_COMPILER_WRAPPER`, and `CABIN_CACHE_DIR`
+take precedence over the config layer per the precedence ladder above.
 
 ## What config does **not** do
 

@@ -159,10 +159,10 @@ toolchain-viability flag of `registry-index.md`, never as a requirement.
   `--dry-run` - including the staging-only dry-run without `--registry-dir`, which still stages
   the archive and canonical metadata document as documented (`docs/package-format.md`); the
   no-write guarantee of section 1 is about registry state, not the staging output.
-- PL3 is registry-backed: its baseline is the `<name>.json` the file-registry writer would
-  splice into (`docs/registry-design.md`), so it runs exactly when a registry is in reach -
-  `--registry-dir`, with or without `--dry-run`.  A staging-only dry-run has no registry to
-  read; it **skips PL3 and says so** in its output, rather than inventing an empty baseline
-  that would make every patch release look clean.  A future hosted registry runs the same check
-  against its own index, server- or client-side; that control plane is outside the local-core
-  boundary and outside this document.
+- PL3 is registry-backed, so it runs exactly when a registry is in reach.  With
+  `--registry-dir` (with or without `--dry-run`), its baseline is the `<name>.json` the
+  file-registry writer would splice into (`docs/registry-design.md`); the experimental remote
+  publish runs the same check client-side against the package's fetched index document
+  (`docs/remote-registry.md`).  A staging-only dry-run has no registry to read; it **skips PL3
+  and says so** in its output, rather than inventing an empty baseline that would make every
+  patch release look clean.

@@ -330,9 +330,9 @@ see [`package-format.md`](package-format.md)), so packaging an inherited member 
 byte-identical to a literal-declaring twin.  Standalone `cabin package` on a marker-bearing manifest
 fails with a clear error directing the user to package from inside the workspace, and registry
 manifests that nonetheless carry markers are rejected at load - an external
-package's compile standard is never chosen by the consuming workspace.  This is round-trip
-preservation only - the registry build honors the extracted manifest, and resolver-side
-standard-compatibility filtering remains deferred.
+package's compile standard is never chosen by the consuming workspace.  The registry build
+honors the extracted manifest; the resolver reads published interface requirements only to order
+candidate versions (see [Version selection](#version-selection)).
 
 ## Post-resolution compatibility errors
 
@@ -414,8 +414,8 @@ failure `allow` would not also produce, and the always-on build-time enforcement
 post-resolution check above) remain the correctness authority.  The full policy is
 recorded in
 [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md).
-Its defaults deliberately differ from the build-time enforcement above, which is unchanged and
-still runs after resolution: at resolve time a compiled library with no declared interface field
+Its defaults deliberately differ from the build-time enforcement above, which still runs after
+resolution: at resolve time a compiled library with no declared interface field
 imposes no constraint (no implementation-standard fallback), while an explicit `"none"` makes the
 dependency unsatisfiable from that language instead of imposing nothing.
 

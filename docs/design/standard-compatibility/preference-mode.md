@@ -25,8 +25,8 @@ Under either value, solvability is identical: preference never introduces a reso
 When choosing among candidate versions admitted by a dependency's semver requirement:
 
 1. **Prefer** candidates whose declared requirements the consumer satisfies.
-2. When **no** candidate in range satisfies, select what the resolver selects today - the newest
-   admissible version - and **report** the unsatisfied requirement.
+2. When **no** candidate in range satisfies, select the newest admissible version and
+   **report** the unsatisfied requirement.
 3. Candidates with **no declared interface standard** are deprioritized relative to
    declared-and-compatible candidates but **never filtered out**.
 4. **Lockfile stability wins.**  A locked version that still qualifies is kept regardless of
@@ -68,11 +68,11 @@ rejects:
   describes.  The consumer proxy, however, can be optimistic: an intermediate registry package
   may compile at a *lower* level than every workspace target, so a candidate can be ranked
   satisfied that the true intermediate consumer cannot consume, and the post-resolution checks
-  will still fail the resolution.  The scope of that optimism is bounded by the status quo: a
-  standard-unaware resolver selects that same candidate today, and the same checks catch it
+  will still fail the resolution.  The scope of that optimism is bounded: standard-unaware
+  selection (`allow`) picks that same candidate, and the same checks catch it
   (the post-resolution standard-compatibility check and the build-time enforcement of
   `docs/language-standards.md`).
-  Preference mode never manufactures a failure that today's newest-first selection would have
+  Preference mode never manufactures a failure that newest-first selection would have
   avoided; in this corner it merely fails to help.  Narrowing both sides - target references on
   index dependency entries for the edge side, serialized per-target implementation levels for
   the consumer side - is additive on the `standards` schema and can land when wanted.
@@ -130,7 +130,7 @@ satisfies), the report names the selected version and the requirement it fails t
 The seam is the `DependencyProvider` implementation in `crates/cabin-resolver/src/provider.rs`,
 specifically its two decision hooks:
 
-- `choose_version` - the candidate ordering of section 1 lives here, extending the current
+- `choose_version` - the candidate ordering of section 1 lives here, on top of the
   newest-non-yanked, lockfile-preferring selection (`choose_compatible_candidate`).
 - `prioritize` - may additionally fold the preference signal into which package is decided next.
 
@@ -161,18 +161,6 @@ into an unrecoverable resolution failure, inverting the layering of `registry-in
 (advertisement selects, the manifest enforces).  The spec deliberately leaves "what happens when
 no candidate is viable" out of scope (D14); preference mode answers it with
 select-latest-and-report.
-
-**Reconciliation with the spec's filtering language.**  Spec D14 defines viability as "the
-predicate the resolver uses to filter candidate versions", and its section 1 layering note says
-the resolver "must not select" a version whose `"none"` declaration forbids the consumer's
-language - framing that anticipates strict filtering.  The spec equally scopes out how
-candidates are enumerated and what happens when none is viable; this document is the recorded
-answer to both: viability-informed *ordering* plus select-latest-and-report, with the
-post-resolution standard-compatibility check and the build-time interface enforcement of
-`docs/language-standards.md` as the layers that actually refuse.  Those two framing sentences in
-`spec.md` (the D14 "filter" wording and section 1's "must not select") have been amended to point
-here, per the repository's update-both-documents rule: viability-informed *ordering* plus
-select-latest-and-report, not strict in-solver filtering.
 
 ## 5. Not offered: automatic standard raising
 

@@ -4,9 +4,6 @@ The recommended way to get Cabin is from [the docs site](https://cabinpkg.com/do
 which covers the `cargo install cabinpkg` path (the installed command is `cabin`).  Building from
 source is supported for users who need an unreleased revision or want to verify a build locally.
 
-If you intend to contribute back, read [CONTRIBUTING.md](CONTRIBUTING.md) instead - it covers the
-development workflow on top of the steps here.
-
 ## Prerequisites
 
 - A [Rust toolchain](https://www.rust-lang.org/tools/install) (1.95 or newer) on the stable channel.
