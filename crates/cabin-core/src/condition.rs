@@ -379,7 +379,8 @@ impl TargetPlatform {
     /// # Errors
     /// Returns [`TargetTripleError`] for a triple with fewer than two
     /// components, an empty component, or no recognized operating
-    /// system.
+    /// system, and for one that cannot name its build-output directory
+    /// on every platform.
     pub fn from_triple(triple: &str) -> Result<Self, TargetTripleError> {
         let parts: Vec<&str> = triple.split('-').collect();
         // The triple also names the build-output directory.
@@ -390,6 +391,12 @@ impl TargetPlatform {
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
         {
             return Err(TargetTripleError::Malformed(triple.to_owned()));
+        }
+        if let Some(reason) = triple_directory_problem(triple) {
+            return Err(TargetTripleError::NotPortable {
+                triple: triple.to_owned(),
+                reason,
+            });
         }
         let named: Vec<(usize, &str)> = parts
             .iter()
@@ -482,6 +489,34 @@ pub enum TargetTripleError {
     Malformed(String),
     #[error("target triple {0:?} names no operating system Cabin recognizes")]
     UnknownOs(String),
+    #[error("target triple {triple:?} cannot name its build directory on every platform: {reason}")]
+    NotPortable {
+        triple: String,
+        reason: &'static str,
+    },
+}
+
+/// Why `triple`, already within the triple alphabet, would name a
+/// build directory another triple or a device shares on some platform.
+fn triple_directory_problem(triple: &str) -> Option<&'static str> {
+    // Triples are lowercase; any other spelling would share its
+    // directory with the lowercase one on case-insensitive filesystems.
+    if triple.bytes().any(|b| b.is_ascii_uppercase()) {
+        return Some(
+            "it has an uppercase letter, and on a case-insensitive filesystem it would share \
+             the lowercase spelling's directory; spell target triples in lowercase",
+        );
+    }
+    match cabin_fs::path::component_portability(triple)? {
+        cabin_fs::path::PortabilityViolation::TrailingDot => {
+            Some("it ends with `.`, which Windows drops from directory names")
+        }
+        cabin_fs::path::PortabilityViolation::WindowsDeviceName => {
+            Some("the part before its first `.` is a Windows device name")
+        }
+        // The alphabet check rules out every other violation.
+        other => Some(other.detail()),
+    }
 }
 
 /// The `os` key an operating-system component of a triple names.
@@ -1072,6 +1107,34 @@ mod tests {
             "x86_64-unknown-linux/../gnu",
         ] {
             assert!(TargetPlatform::from_triple(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn triples_windows_or_case_folding_would_alias_are_rejected() {
+        for (bad, reason) in [
+            ("X86_64-unknown-linux-gnu", "uppercase"),
+            ("x86_64-Apple-darwin", "uppercase"),
+            ("x86_64-unknown-linux-gnu.", "ends with `.`"),
+            ("aarch64-linux.", "ends with `.`"),
+            ("nul.x-linux", "device name"),
+            ("com1.a-linux", "device name"),
+            ("lpt9.a-linux-gnu", "device name"),
+        ] {
+            let err = TargetPlatform::from_triple(bad).unwrap_err();
+            assert!(
+                matches!(&err, TargetTripleError::NotPortable { .. })
+                    && err.to_string().contains(reason),
+                "{bad}: {err}"
+            );
+        }
+        // Dots elsewhere and device-like text past the first `.` stay valid.
+        for good in [
+            "arm64-apple-ios17.0-simulator",
+            "con-x-linux",
+            "x86_64-nul.aux-linux",
+        ] {
+            TargetPlatform::from_triple(good).unwrap();
         }
     }
 

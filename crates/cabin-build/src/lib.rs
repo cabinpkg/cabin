@@ -23,6 +23,7 @@ pub mod clean;
 pub mod error;
 pub mod gc;
 pub mod graph;
+pub mod layout;
 pub mod link_diagnostics;
 pub mod planner;
 pub mod standard_compat;

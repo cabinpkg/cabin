@@ -238,7 +238,7 @@ Stages 04 and 05; validated in 06-10, 12-14.
   `TargetPlatform::from_triple`), or without it for `TargetPlatform::current()`, built from
   `std::env::consts`: there `env` follows the OS, `abi` is always `unknown`, and `target` is
   `<arch>-<family>-<os>`, not a real triple.
-- `--target <triple>` builds under `<build-dir>/<triple>/`, passes Clang `--target=`, and checks
+- `--target <triple>` builds under `<build-dir>/.targets/<triple>/`, passes Clang `--target=`, and checks
   that GCC, MSVC, or clang-cl already builds for the triple (`cabin-toolchain/src/target.rs`).
   For another machine, `cabin run` and `cabin test` run executables only through the `[runner]`
   configured for the triple (`cabin-config`), and the build machine's plain pkg-config is refused.
@@ -539,7 +539,7 @@ packages too.
 
 Stage 04, second change: `--target <triple>` on `build`, `check`, `run`, `test`, `metadata`, and
 `explain` selects the platform `cfg(...)` conditions evaluate for, classified by
-`TargetPlatform::from_triple`, and the build writes under `<build-dir>/<triple>/`.  Clang-family
+`TargetPlatform::from_triple`, and the build writes under `<build-dir>/.targets/<triple>/`.  Clang-family
 compilers get `--target=<triple>` on every compile, assemble, and link; GCC (`-dumpmachine`), MSVC,
 and clang-cl (the banner, whose architecture now fills `CompilerIdentity.target`) must already build
 the triple's machine, and C and C++ compilers from different families are refused.  Without
@@ -831,8 +831,8 @@ Stage 04 leaves these seams:
 
 - **Platforms.**  `--target` is classified by `TargetPlatform::from_triple`; `PreparedWorkspace`
   carries the target platform, `BuildContextPrep` the build machine's
-  (`cabin/src/cli/build_prep.rs`).  Outputs live under `<build-dir>/<triple>/<profile>/`, the build
-  context's under `build-machine/` beside `packages/` (`cabin_build::planner::BUILD_CONTEXT_DIR`).
+  (`cabin/src/cli/build_prep.rs`).  Outputs live under `<build-dir>/.targets/<triple>/<profile>/`,
+  the build context's under `build-machine/` beside `packages/` (`cabin_build::layout`).
 - **Toolchains (stage 05).**  Under `--target`, `BuildContextPrep::toolchain` and
   `detection_report` are the build machine's own (`build_machine_toolchain`), of the target's
   dialect, since `BuildGraph::append` assumes one.  Clang-family compilers get

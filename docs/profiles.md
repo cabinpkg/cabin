@@ -322,13 +322,24 @@ Build outputs are profile-aware:
 <build-dir>/<profile>/cabin-toolchain.json
 <build-dir>/<profile>/packages/<package>/<target>/...
 <build-dir>/<profile>/build-machine/packages/<package>/<target>/...
+<build-dir>/.targets/<triple>/<profile>/...
 <build-dir>/.cabin-gc/...
 <build-dir>/.cabin-build.lock
 ```
 
 The `build-machine` tree holds [build dependencies](dependency-kinds.md#build-dependencies), built
-for the build machine.  `.cabin-gc` and `.cabin-build.lock` serve
+for the build machine.  A [`--target <triple>`](toolchains.md#building-for-another-platform) build
+writes the same profile trees under `.targets/<triple>/`; profile names cannot start with `.`, so a
+profile named like a triple keeps a tree of its own.  `.cabin-gc` and `.cabin-build.lock` serve
 [unused-output collection](#unused-build-outputs).
+
+Cabin releases before `.targets` wrote `--target` builds to `<build-dir>/<triple>/<profile>/`.
+Builds no longer use those trees, so [unused-output collection](#unused-build-outputs) removes the
+outputs it recorded there once they age out, as it does any unused output, and leaves the rest.
+`cabin clean` with no `--profile`, `--package`, or `--target` removes them with everything else; to
+keep the rest, delete `<build-dir>/<triple>/` yourself.
+`cabin clean --profile` and `--package` refuse to remove one as the tree of a profile named like
+the triple.
 
 Two effects:
 

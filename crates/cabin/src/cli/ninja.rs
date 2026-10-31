@@ -550,11 +550,11 @@ pub(crate) fn ninja_jobs_arg(jobs: cabin_core::BuildJobs) -> std::ffi::OsString 
 /// Shared by `cabin build` / `cabin run` / `cabin test`, each of which
 /// does its own command-specific work once the build phase is done.
 pub(crate) struct NinjaInvocationRequest<'a> {
-    /// Resolved, absolute build directory - the parent of the
-    /// per-profile build root.
+    /// Resolved, absolute [`cabin_build::layout::platform_dir`] - the
+    /// parent of the per-profile build root.
     pub build_dir: &'a std::path::Path,
-    /// `build_dir` above any `--target` triple, which holds the
-    /// build-directory lock and the usage catalog.
+    /// The build directory itself, which holds the build-directory lock
+    /// and the usage catalog.
     pub build_root: &'a std::path::Path,
     /// Active build profile; its name selects the `build/<profile>`
     /// root and labels the `Finished` banner the caller prints.
@@ -635,7 +635,7 @@ impl Drop for Built {
 pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyhow::Result<Built> {
     let lock = crate::cli::gc::lock_shared(req.build_root, req.reporter)?;
     let collection_due = crate::cli::gc::record_use(req.build_root, req.plan_graph)?;
-    let profile_build_root = req.build_dir.join(req.profile.name.as_str());
+    let profile_build_root = cabin_build::layout::profile_dir(req.build_dir, &req.profile.name);
     std::fs::create_dir_all(&profile_build_root).with_context(|| {
         format!(
             "failed to create build directory {}",

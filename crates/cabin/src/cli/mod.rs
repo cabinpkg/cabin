@@ -544,7 +544,7 @@ pub(crate) struct CleanArgs {
     pub profile: Option<String>,
 
     /// Clean the outputs of `--target <TRIPLE>` builds, under
-    /// `<build-dir>/<TRIPLE>/`, instead of the build machine's.
+    /// `<build-dir>/.targets/<TRIPLE>/`, instead of the build machine's.
     #[arg(long, value_name = "TRIPLE", value_parser = cabin_core::TargetPlatform::from_triple)]
     pub target: Option<cabin_core::TargetPlatform>,
 
@@ -782,7 +782,7 @@ pub(crate) struct ToolchainSelectionArgs {
     /// Build for the platform named by a target triple such as
     /// `aarch64-unknown-linux-gnu` instead of the build machine.
     /// `cfg(...)` conditions evaluate for that platform, outputs go
-    /// under `<build-dir>/<TRIPLE>/`, and Clang compilers receive
+    /// under `<build-dir>/.targets/<TRIPLE>/`, and Clang compilers receive
     /// `--target=<TRIPLE>`.  See `docs/toolchains.md`.
     #[arg(long, value_name = "TRIPLE", value_parser = cabin_core::TargetPlatform::from_triple)]
     pub target: Option<cabin_core::TargetPlatform>,

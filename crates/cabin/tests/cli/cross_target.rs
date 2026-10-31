@@ -78,7 +78,7 @@ fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
     let database: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(
             dir.path()
-                .join("app/build/riscv64-unknown-linux-gnu/dev/compile_commands.json"),
+                .join("app/build/.targets/riscv64-unknown-linux-gnu/dev/compile_commands.json"),
         )
         .unwrap(),
     )
@@ -132,7 +132,7 @@ fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
         .success();
     let stamp = fs::read_to_string(
         dir.path()
-            .join("app/build/riscv64-unknown-linux-gnu/dev/cabin-toolchain.json"),
+            .join("app/build/.targets/riscv64-unknown-linux-gnu/dev/cabin-toolchain.json"),
     )
     .unwrap();
     assert!(stamp.contains("\"build_machine\""), "{stamp}");
@@ -259,7 +259,11 @@ cxxapp = ["src/aarch64.c"]
 
         let build = dir.path().join("build");
         for exe in ["capp", "cxxapp"] {
-            let cross_exe = build.join(triple).join("dev/packages/app").join(exe);
+            let cross_exe = build
+                .join(".targets")
+                .join(triple)
+                .join("dev/packages/app")
+                .join(exe);
             assert_eq!(mach_o_cpu_type(&cross_exe), cpu_type, "{exe}");
             let body = fs::read(&cross_exe).unwrap();
             let picked = format!("picked-{arch}");
@@ -295,7 +299,7 @@ cxxapp = ["src/aarch64.c"]
             .args(["build", "--target", triple])
             .assert()
             .success();
-        let build_root = app.join("build").join(triple).join("dev");
+        let build_root = app.join("build/.targets").join(triple).join("dev");
         let generator = build_root.join("build-machine/packages/gen/gen");
         assert_ne!(mach_o_cpu_type(&generator), cpu_type);
         run_generator(&build_root, dir.path());
@@ -348,7 +352,7 @@ cxxapp = ["src/aarch64.c"]
             )));
         assert!(
             dir.path()
-                .join("build")
+                .join("build/.targets")
                 .join(triple)
                 .join("dev/packages/app/capp")
                 .is_file()
@@ -399,7 +403,7 @@ cxxapp = ["src/aarch64.c"]
             .success()
             .stdout(predicate::str::contains("/tools/runner.sh --emulate /"))
             .stdout(predicate::str::contains(format!(
-                "/build/{triple}/dev/packages/app/capp`"
+                "/build/.targets/{triple}/dev/packages/app/capp`"
             )));
         cabin_with_config()
             .current_dir(&tools)
@@ -415,7 +419,7 @@ cxxapp = ["src/aarch64.c"]
 
         let log = fs::read_to_string(tools.join("runner.sh.log")).unwrap();
         let lines: Vec<&str> = log.lines().collect();
-        let built = format!("/build/{triple}/dev/packages/app/");
+        let built = format!("/build/.targets/{triple}/dev/packages/app/");
         assert_eq!(lines.len(), 5, "{log}");
         assert_eq!(
             [lines[0], lines[2], lines[3]],
