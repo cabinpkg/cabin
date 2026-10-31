@@ -73,16 +73,10 @@ registry:
 # it, so Worker and client changes cannot change TLC's verdict; a
 # runner-side TLC break surfaces on the next model change (accepted).
 tlc:
-  - "registry/proofs/**"
-  - "crates/xtask-registry-guard/**"
   - "Cargo.toml"
   - "Cargo.lock"
   - "rust-toolchain.toml"
   - ".cargo/**"
-  - ".github/workflows/registry.yml"
-  - ".github/workflows/changes.yml"
-  - ".github/actions/required-gate/**"
-  - ".github/path-filters.yml"
 
 # ports-publish.yml: ports/ are what it publishes; the publisher and
 # the cabin client build from the root workspace.
