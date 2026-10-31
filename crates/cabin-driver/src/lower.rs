@@ -1,7 +1,7 @@
 //! Lower the semantic [`BuildAction`] IR into concrete command argv
 //! for a [`Dialect`].
 //!
-//! This is the single point where compile/archive/link intent becomes
+//! This is the single point where compile/assemble/archive/link intent becomes
 //! a real command line. [`lower()`] dispatches on the dialect; the
 //! GNU/Clang and MSVC spellings live side by side below.  The planner,
 //! the IR, and the Ninja writer never spell a flag themselves - they
@@ -20,10 +20,6 @@ use crate::dialect::Dialect;
 
 /// A fully-lowered action: the backend artifact the Ninja writer
 /// renders.
-///
-/// Mirrors the IR action shape - argv plus the metadata Ninja needs -
-/// but is *produced* by lowering, never authored directly by the
-/// planner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoweredAction {
     /// Categorization the backend switches on to pick a rule.
@@ -42,8 +38,7 @@ pub struct LoweredAction {
     pub description: String,
 }
 
-/// Categorization of a lowered action.  A closed set; new variants
-/// require explicit handling by every backend.
+/// Categorization of a lowered action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoweredActionKind {
     /// Compile a single C translation unit (`.c`) to an object file.
@@ -66,9 +61,16 @@ pub enum LoweredActionKind {
 
 /// Lower one semantic [`BuildAction`] for `dialect`.
 ///
-/// Infallible: every path in the semantic IR is already
+/// Returns no error: every path in the semantic IR is already
 /// [`camino::Utf8Path`], so embedding it in a command line cannot
 /// fail.
+///
+/// # Panics
+/// On [`Dialect::Msvc`], panics if a compile's standard has no stable
+/// `/std:` spelling.  The planner keeps such compiles in the graph;
+/// callers must reject them first with
+/// `cabin_build::validate_planned_standards`.  Debug builds also panic
+/// on an MSVC compile with `gnu_extensions` set.
 #[must_use]
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn lower(dialect: Dialect, action: &BuildAction) -> LoweredAction {
@@ -93,9 +95,6 @@ pub fn compile_argv(dialect: Dialect, compile: &CompileAction) -> Vec<String> {
 }
 
 fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
-    // The compiler wrapper is a run-command-only prefix and is
-    // applied here, never in the shared argv builder (so
-    // `compile_commands.json` keeps the underlying compiler).
     let mut command = compile_argv(dialect, compile);
     if let Some(wrapper) = &compile.compiler_wrapper {
         command.insert(0, wrapper.to_string());
@@ -116,8 +115,6 @@ fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
             (kind, vec![stamp.clone()])
         }
     };
-    // Only the GNU/Clang dialect emits a Makefile depfile; MSVC
-    // tracks headers via `/showIncludes` (Ninja `deps = msvc`).
     let depfile = match dialect {
         Dialect::GnuLike => compile.depfile.clone(),
         Dialect::Msvc => None,
@@ -148,12 +145,11 @@ fn gnu_std_flag(standard: LanguageStandard, gnu_extensions: bool) -> String {
     }
 }
 
-/// GNU/Clang compile argv.  The layout is fixed so it reproduces the
-/// historic command lines byte-for-byte: driver, standard, profile
-/// (`-O<n>` / `-g` / `-DNDEBUG`), the `-MD -MF <depfile>` (plus
-/// `-MT <stamp>` in syntax-only mode) dependency block, defines,
-/// includes, system includes, escape-hatch flags, and the
-/// mode-specific tail.
+/// GNU/Clang compile argv: driver, target and sysroot, standard,
+/// profile (`-O<n>` / `-g` / `-DNDEBUG`), the `-MD -MF <depfile>`
+/// (plus `-MT <stamp>` in syntax-only mode) dependency block, defines,
+/// includes, system includes, instruction sets, escape-hatch flags,
+/// and the mode-specific tail.
 fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
@@ -178,9 +174,9 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
         out.push("-MD".to_owned());
         out.push("-MF".to_owned());
         out.push(depfile.to_string());
-        // In syntax-only mode the depfile records the stamp (not an
-        // object) as its target, so header edits still invalidate the
-        // check via Ninja's `deps = gcc` machinery.
+        // In syntax-only mode `-MT` names the stamp, the edge's
+        // output, as the depfile's target; the driver's default target
+        // is `<source stem>.o`, which this edge does not produce.
         if let CompileMode::SyntaxOnly { stamp } = &compile.mode {
             out.push("-MT".to_owned());
             out.push(stamp.to_string());
@@ -320,10 +316,8 @@ fn msvc_std_flag(standard: LanguageStandard) -> &'static str {
 ///
 /// `cl` infers language from extension and only defaults `.cpp` / `.cxx`
 /// to C++; Cabin also classifies `.cc`, `.c++`, and `.C` as C++ (and
-/// `.c` as C).  Driving the language explicitly makes the translation
-/// unit follow Cabin's own source classification rather than `cl`'s
-/// extension table, so every supported extension compiles as the
-/// language Cabin intends.
+/// `.c` as C).  Forcing the language makes every supported extension
+/// compile as the language Cabin classified it.
 fn msvc_source_flag(language: SourceLanguage) -> &'static str {
     match language {
         SourceLanguage::C => "/Tc",
@@ -340,14 +334,11 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
     }
 }
 
-/// MSVC `cl.exe` compile argv.  Mirrors the GNU layout with MSVC
-/// spellings: `/std:` standard, `/utf-8` source/execution charset,
-/// `/EHsc` for C++ exceptions, `/O` optimization, `/Z7` debug info
-/// (embedded in the object so parallel compiles never contend on a
-/// shared PDB), `/showIncludes` for dependency discovery (no
-/// Makefile depfile), `/D` defines, `/I` includes, escape-hatch
-/// flags, and the mode-specific tail (`/c /Tp<src> /Fo<obj>` or
-/// `/Tp<src> /Zs`, with `/Tc` for C).
+/// MSVC `cl.exe` compile argv: the GNU layout with `cl` spellings,
+/// plus `/nologo`, `/utf-8`, and `/EHsc` (C++ only).  `/Z7` embeds
+/// debug info in each object, so parallel compiles never contend on a
+/// shared PDB.  The mode-specific tail is `/c /Tp<src> /Fo<obj>` or
+/// `/Tp<src> /Zs`, with `/Tc` for C.
 fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     debug_assert!(
         !compile.gnu_extensions,
@@ -361,7 +352,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     // source file means, and lets UTF-8-requiring headers (e.g.
     // {fmt}'s `static_assert` on the literal encoding) compile out of
     // the box.  Every `cl` new enough to pass Cabin's `/std:`
-    // validation (19.11+) understands the flag, as does `clang-cl`.
+    // validation (19.10+) understands the flag, as does `clang-cl`.
     out.push("/utf-8".to_owned());
     out.push(msvc_std_flag(compile.standard).to_owned());
     if compile.standard.language() == SourceLanguage::Cxx {
@@ -425,7 +416,6 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
 }
 
 fn lower_archive_msvc(archive: &ArchiveAction) -> Vec<String> {
-    // `lib /nologo /OUT:<lib> <obj>...`.
     let mut command = vec![
         archive.archiver.to_string(),
         "/nologo".to_owned(),
@@ -442,12 +432,12 @@ fn lower_link_msvc(link: &LinkAction) -> Vec<String> {
     // cl.exe consumes object and `.lib` inputs positionally and
     // forwards `/link` options to the linker, so system libraries are
     // spelled `<name>.lib` and passed as positional inputs after the
-    // archives rather than as GNU `-l<name>` flags.  link.exe infers the
-    // subsystem before it searches archives, so when only an archive
-    // member defines `main` (Boost.Test's) and nothing else pulls that
-    // member in, the link fails with LNK1561 unless the subsystem is
-    // named.  CMake and Meson name it for every console executable too;
-    // a later `/SUBSYSTEM` in ldflags still wins.
+    // archives.  link.exe infers the subsystem before it searches
+    // archives, so when only an archive member defines `main`
+    // (Boost.Test's) and nothing else pulls that member in, the link
+    // fails with LNK1561 unless the subsystem is named.  CMake and Meson
+    // name it for every console executable too; a later `/SUBSYSTEM` in
+    // ldflags still wins.
     let mut command = vec![link.linker.to_string(), "/nologo".to_owned()];
     for input in &link.inputs {
         command.push(input.to_string());
@@ -544,9 +534,6 @@ mod tests {
         v.iter().map(|&s| s.to_string()).collect()
     }
 
-    /// A C++ compile exercising every argv segment: optimization +
-    /// debug + NDEBUG, depfile, a define, an include dir, a system
-    /// include dir, and an escape-hatch flag.
     fn cxx_compile(mode: CompileMode) -> CompileAction {
         CompileAction {
             standard: LanguageStandard::Cxx(CxxStandard::Cxx17),
@@ -573,8 +560,6 @@ mod tests {
         }
     }
 
-    /// GNU assembly tracks `#include`d headers through a depfile;
-    /// `ml64` reports none, so MSVC lowers without one.
     #[test]
     fn assemble_lowers_per_dialect() {
         let assemble = |assembler: &str| {
@@ -627,9 +612,6 @@ mod tests {
         );
     }
 
-    /// Both dialects spell an instruction set `-m<name>`, ahead of the
-    /// escape-hatch flags; the planner hands the MSVC dialect one only
-    /// for `clang-cl`.
     #[test]
     fn instruction_sets_lower_to_feature_flags() {
         let mut compile = cxx_compile(CompileMode::Object);
@@ -756,8 +738,6 @@ mod tests {
 
     #[test]
     fn gnu_dialect_spells_gnu_extensions_from_the_iso_level() {
-        // `gnu-extensions` swaps the spelling only; the IR still
-        // carries the ISO level.
         let mut compile = cxx_compile(CompileMode::Object);
         compile.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
         compile.gnu_extensions = true;
@@ -771,7 +751,6 @@ mod tests {
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
         assert_eq!(lowered.command[1], "-std=gnu17");
 
-        // Every level maps 1:1 onto its GNU spelling.
         for (standard, flag) in [
             (LanguageStandard::C(CStandard::C89), "-std=gnu89"),
             (LanguageStandard::C(CStandard::C23), "-std=gnu23"),
@@ -788,8 +767,6 @@ mod tests {
 
     #[test]
     fn gnu_extensions_is_strictly_per_compile() {
-        // Two compiles in one build may differ in both level and
-        // `gnu-extensions`; lowering reads each action alone.
         let mut with_extensions = cxx_compile(CompileMode::Object);
         with_extensions.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
         with_extensions.gnu_extensions = true;
@@ -814,7 +791,6 @@ mod tests {
         let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
         assert_eq!(lowered.command[3], "/std:c17");
-        // The C compile keeps /EHsc off and forces /Tc.
         assert!(!lowered.command.iter().any(|a| a == "/EHsc"));
         assert!(lowered.command.iter().any(|a| a.starts_with("/Tc")));
     }
@@ -889,8 +865,6 @@ mod tests {
         let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(c.clone()));
         assert_eq!(lowered.command[0], "/usr/local/bin/ccache");
         assert_eq!(lowered.command[1], "/usr/bin/g++");
-        // The shared argv builder (used for compile_commands) never
-        // sees the wrapper.
         let unwrapped = compile_argv(Dialect::GnuLike, &c);
         assert_eq!(unwrapped[0], "/usr/bin/g++");
         assert!(!unwrapped.iter().any(|a| a == "/usr/local/bin/ccache"));
@@ -992,8 +966,6 @@ mod tests {
             &BuildAction::Compile(msvc_cxx_compile(CompileMode::Object)),
         );
         assert_eq!(lowered.kind, LoweredActionKind::CompileCpp);
-        // MSVC tracks headers via `/showIncludes`, so no Makefile
-        // depfile is carried on the lowered action.
         assert_eq!(lowered.depfile, None);
         assert_eq!(
             lowered.command,
@@ -1023,9 +995,6 @@ mod tests {
 
     #[test]
     fn system_include_markers_are_omitted_when_no_system_dirs_exist() {
-        // `/external:W0` must not appear on a command with no external
-        // include block, and the GNU spelling must not emit a stray
-        // `-isystem`.
         let mut gnu = cxx_compile(CompileMode::Object);
         gnu.arguments.system_include_dirs = Vec::new();
         let gnu_argv = compile_argv(Dialect::GnuLike, &gnu);
@@ -1067,10 +1036,6 @@ mod tests {
 
     #[test]
     fn msvc_forces_source_language_per_classification() {
-        // `cl` only defaults `.cpp`/`.cxx` to C++; Cabin drives the
-        // language explicitly so any supported extension compiles as the
-        // language Cabin classified it.  The source token carries `/Tp`
-        // for C++ and `/Tc` for C, with no bare source argument.
         let cxx = lower(
             Dialect::Msvc,
             &BuildAction::Compile(msvc_cxx_compile(CompileMode::Object)),
@@ -1156,8 +1121,6 @@ mod tests {
 
     #[test]
     fn msvc_link_names_the_console_subsystem_without_ldflags() {
-        // `main` may come from an archive member, which link.exe has not
-        // searched yet when it infers the subsystem (LNK1561).
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
             target: None,
@@ -1185,9 +1148,6 @@ mod tests {
 
     #[test]
     fn gnu_link_lowers_link_libs_after_archives() {
-        // System libraries are spelled `-l<name>` and placed after the
-        // archive inputs and ldflags so GNU `ld` resolves them
-        // left-to-right against the archives that reference them.
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("/usr/bin/cc"),
             target: None,
@@ -1221,9 +1181,6 @@ mod tests {
 
     #[test]
     fn msvc_link_lowers_link_libs_as_dot_lib_inputs() {
-        // MSVC `link` has no `-l<name>`; system libraries are spelled
-        // `<name>.lib` and passed as positional inputs (after the
-        // archives, before `/Fe`), not GNU-style flags.
         let action = BuildAction::Link(LinkAction {
             linker: Utf8PathBuf::from("cl.exe"),
             target: None,

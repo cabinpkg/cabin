@@ -1,26 +1,20 @@
 //! Typed dependency-tree and explain models for `cabin tree` and
-//! `cabin explain`.
+//! `cabin explain`, built from the same loaded `PackageGraph` +
+//! lockfile + active patch / source-replacement state that
+//! `cabin metadata` reads:
 //!
-//! `cabin metadata` already exposes the loaded package state as
-//! a deterministic JSON document.  This crate adds two
-//! complementary, lower-bandwidth views on the same loaded
-//! `PackageGraph` + lockfile + active patch / source-replacement
-//! state:
-//!
-//! - [`build_tree`] returns a [`TreeNode`] showing every package
+//! - [`build_tree`] returns a [`TreeNode`] forest of the packages
 //!   in the loaded [`PackageGraph`] reachable from the selected
 //!   primary packages,
 //!   with edges tagged by [`cabin_core::DependencyKind`] and
 //!   provenance pulled from the lockfile / active patch set.
 //!   Renderers ([`render_tree_human`] /
 //!   [`render_tree_json`]) turn the typed tree into either a
-//!   stable text drawing or a structured JSON document; the JSON
-//!   document shares its package shape with `cabin metadata`.
+//!   stable text drawing or a structured JSON document.
 //!
 //! - [`explain_package`] / [`explain_target`] /
-//!   [`explain_source`] / [`explain_feature`] each return a
-//!   typed [`Explanation`] answering "why is X selected", "where
-//!   does X come from", and "which feature lit up X".  Each
+//!   [`explain_source`] / [`explain_feature`] each return the
+//!   payload of one [`Explanation`] variant.  Each
 //!   variant carries only structured data so callers can render
 //!   either a human-readable summary
 //!   ([`render_explanation_human`]) or a stable JSON document
@@ -54,9 +48,6 @@
 //! - JSON keys are emitted in struct-declaration order;
 //! - paths surfaced through the API are *not* normalized here -
 //!   that is the orchestration layer's job.
-//!
-//! Anything that mutates the inputs is the orchestration layer's
-//! responsibility; this crate only reads them.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::BuildHasher;
@@ -70,15 +61,11 @@ use thiserror::Error;
 
 /// Provenance label for one node in a [`TreeNode`] or one
 /// step in an [`Explanation::Package`] chain.
-///
-/// The variants reflect the load-bearing distinctions Cabin
-/// already makes elsewhere: a workspace member, a local path
-/// dependency, a patched local working copy, or a registry
-/// package the artifact pipeline materialized.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum SourceProvenance {
-    /// A workspace member declared by the root manifest's
+    /// A primary package: the root of a single-package graph, or a
+    /// workspace member declared by the root manifest's
     /// `[workspace.members]` table.
     WorkspaceMember,
     /// A local `path = "..."` dependency that lives outside the
@@ -98,9 +85,8 @@ pub enum SourceProvenance {
     /// by the artifact pipeline.  Carries the recorded checksum
     /// when the lockfile pinned one.
     Registry {
-        /// Checksum recorded for this version, if
-        /// any.  `None` when the lockfile predates checksum
-        /// recording.
+        /// Checksum the lockfile records for this exact version,
+        /// if any.
         #[serde(skip_serializing_if = "Option::is_none")]
         checksum: Option<cabin_core::Checksum>,
     },
@@ -180,10 +166,10 @@ fn follows(
         && platform.is_none_or(|platform| edge.matches_platform(platform))
 }
 
-/// Build a deterministic [`TreeNode`] forest rooted at every
-/// index in `roots`.  Returned as a single root-less synthetic
-/// vector with the documented sort key applied at every level
-/// so renderers can iterate without re-sorting.
+/// Build a deterministic [`TreeNode`] forest rooted at
+/// `inputs.roots` (the graph's primary packages when empty).
+/// Every level is sorted, so renderers iterate without
+/// re-sorting.
 pub fn build_tree(inputs: &TreeInputs<'_>) -> Vec<TreeNode> {
     let roots: Vec<usize> = if inputs.roots.is_empty() {
         inputs.graph.primary_packages.clone()
@@ -430,8 +416,8 @@ pub fn render_tree_json(forest: &[TreeNode]) -> serde_json::Value {
     )
 }
 
-/// Typed explanation chain returned by every `cabin explain`
-/// query.  Renderers read the variant to choose the layout; the
+/// Typed result of a `cabin explain` package, target, source,
+/// or feature query.  Renderers read the variant to choose the layout; the
 /// JSON output is a tagged union so downstream tooling sees the
 /// query kind without re-parsing.
 #[derive(Debug, Clone, Serialize)]
@@ -502,7 +488,7 @@ pub struct TargetExplanation {
     #[serde(rename = "target_kind")]
     pub target_kind: String,
     /// Names of source-language families the target carries
-    /// (`c`, `cxx`, `rust`).  Sorted alphabetically.
+    /// (`c`, `cxx`).  Sorted alphabetically.
     pub languages: Vec<String>,
     /// Manifest-declared dep references for this target, in
     /// declaration order (the raw spellings; per-edge visibility is
@@ -532,16 +518,16 @@ pub struct SourceExplanation {
     pub name: String,
     pub version: String,
     pub source: SourceProvenance,
-    /// Active source-replacement entries the orchestration
-    /// layer surfaced as relevant to this query (typically
-    /// every entry in the merged config since one chain may
-    /// rewrite many packages).  Empty when no replacements are
-    /// active.
+    /// Every entry of the source-replacement settings passed to
+    /// [`explain_source`], sorted, each rendered as
+    /// `<original> -> <replacement> (<provenance>)`.  Not filtered
+    /// to this package, since one chain may rewrite many packages.
+    /// Empty when no replacements are configured.
     pub source_replacements: Vec<String>,
 }
 
-/// Explain a feature's enablement: declared, enabled, what it
-/// implies, and which root pulled it in if any.
+/// Explain a feature: whether it is enabled, whether it is in
+/// the `default` group, and what it implies.
 #[derive(Debug, Clone, Serialize)]
 pub struct FeatureExplanation {
     pub package: String,
@@ -604,11 +590,8 @@ pub fn explain_package(
     }
     paths.sort_by(|a, b| {
         a.len().cmp(&b.len()).then_with(|| {
-            // Element-wise lexicographic name comparison.  The
-            // primary key guarantees equal lengths here, so this
-            // is the name-sequence order the `paths` field
-            // documents, without allocating a joined string per
-            // comparison.
+            // Element-wise name order: the name-sequence order the
+            // `paths` field documents.
             a.iter()
                 .map(|s| s.name.as_str())
                 .cmp(b.iter().map(|s| s.name.as_str()))
@@ -659,11 +642,8 @@ fn locate_package(graph: &PackageGraph, name: &str) -> Result<usize, ExplainErro
     }
 }
 
-/// The known package names, sorted, capped at 10.  Surfaced as the
-/// `candidates` list in `PackageNotFound`; it lists what *is* known
-/// rather than ranking by similarity to the query (the resolver
-/// package count is small enough that edit-distance would be
-/// overkill), so the rendered error reads "known packages: …".
+/// The first 10 known package names, sorted, for the `candidates`
+/// list in `PackageNotFound`.
 fn known_package_names(graph: &PackageGraph) -> Vec<String> {
     let mut names: Vec<String> = graph
         .packages
@@ -680,9 +660,8 @@ fn known_package_names(graph: &PackageGraph) -> Vec<String> {
 
 /// Walk the graph from `start` to `target` and return the shortest
 /// paths of package indices - at most [`MAX_PATHS_PER_ROOT`] of them,
-/// with the flag saying whether more existed.  Edge kinds are recorded
-/// by the caller through [`materialize_path`] so the resulting
-/// [`ExplainStep`]s carry the right edge label.
+/// with the flag saying whether more existed.  The caller labels each
+/// step's edge kind through [`materialize_path`].
 fn shortest_paths_to(
     graph: &PackageGraph,
     start: usize,
@@ -862,9 +841,6 @@ pub fn explain_target(
         languages: languages.into_iter().map(str::to_owned).collect(),
         deps: target.deps.iter().map(|d| d.reference.clone()).collect(),
         required_features: target.required_features.clone(),
-        // Buildable = anything that emits compile/archive/link
-        // actions.  Excludes the header-only kinds because they
-        // contribute no translation units of their own.
         is_buildable: kind.produces_archive() || kind.produces_executable(),
         is_test: kind.is_test(),
         is_dev_only: kind.is_dev_only(),
@@ -975,10 +951,9 @@ pub fn explain_feature(
     })
 }
 
-/// `cabin explain build-config <package>` returns the package's
-/// resolved [`cabin_core::BuildConfiguration`].  The orchestration
-/// layer already knows how to render it through
-/// `BuildConfiguration::as_json`, so this crate looks it up.
+/// Look up the package's resolved [`cabin_core::BuildConfiguration`]
+/// for `cabin explain build-config <package>`; the orchestration
+/// layer renders it through `BuildConfiguration::as_json`.
 ///
 /// # Errors
 /// Propagates [`ExplainError::PackageNotFound`] or
@@ -1105,10 +1080,9 @@ pub enum ExplainError {
         name: String,
         candidates: Vec<String>,
     },
-    /// More than one package shares the same name.  This is
-    /// rejected by the resolver today, but the variant is
-    /// retained so future graph changes have a clear failure
-    /// mode.
+    /// More than one package shares the same name.  The
+    /// workspace loader rejects duplicate package names, so a
+    /// loaded graph does not produce this.
     #[error(
         "package name `{name}` matches multiple packages with versions: {}",
         versions.join(", ")
@@ -1148,23 +1122,18 @@ pub enum ExplainError {
         candidates: Vec<String>,
     },
     /// The orchestration layer did not compute a build
-    /// configuration for this package.  Today this happens only
-    /// when the user asks about a package outside the selected
-    /// closure.
+    /// configuration for this package, typically because it lies
+    /// outside the selected closure.
     #[error(
         "no build configuration was resolved for package `{name}`; check the workspace selection"
     )]
     NoBuildConfiguration { name: String },
 }
 
-/// Stand-in module that names the per-package feature view this
-/// crate consumes through a thin `&FeatureView` parameter.  The
-/// orchestration layer (`cabin`) already builds the typed
-/// `cabin_feature::FeatureResolution`; rather than depending on
-/// the full crate from a query-only library, we accept an
-/// abstract view object so the orchestration layer can adapt the
-/// existing types into our shape without leaking the resolver
-/// crate boundary.
+/// Per-package feature view for `explain_feature`.  The
+/// orchestration layer (`cabin`) adapts its
+/// `cabin_feature::FeatureResolution` into this shape, so this
+/// crate does not depend on `cabin-feature`.
 pub mod cabin_feature_per_package_view {
     use std::collections::BTreeSet;
 
@@ -1265,7 +1234,6 @@ mod tests {
         assert_eq!(root.name, "app");
         let kinds: Vec<&'static str> = root.children.iter().map(|c| c.edge_kind.unwrap()).collect();
         assert_eq!(kinds, vec!["normal"]);
-        // lib's child appears under lib.
         assert_eq!(root.children[0].children[0].name, "util");
     }
 
@@ -1321,8 +1289,7 @@ mod tests {
         assert_eq!(a, b, "render must be deterministic");
         assert!(a.contains("app v0.1.0"));
         assert!(a.contains("lib v0.2.0 [normal]"));
-        // The second-to-last child uses `└──` because there's
-        // exactly one normal-kind dep under app.lib.
+        // `util` is `lib`'s only, hence last, child.
         assert!(a.contains("└── util"));
     }
 
@@ -1451,9 +1418,6 @@ mod tests {
         assert!(human.contains("more shortest paths exist"), "{human}");
     }
 
-    /// A dependency active as both normal and dev is two edges to one
-    /// package; reconstruction must yield one path, not two identical
-    /// ones competing for the cap.
     #[test]
     fn parallel_edges_reconstruct_one_path() {
         let mut graph = three_pkg_graph();
@@ -1472,7 +1436,6 @@ mod tests {
         let graph = three_pkg_graph();
         let exp = explain_package(&graph, &[0], "app", None, None, None, None).unwrap();
         assert!(exp.is_selected_root);
-        // Path from root to root has a single step.
         assert_eq!(exp.paths.len(), 1);
         assert_eq!(exp.paths[0].len(), 1);
     }
@@ -1494,8 +1457,6 @@ mod tests {
     #[test]
     fn explain_target_returns_owning_package_and_kind_flags() {
         let graph = three_pkg_graph();
-        // Build a small fixture with one target so we can hit
-        // the explain_target path.
         let mut graph = graph;
         let target = cabin_core::Target {
             name: cabin_core::TargetName::new("util").unwrap(),
@@ -1560,8 +1521,6 @@ mod tests {
         assert!(matches!(err, ExplainError::InvalidFeatureQuery { .. }));
     }
 
-    /// The query splits on the *last* `/`, so a scoped package's
-    /// feature is addressable as `<scope>/<name>/<feature>`.
     #[test]
     fn explain_feature_resolves_scoped_package_queries() {
         let mut graph = three_pkg_graph();

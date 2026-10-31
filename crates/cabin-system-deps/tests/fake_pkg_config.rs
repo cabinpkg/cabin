@@ -86,9 +86,6 @@ fn probe_finds_dep_with_no_version_requirement() {
     let r = h.probe("zlib", "").unwrap();
     assert_eq!(r.name, "zlib");
     assert_eq!(r.version.as_deref(), Some("1.2.13"));
-    // pkg-config include dirs are third-party search paths, so they
-    // land in the system bucket; the plain `-I` bucket is reserved
-    // for the compiler's default search dirs.
     assert_eq!(
         r.flags.system_include_dirs,
         vec![PathBuf::from("/opt/zlib/include")],
@@ -223,8 +220,6 @@ fn probe_dedupes_include_paths_but_keeps_link_order() {
         vec![PathBuf::from("/opt/dup/include")],
     );
     assert_eq!(res.flags.extra_compile_args, vec!["-fPIC".to_owned()]);
-    // Link tokens are preserved exactly as pkg-config reported
-    // them.
     assert_eq!(
         res.flags.ldflags,
         vec!["-lfoo".to_owned(), "-lbar".to_owned(), "-lfoo".to_owned()],

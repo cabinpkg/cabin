@@ -9,25 +9,19 @@
 //!   so tests can assert Cabin built the command line correctly.
 //! - Treats every remaining argument as a file path.  For each
 //!   file:
-//! - if its contents contain the sentinel marker
-//!   `// CABIN-TIDY-FAIL`, emit a deterministic
-//!   `<path>:1:1: warning: fake-clang-tidy diagnostic`-shaped
-//!   line on stderr and remember to exit non-zero;
-//! - otherwise, in non-quiet mode, print a "checked" status
-//!   line on stdout;
-//! - in `-quiet` mode, print nothing for clean files.
-//! - If `CABIN_FAKE_TIDY_RECORD` points at a writable path,
-//!   append a tab-separated record of the invocation so tests
-//!   can inspect the exact argv Cabin produced.  This
-//!   side-channel is opt-in; tests that don't set the env never
-//!   write a file.
+//!   - if its contents contain the sentinel marker
+//!     `// CABIN-TIDY-FAIL`, emit a deterministic
+//!     `<path>:1:1: warning: fake-clang-tidy diagnostic`-shaped
+//!     line on stderr and remember to exit 1;
+//!   - otherwise, in non-quiet mode, print a "checked" status
+//!     line on stdout;
+//!   - in `-quiet` mode, print nothing for clean files.
+//! - If `CABIN_FAKE_TIDY_RECORD` is set, append a tab-separated
+//!   record of the invocation to that path so tests can inspect
+//!   the exact argv Cabin produced.
 //!
-//! Files that do not exist cause an exit code of 2 and a
-//! single-line error on stderr, matching how `clang-tidy` itself
-//! behaves when handed a missing path.
-//!
-//! The sentinel marker is an implementation detail of the
-//! tests; production source code never contains it.
+//! A file that cannot be read causes exit code 2 and a
+//! single-line error on stderr.
 
 use std::fs;
 use std::io::Write;

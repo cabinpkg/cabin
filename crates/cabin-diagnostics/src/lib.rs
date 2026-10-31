@@ -1,17 +1,14 @@
 //! User-facing diagnostic presentation for Cabin's typed
 //! domain errors.
 //!
-//! Domain crates return strongly typed `thiserror` enums;
-//! without a dedicated presentation layer the CLI orchestrator
-//! wraps each one in `anyhow::with_context`, duplicating the
-//! path / operation the typed error already names.
-//! `cabin-diagnostics` is the single home for the presentation
-//! contract:
+//! Domain crates return typed `thiserror` enums;
+//! `cabin-diagnostics` is the single home for their
+//! presentation contract:
 //!
-//! - **Stable codes.** [`code`] is the registry of diagnostic
-//!   codes (`cabin::workspace::manifest_not_found`,
-//!   `cabin::manifest::parse_error`, …) that user-facing
-//!   errors point at.  Codes are stable across releases.
+//! - **Stable codes.** Diagnostic codes
+//!   (`cabin::workspace::manifest_not_found`,
+//!   `cabin::config::load_failed`, …) are stable across releases.
+//!   [`code`] holds the ones the CLI attaches as a `&str`.
 //! - **Rendering.** [`render`] walks a [`miette::Diagnostic`]
 //!   and emits the report through miette's `fancy`
 //!   `GraphicalReportHandler`: source-spanned diagnostics get
@@ -38,14 +35,14 @@ pub use miette;
 ///
 /// Codes look like `cabin::<area>::<symbol>`.  They are
 /// embedded in error reports for users and tooling to match
-/// on.  The owning crate's `#[diagnostic(code(...))]`
-/// attribute is the canonical source - miette's `code(...)`
-/// takes a bareword path token, not a `&str`, so it cannot
-/// reference a constant - and this module hand-mirrors a
-/// constant only for the codes the CLI needs as a `&str`
-/// value (for [`CodedMessage`]).  Every code's wording, when
-/// it fires, and the user action belong in the diagnostics
-/// docs.
+/// on.  This module holds the codes the CLI attaches as a
+/// `&str` (through [`CodedMessage`]).  A typed error deriving
+/// [`miette::Diagnostic`] spells its code in
+/// `#[diagnostic(code(...))]`, which takes a bareword path
+/// token and cannot reference a constant, so a code used both
+/// ways (`cabin::resolver::error`) is written in both places.
+/// Every code's wording, when it fires, and the user action
+/// belong in the diagnostics docs.
 pub mod code {
     /// Fallback for config discovery, read, parse, and validation
     /// failures.
@@ -222,11 +219,8 @@ mod tests {
     )]
     struct NotFound;
 
-    /// miette's fancy renderer carries the diagnostic message,
-    /// the stable code, and the help text.  Exact glyphs and
-    /// padding are miette's; this test pins the load-bearing
-    /// content rather than the layout so a miette point release
-    /// doesn't force a churn here.
+    /// Checks content only: glyphs and padding are miette's and
+    /// may change across its releases.
     #[test]
     fn render_includes_message_code_and_help() {
         let rendered = render_to_string(&NotFound);
@@ -259,9 +253,7 @@ mod tests {
 
     #[test]
     fn render_skips_color_when_writer_does_not_support_it() {
-        // `NoColor` reports `supports_color() == false`; the
-        // renderer must pick the no-color theme and emit no
-        // escape sequences.
+        // `NoColor` reports `supports_color() == false`.
         let mut sink: termcolor::NoColor<Vec<u8>> = termcolor::NoColor::new(Vec::new());
         render(&NotFound, &mut sink).expect("render should not fail");
         let bytes = sink.into_inner();

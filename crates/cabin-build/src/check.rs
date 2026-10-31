@@ -1,11 +1,9 @@
 //! Transform a normal build graph into a syntax-check graph for
-//! `cabin check`.  Each *workspace* compile becomes an `-fsyntax-only`
-//! check that produces a stamp instead of an object; archive, link,
-//! and dependency-package compiles are dropped.  Pure and
-//! backend-independent: the transform flips each compile's
-//! [`CompileMode`] to [`CompileMode::SyntaxOnly`] semantically, and
-//! the dialect lowering (`cabin-ninja` via [`cabin_driver::lower()`])
-//! renders it through the `c_check` / `cxx_check` rules.
+//! `cabin check`.  Each compile of a selected package becomes a
+//! syntax-only check that produces a stamp instead of an object, which
+//! `cabin-ninja` lowers via [`cabin_driver::lower()`] and renders
+//! through the `c_check` / `cxx_check` rules; every other action is
+//! dropped.
 
 use std::path::PathBuf;
 
@@ -15,7 +13,7 @@ use cabin_driver::{BuildAction, CompileMode};
 
 use crate::graph::{BuildGraph, StandardViolation};
 
-/// Stamp file Ninja `touch`es after a successful syntax check.  Lives
+/// Stamp file `cabin stamp` writes after a successful syntax check.  Lives
 /// beside the object the normal build would have produced, so Ninja
 /// creates the same parent directory and the retained depfile write
 /// lands in an existing directory.
@@ -25,8 +23,8 @@ fn check_stamp_path(object: &Utf8Path) -> Utf8PathBuf {
 
 /// Rewrite a build graph into a syntax-check graph: every compile of a
 /// selected workspace package becomes an `-fsyntax-only` check that
-/// produces a stamp instead of an object, and all archive, link, and
-/// dependency-package actions are dropped. `selected_pkg_dirs` are the
+/// produces a stamp instead of an object, and all assemble, archive, link,
+/// and dependency-package actions are dropped. `selected_pkg_dirs` are the
 /// per-package build directories (`<build_dir>/<profile>/packages/<pkg>`)
 /// whose translation units should be checked.
 ///
@@ -48,8 +46,6 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
     let mut actions = Vec::new();
     let mut default_outputs = Vec::new();
     for action in graph.actions {
-        // Only compiles survive a check; archives and links are never
-        // run in check mode and are dropped.
         let BuildAction::Compile(mut compile) = action else {
             continue;
         };
@@ -86,8 +82,6 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
         .collect();
     BuildGraph {
         actions,
-        // The check graph keeps the original build's dialect so its
-        // syntax-check commands are spelled the same way.
         dialect: graph.dialect,
         default_outputs,
         planned_packages: graph.planned_packages,
@@ -203,10 +197,9 @@ mod tests {
         // The new default target is the stamp, not the old exe.
         assert_eq!(out.default_outputs, vec![stamp.clone()]);
 
-        // Lowering yields the historic syntax-only command: drop `-c`
-        // and `-o <object>`, retarget the retained depfile at the stamp
-        // with `-MT`, append `-fsyntax-only`, and emit the stamp as the
-        // sole output.
+        // Lowering drops `-c` and `-o <object>`, retargets the retained
+        // depfile at the stamp with `-MT`, appends `-fsyntax-only`, and
+        // emits the stamp as the sole output.
         let lowered = lower(Dialect::GnuLike, &out.actions[0]);
         assert_eq!(lowered.kind, LoweredActionKind::SyntaxCheckCpp);
         assert!(lowered.command.contains(&"-fsyntax-only".to_string()));

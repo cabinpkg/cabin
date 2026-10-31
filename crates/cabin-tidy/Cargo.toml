@@ -18,14 +18,9 @@ thiserror = { workspace = true }
 [dev-dependencies]
 assert_fs = { workspace = true }
 
-# Tiny stand-in for `run-clang-tidy` used by the test suite.
-# The real `run-clang-tidy` is not guaranteed to be on every
-# developer's machine, so the unit / integration tests use this
-# binary via `CABIN_TIDY` to simulate normal invocation, the
-# `-p <build-path>` argument, file selection, fix-mode handling,
-# parallel jobs, diagnostics, and non-zero exit behavior
-# deterministically. The bin is gated on the `test-fake-tidy`
-# feature so end-user installs do not pull it in.
+# Test-only stand-in for `run-clang-tidy`, so the tests need no LLVM
+# install. Gated on the `test-fake-tidy` feature so builds without it,
+# including end-user installs, skip the bin.
 [features]
 test-fake-tidy = []
 

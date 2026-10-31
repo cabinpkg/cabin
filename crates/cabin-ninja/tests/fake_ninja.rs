@@ -1,15 +1,9 @@
-//! End-to-end tests for the bundled fake ninja binary.
-//!
-//! The fake ninja (`cabin-ninja-fake-ninja`) records the
-//! invocation argv to a file specified by
-//! `CABIN_FAKE_NINJA_RECORD` and exits with status 0.  Cabin's
-//! CLI integration tests use it to assert exactly which argv
-//! `cabin build` / `cabin run` / `cabin test` pass to the
-//! backend without depending on a real Ninja install.
+//! End-to-end tests for the bundled fake ninja binary
+//! (`cabin-ninja-fake-ninja`).
 //!
 //! Gated on the `test-fake-ninja` feature so the binary the
 //! tests need is guaranteed to be built; a standalone
-//! `cargo test -p cabin-ninja` (without the feature) compiles
+//! `cargo test -p cabinpkg-ninja` (without the feature) compiles
 //! this file to nothing and the lib unit tests run on their
 //! own.
 

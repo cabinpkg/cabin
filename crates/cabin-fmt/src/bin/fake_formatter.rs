@@ -1,9 +1,6 @@
-//! Test-only stand-in for `clang-format`.
-//!
-//! The Cabin test suite needs a deterministic formatter
-//! executable without assuming a real `clang-format` is on
-//! every developer's machine.  This binary mimics the small
-//! subset of clang-format's surface area `cabin fmt` invokes:
+//! Test-only stand-in for `clang-format`, which is not on every
+//! developer's machine.  It mimics, deterministically, the subset
+//! of clang-format's command line `cabin fmt` invokes:
 //!
 //! - **Write mode** (`-i` is present in argv): for every file
 //!   argument that *does not already end with the sentinel
@@ -14,18 +11,13 @@
 //!   file lacks the sentinel marker; otherwise exit 0.  No
 //!   files are written in this mode.
 //!
-//! Files that do not exist cause an exit code of 2 and a
-//! single-line error on stderr, matching how `clang-format`
-//! itself behaves when handed a missing path.
+//! A file that cannot be read or written causes exit status 2 and
+//! a single-line error on stderr.  (Real `clang-format` exits 1 for
+//! a missing file.)
 //!
 //! `--style=file` (or any other `--style=` value) is required:
-//! if absent, the fake exits with status 3.  This turns the
-//! library's contract - that `cabin fmt` always passes
-//! `--style=file` - into a real assertion every integration
-//! test reaches for free.
-//!
-//! The sentinel marker is an implementation detail of the
-//! tests; production code never sees it.
+//! if absent, the fake exits with status 3, so every test that
+//! reaches the fake asserts that `cabin fmt` passes it.
 
 use std::fs;
 use std::path::PathBuf;
@@ -36,8 +28,7 @@ const MARKER: &str = "/* FORMATTED */";
 fn main() -> ExitCode {
     // `cabin fmt` scrubs the registry credential before spawning the
     // formatter; failing loudly here turns every integration test
-    // into an enforcement point for that contract (same pattern as
-    // the `--style=file` assertion below).
+    // into an enforcement point for that contract.
     if std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).is_some() {
         eprintln!("fake formatter: CABIN_REGISTRY_TOKEN leaked into the tool environment");
         return ExitCode::from(4);
@@ -72,8 +63,6 @@ fn main() -> ExitCode {
     }
 
     if write_mode {
-        // Real clang-format rewrites the file in place, which is
-        // good enough to simulate.
         for path in &files {
             let body = match fs::read_to_string(path) {
                 Ok(b) => b,

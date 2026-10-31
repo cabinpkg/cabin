@@ -1,17 +1,11 @@
 //! End-to-end tests for the `cabin-fmt` library that exercise
-//! a real subprocess via the bundled fake formatter binary.
-//!
-//! The fake formatter (`cabin-fmt-fake-formatter`) implements
-//! the minimum slice of `clang-format`'s command-line surface
-//! the library invokes: `-i` rewrites files in place by
-//! appending a sentinel marker, and `--dry-run -Werror` exits
-//! non-zero if any input file lacks the marker.  These tests
-//! treat the fake formatter as a black box and verify the
-//! library's report contract.
+//! a real subprocess via the bundled fake formatter binary
+//! (`cabin-fmt-fake-formatter`), verifying the library's report
+//! contract.
 //!
 //! Gated on the `test-fake-formatter` feature so the binary
 //! the tests need is guaranteed to be built; a standalone
-//! `cargo test -p cabin-fmt` (without the feature) compiles
+//! `cargo test -p cabinpkg-fmt` (without the feature) compiles
 //! this file to nothing and the lib unit tests run on their
 //! own.
 
@@ -33,7 +27,6 @@ fn fake_formatter_path() -> PathBuf {
         .parent()
         .expect("test exe should live in a directory")
         .to_path_buf();
-    // `target/debug/deps/<test>` → `target/debug/deps`.
     if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
         dir.pop();
     }
@@ -107,7 +100,6 @@ fn check_mode_reports_needs_formatting_when_dirty() {
         "fake formatter should forward its per-file diagnostic, got: {stderr:?}"
     );
 
-    // Check mode must not modify files.
     let body = std::fs::read_to_string(file.path()).unwrap();
     assert_eq!(body, "int main() { return 0; }\n");
 }

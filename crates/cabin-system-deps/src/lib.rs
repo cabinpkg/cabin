@@ -12,15 +12,12 @@
 //! - it accepts typed inputs ([`SystemDependencyProbeRequest`])
 //!   and emits typed outcomes ([`SystemDependencyResolution`]);
 //! - it never reads Cabin's configuration files, walks the
-//!   filesystem, or merges resolved flags into the build planner
-//! - the orchestration layer threads the report into
+//!   filesystem, or merges resolved flags into the build planner;
+//!   the orchestration layer threads the report into
 //!   `ResolvedProfileFlags`.
 //!
-//! The crate is invoked once per `cabin build` / `cabin run` /
-//! `cabin test` / `cabin tidy` / `cabin metadata` invocation when
-//! the selected workspace declares at least one system dependency;
-//! a workspace with no system dependencies never spawns
-//! `pkg-config`.
+//! Cabin spawns `pkg-config` only when a primary package declares an
+//! active system dependency.
 
 #![deny(missing_docs)]
 
@@ -64,9 +61,7 @@ where
 /// Holds the resolved executable name (or absolute path) and the
 /// optional extra env vars Cabin applies to every child
 /// invocation.  Constructed once per orchestrating call and
-/// reused across every system dependency to keep the diagnostic
-/// shape stable.  Tests can attach a fixture-pointing env var
-/// here without touching the process-wide environment.
+/// reused across every system dependency.
 #[derive(Debug, Clone)]
 pub struct PkgConfigTool {
     executable: OsString,
@@ -108,12 +103,8 @@ impl PkgConfigTool {
         &self.executable
     }
 
-    /// Verify the executable is reachable.  Returns
-    /// [`PkgConfigError::ExecutableNotFound`] when the spawn
-    /// returns `NotFound`, and [`PkgConfigError::InvocationFailed`]
-    /// for any other spawn / exit error.  Successful invocations
-    /// (any exit status) are reported as `Ok(())` so callers can
-    /// move on to the actual probe.
+    /// Verify the executable can be spawned by running
+    /// `pkg-config --version`.  Any exit status counts as available.
     ///
     /// # Errors
     /// Returns [`PkgConfigError::ExecutableNotFound`] when spawning
@@ -137,10 +128,8 @@ impl PkgConfigTool {
 /// the shared [`PkgConfigTool`] handle.
 #[derive(Debug, Clone)]
 pub struct SystemDependencyProbeRequest<'a> {
-    /// The system dependency name.  This is the package name
-    /// Cabin passes to `pkg-config` - Cabin does not yet support
-    /// a separate `pkg-config-name` field, so the manifest name
-    /// and the pkg-config name are identical.
+    /// The system dependency name from the manifest, passed to
+    /// `pkg-config` as the module name.
     pub name: &'a str,
     /// Free-form version requirement string as declared in the
     /// manifest.  Empty when no version constraint was specified.
@@ -174,8 +163,8 @@ pub struct SystemDependencyResolution {
 pub struct SystemDependencyFlags {
     /// Include directories from `-I` tokens in `--cflags` that must
     /// stay plain `-I` search paths: the compiler's default search
-    /// dirs (`/usr/include`, `/usr/local/include`), which GCC
-    /// documents must never be re-spelled `-isystem`.  The `-I`
+    /// dirs (`/usr/include`, `/usr/local/include`), which must not be
+    /// re-spelled `-isystem`.  The `-I`
     /// prefix has been stripped so the orchestration layer can hand
     /// them to [`cabin_core::ResolvedProfileFlags::include_dirs`]
     /// verbatim.
@@ -213,18 +202,13 @@ impl SystemDependencyFlags {
 /// `#include_next` in libc headers. `pkg-config` normally omits its
 /// built-in default dirs from `--cflags`; when a `.pc` file forces
 /// one through anyway, it stays in the plain `-I` bucket - which the
-/// compiler then ignores for directories it already searches,
-/// exactly the historical behavior.
+/// compiler then ignores for directories it already searches.
 const DEFAULT_SEARCH_INCLUDE_DIRS: &[&str] = &["/usr/include", "/usr/local/include"];
 
 /// Errors surfaced by the probe layer.
 ///
-/// User-facing variants carry stable
-/// `cabin::system_deps::<symbol>` diagnostic codes so external
-/// tooling can match against them.  Internal-only variants exist
-/// for the rare "pkg-config produced output we cannot interpret"
-/// case so the orchestration layer can still print a useful
-/// message.
+/// Every variant carries a stable `cabin::system_deps::<symbol>`
+/// diagnostic code so external tooling can match against it.
 #[derive(Debug, Error, Diagnostic)]
 pub enum PkgConfigError {
     /// The `pkg-config` executable Cabin tried to spawn was not
@@ -295,9 +279,10 @@ pub enum PkgConfigError {
         installed: Option<String>,
     },
 
-    /// The version requirement string in the manifest could not
-    /// be interpreted as a recognized `SemVer` comparator list and
-    /// `pkg-config` itself rejected it.  The probe layer never
+    /// The version requirement string in the manifest is neither a
+    /// recognized `SemVer` comparator list nor a sequence of
+    /// `op version` pairs with a `pkg-config` comparison operator.
+    /// Detected before `pkg-config` runs.  The probe layer never
     /// rewrites the user's text; the diagnostic quotes it
     /// verbatim.
     #[error("system dependency {name:?} declares unsupported version requirement {requirement:?}")]
@@ -362,16 +347,16 @@ fn display_block(stderr: &str) -> String {
 ///
 /// The implementation always asks `pkg-config` to evaluate the
 /// version constraint when one is present so the comparison
-/// honors pkg-config's own debian-style version rules.  Cabin
+/// honors pkg-config's own RPM-style version rules.  Cabin
 /// converts the comparator list to `pkg-config`'s argv form
-/// where possible; if conversion fails because the requirement
-/// is not recognizable `SemVer`, the raw requirement is forwarded
-/// verbatim so pkg-config still gets a chance to interpret it.
+/// where possible; a requirement that is not recognizable
+/// `SemVer` is forwarded as its whitespace-separated `op version`
+/// pairs, each preceded by the module name.
 ///
 /// # Errors
 /// Returns [`PkgConfigError::InvalidVersionRequirement`] when the
-/// version requirement is neither recognizable `SemVer` nor a token
-/// pkg-config could accept.  When `--exists` fails, returns
+/// version requirement is neither recognizable `SemVer` nor a
+/// sequence of `op version` pairs.  When `--exists` fails, returns
 /// [`PkgConfigError::PackageNotFound`] or
 /// [`PkgConfigError::VersionMismatch`] via `classify_exists_failure`.
 /// Returns [`PkgConfigError::PkgConfigFailed`] when `--cflags` or
@@ -469,9 +454,6 @@ pub fn probe_system_dependency(
             detail: detail.to_owned(),
             raw: cflags_text,
         })?;
-    // Link tokens preserve order verbatim: pkg-config emits
-    // `-L<path>` before the `-l<name>` tokens that depend on it,
-    // and reordering would break the link.
     flags.ldflags = lib_tokens;
 
     Ok(SystemDependencyResolution {
@@ -497,8 +479,6 @@ fn classify_cflag_tokens(tokens: Vec<String>) -> Result<SystemDependencyFlags, &
             let path_str = if rest.is_empty() {
                 match iter.next() {
                     Some(next) => next,
-                    // Lone `-I` with no path is malformed output.
-                    // Surface it rather than dropping.
                     None => return Err("trailing `-I` with no path"),
                 }
             } else {
@@ -523,8 +503,8 @@ fn classify_cflag_tokens(tokens: Vec<String>) -> Result<SystemDependencyFlags, &
 #[derive(Debug, Clone)]
 struct ConstraintArgv {
     /// Positional pkg-config tokens.  Always starts with the
-    /// module name; followed by zero or more `op version` pairs
-    /// when a requirement was supplied.
+    /// module name; followed by zero or more `name op version`
+    /// triples when a requirement was supplied.
     argv: Vec<OsString>,
     /// Whether a version constraint contributed to `argv` (used
     /// to disambiguate "not found" from "version mismatch" later).
@@ -543,13 +523,6 @@ fn build_constraints(name: &str, requirement: &str) -> Result<ConstraintArgv, Pk
                 argv.push(OsString::from(ver));
             }
         } else {
-            // The requirement is not recognizable SemVer.
-            // Cabin's version field is documented as free-form,
-            // so we forward the raw text directly. pkg-config
-            // accepts a single positional `name op version`
-            // when the whole argument is a single token; if it
-            // contains whitespace, split it so each token lands
-            // in a separate argv slot.
             let invalid = || PkgConfigError::InvalidVersionRequirement {
                 name: name.to_owned(),
                 requirement: requirement.to_owned(),
@@ -592,7 +565,8 @@ fn build_constraints(name: &str, requirement: &str) -> Result<ConstraintArgv, Pk
 /// Convert a Cabin / npm-flavored `SemVer` requirement into a
 /// list of `(operator, version)` pairs the pkg-config CLI
 /// accepts.  Returns `None` when the input cannot be parsed as
-/// `SemVer` so callers can fall back to a verbatim forward.
+/// `SemVer` so the caller can fall back to forwarding its
+/// `op version` pairs as written.
 fn convert_requirement(raw: &str) -> Option<Vec<(String, String)>> {
     let req = cabin_core::version_req::parse_lenient(raw).ok()?;
     let mut out: Vec<(String, String)> = Vec::new();
@@ -604,7 +578,7 @@ fn convert_requirement(raw: &str) -> Option<Vec<(String, String)>> {
     // `*` parses as `VersionReq` with no comparators; the call site
     // treats `Some(empty)` as "no pkg-config version constraint"
     // (nothing follows the module name, so `had_constraint` stays
-    // false) and the wildcard does not flow into the verbatim
+    // false) and the wildcard does not flow into the `op version`
     // fallback path that would reject `*` as unparsable.
     Some(out)
 }
@@ -626,9 +600,7 @@ fn comparator_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> 
         semver::Op::Wildcard => {
             // `1.*` parses as Wildcard with major=1, minor=None.
             // pkg-config has no wildcard primitive; expand into a
-            // `>=` / `<` range with the next bumped segment.  A
-            // `u64`-ceiling component carries into the next-higher one;
-            // the upper bound is dropped only when the major overflows.
+            // `>=` / `<` range with the next bumped segment.
             let lower = render_version(comp);
             let mut out = vec![(">=".to_owned(), lower)];
             if let Some(upper) = wildcard_upper_bound(comp) {
@@ -658,9 +630,8 @@ fn render_version(comp: &semver::Comparator) -> String {
 }
 
 /// Exclusive upper bound `(major+1).0.0` - the start of the next
-/// major series.  `None` when the major is already saturated, so no
-/// representable version exists above the lower bound and the caller
-/// drops the `<` constraint.
+/// major series.  `None` when `major + 1` overflows `u64`; the caller
+/// then drops the `<` constraint.
 fn next_major_series(major: u64) -> Option<String> {
     major.checked_add(1).map(|m| format!("{m}.0.0"))
 }
@@ -690,10 +661,6 @@ fn tilde_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
     // `~1.2` ≡ `>=1.2.0, <1.3.0`
     // `~1` ≡ `>=1.0.0, <2.0.0`
     let base = render_version(comp);
-    // The upper bound is the next series start.  A component at the
-    // `u64` ceiling carries into the next-higher component (`~1.MAX`
-    // ⇒ `< 2.0.0`); the `<` constraint is dropped only when the major
-    // itself is saturated, where no representable upper bound exists.
     let upper = match (comp.minor, comp.patch) {
         (Some(minor), _) => next_minor_series(comp.major, minor),
         (None, _) => next_major_series(comp.major),
@@ -707,9 +674,7 @@ fn tilde_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
 
 fn caret_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
     // Cargo / npm caret rules: bump the leftmost non-zero
-    // segment. pkg-config consumes a `>=lower, <upper` pair; the
-    // `<` bound is dropped only when the major is at the `u64`
-    // ceiling, where no representable upper bound exists.
+    // segment.
     let lower = render_version(comp);
     let mut out = vec![(">=".to_owned(), lower)];
     if let Some(upper) = caret_upper_bound(comp) {
@@ -723,9 +688,8 @@ fn caret_upper_bound(comp: &semver::Comparator) -> Option<String> {
     // including `^0` ⇒ `<1.0.0`), and `^0.0` (patch unspecified)
     // widens to `<0.1.0`.  Neither is a leftmost-non-zero bump of a
     // single triple, so resolve those partial forms here and defer
-    // every fully specified form to the shared kernel.  A component at
-    // the `u64` ceiling carries into the next-higher one; the bound is
-    // dropped (`None`) only when the major itself saturates.
+    // every other form, with an absent patch read as 0, to the shared
+    // kernel.
     let (major, minor, patch) = match (comp.minor, comp.patch) {
         (Some(minor), Some(patch)) => (comp.major, minor, patch),
         (Some(0), None) if comp.major == 0 => return Some("0.1.0".to_owned()),
@@ -737,13 +701,11 @@ fn caret_upper_bound(comp: &semver::Comparator) -> Option<String> {
 }
 
 fn wildcard_upper_bound(comp: &semver::Comparator) -> Option<String> {
-    // The next series start, carrying a `u64`-ceiling component into
-    // the next-higher one (`1.MAX.*` ⇒ `< 2.0.0`).  `None` only when
-    // the major is saturated, where the caller drops the `<` bound.
     match (comp.minor, comp.patch) {
         (None, _) => next_major_series(comp.major),
         (Some(minor), None) => next_minor_series(comp.major, minor),
-        // `1.2.*` is unusual but render `< 1.2.(patch+1)` to be safe.
+        // `1.2.*` leaves `patch` unset and takes the arm above; a set
+        // patch bounds at the next patch.
         (Some(minor), Some(patch)) => next_patch_series(comp.major, minor, patch),
     }
 }
@@ -819,8 +781,6 @@ fn classify_exists_failure(
                 .chain(std::iter::once(OsString::from(name))),
         )?;
         if bare.status.success() {
-            // Capture the installed version (best-effort) for
-            // the diagnostic.
             let installed = best_effort_modversion(tool, name);
             return Ok(PkgConfigError::VersionMismatch {
                 name: name.to_owned(),
@@ -957,8 +917,6 @@ mod tests {
 
     #[test]
     fn split_yields_empty_quoted_token() {
-        // An explicitly quoted empty argument must survive as an
-        // empty token, not disappear.
         let tokens = split_pkg_config_output("-DEMPTY= ''").unwrap();
         assert_eq!(tokens, vec!["-DEMPTY=", ""]);
     }
@@ -1108,10 +1066,6 @@ mod tests {
 
     #[test]
     fn build_constraints_treats_wildcard_as_unconstrained() {
-        // `*` parses as a SemVer requirement with no comparators.
-        // pkg-config has no equivalent primitive, so the wildcard
-        // means "any installed version" - emit the bare module
-        // name and flag the call as carrying no constraint.
         let argv = build_constraints("zlib", "*").unwrap();
         assert!(!argv.had_constraint);
         assert_eq!(argv.argv, vec![OsString::from("zlib")]);
@@ -1213,12 +1167,6 @@ mod tests {
 
     #[test]
     fn build_constraints_had_constraint_matches_argv_shape_on_every_path() {
-        // Characterization: the SemVer-conversion path and the raw
-        // forwarding path must agree on one rule for `had_constraint`:
-        // it is true exactly when op/version tokens follow the leading
-        // module name in `argv`.  Pin the rule across empty, wildcard,
-        // SemVer, and raw inputs so the two paths cannot silently
-        // diverge.
         for requirement in [
             "",
             "   ",
@@ -1239,10 +1187,6 @@ mod tests {
 
     #[test]
     fn classify_routes_include_dirs_to_system_bucket() {
-        // pkg-config include dirs are third-party search paths: they
-        // route to the system bucket so the build marks them
-        // `-isystem` and diagnostics inside the library's headers
-        // stay quiet.
         let flags = classify_cflag_tokens(vec![
             "-I/opt/zlib/include".to_owned(),
             "-pthread".to_owned(),
@@ -1258,11 +1202,6 @@ mod tests {
 
     #[test]
     fn classify_keeps_default_search_dirs_in_plain_include_bucket() {
-        // GCC documents that `-isystem /usr/include` reorders the
-        // system include chain and breaks `#include_next` in libc
-        // headers, so the default search dirs stay in the plain `-I`
-        // bucket (which the compiler then ignores, as it already
-        // searches them) when a `.pc` file forces one through.
         let flags = classify_cflag_tokens(vec![
             "-I/usr/include".to_owned(),
             "-I/usr/local/include".to_owned(),

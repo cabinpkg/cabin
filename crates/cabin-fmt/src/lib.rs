@@ -1,11 +1,6 @@
 //! `clang-format` runner used by Cabin's developer-tools
 //! commands.
 //!
-//! This crate keeps formatting-specific executable resolution,
-//! command-line construction, and exit-status handling outside
-//! `cabin`, mirroring the crate boundaries used by
-//! `cabin-tidy`.
-//!
 //! Crate boundaries:
 //!
 //! - the crate owns formatter executable resolution and the
@@ -28,12 +23,8 @@ use std::process::Command;
 use thiserror::Error;
 
 /// Environment variable users can set to override the
-/// `clang-format` executable Cabin invokes.
-///
-/// Precedence: when `CABIN_FMT` is set and non-empty, its value
-/// is the absolute path / command name Cabin uses verbatim;
-/// otherwise `clang-format` is resolved against `PATH` by the
-/// child process spawn.
+/// `clang-format` executable Cabin invokes; see
+/// [`resolve_formatter_executable`].
 ///
 /// Aliased from [`cabin_env`], the single source of truth for
 /// every `CABIN_*` environment-variable name.
@@ -54,11 +45,6 @@ pub enum FormatMode {
 }
 
 /// Input for [`run_formatter`].
-///
-/// Callers translate CLI flags into this typed shape and hand
-/// it to the runner; the runner is responsible for spawning
-/// the formatter and translating its exit status into a typed
-/// outcome.
 #[derive(Debug, Clone)]
 pub struct FormatRequest {
     /// Absolute path or bare command name of the formatter
@@ -99,11 +85,12 @@ pub enum FormatReport {
         /// Total number of files inspected.
         files_inspected: usize,
         /// Formatter stderr, trimmed of trailing whitespace.
-        /// Carries the per-file `would be reformatted` lines (or
-        /// any other diagnostic clang-format emitted under
-        /// `--dry-run -Werror`) so the orchestration layer can
-        /// pass them through to the user - matching `cargo fmt
-        /// --check`, which forwards rustfmt's diff verbatim.
+        /// Carries clang-format's `--dry-run -Werror` diagnostics,
+        /// normally one `code should be clang-formatted` error per
+        /// violation, for the orchestration layer to pass through
+        /// to the user.  Any check-mode exit status 1 lands here,
+        /// so it can also hold an unrelated error such as a missing
+        /// input file.
         stderr: String,
     },
 }
@@ -145,8 +132,7 @@ pub enum FormatError {
         /// Executable Cabin tried to spawn.
         executable: String,
         /// The reported exit status: an exit code, a terminating
-        /// signal, or unknown.  The concrete value is rendered
-        /// into the message by the formatter.
+        /// signal, or unknown.
         status: ExitStatusKind,
         /// Captured stderr, trimmed of trailing whitespace.
         /// Empty when the formatter produced no stderr.
@@ -189,11 +175,6 @@ where
 
 /// Run `clang-format` over the requested files.
 ///
-/// Returns a typed [`FormatReport`] when the formatter produced
-/// a recognized outcome; otherwise returns a typed
-/// [`FormatError`] that the CLI can render through its
-/// diagnostic chain.
-///
 /// # Errors
 /// Returns [`FormatError::ExecutableNotFound`] when spawning the
 /// formatter fails with `ErrorKind::NotFound`, and
@@ -211,9 +192,7 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
         });
     }
 
-    // Deterministic order keeps the produced command line
-    // byte-stable for very-verbose echoes and snapshot tests.
-    // We dedupe by absolute path while preserving sort order.
+    // Sorted and deduplicated, so the argv is deterministic.
     let files: BTreeSet<&Path> = request.files.iter().map(PathBuf::as_path).collect();
     let files: Vec<&Path> = files.into_iter().collect();
 
@@ -222,11 +201,10 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
     // scrub it so the spawned tool can never read the token.
     cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
-    // `clang-format` discovers `.clang-format` from the first
-    // file's directory upward.  Passing `--style=file`
-    // explicitly mirrors the documented behavior Cabin
-    // promises so a user who points `CABIN_FMT` at a
-    // wrapper sees the same discovery rule.
+    // `--style=file` (clang-format's default) reads the nearest
+    // `.clang-format` in each file's directory or its parents.
+    // Passing it explicitly keeps that rule when `CABIN_FMT`
+    // names a wrapper.
     cmd.arg("--style=file");
     match request.mode {
         FormatMode::Write => {
@@ -282,11 +260,9 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
                     files_inspected: files.len(),
                 });
             }
-            // `clang-format --dry-run -Werror` exits with code
-            // 1 when any input would be reformatted; that is
-            // not an *error* for our purposes, it is the
-            // documented "check failed" signal.  Anything else
-            // is a hard error.
+            // `clang-format --dry-run -Werror` exits with code 1
+            // when any input would be reformatted; any other
+            // unsuccessful status is an error.
             if status.code() == Some(1) {
                 return Ok(FormatReport::NeedsFormatting {
                     files_inspected: files.len(),
@@ -357,7 +333,6 @@ mod tests {
 
     #[test]
     fn missing_executable_yields_actionable_error() {
-        // Use a path we know does not exist.
         let req = FormatRequest {
             executable: OsString::from("/no-such/clang-format-binary"),
             files: vec![PathBuf::from("/no-such/file.cc")],

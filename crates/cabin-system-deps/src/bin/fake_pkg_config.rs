@@ -6,20 +6,20 @@
 //! mimics the small subset of pkg-config's command-line surface
 //! Cabin's probe layer invokes:
 //!
-//! - `--version` is always accepted and exits 0.
+//! - `--version` alone prints a version line and exits 0.
 //! - For every other invocation we expect at least one of
 //!   `--exists`, `--modversion`, `--cflags`, `--libs`.
-//! - Positional tokens after the option flags are interpreted as
-//!   alternating `name [op version]?` triples.
+//! - Positional tokens are a sequence of `name [op version]`
+//!   queries.
 //! - A *fixture directory* is read from the
 //!   `CABIN_FAKE_PKG_CONFIG_FIXTURES` env var.  Each declared
 //!   module name maps to a `<name>.json` file inside that
 //!   directory; the file describes the module's installed
 //!   version and the cflags / libs strings the fake should
 //!   print.  Missing files produce a "package not found" exit.
-//! - Optional file `<name>.invocations.log` accumulates one line
-//!   per invocation so tests can assert exactly which stages
-//!   were exercised.
+//! - When `CABIN_FAKE_PKG_CONFIG_LOG` names a file, each query
+//!   invocation appends its positional arguments to it as one
+//!   line.
 
 #![allow(
     clippy::too_many_lines,
@@ -82,9 +82,7 @@ fn main() -> ExitCode {
             "--libs" => want_libs = true,
             "--print-errors" => want_print_errors = true,
             other if other.starts_with("--") => {
-                // Unknown flags are silently accepted to keep
-                // tests forward-compatible if Cabin adds new
-                // bookkeeping flags later.
+                // Flags the fake does not model are ignored.
             }
             _ => positional.push(arg),
         }
@@ -286,8 +284,8 @@ fn load_fixture(dir: &std::path::Path, name: &str) -> Result<Fixture, LoadError>
     parse_fixture(&body).map_err(LoadError::Malformed)
 }
 
-/// Minimal hand-rolled JSON-ish reader so the fake binary stays
-/// dependency-free.  Recognized keys:
+/// Line-oriented reader for flat JSON fixtures with one key per
+/// line, so the crate needs no JSON dependency.  Recognized keys:
 /// version: string
 /// cflags: string
 /// libs: string
@@ -362,10 +360,10 @@ fn constraint_matches(installed: &str, constraint: &Constraint) -> bool {
     }
 }
 
-/// Parse a dotted numeric version into a `Vec<u64>`.  Non-numeric
-/// suffixes terminate parsing so vendor-tagged strings like
-/// `1.0.1f` compare as `[1, 0, 1]`.  Missing segments default to
-/// zero during comparison.
+/// Parse the leading digits of each `.`- or `-`-separated segment
+/// into a `Vec<u64>`, stopping at the first segment that has none:
+/// `1.0.1f` parses as `[1, 0, 1]`.  Comparison is lexicographic on
+/// the `Vec`, so `1.0` < `1.0.0`.
 fn parse_version(raw: &str) -> Vec<u64> {
     let mut out: Vec<u64> = Vec::new();
     let trimmed = raw.trim();
