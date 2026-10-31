@@ -373,6 +373,48 @@ target's shared flags into Ninja variables could save at most about half the par
 of the no-op, and would split commands that the driver lowers whole and that
 `compile_commands.json` must spell out anyway.
 
+## Investigation: features and packaging revisions in resolution
+
+Same machine, release builds on either side of #2055 (registry features and optional
+dependencies) and #2060 (pinned packaging revisions), `main` (a749724e8), and the change;
+`cargo perf run --runs 30`, under other load (load average 11-21), so instructions and peak RSS
+only.  Instructions are medians in millions, peak RSS medians in MiB:
+
+| Scenario | Before #2055 | After #2055 | After #2060 | `main` | Change |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `resolve/wide` instructions | 215.0 | 225.3 | 225.9 | 193.6 | 193.3 |
+| `resolve/wide` peak RSS | 17.69 | 18.11 | 19.41 | 17.20 | 16.76 |
+| `resolve/deep` peak RSS | 16.58 | 16.80 | 17.81 | 13.20 | 13.03 |
+| `index/http-wide` instructions | 180.4 | 191.7 | 192.3 | 193.0 | 193.1 |
+| `index/http-wide` peak RSS | 16.16 | 17.11 | 17.91 | 18.18 | 17.59 |
+
+**Question.**  A bisect of the first weekly comparison attributed about 2 MiB of resolution peak
+RSS, and part of a 7-14% rise in its wall time on Linux, to these two changes.  Where does the
+cost come from, and how much of it do the new semantics need?
+
+**Why.**  #2060 gave each packaging revision an inline `Option<ResolutionMetadata>`, growing
+`RevisionMetadata` from 80 to 200 bytes.  Every version keeps its revisions in a `BTreeMap`, whose
+first node has room for eleven, so each loaded version's node grew from 1,160 to 2,480 bytes, which
+macOS's `malloc` rounds to 1,280 and 2,560: 708 versions at `resolve/wide` account for the whole
+906,240-byte rise in peak heap, counted with an allocator that records what `malloc` hands out.
+#2055's instructions are the solve's: PubGrub now works over feature nodes, so the provider's
+`get_dependencies`, `choose_version`, and `prioritize` callbacks run more often (a sampled profile
+of 400 in-process resolves) and its bookkeeping is keyed by the larger node; #2055's 0.25 MB of
+extra heap at `resolve/wide` is the root feature requests, the consumer's own entry, and each
+package's dependency set, which the solve and the lockfile need.
+
+**Change.**  A revision's own resolution metadata is boxed, so a version's revisions node is
+1,248 bytes, again a 1,280-byte allocation on macOS: peak heap falls 640,000 bytes at
+`resolve/wide` and 230,400 at `resolve/deep`.  With the file index reading only the documents
+resolution needs (below), resolution over a file registry now costs less than before #2055 in
+both instructions and memory; over HTTP it keeps #2055's instructions.  Lockfiles, output, and
+errors are unchanged on every resolve, update, and `--locked` case of the benchmark registries,
+including a respun revision pinned by a lockfile.
+
+**Not changed.**  The rest of #2055's cost is solving with features; testing a version's default
+features before its range in the provider saved about 0.7% of `resolve/wide`'s instructions,
+which the comparison reports as `Unchanged`.
+
 ## Investigation: file-index reads
 
 Same machine, release builds of `main` (2ccb8f623) and the change, under other load (load average

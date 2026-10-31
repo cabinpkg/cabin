@@ -3163,8 +3163,7 @@ mod tests {
         inject_revisions(&mut index, "fmt", &[REV_A, REV_B]);
         let meta = index.packages.get_mut(&pkg_name("fmt")).unwrap();
         let meta = meta.versions.get_mut(&version("10.2.1")).unwrap();
-        meta.revisions.get_mut(&REV_A[..16]).unwrap().resolution =
-            Some(cabin_index::ResolutionMetadata::default());
+        meta.revisions.get_mut(&REV_A[..16]).unwrap().resolution = Some(Box::default());
         for (mode, takes_b) in [
             (ResolveMode::PreferLocked, false),
             (ResolveMode::Locked, false),
