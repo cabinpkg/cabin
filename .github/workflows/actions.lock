@@ -4,11 +4,7 @@
 version: 'v0.0.3'
 workflows:
     '.github/workflows/changes.yml':
-<<<<<<< HEAD
         - 'actions/checkout@v7.0.1'
-=======
-        - 'actions/checkout@v7.0.0'
->>>>>>> origin/main
         - 'dorny/paths-filter@v4.0.3'
     '.github/workflows/ci.yml':
         - 'actions/checkout@v7.0.1'
