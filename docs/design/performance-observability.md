@@ -5,8 +5,6 @@ trace capture, the benchmark suite, the profiling workflows, baseline comparison
 contributor-facing guide is [`performance.md`](performance.md).  Update the tables below in the
 same change as the work they describe.
 
-Baseline: `main` at `16e100991` (2026-10-30).
-
 ## What is measured, and by what
 
 Five kinds of measurement answer different questions and are never substituted for each other.
@@ -89,20 +87,7 @@ actions and says the failed one is absent.  Several outputs of one command share
 start, end, and command hash and count as one action.  Ninja's times are milliseconds from its own
 build start, a clock Cabin cannot read; actions are placed at Cabin's spawn instant, and the gap
 between Ninja's spawn and its first action (manifest load, startup) is the stated alignment
-uncertainty.  Status: implemented (`NinjaLog` in `trace.rs`).
-
-## Delivery
-
-| PR | Content | Depends on | Status |
-| --- | --- | --- | --- |
-| 1 | Capture (`trace.rs`), timings summary, spans in workspace, manifest, config, feature, resolver, index, index-http, artifact, lockfile, package, vendor, system-deps, and the resolve/fetch orchestration; this record and `performance.md` | - | #2068 |
-| 2 | `xtask-bench`: fixtures, Criterion benches, `hyperfine` CLI scenarios, baselines, comparison reports; profiling profile and recipes | 1 | #2071 |
-| 3 | Build-path spans (toolchain detection, planning, lowering, Ninja emission), the Ninja action timeline, test-run timeline | 1; stage 04 PR B; #2065 | in progress |
-| 4 | Performance workflow: smoke subset on pull requests, full comparison on schedule and on demand, artifact retention | 2 | not started |
-
-Stage 04 (build and target contexts) reshapes `cli/build_prep.rs`, `cli/ninja.rs`, the planner,
-the driver, and toolchain detection; PR 3 lands on top of it by agreement with that stage's
-owner.  Stage 11's JUnit change (#2065) adds per-test durations that the test timeline reuses.
+uncertainty.  `NinjaLog` in `trace.rs` implements this.
 
 ## Coverage
 
@@ -127,7 +112,7 @@ Trace coverage per workflow.  `info` spans mark phases; `debug` spans mark per-i
 | Build execution | `cabin`, Ninja | `run_ninja`; the `ninja` lane and summary `ninja_actions` from `.ninja_log` | done |
 | Test planning and execution | `cabin-test`, `cabin` | `plan_tests`, `run_tests` (`executables`); the `tests` lane | done |
 
-Measurement-infrastructure evidence for PR 1:
+Measurement-infrastructure checks:
 
 | Property | Check |
 | --- | --- |
@@ -163,21 +148,20 @@ package does not change what resolution, fetching, or capture does.
 ## Measured overhead
 
 `hyperfine` 2.0, 5 warmups and 60 runs per command, interleaved in one session, release builds of
-`main` (`16e100991`, no instrumentation) and this branch; macOS 27.2 on Apple silicon.  Workload:
-a warm `cabin fetch` of one file-registry dependency (resolution, lockfile check, artifact cache
-hit), the command most covered by PR 1's spans.
+`16e100991` (no instrumentation) and of the change adding trace capture (#2068); macOS 27.2 on
+Apple silicon.  Workload: a warm `cabin fetch` of one file-registry dependency (resolution,
+lockfile check, artifact cache hit), a command dense with spans.
 
 | Binary and capture | Wall time (mean ± σ) | Trace size |
 | --- | --- | --- |
-| `main`, no instrumentation | 6.5 ± 0.6 ms | - |
-| branch, capture disabled | 6.4 ± 0.5 ms | - |
-| branch, `CABIN_TRACE_DIR` (`info`) | 7.4 ± 1.1 ms | 3.4 KB, 22 events |
-| branch, `CABIN_TRACE_FILTER=debug` | 7.5 ± 1.1 ms | 7.6 KB, 48 events |
+| `16e100991`, no instrumentation | 6.5 ± 0.6 ms | - |
+| #2068, capture disabled | 6.4 ± 0.5 ms | - |
+| #2068, `CABIN_TRACE_DIR` (`info`) | 7.4 ± 1.1 ms | 3.4 KB, 22 events |
+| #2068, `CABIN_TRACE_FILTER=debug` | 7.5 ± 1.1 ms | 7.6 KB, 48 events |
 
 Disabled capture is within noise of the uninstrumented binary.  Enabled capture costs about 1 ms
-per invocation: creating the files, starting and joining the writer thread, and the renames.  An
-earlier draft that `fsync`ed both files cost 14 ms on macOS; the files are now written without
-`fsync` and made atomic by rename alone.
+per invocation: creating the files, starting and joining the writer thread, and the renames.  The
+files are made atomic by rename alone, without `fsync`, which cost 14 ms on macOS.
 
 ## Investigation: no-op build latency
 
@@ -186,8 +170,8 @@ silicon, macOS 27.2, release builds).
 
 **Question.**  `build/noop-cxx` took 68 ms, yet its trace accounted for well under 1 ms of it: the
 root `cabin` span lasted 64.7 ms while `load_workspace_and_patches`, `load_workspace`, and
-`resolve_features` together took 0.6 ms.  The time was spent outside every PR 1 span, in the build
-path PR 3 instruments.
+`resolve_features` together took 0.6 ms.  The time was spent outside the resolution-path spans, in
+the build path (toolchain detection, planning, Ninja), which is traced as well now.
 
 **Hypothesis 1: the `xcrun` shims.**  A no-op build still detects the toolchain, running
 `--version` on the C++ compiler, the C compiler, and the archiver one after another.  On macOS
@@ -247,5 +231,5 @@ it was refuted: the coarse tick hid the shims' cost.
 | --- | --- | --- | --- |
 | Trace capture and summary | verified locally | CI test suite | CI test suite |
 | `getrusage` memory and CPU in the summary | verified locally | CI test suite (non-zero peak asserted) | unsupported: `process` is `null` (asserted) |
-| `cargo perf run`, every scenario | verified locally | performance workflow (PR 4) | not verified; `--prepare` uses `cmd.exe` quoting |
+| `cargo perf run`, every scenario | verified locally | Performance workflow: the smoke subset on pull requests, every scenario weekly | not verified; `--prepare` uses `cmd.exe` quoting |
 | Criterion benches | verified locally | CI test suite (one iteration each) | CI test suite (one iteration each) |

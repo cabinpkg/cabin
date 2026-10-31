@@ -1,0 +1,99 @@
+name: Performance
+
+# Not a required check; see docs/performance.md "In CI".
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/perf.yml"
+  schedule:
+    - cron: "37 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Revision to compare against, such as origin/main or a SHA (default: this branch eight days earlier)"
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache-on-failure: false
+          rustflags: ""
+      - name: Install hyperfine
+        run: cargo install -q "hyperfine@=2.0.0" --locked
+      - name: Run the smoke scenarios
+        run: cargo perf run --smoke --out target/perf/out
+      - name: Summarize
+        if: always() && hashFiles('target/perf/out/report.md') != ''
+        run: cat target/perf/out/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: perf-smoke
+          path: |
+            target/perf/out/*.md
+            target/perf/out/*.json
+          retention-days: 14
+
+  full:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          # `--base` builds a revision from this clone's history.
+          fetch-depth: 0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache-on-failure: false
+          rustflags: ""
+      - name: Install hyperfine
+        run: cargo install -q "hyperfine@=2.0.0" --locked
+      - name: Compare every scenario against the requested base
+        if: inputs.base != ''
+        run: cargo perf run --ports --fail-on-regression --base "$BASE" --out target/perf/out
+        env:
+          BASE: ${{ inputs.base }}
+      # Eight days, not seven: consecutive weekly runs overlap rather than skip commits.
+      - name: Compare every scenario against this branch eight days earlier
+        if: inputs.base == ''
+        run: cargo perf run --ports --fail-on-regression --base "$(git rev-list -1 --before='8 days ago' HEAD)" --out target/perf/out
+      - name: Summarize
+        if: always() && hashFiles('target/perf/out/compare.md') != ''
+        run: cat target/perf/out/compare.md target/perf/out/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: perf-full
+          path: |
+            target/perf/out/*.md
+            target/perf/out/*.json
+          retention-days: 90
