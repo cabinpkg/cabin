@@ -34,17 +34,20 @@ their cargo aliases or established external tools directly.
 - `.github/workflows/actions.lock` is GitHub's workflow dependency lockfile:
   for each workflow it lists, the runner runs only the locked commit of each
   action, direct or transitive, and fails a job that uses an unlocked one.
-  The runner skips an unparsable lockfile and unlisted workflows, so the
-  check below is the guard. Never edit it by hand. In any change that adds,
+  The runner skips an unparsable lockfile and unlisted workflows unless the
+  repository's "Require lockfile" Actions policy is active; the check below
+  catches both on pull requests and in the merge queue. Never edit it by hand. In any change that adds,
   removes, or edits a workflow or a `uses:` line, run
   `gh actions-lock --no-narrow` with the extension version `ci.yml` pins,
   and commit the result; on a merge conflict, take main's copy and rerun
   it. Without `--no-narrow` the tool also rewrites the SHA pins that
   `gh aw compile` generates. The `commitlint` check runs
   `gh actions-lock --verify`; run it before pushing.
-- Hand-written `uses:` lines name an exact release tag (`@v7.0.1`), never a
-  branch or a partial version such as `@v7`; an action whose commit has no
-  exact tag keeps its full SHA pin and tag comment.
+- Hand-written action `uses:` lines name an exact release tag (`@v7.0.1`),
+  never a branch or a partial version such as `@v7`; an action whose commit
+  has no exact tag keeps its full SHA pin and tag comment. A remote reusable
+  workflow (`owner/repo/.github/workflows/x.yml`) also keeps a full SHA pin:
+  `gh actions-lock` skips it, so the lockfile does not cover it.
 - Review a lockfile diff as a dependency change: a new `commit` is new code,
   and a changed `owner_id` or `repo_id` is a different repository. Dependabot
   regenerates the entries it bumps. A moved exact tag or an unreachable pin
