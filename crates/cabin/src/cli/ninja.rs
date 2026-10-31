@@ -534,14 +534,7 @@ pub(crate) fn invoke_ninja_and_report(
     })?;
 
     let ninja_file = profile_build_root.join("build.ninja");
-    // No paths: a used tool's path is already in its commands, and an
-    // unused one's must not rebuild anything.
-    let detected = req.detection;
-    let identity = serde_json::to_string_pretty(&serde_json::json!({
-        "cc": detected.cc.as_ref().map(|cc| compiler_identity(&cc.identity)),
-        "cxx": compiler_identity(&detected.cxx.identity),
-        "ar": detected.ar.identity.as_json(),
-    }))?;
+    let identity = serde_json::to_string_pretty(&req.detection.build_identity())?;
     cabin_ninja::write_build_ninja(
         &ninja_file,
         req.plan_graph,
@@ -594,19 +587,6 @@ pub(crate) fn invoke_ninja_and_report(
         anyhow::bail!("ninja exited with {}", run.status);
     }
     Ok(build_started.elapsed())
-}
-
-/// A compiler's identity for the toolchain stamp.  GCC opens its
-/// banner with the name it was invoked as (`cc`, `gcc`, `g++`), which
-/// names no other compiler.
-fn compiler_identity(identity: &cabin_core::CompilerIdentity) -> serde_json::Value {
-    let mut identity = identity.clone();
-    if identity.kind == cabin_core::CompilerKind::Gcc
-        && let Some((_, rest)) = identity.raw_version_line.split_once(' ')
-    {
-        identity.raw_version_line = rest.to_owned();
-    }
-    identity.as_json()
 }
 
 #[cfg(test)]
@@ -703,17 +683,5 @@ mod tests {
             package_segment_candidates("/w/build/dev/packages/tool", Some("/w/build/dev")),
             [Some("tool"), None]
         );
-    }
-
-    #[test]
-    fn compiler_identity_ignores_the_name_gcc_was_invoked_as() {
-        let gcc = |name: &str, version: &str| {
-            compiler_identity(&cabin_core::parse_cxx_version_output(&format!(
-                "{name} (Ubuntu {version}-6ubuntu2) {version}\n\
-                 Copyright (C) 2023 Free Software Foundation, Inc.\n"
-            )))
-        };
-        assert_eq!(gcc("cc", "13.2.0"), gcc("gcc", "13.2.0"));
-        assert_ne!(gcc("gcc", "13.3.0"), gcc("gcc", "13.2.0"));
     }
 }

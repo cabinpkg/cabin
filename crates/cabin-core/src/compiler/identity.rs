@@ -248,6 +248,25 @@ impl CompilerIdentity {
             &self.raw_version_line,
         )
     }
+
+    /// [`Self::as_json`] without what names the invocation rather than
+    /// the compiler: GCC opens its banner with the name it was invoked
+    /// as (`cc`, `gcc`, `g++`).
+    pub fn build_identity(&self) -> serde_json::Value {
+        let line = match self.kind {
+            CompilerKind::Gcc => self
+                .raw_version_line
+                .split_once(' ')
+                .map_or(self.raw_version_line.as_str(), |(_, rest)| rest),
+            _ => &self.raw_version_line,
+        };
+        identity_json(
+            self.kind.as_key(),
+            self.version.as_ref(),
+            self.target.as_deref(),
+            line,
+        )
+    }
 }
 
 /// Shared JSON shape for detected tool identities: `kind`, optional
