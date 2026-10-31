@@ -1,8 +1,7 @@
 // Fills the homepage's registry stats band from the public stats
 // endpoint. Every figure in the band is registry data, so the band
-// ships hidden and is revealed only after a successful fetch - a
-// script-less or offline view drops the band entirely rather than
-// showing an empty strip or placeholder dashes.
+// ships hidden and is revealed only after a successful fetch; a
+// script-less or offline view omits it.
 import { formatCount } from "../lib/format";
 import { getRegistryStats } from "../lib/stats";
 

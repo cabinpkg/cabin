@@ -1,6 +1,5 @@
-// Progressive enhancement for docs pages (bundled, so it satisfies the CSP
-// `script-src 'self'`): clicking a heading copies its deep link, and the
-// on-page table of contents highlights the section currently in view.
+// Progressive enhancement for docs pages, bundled so it satisfies the CSP
+// `script-src 'self'`.
 
 import { DOCS_HIGHLIGHT_PARAM } from "../lib/constants";
 
@@ -159,8 +158,8 @@ function setupScrollableTables(): void {
 
 // When the reader arrives from a docs search result (`?highlight=<query>`),
 // scroll the first matching term into view and highlight every occurrence.
-// Search is document-level, so we highlight the query terms themselves across
-// inline-code and formatting boundaries on these pages.
+// Search results are whole pages, so each query term is matched separately
+// in every text node, including inside inline code and formatting.
 function setupSearchHighlight(): void {
     const raw = new URLSearchParams(window.location.search).get(
         DOCS_HIGHLIGHT_PARAM,

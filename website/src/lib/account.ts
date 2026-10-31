@@ -137,8 +137,6 @@ export type AuthState =
 
 const UNREACHABLE_MESSAGE = "the registry could not be reached";
 
-// Renders a non-2xx response into a human-readable notice, reusing the
-// API's own detail string when the envelope carries one.
 function errorMessage(status: number, body: unknown): string {
     if (typeof body === "object" && body !== null && "errors" in body) {
         const errors = (body as { errors: unknown }).errors;

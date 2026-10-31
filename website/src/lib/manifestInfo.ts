@@ -1,14 +1,11 @@
 // Normalized dependency and feature information extracted from a
-// package MANIFEST: dependencies split by kind (normal / dev), system
+// package manifest: dependencies split by kind (normal / dev), system
 // dependencies as their own source, `cfg(...)` conditions flattened to
 // per-entry inner expressions the way the registry index encodes them
 // (crates/cabin-index/src/loader.rs `RawIndexPackageDepTable.target`),
 // and the `[features]` table with its entries classified by the
-// cabin-core grammar. One shape for the package pages today and
-// version comparison later, instead of each surface re-reading raw
-// TOML. Index-document-only fields (`standards`, `links`, `yanked`,
-// revisions) are deliberately outside this model; extend it when a
-// surface needs them.
+// cabin-core grammar. Index-document-only fields (`standards`, `links`,
+// `yanked`, revisions) are outside this model.
 //
 // Structural checks only, mirroring the manifest parser's rules
 // (crates/cabin-manifest/src/parse/dependency.rs and the

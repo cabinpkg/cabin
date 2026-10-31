@@ -4,8 +4,7 @@ export interface PackageRecord {
     name: string;
     version: string;
     // Normalized dependency and feature declarations
-    // (src/lib/manifestInfo.ts), extracted once at load time so pages
-    // and future version comparison share one shape.
+    // (src/lib/manifestInfo.ts), extracted once at load time.
     manifest: PackageManifestInfo;
     upstream: PackageUpstream | null;
 }

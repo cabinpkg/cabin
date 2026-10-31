@@ -1,9 +1,8 @@
 ---
 // The package's declared [features] table, statically rendered from
-// the normalized manifest info. Hidden entirely when the manifest
-// declares no [features] table, rather than rendering an empty
-// placeholder. A declared-but-empty table renders, faithfully showing
-// an empty default set.
+// the normalized manifest info. Hidden when the manifest declares no
+// [features] table; a declared-but-empty table renders with an empty
+// default set.
 import type { FeatureReference } from "../../lib/manifestInfo";
 import type { PackageRecord } from "../../lib/packages";
 import Badge from "../ui/Badge.astro";

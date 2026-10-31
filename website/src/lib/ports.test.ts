@@ -244,10 +244,8 @@ test("a symlinked manifest fails the build", async () => {
 });
 
 test("a dangling or directory cabin.toml symlink is skipped, not diagnosed", async () => {
-    // `plan.rs::discover_ports` uses `is_file()`, which FOLLOWS links:
-    // neither of these resolves to a regular file, so the publisher
-    // skips the version directory. Throwing here would fail the site
-    // build on a tree that publishes fine.
+    // Neither resolves to a regular file, so `plan.rs::discover_ports`
+    // skips both version directories.
     const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
     try {
         const dangling = join(dir, "fmt", "12.2.0");
@@ -353,9 +351,6 @@ test("a leading-v version fails the build", async () => {
 });
 
 test("an empty ports tree fails the build", async () => {
-    // The publisher refuses it rather than publishing nothing; a site
-    // rendering zero package pages would look like a clean build of a
-    // broken checkout.
     const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
     try {
         await mkdir(join(dir, "ports"), { recursive: true });
@@ -369,8 +364,6 @@ test("an empty ports tree fails the build", async () => {
 });
 
 test("a version that is not valid SemVer fails the build", async () => {
-    // The publisher parses this into a typed semver::Version, so a
-    // string the resolver could never match must not render a page.
     const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
     try {
         const portDir = join(dir, "fmt", "12.2");
