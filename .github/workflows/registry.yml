@@ -48,11 +48,11 @@ jobs:
         working-directory: registry
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           target: wasm32-unknown-unknown
           cache-on-failure: false
@@ -120,7 +120,7 @@ jobs:
     steps:
       # The gate logic is a local action; the sparse checkout keeps
       # this fetch small.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: .github/actions/required-gate
@@ -158,11 +158,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
           cache-workspaces: |
@@ -194,11 +194,11 @@ jobs:
         working-directory: registry
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
           cache-workspaces: |
@@ -236,7 +236,7 @@ jobs:
         working-directory: registry/proofs
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -255,7 +255,7 @@ jobs:
       - name: Check the lifecycle model (scan-rejected content)
         run: java -XX:+UseParallelGC -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycleScan.cfg RegistryLifecycle.tla
 
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
           rustflags: ""
@@ -286,7 +286,7 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           # Full history so the freshness check below can walk
@@ -297,7 +297,7 @@ jobs:
       # main-branch job restore main-scoped entries (PR caches are
       # unreachable), and dropping the cache would roughly double
       # production deploy latency.
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with: # zizmor: ignore[cache-poisoning] -- accepted: low-trust runs cannot write main-scoped caches; see comment above
           target: wasm32-unknown-unknown
           cache-on-failure: false
@@ -349,7 +349,7 @@ jobs:
 
       - name: Deploy
         if: steps.freshness.outputs.superseded != 'true'
-        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        uses: cloudflare/wrangler-action@v4.1.3
         with:
           apiToken: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
           # Public account tag (also in wrangler.jsonc vars); pinning it

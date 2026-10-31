@@ -26,12 +26,12 @@ jobs:
       run:
         working-directory: oss-fuzz
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           path: cabin
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           repository: google/oss-fuzz
           ref: dec0ef9471729f77ed49c5cf0ff818538f616add

@@ -17,10 +17,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache: false
           rustflags: ""
@@ -35,7 +35,7 @@ jobs:
       # A pull request's run cannot write a cache its base branch
       # restores, so only main's own runs grow the corpus they restore.
       - name: Restore the corpus
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@v6.1.0
         with:
           path: fuzz/corpus
           key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
@@ -47,7 +47,7 @@ jobs:
       # Also after a failed target: the others' corpora are still good.
       - name: Save the corpus
         if: ${{ !cancelled() }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/save@v6.1.0
         with:
           path: fuzz/corpus
           key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}

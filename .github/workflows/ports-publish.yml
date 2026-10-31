@@ -74,10 +74,10 @@ jobs:
           - windows-2025-vs2026
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
           rustflags: ""
@@ -90,7 +90,7 @@ jobs:
       # archives/ is cached - extracted sources/ trees are not
       # integrity-checked on reuse and stay run-local.
       - name: Cache upstream archives
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache@v6.1.0
         with:
           path: ${{ runner.temp }}/cabin-cache/ports/archives
           key: ports-archives-${{ hashFiles('ports/**/cabin.toml') }}
@@ -98,7 +98,7 @@ jobs:
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        uses: ilammy/msvc-dev-cmd@v1.13.0
 
       - name: Build cabin and the publisher
         run: cargo build --locked -p cabinpkg -p xtask-port-publish
@@ -133,13 +133,13 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           # Full history so the freshness check below can walk
           # $GITHUB_SHA..origin/main.
           fetch-depth: 0
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
           rustflags: ""
@@ -148,7 +148,7 @@ jobs:
       # are re-hashed against the committed SHA-256 pin before use, so
       # a poisoned cache entry cannot alter what publishes.
       - name: Cache upstream archives
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache@v6.1.0
         with:
           path: ${{ runner.temp }}/cabin-cache/ports/archives
           key: ports-archives-${{ hashFiles('ports/**/cabin.toml') }}

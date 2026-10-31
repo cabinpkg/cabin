@@ -34,12 +34,12 @@ jobs:
       run:
         working-directory: .github/commitlint
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
+      - uses: crate-ci/typos@v1.51.1
 
       # gh actions-lock reads .github/workflows from the working
       # directory; .github/AGENTS.md has the lockfile procedure.
@@ -56,7 +56,7 @@ jobs:
       # real PR commits and the squash title the merge would generate.
       - name: Setup node
         if: github.event_name != 'merge_group'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: lts/*
           cache: npm
