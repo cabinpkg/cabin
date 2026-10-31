@@ -38,13 +38,6 @@ pub enum CompilerTargetError {
         "`--target` needs the C and C++ compilers from one family, but the C compiler is {cc} and the C++ compiler is {cxx}"
     )]
     MixedFamilies { cc: CompilerKind, cxx: CompilerKind },
-    #[error(
-        "`[build-dependencies]` are built for the build machine {build_machine}, which {compiler} does not build for next to `--target`; a toolchain that builds both, such as Clang, is needed"
-    )]
-    BuildContext {
-        compiler: String,
-        build_machine: String,
-    },
     #[error("failed to ask {compiler} for its target")]
     Probe {
         compiler: String,
@@ -111,21 +104,14 @@ pub fn check_compiler_targets(
     }
     for compiler in compilers {
         let name = compiler.path.to_string();
-        let actual = match compiler.identity.kind {
-            CompilerKind::Gcc => {
-                let output = runner
-                    .run(compiler.path.as_std_path(), &["-dumpmachine"])
-                    .map_err(|source| CompilerTargetError::Probe {
-                        compiler: name.clone(),
-                        source,
-                    })?;
-                TargetPlatform::from_triple(&first_non_empty_line(&output.stdout)).ok()
-            }
-            _ => banner_target(&compiler.identity),
-        }
-        .ok_or_else(|| CompilerTargetError::Unknown {
-            compiler: name.clone(),
-        })?;
+        let actual = reported_target(compiler, runner)
+            .map_err(|source| CompilerTargetError::Probe {
+                compiler: name.clone(),
+                source,
+            })?
+            .ok_or_else(|| CompilerTargetError::Unknown {
+                compiler: name.clone(),
+            })?;
         if !actual.same_machine(platform) {
             return Err(CompilerTargetError::Mismatch {
                 compiler: name,
@@ -137,36 +123,125 @@ pub fn check_compiler_targets(
     Ok(CompilerTargets::default())
 }
 
-/// Check that a `--target` build's compilers can also build the build
-/// context, whose units run on the build machine.  A Clang-family
-/// compiler does so by omitting `--target=` when its default target is
-/// the build machine; GCC, MSVC, and clang-cl build only the fixed
-/// target [`check_compiler_targets`] matched to `target`.
+/// A toolchain that cannot build `[build-dependencies]` for the build
+/// machine beside a `--target` build.
+#[derive(Debug, Error)]
+pub enum BuildMachineToolchainError {
+    #[error(
+        "`[build-dependencies]` cannot build for the build machine {build_machine} next to an MSVC-style build for {target}: both would link against the one `LIB` environment"
+    )]
+    SharedLib {
+        build_machine: String,
+        target: String,
+    },
+    #[error(
+        "`[build-dependencies]` build for the build machine with {compiler}, whose command-line dialect differs from {target_compiler}'s; one build cannot mix MSVC-style and GCC-style compilers, so set HOST_CC, HOST_CXX, and HOST_AR to build-machine tools of the target's style"
+    )]
+    MixedDialects {
+        compiler: String,
+        target_compiler: String,
+    },
+    #[error(
+        "{compiler} builds for {actual}, not the build machine {build_machine} that `[build-dependencies]` build for; set HOST_CC, HOST_CXX, and HOST_AR to the build machine's tools"
+    )]
+    Mismatch {
+        compiler: String,
+        actual: String,
+        build_machine: String,
+    },
+    #[error("failed to ask {compiler} for its target")]
+    Probe {
+        compiler: String,
+        #[source]
+        source: RunError,
+    },
+}
+
+/// Refuse `[build-dependencies]` beside an MSVC-style build for another
+/// machine, before resolving their toolchain: MSVC-style links find
+/// their libraries through `LIB`, and the whole Ninja run gets one
+/// environment.
 ///
 /// # Errors
-/// Returns [`CompilerTargetError::BuildContext`] naming the first
-/// compiler that cannot build for `build_machine`.
-pub fn check_build_context_compilers(
-    report: &ToolchainDetectionReport,
-    target: &TargetPlatform,
+/// Returns [`BuildMachineToolchainError::SharedLib`] when `target`'s
+/// C++ compiler speaks the MSVC dialect and `platform` is another
+/// machine than `build_machine`.
+pub fn check_build_machine_beside(
+    target: &ToolchainDetectionReport,
+    platform: &TargetPlatform,
     build_machine: &TargetPlatform,
-) -> Result<(), CompilerTargetError> {
+) -> Result<(), BuildMachineToolchainError> {
+    if target.cxx.identity.kind.speaks_msvc_dialect()
+        && (platform.arch != build_machine.arch || platform.os != build_machine.os)
+    {
+        return Err(BuildMachineToolchainError::SharedLib {
+            build_machine: build_machine.target.clone(),
+            target: platform.target.clone(),
+        });
+    }
+    Ok(())
+}
+
+/// Check the toolchain `report` resolved for `[build-dependencies]`
+/// beside a `--target` build whose toolchain is `target`.
+/// `build.ninja` holds one dialect's rules, so both speak one dialect.
+/// The build-machine plan passes Clang no `--target=`, so every
+/// compiler must already build for the build machine: GCC's
+/// `-dumpmachine`, the others' banner.  As in a native build, only
+/// `arch` and `os` are compared, and a compiler naming no target
+/// passes.
+///
+/// # Errors
+/// Returns [`BuildMachineToolchainError`] when the dialects differ, a
+/// compiler builds for another machine, or `-dumpmachine` fails.
+pub fn check_build_machine_compilers(
+    report: &ToolchainDetectionReport,
+    target: &ToolchainDetectionReport,
+    build_machine: &TargetPlatform,
+    runner: &dyn ToolRunner,
+) -> Result<(), BuildMachineToolchainError> {
+    if report.cxx.identity.kind.speaks_msvc_dialect()
+        != target.cxx.identity.kind.speaks_msvc_dialect()
+    {
+        return Err(BuildMachineToolchainError::MixedDialects {
+            compiler: report.cxx.path.to_string(),
+            target_compiler: target.cxx.path.to_string(),
+        });
+    }
     for compiler in std::iter::once(&report.cxx).chain(&report.cc) {
-        let builds_for = match compiler.identity.kind {
-            CompilerKind::Clang | CompilerKind::AppleClang => banner_target(&compiler.identity),
-            _ => Some(target.clone()),
-        };
-        // As for native builds, the build machine's env is a guess.
-        if !builds_for.is_some_and(|platform| {
-            platform.arch == build_machine.arch && platform.os == build_machine.os
-        }) {
-            return Err(CompilerTargetError::BuildContext {
-                compiler: compiler.path.to_string(),
+        let name = compiler.path.to_string();
+        let actual = reported_target(compiler, runner).map_err(|source| {
+            BuildMachineToolchainError::Probe {
+                compiler: name.clone(),
+                source,
+            }
+        })?;
+        if let Some(actual) = actual
+            && (actual.arch != build_machine.arch || actual.os != build_machine.os)
+        {
+            return Err(BuildMachineToolchainError::Mismatch {
+                compiler: name,
+                actual: actual.target,
                 build_machine: build_machine.target.clone(),
             });
         }
     }
     Ok(())
+}
+
+/// The platform `compiler` builds for without `--target=`: GCC's
+/// `-dumpmachine`, the others' banner; `None` when it cannot tell.
+fn reported_target(
+    compiler: &ToolDetection<CompilerIdentity, CompilerCapabilities>,
+    runner: &dyn ToolRunner,
+) -> Result<Option<TargetPlatform>, RunError> {
+    Ok(match compiler.identity.kind {
+        CompilerKind::Gcc => {
+            let output = runner.run(compiler.path.as_std_path(), &["-dumpmachine"])?;
+            TargetPlatform::from_triple(&first_non_empty_line(&output.stdout)).ok()
+        }
+        _ => banner_target(&compiler.identity),
+    })
 }
 
 fn banner_target(identity: &CompilerIdentity) -> Option<TargetPlatform> {
@@ -244,44 +319,6 @@ mod tests {
     }
 
     #[test]
-    fn the_build_context_needs_a_compiler_for_the_build_machine() {
-        let macos_arm64 = TargetPlatform::from_triple("aarch64-apple-darwin").unwrap();
-        let macos_x86 = TargetPlatform::from_triple("x86_64-apple-darwin").unwrap();
-        let apple_clang = |target| {
-            report(
-                compiler(CompilerKind::AppleClang, "/bin/c++", Some(target)),
-                Some(compiler(CompilerKind::AppleClang, "/bin/cc", Some(target))),
-            )
-        };
-        check_build_context_compilers(
-            &apple_clang("arm64-apple-darwin25.2.0"),
-            &macos_x86,
-            &macos_arm64,
-        )
-        .unwrap();
-        let err = check_build_context_compilers(
-            &apple_clang("x86_64-apple-darwin25.2.0"),
-            &macos_arm64,
-            &macos_arm64,
-        )
-        .unwrap_err();
-        assert!(
-            matches!(err, CompilerTargetError::BuildContext { .. }),
-            "{err}"
-        );
-
-        // GCC builds only the `--target` it was checked against.
-        let gcc = report(compiler(CompilerKind::Gcc, "/bin/g++", None), None);
-        check_build_context_compilers(&gcc, &linux_arm64(), &linux_arm64()).unwrap();
-        let linux_x86 = TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap();
-        let err = check_build_context_compilers(&gcc, &linux_arm64(), &linux_x86).unwrap_err();
-        assert!(
-            matches!(&err, CompilerTargetError::BuildContext { compiler, .. } if compiler == "/bin/g++"),
-            "{err}"
-        );
-    }
-
-    #[test]
     fn gcc_must_report_the_requested_machine() {
         let report = report(compiler(CompilerKind::Gcc, "/bin/g++", None), None);
         let runner =
@@ -331,6 +368,34 @@ mod tests {
         assert!(matches!(
             check_compiler_targets(&unknown, &linux_arm64(), true, &FakeRunner::new()),
             Err(CompilerTargetError::Unknown { .. })
+        ));
+    }
+
+    #[test]
+    fn build_machine_compilers_must_build_for_the_build_machine() {
+        let target = report(compiler(CompilerKind::Gcc, "/bin/riscv64-g++", None), None);
+        let gcc = report(compiler(CompilerKind::Gcc, "/bin/g++", None), None);
+        let runner =
+            FakeRunner::new().with("/bin/g++", &["-dumpmachine"], "aarch64-linux-gnu\n", "", 0);
+        check_build_machine_compilers(&gcc, &target, &linux_arm64(), &runner).unwrap();
+        let runner =
+            FakeRunner::new().with("/bin/g++", &["-dumpmachine"], "riscv64-linux-gnu\n", "", 0);
+        assert!(matches!(
+            check_build_machine_compilers(&gcc, &target, &linux_arm64(), &runner),
+            Err(BuildMachineToolchainError::Mismatch { actual, .. }) if actual == "riscv64-linux-gnu"
+        ));
+        // The build-machine plan passes Clang no `--target=`.
+        let clang = report(
+            compiler(
+                CompilerKind::Clang,
+                "/bin/clang++",
+                Some("x86_64-pc-linux-gnu"),
+            ),
+            None,
+        );
+        assert!(matches!(
+            check_build_machine_compilers(&clang, &target, &linux_arm64(), &FakeRunner::new()),
+            Err(BuildMachineToolchainError::Mismatch { .. })
         ));
     }
 

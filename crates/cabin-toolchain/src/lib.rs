@@ -32,7 +32,8 @@ pub use resolve::{
 };
 pub use sysroot::{SysrootDialectError, discover_apple_sdk, explicit_sysroot};
 pub use target::{
-    CompilerTargetError, CompilerTargets, check_build_context_compilers, check_compiler_targets,
+    BuildMachineToolchainError, CompilerTargetError, CompilerTargets, check_build_machine_beside,
+    check_build_machine_compilers, check_compiler_targets,
 };
 pub use wrapper::{
     CompilerWrapperResolutionError, ConfigWrapperLayer, WrapperInputs, resolve_compiler_wrapper,

@@ -281,6 +281,9 @@ pub(crate) struct WorkspacePipelineArgs<'a> {
     pub workspace_selection: &'a super::WorkspaceSelectionArgs,
     pub toolchain: &'a super::ToolchainSelectionArgs,
     pub dev: DevActivation,
+    /// Whether the command builds the build context; `cabin check`
+    /// checks only the selected packages' own sources.
+    pub build_context: bool,
 }
 
 /// Everything the shared preamble produces that the command tails
@@ -325,6 +328,16 @@ pub(crate) struct PreparedWorkspace {
     pub build_context: Option<BuildContextPrep>,
 }
 
+impl PreparedWorkspace {
+    /// The build context's toolchain when it is its own (`--target`).
+    pub(crate) fn build_machine_detection(&self) -> Option<&cabin_core::ToolchainDetectionReport> {
+        self.build_context
+            .as_ref()
+            .filter(|context| context.cross)
+            .map(|context| &context.detection_report)
+    }
+}
+
 /// The build context's plan inputs: tools for the build machine,
 /// with features and flags of their own (contracts section 1).
 pub(crate) struct BuildContextPrep {
@@ -332,14 +345,18 @@ pub(crate) struct BuildContextPrep {
     /// targets and what those link.
     pub roots: Vec<usize>,
     pub included: BTreeSet<usize>,
-    /// Whether `--target` was given: the compilers must then also
-    /// build for the build machine.
+    /// Whether `--target` was given: the build machine then has a
+    /// toolchain of its own.
     pub cross: bool,
     pub enabled_features: HashMap<usize, BTreeSet<String>>,
     pub build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
     pub standard_flag_conflicts: HashMap<usize, Vec<cabin_core::StandardFlagConflict>>,
     /// The build machine.
     pub platform: cabin_core::TargetPlatform,
+    /// The build machine's toolchain: the target context's unless
+    /// `cross`, else [`build_machine_toolchain`]'s.
+    pub toolchain: cabin_core::ResolvedToolchain,
+    pub detection_report: cabin_core::ToolchainDetectionReport,
 }
 
 /// The shared `build` / `run` / `test` preamble: workspace
@@ -718,18 +735,25 @@ pub(crate) fn prepare_workspace(
         reporter,
     })?;
     let enabled_features = super::enabled_features_by_package(&feature_resolution);
-    let build_context = if build_features.included.is_empty() {
+    let build_context = if !args.build_context || build_features.included.is_empty() {
         None
     } else {
-        Some(build_context_prep(&BuildContextInputs {
+        let cross = args.toolchain.target.is_some();
+        let (context_toolchain, context_detection) = if cross {
+            build_machine_toolchain(&graph, &build_machine, &platform, &detection_report)?
+        } else {
+            (toolchain.clone(), detection_report.clone())
+        };
+        Some(build_context_prep(BuildContextInputs {
             graph: &graph,
             target_features: &feature_resolution,
             features: &build_features,
             platform: &platform,
             build_machine,
-            cross: args.toolchain.target.is_some(),
+            cross,
             profile: &profile,
-            detection: &detection_report,
+            toolchain: context_toolchain,
+            detection: context_detection,
             reporter,
         })?)
     };
@@ -792,20 +816,21 @@ struct BuildContextInputs<'a> {
     build_machine: cabin_core::TargetPlatform,
     cross: bool,
     profile: &'a cabin_core::ResolvedProfile,
-    detection: &'a cabin_core::ToolchainDetectionReport,
+    toolchain: cabin_core::ResolvedToolchain,
+    detection: cabin_core::ToolchainDetectionReport,
     reporter: Reporter,
 }
 
 /// Prepare the build context's plan inputs: its roots, features, and
 /// flags, with `cfg(...)` evaluated for the build machine.
-fn build_context_prep(inputs: &BuildContextInputs<'_>) -> Result<BuildContextPrep> {
+fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep> {
     let graph = inputs.graph;
     let (build_flags, standard_flag_conflicts) = resolve_per_package_build_flags(
         graph,
         inputs.profile,
         &inputs.build_machine,
         inputs.features,
-        Some(inputs.detection),
+        Some(&inputs.detection),
     );
     // Environment flags describe the target platform; they reach the
     // build context only when it is the same build.
@@ -840,8 +865,53 @@ fn build_context_prep(inputs: &BuildContextInputs<'_>) -> Result<BuildContextPre
         enabled_features: super::enabled_features_by_package(inputs.features),
         build_flags,
         standard_flag_conflicts,
-        platform: inputs.build_machine.clone(),
+        platform: inputs.build_machine,
+        toolchain: inputs.toolchain,
+        detection_report: inputs.detection,
     })
+}
+
+/// Resolve and detect the build machine's toolchain for a `--target`
+/// build's build context.  `HOST_CC`, `HOST_CXX`, and `HOST_AR` stand
+/// in for `CC`, `CXX`, and `AR`, and the manifest's `[toolchain]`
+/// tables apply as evaluated for the build machine; the CLI flags, the
+/// environment's `CC`, `CXX`, and `AR`, and config describe the target.
+fn build_machine_toolchain(
+    graph: &PackageGraph,
+    build_machine: &cabin_core::TargetPlatform,
+    platform: &cabin_core::TargetPlatform,
+    target: &cabin_core::ToolchainDetectionReport,
+) -> Result<(
+    cabin_core::ResolvedToolchain,
+    cabin_core::ToolchainDetectionReport,
+)> {
+    cabin_toolchain::check_build_machine_beside(target, platform, build_machine)?;
+    let manifest = workspace_toolchain_settings(graph);
+    let selection = cabin_core::ToolchainSelection::default();
+    let mut inputs =
+        cabin_toolchain::ResolveInputs::from_process(&selection, &manifest, build_machine);
+    inputs.env = Box::new(|var| {
+        std::env::var_os(match var {
+            "CC" => "HOST_CC",
+            "CXX" => "HOST_CXX",
+            "AR" => "HOST_AR",
+            other => other,
+        })
+    });
+    let toolchain = cabin_toolchain::resolve_toolchain(&inputs).context(
+        "failed to resolve the build machine's toolchain for `[build-dependencies]` (set HOST_CC, HOST_CXX, and HOST_AR to choose it)",
+    )?;
+    let report = cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)
+        .context("failed to detect the build machine's toolchain for `[build-dependencies]`")?;
+    cabin_toolchain::check_build_machine_compilers(
+        &report,
+        target,
+        build_machine,
+        &cabin_toolchain::ProcessRunner,
+    )?;
+    cabin_build::validate_toolchain_for_backend(&toolchain, &report)
+        .context("the build machine's toolchain for `[build-dependencies]` cannot build")?;
+    Ok((toolchain, report))
 }
 
 /// Plan the prepared workspace and run the shared post-plan
@@ -907,13 +977,17 @@ pub(crate) fn plan_prepared(
             })
             .collect();
         cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)
-    } else if let Some(context) = &prepared.build_context {
-        let mut plan_graph = plan_graph;
-        plan_graph.append(plan_build_context(prepared, context)?);
-        plan_graph
     } else {
         plan_graph
     };
+    let target_standards = cabin_build::requested_standards_of(&plan_graph);
+    let mut plan_graph = plan_graph;
+    let mut context_standards = None;
+    if let Some(context) = &prepared.build_context {
+        let context_graph = plan_build_context(prepared, context)?;
+        context_standards = Some((context, cabin_build::requested_standards_of(&context_graph)));
+        plan_graph.append(context_graph);
+    }
     // Standard-compat violations render before the hard build-time
     // enforcement below and gate the command themselves.
     super::standard_compat::report(
@@ -929,25 +1003,24 @@ pub(crate) fn plan_prepared(
     cabin_build::validate_toolchain_standards(
         &prepared.toolchain,
         &prepared.detection_report,
-        &cabin_build::requested_standards_of(&plan_graph),
+        &target_standards,
     )?;
+    if let Some((context, standards)) = context_standards {
+        cabin_build::validate_toolchain_standards(
+            &context.toolchain,
+            &context.detection_report,
+            &standards,
+        )?;
+    }
     Ok(plan_graph)
 }
 
 /// Plan the build context: the build dependencies' default targets,
-/// built for the build machine with the same compilers, minus the
-/// `--target=` a cross build passes.
+/// built for the build machine with its toolchain.
 fn plan_build_context(
     prepared: &PreparedWorkspace,
     context: &BuildContextPrep,
 ) -> Result<cabin_build::BuildGraph> {
-    if context.cross {
-        cabin_toolchain::check_build_context_compilers(
-            &prepared.detection_report,
-            &prepared.platform,
-            &context.platform,
-        )?;
-    }
     // shortcut: build-context units get no pkg-config probe (stage 06's
     // per-context providers), so a system dependency there fails here.
     super::system_deps::reject_build_context_system_deps(
@@ -957,7 +1030,7 @@ fn plan_build_context(
     )?;
     super::plan(&super::PlanRequest {
         graph: &prepared.graph,
-        toolchain: &prepared.toolchain,
+        toolchain: &context.toolchain,
         build_flags: &context.build_flags,
         language_standards: &prepared.language_standards,
         standard_flag_conflicts: &context.standard_flag_conflicts,
@@ -968,11 +1041,11 @@ fn plan_build_context(
         selected_packages: Some(&context.roots),
         compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(
-            prepared.detection_report.cxx.identity.kind,
+            context.detection_report.cxx.identity.kind,
         ),
         archiver_windows_rsp_quoting: prepared.detection_report.ar.identity.windows_rsp_quoting(),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
-            &prepared.detection_report,
+            &context.detection_report,
             cabin_build::collect_requested_standards(
                 &prepared.graph,
                 &context.included,
@@ -981,7 +1054,7 @@ fn plan_build_context(
             )
             .has_c_sources(),
         ),
-        clang_cl: cabin_build::clang_cl_languages(&prepared.detection_report),
+        clang_cl: cabin_build::clang_cl_languages(&context.detection_report),
         enabled_features: Some(&context.enabled_features),
         standard_compat: true,
         clang_target: None,
