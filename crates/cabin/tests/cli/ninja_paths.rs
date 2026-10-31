@@ -163,3 +163,72 @@ fn compiles_whose_dependencies_ninja_drops_rerun() {
     let plan = ninja(&root, &["-n"]);
     assert!(plan.contains("a.cc.o"), "{plan}");
 }
+
+/// Archive and link commands past the host's command-line limit pass
+/// their arguments through response files.  Other hosts cap only the
+/// total argument size and keep them inline.
+#[cfg(any(target_os = "linux", windows))]
+#[test]
+fn long_archive_and_link_commands_use_response_files() {
+    require_c_and_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("long paths");
+    // 150 objects per command: on Linux each path is ~900 bytes (over
+    // the 120 KiB inline limit together); Windows keeps paths under
+    // `MAX_PATH` and needs only 24 KiB.
+    let segment = "s".repeat(if cfg!(windows) { 100 } else { 200 });
+    let nested = vec![segment.as_str(); if cfg!(windows) { 1 } else { 4 }].join("/");
+    let count = 150;
+    let sources = |prefix: &str| {
+        (0..count)
+            .map(|i| format!("\"{prefix}/{nested}/u{i}.c\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    write(
+        &dir,
+        "cabin.toml",
+        &format!(
+            "[package]\nname = \"big\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n\
+             [target.big]\ntype = \"library\"\nsources = [{}]\n\n\
+             [target.app]\ntype = \"executable\"\nsources = [\"app/main.c\", {}]\ndeps = [\"big\"]\n",
+            sources("lib"),
+            sources("app"),
+        ),
+    );
+    for i in 0..count {
+        write(
+            &dir,
+            &format!("lib/{nested}/u{i}.c"),
+            &format!("int lib_{i}(void) {{ return {i}; }}\n"),
+        );
+        write(
+            &dir,
+            &format!("app/{nested}/u{i}.c"),
+            &format!("int app_{i}(void) {{ return {i}; }}\n"),
+        );
+    }
+    let last = count - 1;
+    write(
+        &dir,
+        "app/main.c",
+        &format!(
+            "#include <stdio.h>\nint lib_{last}(void);\nint app_{last}(void);\n\
+             int main(void) {{ printf(\"value=%d\\n\", lib_{last}() + app_{last}()); return 0; }}\n"
+        ),
+    );
+    cabin()
+        .arg("run")
+        .current_dir(&dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("value={}", 2 * last)));
+    let manifest = fs::read_to_string(dir.join("build/dev/build.ninja")).unwrap();
+    assert_eq!(manifest.matches("\n  rspfile = ").count(), 2, "{manifest}");
+    cabin()
+        .args(["-v", "build"])
+        .current_dir(&dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ninja: no work to do."));
+}
