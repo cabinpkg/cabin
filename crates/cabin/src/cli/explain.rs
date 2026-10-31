@@ -86,8 +86,8 @@ pub(crate) enum ExplainCommand {
         query: String,
     },
     /// Explain the resolved [`cabin_core::BuildConfiguration`]
-    /// for a package (features, profile, toolchain, flags,
-    /// language standards, fingerprint).
+    /// for a package (profile, toolchain, flags, options,
+    /// variants, condition trace, fingerprint).
     BuildConfig {
         /// Package name to explain.
         #[arg(value_parser = crate::cli::parse_package_name)]

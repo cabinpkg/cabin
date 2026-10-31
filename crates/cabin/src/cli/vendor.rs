@@ -84,9 +84,9 @@ pub(crate) struct VendorArgs {
     pub frozen: bool,
 
     /// Forbid network access.  Cabin refuses to use an HTTP
-    /// index URL (a `[registry] index-url` config setting) and
-    /// expects every needed artifact to already be available in
-    /// the artifact cache.
+    /// index URL (`--index-url` or a `[registry] index-url`
+    /// config setting) and expects every needed artifact to
+    /// already be available in the artifact cache.
     #[arg(long)]
     pub offline: bool,
 
