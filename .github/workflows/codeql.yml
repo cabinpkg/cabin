@@ -5,6 +5,9 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  # Reports the required contexts without analyzing: main fast-forwards
+  # to the merge group's SHA, and the push run analyzes it there. An
+  # analysis failure only the full run hits surfaces on main (accepted).
   merge_group:
     types: [checks_requested]
   schedule:
@@ -57,6 +60,7 @@ jobs:
         # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
     steps:
     - name: Checkout repository
+      if: github.event_name != 'merge_group'
       uses: actions/checkout@v7.0.1
       with:
         persist-credentials: false
@@ -70,10 +74,11 @@ jobs:
       with:
         cache: false
         rustflags: ""
-      if: matrix.language == 'rust'
+      if: matrix.language == 'rust' && github.event_name != 'merge_group'
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
+      if: github.event_name != 'merge_group'
       uses: github/codeql-action/init@v4.39.0
       with:
         languages: ${{ matrix.language }}
@@ -86,6 +91,7 @@ jobs:
         # queries: security-extended,security-and-quality
 
     - name: Perform CodeQL Analysis
+      if: github.event_name != 'merge_group'
       uses: github/codeql-action/analyze@v4.39.0
       with:
         category: "/language:${{matrix.language}}"
