@@ -552,6 +552,48 @@ fn matching_target_conditional_system_dep_is_probed() {
 }
 
 #[test]
+fn a_target_build_refuses_the_build_machines_pkg_config() {
+    let fixtures = Fixtures::new();
+    fixtures.write(
+        "zlib",
+        r#"{"version": "1.2.13", "cflags": "-I/sysroot/include", "libs": "-lz"}"#,
+    );
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(&manifest_with_system_dep("", ""))
+        .unwrap();
+    write_hello_main(dir.path());
+    let metadata = ["metadata", "--target", "riscv64-unknown-linux-gnu"];
+    let refusal = "need a pkg-config for that platform";
+
+    cabin()
+        .current_dir(dir.path())
+        .args(metadata)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(refusal));
+    // A target pkg-config, or a search path redirected into the target
+    // sysroot, answers instead.
+    cabin_with_fake_pkg_config(&fixtures)
+        .current_dir(dir.path())
+        .args(metadata)
+        .assert()
+        .success();
+    for (key, value) in [
+        ("PKG_CONFIG_LIBDIR", dir.path().as_os_str()),
+        // Naming the default executable still opts in.
+        ("CABIN_PKG_CONFIG", "pkg-config".as_ref()),
+    ] {
+        cabin()
+            .current_dir(dir.path())
+            .args(metadata)
+            .env(key, value)
+            .assert()
+            .stderr(predicate::str::contains(refusal).not());
+    }
+}
+
+#[test]
 fn verbose_mode_prints_probe_progress() {
     let fixtures = Fixtures::new();
     fixtures.write(

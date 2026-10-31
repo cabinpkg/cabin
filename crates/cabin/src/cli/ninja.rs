@@ -254,16 +254,12 @@ pub(crate) fn run_ninja(
 /// package name in the link error that isn't in the loaded
 /// graph) silently do nothing rather than spew on top of the
 /// real error.
-pub(crate) fn emit_link_diagnostic_if_applicable(
-    run: &NinjaRun,
-    graph: &cabin_workspace::PackageGraph,
-    planned_packages: &BTreeSet<String>,
-    dialect: cabin_build::Dialect,
-    feature_resolution: &cabin_feature::FeatureResolution,
-    include_dev_for: &BTreeSet<String>,
-    reporter: Reporter,
-) {
+pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvocationRequest<'_>) {
     use cabin_build::link_diagnostics::{TargetDepInfo, diagnose, render};
+
+    let graph = req.graph;
+    let planned_packages = &req.plan_graph.planned_packages;
+    let include_dev_for = req.dev_for;
 
     // Ninja sends the `FAILED:` banner and the failing action's
     // stdout/stderr to *its* stdout, then any wrapper diagnostics
@@ -278,7 +274,6 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
         format!("{}\n{}", run.stdout, run.stderr)
     };
 
-    let host_platform = cabin_core::TargetPlatform::current();
     let lookup = |pkg_name: &str, target_name: &str| -> Option<TargetDepInfo> {
         // A candidate reading only counts when the package was part
         // of this plan: the failing path came out of this plan's
@@ -298,7 +293,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
         // the hint only points at deps that would
         // appear on the link command for this invocation:
         //
-        // * Skip cfg-gated entries that do not match the host
+        // * Skip cfg-gated entries that do not match the build's
         //   platform - they never reach its link command.
         // * Skip `[dev-dependencies]` unless the owning package
         //   activated them for this invocation
@@ -310,13 +305,13 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
         //   "add this to target.deps" for a disabled optional
         //   dep would not change the link command.
         let dev_active = include_dev_for.contains(pkg_name);
-        let features = feature_resolution.for_package(pkg_idx);
+        let features = req.feature_resolution.for_package(pkg_idx);
         let package_deps: BTreeSet<String> = wp
             .package
             .dependencies
             .iter()
             .filter(|d| {
-                if !d.matches_platform(&host_platform) {
+                if !d.matches_platform(req.platform) {
                     return false;
                 }
                 let kind_active = d.kind.is_resolved_by_default()
@@ -352,8 +347,8 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
         })
     };
 
-    if let Some(diag) = diagnose(&combined, dialect, lookup) {
-        reporter.help(&render(&diag));
+    if let Some(diag) = diagnose(&combined, req.plan_graph.dialect, lookup) {
+        req.reporter.help(&render(&diag));
     }
 }
 
@@ -502,6 +497,9 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     pub cxx_kind: cabin_core::CompilerKind,
     /// Resolved feature graph, consumed by the link-failure hint.
     pub feature_resolution: &'a cabin_feature::FeatureResolution,
+    /// The platform the build targets, consumed by the link-failure
+    /// hint.
+    pub platform: &'a cabin_core::TargetPlatform,
     /// Packages whose `[dev-dependencies]` are active for this
     /// invocation: empty for `build` / `run`, the selected runners for
     /// `test`.
@@ -578,15 +576,7 @@ pub(crate) fn invoke_ninja_and_report(
     )
     .with_context(|| format!("failed to invoke ninja at {}", req.ninja.display()))?;
     if !run.status.success() {
-        emit_link_diagnostic_if_applicable(
-            &run,
-            req.graph,
-            &req.plan_graph.planned_packages,
-            req.plan_graph.dialect,
-            req.feature_resolution,
-            req.dev_for,
-            req.reporter,
-        );
+        emit_link_diagnostic_if_applicable(&run, req);
         anyhow::bail!("ninja exited with {}", run.status);
     }
     Ok(build_started.elapsed())

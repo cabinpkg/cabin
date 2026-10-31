@@ -77,6 +77,7 @@ pub(super) fn build(
             toolchain: &prepared.toolchain,
             cxx_kind: prepared.detection_report.cxx.identity.kind,
             feature_resolution: &prepared.feature_resolution,
+            platform: &prepared.platform,
             dev_for: &prepared.dev_for,
             ninja: &prepared.ninja,
             jobs,

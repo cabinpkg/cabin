@@ -42,17 +42,34 @@ use crate::cli::term_verbosity::Reporter;
 /// contributes an active system dependency.
 pub(crate) fn augment_build_flags_with_system_deps(
     graph: &PackageGraph,
-    host_platform: &TargetPlatform,
+    platform: &TargetPlatform,
     dev_for: &BTreeSet<String>,
     mut build_flags: HashMap<usize, ResolvedProfileFlags>,
     reporter: Reporter,
 ) -> Result<HashMap<usize, ResolvedProfileFlags>> {
-    let active = collect_active_system_deps(graph, host_platform, dev_for);
+    let active = collect_active_system_deps(graph, platform, dev_for);
     if active.is_empty() {
         return Ok(build_flags);
     }
 
     let tool = PkgConfigTool::from_env(|key| std::env::var_os(key));
+    // A plain pkg-config reports the build machine's libraries, which
+    // must not link into a build for another machine.  A triple's `env`
+    // counts (a glibc host's `.pc` files do not fit a musl build), so on
+    // a musl host an explicit musl `--target` needs `CABIN_PKG_CONFIG`.
+    if !platform.same_machine(&TargetPlatform::current())
+        && std::env::var_os(cabin_env::CABIN_PKG_CONFIG).is_none_or(|value| value.is_empty())
+        && std::env::var_os("PKG_CONFIG_LIBDIR").is_none()
+    {
+        bail!(
+            "system dependencies of a build for {} need a pkg-config for that platform, not \
+             the build machine's: set PKG_CONFIG_LIBDIR (and PKG_CONFIG_SYSROOT_DIR) to the \
+             target sysroot's pkg-config directories, or CABIN_PKG_CONFIG to a pkg-config \
+             for {}",
+            platform.target,
+            platform.target,
+        );
+    }
     let count = total_count(&active);
     let noun = if count == 1 {
         "dependency"
@@ -97,11 +114,11 @@ pub(crate) fn augment_build_flags_with_system_deps(
 /// `selected` rather than every primary package in `graph`.
 pub(crate) fn has_active_system_deps(
     graph: &PackageGraph,
-    host_platform: &TargetPlatform,
+    platform: &TargetPlatform,
     dev_for: &BTreeSet<String>,
     selected: &BTreeSet<usize>,
 ) -> bool {
-    collect_active_system_deps(graph, host_platform, dev_for)
+    collect_active_system_deps(graph, platform, dev_for)
         .iter()
         .any(|(idx, _)| selected.contains(idx))
 }
@@ -122,13 +139,13 @@ pub(crate) fn has_active_system_deps(
 /// at least one *selected* package has an active system dependency.
 pub(crate) fn ensure_dialect_supports_system_deps(
     graph: &PackageGraph,
-    host_platform: &TargetPlatform,
+    platform: &TargetPlatform,
     dev_for: &BTreeSet<String>,
     dialect: cabin_build::Dialect,
     selected: &BTreeSet<usize>,
 ) -> Result<()> {
     if dialect == cabin_build::Dialect::Msvc
-        && has_active_system_deps(graph, host_platform, dev_for, selected)
+        && has_active_system_deps(graph, platform, dev_for, selected)
     {
         bail!(
             "`system = true` dependencies are resolved with pkg-config, whose GNU-style \
@@ -226,7 +243,7 @@ fn merge_flags(flags: &mut ResolvedProfileFlags, contrib: &SystemDependencyFlags
 
 fn collect_active_system_deps<'a>(
     graph: &'a PackageGraph,
-    host_platform: &TargetPlatform,
+    platform: &TargetPlatform,
     dev_for: &BTreeSet<String>,
 ) -> Vec<(usize, Vec<&'a SystemDependency>)> {
     use cabin_core::DependencyKind;
@@ -255,7 +272,7 @@ fn collect_active_system_deps<'a>(
                 DependencyKind::Dev => continue,
             }
             if let Some(cond) = &dep.condition
-                && !cond.evaluate(&cabin_core::ConditionContext::platform_only(host_platform))
+                && !cond.evaluate(&cabin_core::ConditionContext::platform_only(platform))
             {
                 continue;
             }

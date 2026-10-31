@@ -418,7 +418,7 @@ change expected to fix them.
 | [Standard-compatibility spec](design/standard-compatibility/spec.md) D5 | a private edge does not expose the dependency to the consumer's own consumers | include directories follow private edges to every transitive consumer | fixed in stage 02 (the code now follows D5) |
 | [Profiles](profiles.md), `build_flags.rs` | `link-libs` belong to a target's objects | collected per package | fixed in stage 02 (docs say per package) |
 | [Targets](targets.md), `TargetKind` doc | a `library` is a `.a` archive | `<name>.lib` on MSVC | stage 08 |
-| [Target dependencies](target-dependencies.md) | `cfg(env = "musl")` example; `target` documented as a triple in `condition.rs` | `env` always follows the OS; `target` is `<arch>-<family>-<os>` | stage 04 |
+| [Target dependencies](target-dependencies.md) | `cfg(env = "musl")` example; `target` documented as a triple in `condition.rs` | `env` always follows the OS; `target` is `<arch>-<family>-<os>` | stage 04 under `--target`; the build machine's own values are unchanged |
 | [Toolchains](toolchains.md), [compiler cache](compiler-cache.md), architecture | the wrapper's `source` is fingerprinted | only kind, spec, and version are hashed | stage 04 (fingerprint completeness) |
 | [Toolchains](toolchains.md) | the fingerprint reaches `cabin run` and `cabin test` | they discard it | stage 04 |
 | [Profiles](profiles.md) | output layout `packages/<package>/<target>/...` | artifacts in `packages/<pkg>/`, objects in `packages/<pkg>/obj/<target>/` | stage 09 (layout contract) |
@@ -523,6 +523,18 @@ builds for.  A lockfile written earlier lacks the dependencies gated to other pl
 `--locked` reports it out of date until one unlocked resolution adds them; a build now fetches those
 packages too.
 
+Stage 04, second change: `--target <triple>` on `build`, `check`, `run`, `test`, `metadata`, and
+`explain` selects the platform `cfg(...)` conditions evaluate for, classified by
+`TargetPlatform::from_triple`, and the build writes under `<build-dir>/<triple>/`.  Clang-family
+compilers get `--target=<triple>` on every compile, assemble, and link; GCC (`-dumpmachine`), MSVC,
+and clang-cl (the banner, whose architecture now fills `CompilerIdentity.target`) must already build
+the triple's machine, and C and C++ compilers from different families are refused.  Without
+`--target`, a compiler for another machine draws a warning.  `cabin run` and `cabin test` build for
+another machine, then fail naming what they built; such a build refuses the build machine's
+pkg-config unless `PKG_CONFIG_LIBDIR` or `CABIN_PKG_CONFIG` is set; the configuration fingerprint
+folds the triple in; the link-failure hint evaluates edges for the build's platform; and `cabin
+clean --target` cleans one triple's outputs.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -604,6 +616,18 @@ test passes only beside a hung C++ test that times out under `--test-jobs 2 --te
 to fail with one job (macOS here, CI's Linux and Windows legs), and that `-j` reaches Ninja while
 the same flag after `--` does not.
 
+Stage 04, second change: Apple Clang 21 on macOS (arm64) cross-builds a C and a C++ executable for
+`x86_64-apple-macos13`, each an x86_64 Mach-O carrying its `cfg(arch = "x86_64")` source, beside an
+unchanged native build that runs; the test fails with `--target=` removed.  CLI tests: `cabin run
+--target` and `cabin test --target` build and run nothing, while a triple naming the build machine
+runs; a fake GCC whose `-dumpmachine` names another machine fails the build; `metadata --target`
+evaluates conditions for a riscv64 triple; the pkg-config refusal and both ways past it; `cabin
+clean --target`.  Unit tests for triple classification (Arm's `none` vendor, distro triples without
+an env), MSVC banners, compiler-target checks, the planner and lowering of `--target=`, and the
+fingerprint; `cargo ci` on macOS.  Verified cross combination: Apple Clang, macOS arm64 to macOS
+x86_64, C and C++.  Not run: a Linux cross toolchain (none here; CI's Linux and Windows legs run the
+portable tests), MSVC or clang-cl cross, and running the x86_64 output (no Rosetta).
+
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
 reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
@@ -624,6 +648,11 @@ packaging-revision correction for a later respin; `BuildConfiguration::fingerpri
 target-level field other than `instruction-sets` (`sources`, `defines`, `interface-defines`,
 `include-dirs`, `deps`), short of `crates/AGENTS.md`, though nothing keys a build on it yet; no
 CI job uses `clang-cl`.
+
+Follow-ups found in stage 04: `cabin tree` and `cabin tidy` take no `--target` and follow the build
+machine's edges; the build machine's own `env`, `abi`, and `target` values are still derived from
+the OS rather than detected; GNU-dialect executables keep a bare name for a Windows target,
+though MinGW GCC and Clang write `<name>.exe` (stage 05's MinGW work).
 
 ## Handoff to stage 04
 

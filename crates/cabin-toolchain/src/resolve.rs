@@ -54,7 +54,7 @@ pub struct Inputs<'a> {
     /// correctly.
     pub config: Option<&'a ConfigToolchainLayer>,
     pub manifest: &'a ToolchainSettings,
-    pub host_platform: &'a TargetPlatform,
+    pub platform: &'a TargetPlatform,
     pub env: EnvLookup<'a>,
     pub probe: ExecutableProbe<'a>,
 }
@@ -95,13 +95,13 @@ impl<'a> Inputs<'a> {
     pub fn from_process(
         selection: &'a ToolchainSelection,
         manifest: &'a ToolchainSettings,
-        host_platform: &'a TargetPlatform,
+        platform: &'a TargetPlatform,
     ) -> Self {
         Self {
             selection,
             config: None,
             manifest,
-            host_platform,
+            platform,
             env: Box::new(|var| std::env::var_os(var)),
             probe: Box::new(Path::is_file),
         }
@@ -234,7 +234,7 @@ fn pick_explicit(
     }
 
     for cond in &inputs.manifest.conditional {
-        if matches_condition(cond, inputs.host_platform)
+        if matches_condition(cond, inputs.platform)
             && let Some(spec) = cond.toolchain.get(kind)
         {
             return Ok(Some((spec.clone(), ToolSource::ManifestConditional)));
@@ -370,7 +370,7 @@ mod tests {
             selection,
             config: None,
             manifest,
-            host_platform: platform,
+            platform,
             env: Box::new(move |k| env.get(k).cloned()),
             probe: Box::new(move |p| existing.contains(p)),
         }

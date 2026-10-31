@@ -150,9 +150,10 @@ the `[dev-dependencies]` policy.
 
 ### Platform-conditional sources
 
-A target compiles some sources only on particular hosts through `[target.'cfg(...)'.sources]`
+A target compiles some sources only on particular platforms through `[target.'cfg(...)'.sources]`
 tables.  Each key names a target of the same package, and its value lists the sources that target
-adds when the predicate matches the host:
+adds when the predicate matches the platform the build is for (the build machine, or the
+`--target` platform):
 
 ```toml
 [target.thread]
@@ -172,7 +173,7 @@ see [the `cfg` grammar](target-dependencies.md#supported-cfg-grammar)), because 
 must not depend on its features or the detected compiler.  A table that names an unknown target, or
 a `header-only` one, is a manifest error.
 
-Only the build selects by host.  Everything else treats every conditional list as declared:
+Only the build selects by platform.  Everything else treats every conditional list as declared:
 `cabin package` archives the files, the registry verifier requires them, and the language-standard
 checks count them.  A manifest therefore loads, packages, and verifies identically on every host.
 

@@ -95,7 +95,9 @@ Default build directory: `build/`.
 ### No `--target` overload for manifest-target selection
 
 Cargo overloads `--target` for binary selection in some contexts.  Cabin does not offer a `--target
-<name>` manifest-target selector on any command.
+<name>` manifest-target selector on any command: `--target <triple>` names the platform to build
+for, as `cargo build --target` does (see
+[Building for another platform](toolchains.md#building-for-another-platform)).
 
 Selection works through three other surfaces:
 
@@ -108,8 +110,8 @@ Selection works through three other surfaces:
   in the selected packages.  Dev-only kinds (`test`, `example`) are excluded from this default and
   reach the build graph only as transitive deps of a selected target.
 
-Each explicit-kind selector uses a distinct flag name (`--bin`, `--test`), keeping `--target`
-reserved for the future platform / toolchain target.
+Each explicit-kind selector uses a distinct flag name (`--bin`, `--test`), keeping `--target` for
+the platform triple.
 
 Targets may declare `required-features` - the same feature-gating knob Cargo puts on `[[bin]]` /
 `[[test]]` sections.  Enumeration skips a gated target; explicitly selecting one without its

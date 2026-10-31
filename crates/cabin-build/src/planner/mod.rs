@@ -88,10 +88,14 @@ pub struct PlanRequest<'a> {
     pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
     /// Absolute path under which all build outputs are placed.
     pub build_dir: PathBuf,
-    /// The host, against which `[target.'cfg(...)'.sources]` select
-    /// the sources each target compiles (Cabin builds only for the
-    /// host).
+    /// The platform the build is for - the build machine, or the
+    /// `--target` triple - against which `cfg(...)` dependency edges and
+    /// `[target.'cfg(...)'.sources]` select what each target compiles.
     pub platform: cabin_core::TargetPlatform,
+    /// The triple every compile, assemble, and link command passes as
+    /// `--target=` to a Clang-family driver; `None` keeps the drivers'
+    /// default (a native build, or a compiler with a fixed target).
+    pub clang_target: Option<String>,
     /// Resolved build profile.  Drives compile flags and the per-
     /// profile output directory.
     pub profile: ResolvedProfile,
@@ -667,6 +671,7 @@ fn emit_actions(
                 mode: CompileMode::Object,
                 depfile: Some(depfile),
                 compiler: dispatch.driver.to_path_buf(),
+                target: req.clang_target.clone(),
                 compiler_wrapper,
                 arguments: CompileArguments {
                     opt_level: req.profile.opt_level,
@@ -720,6 +725,7 @@ fn emit_actions(
             };
             actions.push(BuildAction::Assemble(AssembleAction {
                 assembler,
+                target: req.clang_target.clone(),
                 source: asm.abs_source.clone(),
                 object: asm.object.clone(),
                 depfile: Some(depfile_path(&asm.object)),
@@ -774,6 +780,8 @@ fn emit_actions(
             // mixes in any `.cc` / `.cpp` source - directly or
             // transitively - drives the link with the C++ compiler.
             TargetKind::Executable | TargetKind::Test | TargetKind::Example => {
+                // shortcut: a GNU driver building for Windows (MinGW) writes
+                // `<name>.exe`; stage 05 names it so with MinGW support.
                 let exe_path =
                     pkg_build_dir.join(req.dialect.executable_name(target.name.as_str()));
                 let lib_paths =
@@ -846,6 +854,7 @@ fn emit_actions(
                 };
                 actions.push(BuildAction::Link(LinkAction {
                     linker: driver_path.to_path_buf(),
+                    target: req.clang_target.clone(),
                     output: exe_path.clone(),
                     inputs,
                     arguments: link_arguments,

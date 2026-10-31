@@ -270,6 +270,8 @@ pub(crate) struct MetadataInputs<'a> {
     pub(crate) manifest_profiles:
         &'a BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
     pub(crate) toolchain: &'a cabin_core::ResolvedToolchain,
+    /// The platform `cfg(...)` conditions evaluate for.
+    pub(crate) platform: &'a cabin_core::TargetPlatform,
     pub(crate) build_flags: &'a HashMap<usize, cabin_core::ResolvedProfileFlags>,
     pub(crate) detection: Option<&'a cabin_core::ToolchainDetectionReport>,
     /// Resolved compiler wrapper, if any. `None` is rendered
@@ -301,13 +303,13 @@ pub(crate) struct MetadataInputs<'a> {
 /// Build the JSON view for a single workspace package.  The returned
 /// [`PackageView`] borrows exclusively from `pkg`, so its lifetime is
 /// tied to that reference; `graph`, `configurations`, and
-/// `host_platform` only supply owned or copied data.
+/// `platform` only supply owned or copied data.
 fn build_package_view<'a>(
     graph: &PackageGraph,
     idx: usize,
     pkg: &'a cabin_workspace::WorkspacePackage,
     configurations: &HashMap<usize, cabin_core::BuildConfiguration>,
-    host_platform: &cabin_core::TargetPlatform,
+    platform: &cabin_core::TargetPlatform,
 ) -> PackageView<'a> {
     let package: &Package = &pkg.package;
     let features = if package.features.default.is_empty() && package.features.features.is_empty() {
@@ -335,9 +337,10 @@ fn build_package_view<'a>(
             dependency_kind: sd.kind,
             version: sd.version.as_str(),
             target: sd.condition.as_ref().map(ToString::to_string),
-            active: sd.condition.as_ref().is_none_or(|c| {
-                c.evaluate(&cabin_core::ConditionContext::platform_only(host_platform))
-            }),
+            active: sd
+                .condition
+                .as_ref()
+                .is_none_or(|c| c.evaluate(&cabin_core::ConditionContext::platform_only(platform))),
         })
         .collect();
     // The stable sorts below uphold the documented ordering contract
@@ -355,7 +358,7 @@ fn build_package_view<'a>(
             features: d.features.as_slice(),
             default_features: d.default_features,
             target: d.condition.as_ref().map(ToString::to_string),
-            active: d.matches_platform(host_platform),
+            active: d.matches_platform(platform),
             source: match &d.source {
                 DependencySource::Path(p) => DependencySourceView::Path {
                     path: p.as_std_path(),
@@ -416,7 +419,7 @@ impl<'a> MetadataView<'a> {
         let toolchain_resolved = inputs.toolchain;
         let build_flags = inputs.build_flags;
         let detection = inputs.detection;
-        let host_platform = cabin_core::TargetPlatform::current();
+        let platform = inputs.platform;
         let workspace = if graph.is_workspace_root {
             let mut members: Vec<&str> = graph
                 .primary_packages
@@ -457,7 +460,7 @@ impl<'a> MetadataView<'a> {
             .packages
             .iter()
             .enumerate()
-            .map(|(idx, pkg)| build_package_view(graph, idx, pkg, configurations, &host_platform))
+            .map(|(idx, pkg)| build_package_view(graph, idx, pkg, configurations, platform))
             .collect();
 
         // Build the profile section once, deterministically: the
@@ -532,7 +535,7 @@ impl<'a> MetadataView<'a> {
             workspace,
             packages,
             lockfile: None,
-            target_platform: TargetPlatformView::from_platform(&host_platform),
+            target_platform: TargetPlatformView::from_platform(platform),
             profiles,
             toolchain: toolchain_view,
             config: config_view,
@@ -577,11 +580,12 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // Run the cross-package feature resolver so unknown features,
     // `dep:` entries on non-optional deps, and other feature-graph
     // errors surface here and in `cabin build`.
+    let platform = args.toolchain.platform();
     let feature_resolution = compute_feature_resolution(
         &graph,
         &resolved_selection,
         &request,
-        Some(&cabin_core::TargetPlatform::current()),
+        Some(&platform),
         &BTreeSet::new(),
     )?;
     // The detection report reaches the JSON view as `null` when
@@ -589,13 +593,13 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let InspectionPrep {
         manifest_profiles,
         profile,
-        host_platform,
         toolchain,
         detection: detection_report,
     } = resolve_inspection_prep(
         &graph,
         args.profile.as_deref(),
         &args.toolchain,
+        &platform,
         &effective_config,
         reporter,
     )?;
@@ -614,12 +618,13 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
             None
         }
     };
-    let toolchain_summary =
+    let mut toolchain_summary =
         cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
+    toolchain_summary.target = args.toolchain.target.as_ref().map(|t| t.target.clone());
     let (build_flags, _standard_flag_conflicts) = resolve_per_package_build_flags(
         &graph,
         &profile,
-        &host_platform,
+        &platform,
         &feature_resolution,
         detection_report.as_ref(),
     );
@@ -627,7 +632,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // dev-kind system deps stay declaration-only here so the
     // probe step matches the Cabin-package activation rule.
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
+    let build_flags = augment_build_flags(&graph, &platform, &dev_for, build_flags, reporter)?;
     let configurations = resolve_build_configurations(
         &graph,
         &feature_resolution,
@@ -646,6 +651,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         profile: &profile,
         manifest_profiles: &manifest_profiles,
         toolchain: &toolchain,
+        platform: &platform,
         build_flags: &build_flags,
         detection: detection_report.as_ref(),
         compiler_wrapper: compiler_wrapper.as_ref(),

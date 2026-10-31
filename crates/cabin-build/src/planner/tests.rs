@@ -238,6 +238,7 @@ fn plan_request<'a>(
         standard_flag_conflicts: &NO_FLAG_CONFLICTS,
         build_dir: PathBuf::from(build_dir),
         platform: cabin_core::TargetPlatform::current(),
+        clang_target: None,
         profile: dev_profile(),
         selected: None,
         selected_packages: None,
@@ -434,6 +435,35 @@ fn assembly_sources_assemble_into_the_target_archive() {
         // `compile_commands.json` lists only the C++ translation unit.
         assert_eq!(bg.compile_commands.len(), 1, "{source}");
     }
+}
+
+/// A `--target` build hands Clang its triple on every compile,
+/// assemble, and link the planner emits.
+#[test]
+fn clang_target_reaches_every_compile_assemble_and_link() {
+    let exe = target(
+        "app",
+        TargetKind::Executable,
+        &["src/main.cc", "src/util.c", "src/jump.S"],
+        &[],
+    );
+    let package = Package::new(pkg_name("app"), version(), vec![exe], Vec::new()).unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain_with_cc();
+    let mut request = plan_request(&graph, &tc, "/abs/proj/build");
+    request.clang_target = Some("aarch64-unknown-linux-gnu".to_owned());
+    let bg = plan(&request).unwrap();
+    let targets: Vec<Option<&str>> = bg
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            BuildAction::Compile(a) => Some(a.target.as_deref()),
+            BuildAction::Assemble(a) => Some(a.target.as_deref()),
+            BuildAction::Link(a) => Some(a.target.as_deref()),
+            BuildAction::Archive(_) => None,
+        })
+        .collect();
+    assert_eq!(targets, [Some("aarch64-unknown-linux-gnu"); 4]);
 }
 
 /// An executable built only from assembly links with the validated

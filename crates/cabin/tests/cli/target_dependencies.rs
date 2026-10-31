@@ -59,6 +59,38 @@ spdlog = "^1"
 }
 
 #[test]
+fn metadata_evaluates_conditions_for_the_target_triple() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[target.'cfg(all(os = "linux", arch = "riscv64"))'.dependencies]
+fmt = ">=10"
+
+[target.'cfg(not(arch = "riscv64"))'.dependencies]
+spdlog = "^1"
+"#,
+        )
+        .unwrap();
+    let value = run_json(
+        cabin()
+            .args(["metadata", "--target", "riscv64gc-unknown-linux-gnu"])
+            .arg("--manifest-path")
+            .arg(dir.path().join("cabin.toml")),
+    );
+    let target_platform = &value["target_platform"];
+    assert_eq!(target_platform["target"], "riscv64gc-unknown-linux-gnu");
+    assert_eq!(target_platform["arch"], "riscv64");
+    let deps = value["packages"][0]["dependencies"].as_array().unwrap();
+    let active = |name: &str| deps.iter().find(|d| d["name"] == name).unwrap()["active"].clone();
+    assert_eq!(active("fmt"), true);
+    assert_eq!(active("spdlog"), false);
+}
+
+#[test]
 fn metadata_sorts_dependencies_across_conditional_declarations() {
     // Conditional deps are appended after the unconditional ones
     // in the parsed package; the metadata view must still honor

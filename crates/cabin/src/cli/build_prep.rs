@@ -40,7 +40,9 @@ use crate::cli::term_verbosity::Reporter;
 /// wrapper / summary derivation.
 pub(crate) struct BuildConfigInputs<'a> {
     pub graph: &'a cabin_workspace::PackageGraph,
-    pub host_platform: &'a cabin_core::TargetPlatform,
+    pub platform: &'a cabin_core::TargetPlatform,
+    /// The `--target` triple, folded into the configuration fingerprint.
+    pub target: Option<&'a str>,
     pub toolchain: &'a cabin_core::ResolvedToolchain,
     /// Toolchain detection report.  `Some` for the building commands
     /// (fail-hard detection already ran); `None` only when a
@@ -91,13 +93,13 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
     let (build_flags, standard_flag_conflicts) = resolve_per_package_build_flags(
         inputs.graph,
         inputs.profile,
-        inputs.host_platform,
+        inputs.platform,
         inputs.feature_resolution,
         inputs.detection,
     );
     let build_flags = augment_build_flags(
         inputs.graph,
-        inputs.host_platform,
+        inputs.platform,
         inputs.dev_for,
         build_flags,
         inputs.reporter,
@@ -107,10 +109,11 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         inputs.manifest_compiler_wrapper,
         inputs.effective_config,
     )?;
-    let toolchain_summary = cabin_core::ToolchainSummary::from_resolved_parts(
+    let mut toolchain_summary = cabin_core::ToolchainSummary::from_resolved_parts(
         inputs.toolchain,
         compiler_wrapper.as_ref(),
     );
+    toolchain_summary.target = inputs.target.map(str::to_owned);
     Ok(BuildPrep {
         build_flags,
         standard_flag_conflicts,
@@ -124,7 +127,6 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
 pub(crate) struct InspectionPrep {
     pub manifest_profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
     pub profile: cabin_core::ResolvedProfile,
-    pub host_platform: cabin_core::TargetPlatform,
     pub toolchain: cabin_core::ResolvedToolchain,
     /// `None` when detection failed: the read-only commands are
     /// fail-soft so a misbehaving compiler does not block inspecting
@@ -143,20 +145,16 @@ pub(crate) fn resolve_inspection_prep(
     graph: &PackageGraph,
     profile: Option<&str>,
     toolchain_args: &super::ToolchainSelectionArgs,
+    platform: &cabin_core::TargetPlatform,
     effective_config: &cabin_config::EffectiveConfig,
     reporter: Reporter,
 ) -> Result<InspectionPrep> {
     let manifest_profiles = workspace_profile_definitions(graph);
     let profile_selection = profile_selection_from_flags(profile, false, effective_config)?;
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
-    let host_platform = cabin_core::TargetPlatform::current();
     let toolchain_selection = toolchain_selection_from_args(toolchain_args)?;
-    let toolchain = resolve_toolchain_layered(
-        graph,
-        &toolchain_selection,
-        effective_config,
-        &host_platform,
-    )?;
+    let toolchain =
+        resolve_toolchain_layered(graph, &toolchain_selection, effective_config, platform)?;
     let detection =
         match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
             Ok(report) => Some(report),
@@ -168,7 +166,6 @@ pub(crate) fn resolve_inspection_prep(
     Ok(InspectionPrep {
         manifest_profiles,
         profile,
-        host_platform,
         toolchain,
         detection,
     })
@@ -230,6 +227,10 @@ pub(crate) struct PreparedWorkspace {
     pub ninja: PathBuf,
     pub lockfile_pinned: BTreeSet<(String, String)>,
     pub dev_for: BTreeSet<String>,
+    /// The platform `--target` selects, or the build machine.
+    pub platform: cabin_core::TargetPlatform,
+    /// See [`cabin_build::PlanRequest::clang_target`].
+    pub clang_target: Option<String>,
 }
 
 /// The shared `build` / `run` / `test` preamble: workspace
@@ -249,6 +250,7 @@ pub(crate) fn prepare_workspace(
     reporter: Reporter,
 ) -> Result<PreparedWorkspace> {
     let manifest_path = super::resolve_invocation_manifest(args.manifest_path)?;
+    let platform = args.toolchain.platform();
 
     // First-pass load: needed to detect versioned dependencies
     // before we know whether we have to fetch anything.  This load
@@ -464,7 +466,7 @@ pub(crate) fn prepare_workspace(
         &graph,
         &resolved_selection,
         &selection_request,
-        Some(&cabin_core::TargetPlatform::current()),
+        Some(&platform),
         &dev_for,
     )?;
     // The reload skips an optional registry dependency resolution
@@ -494,16 +496,18 @@ pub(crate) fn prepare_workspace(
     // > `[paths] build-dir` config setting > built-in default.
     let (build_dir_input, _build_dir_source) =
         super::config::resolve_build_dir_with_env(args.build_dir, &effective_config);
-    let build_dir = super::absolutise(&build_dir_input)
+    let mut build_dir = super::absolutise(&build_dir_input)
         .with_context(|| format!("failed to resolve build dir {}", build_dir_input.display()))?;
+    if let Some(target) = &args.toolchain.target {
+        build_dir.push(&target.target);
+    }
 
-    let host_platform = cabin_core::TargetPlatform::current();
     let toolchain_selection = super::toolchain_selection_from_args(args.toolchain)?;
     let toolchain = super::resolve_toolchain_layered(
         &graph,
         &toolchain_selection,
         &effective_config,
-        &host_platform,
+        &platform,
     )?;
     // Detect compiler / archiver identity and validate that the
     // backend's required capabilities (GCC-style flags, depfile
@@ -513,6 +517,15 @@ pub(crate) fn prepare_workspace(
     // error from a broken command line.
     let detection_report =
         cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)?;
+    let compiler_targets = cabin_toolchain::check_compiler_targets(
+        &detection_report,
+        &platform,
+        args.toolchain.target.is_some(),
+        &cabin_toolchain::ProcessRunner,
+    )?;
+    for warning in &compiler_targets.warnings {
+        reporter.warning(format_args!("{warning}"));
+    }
     // Feature resolution's reach: the closure through edges active on
     // this platform, now that the graph also holds every other platform's.
     let selected_closure = &feature_resolution.included;
@@ -553,14 +566,15 @@ pub(crate) fn prepare_workspace(
     // dependency does not block `-p other` under MSVC.
     super::system_deps::ensure_dialect_supports_system_deps(
         &graph,
-        &host_platform,
+        &platform,
         &dev_for,
         cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         selected_closure,
     )?;
     let prep = resolve_build_prep(BuildConfigInputs {
         graph: &graph,
-        host_platform: &host_platform,
+        platform: &platform,
+        target: args.toolchain.target.as_ref().map(|t| t.target.as_str()),
         toolchain: &toolchain,
         detection: Some(&detection_report),
         cli_compiler_wrapper,
@@ -590,6 +604,8 @@ pub(crate) fn prepare_workspace(
         ninja,
         lockfile_pinned,
         dev_for,
+        platform,
+        clang_target: compiler_targets.clang_target,
     })
 }
 
@@ -612,7 +628,7 @@ pub(crate) fn plan_prepared(
         language_standards: &prepared.language_standards,
         standard_flag_conflicts: &prepared.prep.standard_flag_conflicts,
         build_dir: prepared.build_dir.clone(),
-        platform: cabin_core::TargetPlatform::current(),
+        platform: prepared.platform.clone(),
         profile: prepared.profile.clone(),
         selected,
         selected_packages: Some(&prepared.resolved_selection.packages),
@@ -627,6 +643,7 @@ pub(crate) fn plan_prepared(
         clang_cl: cabin_build::clang_cl_languages(&prepared.detection_report),
         enabled_features: Some(&prepared.enabled_features),
         standard_compat: true,
+        clang_target: prepared.clang_target.clone(),
     })?;
     // `cabin check` reuses the build graph but rewrites it into a
     // syntax-only check (no codegen, no link) scoped to the selected
@@ -777,14 +794,14 @@ pub(crate) fn resolve_toolchain_layered(
     graph: &PackageGraph,
     selection: &cabin_core::ToolchainSelection,
     effective_config: &cabin_config::EffectiveConfig,
-    host_platform: &cabin_core::TargetPlatform,
+    platform: &cabin_core::TargetPlatform,
 ) -> Result<cabin_core::ResolvedToolchain> {
     let manifest_toolchain_settings = workspace_toolchain_settings(graph);
     let config_toolchain_layer = crate::cli::config::toolchain_layer(effective_config);
     let mut toolchain_inputs = cabin_toolchain::ResolveInputs::from_process(
         selection,
         &manifest_toolchain_settings,
-        host_platform,
+        platform,
     );
     if let Some(layer) = config_toolchain_layer.as_ref() {
         toolchain_inputs = toolchain_inputs.with_config(layer);
@@ -871,7 +888,7 @@ pub(crate) fn resolve_per_package_language_standards(
 pub(crate) fn resolve_per_package_build_flags(
     graph: &PackageGraph,
     profile: &cabin_core::ResolvedProfile,
-    host_platform: &cabin_core::TargetPlatform,
+    platform: &cabin_core::TargetPlatform,
     feature_resolution: &cabin_feature::FeatureResolution,
     detection: Option<&cabin_core::ToolchainDetectionReport>,
 ) -> (
@@ -905,7 +922,7 @@ pub(crate) fn resolve_per_package_build_flags(
         // a bare `&BTreeSet<String>`.
         let package_features = feature_resolution.for_package(idx);
         let ctx = cabin_core::ConditionContext::with_features(
-            host_platform,
+            platform,
             &package_features.enabled_features,
         )
         .with_compilers(cc_identity, cxx_identity);
@@ -944,14 +961,14 @@ pub(crate) fn resolve_per_package_build_flags(
 /// `BuildConfiguration::fingerprint` to stay stable across commands.
 pub(crate) fn augment_build_flags(
     graph: &PackageGraph,
-    host_platform: &cabin_core::TargetPlatform,
+    platform: &cabin_core::TargetPlatform,
     dev_for: &BTreeSet<String>,
     build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
     reporter: Reporter,
 ) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
     let build_flags = crate::cli::system_deps::augment_build_flags_with_system_deps(
         graph,
-        host_platform,
+        platform,
         dev_for,
         build_flags,
         reporter,

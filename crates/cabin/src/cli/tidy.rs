@@ -202,13 +202,13 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let host_platform = cabin_core::TargetPlatform::current();
+    let platform = cabin_core::TargetPlatform::current();
     let toolchain_selection = cabin_core::ToolchainSelection::default();
     let toolchain = crate::cli::resolve_toolchain_layered(
         &graph,
         &toolchain_selection,
         &effective_config,
-        &host_platform,
+        &platform,
     )?;
 
     let manifest_profiles = crate::cli::workspace_profile_definitions(&graph);
@@ -236,7 +236,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let (build_flags, standard_flag_conflicts) = crate::cli::resolve_per_package_build_flags(
         &graph,
         &profile,
-        &host_platform,
+        &platform,
         &feature_resolution,
         detection_report.as_ref(),
     );
@@ -260,13 +260,13 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let selected_closure = &feature_resolution.included;
     crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
-        &host_platform,
+        &platform,
         &dev_for,
         dialect,
         selected_closure,
     )?;
     let build_flags =
-        crate::cli::augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
+        crate::cli::augment_build_flags(&graph, &platform, &dev_for, build_flags, reporter)?;
 
     // The planner's default selection only emits compile commands
     // for default-buildable kinds (library, header-only, executable),
@@ -316,6 +316,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         standard_flag_conflicts: &standard_flag_conflicts,
         build_dir: build_dir.clone(),
         platform: TargetPlatform::current(),
+        clang_target: None,
         profile: profile.clone(),
         selected: Some(tidy_selectors),
         selected_packages: Some(&resolved_selection.packages),
@@ -528,13 +529,13 @@ fn first_selected_versioned_dependency_package_name(
     graph: &PackageGraph,
     features: &cabin_feature::FeatureResolution,
 ) -> Option<String> {
-    let host_platform = TargetPlatform::current();
+    let platform = TargetPlatform::current();
     let mut hits: BTreeSet<&str> = BTreeSet::new();
     for &idx in &features.included {
         let pkg = &graph.packages[idx];
         for dep in &pkg.package.dependencies {
             if dep.kind.is_resolved_by_default()
-                && dep.matches_platform(&host_platform)
+                && dep.matches_platform(&platform)
                 && (!dep.optional || features.is_optional_dep_enabled(idx, dep.name.as_str()))
                 && matches!(dep.source, DependencySource::Version(_))
             {

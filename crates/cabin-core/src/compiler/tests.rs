@@ -855,6 +855,7 @@ fn snapshot_msvc_identity_and_capabilities() {
   "identity": {
     "kind": "msvc",
     "version": "19.39.33523",
+    "target": "x86_64-pc-windows-msvc",
     "raw_version_line": "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.33523 for x64"
   },
   "capabilities": {
@@ -1229,25 +1230,32 @@ const CXX_BANNER_CORPUS: &[CxxBannerCase] = &[
         banner: "Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30153 for x64\nCopyright (C) Microsoft Corporation.  All rights reserved.\n",
         kind: CompilerKind::Msvc,
         version: Some((19, Some(29), Some(30153))),
-        target: None,
+        target: Some("x86_64-pc-windows-msvc"),
+    },
+    CxxBannerCase {
+        // `cl` with no input prints its usage line on stdout.
+        banner: "usage: cl [ option... ] filename... [ /link linkoption... ]\nMicrosoft (R) C/C++ Optimizing Compiler Version 19.40.33811 for ARM64\n",
+        kind: CompilerKind::Msvc,
+        version: Some((19, Some(40), Some(33811))),
+        target: Some("aarch64-pc-windows-msvc"),
     },
     CxxBannerCase {
         banner: "Microsoft (R) C/C++ Optimizing Compiler Version 19.40.33811 for ARM64\n",
         kind: CompilerKind::Msvc,
         version: Some((19, Some(40), Some(33811))),
-        target: None,
+        target: Some("aarch64-pc-windows-msvc"),
     },
     CxxBannerCase {
         banner: "Microsoft (R) C/C++ Optimizing Compiler Version 19.00.24210 for x86\n",
         kind: CompilerKind::Msvc,
         version: Some((19, Some(0), Some(24210))),
-        target: None,
+        target: Some("i686-pc-windows-msvc"),
     },
     CxxBannerCase {
         banner: "Microsoft (R) C/C++-Optimierungscompiler Version 19.29.30133 f\u{fc}r x64\n",
         kind: CompilerKind::Msvc,
         version: Some((19, Some(29), Some(30133))),
-        target: None,
+        target: Some("x86_64-pc-windows-msvc"),
     },
     // --- Unrecognized compilers stay Unknown (closed family set) ---
     CxxBannerCase {

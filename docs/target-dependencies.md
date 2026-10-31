@@ -93,6 +93,11 @@ The supported keys are fixed:
 | `abi`    | always `"unknown"` (the host ABI is not detected today)        | `"unknown"`                           |
 | `target` | constructed as `arch-family-os` (not a standard target triple) | `"x86_64-unix-linux"`, `"aarch64-unix-macos"` |
 
+The table describes the build machine.  Under `--target <triple>` the six values come from the
+triple instead: `arch` and `os` from its components (`arm64` reads as `"aarch64"`, `darwin` as
+`"macos"`), `env` and `abi` from its environment component (`gnueabihf` reads as `"gnu"` plus
+`"eabihf"`), and `target` is the triple as given.
+
 Those six are the **platform** keys.  Five additional keys are recognized for flag tables only:
 
 | Key           | Source                                              | Examples            |
@@ -104,7 +109,7 @@ Those six are the **platform** keys.  Five additional keys are recognized for fl
 | `cxx_version` | detected C++ compiler version (SemVer requirement)  | `">=18"`, `">=16, <19"` |
 
 `feature = "<name>"` evaluates against the package's resolved [features](features.md) rather than
-the host platform, so it can be combined with platform keys - `cfg(all(feature = "simd", arch =
+the platform, so it can be combined with platform keys - `cfg(all(feature = "simd", arch =
 "x86_64"))` - to gate, say, an AVX translation unit's defines.  There is no `cfg(feature = ...)` to
 C/C++ `#if` bridge: a feature condition gates Cabin's own build-flag layers (`defines`, `cflags`,
 `link-libs`, ...), and you map a feature to the library's own macro explicitly, e.g.
@@ -158,18 +163,19 @@ constraint.  Dependencies and toolchain selection remain profile-independent.
 
 ## Evaluation context
 
-Cabin evaluates predicates against the **host** platform, derived once via
-`cabin_core::TargetPlatform::current()`.  There is no cross-compilation in this step, so the
-evaluation context is deterministic for a given machine and is reported back to the user under
+Cabin evaluates predicates against the platform a command builds for: the build machine, derived
+via `cabin_core::TargetPlatform::current()`, or the platform `--target <triple>` names (see
+[Building for another platform](toolchains.md#building-for-another-platform)).  The evaluation
+context is deterministic for a given machine and flags and is reported back to the user under
 `target_platform` in `cabin metadata` so dependency filtering is auditable.  The flag-table-only
 keys read two further inputs: `feature` reads the owning package's resolved feature set, and the
-compiler keys read the host-resolved toolchain's detection report (the same one `cabin metadata`
-shows under `toolchain.detected`).
+compiler keys read the resolved toolchain's detection report (the same one `cabin metadata` shows
+under `toolchain.detected`).
 
 The evaluation rules are:
 
-- `key = "value"` matches when the host's value for `key` equals `value` exactly (string equality,
-  case-sensitive).
+- `key = "value"` matches when the platform's value for `key` equals `value` exactly (string
+  equality, case-sensitive).
 - `cc_version` / `cxx_version` match when the detected version satisfies the SemVer requirement (no
   detected version - => no match).
 - `all` / `any` short-circuit and recurse.
@@ -179,14 +185,15 @@ The evaluation rules are:
 Dependency resolution does not evaluate predicates: the [lockfile](#lockfile) serves every
 platform, so every declaration reaches the workspace loader (a conditional path dependency loads
 everywhere), the resolver input, the resolver's walk over registry metadata, and therefore the
-artifact fetch path and `cabin vendor`.  A dependency whose predicate fails on the host is left
+artifact fetch path and `cabin vendor`.  A dependency whose predicate fails for the platform is left
 out of the build:
 
 - the build's feature resolution (`cabin_feature::resolve_features` skips it when computing `dep:`
   entries and per-edge requests);
 - the build planner (a target dependency resolves only through a matching edge);
 - `pkg-config` probing of conditional system dependencies;
-- `cabin tree` and `cabin explain`, which follow only the edges active on the host;
+- `cabin tree`, which follows only the edges active on the build machine, and `cabin explain`, which
+  follows those active on the build machine or the `--target` platform;
 - the `cabin metadata` JSON view's "active" flag.
 
 The `condition` is preserved on `Dependency::condition` and `DependencyEdge::condition` so the JSON
@@ -228,7 +235,8 @@ platforms; `--locked` reports it out of date until one unlocked resolution adds 
   surface or filter inactive declarations without re-evaluating the predicate.
 
 `cabin resolve`, `cabin fetch`, `cabin vendor`, and `cabin update` resolve every platform's
-declarations; `cabin build` builds for the host.
+declarations; `cabin build`, `cabin run`, and `cabin test` build for the build machine, or for the
+platform `--target <triple>` names.
 
 ## Errors
 
