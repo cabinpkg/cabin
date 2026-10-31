@@ -370,6 +370,7 @@ fn scan_workspace_root(
         for (kind, table) in [
             (DependencyKind::Normal, &workspace.dependencies),
             (DependencyKind::Dev, &workspace.dev_dependencies),
+            (DependencyKind::Build, &workspace.build_dependencies),
         ] {
             if table.is_empty() {
                 continue;

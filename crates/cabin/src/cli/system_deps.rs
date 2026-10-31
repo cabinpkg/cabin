@@ -241,6 +241,26 @@ fn merge_flags(flags: &mut ResolvedProfileFlags, contrib: &SystemDependencyFlags
     flags.ldflags.extend(contrib.ldflags.iter().cloned());
 }
 
+/// Refuse a build-context package that declares a system dependency
+/// active on the build machine: build-context units get no pkg-config
+/// probe until providers are per context (stage 06).
+pub(crate) fn reject_build_context_system_deps(
+    graph: &PackageGraph,
+    build_machine: &TargetPlatform,
+    included: &BTreeSet<usize>,
+) -> Result<()> {
+    for (idx, deps) in collect_active_system_deps(graph, build_machine, &BTreeSet::new()) {
+        if included.contains(&idx) {
+            bail!(
+                "package `{}` is built as a build dependency, but declares system dependency `{}`; system dependencies of build dependencies are not supported yet",
+                graph.packages[idx].package.name,
+                deps[0].name,
+            );
+        }
+    }
+    Ok(())
+}
+
 fn collect_active_system_deps<'a>(
     graph: &'a PackageGraph,
     platform: &TargetPlatform,
@@ -269,7 +289,8 @@ fn collect_active_system_deps<'a>(
             match dep.kind {
                 DependencyKind::Normal => {}
                 DependencyKind::Dev if dev_for.contains(pkg_name) => {}
-                DependencyKind::Dev => continue,
+                // The manifest rejects `system = true` on build edges.
+                DependencyKind::Dev | DependencyKind::Build => continue,
             }
             if let Some(cond) = &dep.condition
                 && !cond.evaluate(&cabin_core::ConditionContext::platform_only(platform))

@@ -32,6 +32,10 @@ pub(crate) struct RawManifest {
     /// selected primary packages.
     #[serde(default, rename = "dev-dependencies")]
     pub(crate) dev_dependencies: BTreeMap<String, RawDependency>,
+    /// `[build-dependencies]` - Cabin packages built for the build
+    /// machine (the build context) instead of linked into this one.
+    #[serde(default, rename = "build-dependencies")]
+    pub(crate) build_dependencies: BTreeMap<String, RawDependency>,
     #[serde(default)]
     pub(crate) workspace: Option<RawWorkspace>,
     /// `[features]`.  The `default` key, when present, is the
@@ -531,6 +535,9 @@ pub(crate) struct RawWorkspace {
     /// Shared `[workspace.dev-dependencies]`.
     #[serde(default, rename = "dev-dependencies")]
     pub(crate) dev_dependencies: BTreeMap<String, String>,
+    /// Shared `[workspace.build-dependencies]`.
+    #[serde(default, rename = "build-dependencies")]
+    pub(crate) build_dependencies: BTreeMap<String, String>,
     /// `[workspace]`-level language-standard defaults members opt
     /// into per field with `<field> = { workspace = true }`.  The
     /// marker form is not accepted here; the implementation fields

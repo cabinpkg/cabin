@@ -7,6 +7,7 @@
 //! <build_dir>/<profile>/build.ninja
 //! <build_dir>/<profile>/compile_commands.json
 //! <build_dir>/<profile>/packages/<pkg>/...
+//! <build_dir>/<profile>/build-machine/packages/<pkg>/...
 //! ```
 //!
 //! Safety contract:
@@ -176,12 +177,19 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
                 let profile_root = root.join(profile.as_str());
                 for pkg in packages {
                     // Mirror the planner's `packages/<scope>/<name>`
-                    // nesting so clean removes exactly the directory
-                    // the planner writes.
-                    out.push(
-                        pkg.path_components()
-                            .fold(profile_root.join("packages"), |dir, c| dir.join(c)),
-                    );
+                    // nesting, in both contexts, so clean removes
+                    // exactly the directories the planner writes.
+                    for packages_dir in [
+                        profile_root.join("packages"),
+                        profile_root
+                            .join(crate::planner::BUILD_CONTEXT_DIR)
+                            .join("packages"),
+                    ] {
+                        out.push(
+                            pkg.path_components()
+                                .fold(packages_dir, |dir, c| dir.join(c)),
+                        );
+                    }
                 }
             }
             out
@@ -371,6 +379,10 @@ mod tests {
             .write_str("x")
             .unwrap();
         build_dir
+            .child("dev/build-machine/packages/hello/hello")
+            .write_str("x")
+            .unwrap();
+        build_dir
             .child("release/build.ninja")
             .write_str("x")
             .unwrap();
@@ -435,6 +447,12 @@ mod tests {
         let expected = {
             let mut v = vec![
                 build_dir.path().join("dev").join("packages").join("hello"),
+                build_dir
+                    .path()
+                    .join("dev")
+                    .join("build-machine")
+                    .join("packages")
+                    .join("hello"),
                 build_dir
                     .path()
                     .join("release")

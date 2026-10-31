@@ -206,8 +206,9 @@ Stage 07; build-tool foundation in 04; validated in 08, 10, 12-14.
   command-line tracking, compiler depfiles, and the stamp, which changes with the detected
   compilers' and archiver's versions.  `BuildConfiguration::fingerprint`
   (`cabin-core/src/config.rs`) is computed but not used by the planner.
-- Dependency kinds are only `normal` and `dev` (`cabin-core/src/model.rs`, `DependencyKind`);
-  `[build-dependencies]` is an unknown key.
+- Dependency kinds are `normal`, `dev`, and `build` (`cabin-core/src/model.rs`,
+  `DependencyKind`).  A build dependency's default targets build for the build machine, but no
+  action runs them: a project runs its generator itself, between builds.
 - Ports avoid generation: `libpng` copies a prebuilt `pnglibconf.h`, `catch2`, `sqlite3`, and
   `miniz` use amalgamations, `boost-log` drops the Windows event log (needs `mc.exe`).
 
@@ -240,8 +241,12 @@ Stages 04 and 05; validated in 06-10, 12-14.
 - `--target <triple>` builds under `<build-dir>/<triple>/`, passes Clang `--target=`, and checks
   that GCC, MSVC, or clang-cl already builds for the triple (`cabin-toolchain/src/target.rs`).
   For another machine, `cabin run` and `cabin test` run nothing, and the build machine's plain
-  pkg-config is refused.  Every target is a unit for that one platform: there is no build-machine
-  context yet.
+  pkg-config is refused.
+- `[build-dependencies]` build in a second context for the build machine, under
+  `<profile>/build-machine/`, with their own features, flags, `cfg(...)` evaluation, and `links`
+  check (`cabin/src/cli/build_prep.rs`, `plan_build_context`).  Both contexts share the detected
+  compilers, so when `--target` names another machine only Clang-family compilers build them; GCC,
+  MSVC, and clang-cl are refused (`check_build_context_compilers`).
 - Clang's `Target:` line and the MSVC banner's architecture fill `CompilerIdentity.target`; a native
   build warns when it names another machine.
 - MSVC discovery uses Cabin's own architecture (`cabin-toolchain/src/msvc.rs`); MASM is always
@@ -402,11 +407,6 @@ deferred-feature rule, the deferred lists in [toolchains](toolchains.md#deferred
 
 Statements that stay true until a stage changes the behavior, and that stage must update:
 
-- `--target` rejection tests in `cabin/tests/cli.rs` and `cabin/tests/cli/test_targets.rs`
-  (stage 04).
-- [Target dependencies](target-dependencies.md#evaluation-context) on host-only evaluation (stage
-  04).
-- [Dependency kinds](dependency-kinds.md) listing two kinds (stage 04).
 - [Cargo-inspired interface](cargo-inspired-interface.md) on examples and target selection
   (stage 11).
 - [System dependencies](system-dependencies.md) on no probe path beyond `pkg-config` (stage 06).
@@ -551,6 +551,21 @@ rebuilds once, and `cabin package` leaves the file out as it does `build.ninja`.
 documentation now matches the code: the wrapper's `source` is not hashed, and `cabin run` and `cabin
 test` do not consume the fingerprint.
 
+Stage 04, fourth change: `[build-dependencies]`, with their `cfg(...)` and workspace forms, declare
+packages built for the build machine (contracts section 1).  They resolve with the normal ones into
+the same lockfile, so `fetch`, `vendor`, `--locked`, and `--offline` cover them, and a local
+package declaring one name in both kinds offers the resolver both requirements.
+`cabin_feature::resolve_build_context_features` resolves the build context's features from the
+build edges of the target context's packages, apart from the target context's; the resolver checks
+`links` per context (`ResolveInput::link_domains`); and `build`, `run`, and `test` append a second
+plan for the build machine under `<profile>/build-machine/`, with the build machine's per-package
+flags and `cfg(...)` evaluation.  `cabin check` checks only the selected packages' own sources, so
+it plans no build context.  Under `--target`, the build context passes no `--target=` and receives
+no environment flags, and a toolchain that builds only its target is refused when that target is
+another machine.  `cabin package`
+refuses build dependencies until index metadata carries them, and `system = true` is refused in the
+build context.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -652,6 +667,22 @@ ignores the name GCC was invoked as (`cc` or `gcc`).  Writer tests for the stamp
 compile, check, assemble, archive, and link edges and its rewrite only on a changed identity; `cargo
 ci` on macOS.
 
+Stage 04, fourth change: a CLI test builds a C generator for the build machine whose dependency
+`util` has feature `loud` only in the build context, runs it by hand, and compiles its output into
+a C++ program whose own `util` lacks the feature; with Apple Clang, the same project cross-builds
+for `x86_64-apple-macos13` with an arm64 generator and an x86_64 program carrying the generated
+text.  CLI tests: per-context `links` for path and registry packages, a registry build dependency
+locked, vendored, and built offline, the packaging refusal, and a cross GCC refused by `build` but
+not by `check`.  Unit tests: the manifest kind, build-context features (the declaring condition for
+the target platform, the build context's own for the build machine), per-domain `links` in the
+resolver and the seed, the build-context compiler check, both kinds' requirements for one name, and
+scoped clean.  Each guard - the feature context, both `cfg(...)` platforms, the resolver's domains,
+the registry-only domain, the fork and dev-dependency domain roots, the merged requirements, the
+output directory, and `check` skipping the build context - was shown to fail its test when removed;
+`cargo ci` on macOS.  Verified cross combination: Apple Clang, a macOS arm64 generator feeding a
+macOS x86_64 C and C++ program.  Not run: a build context on Linux or Windows outside CI's portable
+tests.
+
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
 reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
@@ -676,7 +707,22 @@ CI job uses `clang-cl`.
 Follow-ups found in stage 04: `cabin tree` and `cabin tidy` take no `--target` and follow the build
 machine's edges; the build machine's own `env`, `abi`, and `target` values are still derived from
 the OS rather than detected; GNU-dialect executables keep a bare name for a Windows target,
-though MinGW GCC and Clang write `<name>.exe` (stage 05's MinGW work).
+though MinGW GCC and Clang write `<name>.exe` (stage 05's MinGW work).  From the fourth change:
+both contexts share one toolchain, so GCC, MSVC, and clang-cl cannot build with build dependencies
+for another machine, and environment flags do not reach the build context there (stage 05 gives each
+context its toolchain; `render_build_ninja` then needs rules per dialect, since it emits one rule
+set, archive and depfile handling included, from the graph's dialect); the build context gets no
+system dependencies (stage 06); index metadata does not carry build dependencies, so a package
+declaring them cannot be published (with stage 07's metadata); `[features]` cannot name a build
+dependency, and `cabin add` has no `--build`; resolution's `links` domains over-approximate a
+context by following every resolved edge, including optional edges only the other context enables,
+a fork reached through a registry edge claims in both contexts and offers its build dependencies
+to the resolver as normal ones (so build dependencies only such a fork declares get no domain of
+their own), and the resolver's held-back pruning stays graph-wide, while the build's per-context
+check is exact; `compile_commands.json` lists a source built in both contexts twice; `cabin tree`
+and `cabin explain` walk build edges with one platform.  Found alongside, in both contexts: a target's `deps` entry naming a disabled optional
+dependency still builds and links it (`cabin-build/src/planner/lowering.rs`, `resolve_target_dep`),
+though [features](features.md) says a disabled optional dependency never links.
 
 ## Handoff to stage 04
 

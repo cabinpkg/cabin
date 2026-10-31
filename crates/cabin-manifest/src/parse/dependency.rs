@@ -21,6 +21,9 @@ pub(super) fn route_dependency_from_raw(
 ) -> Result<(), ManifestError> {
     match raw {
         RawDependency::Table(table) if table.system => {
+            if kind == DependencyKind::Build {
+                return Err(ManifestError::SystemNotSupportedForKind { name, kind });
+            }
             system_models.push(system_dependency_from_raw_table(
                 name, table, kind, condition,
             )?);

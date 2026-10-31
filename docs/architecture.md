@@ -5,7 +5,7 @@ the currently implemented behavior, and the planned shape of deferred layers.  T
 organized as small crates with narrow ownership boundaries; the notes below describe which crate
 owns each implemented surface and where deferred work should land.
 
-The currently implemented surface, layered briefly: first-class dependency kinds (`normal` / `dev`),
+The currently implemented surface, layered briefly: first-class dependency kinds (`normal` / `dev` / `build`),
 advanced workspace semantics, the local C/C++ build, the Cabin-owned resolver layered on PubGrub,
 the lockfile, the content-addressed source-archive cache, the local file registry, the read-only
 sparse-HTTP index client, features with a cross-package feature resolver and the documented
@@ -111,7 +111,7 @@ docs/
   profiles.md        build profile model, inheritance, fingerprint inputs
   compiler-cache.md  compiler-wrapper integration
   vendoring-offline.md  `cabin vendor` and `--offline` semantics
-  dependency-kinds.md  two dependency kinds (normal/dev)
+  dependency-kinds.md  three dependency kinds (normal/dev/build)
   target-dependencies.md  `[target.'cfg(...)'.<kind>]` predicates
   patch-overrides.md  patch / override / source replacement
   package-index.md   package index schema
@@ -1108,13 +1108,13 @@ for a routine change.
 
 ### Dependency kinds end-to-end
 
-Every Cabin dependency is classified into one of two kinds via `cabin_core::DependencyKind`:
+Every Cabin dependency is classified into one of three kinds via `cabin_core::DependencyKind`:
 
 ```
-Normal -> Dev          (Cabin package dependency kinds)
+Normal -> Dev -> Build (Cabin package dependency kinds)
 ```
 
-Any entry in those tables can additionally set `system = true` to mark it as externally provided;
+Any normal or dev entry can additionally set `system = true` to mark it as externally provided;
 system-flagged entries route to a separate `system_dependencies` collection and never enter the
 resolver / fetcher / build pipeline.
 
@@ -1122,7 +1122,8 @@ The kind information flows through the system at each layer:
 
 ```
 [dependencies]            ----+
-[dev-dependencies]        ----+--> cabin_manifest      (typed BTreeMaps + system_dependencies
+[dev-dependencies]        ----+
+[build-dependencies]      ----+--> cabin_manifest      (typed BTreeMaps + system_dependencies
                                    -> ManifestError      vec; entries with `system = true`
                                                          route to the system vec, others to the
                                                          per-kind dep map. Both also fold
@@ -1145,7 +1146,7 @@ The kind information flows through the system at each layer:
             collect_closure        cabin-build target         cabin-package
             _versioned_deps        dep resolution             canonical metadata
             _excluding_with_dev    (Normal-only edges)        (per-kind tables +
-            (Normal-only)          for `target.<X>.deps`)      system-dependencies)
+            (Normal + Build)       for `target.<X>.deps`)      system-dependencies)
             -> ResolveInput
                   |
                   v
@@ -1162,6 +1163,13 @@ Dev dependencies flow through `Package::dependencies` for metadata round-trippin
 out at the `collect_closure_versioned_deps_excluding_with_dev` boundary and at the workspace
 path-dep traversal so they do not affect ordinary builds; `cabin test` activates them for its
 selected packages only ([`dependency-kinds.md`](dependency-kinds.md#resolver-behavior)).
+
+Build dependencies resolve with the normal ones into the same lockfile, but are built in the build
+context: `cabin_feature::resolve_build_context_features` resolves the packages they reach as a
+second feature resolution, and the CLI appends a second `cabin_build` plan (`build_context` set)
+for the build machine, its flags, and its `cfg(...)` evaluation, under `<profile>/build-machine/`.
+`links` uniqueness is checked per context.  The build context's tools are never run by Cabin yet
+(stage 07 adds actions).
 
 Workspace inheritance is kind-specific: a member's `{ workspace = true }` opt-in under
 `[<kind>-dependencies]` looks up the matching `[workspace.<kind>-dependencies]` table only - there
@@ -1593,10 +1601,11 @@ today, so future contributors do not silently regress them by porting more Cargo
   declaration-only even under `cabin test`.  `cabin build` continues to ignore every dev-dep, so
   production builds are unaffected.
 
-- **Native-library identities are graph-unique.** A `library` target may claim the native library
-  it embodies via [`links`](manifest.md#links); after resolution, one identity claimed by two
-  distinct packages is an error, regardless of dependency visibility, because duplicate native
-  symbols fail at the final link either way.  The claim is an identity only - deliberately not
+- **Native-library identities are unique per context.** A `library` target may claim the native
+  library it embodies via [`links`](manifest.md#links); after resolution, one identity claimed by
+  two distinct packages in the target context's closure, or in the build context's, is an error,
+  regardless of dependency visibility, because duplicate native symbols fail at the final link
+  either way.  The claim is an identity only - deliberately not
   Cargo's `links`: there is no metadata channel between packages, no build-script integration, and
   no `provides` / `conflicts` vocabulary (those stay reserved).  Registry claims are read from
   index metadata, never from downloaded archives.
@@ -1605,8 +1614,8 @@ These invariants are normative: a change that breaks one of them is a language /
 and needs an explicit design update, not an implementation tweak.  The
 [capability roadmap's contracts](design/capability-roadmap/contracts.md) are that update: usage
 requirements (stage 02) made edge visibility govern include-directory and definition propagation,
-as the invariants above describe; build contexts (stage 04) will scope `links` uniqueness to one
-link/runtime domain, and until then the `links` invariant describes the current behavior.
+as the invariants above describe; build contexts (stage 04) scoped `links` uniqueness to one
+context.
 
 ## Implemented layers - quick reference
 
@@ -2007,8 +2016,9 @@ documented in `registry/docs/architecture.md`:
 - **Cross-compilation is partial** (planned: roadmap stages 04-05). `--target <triple>` selects the
   platform `[target.'cfg(...)']` predicates evaluate for and passes Clang `--target=`; GCC, MSVC,
   and clang-cl must already build that platform, and Cabin never runs what it built for another
-  machine (see [`toolchains.md`](toolchains.md#building-for-another-platform)). Build-machine tool
-  dependencies, runners, and sysroot or SDK discovery are not implemented yet. (Windows / MSVC
+  machine (see [`toolchains.md`](toolchains.md#building-for-another-platform)).
+  `[build-dependencies]` build for the build machine, but nothing runs them yet; runners and sysroot
+  or SDK discovery are not implemented yet. (Windows / MSVC
   itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate
   lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the detection and dialect
   sections above.)

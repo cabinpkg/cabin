@@ -415,6 +415,7 @@ fn section_of(pkg_edge: &cabin_workspace::DependencyEdge) -> String {
     let table = match pkg_edge.kind {
         cabin_core::DependencyKind::Normal => "dependencies",
         cabin_core::DependencyKind::Dev => "dev-dependencies",
+        cabin_core::DependencyKind::Build => "build-dependencies",
     };
     match &pkg_edge.condition {
         Some(condition) => format!("[target.'cfg({condition})'.{table}]"),

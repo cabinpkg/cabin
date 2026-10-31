@@ -31,6 +31,44 @@ fn build_target_rejects_a_gcc_that_builds_for_another_machine() {
         ));
 }
 
+/// A GCC builds only its own target, so it cannot also build a build
+/// dependency for the build machine.
+#[test]
+fn build_target_rejects_build_dependencies_under_a_cross_gcc() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new().unwrap();
+    crate::build_dependencies::write_generator_project(dir.path());
+    let bin = TempDir::new().unwrap();
+    let gcc = bin.path().join("fake-g++");
+    fs::write(
+        &gcc,
+        "#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo riscv64-linux-gnu; else echo 'g++ (GCC) 13.2.0'; fi\n",
+    )
+    .unwrap();
+    fs::set_permissions(&gcc, fs::Permissions::from_mode(0o755)).unwrap();
+    let ar = fake_tool_with_output(bin.path(), "ar", "GNU ar (GNU Binutils) 2.40\n", "", 0);
+    let command = |subcommand: &str| {
+        let mut command = cabin();
+        command
+            .current_dir(dir.path().join("app"))
+            .args([subcommand, "--target", "riscv64-unknown-linux-gnu", "--cc"])
+            .arg(&gcc)
+            .arg("--cxx")
+            .arg(&gcc)
+            .arg("--ar")
+            .arg(&ar);
+        command
+    };
+    let refusal = "`[build-dependencies]` are built for the build machine";
+    command("build")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(refusal));
+    // `cabin check` checks only the selected packages' own sources,
+    // so it plans no build context and has nothing to refuse.
+    command("check").assert().success();
+}
+
 /// Apple Clang builds either macOS architecture on any Mac, so these
 /// tests cross-build for the architecture the build machine is not.
 #[cfg(target_os = "macos")]
@@ -142,6 +180,39 @@ cxxapp = ["src/aarch64.c"]
                 format!("picked-{host_arch}")
             );
         }
+    }
+
+    /// The stage 04 demonstration: the build context's C generator is
+    /// built for and run on the build machine, and its output is
+    /// compiled into a C++ program for the other architecture.
+    #[test]
+    fn a_build_machine_generator_feeds_a_cross_build() {
+        use crate::build_dependencies::{run_generator, write_generator_project};
+        require_c_and_cxx_build_tools();
+        let dir = TempDir::new().unwrap();
+        write_generator_project(dir.path());
+        let app = dir.path().join("app");
+        let (triple, _, cpu_type) = cross();
+
+        cabin()
+            .current_dir(&app)
+            .args(["build", "--target", triple])
+            .assert()
+            .success();
+        let build_root = app.join("build").join(triple).join("dev");
+        let generator = build_root.join("build-machine/packages/gen/gen");
+        assert_ne!(mach_o_cpu_type(&generator), cpu_type);
+        run_generator(&build_root, dir.path());
+
+        cabin()
+            .current_dir(&app)
+            .args(["build", "--target", triple, "--features", "generated"])
+            .assert()
+            .success();
+        let program = build_root.join("packages/app/app-generated");
+        assert_eq!(mach_o_cpu_type(&program), cpu_type);
+        let body = fs::read(&program).unwrap();
+        assert!(body.windows(5).any(|w| w == b"HELLO"));
     }
 
     #[test]

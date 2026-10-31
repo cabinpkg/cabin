@@ -143,6 +143,12 @@ cabin build --target aarch64-unknown-linux-gnu \
   --target` build, then fail with an error naming what they built: Cabin never runs a binary built
   for another machine.  A triple with the build machine's `os` and `arch` runs as usual, as does x86
   on Windows x64.
+- **Build dependencies.**  [Build dependencies](dependency-kinds.md#build-dependencies) build for
+  the build machine under `<build-dir>/<triple>/<profile>/build-machine/`, with the same compilers
+  minus `--target=`, so their default target must be the build machine.  GCC, MSVC, and clang-cl
+  build only the triple's machine, so when it is another machine, a build with build dependencies
+  fails there.  `CFLAGS` and
+  the other environment flags describe the target and do not reach these units.
 - **Sysroots.**  Cabin discovers no sysroot or SDK; pass one through `[profile]` flags or `CFLAGS` /
   `CXXFLAGS` / `LDFLAGS` (`--sysroot=<dir>`).  [System dependencies](system-dependencies.md) need a
   pkg-config for the target.

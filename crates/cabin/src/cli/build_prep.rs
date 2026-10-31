@@ -231,6 +231,26 @@ pub(crate) struct PreparedWorkspace {
     pub platform: cabin_core::TargetPlatform,
     /// See [`cabin_build::PlanRequest::clang_target`].
     pub clang_target: Option<String>,
+    /// The build context, when the target context's packages declare
+    /// build dependencies.
+    pub build_context: Option<BuildContextPrep>,
+}
+
+/// The build context's plan inputs: tools for the build machine,
+/// with features and flags of their own (contracts section 1).
+pub(crate) struct BuildContextPrep {
+    /// Packages a build edge reaches; the plan builds their default
+    /// targets and what those link.
+    pub roots: Vec<usize>,
+    pub included: BTreeSet<usize>,
+    /// Whether `--target` was given: the compilers must then also
+    /// build for the build machine.
+    pub cross: bool,
+    pub enabled_features: HashMap<usize, BTreeSet<String>>,
+    pub build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    pub standard_flag_conflicts: HashMap<usize, Vec<cabin_core::StandardFlagConflict>>,
+    /// The build machine.
+    pub platform: cabin_core::TargetPlatform,
 }
 
 /// The shared `build` / `run` / `test` preamble: workspace
@@ -431,8 +451,9 @@ pub(crate) fn prepare_workspace(
     };
     // The closure also follows optional path edges no feature enables;
     // resolution fetched none of those packages' registry dependencies.
+    let seed_included = seed.included();
     for (idx, pkg) in probe_graph.packages.iter().enumerate() {
-        if !seed.features.included.contains(&idx) {
+        if !seed_included.contains(&idx) {
             strict_packages.remove(pkg.package.name.as_str());
         }
     }
@@ -470,10 +491,22 @@ pub(crate) fn prepare_workspace(
         Some(&platform),
         &dev_for,
     )?;
+    let build_machine = cabin_core::TargetPlatform::current();
+    let build_features = cabin_feature::resolve_build_context_features(
+        &graph,
+        &feature_resolution,
+        Some(&platform),
+        Some(&build_machine),
+    )?;
     // The reload skips an optional registry dependency resolution
     // left out, so one these features enable would otherwise build
     // without its edge.
-    if let Some(name) = feature_resolution.versioned_requests.keys().next() {
+    if let Some(name) = feature_resolution
+        .versioned_requests
+        .keys()
+        .chain(build_features.versioned_requests.keys())
+        .next()
+    {
         bail!(
             "feature resolution enables dependency `{name}`, which dependency resolution did not select"
         );
@@ -486,11 +519,13 @@ pub(crate) fn prepare_workspace(
     // conservatively (see `activated_fork_claims`).  The artifact
     // pipeline has already written the lockfile by now; that is
     // fine - the recorded resolution itself is valid, only this
-    // command's feature-exact link plan is not.
-    super::seed::enforce_local_links_uniqueness(&super::seed::local_links_claims(
-        &graph,
-        &feature_resolution,
-    ))?;
+    // command's feature-exact link plan is not.  Each context is its
+    // own link/runtime domain.
+    for features in [&feature_resolution, &build_features] {
+        super::seed::enforce_local_links_uniqueness(&super::seed::local_links_claims(
+            &graph, features,
+        ))?;
+    }
 
     // Resolve the build directory.  Precedence:
     // `--build-dir` > `CABIN_BUILD_DIR` env var
@@ -587,6 +622,21 @@ pub(crate) fn prepare_workspace(
         reporter,
     })?;
     let enabled_features = super::enabled_features_by_package(&feature_resolution);
+    let build_context = if build_features.included.is_empty() {
+        None
+    } else {
+        Some(build_context_prep(&BuildContextInputs {
+            graph: &graph,
+            target_features: &feature_resolution,
+            features: &build_features,
+            platform: &platform,
+            build_machine,
+            cross: args.toolchain.target.is_some(),
+            profile: &profile,
+            detection: &detection_report,
+            reporter,
+        })?)
+    };
 
     Ok(PreparedWorkspace {
         manifest_path,
@@ -607,6 +657,69 @@ pub(crate) fn prepare_workspace(
         dev_for,
         platform,
         clang_target: compiler_targets.clang_target,
+        build_context,
+    })
+}
+
+/// What [`build_context_prep`] reads from the target context's
+/// preparation.
+struct BuildContextInputs<'a> {
+    graph: &'a PackageGraph,
+    target_features: &'a cabin_feature::FeatureResolution,
+    features: &'a cabin_feature::FeatureResolution,
+    platform: &'a cabin_core::TargetPlatform,
+    build_machine: cabin_core::TargetPlatform,
+    cross: bool,
+    profile: &'a cabin_core::ResolvedProfile,
+    detection: &'a cabin_core::ToolchainDetectionReport,
+    reporter: Reporter,
+}
+
+/// Prepare the build context's plan inputs: its roots, features, and
+/// flags, with `cfg(...)` evaluated for the build machine.
+fn build_context_prep(inputs: &BuildContextInputs<'_>) -> Result<BuildContextPrep> {
+    let graph = inputs.graph;
+    let (build_flags, standard_flag_conflicts) = resolve_per_package_build_flags(
+        graph,
+        inputs.profile,
+        &inputs.build_machine,
+        inputs.features,
+        Some(inputs.detection),
+    );
+    // Environment flags describe the target platform; they reach the
+    // build context only when it is the same build.
+    let build_flags = if inputs.cross {
+        build_flags
+    } else {
+        crate::cli::env_flags::augment_build_flags_with_env(
+            graph,
+            build_flags,
+            |k| std::env::var_os(k),
+            inputs.reporter,
+        )?
+    };
+    let mut roots = BTreeSet::new();
+    for (features, platform) in [
+        (inputs.target_features, inputs.platform),
+        (inputs.features, &inputs.build_machine),
+    ] {
+        for &idx in &features.included {
+            for edge in &graph.packages[idx].deps {
+                if edge.kind == cabin_core::DependencyKind::Build && edge.matches_platform(platform)
+                {
+                    roots.insert(edge.index);
+                }
+            }
+        }
+    }
+    Ok(BuildContextPrep {
+        roots: roots.into_iter().collect(),
+        included: inputs.features.included.clone(),
+        cross: inputs.cross,
+        enabled_features: super::enabled_features_by_package(inputs.features),
+        build_flags,
+        standard_flag_conflicts,
+        platform: inputs.build_machine.clone(),
     })
 }
 
@@ -645,6 +758,7 @@ pub(crate) fn plan_prepared(
         enabled_features: Some(&prepared.enabled_features),
         standard_compat: true,
         clang_target: prepared.clang_target.clone(),
+        build_context: false,
     })?;
     // `cabin check` reuses the build graph but rewrites it into a
     // syntax-only check (no codegen, no link) scoped to the selected
@@ -670,6 +784,10 @@ pub(crate) fn plan_prepared(
             })
             .collect();
         cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)
+    } else if let Some(context) = &prepared.build_context {
+        let mut plan_graph = plan_graph;
+        plan_graph.append(plan_build_context(prepared, context)?);
+        plan_graph
     } else {
         plan_graph
     };
@@ -691,6 +809,61 @@ pub(crate) fn plan_prepared(
         &cabin_build::requested_standards_of(&plan_graph),
     )?;
     Ok(plan_graph)
+}
+
+/// Plan the build context: the build dependencies' default targets,
+/// built for the build machine with the same compilers, minus the
+/// `--target=` a cross build passes.
+fn plan_build_context(
+    prepared: &PreparedWorkspace,
+    context: &BuildContextPrep,
+) -> Result<cabin_build::BuildGraph> {
+    if context.cross {
+        cabin_toolchain::check_build_context_compilers(
+            &prepared.detection_report,
+            &prepared.platform,
+            &context.platform,
+        )?;
+    }
+    // shortcut: build-context units get no pkg-config probe (stage 06's
+    // per-context providers), so a system dependency there fails here.
+    super::system_deps::reject_build_context_system_deps(
+        &prepared.graph,
+        &context.platform,
+        &context.included,
+    )?;
+    super::plan(&super::PlanRequest {
+        graph: &prepared.graph,
+        toolchain: &prepared.toolchain,
+        build_flags: &context.build_flags,
+        language_standards: &prepared.language_standards,
+        standard_flag_conflicts: &context.standard_flag_conflicts,
+        build_dir: prepared.build_dir.clone(),
+        platform: context.platform.clone(),
+        profile: prepared.profile.clone(),
+        selected: None,
+        selected_packages: Some(&context.roots),
+        compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
+        dialect: cabin_build::Dialect::from_compiler_kind(
+            prepared.detection_report.cxx.identity.kind,
+        ),
+        msvc_external_includes: cabin_build::msvc_external_includes_supported(
+            &prepared.detection_report,
+            cabin_build::collect_requested_standards(
+                &prepared.graph,
+                &context.included,
+                &prepared.language_standards,
+                &BTreeSet::new(),
+            )
+            .has_c_sources(),
+        ),
+        clang_cl: cabin_build::clang_cl_languages(&prepared.detection_report),
+        enabled_features: Some(&context.enabled_features),
+        standard_compat: true,
+        clang_target: None,
+        build_context: true,
+    })
+    .context("cannot plan the `[build-dependencies]` for the build machine")
 }
 
 /// Render the optimization / debuginfo descriptor that follows

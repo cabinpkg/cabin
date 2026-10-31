@@ -103,6 +103,14 @@ pub struct WorkspaceTable {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub dev_dependencies: BTreeMap<String, String>,
+    /// Shared `[workspace.build-dependencies]`.  Members opt in via
+    /// `dep = { workspace = true }` inside `[build-dependencies]`.
+    #[serde(
+        default,
+        rename = "build-dependencies",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub build_dependencies: BTreeMap<String, String>,
     /// Shared `[workspace]`-level language-standard defaults that
     /// members opt into per field with
     /// `<field> = { workspace = true }` on `[package]`.
@@ -184,6 +192,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         target,
         dependencies,
         dev_dependencies,
+        build_dependencies,
         workspace,
         features,
         profile,
@@ -229,7 +238,12 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             // sub-tables.  These are almost always typos of the
             // `cfg(...)` form (e.g. forgetting the quotes).
             if let Some(table) = raw_value.as_table() {
-                for forbidden in ["dependencies", "dev-dependencies", "system-dependencies"] {
+                for forbidden in [
+                    "dependencies",
+                    "dev-dependencies",
+                    "build-dependencies",
+                    "system-dependencies",
+                ] {
                     if table.contains_key(forbidden) {
                         return Err(ManifestError::TargetSpecificDependenciesNotSupported {
                             section: format!("[target.{raw_target_name}.{forbidden}]"),
@@ -264,8 +278,11 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         Some(project_from_raw(ProjectFromRawInput {
             package: raw_project,
             targets: target,
-            dependencies,
-            dev_dependencies,
+            dependency_tables: [
+                (DependencyKind::Normal, dependencies),
+                (DependencyKind::Dev, dev_dependencies),
+                (DependencyKind::Build, build_dependencies),
+            ],
             conditional_targets,
             raw_features: features,
             profiles,
@@ -325,6 +342,8 @@ fn reject_unsupported_target_conditions(
             "dependencies"
         } else if !cond_target.dev_deps.is_empty() {
             "dev-dependencies"
+        } else if !cond_target.build_deps.is_empty() {
+            "build-dependencies"
         } else if cond_target.toolchain.is_some() {
             "toolchain"
         } else {
@@ -367,8 +386,7 @@ fn conditional_toolchains_from_raw(
 struct ProjectFromRawInput {
     package: RawPackage,
     targets: BTreeMap<String, RawTarget>,
-    dependencies: BTreeMap<String, RawDependency>,
-    dev_dependencies: BTreeMap<String, RawDependency>,
+    dependency_tables: [(DependencyKind, BTreeMap<String, RawDependency>); 3],
     conditional_targets: Vec<RawConditionalTarget>,
     raw_features: BTreeMap<String, Vec<String>>,
     profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
@@ -382,8 +400,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     let ProjectFromRawInput {
         package,
         targets,
-        dependencies,
-        dev_dependencies,
+        dependency_tables,
         conditional_targets,
         raw_features,
         profiles,
@@ -426,7 +443,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     validate_language_standard_coverage(&target_models, language)?;
 
     let (dep_models, system_models) =
-        collect_dependency_models(dependencies, dev_dependencies, &conditional_targets)?;
+        collect_dependency_models(dependency_tables, &conditional_targets)?;
 
     let features = features_from_raw(raw_features);
 
@@ -707,6 +724,7 @@ fn workspace_table_from_raw(
         default_members: raw.default_members,
         dependencies: raw.dependencies,
         dev_dependencies: raw.dev_dependencies,
+        build_dependencies: raw.build_dependencies,
         standards,
     })
 }
@@ -782,22 +800,18 @@ fn workspace_standards_from_raw(
 /// - default (or `system = false`) → typed `Dependency`
 ///   value, routed onto `Package.dependencies`.
 fn collect_dependency_models(
-    dependencies: BTreeMap<String, RawDependency>,
-    dev_dependencies: BTreeMap<String, RawDependency>,
+    dependency_tables: [(DependencyKind, BTreeMap<String, RawDependency>); 3],
     conditional_targets: &[RawConditionalTarget],
 ) -> Result<(Vec<Dependency>, Vec<SystemDependency>), ManifestError> {
-    let unconditional_capacity = dependencies.len() + dev_dependencies.len();
+    let unconditional_capacity: usize = dependency_tables.iter().map(|(_, t)| t.len()).sum();
     let conditional_capacity: usize = conditional_targets
         .iter()
-        .map(|t| t.deps.len() + t.dev_deps.len())
+        .map(|t| t.deps.len() + t.dev_deps.len() + t.build_deps.len())
         .sum();
     let mut dep_models: Vec<Dependency> =
         Vec::with_capacity(unconditional_capacity + conditional_capacity);
     let mut system_models: Vec<SystemDependency> = Vec::new();
-    for (kind, raw_table) in [
-        (DependencyKind::Normal, dependencies),
-        (DependencyKind::Dev, dev_dependencies),
-    ] {
+    for (kind, raw_table) in dependency_tables {
         for (dep_name, raw_dep) in raw_table {
             route_dependency_from_raw(
                 dep_name,
@@ -814,6 +828,7 @@ fn collect_dependency_models(
         for (kind, raw_table) in [
             (DependencyKind::Normal, &cond_target.deps),
             (DependencyKind::Dev, &cond_target.dev_deps),
+            (DependencyKind::Build, &cond_target.build_deps),
         ] {
             for (dep_name, raw_dep) in raw_table {
                 route_dependency_from_raw(

@@ -899,8 +899,8 @@ impl Dependency {
 
 /// Which kind of dependency is declared.
 ///
-/// Cabin distinguishes package dependency kinds (`Normal`, `Dev`)
-/// - both of which are sourced from other Cabin packages - from
+/// Cabin distinguishes package dependency kinds (`Normal`, `Dev`,
+/// `Build`) - all sourced from other Cabin packages - from
 ///   system dependencies, which are externally provided and never
 ///   enter Cabin resolution.  System declarations live alongside the
 ///   package kinds as a separate `system = true` flag on a regular
@@ -908,7 +908,7 @@ impl Dependency {
 ///   by [`SystemDependency`].
 ///
 /// The wire format mirrors the manifest section names: `"normal"`,
-/// `"dev"`.
+/// `"dev"`, `"build"`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
@@ -921,6 +921,10 @@ pub enum DependencyKind {
     /// commands; activated for the selected primary packages by
     /// `cabin test`.
     Dev,
+    /// `[build-dependencies]`.  Resolved with the normal kind, but
+    /// built in the build context: for the build machine, with
+    /// features unified apart from the target context's.
+    Build,
 }
 
 impl DependencyKind {
@@ -929,6 +933,7 @@ impl DependencyKind {
         match self {
             DependencyKind::Normal => "normal",
             DependencyKind::Dev => "dev",
+            DependencyKind::Build => "build",
         }
     }
 
@@ -936,13 +941,17 @@ impl DependencyKind {
     /// canonical package metadata both iterate kinds in this order
     /// so output stays deterministic.
     pub const fn all() -> &'static [DependencyKind] {
-        &[DependencyKind::Normal, DependencyKind::Dev]
+        &[
+            DependencyKind::Normal,
+            DependencyKind::Dev,
+            DependencyKind::Build,
+        ]
     }
 
     /// Whether this kind is included in the resolver / fetch /
     /// build pipeline by default.  Dev dependencies are excluded.
     pub const fn is_resolved_by_default(self) -> bool {
-        matches!(self, DependencyKind::Normal)
+        matches!(self, DependencyKind::Normal | DependencyKind::Build)
     }
 
     /// Helper for `#[serde(skip_serializing_if = ...)]` so
@@ -959,6 +968,7 @@ impl DependencyKind {
         match self {
             DependencyKind::Normal => "[dependencies]",
             DependencyKind::Dev => "[dev-dependencies]",
+            DependencyKind::Build => "[build-dependencies]",
         }
     }
 }

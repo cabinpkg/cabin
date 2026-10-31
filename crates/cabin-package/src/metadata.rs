@@ -258,6 +258,8 @@ pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) ->
         let target = match dep.kind {
             DependencyKind::Normal => &mut dependencies,
             DependencyKind::Dev => &mut dev_dependencies,
+            // Rejected during validation, like path deps.
+            DependencyKind::Build => continue,
         };
         target.insert(dep.name.as_str().to_owned(), entry);
     }

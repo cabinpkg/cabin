@@ -317,6 +317,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         build_dir: build_dir.clone(),
         platform: TargetPlatform::current(),
         clang_target: None,
+        build_context: false,
         profile: profile.clone(),
         selected: Some(tidy_selectors),
         selected_packages: Some(&resolved_selection.packages),
@@ -534,7 +535,7 @@ fn first_selected_versioned_dependency_package_name(
     for &idx in &features.included {
         let pkg = &graph.packages[idx];
         for dep in &pkg.package.dependencies {
-            if dep.kind.is_resolved_by_default()
+            if dep.kind == cabin_core::DependencyKind::Normal
                 && dep.matches_platform(&platform)
                 && (!dep.optional || features.is_optional_dep_enabled(idx, dep.name.as_str()))
                 && matches!(dep.source, DependencySource::Version(_))

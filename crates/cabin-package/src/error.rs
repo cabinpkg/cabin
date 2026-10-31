@@ -29,6 +29,11 @@ pub enum PackageError {
     #[error("cannot package path dependency `{name}`; path dependencies are not publishable")]
     PathDependencyNotPublishable { name: String },
 
+    #[error(
+        "cannot package build dependency `{name}`; package indexes do not carry build dependencies yet"
+    )]
+    BuildDependencyNotPublishable { name: String },
+
     #[error("manifest path {} has no parent directory", path.display())]
     ManifestPathHasNoParent { path: PathBuf },
 

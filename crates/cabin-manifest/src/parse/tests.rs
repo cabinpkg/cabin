@@ -2311,6 +2311,51 @@ fn optional_on_dev_dependency_is_rejected() {
 }
 
 #[test]
+fn build_dependencies_parse_as_the_build_kind() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [build-dependencies]
+            gen = { path = "../gen", features = ["fast"] }
+
+            [target.'cfg(os = "linux")'.build-dependencies]
+            protoc = "^25"
+        "#,
+    );
+    let build = deps_of_kind(&package, DependencyKind::Build);
+    assert_eq!(build.len(), 2);
+    assert_eq!(build[0].name.as_str(), "gen");
+    assert_eq!(build[0].features, ["fast"]);
+    assert_eq!(build[1].name.as_str(), "protoc");
+    assert_eq!(
+        build[1].condition.as_ref().map(ToString::to_string),
+        Some("os = \"linux\"".to_owned()),
+    );
+
+    for (entry, optional) in [
+        (r#"gen = { version = "^1", optional = true }"#, true),
+        (r#"zlib = { version = ">=1.2", system = true }"#, false),
+    ] {
+        let err = parse_manifest_str(&format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build-dependencies]\n{entry}\n"
+        ))
+        .unwrap_err();
+        match err {
+            ManifestError::OptionalNotSupportedForKind { kind, .. } if optional => {
+                assert_eq!(kind, DependencyKind::Build);
+            }
+            ManifestError::SystemNotSupportedForKind { kind, .. } if !optional => {
+                assert_eq!(kind, DependencyKind::Build);
+            }
+            other => panic!("unexpected error for {entry}: {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn optional_on_system_dependency_is_rejected() {
     let manifest = r#"
             [package]

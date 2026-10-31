@@ -92,9 +92,10 @@ fn resolve_input(
         );
     }
     input.mode = mode;
-    input.root_features = seed.features.versioned_requests.clone();
+    input.root_features = seed.root_features();
     input.local_packages = super::seed::local_packages(graph);
     input.local_links.clone_from(&seed.local_links);
+    input.link_domains.clone_from(&seed.link_domains);
     input
 }
 

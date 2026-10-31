@@ -17,7 +17,7 @@ If you are new to Cabin, the following pages cover the most common surfaces:
 - [`cabin.toml` reference](manifest.md) - the manifest schema.
 - [Configuration files](config.md) - `.cabin/config.toml` precedence and discovery.
 - [Targets](targets.md) - how `library`, `executable`, `test`, and friends are declared.
-- [Dependency kinds](dependency-kinds.md) - the two dependency kinds and how they activate.
+- [Dependency kinds](dependency-kinds.md) - the three dependency kinds and how they activate.
 - [Build profiles](profiles.md) - `dev`, `release`, and user- declared profiles.
 - [Environment variables](environment-variables.md) - the `CABIN_*` read, run, and test env surface.
 

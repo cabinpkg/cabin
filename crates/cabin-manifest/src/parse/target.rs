@@ -146,6 +146,7 @@ pub(super) struct RawConditionalTarget {
     pub(super) condition: Condition,
     pub(super) deps: BTreeMap<String, RawDependency>,
     pub(super) dev_deps: BTreeMap<String, RawDependency>,
+    pub(super) build_deps: BTreeMap<String, RawDependency>,
     pub(super) toolchain: Option<crate::raw::RawToolchain>,
     pub(super) profile: Option<crate::raw::RawProfileFlags>,
     pub(super) named_profiles: Vec<(cabin_core::ProfileName, crate::raw::RawProfileFlags)>,
@@ -160,6 +161,8 @@ struct RawConditionalTargetTable {
     dependencies: BTreeMap<String, RawDependency>,
     #[serde(default, rename = "dev-dependencies")]
     dev_dependencies: BTreeMap<String, RawDependency>,
+    #[serde(default, rename = "build-dependencies")]
+    build_dependencies: BTreeMap<String, RawDependency>,
     #[serde(default)]
     toolchain: Option<crate::raw::RawToolchain>,
     #[serde(default)]
@@ -200,6 +203,7 @@ pub(super) fn parse_conditional_target_entry(
         condition,
         deps: typed.dependencies,
         dev_deps: typed.dev_dependencies,
+        build_deps: typed.build_dependencies,
         toolchain: typed.toolchain,
         profile,
         named_profiles,

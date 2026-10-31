@@ -21,6 +21,8 @@ A manifest may contain these top-level sections:
   [Targets](targets.md#platform-conditional-sources))
 - zero or one `[dependencies]` table
 - zero or one `[dev-dependencies]` table
+- zero or one `[build-dependencies]` table (see
+  [Dependency kinds](dependency-kinds.md#build-dependencies))
 - at most one `[workspace]` table
 - at most one `[features]` table
 - at most one `[profile]` table plus `[profile.<name>]` tables
@@ -149,11 +151,12 @@ explicit opt-in and is never derived from the target name: target names are arti
 link `"openssl"`).  Identities are non-empty, case-sensitive strings of ASCII letters, digits, `.`,
 `_`, `+`, and `-`.
 
-After dependency resolution, Cabin refuses a graph in which two distinct packages claim the same
-identity, because duplicate native symbols fail at the final link regardless of dependency
-visibility - the check sees private edges too.  The diagnostic names the shared identity and every
-claimant (package, version, target); keep exactly one claimant, or move the extras behind features
-so they never resolve together.  Platform conditions do not separate claimants, because resolution
+After dependency resolution, Cabin refuses a graph in which two distinct packages of one context -
+the program's, or the build tools' of [build dependencies](dependency-kinds.md#build-dependencies) -
+claim the same identity, because duplicate native symbols fail at the final link regardless of
+dependency visibility - the check sees private edges too.  The diagnostic names the shared identity
+and every claimant (package, version, target); keep exactly one claimant per context, or move the
+extras behind features so they never resolve together.  Platform conditions do not separate claimants, because resolution
 covers every platform.  Claims are declared, not selection-aware: a target whose `required-features`
 are disabled still claims, but a package reachable only through a disabled optional dependency does
 not.
@@ -283,7 +286,8 @@ The workspace table accepts these additional fields, all optional:
   `members`;
 - `default-members` - the subset of members commands operate on when no package-selection flags are
   passed at the workspace root;
-- `[workspace.dependencies]` and `[workspace.dev-dependencies]` - shared version requirements that
+- `[workspace.dependencies]`, `[workspace.dev-dependencies]`, and
+  `[workspace.build-dependencies]` - shared version requirements that
   member entries reference with `dep = { workspace = true }`;
 - `c-standard` - shared C implementation-standard default (literal value only) that member packages
   opt into per field with `c-standard = { workspace = true }`;

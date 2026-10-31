@@ -239,6 +239,7 @@ fn plan_request<'a>(
         build_dir: PathBuf::from(build_dir),
         platform: cabin_core::TargetPlatform::current(),
         clang_target: None,
+        build_context: false,
         profile: dev_profile(),
         selected: None,
         selected_packages: None,

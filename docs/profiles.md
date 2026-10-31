@@ -321,7 +321,11 @@ Build outputs are profile-aware:
 <build-dir>/<profile>/compile_commands.json
 <build-dir>/<profile>/cabin-toolchain.json
 <build-dir>/<profile>/packages/<package>/<target>/...
+<build-dir>/<profile>/build-machine/packages/<package>/<target>/...
 ```
+
+The `build-machine` tree holds [build dependencies](dependency-kinds.md#build-dependencies), built
+for the build machine.
 
 Two effects:
 
