@@ -95,21 +95,19 @@ A dash means the path does not exist on that hostname: on the registry
 domain every non-read-plane path answers the uniform 401 **without
 consulting the `Authorization` header**, indistinguishable from any unknown
 path; on the website origin nothing ever matches a machine read route, so
-the read plane does not exist there - the one package-data surface
-on this origin is the source viewer's session-authenticated ranged read
-(below). Every Bearer-plane 401 carries the
+the read plane does not exist there - the one route on this origin
+that serves archive bytes is the source viewer's session-authenticated
+ranged read (below). Every Bearer-plane 401 carries the
 byte-identical `WWW-Authenticate: Cabin login_url="<WEB_ORIGIN>/docs/remote-registry"`
 challenge (`docs/remote-registry.md`, "The login-URL challenge"); session
 401s deliberately do not, keeping the planes distinguishable.
 
-**Public verified reads (recorded decision change, 2026-07-31).** The
-machine read plane originally required a Bearer token like everything
-else, under a uniform-401-before-route-matching discipline that covered
-the whole data plane. That discipline is now **narrowed to the mutation
-surface**: unauthenticated `GET`s of `/config.json`, package documents,
-and artifact downloads serve **verified** content to everyone - a
-public C/C++ package ecosystem cannot ask every consumer to
-authenticate before downloading. What publicness does and does not
+**Public verified reads.** The uniform-401-before-route-matching
+discipline covers the **mutation surface**, not the machine read plane:
+unauthenticated `GET`s of `/config.json`, package documents, and
+artifact downloads serve **verified** content to everyone - a public
+C/C++ package ecosystem cannot ask every consumer to authenticate
+before downloading. What publicness does and does not
 change:
 
 - Pending, rejected, and unknown versions stay indistinguishable from
@@ -131,15 +129,15 @@ change:
 - Under `reads_blocked`, anonymous readers receive the same
   `503 registry_over_budget` refusal as tokened ones ("Billing model:
   the governor and the breaker"). A public over-budget refusal
-  necessarily reveals service state; that is inherent to public reads
-  and recorded here alongside the uniform-401 revision.
-- Pre-launch gating is unchanged and does not touch the read plane:
+  necessarily reveals service state; that is inherent to public reads.
+- Pre-launch gating does not touch the read plane:
   `ALLOWED_GITHUB_IDS` gates sign-in (and thus writes), and
   `meta.launched` gates the destructive operator scripts. Public
   verified reads therefore apply pre-launch too, over data the
   data-policy section of [`runbook.md`](runbook.md) declares
-  disposable; the launched end state is the same public read plane. In production
-the website origin reaches this Worker through zone routes
+  disposable; the launched end state is the same public read plane.
+
+In production the website origin reaches this Worker through zone routes
 (`cabinpkg.com/api/*`, `/login`, `/callback*` - which also covers the
 claim flow's `/callback/claim` - and `/claim/*`; see `wrangler.jsonc`
 and [`runbook.md`](runbook.md), "Integrated topology and route
@@ -149,12 +147,11 @@ the session plane - `/dashboard`, `/dashboard/source`,
 static pages - lives in the repository's `website/` project ("Account
 pages" in its README).
 
-**The source viewer's ranged reads.** The matrix served no package data
-on the website origin at all until the source viewer (the website's
-`/dashboard/source` page) needed to read published archives from the
-browser. The recorded decision: this origin gets exactly one
-package-data route - `GET /api/v1/user/source/<scope>/<name>/<version>`
-- and it is read-only, session-plane, verified-only, and range-limited.
+**The source viewer's ranged reads.** The source viewer (the website's
+`/dashboard/source` page) reads published archives from the browser
+through this origin's one route that serves archive bytes,
+`GET /api/v1/user/source/<scope>/<name>/<version>`, which is read-only,
+session-plane, verified-only, and range-limited.
 It lives inside the `/api/v1/user` subtree because that is the session
 cookie's `Path` - the cookie travels nowhere else - and deliberately
 not under `/api/v1/user/packages`, the created-packages listing, where
@@ -188,12 +185,10 @@ governor"). A source read is never a download ("Download counts").
 (`GET /api/v1/user/search?q=<term>`) and the package resource
 (`GET /api/v1/user/package/<scope>/<name>`, with
 `/reverse-dependencies` nested under it) are **session-only by
-recorded decision**. The original rationale - a public search endpoint
-would let unauthenticated callers enumerate packages - narrowed when
-verified reads became public ("Origins and roles"): verified package
-existence is now public by design. What remains deliberate is that
-these routes stay the dashboard's, serving its frontend on the session
-cookie, so `/api/v1/stats` remains the only public JSON route on this
+design**. Hiding which packages exist is not the reason - verified
+package existence is public ("Origins and roles") - but these routes
+stay the dashboard's, serving its frontend on the session cookie, so
+`/api/v1/stats` remains the only public JSON route on this
 origin and no new unauthenticated, high-cardinality query surface is
 opened as a side effect of public reads. All three live under
 `/api/v1/user` because that is the session cookie's `Path`, nothing
@@ -723,8 +718,8 @@ mutates.
 
 ## The verification lifecycle
 
-Publish stores content; an external verifier (a later step; it runs in
-GitHub Actions) decides what becomes part of the registry. The status is
+Publish stores content; an external verifier (it runs in GitHub
+Actions) decides what becomes part of the registry. The status is
 per revision: it lives in `revisions.verification` with
 `verification_reason` / `verified_at` alongside; the pure transition
 rules, the artifact read gate, and the verdict body live in
@@ -1019,7 +1014,7 @@ batch as every package or revision write that moves them (the
 definition, drift check, and repair are in `docs/runbook.md`, "Quota
 tallies"); the created-today count is an index range bounded by the
 daily quota itself; and the `-`/`_` twin check is an expression-index
-lookup. A publish's D1 reads therefore no longer grow with the account
+lookup. A publish's D1 reads therefore do not grow with the account
 or the scope; the per-package daily version count still reads the one
 package's own revisions. The operator's own account
 is seeded pre-promoted by the baseline migration, keyed by its immutable
@@ -1113,9 +1108,8 @@ D1 point read on expiry; the smoke test pins `SERVICE_MODE_TTL_SECS` to
 with `Retry-After` at `writes_blocked` and above, and fail closed - an
 unreadable or unknown mode blocks them ("Why 503, not 402").
 
-**Reads gate only on an affirmatively read `reads_blocked`** - a
-recorded revision (2026-07-18) of the original principle that reads
-never consult the mode. The fail semantics stay asymmetric on purpose:
+**Reads gate only on an affirmatively read `reads_blocked`.** The fail
+semantics are asymmetric on purpose:
 a missing, unreadable, or unknown mode, a failed cache fill, or any
 error on the mode lookup leaves reads serving exactly as before, so
 yanked-state lookups keep working throughout an outage of the breaker
@@ -1234,7 +1228,7 @@ otherwise, measured against the default class's cap: an anonymous
 caller has no account, but it must still be bounded by something,
 because the deployed WAF rate limiter deliberately covers only the
 website origin's write/auth surface and never the read host
-([`runbook.md`](runbook.md), "Zone security and rate limiting").
+([`runbook.md`](runbook.md), "Zone rate limiting (WAF)").
 Without that window one unauthenticated caller could drain the shared
 pool and turn everyone else's uncached downloads into `503`s. A
 request carrying no client-IP header (local development; the edge
@@ -1303,9 +1297,9 @@ recovery"):
   become **verified** enter the backup set: the verdict batch that
   flips a row to `verified` enqueues its blob into `backup_pending` in
   the same transaction, so the work is recorded exactly when the
-  transition applies and a crash can never lose it - replication no
-  longer rides the pending publish path at all (a pending upload that
-  is later rejected was never worth a copy). The queue drains on the
+  transition applies and a crash can never lose it. Pending uploads
+  are never replicated (a pending upload that is later rejected was
+  never worth a copy). The queue drains on the
   verdict's `waitUntil` (fast path) and on every breaker cron pass
   (retry path); each copy is governed (`b_infra`/`a_infra` plus a
   `backup`-pool reservation settled on success), shared checksums
@@ -1504,9 +1498,8 @@ pinned to a single narrow profile. The full normative spec is
   behind - data descriptors, extra fields, zip64, comments, local/central
   disagreement - is banned outright, so the format the verifier must reason
   about is small. Idempotent re-publish rides on content-addressing: same
-  source bytes, same checksum, `200 no_op`. This must land before launch;
-  afterwards a format change would collide with revision immutability and the
-  stored checksums.
+  source bytes, same checksum, `200 no_op`. After launch, a format change
+  would collide with revision immutability and the stored checksums.
 - **Hand-rolled container parsing.** The verifier parses the container by
   hand rather than through a general-purpose zip library. A library's
   conveniences - last-wins de-duplication of repeated names, transparent
@@ -1521,7 +1514,7 @@ pinned to a single narrow profile. The full normative spec is
 `exclude`. The root workspace builds host-native binaries with a large,
 carefully audited dependency tree and lockfile; this crate targets
 `wasm32-unknown-unknown` through `worker-build` and pulls in the `worker`
-ecosystem. Excluding it keeps `cargo build`/`cargo test` at the repository
-root byte-identical to before the service existed, keeps the two lockfiles
+ecosystem. Excluding it keeps the registry's dependencies out of
+`cargo build`/`cargo test` at the repository root, keeps the two lockfiles
 independent, and mirrors how `website/` coexists in the repository with its
 own toolchain and workflow (`.github/workflows/registry.yml`).

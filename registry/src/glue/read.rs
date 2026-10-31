@@ -96,8 +96,7 @@ pub(super) async fn handle_registry(
     // model: the governor and the breaker"). Anonymous readers receive the
     // same refusal as authenticated ones - a public over-budget
     // answer necessarily reveals service state, which is inherent
-    // to public reads (the recorded revision in "Origins and
-    // roles"). Fail-open on the mode lookup (`.ok()`): only an
+    // to public reads ("Origins and roles"). Fail-open on the mode lookup (`.ok()`): only an
     // affirmatively read `reads_blocked` refuses, so downloads keep
     // working through an outage of the breaker itself. The
     // verifier's fetches - the config it discovers the api origin
