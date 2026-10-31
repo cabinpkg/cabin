@@ -215,6 +215,89 @@ version = "0.1.0"
 }
 
 #[test]
+fn profile_names_windows_would_alias_are_rejected_from_cli_and_config() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str("[package]\nname = \"demo\"\nversion = \"0.1.0\"\n")
+        .unwrap();
+    // The rules themselves are unit-tested in `cabin-core`; this pins
+    // that both CLI entry points apply them.
+    cabin()
+        .current_dir(dir.path())
+        .args(["metadata", "--profile", "dev."])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid profile name \"dev.\""))
+        .stderr(predicate::str::contains("must not end with `.`"));
+
+    dir.child(".cabin/config.toml")
+        .write_str("[build]\nprofile = \"dev.\"\n")
+        .unwrap();
+    let user_home = TempDir::new().unwrap();
+    cabin_with_config()
+        .current_dir(dir.path())
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .arg("metadata")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "invalid `build.profile` in config",
+        ))
+        .stderr(predicate::str::contains("must not end with `.`"));
+}
+
+#[test]
+fn profiles_differing_only_in_case_are_rejected_before_touching_outputs() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[profile.Fast]
+inherits = "release"
+
+[profile.fast]
+inherits = "dev"
+"#,
+        )
+        .unwrap();
+    // On a case-insensitive filesystem both profiles would build here.
+    let output = dir.child("build/fast/keep.txt");
+    output.write_str("kept").unwrap();
+    for args in [
+        &["clean", "--profile", "Fast"][..],
+        &["clean"],
+        &["metadata", "--profile", "fast"],
+        &["metadata"],
+    ] {
+        cabin()
+            .current_dir(dir.path())
+            .args(args)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "profiles `Fast` and `fast` differ only in letter case",
+            ));
+    }
+    output.assert(predicate::path::is_file());
+}
+
+#[test]
+fn mixed_case_profile_with_internal_dots_is_selectable() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[profile.'RelWithDebInfo.ci']\ninherits = \"release\"\n",
+        )
+        .unwrap();
+    let value = metadata_for_profile(dir.path(), "RelWithDebInfo.ci");
+    assert_eq!(value["profiles"]["selected"]["name"], "RelWithDebInfo.ci");
+    assert_eq!(value["profiles"]["selected"]["source"], "custom");
+}
+
+#[test]
 fn release_flag_and_profile_flag_conflict() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

@@ -1707,8 +1707,9 @@ their name appears in `inherits_chain`.
                           |
                           v
 ProfileSelection ----> cabin_core::resolve_profile
-                          |                    (cycle / unknown-parent / built-in
-                          v                     `inherits` rejection)
+                          |                    (letter-case collision / cycle /
+                          v                     unknown-parent / built-in
+                                                `inherits` rejection)
                        ResolvedProfile
                           |
        +------------------+----------------------+----------------------+

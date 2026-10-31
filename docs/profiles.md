@@ -335,9 +335,22 @@ Two effects:
 - `dev` and `release` builds never overwrite each other.
 - A custom profile gets its own deterministic output tree.
 
-Profile names are validated up front (ASCII alphanumerics, `_`, `-`, `.`; non-empty; not `.` / `..`;
-not starting with `.`) so a malformed name is rejected at parse time instead of slipping into
-filesystem layout.
+Profile names are validated up front, with the same rules on every platform, so a malformed name is
+rejected at parse time instead of slipping into filesystem layout.  A name is non-empty, uses only
+ASCII alphanumerics, `_`, `-`, and `.`, and does not start with `.`.  Because the name is a directory
+name, it also must not:
+
+- end with `.`, which Windows drops, so `dev.` would build into `dev`;
+- be a Windows device name - `CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, or `LPT1` to `LPT9` - in
+  any letter case, with or without an extension (`nul.fast`);
+- differ from another profile name, built-in or declared, only in letter case: a case-insensitive
+  filesystem (the Windows and macOS default) would give `Fast` and `fast`, or `Release` and
+  `release`, one build directory.
+
+Mixed-case names and internal dots are fine (`RelWithDebInfo`, `ci.fast`).  Profile names stay
+case-sensitive: `--profile Release` does not select `release`.  The letter-case rule covers the
+whole `[profile.*]` table, so every command that resolves a profile rejects such a manifest before
+it reads or removes build outputs.
 
 ## Unused build outputs
 
