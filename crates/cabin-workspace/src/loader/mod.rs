@@ -46,7 +46,7 @@ pub struct PatchedPackageSource {
 }
 
 /// Load a workspace or a single package starting from the given manifest
-/// Path.  Workspace members and local path dependencies are resolved
+/// path.  Workspace members and local path dependencies are resolved
 /// recursively against the filesystem; a topologically-sorted
 /// [`PackageGraph`] is returned.
 ///
@@ -76,7 +76,7 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
 pub struct WorkspaceLoadOptions<'a> {
     /// Already-resolved registry package sources.
     pub registry: &'a [RegistryPackageSource],
-    /// Active patches (resolved by `cabin-workspace::patch`).
+    /// Active patches (resolved by [`crate::patch`]).
     pub patches: &'a [PatchedPackageSource],
     /// How the loader treats a missing-registry edge: every parent
     /// is strict by default; pre-resolution loads use
@@ -92,17 +92,16 @@ pub struct WorkspaceLoadOptions<'a> {
 }
 
 /// How the loader treats a versioned dependency edge whose name is
-/// not present in `registry`.  A pre-resolution load (the
-/// `cabin metadata` fallback) carries no registry yet but may carry
-/// patches that contribute names to the loader's internal name map;
-/// the [`RegistryPolicy::StrictFor`] variant lets callers scope
-/// enforcement so the resolver-less paths don't surface bogus
-/// missing-registry diagnostics.
+/// in neither `registry` nor `patches`.  The policy applies only when
+/// at least one registry or patch source is supplied; with none, every
+/// versioned edge is skipped.  A pre-resolution load carries no
+/// registry yet but may carry patches; [`RegistryPolicy::StrictFor`]
+/// with an empty set keeps such a load from reporting the
+/// not-yet-fetched dependencies as missing.
 #[derive(Debug, Clone, Default)]
 pub enum RegistryPolicy<'a> {
     /// Every parent's registry deps must be present in `registry`.
-    /// Default.  Used after the resolver has populated `registry`
-    /// with the closure's full pinned set.
+    /// Default.
     #[default]
     Strict,
     /// Strict only for parents whose names appear in the set;
@@ -121,23 +120,20 @@ impl RegistryPolicy<'_> {
     }
 }
 
-/// Load the workspace with a single options bag.  When
-/// `include_dev_for` is empty the loader follows the
-/// `cabin build` policy of treating dev-deps as
-/// declaration-only; with a non-empty set, listed packages
-/// contribute their `[dev-dependencies]` as real graph edges
-/// (path-deps are materialized, version-deps reach the
-/// resolver).  Dev-deps still don't propagate transitively -
-/// only the listed packages activate them.
+/// Load the workspace with registry sources, patches, and dev-dependency
+/// activation from `options`.  Packages listed in `include_dev_for`
+/// contribute their `[dev-dependencies]` as graph edges; dev-deps do not
+/// propagate transitively.
 ///
 /// # Errors
 /// Returns a [`WorkspaceError`] when loading fails - covering the
 /// manifest, member-expansion, local-path, duplicate-name, and
-/// cycle failures of [`load_workspace`], plus the policy-driven
-/// variants this entry point enables: unresolved registry
-/// dependencies, registry-source name/version mismatches, and
-/// unresolved registry dependencies for parents the registry policy
-/// treats as strict.
+/// cycle failures of [`load_workspace`], plus the variants registry
+/// and patch sources enable: registry-source name/version mismatches,
+/// a patch sharing a registry source's manifest or name, a registry
+/// package declaring a `path` dependency or a `{ workspace = true }`
+/// marker, and unresolved registry dependencies for parents the
+/// registry policy treats as strict.
 pub fn load_workspace_with_options(
     manifest_path: impl AsRef<Path>,
     options: &WorkspaceLoadOptions<'_>,
@@ -190,9 +186,6 @@ fn load_workspace_inner(
 
     let registry_lookup = build_registry_lookup(registry, patches)?;
 
-    // Recursively load every primary manifest plus any path deps it pulls
-    // in.  The loader is iterative - we maintain a stack of unloaded
-    // manifests rather than recursing.
     let mut to_load = initial_load_queue(&primary_manifest_paths, registry, patches)?;
     let root_manifest_path = manifest_path.clone();
     let ctx = DepResolutionContext {
@@ -226,20 +219,14 @@ fn load_workspace_inner(
         // rejected defensively first.
         reject_external_workspace_markers(&package, &manifest_path, &registry_lookup)?;
 
-        // rewrite each `{ workspace = true }` dep into the
-        // resolved source from `[workspace.dependencies]` before any
-        // other consumer sees it.
         let package = resolve_workspace_dependencies(package, &workspace_deps)?;
 
-        // rewrite each `{ workspace = true }` standard-field marker
-        // into the value inherited from the root `[workspace]`
-        // declaration, mirroring the dependency rewrite above.
         let package = resolve_workspace_standards(package, workspace_standards, &manifest_path)?;
 
-        // With every declaration resolved, reject interface minimums
-        // newer than the implementation standard the target's own
-        // sources compile with - such a target could not include its
-        // own public headers.
+        // With every declaration resolved, reject a target whose
+        // implementation standard lies outside its interface range
+        // (below the minimum or above the maximum) - its own sources
+        // could not include its own public headers.
         if let Some(contradiction) = cabin_core::find_interface_standard_contradictions(&package)
             .into_iter()
             .next()
@@ -322,25 +309,17 @@ fn scan_workspace_root(
     root_dir: &Path,
     manifest_path: &Path,
 ) -> Result<WorkspaceRootScan, WorkspaceError> {
-    // Roots are the entry points whose path-deps we recursively follow
-    // and whose primary status we record.  They are: the root manifest if
-    // it has a [package], and every workspace member.
     let mut primary_manifest_paths: Vec<PathBuf> = Vec::new();
 
     if root_manifest.package.is_some() {
         primary_manifest_paths.push(manifest_path.to_path_buf());
     }
 
-    // Workspace.default_members captured here so we can validate it
-    // against the resolved primary set after member expansion.
     let mut default_members: Vec<String> = Vec::new();
-    // Workspace dependency tables captured up-front and parsed
-    // once.  Member manifests with `dep = { workspace = true }`
-    // resolve against the table that matches their declared
-    // [`DependencyKind`] - `[workspace.dependencies]` for normal
-    // deps, `[workspace.dev-dependencies]` for dev deps.
-    // Each entry stores only the resolved `DependencySource` since
-    // the inheriting dep already knows its own kind.
+    // Keyed by kind: a `dep = { workspace = true }` resolves against
+    // the `[workspace.<kind>-dependencies]` table of its own kind.
+    // Each entry stores only the `DependencySource`; the inheriting
+    // dependency supplies its kind.
     let mut workspace_deps: BTreeMap<DependencyKind, BTreeMap<String, DependencySource>> =
         BTreeMap::new();
     // `[workspace]`-level standard defaults that members opt into
@@ -354,10 +333,6 @@ fn scan_workspace_root(
         let WorkspaceMembers { included, excluded } =
             expand_workspace_members(root_dir, &workspace.members, &workspace.exclude)?;
         for canonical in included {
-            // reject nested workspaces.  A member directory's
-            // `cabin.toml` must not declare its own `[workspace]`
-            // table, otherwise the load tries to honor two parent
-            // workspaces at once.
             let parsed = parse_manifest(&canonical)?;
             if parsed.workspace.is_some() {
                 return Err(WorkspaceError::NestedWorkspace { path: canonical });
@@ -483,9 +458,6 @@ fn initial_load_queue(
     for entry in registry {
         to_load.push(canonicalize(&entry.manifest_path)?);
     }
-    // Patches are external manifests too; load them so the
-    // graph carries the patched `Package` value alongside the
-    // workspace members and registry entries.
     for entry in patches {
         to_load.push(canonicalize(&entry.manifest_path)?);
     }
@@ -532,16 +504,12 @@ fn reject_member_manifest_overrides(
     Ok(())
 }
 
-/// If this manifest is a known registry package, the resolver
-/// pinned a specific (name, version).  The artifact crate has
-/// already validated the manifest against that pin, but the
-/// workspace loader is the user-visible reporter, so we
-/// double-check here and surface a clear error if they ever
-/// disagree.  Both the expected name and version are validated: the
-/// registry may have pointed at a directory whose manifest declares
-/// a completely different package (a malicious or wrongly extracted
-/// artifact); refusing here keeps a wrong package from sneaking
-/// into the build graph.
+/// Refuse a registry or patch manifest whose `[package]` name or
+/// version differs from its pinned `(name, version)` entry: the
+/// directory may hold a different package (a malicious or wrongly
+/// extracted artifact).  `cabin-artifact` already validates extracted
+/// archives against the pin; the loader repeats the check as the
+/// user-visible reporter.
 fn validate_registry_pin(
     package: &cabin_core::Package,
     manifest_path: &Path,
@@ -656,11 +624,6 @@ fn resolve_dep_paths(
     let parent_is_registry = ctx.registry.is_registry(manifest_path);
     let mut dep_paths: Vec<DepPath> = Vec::with_capacity(package.dependencies.len());
     for dep in &package.dependencies {
-        // Skip dependencies that are not in this command's
-        // active-kind set.  Dev deps remain inactive unless the
-        // owning package is in `include_dev_for`.  System deps
-        // never reach this loop (they live on a separate
-        // `system_dependencies` list).
         let kind_active = dep.kind.is_resolved_by_default()
             || (dev_active_for_this_pkg && dep.kind == DependencyKind::Dev);
         if !kind_active {
@@ -695,8 +658,10 @@ fn resolve_dep_paths(
 }
 
 /// Resolve one dependency declaration to the canonical manifest
-/// path of its source package.  Returns `Ok(None)` when the edge is
-/// intentionally skipped: a versioned dep without registry context.
+/// path of its source package.  Returns `Ok(None)` for a versioned
+/// dep the loader skips: no registry or patch source was supplied, an
+/// optional dep resolution left out, or a missing entry under a parent
+/// the policy does not treat as strict.
 fn resolve_dep_manifest_path(
     ctx: &DepResolutionContext<'_>,
     dep: &cabin_core::Dependency,
@@ -715,10 +680,8 @@ fn resolve_dep_manifest_path(
             canonicalize(&candidate)?
         }
         DependencySource::Version(_) => {
-            // No registry context: keep the legacy behavior of
-            // skipping versioned deps (used by `cabin metadata`
-            // and `cabin resolve`, which don't materialize
-            // sources).
+            // No registry or patch source: this load materializes no
+            // versioned dependency.
             if ctx.registry.by_name.is_empty() {
                 return Ok(None);
             }
@@ -730,15 +693,10 @@ fn resolve_dep_manifest_path(
                 // refuses one it enables without an edge.
                 return Ok(None);
             } else {
-                // a missing registry entry is
-                // only an error when the *parent*
-                // package is one the caller flagged as
-                // strict (typically a member of the
-                // selected closure).  Unselected
-                // workspace members can declare
-                // versioned deps the current command
-                // did not fetch, so we skip them
-                // silently.
+                // A missing entry is an error only when the parent is
+                // one the caller flagged as strict (typically a member
+                // of the selected closure): an unselected member may
+                // declare versioned deps this command did not fetch.
                 if !ctx.policy.requires_registry_for(parent_name) {
                     return Ok(None);
                 }
@@ -749,11 +707,9 @@ fn resolve_dep_manifest_path(
             }
         }
         DependencySource::Workspace => {
-            // Workspace inheritance is resolved up-front via
-            // `resolve_workspace_dependencies`.  A `Workspace`
-            // source surviving this loop means the workspace
-            // root did not declare the requested name in the
-            // matching `[workspace.<kind>-dependencies]` table.
+            // Unreachable from the load loop:
+            // `resolve_workspace_dependencies` has already replaced
+            // every `Workspace` source or failed with this same error.
             return Err(WorkspaceError::UnresolvedWorkspaceDependency {
                 dep_name: dep.name.as_str().to_owned(),
                 parent: parent_name.to_owned(),
@@ -830,11 +786,6 @@ fn link_workspace_packages(
                 ignore_interface_standard: dep.ignore_interface_standard,
             });
         }
-        // Patches resolve to local working copies; treat them
-        // exactly like a path dep so downstream consumers
-        // (build planner, lockfile, metadata view) do not
-        // see a "registry" package that lives on the user's
-        // filesystem.
         let kind = if registry.is_registry(&pkg.manifest_path) {
             PackageKind::Registry
         } else {
@@ -937,9 +888,8 @@ struct LoadedPackage {
     package: cabin_core::Package,
     manifest_path: PathBuf,
     manifest_dir: PathBuf,
-    /// One entry per resolved dep edge.  Only kinds that
-    /// participate in ordinary resolution end up here; dev / system
-    /// deps are filtered out earlier.
+    /// One entry per resolved dep edge: kinds resolved by default,
+    /// plus `Dev` for packages in `include_dev_for`.
     dep_paths: Vec<DepPath>,
 }
 

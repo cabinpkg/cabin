@@ -137,11 +137,10 @@ pub(super) fn attach_conditional_sources(
     Ok(())
 }
 
-/// Raw shape of one `[target.'cfg(...)'.<...>]` entry, after we
-/// have decided the entry is a target-conditional dep table
-/// (i.e. the outer name is a `cfg(...)` expression).  Captured
-/// up-front so we can fold these into `Package::dependencies`
-/// alongside the unconditional ones.
+/// Parsed contents of one `[target.'cfg(...)']` entry, captured
+/// up-front so its dependency, toolchain, profile, and source
+/// tables can be folded into the package model and root settings
+/// alongside their unconditional counterparts.
 pub(super) struct RawConditionalTarget {
     pub(super) condition: Condition,
     pub(super) deps: BTreeMap<String, RawDependency>,

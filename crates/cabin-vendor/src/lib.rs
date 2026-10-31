@@ -46,14 +46,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Filename of the deterministic vendor-summary file written
-/// alongside the file-registry layout.  Keeps a record of *which*
-/// packages this directory was vendored for so a stale vendor
-/// directory is detectable without re-resolving.
+/// alongside the file-registry layout.  It records the
+/// `(name, version, checksum, source)` set the invocation wrote.
 pub(crate) const VENDOR_SUMMARY_FILENAME: &str = "cabin-vendor.json";
 
-/// Schema version of [`VendorSummary`].  Bumping this requires a
-/// migration story; existing vendor directories from earlier
-/// versions of Cabin are flagged as stale by the orchestrator.
+/// Schema version of [`VendorSummary`].
 pub(crate) const VENDOR_SUMMARY_SCHEMA: u32 = 1;
 
 /// One package version to write into the vendor directory.
@@ -78,10 +75,10 @@ pub struct VendorEntry {
     /// `.zip` whose SHA-256 matches `checksum`.
     pub archive_source: PathBuf,
     /// Per-version JSON value as it appears in the source
-    /// index's `packages/<name>.json`.  The vendor writer copies
-    /// this almost verbatim - it only rewrites the
-    /// `source.path` field to point at the new vendor-relative
-    /// archive path.
+    /// index's `packages/<name>.json`.  The vendor writer keeps only
+    /// the vendored revision, promotes that revision's `resolution`
+    /// fields to the version, and points its `source.path` at the
+    /// vendor-relative archive path; the rest is copied verbatim.
     pub index_entry: serde_json::Value,
 }
 
@@ -98,8 +95,7 @@ impl VendorPlan {
     /// order matches the deterministic `cabin metadata` /
     /// lockfile order.  Duplicate `(name, version)` pairs are
     /// rejected: a single vendor invocation must not write the
-    /// same package version twice, regardless of how the
-    /// orchestration layer collected them.
+    /// same package version twice.
     ///
     /// # Errors
     /// Returns [`VendorError::DuplicateEntry`] if two entries
@@ -157,10 +153,9 @@ impl VendorPlan {
 pub struct VendorOptions {
     /// `--frozen`: a frozen vendor invocation still writes the
     /// vendor directory (that is the explicit user-requested
-    /// output), but [`materialize`] surfaces this flag back in
-    /// the [`VendorReport::frozen`] field so the orchestration
-    /// layer can also forbid lockfile / artifact-cache mutation
-    /// at higher layers.
+    /// output); [`materialize`] only echoes this flag in
+    /// [`VendorReport::frozen`].  The orchestration layer applies
+    /// it to the lockfile policy.
     pub frozen: bool,
 }
 
@@ -215,8 +210,9 @@ pub struct VendorOutcomeEntry {
 /// archive's SHA-256 differs from the plan's checksum,
 /// `StaleArtifact` when an existing destination archive has a
 /// conflicting checksum, `UnsafeArtifactPath` when an artifact
-/// destination is absolute or contains `..`, and `Json` when the
-/// summary fails to serialize.
+/// destination contains `..`, `MalformedIndexEntry` when a source
+/// index entry does not list the vendored revision or its `source`
+/// object, and `Json` when the summary fails to serialize.
 #[tracing::instrument(name = "materialize_vendor", level = "info", skip_all)]
 pub fn materialize(
     plan: &VendorPlan,
@@ -226,9 +222,7 @@ pub fn materialize(
     let vendor_dir = canonicalize_or_create(vendor_dir)?;
 
     // Ensure / re-use the file-registry skeleton (writes
-    // `config.json` if missing).  The `was_initialized_now`
-    // bit is recorded in the summary so a downstream check
-    // can tell first-run from re-run.
+    // `config.json` if missing).
     let registry = FileRegistry::open_or_initialize(&vendor_dir).map_err(VendorError::Registry)?;
     debug_assert_eq!(
         registry.config().schema,
@@ -322,9 +316,8 @@ pub fn materialize(
         write_if_changed(&target, body.as_bytes())?;
     }
 
-    // Write the deterministic summary so a stale directory is
-    // detectable.  The summary lists every vendored
-    // `(name, version, checksum, relative_path)` in the same
+    // The summary lists every vendored
+    // `(name, version, checksum, source)` in the same
     // sorted order the plan iterator guarantees.
     let summary = VendorSummary {
         schema: VENDOR_SUMMARY_SCHEMA,
@@ -398,9 +391,9 @@ pub enum VendorError {
         actual: String,
     },
 
-    /// An archive path contained an absolute prefix or a `..`
-    /// component.  Vendor refuses to write archives whose
-    /// destination would escape the vendor directory.
+    /// An archive destination contained a `..` component.  Vendor
+    /// refuses to write archives whose destination could escape the
+    /// vendor directory.
     #[error("unsafe artifact destination `{}`: paths must be relative and must not contain `..`", path.display())]
     UnsafeArtifactPath { path: PathBuf },
 
@@ -425,16 +418,13 @@ pub enum VendorError {
         source: std::io::Error,
     },
 
-    /// JSON serialization failure.  Should never happen for the
-    /// internal-only structures this crate writes; surfaced
-    /// rather than panicked so a future on-disk schema change
-    /// has a place to fail cleanly.
+    /// Serializing the vendor summary failed.
     #[error("vendor metadata serialization failed: {0}")]
     Json(#[from] serde_json::Error),
 
     /// Forwarded from `cabin-registry-file` when the vendor
     /// directory cannot be opened or initialized as a file
-    /// registry.
+    /// registry, or a package index cannot be rendered.
     #[error(transparent)]
     Registry(cabin_registry_file::RegistryError),
 }
@@ -457,10 +447,8 @@ fn copy_archive_if_changed(
     name: &PackageName,
     version: &semver::Version,
 ) -> Result<bool, VendorError> {
-    // Refuse to write archives whose path contains `..`.  The
-    // caller built `dst` from `registry.artifact_path`, which
-    // sanitizes the package name through `<name>` only, but
-    // the safety check stays here as a defense in depth.
+    // `dst` comes from `registry.artifact_path` over a validated
+    // `PackageName`; this `..` check is defense in depth.
     if dst.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(VendorError::UnsafeArtifactPath {
             path: dst.to_path_buf(),
@@ -476,7 +464,6 @@ fn copy_archive_if_changed(
     if dst.is_file() {
         let existing = file_sha256(dst)?;
         if existing == expected_hex {
-            // Already correct; do not rewrite.
             return Ok(false);
         }
         return Err(VendorError::StaleArtifact {
@@ -494,10 +481,8 @@ fn copy_archive_if_changed(
         path: src.to_path_buf(),
         source,
     })?;
-    // Match the `.partial` convention used by `cabin-registry-file`
-    // so orphaned partial writes share a recognizable suffix.  `Path::with_extension`
-    // would clobber the trailing `.zip` of `fmt-10.2.1.zip`,
-    // so we append the suffix via `OsString` instead.
+    // `Path::with_extension` would replace the trailing `.zip`, so
+    // the `.partial` suffix is appended via `OsString`.
     let temp = {
         let mut s: OsString = dst.as_os_str().to_owned();
         s.push(".partial");
@@ -591,10 +576,11 @@ fn verified_entry_revision(entry: &VendorEntry) -> Result<(String, String), Vend
 /// Reduce the vendored entry's revision axis to exactly the fetched
 /// revision - the vendor directory holds no other revision's archive -
 /// make that revision's own `resolution`, if it has one, the version's,
-/// and point its `source.path` at the vendor-relative artifact.  An entry that does not list the fetched revision, or a
-/// revision without a `source` object, is an error: copying it
-/// through verbatim would leave the vendored index pointing at bytes
-/// the directory does not hold, silently breaking offline use.
+/// and point its `source.path` at the vendor-relative artifact.  An
+/// entry that does not list the fetched revision, or a revision
+/// without a `source` object, is an error: copying it through
+/// verbatim would leave the vendored index pointing at bytes the
+/// directory does not hold, silently breaking offline use.
 fn rewrite_vendored_revision(
     value: &mut serde_json::Value,
     revision: &str,
@@ -867,8 +853,6 @@ mod tests {
         .unwrap();
 
         let report = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
-        // Two archives + one packages/fmt.json + one config.json
-        // + one cabin-vendor.json.
         let written: BTreeMapStd<String, bool> = report
             .written
             .iter()
@@ -897,22 +881,14 @@ mod tests {
         );
         assert!(report.vendor_dir.join(VENDOR_SUMMARY_FILENAME).is_file());
 
-        // Per-package index rewrites the source path to the
-        // vendor-relative form and never leaks the original
-        // `/abs/host/leak/path.zip` value.
         let body = fs::read_to_string(report.vendor_dir.join("packages/fmt.json")).unwrap();
         assert!(body.contains(&format!("../artifacts/fmt/fmt-10.1.0-{r1}.zip")));
         assert!(body.contains(&format!("../artifacts/fmt/fmt-10.2.1-{r2}.zip")));
         assert!(!body.contains("/abs/host/leak"));
-        // SemVer order: 10.1.0 before 10.2.1 in the rendered
-        // JSON, so a future on-disk diff stays scannable.
         let pos_old = body.find("10.1.0").unwrap();
         let pos_new = body.find("10.2.1").unwrap();
         assert!(pos_old < pos_new);
 
-        // Re-running with an unchanged plan must be a no-op:
-        // every artifact is reported as `was_written=false`
-        // because the destination already matches.
         let report2 = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
         for entry in &report2.written {
             assert!(
@@ -922,8 +898,6 @@ mod tests {
                 entry.version
             );
         }
-        // Summary file must be byte-stable across the two
-        // invocations so a stale-vendor check can compare them.
         let summary_body = fs::read(report.vendor_dir.join(VENDOR_SUMMARY_FILENAME)).unwrap();
         let summary_body2 = fs::read(report2.vendor_dir.join(VENDOR_SUMMARY_FILENAME)).unwrap();
         assert_eq!(summary_body, summary_body2);
@@ -934,8 +908,6 @@ mod tests {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
         let (archive, _real_checksum) = write_archive(&cache, "fmt", "10.2.1", b"hello");
-        // Plan declares a wrong checksum: vendor must surface
-        // `ChecksumMismatch` and not write anything.
         let e = entry(
             "fmt",
             "10.2.1",
@@ -983,8 +955,6 @@ mod tests {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
         let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"new");
-        // Pre-seed a stale artifact whose hash differs from
-        // what the plan requires.  Vendor must refuse.
         let target = vendor
             .path()
             .join(format!("artifacts/fmt/fmt-10.2.1-{}.zip", rev(&checksum)));

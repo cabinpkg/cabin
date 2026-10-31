@@ -9,17 +9,18 @@
 //! re-parses the text with [`toml_edit`]'s span-preserving document
 //! and returns the byte range covering `field = value`.
 //!
-//! Lookups are best-effort by design: any parse failure or missing
-//! key yields `None`, and the caller renders its diagnostic without
-//! a source snippet.  The text was already parsed successfully once
-//! to produce the typed model, so in practice a lookup only misses
-//! when the file changed on disk in between - a race not worth an
-//! error path in a diagnostic renderer.
+//! Lookups are best-effort: any parse failure or missing key yields
+//! `None`, and the caller renders its diagnostic without a source
+//! snippet.  A field inside an inline table (`core = { ... }` under
+//! `[target]`) also misses, because `toml_edit::Item::as_table`
+//! matches only standard tables.  Otherwise, since the text already
+//! parsed once to produce the typed model, a miss means the file
+//! changed on disk in between - a race not worth an error path in a
+//! diagnostic renderer.
 
 use std::ops::Range;
 
-/// The manifest table a standard field lives in, mirroring the
-/// three declaration tiers of `docs/language-standards.md`.
+/// The manifest table a language-standard field is declared in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardFieldScope<'a> {
     /// The `[package]` table.

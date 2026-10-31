@@ -1176,8 +1176,8 @@ fn whitespace_target_name_errors() {
 
 /// A quoted target name with path metacharacters must be rejected
 /// at manifest-parse time.  The build planner joins
-/// `target.name.as_str()` into object, executable, and Cargo target
-/// directories, so accepting `[target."/tmp/out"]` would let a
+/// `target.name.as_str()` into object, library, and executable
+/// paths, so accepting `[target."/tmp/out"]` would let a
 /// malicious package write artifacts outside `--build-dir`.
 #[test]
 fn path_unsafe_target_name_errors() {
@@ -1202,8 +1202,7 @@ fn path_unsafe_target_name_errors() {
 /// Cross-package dep references use the `package:target` form.  The
 /// `:` is outside the path-safe target-name grammar, so deps are
 /// stored as raw strings (not `TargetName`) and validated only at
-/// resolution time.  Pin the round-trip so the type relaxation does
-/// not silently regress.
+/// resolution time.
 #[test]
 fn qualified_cross_package_dep_round_trips_as_raw_string() {
     let manifest = r#"
@@ -1693,9 +1692,9 @@ fn features_parse_with_default_and_implications() {
 
 #[test]
 fn features_reject_reserved_default_as_normal_feature() {
-    // The `default` key is reserved.  TOML may reject this
-    // as a duplicate key before Cabin's semantic validation
-    // runs; either failure mode protects the invariant.
+    // `default` and `"default"` are the same TOML key, so the TOML
+    // layer rejects the duplicate before Cabin's semantic
+    // validation runs.
     let conflict = r#"
             [package]
             name = "demo"
@@ -2167,7 +2166,6 @@ fn parses_system_dependencies() {
         "#,
     );
     assert_eq!(package.system_dependencies.len(), 2);
-    // System deps round-trip through metadata sorted by name (BTreeMap iteration).
     let by_name: BTreeMap<&str, &cabin_core::SystemDependency> = package
         .system_dependencies
         .iter()
@@ -2181,11 +2179,9 @@ fn parses_system_dependencies() {
 
 #[test]
 fn system_dependency_rejects_required_field() {
-    // `required` was removed from the manifest surface: every
-    // `system = true` dep is required.  The unknown field is
-    // rejected by `deny_unknown_fields` on the raw table; the
-    // resulting diagnostic must name the field by name so users
-    // know what to remove.
+    // Every `system = true` dep is required, so `required` is an
+    // unknown field; the diagnostic must name it so users know what
+    // to remove.
     let manifest = r#"
             [package]
             name = "app"
@@ -2365,11 +2361,6 @@ fn optional_on_system_dependency_is_rejected() {
             [dependencies]
             zlib = { version = ">=1.2", system = true, optional = true }
         "#;
-    // The parser enforces that `system = true` is incompatible
-    // with `optional` (and `path`, `workspace`, `features`,
-    // `default-features`, `git`, `registry`, `source`).  The
-    // first conflicting field in declaration order surfaces
-    // via `SystemConflictsWith`.
     let err = parse_manifest_str(manifest).unwrap_err();
     match err {
         ManifestError::SystemConflictsWith { name, field, .. } => {
@@ -2528,9 +2519,6 @@ fn target_cfg_dependency_round_trips_condition() {
 
 #[test]
 fn target_cfg_workspace_inheritance_is_rejected() {
-    // `workspace = true` inside `[target.'cfg(...)'.<kind>]`
-    // is rejected so a single workspace key never silently
-    // means different things on different hosts.
     let manifest = r#"
             [package]
             name = "app"
@@ -3101,10 +3089,8 @@ fn compiler_cfg_on_toolchain_table_is_rejected() {
 #[test]
 fn feature_cfg_on_workspace_root_toolchain_is_rejected() {
     // A pure workspace root (no [package]) never reaches
-    // project_from_raw, yet still captures conditional toolchain
-    // settings that are evaluated platform-only.  The feature-cfg check
-    // runs before the package/workspace-root split, so it must reject
-    // this too rather than silently ignoring it.
+    // project_from_raw but still captures conditional toolchain
+    // settings, so the feature-cfg check must reject them here too.
     let manifest = r#"
             [workspace]
             members = ["a"]

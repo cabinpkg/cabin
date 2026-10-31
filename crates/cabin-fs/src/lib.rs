@@ -1,13 +1,12 @@
 //! Small filesystem helpers shared by Cabin production crates.
 //!
-//! The crate is intentionally narrow: it owns the atomic-write
-//! boilerplate, the lexical path-safety predicates, and the
-//! canonicalization and `..` resolution that multiple production
-//! crates would otherwise duplicate.  Callers keep responsibility for
-//! parent-directory creation, for archive- or context-specific
-//! extraction policy, and for mapping the returned [`std::io::Error`]
-//! onto their own domain error types so the destination path stays
-//! visible in diagnostics.
+//! It owns the atomic-write boilerplate, the lexical path-safety
+//! predicates, and the canonicalization and `..` resolution that
+//! multiple production crates would otherwise duplicate.  Callers keep
+//! responsibility for parent-directory creation, for archive- or
+//! context-specific extraction policy, and for mapping the returned
+//! [`std::io::Error`] onto their own domain error types so the
+//! destination path stays visible in diagnostics.
 
 pub mod path;
 
@@ -26,8 +25,7 @@ use atomic_write_file::AtomicWriteFile;
 /// The replacement may swap a symlink at `path` for a regular file
 /// rather than writing through the symlink target, and does not
 /// promise to preserve timestamps, ACLs, xattrs, or ownership.
-/// These limits come from the underlying `atomic-write-file` crate
-/// and are not papered over here.
+/// These limits come from the underlying `atomic-write-file` crate.
 ///
 /// # Errors
 /// Returns the [`std::io::Error`] from opening the staging temporary
@@ -43,15 +41,14 @@ pub fn write_atomic(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::R
 }
 
 /// Resolve `path` to Cabin's canonical spelling: the real,
-/// symlink-resolved absolute path, but *without* the Windows `\\?\`
-/// verbatim prefix that [`std::fs::canonicalize`] prepends.
+/// symlink-resolved absolute path, without the Windows `\\?\` verbatim
+/// prefix that [`std::fs::canonicalize`] prepends wherever the path can
+/// be spelled without it.
 ///
-/// This is the single canonicalization boundary for the project.  Every
-/// Cabin path-identity decision (workspace member resolution, source
-/// discovery exclusions, build-dir/source overlap checks) routes
-/// through here so one file has exactly one canonical form across
-/// crates and a comparison never spuriously fails on a spelling
-/// difference.
+/// Workspace member resolution, source discovery exclusions, and
+/// build-dir/source overlap checks route through here so one file has
+/// one canonical form across crates and a comparison never spuriously
+/// fails on a spelling difference.
 ///
 /// On non-Windows this is exactly [`std::fs::canonicalize`].  On Windows
 /// it additionally collapses 8.3 short names (`RUNNER~1` ->
@@ -190,9 +187,6 @@ mod tests {
 
     #[test]
     fn write_atomic_fails_when_parent_directory_missing() {
-        // The helper does not create parent directories; the caller
-        // owns that policy.  A missing parent must surface as an
-        // `io::Error` rather than silently materializing the path.
         let dir = TempDir::new().unwrap();
         let missing_parent = dir.path().join("nonexistent").join("out.txt");
         let err = write_atomic(&missing_parent, b"body").unwrap_err();
@@ -202,11 +196,8 @@ mod tests {
 
     #[test]
     fn write_atomic_failure_does_not_touch_unrelated_destinations() {
-        // A failing `write_atomic` call must not have side effects
-        // on files outside its own destination path.  The failure
-        // path here is "parent directory missing"; the helper aborts
-        // at `open` time, before any sibling temporary file is
-        // staged, so a same-named file living elsewhere stays put.
+        // The missing parent fails `open` before any sibling temporary
+        // file is staged.
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("kept.txt");
         std::fs::write(&dest, b"original").unwrap();
@@ -223,10 +214,7 @@ mod tests {
 
         let canonical = canonicalize(&path).unwrap();
         assert!(canonical.is_absolute());
-        // dunce never yields the Windows `\\?\` verbatim prefix; assert
-        // it on every host so the contract is checked even off-Windows.
         assert!(!canonical.to_string_lossy().starts_with(r"\\?\"));
-        // The canonical form must still name the same file.
         assert_eq!(std::fs::read(&canonical).unwrap(), b"x");
     }
 

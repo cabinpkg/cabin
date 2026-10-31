@@ -1,16 +1,13 @@
 //! Workspace root discovery.
 //!
-//! `cabin` commands are usually run from inside a workspace.  To make
-//! that ergonomic, the CLI walks upward from the current directory
-//! looking for a `cabin.toml` that contains a `[workspace]` table.
-//! When one is found, commands behave as if they had been invoked
-//! against that root manifest.  When none is found we keep the legacy
-//! single-package behavior rooted at whatever `--manifest-path` was
-//! requested (default: `./cabin.toml`).
+//! `cabin` commands are usually run from inside a workspace.  When
+//! `--manifest-path` is absent, the CLI walks upward from the current
+//! directory looking for a `cabin.toml` that contains a `[workspace]`
+//! table.  When one is found, commands behave as if they had been
+//! invoked against that root manifest; otherwise they use
+//! `./cabin.toml`.
 //!
-//! This module is filesystem-only - it never touches the network.
-//! It is also conservative: it stops at the filesystem root and never
-//! descends through symlinks it has not been asked to traverse.  The
+//! This module is filesystem-only - it never touches the network.  The
 //! caller decides whether to honor the discovered workspace or fall
 //! back to a directly-supplied manifest.
 
@@ -40,20 +37,20 @@ pub struct DiscoveredManifest {
 /// stacked above `start`.  Manifest parse errors are surfaced as
 /// [`WorkspaceError::Manifest`] so the user sees the bad file.
 ///
-/// The rule is deliberately strict: forcing the user to
-/// disambiguate (typically by passing `--manifest-path`
-/// explicitly) avoids surprises where running from inside a
-/// nested workspace silently operated on an outer one - or vice
-/// versa.
+/// Stacked roots force the user to disambiguate (typically with
+/// `--manifest-path`) so a command run inside a nested workspace never
+/// silently operates on the outer one, or vice versa.
 ///
-/// A root found above a package manifest is the trust boundary for
-/// every setting discovery applies on the user's behalf
-/// (`[toolchain]`, `[patch]`, the root's `.cabin/config.toml`), so
-/// it is honored only when it claims that package as a member and,
-/// on Unix, both manifests have the same owner.  Otherwise an
-/// ancestor another user can write to - `/tmp`, a shared mount -
-/// could plant a root whose toolchain runs for every package below
-/// it (`root_claims_package`).
+/// A root found above `start` is the trust boundary for every setting
+/// discovery applies on the user's behalf (`[toolchain]`, `[patch]`,
+/// the root's `.cabin/config.toml`).  Unless `start` is the root's own
+/// directory, the root is honored only when, on Unix, it passes
+/// `root_trusted` against the nearest package manifest (or `start` when
+/// no package manifest lies between them) and, when such a package
+/// exists, lists it as a member (`root_claims_package`).  Otherwise an
+/// ancestor another user can write to - `/tmp`, a shared mount - could
+/// plant a root whose toolchain runs for every package below it.
+/// Windows skips the ownership checks.
 ///
 /// Discovery stays a pure filesystem walk: no network, no
 /// symlink follow beyond what the OS already does for
@@ -63,7 +60,7 @@ pub struct DiscoveredManifest {
 /// Returns [`WorkspaceError::NestedWorkspaceDiscovery`] when two or
 /// more `[workspace]`-bearing manifests are stacked above `start`,
 /// [`WorkspaceError::UntrustedWorkspaceRoot`] when the only root fails
-/// the owner or directory-mode check,
+/// the owner, mode, link-count, or symlink check,
 /// [`WorkspaceError::UnclaimedPackage`] when it does not list the
 /// nearest package as a member, and propagates [`WorkspaceError::Manifest`] from
 /// `parse_manifest` when an encountered `cabin.toml` fails to parse.
@@ -136,10 +133,9 @@ pub fn discover_workspace_root(start: &Path) -> Result<Option<DiscoveredManifest
             }
         }
         _ => {
-            // refuse to silently pick one when the
-            // user is sandwiched between two workspace roots.
-            // `found` is ordered nearest-first because the walk
-            // started at the user's cwd.
+            // Refuse to pick among stacked roots.  `found` is
+            // ordered nearest-first because the walk goes upward from
+            // `start`.
             let nearest = &found.first().unwrap().0;
             let outer = &found.last().unwrap().0;
             Err(WorkspaceError::NestedWorkspaceDiscovery {
@@ -297,9 +293,7 @@ members = []
         dir.child("cabin.toml")
             .write_str("[package]\nname = \"only\"\nversion = \"0.1.0\"\n")
             .unwrap();
-        // The cabin.toml is not a workspace root, and the parent
-        // directory is some tempdir that also lacks one.  We must not
-        // mistakenly identify the [package]-only manifest as a
+        // Assumes no ancestor of the temporary directory holds a
         // workspace root.
         assert!(discover_workspace_root(dir.path()).unwrap().is_none());
     }
@@ -314,8 +308,6 @@ members = ["packages/app"]
 "#,
             )
             .unwrap();
-        // A nested non-workspace manifest must not stop the walk -
-        // discovery returns the (only) workspace root.
         dir.child("packages/app/cabin.toml")
             .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
             .unwrap();
@@ -496,9 +488,6 @@ members = ["app"]
 
     #[test]
     fn nested_workspace_errors_when_starting_inside_nested() {
-        // Two stacked workspace roots - the outer at `dir`, the
-        // nested at `dir/nested`.  Discovery from inside the nested
-        // workspace must error rather than silently picking one.
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -527,9 +516,6 @@ members = []
 
     #[test]
     fn nested_workspace_errors_even_when_outer_does_not_list_nested() {
-        // Outer omits `nested` from its members.  `nested` itself
-        // is still a workspace.  Discovery still
-        // detects two roots and refuses to silently pick.
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(

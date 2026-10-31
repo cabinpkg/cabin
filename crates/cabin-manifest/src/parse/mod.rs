@@ -82,7 +82,7 @@ pub struct WorkspaceTable {
     /// Subset of `members` operated on by default when the
     /// user passes no package-selection flags at the workspace root.
     /// Each entry must resolve to a member after `members`/`exclude`
-    /// Expansion - `cabin-workspace` enforces this.
+    /// expansion - `cabin-workspace` enforces this.
     #[serde(
         default,
         rename = "default-members",
@@ -120,10 +120,6 @@ pub struct WorkspaceTable {
 
 /// Read and parse `cabin.toml` from `path`.
 ///
-/// Errors from the TOML parser are wrapped in
-/// [`ManifestError::TomlAt`] so the diagnostic layer can render
-/// a source-annotated snippet pointing at the offending region.
-///
 /// # Errors
 /// Returns [`ManifestError::Io`] when `path` cannot be read.  TOML
 /// syntax/deserialization failures are returned as
@@ -160,11 +156,9 @@ pub fn parse_manifest_str(input: &str) -> Result<ParsedManifest, ManifestError> 
     parsed_from_raw(raw)
 }
 
-/// Split the unified `[profile]` parent table into the legacy
-/// `(top-level flags, named variants)` pair the rest of the parser
-/// already operates on.  The base-flag fields live directly on
-/// `[profile]`; named profiles live in
-/// [`crate::raw::RawProfileTable::variants`].
+/// Split the `[profile]` table into `(base flags, named profiles)`.
+/// The base-flag fields live directly on `[profile]`; named profiles
+/// live in [`crate::raw::RawProfileTable::variants`].
 fn split_profile_table(
     table: Option<crate::raw::RawProfileTable>,
 ) -> (
@@ -217,26 +211,20 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 
     // Split `[target.*]` entries into two groups:
     //
-    // 1. Target-specific dependency tables - entry name is a
-    //    `cfg(...)` expression.  Their values are conditional dep
-    //    tables (`dependencies`, `dev-dependencies`), plus
-    //    `toolchain` / `profile` overrides.  Anything else under
-    //    such an entry is rejected.
+    // 1. Conditional tables - entry name is a `cfg(...)`
+    //    expression.  Their values may hold `dependencies`,
+    //    `dev-dependencies`, `build-dependencies`, `toolchain`,
+    //    `profile`, and `sources`; anything else is rejected.
     // 2. Buildable C/C++ targets - entry name is a target
     //    identifier and the value is a `RawTarget`-shaped table.
-    //    These must *not* contain conditional dep sub-tables;
-    //    that mistake surfaces with a clear "not supported"
-    //    error so users do not silently lose deps to the wrong
-    //    schema.
+    //    A dependency sub-table there is rejected with
+    //    `TargetSpecificDependenciesNotSupported`.
     let mut conditional_targets: Vec<RawConditionalTarget> = Vec::new();
     let mut buildable_targets: BTreeMap<String, toml::Value> = BTreeMap::new();
     for (raw_target_name, raw_value) in target {
         if is_cfg_expression(&raw_target_name) {
             conditional_targets.push(parse_conditional_target_entry(&raw_target_name, raw_value)?);
         } else {
-            // Reject buildable target tables that contain dep
-            // sub-tables.  These are almost always typos of the
-            // `cfg(...)` form (e.g. forgetting the quotes).
             if let Some(table) = raw_value.as_table() {
                 for forbidden in [
                     "dependencies",
@@ -256,11 +244,9 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     }
     let target = parse_target_table(buildable_targets)?;
 
-    // Reject `cfg(feature = ...)` and compiler conditions on tables
-    // where they can't be honored, before the package /
-    // workspace-root split.  Both paths capture conditional toolchain
-    // settings. Running the check here covers a pure workspace root,
-    // which never reaches `project_from_raw`.
+    // Runs before the package / workspace-root split: both paths
+    // capture conditional toolchain settings, and a pure workspace
+    // root never reaches `project_from_raw`.
     reject_unsupported_target_conditions(&conditional_targets)?;
 
     let toolchain_settings = cabin_core::ToolchainSettings {
@@ -292,7 +278,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             patches,
         })?)
     } else {
-        // No [package]: there must be no [target.*] / [dependencies] tables either.
+        // No [package]: a buildable [target.*] table has no package to belong to.
         if !target.is_empty() {
             return Err(ManifestError::EmptyManifest);
         }
@@ -315,15 +301,14 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     })
 }
 
-/// Reject `cfg(feature = ...)` on conditional tables that cannot honor
-/// it.  Feature and compiler conditions are only meaningful on flag
-/// (`.profile`) tables: feature resolution walks the dependency
-/// graph, so a feature gating a dependency would be circular;
-/// compiler identity comes from toolchain detection, which has not
-/// run when dependencies or the toolchain itself are selected (and
-/// gating the toolchain on the detected compiler would be circular
-/// outright). Called before the package / workspace-root split so it
-/// applies to both.
+/// Reject `cfg(feature = ...)` and compiler conditions on conditional
+/// tables that cannot honor them.  Feature and compiler conditions
+/// are only meaningful on flag (`.profile`) tables: feature
+/// resolution walks the dependency graph, so a feature gating a
+/// dependency would be circular; compiler identity comes from
+/// toolchain detection, which has not run when dependencies or the
+/// toolchain itself are selected (and gating the toolchain on the
+/// detected compiler would be circular outright).
 fn reject_unsupported_target_conditions(
     conditional_targets: &[RawConditionalTarget],
 ) -> Result<(), ManifestError> {
@@ -377,12 +362,6 @@ fn conditional_toolchains_from_raw(
 }
 
 /// Bundled inputs for [`project_from_raw`].
-///
-/// `cabin.toml` parsing pulls every top-level table out of the
-/// deserialized raw shape, then hands them all to one final
-/// resolution step.  The struct keeps that hand-off readable and
-/// lets new top-level tables land without rewriting positional
-/// argument lists at every call site.
 struct ProjectFromRawInput {
     package: RawPackage,
     targets: BTreeMap<String, RawTarget>,
@@ -447,9 +426,8 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
 
     let features = features_from_raw(raw_features);
 
-    // Collect target-conditioned [target.'cfg(...)'.profile] entries
-    // alongside the conditional dependency tables so the typed Package
-    // carries the full settings struct.
+    // `[target.'cfg(...)'.profile]` base flags and
+    // `[target.'cfg(...)'.profile.<name>]` overlays.
     let mut conditional_build_flags: Vec<cabin_core::ConditionalProfileFlags> = Vec::new();
     for cond_target in &conditional_targets {
         if let Some(raw_profile) = &cond_target.profile {

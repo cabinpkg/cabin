@@ -2,7 +2,8 @@
 //!
 //! Cabin loads a small, deterministic set of TOML files -
 //! optionally a per-user file, optionally a workspace-level or
-//! package-local file - and merges them into an
+//! package-local file, or only the file `CABIN_CONFIG` names -
+//! and merges them into an
 //! [`EffectiveConfig`] that the rest of the CLI consumes as
 //! defaults.
 //!

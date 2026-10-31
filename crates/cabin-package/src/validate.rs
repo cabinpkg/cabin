@@ -31,21 +31,10 @@ pub struct ValidatedPackage {
 /// path so a workspace-rooted dep is never silently dropped from
 /// the package metadata.
 ///
-/// Validation rules:
-///
-/// - the manifest must contain a `[package]` table (workspace-only
-///   roots are rejected);
-/// - the package name must be safe for registry publishing
-///   (`/`, `\\`, `..`, leading dots, and platform path prefixes are
-///   rejected);
-/// - target source paths must not escape the package root (include
-///   directories are refused earlier, at manifest load);
-/// - declared dependencies must not include path entries (path
-///   dependencies are not publishable);
-/// - declared dependencies must not include unresolved
-///   `{ workspace = true }` entries;
-/// - package-level standard fields must not carry unresolved
-///   `{ workspace = true }` markers.
+/// The manifest must contain a `[package]` table (workspace-only
+/// roots are rejected), and the package must pass
+/// [`validate_publishable`].  Include directories that escape the
+/// package root are refused earlier, at manifest load.
 ///
 /// # Errors
 /// Propagates every error from [`load_and_validate_with_project`],
@@ -60,9 +49,9 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// `Package`.  The CLI uses it to inject a `Package` whose
 /// `workspace = true` deps have been substituted by
 /// `cabin-workspace::load_workspace`.  If `project_override` is
-/// `Some`, the on-disk manifest is still parsed (we keep the
-/// canonical manifest path) but the override drives validation and
-/// metadata generation.
+/// `Some`, the on-disk manifest is still parsed, to detect the
+/// `{ workspace = true }` markers archive staging must rewrite, but
+/// the override drives validation and metadata generation.
 ///
 /// # Errors
 /// Returns a [`PackageError`]: [`PackageError::Manifest`] if the
@@ -70,12 +59,8 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// when no override is given and the manifest has no `[package]`
 /// table, [`PackageError::Io`] if canonicalizing the manifest path
 /// fails, and [`PackageError::ManifestPathHasNoParent`] if it has no
-/// parent directory.  Validation additionally yields
-/// [`PackageError::PatchTableNotPublishable`],
-/// [`PackageError::PathDependencyNotPublishable`],
-/// [`PackageError::UnresolvedWorkspaceDependency`],
-/// [`PackageError::UnresolvedWorkspaceStandard`],
-/// or [`PackageError::SourceEscapesPackageRoot`].
+/// parent directory.  Validation additionally yields every error of
+/// [`validate_publishable`].
 pub fn load_and_validate_with_project(
     manifest_path: &Path,
     project_override: Option<cabin_core::Package>,
@@ -128,8 +113,8 @@ pub fn load_and_validate_with_project(
 ///
 /// # Errors
 ///
-/// Returns the [`PackageError`] naming the violated rule: unsafe
-/// registry package name, `[patch]` table, path / unresolved
+/// Returns the [`PackageError`] naming the violated rule: version
+/// build metadata, `[patch]` table, build / path / unresolved
 /// workspace dependency, unresolved workspace standard marker,
 /// interface-standard contradiction, or a target source path
 /// escaping the package root.
@@ -151,10 +136,8 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
         });
     }
 
-    // Patches are local development policy.  Including a `[patch]`
-    // table in a published archive would silently leak local
-    // override state into every consumer, so we reject the
-    // package step before any bytes are written.
+    // Patches are local development policy; a published `[patch]`
+    // table would leak local override state into every consumer.
     if !package.patches.is_empty() {
         return Err(PackageError::PatchTableNotPublishable {
             name: package.name.as_str().to_owned(),
@@ -214,8 +197,8 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
 }
 
 /// Verify that a manifest-relative path stays inside the package
-/// root, *lexically*.  Symlinks and other filesystem trickery are
-/// caught later, during archive enumeration.
+/// root, lexically.  Symlinks and special files are rejected later,
+/// during archive enumeration.
 fn ensure_within_root(candidate: &Path) -> Result<(), PathBuf> {
     if candidate.is_absolute() {
         return Err(candidate.to_path_buf());
@@ -359,8 +342,6 @@ include-dirs = ["../include"]
 
     #[test]
     fn rejects_interface_minimum_above_implementation_standard() {
-        // The standalone path never runs the workspace loader, so the
-        // packaging validator must repeat the contradiction check.
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(

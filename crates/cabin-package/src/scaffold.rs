@@ -8,9 +8,7 @@
 //!
 //! The scaffold kind ([`ScaffoldKind::Binary`] /
 //! [`ScaffoldKind::Library`]) selects between an `executable`
-//! and a `library` target layout.  The package-kind selection is
-//! the only knob that changes the generated files; everything
-//! else stays deterministic.
+//! and a `library` target layout.
 
 use std::path::{Path, PathBuf};
 
@@ -21,8 +19,8 @@ use thiserror::Error;
 /// Conventional manifest filename used by every Cabin command.
 pub const MANIFEST_FILENAME: &str = "cabin.toml";
 
-/// Fallback package name used when neither `--name` nor the target
-/// directory's final component yield a usable package identifier.
+/// Package name used when no `--name` is given and the target
+/// directory's final component is not a usable package name.
 pub const FALLBACK_PACKAGE_NAME: &str = "cabin-package";
 
 /// Minimal C++ executable body emitted alongside a binary-package
@@ -32,9 +30,9 @@ pub const BINARY_MAIN_CC_TEMPLATE: &str = "#include <iostream>\n\nint main() {\n
 /// Conventional `.gitignore` body emitted by `cabin new` and by
 /// `cabin init` when one does not already exist.  Cabin's default
 /// build directory is `build/`; `dist/` is the default packaging
-/// output directory. `cabin.lock` is intentionally not ignored -
-/// users are expected to commit it so collaborators converge on
-/// the same resolution (see `docs/lockfile.md`).
+/// output directory. `cabin.lock` is not ignored: it is committed so
+/// collaborators converge on the same resolution (see
+/// `docs/lockfile.md`).
 pub const GITIGNORE_TEMPLATE: &str = "/build/\n/dist/\n";
 
 /// What scaffold kind to generate.  Binary produces an `executable`
@@ -53,8 +51,8 @@ pub enum ScaffoldKind {
 
 impl ScaffoldKind {
     /// Short human-readable label used in reporter output.
-    /// `cabin new` / `cabin init` render the label inside the
-    /// "Created `<label>` `<name>` package" status line.
+    /// `cabin new` / `cabin init` render it unquoted in the
+    /// ``Created <label> `<name>` package`` status line.
     pub fn label(self) -> &'static str {
         match self {
             Self::Binary => "binary (application)",
@@ -85,9 +83,7 @@ pub struct ScaffoldRequest<'a> {
     /// layouts.
     pub kind: ScaffoldKind,
     /// Whether to write a `.gitignore` when one does not already
-    /// exist. `cabin new` passes `true`; `cabin init` passes
-    /// `true` as well but [`scaffold`] never overwrites a
-    /// pre-existing `.gitignore`.
+    /// exist. `cabin new` and `cabin init` both pass `true`.
     pub emit_gitignore: bool,
 }
 
@@ -136,8 +132,8 @@ pub struct ScaffoldReport {
     /// Scaffold kind that was generated.
     pub kind: ScaffoldKind,
     /// Files newly written by this call, in deterministic order.
-    /// Pre-existing files that were intentionally preserved
-    /// (`src/main.cc`, `.gitignore`) are not listed here.
+    /// Preserved pre-existing files (sources, the library header,
+    /// `.gitignore`) are not listed here.
     pub files_created: Vec<PathBuf>,
 }
 
@@ -329,9 +325,8 @@ fn render_library_source(stems: &LibraryStems) -> String {
     )
 }
 
-/// Filename / identifier stems used by the library scaffold.
-/// Derived deterministically from the validated package name so
-/// callers never have to re-implement the conversion.
+/// Filename / identifier stems used by the library scaffold,
+/// derived from the validated package name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LibraryStems {
     /// Subdirectory under `include/` (matches the package name).
@@ -342,9 +337,8 @@ struct LibraryStems {
     source_filename: String,
     /// Include path used inside the implementation source.
     header_include_path: String,
-    /// Sanitized identifier suitable for a C++ namespace
-    /// declaration: ASCII letters, digits and `_`.  Derived from
-    /// the package name by replacing `-` with `_`.
+    /// Identifier for the C++ namespace declaration; see
+    /// [`sanitize_identifier`].
     namespace: String,
 }
 

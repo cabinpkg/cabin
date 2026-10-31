@@ -3,9 +3,7 @@ use cabin_core::{Features, PackageName};
 use std::collections::BTreeMap;
 
 /// Validate every `[profile.<name>]` table and convert it into a
-/// typed [`cabin_core::ProfileDefinition`].  Errors short-circuit
-/// the whole manifest because partial profile state would be
-/// surprising downstream.
+/// typed [`cabin_core::ProfileDefinition`].
 pub(super) fn profiles_from_raw(
     raw: BTreeMap<String, crate::raw::RawProfile>,
 ) -> Result<BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>, ManifestError> {
@@ -42,10 +40,9 @@ pub(super) fn profiles_from_raw(
 }
 
 /// Convert one `[toolchain]` table into a typed
-/// [`cabin_core::ToolchainDecl`].  The future-feature `compiler-family`,
-/// `compiler-version`, and similar capability-style fields are
-/// rejected at the TOML layer because [`crate::raw::RawToolchain`]
-/// uses `deny_unknown_fields`.
+/// [`cabin_core::ToolchainDecl`].  Unknown keys are rejected at the
+/// TOML layer by `deny_unknown_fields` on
+/// [`crate::raw::RawToolchain`].
 pub(super) fn toolchain_decl_from_raw_ref(
     raw: &crate::raw::RawToolchain,
 ) -> Result<cabin_core::ToolchainDecl, ManifestError> {
@@ -59,19 +56,12 @@ pub(super) fn parse_tool_spec(raw: &str) -> Result<cabin_core::ToolSpec, Manifes
     cabin_core::ToolSpec::parse_non_empty(raw).ok_or(ManifestError::EmptyToolSpec)
 }
 
-/// Build a per-profile [`cabin_core::ProfileFlags`] from the
-/// flag-override fields declared directly on a `[profile.<name>]`
-/// table.  Returns `None` when the user supplied no overrides at
-/// all; the resolver will then fall back to the base
-/// `[profile]` layer for this profile.
-///
-/// Flag fields are `Option<Vec<...>>` to preserve the distinction
-/// between "the user did not override this field" and "the user
-/// explicitly set this field to an empty list"; the conversion
-/// below collapses both into the legacy `Vec<...>` shape because
-/// the typed [`cabin_core::ProfileFlags`] cannot represent that
-/// distinction yet.  Override-vs-append precedence is documented
-/// at the resolver layer.
+/// Build a per-profile [`cabin_core::ProfileFlags`] from the flag
+/// fields declared directly on a `[profile.<name>]` table, or `None`
+/// when it declares none.  Undeclared fields become empty lists:
+/// `cabin_core::resolve_build_flags` appends declared lists after
+/// the inherited layers, so an empty list and an absent field have
+/// the same effect.
 pub(super) fn profile_flags_from_overrides(
     raw: &crate::raw::RawProfile,
 ) -> Result<Option<cabin_core::ProfileFlags>, ManifestError> {

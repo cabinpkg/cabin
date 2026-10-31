@@ -79,19 +79,16 @@ pub enum PackageError {
     /// A collected file or directory has a path component that would
     /// name a different file on another platform Cabin targets (a
     /// Win32-reserved device name, a trailing dot or space, a
-    /// forbidden character).  Rejecting it at pack time fails the
-    /// author locally with the violated rule instead of deferring to
-    /// an asynchronous registry rejection.
+    /// forbidden character).
     #[error(
         "refusing to package `{path}`: path component is not portable across platforms ({detail})"
     )]
     NonPortablePath { path: String, detail: &'static str },
 
-    /// Two archive entries whose paths differ only by letter case.
-    /// A case-insensitive filesystem (macOS, Windows) would materialize
-    /// one over the other; the registry verifier rejects the same
-    /// collision, so failing here fails the author locally instead of
-    /// deferring to an asynchronous registry rejection.
+    /// Two archive paths that collide under case folding: equal when
+    /// lowercased, or a file whose name folds to another entry's
+    /// directory component.  A case-insensitive filesystem (macOS,
+    /// Windows) would materialize one over the other.
     #[error("refusing to package `{first}` and `{second}`: paths collide when case is ignored")]
     CaseConflictingPaths { first: String, second: String },
 
@@ -105,10 +102,9 @@ pub enum PackageError {
     OutputAlreadyExists { path: PathBuf },
 
     /// `cabin package --output-dir` was pointed at the same
-    /// directory as the package source root.  Without rejecting
-    /// this, the staging walker would treat the next run's
-    /// archive as input on subsequent invocations and either
-    /// embed it in the archive or fail the idempotent-rewrite
+    /// directory as the package source root.  The walker never
+    /// excludes the root itself, so a previous run's archive there
+    /// would be archived as input and fail the idempotent-rewrite
     /// check.
     #[error(
         "--output-dir {} equals the package source root; choose a directory outside the package or remove --output-dir to use the default `dist/`",
@@ -132,12 +128,8 @@ pub enum PackageError {
     )]
     UnresolvedWorkspaceStandard { field: &'static str },
 
-    /// A target's declared interface minimum is newer than the
-    /// implementation standard its own sources compile with.
-    /// Workspace loads reject this at load time; the packaging
-    /// validator repeats the check so the standalone
-    /// `cabin package` / `publish` path cannot archive a manifest
-    /// no consumer could load.
+    /// A target's implementation standard lies outside its declared
+    /// interface range (below the minimum or above the maximum).
     #[error(transparent)]
     InterfaceStandardContradiction(#[from] cabin_core::InterfaceStandardContradiction),
 
@@ -152,10 +144,8 @@ pub enum PackageError {
     },
 
     /// The on-disk manifest parsed with a `{ workspace = true }`
-    /// standard marker, but the archive normalizer found nothing to
-    /// rewrite.  Archiving the raw bytes would publish a live marker,
-    /// so the mismatch fails loudly instead of shipping a
-    /// non-self-contained manifest.
+    /// marker, but the archive normalizer found nothing to rewrite.
+    /// Archiving the raw bytes would publish a live marker.
     #[error(
         "internal error: the manifest at {} carries a `{{ workspace = true }}` standard marker the archive normalizer did not rewrite",
         path.display()
@@ -163,11 +153,9 @@ pub enum PackageError {
     ManifestNormalizationIncomplete { path: PathBuf },
 
     /// `cabin package` was asked to archive a manifest with a
-    /// non-empty `[patch]` table.  Patches are local development
-    /// policy and must not enter published archives; remove the
-    /// table or move the patches to a `.cabin/config.toml` file
-    /// (the latter is excluded from package archives by the
-    /// `.cabin/` exclusion rule).
+    /// non-empty `[patch]` table.  The suggested `.cabin/config.toml`
+    /// is excluded from package archives by the `.cabin/` exclusion
+    /// rule.
     #[error(
         "package `{name}` declares a `[patch]` table; patches are local development policy and not publishable. Remove the [patch] table from this manifest before packaging, or move the patches to a .cabin/config.toml file."
     )]

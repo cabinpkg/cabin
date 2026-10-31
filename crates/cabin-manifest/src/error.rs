@@ -21,13 +21,12 @@ pub enum ManifestError {
     #[diagnostic(code(cabin::manifest::parse_error))]
     Toml(#[from] toml::de::Error),
 
-    /// Variant emitted when the parser knows the on-disk source
-    /// path and original text.  Wraps a [`ManifestParseError`]
-    /// that owns the source / span metadata the diagnostic
-    /// renderer needs to draw an `annotate-snippets`-style
-    /// caret.  Falls back to the same `parse_error` code as
-    /// [`ManifestError::Toml`].  The inner error is boxed because
-    /// it carries the full source text plus span metadata.
+    /// [`ManifestError::Toml`] as returned by `load_manifest`, which
+    /// knows the on-disk path and original text.  Wraps a
+    /// [`ManifestParseError`] that owns the source / span metadata
+    /// the diagnostic renderer needs to draw a caret, under the same
+    /// `parse_error` code.  Boxed because it carries the full source
+    /// text.
     #[error(transparent)]
     #[diagnostic(transparent)]
     TomlAt(Box<ManifestParseError>),
@@ -222,8 +221,8 @@ pub enum ManifestError {
     #[error("[toolchain] tool spec must be a non-empty string")]
     EmptyToolSpec,
 
-    /// `[profile]` defines or include directories failed
-    /// validation.
+    /// A `[profile]` flag table's defines, include directories, link
+    /// libraries, or frameworks failed validation.
     #[error("invalid [profile] table: {0}")]
     InvalidBuildFlags(#[source] cabin_core::BuildFlagsValidationError),
 
