@@ -40,7 +40,7 @@ deps = ["cdemo"]
         .unwrap();
 }
 
-fn write_mixed_library(dir: &Path) {
+pub(crate) fn write_mixed_library(dir: &Path) {
     assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
         .write_str(
             r#"[package]

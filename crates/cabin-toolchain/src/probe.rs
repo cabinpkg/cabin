@@ -285,7 +285,8 @@ fn probe_in(
         return Ok(Answer::Yes);
     }
 
-    let executable = dir.join(toolchain.dialect.executable_name("probe"));
+    // Windows needs the `.exe`; elsewhere it is only a file name.
+    let executable = dir.join("probe.exe");
     let link = BuildAction::Link(LinkAction {
         linker: toolchain.compiler.to_owned(),
         target: toolchain.target.map(str::to_owned),
@@ -574,7 +575,7 @@ mod tests {
         assert!(!dir.exists());
         assert_eq!(source, dir.join("probe.cc"));
         let object = dir.join("probe.o");
-        let executable = dir.join("probe");
+        let executable = dir.join("probe.exe");
         assert_eq!(
             compile[..4],
             [

@@ -291,7 +291,8 @@ Persistent defaults for the C/C++ tool selection from [`toolchains.md`](toolchai
 
 Per-tool precedence: `--cc` / `--cxx` / `--ar` - > `CC` / `CXX` / `AR` env - > `[toolchain]` config
 - > workspace-root manifest `[target.'cfg(...)'.toolchain]` overlays - > workspace-root manifest
-`[toolchain]` - > Cabin's documented fallback list.
+`[toolchain]` - > the tool beside the compiler chosen for the other language, then Cabin's
+documented fallback list.
 
 The same `--cxx` / `CXX` / `[toolchain].cxx` value is read at every layer; the resolver's source
 label distinguishes which layer ultimately won (`user-config`, `workspace-config`, `package-config`,

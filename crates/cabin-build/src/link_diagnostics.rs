@@ -196,8 +196,9 @@ pub fn parse_link_failure_candidates(stderr: &str, dialect: Dialect) -> Vec<Link
 /// filename by inverting [`Dialect::static_library_name`] and
 /// [`Dialect::executable_name`]:
 ///
-/// * GCC/Clang: `lib<name>.a` for static libraries, `<name>` (no
-///   extension) for executables
+/// * GCC/Clang: `lib<name>.a` for static libraries, `<name>` for
+///   executables (`<name>.exe` for Windows, which [`readings`] also
+///   tries)
 /// * MSVC: `<name>.lib` for static libraries, `<name>.exe` for
 ///   executables
 ///
@@ -277,12 +278,18 @@ fn find_failed_target(stderr: &str, dialect: Dialect) -> Option<(Vec<Reading>, b
 /// The `(step, package, target)` readings of the path segments after
 /// a `/packages/` anchor, see [`find_failed_target`].
 fn readings(tail: &[&str], dialect: Dialect) -> Vec<Reading> {
+    // A GCC/Clang `<name>.exe` is a Windows executable or a target
+    // named so; the caller tries both against the workspace.
     let link = |pkg: String, file: &str| {
-        (
-            FailedStep::Link,
-            pkg,
-            extract_target_name(file, dialect).to_owned(),
-        )
+        let target = extract_target_name(file, dialect);
+        let windows = (dialect == Dialect::GnuLike)
+            .then(|| target.strip_suffix(".exe"))
+            .flatten()
+            .filter(|stem| !stem.is_empty());
+        std::iter::once(target)
+            .chain(windows)
+            .map(|target| (FailedStep::Link, pkg.clone(), target.to_owned()))
+            .collect::<Vec<_>>()
     };
     let compile = |pkg: String, target: &str| (FailedStep::MissingHeader, pkg, target.to_owned());
     if tail.iter().any(|part| part.is_empty()) {
@@ -290,11 +297,12 @@ fn readings(tail: &[&str], dialect: Dialect) -> Vec<Reading> {
     }
     match *tail {
         [] | [_] => Vec::new(),
-        [pkg, file] => vec![link(pkg.to_owned(), file)],
-        [pkg, target, file] => vec![
+        [pkg, file] => link(pkg.to_owned(), file),
+        [pkg, target, file] => [
             link(pkg.to_owned(), target),
             link(format!("{pkg}/{target}"), file),
-        ],
+        ]
+        .concat(),
         _ => {
             let mut candidates = Vec::new();
             if tail[1] == "obj" {
@@ -396,9 +404,9 @@ mod tests {
     }
 
     /// GCC/Clang names outputs `lib<name>.a` (libraries) and `<name>`
-    /// (executables, no extension), so an output that is not
-    /// `lib<name>.a` is the declared target name verbatim, whatever
-    /// extension-like suffix it ends in.
+    /// (executables; `<name>.exe` for Windows, read second), so an
+    /// output that is not `lib<name>.a` is the declared target name
+    /// verbatim first, whatever extension-like suffix it ends in.
     #[test]
     fn preserves_target_names_ending_in_non_emitted_extensions() {
         for name in [
@@ -518,6 +526,20 @@ mod tests {
         } = diag;
         assert_eq!(package, "fmtlib/fmt");
         assert_eq!(target, "demo");
+    }
+
+    /// GCC and Clang name a Windows executable `<name>.exe` too.
+    #[test]
+    fn diagnose_reads_a_gnu_windows_executable() {
+        let stderr = "FAILED: build/x86_64-w64-mingw32/dev/packages/app/app.exe
+             x86_64-w64-mingw32-g++ ... -o app.exe
+";
+        let diag = diagnose(stderr, Dialect::GnuLike, |pkg, target| {
+            (pkg == "app" && target == "app").then(|| deps(&["zlib"], &[]))
+        })
+        .unwrap();
+        let LinkDiagnostic::DeclaredButUnlinked { target, .. } = diag;
+        assert_eq!(target, "app");
     }
 
     #[test]

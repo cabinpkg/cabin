@@ -1747,8 +1747,9 @@ Explicit, typed C/C++ toolchain selection plus a small set of semantic `[profile
 parallel flag model (`ProfileFlags`, `ConditionalProfileFlags`, `ProfileSettings`,
 `ResolvedProfileFlags`, the `resolve_build_flags` merge); `cabin-toolchain::resolve` walks
 precedence (CLI - > env - > config - > matching `[target.'cfg(...)'.toolchain]` - > `[toolchain]` -
-> default fallback list) per kind, searches `PATH`, applies the per-OS default fallback list (`cl` /
-`lib` on Windows, `cc` / `c++` / `ar` elsewhere), and rejects the linker (`link`) or archiver
+> default fallback list) per kind, searches `PATH`, defaults a slot to the tool beside the compiler
+chosen for the other language before the per-OS default fallback list (`cl` / `lib` on Windows,
+`cc` / `c++` / `ar` elsewhere), and rejects the linker (`link`) or archiver
 (`lib`) named for a compiler slot.  The build planner consumes a `ResolvedToolchain` directly for
 compile / link / archive commands and a per-package `ResolvedProfileFlags` map to layer `-D` / `-I`
 / extra args onto each target.

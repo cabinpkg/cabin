@@ -24,6 +24,15 @@ The default fallbacks are host-dependent: on Windows the MSVC toolchain (`cl` fo
 `lib` for archiving) comes first, so a stock Windows install resolves to MSVC without any
 configuration.  See [Windows / MSVC](#windows--msvc) for the dialect model and its limitations.
 
+A compiler chosen for one language above the defaults (CLI, environment, config, or manifest; the
+C++ compiler if both are) also leads the slots left to the defaults: each first tries the tool
+beside it, with the same directory, target prefix, and version suffix.  Beside
+`x86_64-w64-mingw32-g++` the C compiler is `x86_64-w64-mingw32-gcc` and the archiver
+`x86_64-w64-mingw32-ar`; beside `clang++-18` they are `clang-18` and `llvm-ar-18`; beside `g++`
+the archiver is `ar`; `cl` and `clang-cl` compile both languages and archive with `lib` and
+`llvm-lib`.  Without such a tool the fallback list applies, minus `cl`, `lib`, and `llvm-lib`
+beside a GCC-style compiler, so a defaulted slot does not mix in another toolchain.
+
 The C compiler (`cc`) and the C++ compiler (`cxx`) are **separate** tool selections.  They may
 resolve to the same underlying executable when the system installs a unified driver (`gcc` / `clang`
 is also a valid C front-end), but the model keeps the slots independent so Cabin can pick the right
@@ -90,7 +99,8 @@ yields a value:
    predicate evaluates to `true` for the platform the build is for (the build machine, or the
    `--target` platform).
 5. **`[toolchain]`** - the workspace root manifest's general toolchain table.
-6. **Built-in defaults** - Cabin's documented fallback list.
+6. **Built-in defaults** - the tool beside the compiler chosen for the other language, if any (see
+   [Tool kinds](#tool-kinds)), then Cabin's documented fallback list.
 
 Each [`ResolvedTool`] records which layer it came from on its `source` field.  `cabin metadata`
 surfaces the same value verbatim under `toolchain.tools.<kind>.source`, so users can audit a build
@@ -135,8 +145,9 @@ cabin build --target aarch64-unknown-linux-gnu \
   name one): GCC's `-dumpmachine`, the MSVC banner's architecture.  Select the cross compiler with
   `--cc` / `--cxx` (or `CC` / `CXX`); the C and C++ compilers must both be Clang-family or both
   not.  A compiler Cabin cannot classify fails the build rather than guessing.  A Windows GNU
-  triple (`x86_64-w64-mingw32`) is best-effort, as MinGW is: its driver names executables
-  `<name>.exe`, which Cabin does not yet expect, so every build relinks them.
+  triple (`x86_64-w64-mingw32`) is best-effort, as MinGW is (see
+  [Known limitations](#known-limitations)); a MinGW compiler does not build an MSVC triple, nor
+  MSVC a GNU one.  Executables for any Windows triple are named `<name>.exe`.
 - **Output.**  The build writes under `<build-dir>/.targets/<triple>/<profile>/`, apart from the
   build machine's `<build-dir>/<profile>/`, so the two builds never share an object, even with a
   profile named like the triple; `cabin clean --target <triple>` cleans that tree.  The triple
@@ -669,16 +680,16 @@ explicitly selected toolset is honored.
 ### Known limitations
 
 - **A GCC/Clang-style toolchain on Windows (MinGW, clang) is best-effort, not a CI-tested
-  configuration.** The names resolve - the Windows fallback lists include `clang` / `gcc` / `g++` /
-  `llvm-ar` / `ar` - a C++-only GNU build does not trip the single-dialect check on a defaulted
-  `cc=cl` (the C compiler is validated only when a planned compile uses it), and `cabin tidy` spells
-  its compile database in the *resolved* compiler's dialect, not the host default.  Even so, MSVC is
-  the only Windows dialect CI exercises, so a GNU toolchain on Windows is unsupported in the sense
-  that it is untested.  Set `CC`, `CXX`, **and** `AR` together to one toolchain's tools: the
-  resolver fills each slot from its own host default, and the archiver list tries `lib` and
-  `llvm-lib` before `llvm-ar` / `ar`, so mixing a GNU `CXX` with a defaulted MSVC `AR` (or a
-  defaulted MSVC `CC` once a C compile is planned) is still rejected by the
-  [single-dialect validation](#validation-against-the-c-backend).
+  configuration.** The names resolve, a GCC-style `CXX` (or `CC`) brings the C compiler and
+  archiver beside it rather than `cl` and `lib` (see [Tool kinds](#tool-kinds)), executables are
+  named `<name>.exe`, and `cabin tidy` spells its compile database in the *resolved* compiler's
+  dialect, not the host default.  Tools chosen explicitly from two dialects are still rejected by
+  the [single-dialect validation](#validation-against-the-c-backend).  Without `--target`,
+  `cfg(target_env)` evaluates `msvc` on Windows whatever the compiler; `--target
+  x86_64-w64-mingw32` evaluates conditions for MinGW, and its build dependencies then need
+  `HOST_CC`, `HOST_CXX`, and `HOST_AR`, since the build machine's default is `cl`.  MSVC is the only
+  Windows dialect CI exercises, so a GNU toolchain on Windows is unsupported in the sense that it is
+  untested.
 - **`system = true` dependencies are not supported under MSVC.** They are resolved with pkg-config,
   whose GNU-style `-L` / `-lfoo` / `-pthread` output the MSVC `cl` / `link` command line cannot
   consume; on Windows the `.pc` files also come from MinGW/msys2 and reference the MinGW ABI, so

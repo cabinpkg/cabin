@@ -28,8 +28,8 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use cabin_build::{BuildGraph, Dialect};
-use cabin_core::{ExitStatusKind, TargetKind, exit_status_kind};
+use cabin_build::BuildGraph;
+use cabin_core::{ExitStatusKind, TargetKind, TargetPlatform, exit_status_kind};
 use cabin_workspace::{PackageGraph, WorkspacePackage};
 use quick_junit::{NonSuccessKind, Report, TestCase, TestCaseStatus, TestSuite};
 use shared_child::SharedChild;
@@ -111,6 +111,7 @@ impl TestPlan {
 pub fn plan_tests(
     package_graph: &PackageGraph,
     build_graph: &BuildGraph,
+    platform: &TargetPlatform,
     selected_packages: Option<&[usize]>,
 ) -> TestPlan {
     let outputs: BTreeSet<&Path> = build_graph
@@ -131,9 +132,10 @@ pub fn plan_tests(
             if target.kind != TargetKind::Test {
                 continue;
             }
-            let Some(exe) =
-                expected_executable(package, target.name.as_str(), build_graph.dialect, &outputs)
-            else {
+            let exe_name = build_graph
+                .dialect
+                .executable_name(target.name.as_str(), platform);
+            let Some(exe) = expected_executable(package, &exe_name, &outputs) else {
                 continue;
             };
             entries.push(TestExecutable {
@@ -158,23 +160,21 @@ pub fn plan_tests(
 
 fn expected_executable<'a>(
     package: &WorkspacePackage,
-    target_name: &str,
-    dialect: Dialect,
+    exe_name: &str,
     outputs: &BTreeSet<&'a Path>,
 ) -> Option<&'a Path> {
     // The planner names every `test` executable
     // `<build_dir>/<profile>/packages/<pkg-components>/<target>`
     // (one directory per `path_components` element, so a scoped
     // package nests under its scope dir) using the dialect's
-    // executable spelling - bare on GNU/Clang, `<target>.exe`
-    // under MSVC.  Only that tail is matched against
-    // `default_outputs`, spelled with the planner's own dialect from
-    // the graph, so the planner stays the single source of truth for
-    // the rest of the path.
-    let exe_name = dialect.executable_name(target_name);
+    // executable spelling - `<target>.exe` for Windows, bare
+    // elsewhere.  Only that tail, which the caller spells with the
+    // planner's own dialect from the graph, is matched against
+    // `default_outputs`, so the planner stays the single source of
+    // truth for the rest of the path.
     let needle_tail: PathBuf = std::iter::once("packages")
         .chain(package.package.name.path_components())
-        .chain(std::iter::once(exe_name.as_str()))
+        .chain(std::iter::once(exe_name))
         .collect();
     outputs.iter().copied().find(|p| p.ends_with(&needle_tail))
 }
@@ -1067,11 +1067,11 @@ mod tests {
         let scoped_exe = Path::new("/b/dev/packages/fmtlib/fmt/unit_test");
         let outputs: BTreeSet<&Path> = [scoped_exe].into_iter().collect();
         assert_eq!(
-            expected_executable(&make("fmtlib/fmt"), "unit_test", Dialect::GnuLike, &outputs),
+            expected_executable(&make("fmtlib/fmt"), "unit_test", &outputs),
             Some(scoped_exe)
         );
         assert_eq!(
-            expected_executable(&make("fmt"), "unit_test", Dialect::GnuLike, &outputs),
+            expected_executable(&make("fmt"), "unit_test", &outputs),
             None
         );
     }

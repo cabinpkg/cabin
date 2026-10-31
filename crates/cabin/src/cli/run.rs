@@ -211,7 +211,10 @@ pub(crate) fn run(
         ),
     );
 
-    let executable = locate_target_executable(&plan_graph.default_outputs, &run_target)
+    let exe_name = plan_graph
+        .dialect
+        .executable_name(&run_target.target_name, &prepared.platform);
+    let executable = locate_target_executable(&plan_graph.default_outputs, &run_target, &exe_name)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "build graph did not produce an executable for `{}:{}`",
@@ -452,46 +455,32 @@ fn display_run_path(executable: &Path, manifest_path: &Path) -> String {
 }
 
 /// Walk the planner's `default_outputs` looking for the
-/// executable produced for `target`.  The planner names every
+/// executable produced for `target`, named `exe_name`
+/// ([`cabin_build::Dialect::executable_name`]).  The planner names every
 /// `executable` output
-/// `<build_dir>/<profile>/packages/<pkg-components>/<target>` (no
-/// extension on POSIX; `.exe` on Windows), where a scoped package
-/// contributes `<scope>/<name>` and a bare one `<name>`.  We scan
-/// rather than re-deriving the path so the planner stays the single
-/// source of truth.
+/// `<build_dir>/<profile>/packages/<pkg-components>/<exe_name>`, where a
+/// scoped package contributes `<scope>/<name>` and a bare one `<name>`.
+/// We scan rather than re-deriving the path so the planner stays the
+/// single source of truth; the target context's outputs come before
+/// the build context's.
 fn locate_target_executable(
     default_outputs: &[Utf8PathBuf],
     target: &RunTarget,
+    exe_name: &str,
 ) -> Option<PathBuf> {
     // The build graph carries UTF-8 paths; the located executable is
     // demoted to a native `PathBuf` here because the caller spawns it
     // through `std::process::Command`.
     // `path_components` mirrors the planner's name-to-path mapping so
     // the needle matches the emitted layout for scoped names too.
-    let parent_tail: PathBuf = std::iter::once("packages")
+    let needle_tail: PathBuf = std::iter::once("packages")
         .chain(target.package_name.path_components())
+        .chain(std::iter::once(exe_name))
         .collect();
-    let needle_tail = parent_tail.join(&target.target_name);
     default_outputs
         .iter()
         .find(|p| p.as_std_path().ends_with(&needle_tail))
         .map(|p| p.as_std_path().to_path_buf())
-        .or_else(|| {
-            // Windows build output appends `.exe`; the
-            // unsuffixed needle does not match.  Try matching
-            // the parent directory and last component
-            // separately.
-            default_outputs.iter().find_map(|p| {
-                let std = p.as_std_path();
-                let same_parent = std.parent().is_some_and(|pp| pp.ends_with(&parent_tail));
-                let stem = std.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                if same_parent && stem == target.target_name {
-                    Some(std.to_path_buf())
-                } else {
-                    None
-                }
-            })
-        })
 }
 
 #[cfg(test)]
@@ -609,14 +598,37 @@ mod tests {
             manifest_path: PathBuf::new(),
         };
         assert_eq!(
-            locate_target_executable(&outputs, &scoped),
+            locate_target_executable(&outputs, &scoped, "demo"),
             Some(PathBuf::from("/b/dev/packages/fmtlib/fmt/demo"))
         );
         let bare = RunTarget {
             package_name: PackageName::new("fmt").unwrap(),
             ..scoped
         };
-        assert_eq!(locate_target_executable(&outputs, &bare), None);
+        assert_eq!(locate_target_executable(&outputs, &bare, "demo"), None);
+    }
+
+    /// Under `--target x86_64-w64-mingw32` a build dependency's
+    /// executable keeps a bare name beside the target's `<name>.exe`.
+    #[test]
+    fn locate_target_executable_matches_the_planned_name() {
+        let outputs = vec![
+            Utf8PathBuf::from("/b/x86_64-w64-mingw32/dev/build-machine/packages/gen/gen"),
+            Utf8PathBuf::from("/b/x86_64-w64-mingw32/dev/packages/gen/gen.exe"),
+        ];
+        let target = RunTarget {
+            package_name: PackageName::new("gen").unwrap(),
+            package_version: "1.0.0".to_owned(),
+            target_name: "gen".to_owned(),
+            manifest_dir: PathBuf::new(),
+            manifest_path: PathBuf::new(),
+        };
+        assert_eq!(
+            locate_target_executable(&outputs, &target, "gen.exe"),
+            Some(PathBuf::from(
+                "/b/x86_64-w64-mingw32/dev/packages/gen/gen.exe"
+            ))
+        );
     }
 
     #[test]

@@ -16,6 +16,11 @@
 //!    compiler; `ar` for the archiver).  On Windows, `cl` replaces
 //!    `c++` and `cc`, and the archiver list is `lib` / `llvm-lib` /
 //!    `llvm-ar` / `ar`.
+//!    When layers 1-5 chose a compiler for one language (the C++ one
+//!    if both), the other slots first try the tool beside it, and a
+//!    GCC-style choice skips the MSVC defaults (`cl`, `lib`,
+//!    `llvm-lib`), so a defaulted slot does not mix in another
+//!    toolchain.
 //!
 //! The first layer that yields a non-empty spec wins.  Whichever
 //! layer wins is recorded on the resulting [`cabin_core::ResolvedTool`]
@@ -138,48 +143,90 @@ impl<'a> Inputs<'a> {
 /// compiler slot names `link` or `lib` (the MSVC linker and archiver),
 /// and `NonUtf8Path` when a `CC` / `CXX` / `AR` value or a located
 /// tool path is not UTF-8.
-///
-/// # Panics
-/// Panics if resolving a required tool (`cxx` or `ar`) succeeds yet
-/// yields `None`; this invariant is upheld by `resolve_kind` always
-/// returning `Some` on success when invoked with `required = true`.
 pub fn resolve_toolchain(
     inputs: &Inputs<'_>,
 ) -> Result<ResolvedToolchain, ToolchainResolutionError> {
-    let cxx = resolve_kind(ToolKind::CxxCompiler, inputs, true)?
-        .expect("required tool returned Some on success");
-    let ar = resolve_kind(ToolKind::Archiver, inputs, true)?
-        .expect("required tool returned Some on success");
-    let cc = resolve_kind(ToolKind::CCompiler, inputs, false)?;
+    let cxx = resolve_explicit(ToolKind::CxxCompiler, inputs)?;
+    let cc = resolve_explicit(ToolKind::CCompiler, inputs)?;
+    let lead = cxx.clone().or_else(|| cc.clone());
+    let lead = lead.as_ref();
+    let cxx = match cxx {
+        Some(cxx) => cxx,
+        None => resolve_default(ToolKind::CxxCompiler, lead, inputs)?.ok_or(
+            ToolchainResolutionError::NoDefault {
+                kind: ToolKind::CxxCompiler,
+            },
+        )?,
+    };
+    let ar = match resolve_explicit(ToolKind::Archiver, inputs)? {
+        Some(ar) => ar,
+        None => resolve_default(ToolKind::Archiver, lead, inputs)?.ok_or(
+            ToolchainResolutionError::NoDefault {
+                kind: ToolKind::Archiver,
+            },
+        )?,
+    };
+    let cc = match cc {
+        Some(cc) => Some(cc),
+        None => resolve_default(ToolKind::CCompiler, lead, inputs)?,
+    };
     Ok(ResolvedToolchain { cxx, ar, cc })
 }
 
-fn resolve_kind(
+/// Resolve `kind` from the first layer above the defaults that
+/// chooses it, if any.
+fn resolve_explicit(
     kind: ToolKind,
     inputs: &Inputs<'_>,
-    required: bool,
 ) -> Result<Option<ResolvedTool>, ToolchainResolutionError> {
-    if let Some((spec, source)) = pick_explicit(kind, inputs)? {
-        let path = locate(&spec, &inputs.env, &inputs.probe).ok_or_else(|| {
-            ToolchainResolutionError::ToolNotFound {
-                kind,
-                spec: spec.display(),
-                selected_from: source,
-            }
-        })?;
-        reject_unsupported_compiler(kind, &spec)?;
-        return Ok(Some(ResolvedTool {
+    let Some((spec, source)) = pick_explicit(kind, inputs)? else {
+        return Ok(None);
+    };
+    let path = locate(&spec, &inputs.env, &inputs.probe).ok_or_else(|| {
+        ToolchainResolutionError::ToolNotFound {
             kind,
-            path: camino::Utf8PathBuf::from_path_buf(path)
-                .map_err(|path| ToolchainResolutionError::NonUtf8Path { kind, path })?,
-            spec,
-            source,
-        }));
-    }
+            spec: spec.display(),
+            selected_from: source,
+        }
+    })?;
+    reject_unsupported_compiler(kind, &spec)?;
+    Ok(Some(ResolvedTool {
+        kind,
+        path: camino::Utf8PathBuf::from_path_buf(path)
+            .map_err(|path| ToolchainResolutionError::NonUtf8Path { kind, path })?,
+        spec,
+        source,
+    }))
+}
 
-    for candidate in default_fallbacks(kind) {
-        let spec = ToolSpec::Name((*candidate).to_owned());
-        if let Some(path) = locate(&spec, &inputs.env, &inputs.probe) {
+/// Resolve `kind` from the defaults: the tool beside `lead`, the
+/// compiler chosen for the other language, then the fallback list,
+/// without the MSVC tools beside a GCC-style `lead`.
+fn resolve_default(
+    kind: ToolKind,
+    lead: Option<&ResolvedTool>,
+    inputs: &Inputs<'_>,
+) -> Result<Option<ResolvedTool>, ToolchainResolutionError> {
+    // Searched beside the lead's path, but recorded in the spelling the
+    // lead was chosen in, so the fingerprint does not follow where the
+    // toolchain is installed.
+    let beside = lead.and_then(|lead| {
+        let name = sibling(&lead.path, kind)?;
+        let spec = match &lead.spec {
+            ToolSpec::Path(path) => ToolSpec::Path(path.with_file_name(&name)),
+            ToolSpec::Name(_) => ToolSpec::Name(name.clone()),
+        };
+        Some((ToolSpec::Path(lead.path.with_file_name(name)), spec))
+    });
+    let defaults = default_fallbacks(kind)
+        .iter()
+        .filter(|name| lead.is_none_or(|lead| msvc_style(lead.path.as_str()) || !msvc_style(name)))
+        .map(|name| {
+            let spec = ToolSpec::Name((*name).to_owned());
+            (spec.clone(), spec)
+        });
+    for (search, spec) in beside.into_iter().chain(defaults) {
+        if let Some(path) = locate(&search, &inputs.env, &inputs.probe) {
             return Ok(Some(ResolvedTool {
                 kind,
                 path: camino::Utf8PathBuf::from_path_buf(path)
@@ -189,11 +236,7 @@ fn resolve_kind(
             }));
         }
     }
-    if required {
-        Err(ToolchainResolutionError::NoDefault { kind })
-    } else {
-        Ok(None)
-    }
+    Ok(None)
 }
 
 fn pick_explicit(
@@ -294,6 +337,71 @@ fn default_fallbacks(kind: ToolKind) -> &'static [&'static str] {
             ToolKind::Archiver => &["ar"],
         }
     }
+}
+
+/// The C and C++ drivers of each GCC-style family.
+const DRIVERS: [(&str, &str); 3] = [("gcc", "g++"), ("clang", "clang++"), ("cc", "c++")];
+
+/// The file name of the `kind` tool beside `lead`, the compiler chosen
+/// for the other language: the same target prefix and version suffix
+/// with that family's other driver (`x86_64-w64-mingw32-g++` ->
+/// `x86_64-w64-mingw32-gcc`, `clang++-18` -> `clang-18`), or its
+/// archiver: `<prefix>-ar` for a target-prefixed driver, `llvm-ar`
+/// beside Clang, `ar` beside GCC, and `lib` / `llvm-lib` beside `cl` /
+/// `clang-cl`, which compile both languages.
+fn sibling(lead: &Utf8Path, kind: ToolKind) -> Option<String> {
+    let file = lead.file_name()?.to_ascii_lowercase();
+    let (stem, exe) = file
+        .strip_suffix(".exe")
+        .map_or((file.as_str(), ""), |stem| (stem, ".exe"));
+    let clang_cl_version = stem
+        .strip_prefix("clang-cl")
+        .filter(|rest| rest.is_empty() || rest.starts_with('-'));
+    let name = match (stem, clang_cl_version, kind) {
+        ("cl", _, ToolKind::Archiver) => format!("lib{exe}"),
+        (_, Some(version), ToolKind::Archiver) => format!("llvm-lib{version}{exe}"),
+        ("cl", ..) | (_, Some(_), _) => file.clone(),
+        _ => {
+            let mut parts: Vec<&str> = stem.split('-').collect();
+            let at = parts
+                .iter()
+                .rposition(|part| DRIVERS.iter().any(|(c, cxx)| part == c || part == cxx))?;
+            let (c, cxx) = DRIVERS
+                .into_iter()
+                .find(|(c, cxx)| parts[at] == *c || parts[at] == *cxx)?;
+            // `lead` drives the other language; a name read otherwise
+            // (`afl-clang-fast++`) has no sibling.
+            match kind {
+                ToolKind::CCompiler if parts[at] == cxx => parts[at] = c,
+                ToolKind::CxxCompiler if parts[at] == c => parts[at] = cxx,
+                ToolKind::CCompiler | ToolKind::CxxCompiler => return None,
+                ToolKind::Archiver if at > 0 => {
+                    parts.truncate(at);
+                    parts.push("ar");
+                }
+                ToolKind::Archiver if c == "clang" => parts[at] = "llvm-ar",
+                ToolKind::Archiver => parts = vec!["ar"],
+            }
+            format!("{}{exe}", parts.join("-"))
+        }
+    };
+    Some(name)
+}
+
+/// Whether `name` (a tool's command or path) speaks the MSVC
+/// command-line dialect.
+fn msvc_style(name: &str) -> bool {
+    let file = Utf8Path::new(name)
+        .file_name()
+        .unwrap_or(name)
+        .to_ascii_lowercase();
+    let stem = file.strip_suffix(".exe").unwrap_or(&file);
+    // Distributions version the LLVM tools: `clang-cl-18`, `llvm-lib-18`.
+    let unversioned = stem
+        .rsplit_once('-')
+        .filter(|(_, version)| version.bytes().all(|b| b.is_ascii_digit()))
+        .map_or(stem, |(name, _)| name);
+    matches!(unversioned, "cl" | "clang-cl" | "lib" | "llvm-lib")
 }
 
 fn reject_unsupported_compiler(
@@ -694,5 +802,100 @@ mod tests {
         let cc = r.cc.expect("explicit C compiler resolved");
         assert_eq!(cc.path, Utf8PathBuf::from("/usr/bin/clang"));
         assert_eq!(cc.source, ToolSource::Cli);
+    }
+
+    #[test]
+    fn defaulted_slots_take_the_chosen_compilers_siblings() {
+        let manifest = ToolchainSettings::default();
+        let host = host();
+        let selection = ToolchainSelection::default().with_cli(
+            ToolKind::CxxCompiler,
+            ToolSpec::Name("x86_64-w64-mingw32-g++".into()),
+        );
+        let existing = path_set(&[
+            "/usr/bin/x86_64-w64-mingw32-g++",
+            "/usr/bin/x86_64-w64-mingw32-gcc",
+            "/usr/bin/x86_64-w64-mingw32-ar",
+            "/usr/bin/cc",
+            "/usr/bin/ar",
+        ]);
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let r =
+            resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
+        let cc = r.cc.unwrap();
+        assert_eq!(cc.path, "/usr/bin/x86_64-w64-mingw32-gcc");
+        assert_eq!(cc.spec, ToolSpec::Name("x86_64-w64-mingw32-gcc".into()));
+        assert_eq!(cc.source, ToolSource::Default);
+        assert_eq!(r.ar.path, "/usr/bin/x86_64-w64-mingw32-ar");
+
+        // A chosen C compiler names the C++ compiler and archiver.
+        let selection = ToolchainSelection::default().with_cli(
+            ToolKind::CCompiler,
+            ToolSpec::parse("/opt/llvm/bin/clang-18"),
+        );
+        let existing = path_set(&[
+            "/opt/llvm/bin/clang-18",
+            "/opt/llvm/bin/clang++-18",
+            "/opt/llvm/bin/llvm-ar-18",
+            "/usr/bin/c++",
+            "/usr/bin/ar",
+        ]);
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let r =
+            resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
+        assert_eq!(r.cxx.path, "/opt/llvm/bin/clang++-18");
+        assert_eq!(r.cxx.spec, ToolSpec::parse("/opt/llvm/bin/clang++-18"));
+        assert_eq!(r.ar.path, "/opt/llvm/bin/llvm-ar-18");
+
+        // Windows spells names in any case.
+        let selection = ToolchainSelection::default()
+            .with_cli(ToolKind::CxxCompiler, ToolSpec::parse("/vc/bin/CL.EXE"));
+        let existing = path_set(&["/vc/bin/CL.EXE", "/vc/bin/lib.exe", "/usr/bin/ar"]);
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let r =
+            resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
+        assert_eq!(r.ar.path, "/vc/bin/lib.exe");
+
+        let selection = ToolchainSelection::default()
+            .with_cli(ToolKind::CxxCompiler, ToolSpec::parse("/llvm/clang-cl-18"));
+        let existing = path_set(&["/llvm/clang-cl-18", "/llvm/llvm-lib-18", "/usr/bin/ar"]);
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let r =
+            resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
+        assert_eq!(r.ar.path, "/llvm/llvm-lib-18");
+        assert_eq!(r.cc.unwrap().path, "/llvm/clang-cl-18");
+
+        // Not a C++ driver name, so no C sibling: not the lead itself.
+        let selection = ToolchainSelection::default().with_cli(
+            ToolKind::CxxCompiler,
+            ToolSpec::Name("afl-clang-fast++".into()),
+        );
+        let existing = path_set(&["/usr/bin/afl-clang-fast++", "/usr/bin/gcc", "/usr/bin/ar"]);
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let r =
+            resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
+        assert_eq!(r.cc.unwrap().path, "/usr/bin/gcc");
+    }
+
+    /// Only Windows defaults to MSVC tools.
+    #[cfg(windows)]
+    #[test]
+    fn a_gcc_style_choice_skips_the_msvc_defaults() {
+        let selection = ToolchainSelection::default()
+            .with_cli(ToolKind::CxxCompiler, ToolSpec::Name("clang++".into()));
+        let manifest = ToolchainSettings::default();
+        let host = host();
+        let env = fake_env(&[("PATH", "/bin")]);
+        let existing = path_set(&[
+            "/bin/clang++.exe",
+            "/bin/cl.exe",
+            "/bin/gcc.exe",
+            "/bin/lib.exe",
+            "/bin/ar.exe",
+        ]);
+        let r =
+            resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
+        assert_eq!(r.cc.unwrap().path, "/bin/gcc.exe");
+        assert_eq!(r.ar.path, "/bin/ar.exe");
     }
 }

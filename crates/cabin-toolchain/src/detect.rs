@@ -376,7 +376,7 @@ fn classify_ar_by_basename(tool: &ResolvedTool) -> Option<cabin_core::ArchiverKi
     // `--version` - it prints `ignoring unknown argument: --version` and
     // exits 0, so the banner parser yields `Unknown` and this fallback is
     // what classifies it.
-    if stem == "lib" || stem == "llvm-lib" {
+    if stem == "lib" || stem == "llvm-lib" || stem.starts_with("llvm-lib-") {
         return Some(cabin_core::ArchiverKind::Lib);
     }
     if stem == "llvm-ar" || stem.starts_with("llvm-ar-") {
@@ -604,6 +604,9 @@ mod tests {
         assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
         // `Lib` archives with `/OUT:`, not `ar crs`.
         assert!(!report.ar.capabilities.ar_crs.supported);
+        // Distributions version it beside `clang-cl-18`.
+        let versioned = tool(ToolKind::Archiver, "/usr/bin/llvm-lib-18", "llvm-lib-18");
+        assert_eq!(classify_ar_by_basename(&versioned), Some(ArchiverKind::Lib));
     }
 
     #[test]

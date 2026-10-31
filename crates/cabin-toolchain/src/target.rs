@@ -355,6 +355,37 @@ mod tests {
     }
 
     #[test]
+    fn mingw_and_msvc_do_not_build_each_others_abi() {
+        let mingw = TargetPlatform::from_triple("x86_64-w64-mingw32").unwrap();
+        let msvc = TargetPlatform::from_triple("x86_64-pc-windows-msvc").unwrap();
+        let gcc = report(compiler(CompilerKind::Gcc, "/mingw/g++", None), None);
+        let runner = FakeRunner::new().with(
+            "/mingw/g++",
+            &["-dumpmachine"],
+            "x86_64-w64-mingw32\n",
+            "",
+            0,
+        );
+        check_compiler_targets(&gcc, &mingw, true, &runner).unwrap();
+        assert!(matches!(
+            check_compiler_targets(&gcc, &msvc, true, &runner),
+            Err(CompilerTargetError::Mismatch { .. })
+        ));
+        let cl = report(
+            compiler(
+                CompilerKind::Msvc,
+                "/vc/cl.exe",
+                Some("x86_64-pc-windows-msvc"),
+            ),
+            None,
+        );
+        assert!(matches!(
+            check_compiler_targets(&cl, &mingw, true, &FakeRunner::new()),
+            Err(CompilerTargetError::Mismatch { .. })
+        ));
+    }
+
+    #[test]
     fn cross_rejects_mixed_and_unknown_compilers() {
         let mixed = report(
             compiler(CompilerKind::Clang, "/bin/clang++", None),
