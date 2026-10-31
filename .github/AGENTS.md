@@ -25,7 +25,8 @@ their cargo aliases or established external tools directly.
   path-filtered final-state checks in advisory workflows with no
   `merge_group` run (proofs, zizmor).
 - Keep each job-level component dependency list only in
-  `.github/path-filters.yml`. Keep it coarse and end it with the consuming
+  `.github/path-filters.yml`. Keep it coarse, except the crate-scoped
+  lists `cargo workflow-filter-coverage` checks, and end it with the consuming
   workflow, the shared `changes` gate workflow, any local action it uses,
   plus the filter file; do not add a broad `.github/**` entry.
 - Required contexts for gated work must be non-matrix `if: always()`

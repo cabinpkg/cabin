@@ -33,6 +33,10 @@ enum Command {
     /// `$GITHUB_SHA`, or for one of the answers that ends the wait early
     /// (`cargo workflow-await-deploy`).
     AwaitDeploy,
+    /// Fail unless each crate-scoped list in `.github/path-filters.yml`
+    /// covers every crate and non-Cargo input its jobs build from
+    /// (`cargo workflow-filter-coverage`).
+    FilterCoverage,
 }
 
 fn main() -> ExitCode {
@@ -45,9 +49,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// `superseded` answers in `$GITHUB_OUTPUT`; `migrations-pending` and
-/// `await-deploy` answer with the exit status, which is the step's
-/// verdict.
+/// `superseded` answers in `$GITHUB_OUTPUT`; the other guards answer
+/// with the exit status, which is the step's verdict.
 fn run(command: &Command) -> Result<ExitCode> {
     match command {
         Command::Superseded { relevant_to } => {
@@ -58,5 +61,8 @@ fn run(command: &Command) -> Result<ExitCode> {
             xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS)
         }
         Command::AwaitDeploy => Ok(xtask_workflow_guard::await_deploy::run()),
+        Command::FilterCoverage => {
+            xtask_workflow_guard::filter_coverage::run().map(|()| ExitCode::SUCCESS)
+        }
     }
 }

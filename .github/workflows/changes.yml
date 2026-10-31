@@ -9,8 +9,8 @@ name: Changes
 # on a failed gate.
 on:
   workflow_call:
-    # One output per .github/path-filters.yml filter; each caller
-    # consumes its own subset.
+    # One output per .github/path-filters.yml filter, plus
+    # `filter-file`; each caller consumes its own subset.
     outputs:
       rust:
         value: ${{ jobs.changes.outputs.rust }}
@@ -22,14 +22,20 @@ on:
         value: ${{ jobs.changes.outputs.website }}
       registry:
         value: ${{ jobs.changes.outputs.registry }}
+      registry-build:
+        value: ${{ jobs.changes.outputs.registry-build }}
       tlc:
         value: ${{ jobs.changes.outputs.tlc }}
       ports:
         value: ${{ jobs.changes.outputs.ports }}
+      ports-dry-run:
+        value: ${{ jobs.changes.outputs.ports-dry-run }}
       docker:
         value: ${{ jobs.changes.outputs.docker }}
       dist:
         value: ${{ jobs.changes.outputs.dist }}
+      filter-file:
+        value: ${{ jobs.changes.outputs.filter-file }}
 
 jobs:
   changes:
@@ -43,10 +49,13 @@ jobs:
       fuzz: ${{ steps.filter.outputs.fuzz }}
       website: ${{ steps.filter.outputs.website }}
       registry: ${{ steps.filter.outputs.registry }}
+      registry-build: ${{ steps.filter.outputs.registry-build }}
       tlc: ${{ steps.filter.outputs.tlc }}
       ports: ${{ steps.filter.outputs.ports }}
+      ports-dry-run: ${{ steps.filter.outputs.ports-dry-run }}
       docker: ${{ steps.filter.outputs.docker }}
       dist: ${{ steps.filter.outputs.dist }}
+      filter-file: ${{ steps.filter-file.outputs.changed }}
     steps:
       # The filter file is read from the checkout, and push events
       # diff against the previous head from local history.
@@ -58,3 +67,12 @@ jobs:
         id: filter
         with:
           filters: .github/path-filters.yml
+          predicate-quantifier: some-with-excludes
+      # Inline, not from the file, so an edit to the lists reaches
+      # rust.yml's coverage guard whatever it does to them.
+      - uses: dorny/paths-filter@v4.0.3
+        id: filter-file
+        with:
+          filters: |
+            changed:
+              - ".github/path-filters.yml"

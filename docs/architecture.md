@@ -718,7 +718,7 @@ registry role's worker through wrangler's dev registry, so one workerd opens the
 governor state, as one deployed Worker serves both hostnames: two over the same SQLite files fail
 writes with `database is locked`.  `registry.yml`
 runs it after the Worker build on every registry-touching pull request and merge-queue run
-(the `registry` filter in `.github/path-filters.yml`), so it is the one check that executes the
+(the `registry-build` filter in `.github/path-filters.yml`), so it is the one check that executes the
 wasm32 glue before a deploy.  One leg runs the real verification driver (`xtask-registry-admin`'s
 `verify::run_with`) in a child process against both local instances, with the GitHub mock as
 Actions' OIDC mint, where the other legs hand-build their verdicts.  The crate must:
@@ -730,7 +730,7 @@ Actions' OIDC mint, where the other legs hand-build their verdicts.  The crate m
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the static guards `registry.yml` runs on every registry-touching pull request (the
-`registry` filter in `.github/path-filters.yml`; the witness guard runs with TLC under the
+`registry-build` filter in `.github/path-filters.yml`; the witness guard runs with TLC under the
 narrower `tlc` filter), reached through the
 `cargo check-sql`, `cargo check-r2`, `cargo check-deploy`, `cargo check-kani-report` and
 `cargo check-tlc-witnesses` aliases.  They read the committed `registry/` tree - and, for the
@@ -754,7 +754,7 @@ the bundle lexically.  Each states its own ceiling in its module documentation. 
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the guards that keep an out-of-order or premature workflow run from mutating a shared
-resource, decided from repository files, git history and the GitHub Actions run context.  `cargo
+resource and the change filters sound, decided from repository files, git history and the GitHub Actions run context.  `cargo
 workflow-superseded` is the freshness guard of `registry.yml`'s deploy and `ports-publish.yml`'s
 publish: it answers whether `origin/main` already carries a commit after `$GITHUB_SHA` matching
 the caller's `--relevant-to` list in `.github/path-filters.yml` (a commit matching none of those
@@ -777,6 +777,28 @@ same-SHA listing is filtered to `main` because a queue-merged commit also carrie
 registered yet, never as current: the wait keeps polling for a few minutes (the push run
 registers within seconds of the fast-forward) and then fails closed - a run deleted by
 retention needs a fresh `main` push and a re-dispatch.
+`cargo workflow-filter-coverage` keeps the two crate-scoped change filters sound:
+`registry-build` (the registry build and Kani jobs) and `ports-dry-run` (the Ports Publish
+pull-request dry-run).  It walks Cargo's resolved dependency graph (`cargo metadata --locked`,
+every dependency kind) from each list's roots - for `registry-build`, the registry workspace and
+the root-workspace tools the registry jobs run; for `ports-dry-run`, the `cabin` binary and the
+port publisher - and fails unless the list covers the directory of every package it reaches inside
+the repository, wherever a `[patch]`, `[replace]`, `paths` override, or vendored source put it,
+and every non-Cargo input the jobs read (the root manifest, lockfile, toolchain file, `.cargo/`,
+the change gate, the filter file, and the list's own tree and workflow).  Packages outside the
+repository are pinned by the lockfile; a reached package inside it must be a member of the root
+or registry workspace with every target inside its own directory, so what it inherits comes from
+a covered workspace manifest and what it compiles from its covered directory.  It checks the
+coarse `registry` list, which gates the deploy, against the same closure and inputs, and accepts
+only literal entries (a file, `<dir>/**`, `!<dir>/**`), so it never has to model the gate's glob
+matcher.  The roots, the non-Cargo inputs, and any file a crate includes from outside its own
+directory (`include!` and its variants, `#[path]`, a build script's reads), which Cargo does not
+report, are written in the guard by
+hand.  The Rust lint job, the registry
+conformance job, and `cargo ci` run it, and it fails unless the `rust` and `registry` lists
+gating those two jobs together cover every package directory in a closure and the shared
+inputs, and the lint job also runs it on any edit to the filter file through the gate's
+hard-coded `filter-file` output, so every edit that can change a closure or a list runs it.
 The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate, and
 `xtask-registry-admin`'s diagnose bundle consumes the same function.  The crate must:
 

@@ -40,7 +40,7 @@ jobs:
   # Queue validates pre-merge; a main push only deploys.
   registry-build-work:
     needs: changes
-    if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
+    if: github.event_name != 'push' && needs.changes.outputs.registry-build == 'true'
     runs-on: ubuntu-latest
 
     defaults:
@@ -133,7 +133,7 @@ jobs:
         with:
           result: ${{ needs.registry-build-work.result }}
           gate-result: ${{ needs.changes.result }}
-          filter-values: ${{ needs.changes.outputs.registry }}
+          filter-values: ${{ needs.changes.outputs.registry-build }}
       - name: Fail unless conformance succeeded or the filter skipped it
         uses: ./.github/actions/required-gate
         with:
@@ -145,7 +145,7 @@ jobs:
         with:
           result: ${{ needs.kani.result }}
           gate-result: ${{ needs.changes.result }}
-          filter-values: ${{ needs.changes.outputs.registry }}
+          filter-values: ${{ needs.changes.outputs.registry-build }}
       - name: Fail unless tlc succeeded or the filter skipped it
         uses: ./.github/actions/required-gate
         with:
@@ -179,6 +179,10 @@ jobs:
       - name: Generate fixtures with the in-tree cabin
         run: cargo gen-fixtures "$RUNNER_TEMP/fixtures"
 
+      # Here too for a registry/Cargo.toml change.
+      - name: Filter coverage guard
+        run: cargo workflow-filter-coverage
+
       - name: Validate the generated fixtures against the server rules
         working-directory: registry
         run: cargo test --locked --verbose --test publish_validation -- --include-ignored --show-output
@@ -192,7 +196,7 @@ jobs:
   # runner; the version matches the one the proofs were written against.
   kani:
     needs: changes
-    if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
+    if: github.event_name != 'push' && needs.changes.outputs.registry-build == 'true'
     runs-on: ubuntu-latest
 
     defaults:

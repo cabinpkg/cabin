@@ -265,6 +265,11 @@ fn checks(
     } else {
         gate.say("skipping clippy/check/test/doc: no Rust changes since main")?;
     }
+    // Unscoped: a filter-file or registry-manifest edit alone can break it.
+    gate.launch(
+        "cargo workflow-filter-coverage",
+        Command::new("cargo").arg("workflow-filter-coverage"),
+    )?;
 
     website(gate, surfaces, gate_binary)
 }
