@@ -14,12 +14,11 @@ pub struct ResolveOutput {
     /// Resolved packages, including the root, sorted with the root first
     /// and the rest (index and local) alphabetical by name.
     pub packages: Vec<ResolvedPackage>,
-    /// Packages whose newest in-range version was passed over because
+    /// Standard-compatibility notes of an
     /// [`IncompatibleStandards::Fallback`](cabin_core::IncompatibleStandards::Fallback)
-    /// found it standard-incompatible with the workspace.  Empty under
-    /// `Allow`, and whenever selection matched the pure-semver newest
-    /// (ordinary semver hold-backs are never reported).  Sorted by
-    /// package name.
+    /// resolution, at most one per index package; see [`HeldBack`] for
+    /// the three shapes.  Empty under `Allow`; ordinary semver
+    /// hold-backs are never reported.  Sorted by package name.
     pub held_back: Vec<HeldBack>,
 }
 
@@ -32,7 +31,7 @@ pub struct ResolveOutput {
 ///   (`newest` = `Some`, `blocked_by` empty);
 /// - the selected version is **itself incompatible** because nothing in
 ///   range satisfies the consumer (`newest` = `None`, the rule-2 case of
-///   `preference-mode.md` section 2).
+///   `preference-mode.md` section 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeldBack {
     pub name: PackageName,
@@ -50,11 +49,12 @@ pub struct HeldBack {
 
 impl HeldBack {
     /// The update-facing one-line message, e.g.
-    /// `foo v1.4.0 (available: v2.3.0, requires interface c++20)`;
-    /// `foo v1.4.0 (available: v2.3.0, preferred as declared-compatible
-    /// over the undeclared newer version)`; or
-    /// `foo v2.0.0 (requires interface c++20; no compatible version in
-    /// range)` when the selected version is itself incompatible.
+    /// `foo v1.4.0 (available: v2.3.0, requires interface c++20 or
+    /// newer)`; `foo v1.4.0 (available: v2.3.0, preferred as
+    /// declared-compatible over the undeclared newer version)`; or
+    /// `foo v2.0.0 (requires interface c++20 or newer; no compatible
+    /// version in range)` when the selected version is itself
+    /// incompatible.
     #[must_use]
     pub fn message(&self) -> String {
         let clauses = self

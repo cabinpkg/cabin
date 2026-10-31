@@ -11,7 +11,6 @@ use camino::Utf8PathBuf;
 use cabin_core::{
     Dependency, DependencyKind, DependencySource, Features, Package, PackageName, TargetPlatform,
 };
-// Allow workspace `semver` use.
 use cabin_workspace::{DependencyEdge, PackageGraph, PackageKind, WorkspacePackage};
 use semver as _;
 
@@ -231,9 +230,8 @@ fn dep_dev_versioned(name: &str) -> Dependency {
 fn activated_versioned_dev_dep_participates_before_fetch() {
     // A feature entry referencing an activated *versioned* dev
     // dep must resolve even though no registry edge exists yet
-    // (pre-fetch probe graph).  The request is deferred, not an
-    // `UnknownDependency` error; the registry-materialized reload
-    // propagates it later.
+    // (pre-fetch probe graph): the request lands in
+    // `versioned_requests`, not in an `UnknownDependency` error.
     let root = make_project(
         "root",
         vec![dep_dev_versioned("devcheck")],
@@ -257,8 +255,7 @@ fn activated_versioned_dev_dep_participates_before_fetch() {
         names(&res.versioned_requests[&pkg("devcheck")]),
         vec!["default", "simd"]
     );
-    // Without activation the same entry is an error - the
-    // ordinary-command behavior is unchanged.
+    // Without activation the same entry is an error.
     let err = resolve_features(
         &graph,
         &[0],
@@ -336,8 +333,6 @@ fn no_platform_admits_declarations_gated_to_any_platform() {
 
 #[test]
 fn enables_default_feature_for_root() {
-    // Given a single root with default = ["a"], `a = ["b"]`,
-    // `b = []`, the default request enables both.
     let package = make_project(
         "root",
         Vec::new(),
@@ -437,8 +432,6 @@ fn unknown_root_feature_errors_clearly() {
 
 #[test]
 fn dep_colon_enables_optional_dependency() {
-    // `[features] ssl = ["dep:openssl"]` enables the optional
-    // dep when `ssl` is requested.
     let openssl = make_project("openssl", Vec::new(), empty_features());
     let root = make_project(
         "root",
@@ -510,8 +503,6 @@ fn dep_colon_on_non_optional_dep_errors_clearly() {
 
 #[test]
 fn dep_slash_feature_requests_dep_feature_and_enables_optional() {
-    // `["openssl/vendored"]` should enable optional `openssl`
-    // *and* request `vendored` on it.
     let openssl = make_project("openssl", Vec::new(), features(&[], &[("vendored", &[])]));
     let root = make_project(
         "root",
@@ -544,7 +535,6 @@ fn dep_slash_feature_requests_dep_feature_and_enables_optional() {
 
 #[test]
 fn dep_colon_referencing_undeclared_dependency_errors_clearly() {
-    // `ssl = ["dep:ghost"]` but `ghost` is never declared.
     let root = make_project(
         "root",
         Vec::new(),
@@ -581,7 +571,6 @@ fn dep_colon_referencing_undeclared_dependency_errors_clearly() {
 
 #[test]
 fn dep_slash_requesting_unknown_dep_feature_errors_clearly() {
-    // `openssl/vendored`, but `openssl` declares no `vendored`.
     let openssl = make_project("openssl", Vec::new(), empty_features());
     let root = make_project(
         "root",
@@ -622,8 +611,9 @@ fn dep_slash_requesting_unknown_dep_feature_errors_clearly() {
 
 #[test]
 fn additive_unification_across_paths() {
-    // Two edges to the same dependency request different
-    // features; the unified set is the union.
+    // The edge's `features = ["a"]` and the `via = ["dep/b"]`
+    // entry request different features on `dep`; the unified set
+    // is the union.
     let dep = make_project(
         "dep",
         Vec::new(),
@@ -632,13 +622,11 @@ fn additive_unification_across_paths() {
     let root = make_project(
         "root",
         vec![
-            // First edge requests `a`.
+            // The edge requests `a`.
             dep_normal_with("dep", false, &["a"], false),
         ],
         features(&[], &[("via", &["dep/b"])]),
     );
-    // Second hop: same package, second edge through feature `via`
-    // requests `b`.
     let graph = make_graph(vec![
         (dep, Vec::new()),
         (root, vec![(0, DependencyKind::Normal)]),
@@ -686,8 +674,6 @@ fn default_features_request_is_default_on() {
 
 #[test]
 fn default_features_false_does_not_globally_disable() {
-    // One edge with default-features = false; another (here:
-    // root requests `dep/d`) still pulls in default-equivalent.
     let dep = make_project("dep", Vec::new(), features(&["d"], &[("d", &[])]));
     let root = make_project(
         "root",
@@ -715,10 +701,8 @@ fn default_features_false_does_not_globally_disable() {
 
 #[test]
 fn local_feature_cycle_is_terminating_and_recorded() {
-    // Cycle detection only follows local-feature edges.  Cycles
-    // are reported at validation time, but a graph with no cycles
-    // still resolves correctly.  Construct a chain a -> b -> c (no
-    // cycle) and verify everything is enabled.
+    // `Features::validate` rejects feature cycles, so this checks
+    // that an acyclic chain a -> b -> c enables every link.
     let package = make_project(
         "root",
         Vec::new(),
@@ -746,12 +730,8 @@ fn local_feature_cycle_is_terminating_and_recorded() {
 #[test]
 fn unknown_local_feature_in_chain_errors_clearly() {
     // `Features::validate` rejects unknown local references at
-    // parse time, but the resolver should surface them with a
-    // clear error if the runtime ever sees them (e.g. an entry
-    // injected by a future API).  Smoke-test the resolver-side
-    // message.
+    // parse time; the resolver still reports one it receives.
     let mut feats = features(&[], &[("a", &["nope"])]);
-    // Bypass `Features::validate` by mutating after construction.
     feats.features.insert("a".into(), vec!["nope".into()]);
     let package = Package::with_config(cabin_core::PackageConfigInput {
         name: pkg("root"),
@@ -809,9 +789,9 @@ fn deterministic_output_for_identical_inputs() {
 fn dep_colon_skips_optional_dep_when_target_does_not_match() {
     // An optional dep guarded by a non-matching `cfg(...)` is
     // invisible to the feature resolver - `dep:openssl` cannot
-    // enable a dep that does not apply on this host.  Use a
-    // synthetic platform whose `os` is guaranteed not to match
-    // the predicate so the test is deterministic.
+    // enable a dep that does not apply on this host.  The
+    // predicate names an `os` no platform has, so the test does
+    // not depend on the host.
     use cabin_core::{Condition, ConditionKey};
     let openssl = make_project("openssl", Vec::new(), empty_features());
     let mut openssl_dep = dep_normal("openssl", true);
@@ -844,8 +824,6 @@ fn dep_colon_skips_optional_dep_when_target_does_not_match() {
     .unwrap();
     let r = res.for_package(1);
     assert!(r.enabled_features.contains("ssl"));
-    // The dep was filtered out by the platform check, so the
-    // resolver did not enable it.
     assert!(
         !r.enabled_optional_deps.contains("openssl"),
         "openssl should not be enabled: {:?}",

@@ -85,7 +85,6 @@ pub enum ResolveError {
     )]
     Conflict { package: String, detail: String },
 
-    // ---- locked-mode failures ----
     #[error(
         "cabin.lock has no entry for required package {0:?}; run `cabin resolve` or `cabin update` to refresh it"
     )]
@@ -216,7 +215,7 @@ fn format_constraints(constraints: &[ResolverConstraint]) -> String {
     parts.join("; ")
 }
 
-/// `zlib v1.3.1 (target `z`); miniz v3.1.2 (target `miniz`)` - the
+/// `miniz v3.1.2 (target `miniz`); zlib v1.3.1 (target `z`)` - the
 /// claimant list of [`ResolveError::LinksCollision`].  The variant
 /// stores claimants pre-sorted; rendering preserves that order.
 fn format_claimants(claimants: &[crate::input::LinksClaim]) -> String {

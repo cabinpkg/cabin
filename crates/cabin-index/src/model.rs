@@ -3,10 +3,11 @@ use std::path::PathBuf;
 
 use cabin_core::{Condition, DependencyKind, PackageName};
 
-/// A loaded local JSON package index.
+/// A loaded JSON package index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageIndex {
-    /// Absolute filesystem path the index was loaded from.
+    /// Where the index was loaded from: the directory the file loader
+    /// read, or the base URL of a sparse HTTP index.
     pub root: PathBuf,
     /// All known packages, keyed by name.  Sorted iteration is needed for
     /// deterministic resolver behavior, so a `BTreeMap` is used directly.
@@ -191,9 +192,7 @@ pub struct IndexSystemDependency {
     /// Defaults to `normal` when omitted by older registries.
     pub dependency_kind: DependencyKind,
     /// Optional `cfg(...)` predicate copied from the on-disk
-    /// `target` field.  When present and the host platform fails
-    /// the predicate, the dependency is omitted from system-dep
-    /// views.
+    /// `target` field.
     pub condition: Option<Condition>,
 }
 

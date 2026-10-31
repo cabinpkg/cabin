@@ -58,9 +58,8 @@ pub enum LockfileError {
 
     /// Rendered through the shared [`cabin_core::ChecksumError`]
     /// sentence so the checksum grammar has exactly one normative
-    /// wording.  The typed failure is inlined (deliberately not a
-    /// `source` chain, like [`LockfileError::InvalidPackageName`]) so
-    /// the top-level message stays a single line ending in the
+    /// wording, inlined for the same single-line reason as
+    /// [`LockfileError::InvalidPackageName`]; the line ends in the
     /// recovery step.
     #[error(
         "invalid cabin.lock package {name:?}: {reason} - delete the lockfile and re-run `cabin resolve`"

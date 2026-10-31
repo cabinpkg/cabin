@@ -186,10 +186,10 @@ fn render_source_replacements(
     Ok(())
 }
 
-/// Quote a string as a TOML basic string.  The lockfile only needs to handle
-/// package names, version strings, source identifiers, and checksums -
-/// all ASCII without surprises - but we still escape the characters TOML
-/// treats as special.
+/// Quote a string as a TOML basic string, escaping `"`, `\`, and every
+/// ASCII control character (U+0000-U+001F, U+007F).  Patch paths
+/// and source-replacement locators come from user configuration and
+/// may contain any of them.
 fn quote_string(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
@@ -559,8 +559,6 @@ mod tests {
         assert!(matches!(err, LockfileError::Toml(_)));
     }
 
-    /// The removed `+cabin.N` shape fails through ordinary
-    /// validation: a locked version must be a plain upstream version.
     #[test]
     fn build_metadata_version_errors() {
         let body = r#"
@@ -623,10 +621,6 @@ mod tests {
         );
     }
 
-    /// A version skew outranks every field-level diagnosis: a future
-    /// schema may change field grammars (checksum algorithms
-    /// included), so a per-field error would misread the skew as
-    /// corruption and hand out the wrong recovery advice.
     #[test]
     fn unsupported_version_wins_over_field_diagnosis() {
         let body = r#"
@@ -775,16 +769,11 @@ mod tests {
             .expect("scoped package survives the round trip");
         // Dependencies render sorted; identities keep their scopes.
         assert_eq!(scoped.dependencies, vec![pkg("bare"), pkg("gabime/spdlog")]);
-        // Render is deterministic across the round trip.
         assert_eq!(render_lockfile(&parsed).unwrap(), body);
     }
 
     #[test]
     fn old_lockfile_without_patch_arrays_remains_valid() {
-        // Older lockfiles only carry `version` + `[[package]]`.
-        // The `[[patch]]` and `[[source-replacement]]` arrays are
-        // declared with `#[serde(default)]` so those lockfiles
-        // continue to parse cleanly.
         let body = r#"
             version = 1
 
@@ -831,8 +820,6 @@ mod tests {
         assert!(fmt_pos < spdlog_pos, "patches must sort by package name");
         assert!(body.contains("[[source-replacement]]"));
         let parsed = parse_lockfile_str(&body).unwrap();
-        // Patches survive a render-parse round trip in sorted
-        // order so the comparison picks the rendered ordering.
         assert_eq!(parsed.patches.len(), 2);
         assert_eq!(parsed.patches[0].package.as_str(), "fmt");
         assert_eq!(parsed.source_replacements.len(), 1);
@@ -841,13 +828,12 @@ mod tests {
     #[test]
     fn render_matches_golden_for_full_lockfile() {
         // Byte-level snapshot of a lockfile that exercises every
-        // section: sorted packages with a checksum + a transitive
-        // dep, two patches with different provenance, two
+        // section: sorted packages with a checksum + a dependency
+        // edge, two patches with different provenance, two
         // source-replacements with different locator kinds.
         // Locks down ordering, key spelling (`original-kind`,
-        // `replacement-kind`), the trailing blank line per record,
-        // and the absence of a final newline so future formatter
-        // tweaks have to come with an intentional update here.
+        // `replacement-kind`), and the blank line after every
+        // record, the last included.
         let lock = Lockfile {
             version: 1,
             packages: vec![

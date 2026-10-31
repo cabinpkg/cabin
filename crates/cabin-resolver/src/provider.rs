@@ -23,17 +23,18 @@
 //! `PubGrub`'s `NoSolution` variant only carries a derivation
 //! tree, not Cabin's actionable error variants.  Root-level
 //! errors (`UnknownPackage`, `NoMatchingVersion`,
-//! `AllMatchingVersionsYanked`, every `Locked*` variant for
-//! direct dependencies) are produced ahead of time in
-//! [`crate::preflight`].  Transitive `Locked`-mode failures
-//! surface here, returned through `PubGrub`'s
+//! `AllMatchingVersionsYanked`, every `Locked*` variant but
+//! `LockedVersionLacksFeature` for direct dependencies) are
+//! produced ahead of time in [`crate::preflight`].  Transitive
+//! `Locked`-mode failures, and `LockedVersionLacksFeature` for any
+//! package, surface here, returned through `PubGrub`'s
 //! `ErrorChoosingVersion` as their original [`ResolveError`].
 //!
 //! ## Locked-mode constraint recording
 //!
 //! When the resolver runs in [`ResolveMode::Locked`], the
 //! provider records every constraint emitted by
-//! [`Self::get_dependencies`] so a
+//! `get_dependencies` so a
 //! [`ResolveError::LockedVersionViolatesConstraint`] on a
 //! transitive package can cite the parents that imposed the
 //! requirement.  The recorder is held as
@@ -197,12 +198,6 @@ impl Constraints {
 
 /// `PubGrub` [`DependencyProvider`] implementation used by
 /// [`crate::resolve`].
-///
-/// One provider is constructed per resolve.  In `Locked` mode it
-/// owns a [`LockedConstraintRecorder`] seeded with the
-/// preflight-collected root constraints; outside `Locked` mode
-/// the recorder is absent because backtracking would invalidate
-/// it (see [`crate::locked`]).
 pub(crate) struct Provider<'a> {
     input: &'a ResolveInput,
     index: &'a PackageIndex,
@@ -316,9 +311,10 @@ impl<'a> Provider<'a> {
         if let Some(recorder) = &self.locked_constraints {
             recorder.record(dep_name, parent.clone(), dep.req.clone());
         }
-        // Another edge pinning a local pre-release exactly narrows its
-        // range to a singleton, which admits the pre-release; semver
-        // matching admits it only when this edge opts in.
+        // Another edge pinning a local pre-release exactly leaves a
+        // bound carrying its pre-release tag in the intersected range,
+        // which admits the pre-release; semver matching admits it only
+        // when this edge opts in.
         if let Some(local) = self.input.local_packages.get(dep_name)
             && let Some(local_version) = local.versions.keys().find(|v| !v.pre.is_empty())
             && !dep.req.matches(local_version)
@@ -648,8 +644,7 @@ impl Provider<'_> {
         }
 
         if self.input.incompatible_standards == IncompatibleStandards::Allow {
-            // The pure-semver pick: the newest admissible version, i.e.
-            // exactly what every pre-preference-mode release selects.
+            // The pure-semver pick: the newest admissible version.
             return candidates.into_iter().max().cloned();
         }
 
