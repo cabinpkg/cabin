@@ -292,6 +292,43 @@ fn collection_removes_emptied_directories_up_to_the_output_directory() {
 }
 
 #[test]
+fn collection_removes_an_output_directory_that_held_a_scoped_packages_outputs() {
+    let fx = Fixture::new();
+    // `acme/lib`'s output directory lies inside `acme`'s.
+    fx.build(
+        DAY,
+        &[
+            "dev/packages/acme/obj/acme/src/a.c.o",
+            "dev/packages/acme/lib/obj/lib/src/b.c.o",
+            OLD_OBJ,
+        ],
+    );
+    work_days(&fx, DAY, 2, &[NEW_OBJ]);
+    fx.collect(max_age(1), false);
+    fx.file("dev/packages/acme")
+        .assert(predicate::path::missing());
+}
+
+#[test]
+fn collection_removes_an_output_directory_whichever_spelling_held_it() {
+    let fx = Fixture::new();
+    // Profile `Bench` became `bench`; on a case-insensitive file system
+    // both spellings name one directory.
+    fx.build(
+        DAY,
+        &[
+            "Bench/packages/acme/lib/obj/lib/src/b.c.o",
+            "bench/packages/acme/obj/acme/src/a.c.o",
+            OLD_OBJ,
+        ],
+    );
+    work_days(&fx, DAY, 2, &[NEW_OBJ]);
+    fx.collect(max_age(1), false);
+    fx.file("bench/packages/acme")
+        .assert(predicate::path::missing());
+}
+
+#[test]
 fn size_budget_evicts_least_recently_used_but_spares_recent_products() {
     let fx = Fixture::new();
     let a = "dev/packages/a/liba.a";

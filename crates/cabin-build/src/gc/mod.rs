@@ -532,6 +532,10 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
         }
     } else {
         let mut dropped: BTreeSet<&str> = BTreeSet::new();
+        // Every directory a removal may have emptied, up to and including
+        // its output directory, each tried once all removals are done: on
+        // APFS a failed `rmdir` costs more than removing a file.
+        let mut emptied: BTreeSet<PathBuf> = BTreeSet::new();
         let deadline = req.time_limit.map(|limit| Instant::now() + limit);
         for (n, (rel, reason)) in evict.into_iter().enumerate() {
             if n > 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -540,7 +544,15 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
             }
             match remove_product(req.build_dir, rel) {
                 Ok(Some((path, bytes))) => {
-                    remove_empty_parents(req.build_dir, rel, &path);
+                    let stop = req.build_dir.join(split(rel).0);
+                    for dir in path.ancestors().skip(1) {
+                        if dir == req.build_dir || !dir.starts_with(&stop) {
+                            break;
+                        }
+                        if !emptied.contains(dir) {
+                            emptied.insert(dir.to_path_buf());
+                        }
+                    }
                     report.collected.push(Collected {
                         path,
                         bytes,
@@ -553,6 +565,14 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
                 }
                 Err(err) => report.failed.push((req.build_dir.join(rel), err)),
             }
+        }
+        // Deepest first, so each directory is tried after the ones it held,
+        // whichever spelling a case-insensitive file system saw them under.
+        // `remove_dir` never removes a directory that still holds anything.
+        let mut emptied = Vec::from_iter(emptied);
+        emptied.sort_by_key(|dir| std::cmp::Reverse(dir.components().count()));
+        for dir in &emptied {
+            let _ = fs::remove_dir(dir);
         }
         for (path, mut shard) in shards {
             let before = shard.entries.len();
@@ -645,21 +665,6 @@ fn regular_file(build_dir: &Path, rel: &str) -> io::Result<Option<(PathBuf, u64)
         }
     }
     Ok(None)
-}
-
-/// Remove the directories `path`'s removal left empty, up to and
-/// including its output directory.  `remove_dir` never removes a
-/// directory that still holds anything.
-fn remove_empty_parents(build_dir: &Path, rel: &str, path: &Path) {
-    let stop = build_dir.join(split(rel).0);
-    for ancestor in path.ancestors().skip(1) {
-        if ancestor == build_dir
-            || !ancestor.starts_with(&stop)
-            || fs::remove_dir(ancestor).is_err()
-        {
-            break;
-        }
-    }
 }
 
 fn is_real_dir(path: &Path) -> Result<bool, GcError> {

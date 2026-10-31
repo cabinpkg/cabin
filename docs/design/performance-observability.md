@@ -202,7 +202,8 @@ one side, which no statistic over the samples can tell from a real change: in th
 same binary's `build/touch-source-cxx` medians were 983 ms and 580 ms, with 98 of the 100 pairs of
 the two sides' samples ordered one way.  Instruction counts drift too: the toolchain probes were polled every
 millisecond, so a probe that waited longer retired more instructions, and `gc/clean-10k`'s count,
-mostly the kernel unlinking 10,000 files, moved 3-7% between the two sides.
+mostly the kernel's (see "Investigation: build-output collection"), moved 3-7% between the two
+sides.
 
 **Change.**  A difference counts as real only when the samples' ranks separate (a Mann-Whitney
 test, two-sided 1%) and the medians move past the larger interquartile range, so the previous
@@ -524,6 +525,47 @@ walks.
 **Not changed.**  A chain's metadata names its next package only once it arrives, so
 `index/rtt-deep` and `index/rtt-lazy` still pay one round trip per level.  Removing that needs a
 registry that returns a package's dependency closure in one response, a protocol change.
+
+## Investigation: build-output collection
+
+Same machine, release builds of `main` (2e8ea483b) and the change, the change under two labels,
+`cargo perf run --filter gc/ --runs 20` with the binaries' runs interleaved block by block, under
+other load (load average 46-17).
+
+**Question.**  In the calibration above, `gc/clean-10k`'s instruction count moved 3-7% between
+two runs of one binary, though `cabin clean --gc` runs none of the toolchain probes whose polling
+made other counts drift.  What does it count?
+
+**Why.**  On macOS the count is Cabin's own in user and kernel mode, and `cabin clean --gc` runs no
+probes, so its user-mode work is the same from run to run: what moved was the kernel's.  The
+kernel's work dominated the scenario, 1.03 s of system time against 32 ms of user time.  After
+removing each output, collection tried to remove its directory and every parent up to the output
+directory, which fails while the directory holds anything else, so removing 10,000 outputs from
+one directory made a failed `rmdir` call for each but the last.  A script making the same calls on
+10,000 files in one directory retired 4.7 billion instructions removing the files alone and 13.1
+billion with a failed `rmdir` after each: about 0.84 million per failed `rmdir`, against 0.47
+million per removed file.  The cost barely depends on the directory's size: 2,000 failed calls
+retired 1.6 billion instructions on a directory of 100 entries and 1.9 billion on one of 10,000.
+
+**Change.**  Collection gathers every directory a removal may have emptied, up to its output
+directory, and tries each once every removal is done, deepest first, so failed `rmdir` calls no
+longer grow with the number of outputs a directory held.
+
+| `gc/clean-10k` | `main` | Change |
+| --- | ---: | ---: |
+| Wall time | 1.112 s | 466.7 ms (-58%) |
+| System time | 1.033 s | 424.8 ms |
+| Instructions | 12,832 M | 4,222 M (-67%) |
+
+Both rows are `Improved`.  `gc/new-day-c` and `gc/new-day-cxx`, which collect one output each, are
+`Unchanged`.
+
+**Not changed.**  The count still has two modes about 0.9 billion instructions apart, in both
+builds: 4-7 of each label's 20 runs retired that much more kernel work, mostly at different runs for
+each label, so interleaving cannot line the modes up between the sides.  The change's two labels
+still differed by 0.1% in median.  The instructions of `gc/clean-10k` therefore stay a policy
+metric; the modes widen its interquartile range, to 10.9% in this run, so a smaller change there
+reads as `Unchanged` rather than as a false verdict.
 
 ## Platform verification
 
