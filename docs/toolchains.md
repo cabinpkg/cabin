@@ -508,7 +508,7 @@ Ninja reads paths in two syntaxes: its own manifest, and the Makefile depfiles G
 - Ninja's depfile parser ends a path at `;`, `|`, `*`, `<`, `>`, `^`, `` ` ``, a tab, or a control
   character, and before Ninja 1.13 also at `'`, `"`, `&`, and `?`, with no escape for any of them;
   the split path never exists, so such a compile would rerun on every build.  A GCC/Clang compile
-  whose source, output, compiler, include directories, or extra flags contain one of these
+  whose source, output, compiler, sysroot, include directories, or extra flags contain one of these
   characters runs as `cabin depfile <depfile> -- <compile>`: after the compiler succeeds, Cabin
   reads the depfile itself and reports each dependency on the line-based channel Ninja's
   `deps = msvc` reads.  Every other compile keeps `deps = gcc` and pays nothing extra.
