@@ -153,10 +153,12 @@ fn run_process_with_timeout(
                 timeout,
             });
         }
+        // A probe exits in a few milliseconds, and a command runs
+        // several in sequence, so a coarse tick adds up to a tick to each.
         thread::sleep(
             deadline
                 .saturating_duration_since(now)
-                .min(Duration::from_millis(10)),
+                .min(Duration::from_millis(1)),
         );
     };
 
