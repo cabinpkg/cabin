@@ -2901,7 +2901,7 @@ fn target_named_profile_overlay_rejects_invalid_profile_name() {
             ldflags = ["bad"]
         "#,
     );
-    assert!(matches!(err, ManifestError::InvalidProfileName { .. }));
+    assert!(matches!(err, ManifestError::InvalidProfileName(_)));
 }
 
 #[test]
@@ -3185,10 +3185,45 @@ fn invalid_profile_name_is_rejected() {
         "#;
     let err = parse_manifest_str(manifest).unwrap_err();
     match err {
-        ManifestError::InvalidProfileName { value } => {
-            assert_eq!(value, ".release");
+        ManifestError::InvalidProfileName(err) => {
+            assert_eq!(err.value, ".release");
         }
         other => panic!("expected InvalidProfileName, got {other:?}"),
+    }
+}
+
+#[test]
+fn invalid_inherits_names_the_broken_rule() {
+    let manifest =
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[profile.ci]\ninherits = \"release.\"\n";
+    let err = parse_manifest_str(manifest).unwrap_err();
+    assert!(
+        matches!(&err, ManifestError::InvalidInheritedProfileName { profile, source }
+            if profile == "ci" && source.value == "release."),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("must not end with `.`"), "{err}");
+}
+
+#[test]
+fn profile_names_windows_would_alias_are_rejected() {
+    // Each name would build into a directory Windows aliases or
+    // reserves, wherever the manifest is parsed.
+    for (table, value) in [
+        ("[profile.'dev.']\ninherits = \"dev\"", "dev."),
+        ("[profile.'fast..']\ninherits = \"release\"", "fast.."),
+        ("[profile.NUL]\ninherits = \"dev\"", "NUL"),
+        ("[profile.'com1.fast']\ninherits = \"dev\"", "com1.fast"),
+        (
+            "[target.'cfg(os = \"linux\")'.profile.'release.']\nldflags = []",
+            "release.",
+        ),
+    ] {
+        let manifest = format!("[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n{table}\n");
+        match parse_manifest_str(&manifest).unwrap_err() {
+            ManifestError::InvalidProfileName(err) => assert_eq!(err.value, value),
+            other => panic!("expected InvalidProfileName for {value:?}, got {other:?}"),
+        }
     }
 }
 

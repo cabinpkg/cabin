@@ -12,15 +12,15 @@ pub(super) fn profiles_from_raw(
     let mut out = BTreeMap::new();
     for (name, raw_profile) in raw {
         let pname = cabin_core::ProfileName::new(name.clone())
-            .map_err(|err| ManifestError::InvalidProfileName { value: err.0 })?;
+            .map_err(ManifestError::InvalidProfileName)?;
         let inherits = raw_profile
             .inherits
             .clone()
             .map(|v| {
-                cabin_core::ProfileName::new(v).map_err(|err| {
+                cabin_core::ProfileName::new(v).map_err(|source| {
                     ManifestError::InvalidInheritedProfileName {
                         profile: pname.as_str().to_owned(),
-                        value: err.0,
+                        source,
                     }
                 })
             })

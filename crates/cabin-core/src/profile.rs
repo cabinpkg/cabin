@@ -24,6 +24,7 @@ use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use cabin_fs::path::PortabilityViolation;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -211,6 +212,8 @@ impl OptLevel {
 /// (`<build_dir>/<profile>/...`).  The grammar below is the
 /// intersection of those three constraints so a single value can
 /// flow through all of them without per-stage re-validation.
+/// It is the same on every host, so a manifest that works on one
+/// platform names the same directories on every other.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ProfileName(String);
@@ -222,16 +225,18 @@ impl ProfileName {
     ///
     /// - it is non-empty;
     /// - it consists only of ASCII alphanumerics, `_`, `-`, `.`;
-    /// - it does not start with `.`;
-    /// - it is not equal to `.` or `..`.
+    /// - it does not start with `.` (which also rules out `.` and `..`);
+    /// - it does not end with `.`, which Windows drops from a path
+    ///   component, so `dev.` would name the `dev` directory;
+    /// - it is not a reserved Windows device name (`CON`, `NUL`,
+    ///   `COM1`, ...) in any letter case, with or without an extension.
     ///
     /// # Errors
-    /// Returns [`InvalidProfileName`] when `value` fails the
-    /// `is_path_safe_profile_name` predicate above.
+    /// Returns [`InvalidProfileName`], naming the rule `value` breaks.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidProfileName> {
         let value = value.into();
-        if !is_path_safe_profile_name(&value) {
-            return Err(InvalidProfileName(value));
+        if let Some(reason) = profile_name_problem(&value) {
+            return Err(InvalidProfileName { value, reason });
         }
         Ok(Self(value))
     }
@@ -284,30 +289,41 @@ impl TryFrom<String> for ProfileName {
     }
 }
 
-/// Returns whether `name` matches the [`ProfileName`] grammar.
-pub(crate) fn is_path_safe_profile_name(name: &str) -> bool {
+/// The [`ProfileName`] rule `name` breaks, or `None` when it is valid.
+fn profile_name_problem(name: &str) -> Option<&'static str> {
     if name.is_empty() {
-        return false;
-    }
-    if name == "." || name == ".." {
-        return false;
+        return Some("profile names must not be empty");
     }
     if name.starts_with('.') {
-        return false;
+        return Some("profile names must not start with `.`");
     }
-    name.bytes()
+    if !name
+        .bytes()
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+    {
+        return Some("profile names may only contain ASCII alphanumerics, `_`, `-`, or `.`");
+    }
+    match cabin_fs::path::component_portability(name)? {
+        PortabilityViolation::TrailingDot => Some(
+            "profile names must not end with `.`, which Windows drops from directory names, so the profile could share another profile's build directory",
+        ),
+        PortabilityViolation::WindowsDeviceName => Some(
+            "profile names must not be a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, or `LPT1`-`LPT9`, in any letter case and with or without an extension), which Windows cannot use as a build directory",
+        ),
+        // The character check above rules out every other violation.
+        other => Some(other.detail()),
+    }
 }
 
-/// `cabin.toml`'s public grammar limits which characters profile
-/// names may contain.  The constructor surfaces this error type so
-/// callers (CLI, manifest parser) can format a clear diagnostic
-/// without duplicating the rule.
+/// A string that is not a valid [`ProfileName`].  The constructor
+/// surfaces this error type so callers (CLI, manifest parser) can
+/// format a clear diagnostic without duplicating the rule.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-#[error(
-    "invalid profile name {0:?}; profile names must be non-empty, must not start with `.`, must not be `.` or `..`, and may only contain ASCII alphanumerics, `_`, `-`, or `.`"
-)]
-pub struct InvalidProfileName(pub String);
+#[error("invalid profile name {value:?}; {reason}")]
+pub struct InvalidProfileName {
+    pub value: String,
+    reason: &'static str,
+}
 
 /// One `[profile.<name>]` declaration as it appeared in
 /// `cabin.toml`, after manifest-level validation but before
@@ -428,6 +444,12 @@ pub enum ProfileResolutionError {
     #[error("unknown profile `{name}`; define it with `[profile.{name}]` and an `inherits` field")]
     UnknownProfile { name: String },
 
+    /// The selected name matches a known profile only when letter
+    /// case is ignored.  Defining it would collide with that profile,
+    /// so the diagnostic points at the existing spelling instead.
+    #[error("unknown profile `{name}`; profile names are case-sensitive, so select `{known}`")]
+    UnknownProfileCase { name: String, known: String },
+
     /// A custom profile's `inherits =` points at a name that does
     /// not exist.
     #[error("profile `{profile}` inherits from unknown profile `{parent}`")]
@@ -452,6 +474,15 @@ pub enum ProfileResolutionError {
         "custom profile `{name}` must declare `inherits = \"dev\"` or `inherits = \"release\"` (or another custom profile)"
     )]
     CustomMissingInherits { name: String },
+
+    /// Two profile names, built-in or declared, differ only in ASCII
+    /// letter case.  Each profile builds into `<build_dir>/<name>/`,
+    /// and a case-insensitive filesystem (the Windows and macOS
+    /// default) would give both one directory.
+    #[error(
+        "profiles `{first}` and `{second}` differ only in letter case, so they would share one build directory on case-insensitive filesystems; rename `{second}`"
+    )]
+    CaseInsensitiveNameCollision { first: String, second: String },
 }
 
 fn display_chain(chain: &[String]) -> String {
@@ -494,10 +525,12 @@ fn display_chain(chain: &[String]) -> String {
 /// # Errors
 /// Returns a [`ProfileResolutionError`] when the definitions or selection are
 /// invalid: an `inherits` cycle ([`ProfileResolutionError::InheritanceCycle`]),
-/// a reference to an unknown profile ([`ProfileResolutionError::UnknownProfile`])
+/// a reference to an unknown profile ([`ProfileResolutionError::UnknownProfile`],
+/// [`ProfileResolutionError::UnknownProfileCase`])
 /// or unknown parent ([`ProfileResolutionError::UnknownInheritedProfile`]), or a
 /// validation failure surfaced by `validate_definitions`
-/// ([`ProfileResolutionError::BuiltinCannotInherit`],
+/// ([`ProfileResolutionError::CaseInsensitiveNameCollision`],
+/// [`ProfileResolutionError::BuiltinCannotInherit`],
 /// [`ProfileResolutionError::CustomMissingInherits`]).
 ///
 /// # Panics
@@ -549,9 +582,17 @@ pub fn resolve_profile(
             break;
         }
 
-        return Err(ProfileResolutionError::UnknownProfile {
-            name: cursor.as_str().to_owned(),
-        });
+        let name = cursor.as_str().to_owned();
+        if let Some(known) = available_profile_names(definitions)
+            .into_iter()
+            .find(|known| known.as_str().eq_ignore_ascii_case(&name))
+        {
+            return Err(ProfileResolutionError::UnknownProfileCase {
+                name,
+                known: known.as_str().to_owned(),
+            });
+        }
+        return Err(ProfileResolutionError::UnknownProfile { name });
     }
 
     // `chain` is selected -> ... -> root.  Reverse so we merge
@@ -601,13 +642,27 @@ pub fn resolve_profile(
     })
 }
 
-/// Whole-table validation: every custom profile declares
-/// `inherits`, no built-in declares it, and inherits-targets are
-/// known.  Cycles are caught in [`resolve_profile`] when the chain
-/// is walked.
+/// Whole-table validation: no two profile names differ only in
+/// letter case, every custom profile declares `inherits`, no
+/// built-in declares it, and inherits-targets are known.  Cycles
+/// are caught in [`resolve_profile`] when the chain is walked.
 fn validate_definitions(
     definitions: &BTreeMap<ProfileName, ProfileDefinition>,
 ) -> Result<(), ProfileResolutionError> {
+    let builtins = BuiltinProfile::all().map(ProfileName::builtin);
+    let mut by_folded: BTreeMap<String, &ProfileName> = BTreeMap::new();
+    // Names are ASCII-only, so ASCII case folding is exactly what a
+    // case-insensitive filesystem compares.
+    for name in builtins.iter().chain(definitions.keys()) {
+        if let Some(first) = by_folded.insert(name.as_str().to_ascii_lowercase(), name)
+            && first != name
+        {
+            return Err(ProfileResolutionError::CaseInsensitiveNameCollision {
+                first: first.as_str().to_owned(),
+                second: name.as_str().to_owned(),
+            });
+        }
+    }
     for (name, def) in definitions {
         match (name.as_builtin(), &def.inherits) {
             (Some(_), Some(_)) => {
@@ -833,6 +888,22 @@ mod tests {
     }
 
     #[test]
+    fn selection_differing_only_in_case_names_the_known_profile() {
+        let d = defs(vec![def("fast", Some("release"), None, None, None)]);
+        for (selected, known) in [("Release", "release"), ("DEV", "dev"), ("FAST", "fast")] {
+            let err =
+                resolve_profile(&ProfileSelection::from_name(name(selected)), &d).unwrap_err();
+            assert_eq!(
+                err,
+                ProfileResolutionError::UnknownProfileCase {
+                    name: selected.to_owned(),
+                    known: known.to_owned(),
+                }
+            );
+        }
+    }
+
+    #[test]
     fn custom_without_inherits_is_rejected() {
         let d = defs(vec![def("ci", None, Some(true), None, None)]);
         let err = resolve_profile(&ProfileSelection::from_name(name("ci")), &d).unwrap_err();
@@ -901,9 +972,99 @@ mod tests {
             "ci.fast",
             "0",
             "ci_2",
+            "RelWithDebInfo",
+            "a.b.c",
+            "CONSOLE",
+            "nul_check",
+            "com10",
+            "lpt0",
         ] {
             assert!(ProfileName::new(good).is_ok(), "{good:?} should be valid");
         }
+    }
+
+    #[test]
+    fn trailing_dot_profile_name_is_rejected() {
+        // Windows drops trailing dots, so `dev.` would build into `dev/`.
+        for bad in ["dev.", "release..", "ci.fast.", "a..."] {
+            let err = ProfileName::new(bad).unwrap_err();
+            assert_eq!(err.value, bad);
+            assert!(err.to_string().contains("must not end with `.`"), "{err}");
+        }
+    }
+
+    #[test]
+    fn windows_device_profile_name_is_rejected() {
+        for bad in [
+            "CON", "con", "Prn", "aux", "NUL", "com1", "COM9", "lpt1", "LPT9", "nul.fast",
+            "Con.dev", "aux.a.b",
+        ] {
+            let err = ProfileName::new(bad).unwrap_err();
+            assert!(
+                err.to_string().contains("Windows device name"),
+                "{bad:?}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn profile_names_differing_only_in_case_are_rejected() {
+        let d = defs(vec![
+            def("Fast", Some("release"), None, None, None),
+            def("fast", Some("release"), None, None, None),
+        ]);
+        // Selecting a third, unrelated profile still fails: the table
+        // itself is invalid.
+        let err = resolve_profile(&ProfileSelection::default_dev(), &d).unwrap_err();
+        assert_eq!(
+            err,
+            ProfileResolutionError::CaseInsensitiveNameCollision {
+                first: "Fast".to_owned(),
+                second: "fast".to_owned(),
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            "profiles `Fast` and `fast` differ only in letter case, so they would share one build directory on case-insensitive filesystems; rename `fast`",
+        );
+    }
+
+    #[test]
+    fn custom_profile_colliding_with_builtin_is_rejected() {
+        for (custom, builtin) in [("DEV", "dev"), ("Release", "release")] {
+            let d = defs(vec![def(custom, Some(builtin), None, None, None)]);
+            let err = resolve_profile(&ProfileSelection::from_name(name(custom)), &d).unwrap_err();
+            assert_eq!(
+                err,
+                ProfileResolutionError::CaseInsensitiveNameCollision {
+                    first: builtin.to_owned(),
+                    second: custom.to_owned(),
+                }
+            );
+        }
+        // The collision outranks the missing-`inherits` diagnosis.
+        let d = defs(vec![def("Dev", None, None, None, None)]);
+        assert!(matches!(
+            resolve_profile(&ProfileSelection::default_dev(), &d),
+            Err(ProfileResolutionError::CaseInsensitiveNameCollision { .. })
+        ));
+    }
+
+    #[test]
+    fn mixed_case_names_without_collision_resolve() {
+        let d = defs(vec![
+            def("dev", None, Some(false), None, None),
+            def("RelWithDebInfo", Some("release"), Some(true), None, None),
+            def("ci.Fast", Some("RelWithDebInfo"), None, None, None),
+        ]);
+        let r = resolve_profile(&ProfileSelection::from_name(name("ci.Fast")), &d).unwrap();
+        assert_eq!(r.source, ProfileSource::Custom);
+        assert!(r.debug);
+        let chain: Vec<&str> = r.inherits_chain.iter().map(ProfileName::as_str).collect();
+        assert_eq!(chain, vec!["release", "RelWithDebInfo", "ci.Fast"]);
+        let dev = resolve_profile(&ProfileSelection::default_dev(), &d).unwrap();
+        assert_eq!(dev.source, ProfileSource::BuiltinOverridden);
+        assert!(!dev.debug);
     }
 
     #[test]

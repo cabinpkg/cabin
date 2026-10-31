@@ -190,15 +190,14 @@ pub enum ManifestError {
     // -----------------------------------------------------------------
     // Profile errors.
     // -----------------------------------------------------------------
-    #[error(
-        "invalid profile name {value:?}; profile names must be non-empty, must not start with `.`, must not be `.` or `..`, and may only contain ASCII alphanumerics, `_`, `-`, or `.`"
-    )]
-    InvalidProfileName { value: String },
+    #[error(transparent)]
+    InvalidProfileName(cabin_core::InvalidProfileName),
 
-    #[error(
-        "profile {profile:?} declares `inherits = {value:?}`, which is not a valid profile name"
-    )]
-    InvalidInheritedProfileName { profile: String, value: String },
+    #[error("profile {profile:?} has an invalid `inherits` value: {source}")]
+    InvalidInheritedProfileName {
+        profile: String,
+        source: cabin_core::InvalidProfileName,
+    },
 
     #[error(
         "`inherits` is not allowed in {table}; profile inheritance must be defined by `[profile.{profile}]`"

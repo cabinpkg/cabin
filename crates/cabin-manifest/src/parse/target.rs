@@ -227,8 +227,8 @@ fn parse_conditional_profile(
     let mut named = Vec::new();
     for (key, value) in raw {
         if let toml::Value::Table(fields) = &value {
-            let profile = cabin_core::ProfileName::new(key)
-                .map_err(|err| ManifestError::InvalidProfileName { value: err.0 })?;
+            let profile =
+                cabin_core::ProfileName::new(key).map_err(ManifestError::InvalidProfileName)?;
             validate_named_overlay_fields(raw_target_name, &profile, fields)?;
             let flags = value.try_into().map_err(|source| {
                 ManifestError::InvalidConditionalTargetTable {
