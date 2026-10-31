@@ -186,7 +186,7 @@ pub(crate) fn run(
             plan_graph: &plan_graph,
             graph: &prepared.graph,
             toolchain: &prepared.toolchain,
-            cxx_kind: prepared.detection_report.cxx.identity.kind,
+            detection: &prepared.detection_report,
             feature_resolution: &prepared.feature_resolution,
             platform: &prepared.platform,
             dev_for: &prepared.dev_for,

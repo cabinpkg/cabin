@@ -18,6 +18,18 @@ pub struct ToolchainDetectionReport {
 }
 
 impl ToolchainDetectionReport {
+    /// What a build's outputs depend on: each tool's
+    /// [`CompilerIdentity::build_identity`], and the archiver's
+    /// identity.  No paths: a used tool's path is already in its
+    /// commands, and an unused one's must not rebuild anything.
+    pub fn build_identity(&self) -> serde_json::Value {
+        serde_json::json!({
+            "cc": self.cc.as_ref().map(|cc| cc.identity.build_identity()),
+            "cxx": self.cxx.identity.build_identity(),
+            "ar": self.ar.identity.as_json(),
+        })
+    }
+
     /// Compact, deterministic JSON view used by `cabin metadata`
     /// and any tooling that wants to inspect detection results
     /// without re-deriving them.  Each tool block carries

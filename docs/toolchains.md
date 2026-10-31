@@ -400,21 +400,22 @@ metadata needs to report a build configuration on a machine without the default 
 
 ### Determinism and network access
 
-Detection runs only `tool --version`.  It never compiles probe sources, never reads sources outside
-the package being built, and never touches the network.  Output is captured deterministically;
-identical toolchains on identical machines yield identical `ToolchainDetectionReport`s.
+Detection runs only `tool --version`, plus GCC's `-dumpmachine` under `--target`.  It never
+compiles probe sources, never reads sources outside the package being built, and never touches the
+network.  Output is captured deterministically; identical toolchains on identical machines yield
+identical `ToolchainDetectionReport`s.
 
 ## Build configuration fingerprint
 
 `BuildConfiguration::fingerprint` is a SHA-256 over the resolved build-configuration inputs that
-Cabin exposes to metadata, `cabin run`, and `cabin test`.  The hash folds in:
+`cabin metadata` and `cabin explain build-config` report.  The hash folds in:
 
 | Section                  | Inputs                                                                                  |
 | ------------------------ | --------------------------------------------------------------------------------------- |
 | features                 | every enabled feature, sorted                                                           |
 | profile                  | name, debug, opt-level, assertions                                                      |
 | toolchain                | `(kind, spec)` pairs, sorted by tool key                                                |
-| compiler-wrapper         | kind, spec, source, version (or `none`)                                                 |
+| compiler-wrapper         | kind, spec, version (or `none`)                                                         |
 | target                   | the `--target` triple; absent for a build-machine build                                 |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from environment and system dependencies |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
@@ -454,13 +455,16 @@ an input:
 ### Direct `ninja` invocation
 
 `cabin build` regenerates `build.ninja` and `compile_commands.json` from the current manifest /
-config / toolchain inputs every time it runs.  Direct `ninja -C
-<build-dir>` invocations do *not* re-read `cabin.toml`,
-`.cabin/config.toml`, or the environment - Ninja rebuilds an output only when the command line, an
-explicit input, the depfile, or the output path changes.  Run `cabin build` after manifest, config,
-or toolchain edits so the fingerprint and the generated commands reflect the new inputs; running
-Ninja directly against a stale `build.ninja` is intentionally supported (it's how IDEs and editor
-watchers re-invoke the incremental build) but does not pick up Cabin-level changes.
+config / toolchain inputs every time it runs.  Direct `ninja -C <build-dir>/<profile>` invocations
+do *not* re-read `cabin.toml`, `.cabin/config.toml`, or the environment - Ninja rebuilds an output
+only when the command line, an explicit input, the depfile, or the output path changes, or when
+`cabin-toolchain.json` beside `build.ninja` does.  Every edge depends on that file, which records
+each detected compiler's and the archiver's family, version, `--version` line, and target, and which
+`cabin build` rewrites only when one of them changes: a compiler whose reported version changes
+rebuilds everything, even at the same path.  Run `cabin build` after manifest, config, or toolchain
+edits so the fingerprint and the generated commands reflect the new inputs; running Ninja directly
+against a stale `build.ninja` is intentionally supported (it's how IDEs and editor watchers
+re-invoke the incremental build) but does not pick up Cabin-level changes.
 
 ## Package + index metadata
 

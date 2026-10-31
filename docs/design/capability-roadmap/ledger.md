@@ -200,10 +200,11 @@ Stage 07; build-tool foundation in 04; validated in 08, 10, 12-14.
 
 - The action set is closed: compile, syntax check, assemble, archive, link
   (`cabin-driver/src/action.rs`, `BuildAction`; `cabin-driver/src/lower.rs`).  A compile edge's
-  only explicit input is its source, and the Ninja writer emits no order-only or implicit inputs
-  (`cabin-ninja/src/writer.rs`).
+  only explicit input is its source, and every edge's one implicit input is the toolchain stamp
+  (`cabin-ninja/src/writer.rs`, `TOOLCHAIN_STAMP`).
 - `build.ninja` is rewritten on every build; incremental correctness rests on that, Ninja's
-  command-line tracking, and compiler depfiles.  `BuildConfiguration::fingerprint`
+  command-line tracking, compiler depfiles, and the stamp, which changes with the detected
+  compilers' and archiver's versions.  `BuildConfiguration::fingerprint`
   (`cabin-core/src/config.rs`) is computed but not used by the planner.
 - Dependency kinds are only `normal` and `dev` (`cabin-core/src/model.rs`, `DependencyKind`);
   `[build-dependencies]` is an unknown key.
@@ -232,13 +233,17 @@ Stages 04 and 05; validated in 06-10, 12-14.
 
 **Today.**
 
-- `cfg(...)` predicates evaluate against `TargetPlatform::current()`
-  (`cabin-core/src/condition.rs`), built from `std::env::consts`: the platform Cabin itself was
-  compiled for, not the compiler's target.  `env` follows the OS, `abi` is always `unknown`, and
-  `target` is `<arch>-<family>-<os>`, not a real triple.
-- `--target` has no definition and fails as an unknown argument; tests pin that
-  (`cabin/tests/cli.rs`, `cabin/tests/cli/test_targets.rs`).
-- Clang's `Target:` line is parsed into `CompilerIdentity.target` and only reported in metadata.
+- `cfg(...)` predicates evaluate for the `--target` triple (`cabin-core/src/condition.rs`,
+  `TargetPlatform::from_triple`), or without it for `TargetPlatform::current()`, built from
+  `std::env::consts`: there `env` follows the OS, `abi` is always `unknown`, and `target` is
+  `<arch>-<family>-<os>`, not a real triple.
+- `--target <triple>` builds under `<build-dir>/<triple>/`, passes Clang `--target=`, and checks
+  that GCC, MSVC, or clang-cl already builds for the triple (`cabin-toolchain/src/target.rs`).
+  For another machine, `cabin run` and `cabin test` run nothing, and the build machine's plain
+  pkg-config is refused.  Every target is a unit for that one platform: there is no build-machine
+  context yet.
+- Clang's `Target:` line and the MSVC banner's architecture fill `CompilerIdentity.target`; a native
+  build warns when it names another machine.
 - MSVC discovery uses Cabin's own architecture (`cabin-toolchain/src/msvc.rs`); MASM is always
   `ml64.exe`, x64 only (`cabin-driver/src/dialect.rs`, `Dialect::assembler`).
 
@@ -342,8 +347,10 @@ Stages 05 and 04; used by 06-14.
   `cfg` table > manifest > default (`cabin-toolchain/src/resolve.rs`); compiler wrappers;
   compiler-conditioned flag layers; a C or C++ link driver chosen from the linked objects
   (`link_driver_language`).
-- Detection runs `--version` only.  The fingerprint hashes tool specs, not resolved paths,
-  versions, or targets.  MinGW is best-effort.  No sysroot or SDK model.
+- Detection runs `--version`, and GCC's `-dumpmachine` under `--target`.  The fingerprint hashes
+  tool specs and the `--target` triple, not resolved paths or versions; the toolchain stamp beside
+  `build.ninja` records versions, so a compiler whose version changes rebuilds at the same path.
+  MinGW is best-effort.  No sysroot or SDK model.
 
 **Blocked workflow.**  Generating a configuration header from a compile check; building against an
 explicit sysroot; a supported MinGW toolchain.
@@ -419,8 +426,8 @@ change expected to fix them.
 | [Profiles](profiles.md), `build_flags.rs` | `link-libs` belong to a target's objects | collected per package | fixed in stage 02 (docs say per package) |
 | [Targets](targets.md), `TargetKind` doc | a `library` is a `.a` archive | `<name>.lib` on MSVC | stage 08 |
 | [Target dependencies](target-dependencies.md) | `cfg(env = "musl")` example; `target` documented as a triple in `condition.rs` | `env` always follows the OS; `target` is `<arch>-<family>-<os>` | stage 04 under `--target`; the build machine's own values are unchanged |
-| [Toolchains](toolchains.md), [compiler cache](compiler-cache.md), architecture | the wrapper's `source` is fingerprinted | only kind, spec, and version are hashed | stage 04 (fingerprint completeness) |
-| [Toolchains](toolchains.md) | the fingerprint reaches `cabin run` and `cabin test` | they discard it | stage 04 |
+| [Toolchains](toolchains.md), [compiler cache](compiler-cache.md), architecture | the wrapper's `source` is fingerprinted | only kind, spec, and version are hashed | fixed in stage 04 (docs) |
+| [Toolchains](toolchains.md) | the fingerprint reaches `cabin run` and `cabin test` | they discard it | fixed in stage 04 (docs) |
 | [Profiles](profiles.md) | output layout `packages/<package>/<target>/...` | artifacts in `packages/<pkg>/`, objects in `packages/<pkg>/obj/<target>/` | stage 09 (layout contract) |
 | [Metadata, tree, explain](metadata-tree-explain.md) | metadata is byte-identical across machines | it includes resolved tool paths and pkg-config output | stage 05 (configured versus detected) |
 | [System dependencies](system-dependencies.md), `docs/architecture.md` (`cabin-system-deps`) | only the selected members are primary; probes fire only for a selected primary package | every primary package is probed; only the MSVC gate narrows to the selection (not run) | stage 06 |
@@ -535,6 +542,15 @@ pkg-config unless `PKG_CONFIG_LIBDIR` or `CABIN_PKG_CONFIG` is set; the configur
 folds the triple in; the link-failure hint evaluates edges for the build's platform; and `cabin
 clean --target` cleans one triple's outputs.
 
+Stage 04, third change: `cabin build`, `check`, `run`, and `test` write each detected tool's
+identity (family, version, `--version` line, target; not its path, which the commands already carry)
+beside `build.ninja` as `cabin-toolchain.json`, rewritten only when it changes, and every Ninja edge
+depends on it, so a compiler whose reported version changes at the same path rebuilds everything;
+before, only a changed command line did.  The first build of an existing build directory therefore
+rebuilds once, and `cabin package` leaves the file out as it does `build.ninja`.  The fingerprint
+documentation now matches the code: the wrapper's `source` is not hashed, and `cabin run` and `cabin
+test` do not consume the fingerprint.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -627,6 +643,14 @@ an env), MSVC banners, compiler-target checks, the planner and lowering of `--ta
 fingerprint; `cargo ci` on macOS.  Verified cross combination: Apple Clang, macOS arm64 to macOS
 x86_64, C and C++.  Not run: a Linux cross toolchain (none here; CI's Linux and Windows legs run the
 portable tests), MSVC or clang-cl cross, and running the x86_64 output (no Rosetta).
+
+Stage 04, third change: a CLI test replaces a C and a C++ compiler at the same paths with ones
+reporting another version, and both executables relink while unchanged compilers leave them
+untouched and a C compiler moved elsewhere leaves the C++ program untouched; each part fails with
+its guard removed (the stamp input on the edges, paths left out of the identity).  A unit test
+ignores the name GCC was invoked as (`cc` or `gcc`).  Writer tests for the stamp on C and C++
+compile, check, assemble, archive, and link edges and its rewrite only on a changed identity; `cargo
+ci` on macOS.
 
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to

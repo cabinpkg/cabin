@@ -144,6 +144,7 @@ list of generated / dependency / VCS artifacts:
 | `.DS_Store` | macOS Finder metadata. |
 | `compile_commands.json` | Generated tooling index. |
 | `build.ninja` | Generated Ninja build file. |
+| `cabin-toolchain.json` | Toolchain identity stamp written beside `build.ninja`. |
 | `cabin.lock` | Generated lockfile. |
 | `credentials.toml` | Cabin registry bearer credentials. This filename is matched case-insensitively and excluded anywhere in the tree, including when `CABIN_CONFIG_HOME` points inside a package root. |
 

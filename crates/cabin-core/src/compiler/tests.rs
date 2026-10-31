@@ -1376,3 +1376,23 @@ fn parse_with_suffix_strips_trailing_garbage_per_component() {
     assert!(CompilerVersion::parse_with_suffix("garbage").is_none());
     assert!(CompilerVersion::parse_with_suffix("v14.2").is_none());
 }
+
+#[test]
+fn build_identity_ignores_the_name_gcc_was_invoked_as() {
+    let gcc = |name: &str, version: &str| {
+        parse_cxx_version_output(&format!(
+            "{name} (Ubuntu {version}-6ubuntu2) {version}\n\
+             Copyright (C) 2023 Free Software Foundation, Inc.\n"
+        ))
+    };
+    assert_eq!(
+        gcc("cc", "13.2.0").build_identity(),
+        gcc("gcc", "13.2.0").build_identity()
+    );
+    assert_ne!(
+        gcc("gcc", "13.3.0").build_identity(),
+        gcc("gcc", "13.2.0").build_identity()
+    );
+    // The diagnostic banner keeps the name.
+    assert!(gcc("cc", "13.2.0").raw_version_line.starts_with("cc ("));
+}

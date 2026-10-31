@@ -492,9 +492,10 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     /// Resolved toolchain, used to decide whether the discovered MSVC
     /// environment overlay applies.
     pub toolchain: &'a cabin_core::ResolvedToolchain,
-    /// Detected C++ compiler family
-    /// (`detection_report.cxx.identity.kind`).
-    pub cxx_kind: cabin_core::CompilerKind,
+    /// Detected toolchain: its C++ compiler family decides the MSVC
+    /// environment overlay, and its tools' identities are what every
+    /// Ninja edge depends on.
+    pub detection: &'a cabin_core::ToolchainDetectionReport,
     /// Resolved feature graph, consumed by the link-failure hint.
     pub feature_resolution: &'a cabin_feature::FeatureResolution,
     /// The platform the build targets, consumed by the link-failure
@@ -533,7 +534,13 @@ pub(crate) fn invoke_ninja_and_report(
     })?;
 
     let ninja_file = profile_build_root.join("build.ninja");
-    cabin_ninja::write_build_ninja(&ninja_file, req.plan_graph, &check_stamp_runner())?;
+    let identity = serde_json::to_string_pretty(&req.detection.build_identity())?;
+    cabin_ninja::write_build_ninja(
+        &ninja_file,
+        req.plan_graph,
+        &check_stamp_runner(),
+        &identity,
+    )?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)?;
 
@@ -572,7 +579,7 @@ pub(crate) fn invoke_ninja_and_report(
         req.reporter,
         req.graph,
         req.plan_graph,
-        discovered_msvc_install_applies(req.toolchain, req.cxx_kind),
+        discovered_msvc_install_applies(req.toolchain, req.detection.cxx.identity.kind),
     )
     .with_context(|| format!("failed to invoke ninja at {}", req.ninja.display()))?;
     if !run.status.success() {

@@ -378,3 +378,98 @@ cxx = "clang++"
         "expected member-toolchain rejection, got: {stderr}",
     );
 }
+
+/// Compilers replaced at the same paths rebuild the package though no
+/// command line changed: every edge depends on the toolchain identity,
+/// which leaves paths to the commands that use them.
+#[cfg(unix)]
+#[test]
+fn compilers_replaced_at_the_same_paths_rebuild() {
+    use std::os::unix::fs::PermissionsExt;
+    require_c_and_cxx_build_tools();
+    let find = |names: [&'static str; 3]| names.into_iter().find(|n| command_exists(n)).unwrap();
+    let (real_cc, real_cxx) = (
+        find(["cc", "clang", "gcc"]),
+        find(["c++", "clang++", "g++"]),
+    );
+    let dir = TempDir::new().unwrap();
+    let root = assert_fs::fixture::ChildPath::new(dir.path());
+    root.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.capp]
+type = "executable"
+sources = ["src/main.c"]
+
+[target.cxxapp]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+        )
+        .unwrap();
+    root.child("src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    root.child("src/main.cc")
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    let bin = TempDir::new().unwrap();
+    let (cc, cxx) = (bin.path().join("cc"), bin.path().join("cxx"));
+    let install = |version: &str| {
+        for (fake, real) in [(&cc, real_cc), (&cxx, real_cxx)] {
+            fs::write(
+                fake,
+                format!(
+                    "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'clang version {version}'; exit 0; fi\nexec {real} \"$@\"\n"
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(fake, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    };
+    let build = |cc: &Path| {
+        cabin()
+            .current_dir(dir.path())
+            .arg("build")
+            .arg("--cc")
+            .arg(cc)
+            .arg("--cxx")
+            .arg(&cxx)
+            .assert()
+            .success();
+    };
+    let modified = || {
+        ["capp", "cxxapp"].map(|exe| {
+            let path = dir.path().join("build/dev/packages/app").join(exe);
+            fs::metadata(path).unwrap().modified().unwrap()
+        })
+    };
+
+    install("17.0.1");
+    build(&cc);
+    let first = modified();
+    build(&cc);
+    assert_eq!(modified(), first, "unchanged compilers must not relink");
+
+    install("17.0.2");
+    build(&cc);
+    let replaced = modified();
+    assert!(
+        first.iter().zip(&replaced).all(|(a, b)| a != b),
+        "replaced compilers must relink both executables"
+    );
+
+    let moved = bin.path().join("cc-moved");
+    fs::copy(&cc, &moved).unwrap();
+    build(&moved);
+    assert_eq!(
+        modified()[1],
+        replaced[1],
+        "a C compiler at another path must not relink the C++ program"
+    );
+}

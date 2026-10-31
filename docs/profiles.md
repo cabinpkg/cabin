@@ -319,6 +319,7 @@ Build outputs are profile-aware:
 ```text
 <build-dir>/<profile>/build.ninja
 <build-dir>/<profile>/compile_commands.json
+<build-dir>/<profile>/cabin-toolchain.json
 <build-dir>/<profile>/packages/<package>/<target>/...
 ```
 
