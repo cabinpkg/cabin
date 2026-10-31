@@ -3,19 +3,15 @@
 //! `cabin --help` shows only the day-to-day commands so the
 //! default view is short and easy to skim.  Advanced and
 //! machine-facing commands are hidden from `--help` by a
-//! `#[command(hide = true)]` annotation in [`crate::cli::Cli`].
+//! `#[command(hide = true)]` annotation on their
+//! [`crate::cli::Command`] variant.
 //!
 //! `cabin --list` is the full directory: it walks the canonical
 //! [`clap::Command`] tree, gathers every top-level subcommand
 //! (including hidden ones), sorts them alphabetically, and
-//! prints a stable name + short-about block.  The output is
-//! intentionally cargo-style - a `Installed Commands:` heading
-//! followed by indented `<name> <about>` rows.
-//!
-//! The module is `pub(crate)`; integration tests run the binary
-//! and assert against the printed bytes.  The pure
-//! [`format_command_list`] helper is exercised by unit tests so
-//! the formatter stays decoupled from the process stdout.
+//! prints a stable name + short-about block in `cargo --list`
+//! style: an `Installed Commands:` heading followed by indented
+//! `<name> <about>` rows.
 
 use anyhow::{Context, Result};
 use clap::CommandFactory;
@@ -42,10 +38,8 @@ const ROW_INDENT: &str = "    ";
 /// same content as plain bytes.
 pub(crate) fn print_list<W: WriteColor>(out: &mut W) -> Result<()> {
     // `Command::build` materializes clap's auto-injected
-    // `help` pseudo-subcommand so it appears in the listing.
-    // Without the explicit build call `Cli::command()` only
-    // carries the user-declared subcommands; cargo's
-    // `cargo --list` includes `help`, and so do we.
+    // `help` pseudo-subcommand so it appears in the listing,
+    // as it does in `cargo --list`.
     let mut cmd = Cli::command();
     cmd.build();
     write_command_list(out, &cmd).context("failed to write command list")
@@ -54,10 +48,7 @@ pub(crate) fn print_list<W: WriteColor>(out: &mut W) -> Result<()> {
 /// Render the command list onto a [`WriteColor`] sink, using
 /// the cargo-style palette: bright green + bold heading,
 /// bright cyan + bold subcommand names and aliases, plain
-/// about text and plain `, ` separators.  The color
-/// transitions are guarded by `set_color` / `reset` so callers
-/// passing a no-color writer see the same plain text the
-/// [`format_command_list`] helper produces.
+/// about text and plain `, ` separators.
 fn write_command_list<W: WriteColor>(out: &mut W, cmd: &clap::Command) -> std::io::Result<()> {
     let entries = collect_entries(cmd);
     let width = rows_display_width(&entries);
@@ -106,10 +97,7 @@ fn write_command_list<W: WriteColor>(out: &mut W, cmd: &clap::Command) -> std::i
 
 /// Test-only convenience that drives [`write_command_list`]
 /// against an in-memory uncolored buffer and returns the
-/// rendered text.  Wrapping the real renderer (instead of
-/// duplicating its formatting code) keeps unit-test
-/// expectations honest: any change to the production layout
-/// shows up in both surfaces in one place.
+/// rendered text.
 #[cfg(test)]
 fn format_command_list(cmd: &clap::Command) -> String {
     use termcolor::NoColor;

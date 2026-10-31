@@ -38,10 +38,9 @@ const RECREATE: &str = "recreate";
 const DEPFILE: &str = "depfile";
 
 /// If this process was invoked as `cabin stamp …`, `cabin recreate …`, or
-/// `cabin depfile …`,
-/// run that command and return its exit code; otherwise return `None` so
-/// normal CLI parsing proceeds. `argv` is the full process argument
-/// vector, including `argv[0]`.
+/// `cabin depfile …`, run that command and return its exit code;
+/// otherwise return `None` so normal CLI parsing proceeds. `argv` is the
+/// full process argument vector, including `argv[0]`.
 pub(crate) fn dispatch(argv: &[OsString]) -> Option<ExitCode> {
     let Some(verb @ (STAMP | RECREATE | DEPFILE)) = argv.get(1).and_then(|first| first.to_str())
     else {
@@ -102,7 +101,8 @@ struct StampArgs {
 /// non-zero command exit is propagated verbatim and stays silent (the
 /// compiler already printed its own diagnostics); only Cabin-level
 /// failures (un-spawnable program, unwritable witness, unremovable
-/// output) surface as a rendered error.
+/// output, unreadable or unreportable depfile) surface as a rendered
+/// error.
 fn execute(verb: &str, args: &StampArgs) -> anyhow::Result<ExitCode> {
     let Some((program, rest)) = args.command.split_first() else {
         // `required = true` already makes clap reject an empty argv; this

@@ -4,9 +4,7 @@
 //! Two pieces live here:
 //! - [`resolve_verbosity`] applies Cabin's documented precedence
 //!   rule: CLI > `CABIN_TERM_VERBOSE` / `CABIN_TERM_QUIET` env
-//!   vars > config `term.verbose` / `term.quiet` > default.  The
-//!   function is pure: tests pass a closure for env lookup so
-//!   they never depend on the host environment;
+//!   vars > config `term.verbose` / `term.quiet` > default;
 //! - [`Reporter`] is the small, typed display context every
 //!   subcommand uses to emit Cabin-owned status / verbose /
 //!   very-verbose lines.  It honors `--quiet` and `--verbose`
@@ -47,15 +45,12 @@ pub(crate) fn discover_early_config_verbosity() -> EffectiveConfig {
     }
 }
 
-/// Validated verbosity inputs at the CLI boundary.  Mirrors the
-/// raw `Cli` flags one-for-one so the dispatcher can produce a
-/// single typed value without scattering `if quiet ... else if
-/// verbose` branches over the call sites.
+/// Verbosity inputs at the CLI boundary.  Mirrors the raw `Cli`
+/// flags one-for-one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliVerbosity {
-    /// Number of `-v` / `--verbose` occurrences.  Clamped at the
-    /// caller - clap's `ArgAction::Count` already saturates at
-    /// `u8::MAX`.
+    /// Number of `-v` / `--verbose` occurrences; clap's
+    /// `ArgAction::Count` saturates at `u8::MAX`.
     pub(crate) verbose_count: u8,
     /// Whether `-q` / `--quiet` was passed.
     pub(crate) quiet: bool,
@@ -149,20 +144,14 @@ enum Stream {
 
 /// Column the banner verb (`Compiling`, `Finished`, `Created`,
 /// …) is right-aligned to inside [`Reporter::status`].  Matches
-/// cargo's own banner layout - the cabin-cpp diagnostic surface
-/// uses the same column for `Diag::info`.
+/// cargo's own banner layout.
 const COLUMN_WIDTH: usize = 12;
 
 /// Display context every subcommand uses to print Cabin-owned
 /// status and verbose / very-verbose context lines.
 ///
-/// The reporter is intentionally small: it owns a verbosity, not
-/// a writer, so call sites stay easy to grep (`reporter.status(
-/// ...)`, `reporter.verbose(...)`).  The actual writes go through
-/// the process's stdout / stderr handles so existing tests that
-/// match on either stream keep working.  Both `Clone` and `Copy`
-/// are derived so the value can flow by-value through the few
-/// helper chains that would otherwise need a borrow.
+/// It holds the resolved verbosity and styling, not a writer;
+/// each write locks the process's stdout or stderr handle.
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Reporter {
@@ -170,14 +159,14 @@ pub(crate) struct Reporter {
     /// Resolved at construction time. `true` means every
     /// styled write may emit ANSI escape sequences; `false`
     /// guarantees plain-text output.  The flag captures the
-    /// `--color` / `CABIN_TERM_COLOR` / config / tty resolution
-    /// so individual emit sites no longer probe the environment.
+    /// `--color` / `CABIN_TERM_COLOR` / config / tty resolution,
+    /// so emit sites do not probe the environment.
     styled: bool,
 }
 
 impl Reporter {
     /// Build a reporter that emits styled status lines when the
-    /// resolved [`ColorChoice`] says it should.  `Auto` is
+    /// resolved [`cabin_core::ColorChoice`] says it should.  `Auto` is
     /// honored by probing whether the current stdout handle is
     /// a terminal - matching what the rest of Cabin's
     /// diagnostic renderer does for stderr.
@@ -190,22 +179,16 @@ impl Reporter {
         Self { verbosity, styled }
     }
 
-    /// Read the resolved verbosity back.  Callers that need
-    /// the typed value read it through this accessor instead
-    /// of stashing the value alongside the reporter.
+    /// The resolved verbosity.
     pub(crate) fn verbosity(self) -> Verbosity {
         self.verbosity
     }
 
-    /// Emit a Cabin-owned status banner on stdout: `<right-
-    /// padded verb> <rest>`, where the verb (`Compiling`,
-    /// `Finished`, `Created`, …) renders in bright green + bold
-    /// when the reporter is styled and as plain text otherwise.
-    /// The verb is right-aligned to column 12 so `Compiling` and
-    /// `Finished` align cleanly even though they differ in
-    /// length - the cabin-cpp diagnostic surface (`Diag::info`)
-    /// uses the same layout, and cargo's own banner matches it
-    /// for muscle-memory parity.  Suppressed in `Quiet` mode.
+    /// Emit a Cabin-owned status banner on stdout: `<verb> <rest>`,
+    /// where the verb (`Compiling`, `Finished`, `Created`, …) is
+    /// right-aligned to [`COLUMN_WIDTH`] as in cargo's banner, and
+    /// renders bold green when the reporter is styled and as plain
+    /// text otherwise.  Suppressed in `Quiet` mode.
     pub(crate) fn status(self, verb: &str, args: fmt::Arguments<'_>) {
         if !self.verbosity.shows_status() {
             return;

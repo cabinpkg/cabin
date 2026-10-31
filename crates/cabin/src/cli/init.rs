@@ -1,10 +1,8 @@
 use super::{Context, InitArgs, NewArgs, Path, Reporter, Result, bail, scaffold};
 
 pub(super) fn scaffold_kind_from_flags(_bin: bool, lib: bool) -> scaffold::ScaffoldKind {
-    // clap's `group` constraint already rejected the `--bin
-    // --lib` combination, so `_bin` is only observed for
-    // symmetry with the CLI surface; binary is the default
-    // whether `--bin` was explicit or absent.
+    // clap's `group` constraint rejects `--bin --lib`, and binary is
+    // the default, so `_bin` does not affect the result.
     if lib {
         scaffold::ScaffoldKind::Library
     } else {
@@ -18,15 +16,6 @@ pub(super) fn report_scaffold(
     report: &scaffold::ScaffoldReport,
     dest: &Path,
 ) {
-    // Cargo-style aligned status line: the verb (`Created` /
-    // `Initialized`) is right-padded to column 12 by
-    // `Reporter::status`, which keeps the banner aligned with
-    // `Compiling` and `Finished` and styles the verb in bright
-    // green + bold when color is enabled.  The rendered shape
-    // is:
-    //
-    // Created binary (application) `<name>` package
-    // Created library `<name>` package
     reporter.status(
         verb,
         format_args!(

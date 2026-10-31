@@ -8,9 +8,7 @@
 //!   into the typed core enum on demand.
 //! - [`resolve_color_choice`] applies Cabin's documented
 //!   precedence rule: CLI > `CABIN_TERM_COLOR` > config
-//!   `term.color` > default.  The function is pure: tests pass
-//!   a closure for env lookup so they never depend on the host
-//!   environment.
+//!   `term.color` > default.
 
 use cabin_config::{
     ConfigDiscoveryInputs, EffectiveConfig, discover_config_files, merge_loaded_files,
@@ -45,9 +43,9 @@ pub(crate) fn discover_early_config_color() -> Option<(ColorChoice, ConfigValueS
 /// side so we can derive [`clap::ValueEnum`] without making
 /// `cabin-core` depend on `clap`.
 ///
-/// Variants are intentionally lowercase in their `to_possible_value`
-/// rendering - clap's derive uses the `kebab-case` of the variant
-/// name, which matches Cabin's accepted spellings.
+/// clap's derive renders each variant as its kebab-case name
+/// (`auto`, `always`, `never`), matching the `CABIN_TERM_COLOR`
+/// spellings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum CliColorChoice {
     Auto,
@@ -79,10 +77,8 @@ impl From<CliColorChoice> for ColorChoice {
 /// [`ColorEnvError`]; the CLI surfaces that error before
 /// dispatching any subcommand.
 ///
-/// `cli` and `config` are pre-typed; only the env value goes
-/// through string parsing because that is the only entry
-/// point where a free-form string can reach Cabin from the
-/// outside.
+/// `cli` and `config` arrive typed; only the env value is
+/// parsed here.
 pub(crate) fn resolve_color_choice<F>(
     cli: Option<ColorChoice>,
     env: F,
@@ -146,10 +142,6 @@ mod tests {
 
     #[test]
     fn cli_value_takes_precedence_over_invalid_env() {
-        // `--color` parsing happens at the clap layer, so an
-        // invalid `CABIN_TERM_COLOR` only fails when the CLI
-        // does not already pin the choice.  An explicit CLI
-        // value short-circuits env validation entirely.
         let resolved = resolve_color_choice(
             Some(ColorChoice::Auto),
             env_with(&[(cabin_env::CABIN_TERM_COLOR, "sometimes")]),
@@ -172,9 +164,6 @@ mod tests {
 
     #[test]
     fn empty_env_falls_through_to_config() {
-        // An empty `CABIN_TERM_COLOR=` should not erase a
-        // config-provided `term.color` - Cabin treats the
-        // empty value as "unset".
         let resolved = resolve_color_choice(
             None,
             env_with(&[(cabin_env::CABIN_TERM_COLOR, "")]),

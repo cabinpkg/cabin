@@ -4,7 +4,8 @@
 //! The `cabin` dispatcher returns `anyhow::Error`; the leaves
 //! of that chain are typed domain errors (`ManifestError`,
 //! `WorkspaceError`, `ConfigError`, …).  Some implement
-//! [`miette::Diagnostic`] and carry rich source-spanned reports;
+//! [`cabin_diagnostics::miette::Diagnostic`] and carry rich
+//! source-spanned reports;
 //! others only need a stable area code so the renderer can wrap
 //! them in `error[<code>]: <message>`.
 //!
@@ -14,11 +15,8 @@
 //! a one-line edit here, isolated from the top-level
 //! orchestration in `lib.rs::run`.
 //!
-//! The candidate type lives in this module too - it is the
-//! vocabulary the registry uses to describe a renderable
-//! error.  The top-level error renderer
-//! ([`crate::error_rendering`]) then asks each candidate to
-//! render itself through [`cabin_diagnostics`].
+//! [`crate::error_rendering`] renders the deepest candidate in
+//! the source chain through [`cabin_diagnostics`].
 
 use termcolor::StandardStream;
 
@@ -57,22 +55,14 @@ type Probe = fn(&(dyn std::error::Error + 'static)) -> bool;
 
 /// Walk the known typed-error roots and yield a diagnostic
 /// candidate when one matches.
-///
-/// Adding a new diagnostic-bearing error type is a one-line
-/// change here.  The cost of explicit listing is small relative
-/// to the boundary clarity it gives - we never accidentally
-/// route a typed error away from the diagnostic renderer
-/// because of an unsafe blanket impl.
 pub(crate) fn downcast_diagnostic<'a>(
     err: &'a (dyn std::error::Error + 'static),
 ) -> Option<DiagnosticCandidate<'a>> {
     use cabin_diagnostics::code;
 
-    // The order matters: try the most specific typed error
-    // first, then fall through to looser wrappers that share
-    // the same source chain.  ManifestError can hide either
-    // standalone (e.g. `cabin package`) or behind
-    // WorkspaceError::Manifest, so we look at the leaf first.
+    // `err` is one chain element with one concrete type, so at
+    // most one probe below matches and their order is irrelevant;
+    // `render_error` prefers the deepest matching element.
     if let Some(e) = err.downcast_ref::<cabin_manifest::ManifestError>() {
         return Some(DiagnosticCandidate::Rich(e));
     }

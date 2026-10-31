@@ -4,8 +4,8 @@
 //! dependency closure through the existing artifact pipeline
 //! (workspace load → patch / source-replacement → resolver →
 //! fetch into the artifact cache), then asks `cabin-vendor` to
-//! materialize a
-//! deterministic file-registry directory at `--vendor-dir`.
+//! materialize a deterministic file-registry directory at
+//! `--vendor-dir`.
 //!
 //! The output is a Cabin file registry whose layout the rest of
 //! the read path already understands.  To consume it offline,
@@ -84,9 +84,9 @@ pub(crate) struct VendorArgs {
     pub frozen: bool,
 
     /// Forbid network access.  Cabin refuses to use an HTTP
-    /// index URL (`--index-url` or a `[registry] index-url`
-    /// config setting) and expects every needed artifact to
-    /// already be available in the artifact cache.
+    /// index URL (a `[registry] index-url` config setting) and
+    /// expects every needed artifact to already be available in
+    /// the artifact cache.
     #[arg(long)]
     pub offline: bool,
 
@@ -136,7 +136,7 @@ pub(crate) fn vendor(
 
     // The seed scopes the index requirement to the user's chosen
     // packages, exactly like `cabin fetch` does, and validates local
-    // claims - activated patch forks' included - before the
+    // claims, including activated patch forks', before the
     // empty-plan arm below can short-circuit without ever reaching
     // the artifact pipeline.
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
@@ -193,11 +193,10 @@ pub(crate) fn vendor(
         );
     };
     // Vendoring reads per-package metadata directly off disk so
-    // the vendor directory ends up byte-stable.  The only index
-    // source shape that satisfies that requirement is a local
-    // file index - reject a URL terminal up front instead of
-    // letting the artifact pipeline reach for the network and
-    // surface a less specific error.
+    // the vendor directory ends up byte-stable, which requires a
+    // local file index.  Reject a configured URL here, before the
+    // artifact pipeline reaches for the network and surfaces a
+    // less specific error.
     if matches!(
         index_source.kind,
         crate::cli::config::IndexSourceKind::Url(_)
@@ -237,9 +236,9 @@ pub(crate) fn vendor(
         dev_for: &dev_for,
     })?;
 
-    // Vendoring copies `packages/<name>.json` files verbatim
-    // into the output, so the index source must be a local
-    // directory the vendor crate can read off disk.
+    // `resolve_pipeline_inputs` already rejected a URL left by
+    // source replacement (`enforce_vendor_local_index_post_replacement`),
+    // so the `IndexUrl` arm is unreachable.
     let index_dir = match &inputs.index_source {
         cabin_core::SourceLocator::IndexPath { path } => path.as_std_path().to_path_buf(),
         cabin_core::SourceLocator::IndexUrl { .. } => bail!(
@@ -367,12 +366,8 @@ fn emit_vendor_summary(
             ));
         }
     }
-    // Follow-up command users need to consume the vendor dir.
-    // Mirrors `cargo vendor`'s pattern of printing the
-    // ready-to-paste config snippet on plain stdout - not a
-    // banner, an instruction.  Routed through
-    // `Reporter::note` so `--quiet` suppresses the hint along
-    // with the surrounding status banner.
+    // Like `cargo vendor`'s ready-to-paste config snippet: an
+    // instruction on plain stdout, not a banner.
     reporter.note(format_args!(
         "To build offline, run: cabin build --offline --index-path {}",
         report.vendor_dir.display()

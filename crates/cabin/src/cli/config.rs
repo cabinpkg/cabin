@@ -143,13 +143,12 @@ pub(crate) const fn config_is_user_chosen(source: ConfigSource) -> bool {
 /// Whether the origin an index is finally reached through was chosen
 /// by the user.
 ///
-/// Deliberate ceiling: *any* `[source-replacement]` hop makes the
-/// answer `false`, even one declared in user-level config, because
+/// *Any* `[source-replacement]` hop makes the answer `false`, even one
+/// declared in user-level config, because
 /// [`cabin_core::SourceReplacementResolution`] records the hops it
 /// walked but not which file declared each of them.  The fallback is
-/// `cabin login` for the mirror's origin, which stores an
-/// origin-keyed token and is what `cabin login` already does for a
-/// replaced source.
+/// `cabin login` for the replacement's (mirror's) origin, which stores
+/// an origin-keyed session.
 pub(crate) fn index_origin_user_chosen(
     source: &ResolvedIndexSource,
     resolution: &cabin_core::SourceReplacementResolution,
@@ -161,15 +160,13 @@ pub(crate) fn index_origin_user_chosen(
 /// falls back to the merged config.
 pub(crate) struct ResolvedIndexSource {
     pub kind: IndexSourceKind,
-    /// Whether the *user* picked this source, rather than a
-    /// checked-out project: a CLI flag, the user-level config file,
-    /// or the one `CABIN_CONFIG` names.  A workspace- or
-    /// package-level `.cabin/config.toml` ships inside the tree being
-    /// built, so it is the project speaking, not the user - which is
-    /// why it cannot make an origin eligible for the origin-key-less
-    /// `CABIN_REGISTRY_TOKEN` override.  Same split
+    /// Whether the *user* picked this source: a CLI flag, the
+    /// user-level config file, or the one `CABIN_CONFIG` names (see
+    /// [`config_is_user_chosen`]).  A source from the checked-out
+    /// tree's config cannot make an origin eligible for the
+    /// origin-key-less `CABIN_REGISTRY_TOKEN` override.
     /// [`effective_registry_index_url`](crate::cli::login::effective_registry_index_url)
-    /// already applies to where a token is *stored*.
+    /// applies the same split to where a token is *stored*.
     pub user_chosen: bool,
 }
 
@@ -180,9 +177,6 @@ pub(crate) enum IndexSourceKind {
 
 /// Convert a resolved index source's kind into the core
 /// [`cabin_core::SourceLocator`] the artifact pipeline consumes.
-/// Centralizes the `Path` / `Url` mapping every command performs
-/// before applying source-replacement, so a future third source
-/// kind only needs one match arm updated.
 pub(crate) fn index_source_kind_to_locator(kind: &IndexSourceKind) -> cabin_core::SourceLocator {
     match kind {
         IndexSourceKind::Path(p) => cabin_core::SourceLocator::IndexPath { path: p.clone() },
@@ -198,9 +192,8 @@ pub(crate) fn index_source_kind_to_locator(kind: &IndexSourceKind) -> cabin_core
 ///    declared variant)
 /// 4. unset (caller decides whether the absence is an error)
 ///
-/// Passing both CLI flags is rejected at the call site (existing
-/// behavior); this helper only reconciles a single CLI choice
-/// against the config layer.
+/// Passing both CLI flags is an error, as is an `--index-url` that
+/// contains credentials (userinfo).
 pub(crate) fn resolve_index_source(
     cli_index_path: Option<&Path>,
     cli_index_url: Option<&str>,
@@ -246,7 +239,7 @@ pub(crate) fn resolve_index_source(
 /// registry.  Applied only at the points where a command needs an
 /// index and neither the CLI nor the config supplies one, so
 /// commands (and selections) without versioned dependencies never
-/// observe it - their offline / frozen behavior is unchanged.
+/// observe it, and `--offline` / `--frozen` do not reject them.
 pub(crate) fn default_index_source() -> ResolvedIndexSource {
     ResolvedIndexSource {
         kind: IndexSourceKind::Url(cabin_core::registry::DEFAULT_INDEX_URL.to_owned()),
@@ -294,9 +287,9 @@ pub(crate) fn default_index_locator(
 /// Apply Cabin's CLI-vs-env precedence for the `--offline`
 /// flag.  Returns `true` when the user passed `--offline` *or*
 /// when [`cabin_env::CABIN_NET_OFFLINE`] is set to a truthy
-/// value.  The CLI flag short-circuits the env lookup because
-/// there is no negative form today; otherwise the env value must
-/// use Cabin's documented boolean grammar.
+/// value.  The CLI flag short-circuits the env lookup because it
+/// has no negative form; otherwise the env value must use Cabin's
+/// documented boolean grammar.
 pub(crate) fn effective_offline(cli: bool) -> Result<bool> {
     if cli {
         return Ok(true);
@@ -320,10 +313,10 @@ pub(crate) fn effective_offline(cli: bool) -> Result<bool> {
 }
 
 /// Reject any resolved-index-source that would require network
-/// access when the caller passed `--offline`.  The check is the
-/// single point where Cabin enforces the offline contract: an
-/// HTTP index URL is the only network input the read path
-/// recognizes today, so refusing one here is sufficient.
+/// access when the caller passed `--offline`.  An HTTP index URL is
+/// the only network input the read path recognizes.
+/// [`enforce_offline_post_replacement`] repeats the check after
+/// `[source-replacement]`.
 ///
 /// Returns `Ok(())` when offline is satisfied (no source, or a
 /// path source); otherwise returns an actionable error that
@@ -349,16 +342,10 @@ pub(crate) fn enforce_offline_index_source(
 }
 
 /// Companion to [`enforce_offline_index_source`] that runs *after*
-/// `apply_source_replacement`.  The pre-check only sees the source
-/// the user requested; a `[source-replacement]` entry can still
-/// rewrite an `index-path` into an `index-url` later in the
-/// pipeline, and the artifact loader would happily open it.  This
-/// check closes that gap.
-///
-/// Takes the typed [`cabin_core::SourceReplacementResolution`] so
-/// it can give an accurate error: a non-empty `hops` list means
-/// replacement fired, and the message can name the
-/// `[source-replacement]` config the user needs to revisit.
+/// `apply_source_replacement`: a `[source-replacement]` entry can
+/// rewrite an `index-path` into an `index-url` the pre-check never
+/// sees.  A non-empty `hops` list means replacement fired, so the
+/// error names the `[source-replacement]` config to revisit.
 pub(crate) fn enforce_offline_post_replacement(
     offline: bool,
     resolution: &cabin_core::SourceReplacementResolution,
@@ -503,16 +490,15 @@ pub(crate) fn resolve_build_dir(
 }
 
 /// Resolve the build directory the CLI should use for a build
-/// invocation, consulting CLI flag → env var → config →
-/// built-in default in that order.
+/// invocation.  Precedence: `--build-dir`, then
+/// [`cabin_env::CABIN_BUILD_DIR`], then `[paths] build-dir`, then
+/// the built-in default (`build`).  The returned
+/// [`ConfigValueSource`] lets metadata attribute the value.
 ///
 /// `cli_value` is `Some(p)` only when the user passed
-/// `--build-dir`; the clap default lives in the helper so an
-/// explicit `--build-dir build` is still recognized as a CLI
-/// choice and beats the env layer.  Precedence: `--build-dir`,
-/// then [`cabin_env::CABIN_BUILD_DIR`], then `[paths] build-dir`,
-/// then the built-in default (`build`).  The returned
-/// [`ConfigValueSource`] lets metadata attribute the value.
+/// `--build-dir`; the default lives here, not in clap, so an
+/// explicit `--build-dir build` is still a CLI choice and beats the
+/// env layer.
 pub(crate) fn resolve_build_dir_with_env(
     cli_value: Option<&Path>,
     config: &EffectiveConfig,
@@ -616,7 +602,7 @@ pub(crate) fn resolve_incompatible_standards(
 /// the effective value came from (env > config > builtin default).
 /// `cabin metadata` renders this so its `resolver` block honors the
 /// same precedence and `value_source` contract as every other config
-/// value (`docs/config.md`), rather than reporting only the file layer.
+/// value (`docs/config.md`).
 pub(crate) fn resolve_incompatible_standards_sourced(
     config: &EffectiveConfig,
 ) -> Result<(cabin_core::IncompatibleStandards, ConfigValueSource)> {
@@ -754,11 +740,6 @@ pub(crate) fn config_view_json(
         })),
     });
 
-    // Effective value + source (env > config > builtin default), not
-    // the raw file layer: `docs/config.md` promises `cabin metadata`
-    // reports every effective config value with its `value_source`, so
-    // an env override or the built-in `fallback` default must be visible
-    // here rather than showing `null` / a stale file value.
     let (resolver_value, resolver_source) = resolver_incompatible_standards;
     let resolver = serde_json::json!({
         "incompatible_standards": resolver_value.as_str(),
@@ -990,8 +971,6 @@ mod tests {
 
     #[test]
     fn resolve_build_dir_explicit_cli_wins_even_when_value_equals_default() {
-        // Regression: an explicit `--build-dir build` (matching the
-        // built-in default literal) must beat `CABIN_BUILD_DIR`.
         let cfg = EffectiveConfig::default();
         let cli = PathBuf::from("build");
         let (path, source) = resolve_build_dir_layered(
@@ -1090,11 +1069,9 @@ mod tests {
         );
     }
 
-    /// The trust split is exhaustive over `ConfigSource`, so a new
-    /// variant - or one moved into the allowlist - has to be decided
-    /// here rather than defaulting either way.  `Workspace` and
-    /// `Package` are the tree-resident files: whoever supplies the
-    /// checkout writes them.
+    /// Lists every current `ConfigSource` variant; nothing forces a
+    /// new variant into this table, and `config_is_user_chosen` treats
+    /// an unlisted one as not user-chosen.
     #[test]
     fn only_the_two_config_files_outside_the_checkout_count_as_user_chosen() {
         for (source, expected) in [
@@ -1112,9 +1089,6 @@ mod tests {
         }
     }
 
-    /// Any `[source-replacement]` hop disqualifies the origin, even
-    /// under a user-chosen source: the resolution records which hops
-    /// it walked, not which file declared each of them.
     #[test]
     fn a_replacement_hop_disqualifies_even_a_user_chosen_source() {
         let source = ResolvedIndexSource {

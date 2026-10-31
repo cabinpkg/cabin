@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use cabin_workspace::{PackageGraph, PackageSelection, SelectionMode};
 
 /// Translate the standard `--workspace` / `--package` /
-/// `--default-members` trio into a [`PackageSelection`].  The
-/// three source-tooling commands all expose the same trio with
-/// the same precedence; `--exclude` on each is a *path*
+/// `--default-members` trio into a [`PackageSelection`].  Both
+/// source-tooling commands expose the same trio with the same
+/// precedence; `--exclude` on each is a *path*
 /// exclusion handled by source discovery, so the typed selection
 /// carries an empty package-name exclude list.
 pub(crate) fn package_selection_from_flags(

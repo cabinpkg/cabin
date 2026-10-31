@@ -65,8 +65,8 @@ pub(crate) fn yank(
     let index_url = index.url;
 
     // Mirror the remote publish flow: one credential lookup serves
-    // the config.json read and the API call alike.  Deliberately NOT
-    // the trusted-publishing exchange (`cli::trustpub`): the registry
+    // the config.json read and the API call alike.  Not the
+    // trusted-publishing exchange (`cli::trustpub`): the registry
     // mints exchanged tokens with only the `publish` scope, so an
     // auto-exchange here would trade a working stored yank credential
     // for a token the yank route must refuse.

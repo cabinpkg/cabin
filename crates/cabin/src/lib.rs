@@ -23,9 +23,8 @@ use clap::FromArgMatches;
 pub use crate::cli::Cli;
 use crate::term_setup::{EarlyTerminalState, resolve_early_terminal_state};
 
-// The clap parser stays reachable for this crate's glue modules,
-// but `Cli` is re-exported at the crate root for integration
-// tests and downstream command-tree generation.
+// `cli` stays private; integration tests reach `Cli` through the
+// crate-root re-export above.
 mod cli;
 mod command_list;
 mod completions;
@@ -84,7 +83,6 @@ where
 /// identical, so they live here.
 #[derive(Debug, Clone)]
 pub(crate) struct SubcommandRow {
-    /// The canonical name first, followed by each visible alias.
     /// Rendered joined by `, ` to match cargo's `cargo --list` style.
     pub(crate) tokens: Vec<String>,
     pub(crate) about: String,
@@ -125,11 +123,9 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    // `cabin stamp|recreate <FILE> -- <CMD>` is internal build plumbing
-    // (the Ninja syntax-check rule's witness writer and the archive rule's
-    // runner); dispatch it before clap so it never enters the user-facing
-    // command surface - no `--help`, `--list`, completions, or man pages,
-    // and no special-case filtering.
+    // `cabin stamp|recreate|depfile <FILE> -- <CMD>` is internal Ninja
+    // plumbing (see `stamp.rs`); dispatch it before clap so it never
+    // enters the user-facing command surface.
     let started = std::time::Instant::now();
     let arguments: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
     if let Some(code) = stamp::dispatch(&arguments) {
@@ -140,16 +136,15 @@ where
     let matches = match cmd.try_get_matches_from(arguments) {
         Ok(m) => m,
         Err(err) => {
-            // `clap::Error` already routes `--help` /
-            // `--version` to stdout and real errors to stderr
-            // with the correct ANSI handling.  Hand it
-            // through.
+            // `clap::Error::exit` prints `--help` to stdout and
+            // real errors to stderr with clap's own ANSI
+            // handling.
             err.exit();
         }
     };
     // `cabin ...` is a help-row affordance that doubles as a
     // shortcut for `cabin --list`.  The unmapped subcommand
-    // produces `cmd: None` after `from_arg_matches`; promote
+    // produces `command: None` after `from_arg_matches`; promote
     // it to `list = true` so the downstream dispatcher renders
     // the listing with the same color-aware code path as the
     // real flag.

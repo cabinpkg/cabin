@@ -28,7 +28,6 @@ pub(crate) struct MangenArgs {
     output_dir: Option<std::path::PathBuf>,
 }
 
-/// Top-level entry point for `cabin mangen`.
 pub(crate) fn run(args: &MangenArgs) -> Result<()> {
     let cmd = Cli::command();
     match args.output_dir.as_deref() {
@@ -58,11 +57,8 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
         .render(&mut file)
         .with_context(|| format!("failed to render {}", root_path.display()))?;
 
-    // One page per top-level subcommand, including ones hidden
-    // from `cabin --help`.  Hidden commands stay shipped through
-    // `cabin --list`, shell completions, and these per-command
-    // pages.  Renaming the subcommand to `cabin-<sub>` yields a
-    // man page whose `.TH` and SYNOPSIS show the conventional
+    // Renaming the subcommand to `cabin-<sub>` yields a man page
+    // whose `.TH` and SYNOPSIS show the conventional
     // `cabin-build(1)` form; the subcommand's own arguments
     // still render correctly because clap_mangen reads them
     // from the same Command.
@@ -107,9 +103,7 @@ mod tests {
         // (`package`), and distribution helpers (`compgen`,
         // `mangen`) are hidden from the curated view but still
         // ship per-command man pages and appear in `cabin
-        // --list`.  This test pins the hidden set so a new
-        // hidden subcommand is reviewed intentionally rather
-        // than slipping in by accident.
+        // --list`.
         use std::collections::BTreeSet;
         let cmd = Cli::command();
         let hidden: BTreeSet<&str> = cmd

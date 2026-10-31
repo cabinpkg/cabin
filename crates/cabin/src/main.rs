@@ -3,9 +3,7 @@
 //! The library half (the `cabin` crate's `lib.rs`) owns parsing,
 //! dispatch, and error rendering.  This shim hands off to
 //! [`cabin::run`] with the process's own argv and
-//! propagates its exit code so the binary stays trivial to
-//! audit and integration tests can call the same entry point
-//! the binary uses.
+//! propagates its exit code.
 
 use std::process::ExitCode;
 
