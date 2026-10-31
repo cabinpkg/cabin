@@ -912,20 +912,7 @@ fn build_machine_toolchain(
     cabin_core::ResolvedToolchain,
     cabin_core::ToolchainDetectionReport,
 )> {
-    let dialect = |report: &cabin_core::ToolchainDetectionReport| {
-        cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind)
-    };
-    // MSVC-style links find their libraries through `LIB`, and the whole
-    // Ninja run gets one environment.
-    if dialect(target) == cabin_build::Dialect::Msvc
-        && (platform.arch != build_machine.arch || platform.os != build_machine.os)
-    {
-        bail!(
-            "`[build-dependencies]` cannot build for the build machine {} next to an MSVC-style build for {}: both would link against the one `LIB` environment",
-            build_machine.target,
-            platform.target
-        );
-    }
+    cabin_toolchain::check_build_machine_beside(target, platform, build_machine)?;
     let manifest = workspace_toolchain_settings(graph);
     let selection = cabin_core::ToolchainSelection::default();
     let mut inputs =
@@ -943,14 +930,12 @@ fn build_machine_toolchain(
     )?;
     let report = cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)
         .context("failed to detect the build machine's toolchain for `[build-dependencies]`")?;
-    // `build.ninja` holds one dialect's rules.
-    if dialect(&report) != dialect(target) {
-        bail!(
-            "`[build-dependencies]` build for the build machine with {}, whose command-line dialect differs from {}'s; one build cannot mix MSVC-style and GCC-style compilers, so set HOST_CC, HOST_CXX, and HOST_AR to build-machine tools of the target's style",
-            report.cxx.path,
-            target.cxx.path
-        );
-    }
+    cabin_toolchain::check_build_machine_compilers(
+        &report,
+        target,
+        build_machine,
+        &cabin_toolchain::ProcessRunner,
+    )?;
     cabin_build::validate_toolchain_for_backend(&toolchain, &report)
         .context("the build machine's toolchain for `[build-dependencies]` cannot build")?;
     Ok((toolchain, report))

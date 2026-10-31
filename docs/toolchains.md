@@ -156,7 +156,10 @@ cabin build --target aarch64-unknown-linux-gnu \
   own toolchain: `HOST_CC`, `HOST_CXX`, and `HOST_AR` in place of `CC`, `CXX`, and `AR`, then the
   manifest's `[toolchain]` tables evaluated for the build machine, then the defaults.  `--cc`,
   `--cxx`, `--ar`, `CC`, `CXX`, `AR`, and config's `[toolchain]` choose the target's tools only.
-  Both toolchains must take the same command-line dialect, so an MSVC or clang-cl build machine
+  These units pass no `--target=`, so each build-machine compiler must already build for the build
+  machine (GCC's `-dumpmachine`, the others' banner): a cross compiler from an unconditional
+  `[toolchain]` table is an error naming `HOST_*`.  Both toolchains must take the same command-line
+  dialect, so an MSVC or clang-cl build machine
   with a GCC-style target, or the reverse, is an error, and an MSVC or clang-cl build for another
   machine cannot build them at all: both contexts would link against the one `LIB` environment.  `CFLAGS` and the other environment flags
   describe the target and do not reach these units.

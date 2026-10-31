@@ -616,7 +616,9 @@ dependencies.  The build machine's detected identities join the toolchain stamp 
 build context keeps the recorded ones, so `cabin check` does not rebuild everything), its
 detection decides the build context's `cfg(cc/cxx/...)` flags, and its standards are validated
 against the build context's compiles.  `cabin check`, which plans no build context, resolves no
-build-machine toolchain.  A build-machine toolchain of another dialect than the target's is refused:
+build-machine toolchain.  Its compilers must build for the build machine (GCC's `-dumpmachine`, the
+others' banner), since the build context passes Clang no `--target=`.  A build-machine toolchain of
+another dialect than the target's is refused:
 `render_build_ninja` emits one rule set, archive and depfile handling included, from the graph's
 dialect.  On Windows the default build-machine compiler is `cl`, so a Clang cross build there
 needs `HOST_*` for build dependencies.  An MSVC-style build for another machine still refuses build
@@ -776,7 +778,8 @@ its own installation under a sysroot, so a headers-only sysroot can still link t
 
 Stage 05, third change: a Unix CLI test cross-builds the build-dependency fixture with a fake GCC
 for `riscv64` and fake `HOST_*` compilers and reads `compile_commands.json`: build-context compiles
-use the `HOST_*` compiler and the rest the cross GCC (fails on the target's toolchain); a fake MSVC
+use the `HOST_*` compiler and the rest the cross GCC (fails on the target's toolchain); the cross
+GCC as `HOST_*` is refused (fails without the build-machine target check); a fake MSVC
 `HOST_CXX` is refused, as is an MSVC build for `aarch64-pc-windows-msvc`; and `cabin check`
 succeeds with a `HOST_CXX` that does not exist (fails when check resolves the build machine's
 toolchain).  Run on macOS; nothing covers a real cross toolchain

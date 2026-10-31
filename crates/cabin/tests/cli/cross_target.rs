@@ -40,15 +40,24 @@ fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
     let dir = TempDir::new().unwrap();
     crate::build_dependencies::write_generator_project(dir.path());
     let bin = TempDir::new().unwrap();
-    let gcc = bin.path().join("fake-g++");
-    fs::write(
-        &gcc,
-        "#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo riscv64-linux-gnu; else echo 'g++ (GCC) 13.2.0'; fi\n",
-    )
-    .unwrap();
-    fs::set_permissions(&gcc, fs::Permissions::from_mode(0o755)).unwrap();
+    let fake_gcc = |name: &str, machine: &str| {
+        let path = bin.path().join(name);
+        fs::write(
+            &path,
+            format!("#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo {machine}; else echo 'g++ (GCC) 13.2.0'; fi\n"),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    let gcc = fake_gcc("fake-g++", "riscv64-linux-gnu");
     let ar = fake_tool_with_output(bin.path(), "ar", "GNU ar (GNU Binutils) 2.40\n", "", 0);
-    let host = fake_tool_with_output(bin.path(), "host-g++", "g++ (GCC) 13.2.0\n", "", 0);
+    let os = if cfg!(target_os = "macos") {
+        "apple-darwin"
+    } else {
+        "linux-gnu"
+    };
+    let host = fake_gcc("host-g++", &format!("{}-{os}", std::env::consts::ARCH));
     let command = |subcommand: &str, host: &Path| {
         let mut command = cabin();
         command
@@ -96,6 +105,12 @@ fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
         );
     }
 
+    command("build", &gcc)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "builds for riscv64-linux-gnu, not the build machine",
+        ));
     let cl = fake_tool_with_output(
         bin.path(),
         "host-cl",
