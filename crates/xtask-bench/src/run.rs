@@ -290,7 +290,8 @@ pub fn check(
     ensure_success(&output, &prepared.args)?;
 
     verify(&scenario.expect, &prepared.dir, || {
-        ninja_actions(&log, &before)
+        let after = fs::read(&log).with_context(|| format!("reading {}", log.display()))?;
+        ninja_actions(&before, &after)
     })?;
 
     // A revision older than trace capture writes no summary; it is
@@ -379,11 +380,10 @@ fn verify(expect: &Expect, dir: &Path, actions: impl Fn() -> Result<Vec<String>>
     Ok(())
 }
 
-/// The outputs of the actions Ninja appended to its log after `before`,
-/// its contents when the check run started.
-fn ninja_actions(log: &Path, before: &[u8]) -> Result<Vec<String>> {
-    let bytes = fs::read(log).with_context(|| format!("reading {}", log.display()))?;
-    let appended = bytes
+/// The outputs of the actions Ninja appended to its log, `before` the
+/// check run and `after` it.
+fn ninja_actions(before: &[u8], after: &[u8]) -> Result<Vec<String>> {
+    let appended = after
         .strip_prefix(before)
         .context("Ninja rewrote its log during the check run, so its actions are unknown")?;
     Ok(String::from_utf8_lossy(appended)
@@ -746,21 +746,14 @@ mod tests {
 
     #[test]
     fn only_a_log_that_kept_its_earlier_entries_yields_actions() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = dir.path().join(".ninja_log");
         let before = b"# ninja log v7\n0\t9\t1\t/b/old.o\taa\n0\t9\t1\t/b/old.o\taa\n";
-        fs::write(&log, [&before[..], b"5\t20\t2\t/b/x.o\tbb\n"].concat()).unwrap();
-        assert_eq!(ninja_actions(&log, before).unwrap(), ["/b/x.o"]);
-        fs::write(&log, before).unwrap();
-        assert!(ninja_actions(&log, before).unwrap().is_empty());
+        let appended = [&before[..], b"5\t20\t2\t/b/x.o\tbb\n"].concat();
+        assert_eq!(ninja_actions(before, &appended).unwrap(), ["/b/x.o"]);
+        assert!(ninja_actions(before, before).unwrap().is_empty());
         // Compacted, then grown past the old length: an offset into it
         // would start inside the new action and miss it.
-        fs::write(
-            &log,
-            b"# ninja log v7\n0\t9\t1\t/b/old.o\taa\n5\t20\t2\t/b/longer-name.o\tbb\n",
-        )
-        .unwrap();
-        assert!(ninja_actions(&log, before).is_err());
+        let compacted = b"# ninja log v7\n0\t9\t1\t/b/old.o\taa\n5\t20\t2\t/b/longer-name.o\tbb\n";
+        assert!(ninja_actions(before, compacted).is_err());
     }
 
     #[test]
