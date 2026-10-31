@@ -166,7 +166,9 @@ pub fn discover_config_files(
         if let Some(file) = read_optional(&path, source)? {
             // `CABIN_CONFIG_HOME` may name this project's `.cabin`, making
             // the file the user config too, whose `[term]` applies.
-            if file.parsed.term.is_some() && user.as_deref() != Some(path.as_path()) {
+            if file.parsed.term.is_some()
+                && !user.as_deref().is_some_and(|user| same_file(user, &path))
+            {
                 return Err(ConfigError::TermOutsideUserConfig { path });
             }
             files.push(file);
@@ -231,6 +233,11 @@ fn read_optional(
         path: utf8_config_path(path)?,
         parsed,
     }))
+}
+
+/// Whether `a` and `b` resolve to one existing file, however spelled.
+fn same_file(a: &Path, b: &Path) -> bool {
+    matches!((fs::canonicalize(a), fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
 }
 
 fn locate_user_config(env: &EnvLookup<'_>, xdg_user_config_home: Option<&Path>) -> Option<PathBuf> {
@@ -716,7 +723,10 @@ mod tests {
         // and still counts as project config for everything else.
         let project = TempDir::new().unwrap();
         write_config(project.path(), "[term]\ncolor = \"never\"\n");
-        let home = project.path().join(".cabin");
+        // Spelled apart from the workspace's path, as a relative or
+        // symlinked `CABIN_CONFIG_HOME` would be.
+        std::fs::create_dir(project.path().join("sub")).unwrap();
+        let home = project.path().join("sub/../.cabin");
         let shared = ConfigDiscoveryInputs {
             workspace: Some(WorkspaceLayout {
                 root_dir: project.path(),
