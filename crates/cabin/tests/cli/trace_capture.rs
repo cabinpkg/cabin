@@ -181,12 +181,9 @@ fn ninja_actions(events: &[serde_json::Value], timings: &serde_json::Value) -> V
     names
 }
 
-#[test]
-fn traced_builds_record_only_the_ninja_actions_they_ran() {
-    require_c_and_cxx_build_tools();
-    let c_project = TempDir::new().unwrap();
-    c_project
-        .child("cabin.toml")
+/// An executable built from `src/main.c` and `src/util.c`.
+fn write_two_source_c_project(dir: &TempDir) {
+    dir.child("cabin.toml")
         .write_str(
             r#"[package]
 name = "cdemo"
@@ -199,14 +196,19 @@ sources = ["src/main.c", "src/util.c"]
 "#,
         )
         .unwrap();
-    c_project
-        .child("src/main.c")
+    dir.child("src/main.c")
         .write_str("int util(void);\nint main(void) { return util(); }\n")
         .unwrap();
-    c_project
-        .child("src/util.c")
+    dir.child("src/util.c")
         .write_str("int util(void) { return 0; }\n")
         .unwrap();
+}
+
+#[test]
+fn traced_builds_record_only_the_ninja_actions_they_ran() {
+    require_c_and_cxx_build_tools();
+    let c_project = TempDir::new().unwrap();
+    write_two_source_c_project(&c_project);
     let cxx_project = TempDir::new().unwrap();
     write_hello_project(cxx_project.path());
 
@@ -236,6 +238,45 @@ sources = ["src/main.c", "src/util.c"]
         assert!(
             ninja_actions(&events, &timings).is_empty(),
             "the log's earlier entries are not this build's"
+        );
+    }
+}
+
+#[test]
+fn a_build_whose_ninja_log_is_due_for_compaction_keeps_its_actions() {
+    require_c_and_cxx_build_tools();
+    let c_project = TempDir::new().unwrap();
+    write_two_source_c_project(&c_project);
+    let cxx_project = TempDir::new().unwrap();
+    write_hello_project(cxx_project.path());
+
+    for (project, source) in [
+        (c_project.path(), "src/util.c"),
+        (cxx_project.path(), "src/main.cc"),
+    ] {
+        cabin().current_dir(project).arg("build").assert().success();
+        // Copies of Ninja's own entries, well past the 100 entries and
+        // three per output at which Ninja compacts its log on load.
+        let log = project.join("build/dev/.ninja_log");
+        let written = fs::read_to_string(&log).unwrap();
+        let (header, entries) = written.split_once('\n').unwrap();
+        let inflated = format!("{header}\n{}", entries.repeat(60));
+        fs::write(&log, &inflated).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(project.join(source))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(2))
+            .unwrap();
+
+        let traces = project.join("traces");
+        traced(project, &traces).arg("build").assert().success();
+        let (events, timings) = only_capture(&traces);
+        let actions = ninja_actions(&events, &timings);
+        assert_eq!(actions.len(), 2, "the object and the link: {actions:?}");
+        assert!(
+            fs::read(&log).unwrap().len() < inflated.len(),
+            "the log was compacted"
         );
     }
 }
