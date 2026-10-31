@@ -35,6 +35,9 @@ pub struct ParsedConfig {
     pub patches: BTreeMap<PackageName, PatchSource>,
     /// Keyed by the original locator; each value is its replacement.
     pub source_replacements: BTreeMap<SourceLocator, SourceLocator>,
+    /// `[runner]`: the program and arguments `cabin run` and `cabin
+    /// test` prefix to an executable built for `--target <triple>`.
+    pub runners: BTreeMap<String, Vec<String>>,
 }
 
 /// Validated `[resolver]` table.  `incompatible_standards` is `None`
@@ -147,6 +150,20 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         Some(rows) => parsed_source_replacements_from_raw(rows)?,
         None => BTreeMap::new(),
     };
+    let runners = raw.runner.unwrap_or_default();
+    for (triple, runner) in &runners {
+        cabin_core::TargetPlatform::from_triple(triple).map_err(|source| {
+            ConfigParseError::InvalidRunnerTriple {
+                triple: triple.clone(),
+                source,
+            }
+        })?;
+        if runner.first().is_none_or(String::is_empty) {
+            return Err(ConfigParseError::EmptyRunner {
+                triple: triple.clone(),
+            });
+        }
+    }
     Ok(ParsedConfig {
         registry,
         paths,
@@ -156,6 +173,7 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         term,
         patches,
         source_replacements,
+        runners,
     })
 }
 
@@ -715,6 +733,36 @@ mod tests {
             err,
             ConfigParseError::EmptyToolSpec { key: "cxx" }
         ));
+    }
+
+    #[test]
+    fn runner_entries_parse_per_triple() {
+        let parsed = parse_config_str(
+            r#"
+            [runner]
+            aarch64-unknown-linux-gnu = ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.runners["aarch64-unknown-linux-gnu"],
+            ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu"]
+        );
+    }
+
+    #[test]
+    fn runner_rejects_a_bad_triple_or_no_program() {
+        for (body, expected) in [
+            ("nonsense = [\"qemu\"]", "is not a target triple"),
+            ("x86_64-unknown-linux-gnu = []", "non-empty program"),
+            (
+                "x86_64-unknown-linux-gnu = [\"\", \"x\"]",
+                "non-empty program",
+            ),
+        ] {
+            let err = parse_config_str(&format!("[runner]\n{body}\n")).unwrap_err();
+            assert!(err.to_string().contains(expected), "{body}: {err}");
+        }
     }
 
     #[test]

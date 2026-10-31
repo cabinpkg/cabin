@@ -96,6 +96,9 @@ fmt = { path = "../forks/fmt" }
 
 [source-replacement]
 "https://example.com/index" = { index-path = "../mirror" }
+
+[runner]
+aarch64-unknown-linux-gnu = ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu"]
 ```
 
 Every other top-level table - and every unknown field inside a known table - is rejected at parse
@@ -239,6 +242,21 @@ Per-tool precedence: `--cc` / `--cxx` / `--ar` - > `CC` / `CXX` / `AR` env - > `
 The same `--cxx` / `CXX` / `[toolchain].cxx` value is read at every layer; the resolver's source
 label distinguishes which layer ultimately won (`user-config`, `workspace-config`, `project-config`,
 or `explicit-config` for the config layer).
+
+### `[runner]`
+
+The program `cabin run --target <triple>` and `cabin test --target <triple>` run each executable
+through, keyed by that triple (see [`toolchains.md`](toolchains.md#building-for-another-platform)).
+
+| Key        | Type             | Notes                                                       |
+| ---------- | ---------------- | ----------------------------------------------------------- |
+| `<triple>` | array of strings | The program (bare command name searched on `PATH`, or a filesystem path, relative to the current directory) and its leading arguments.  The executable's path follows them, then the arguments for the executable. |
+
+Cabin runs the array as given, with no shell.  A key that is not a target triple, or an array
+without a non-empty first element, is rejected at parse time.  A higher-priority config file's entry
+for a triple replaces a lower one's.  Without `--target`, no runner applies.  `cabin metadata`
+reports the entries under `config.runners`.  The table plays the role of Cargo's
+`[target.<triple>].runner`, keyed at the top level because config has no `[target]` tables.
 
 ## Environment variables
 

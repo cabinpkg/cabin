@@ -27,7 +27,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 01 | Registry optional dependencies and transitive features in one active graph | 1 | `cabin-feature`, `cabin-resolver`, `cabin-index`, `cabin-index-http`, `cabin-workspace`, `cabin` | 00 | implemented |
 | 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | implemented |
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | implemented |
-| 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | in progress |
+| 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | implemented |
 | 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | not started |
 | 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | not started |
 | 07 | Generated actions and build-machine tools | 4 | `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin-manifest`, `cabin-core` | 02, 04-06; 03's metadata | not started |
@@ -240,8 +240,8 @@ Stages 04 and 05; validated in 06-10, 12-14.
   `<arch>-<family>-<os>`, not a real triple.
 - `--target <triple>` builds under `<build-dir>/<triple>/`, passes Clang `--target=`, and checks
   that GCC, MSVC, or clang-cl already builds for the triple (`cabin-toolchain/src/target.rs`).
-  For another machine, `cabin run` and `cabin test` run nothing, and the build machine's plain
-  pkg-config is refused.
+  For another machine, `cabin run` and `cabin test` run executables only through the `[runner]`
+  configured for the triple (`cabin-config`), and the build machine's plain pkg-config is refused.
 - `[build-dependencies]` build in a second context for the build machine, under
   `<profile>/build-machine/`, with their own features, flags, `cfg(...)` evaluation, and `links`
   check (`cabin/src/cli/build_prep.rs`, `plan_build_context`).  Both contexts share the detected
@@ -566,6 +566,13 @@ another machine.  `cabin package`
 refuses build dependencies until index metadata carries them, and `system = true` is refused in the
 build context.
 
+Stage 04, fifth change: the `[runner]` config table maps a target triple to a program and its
+leading arguments, and `cabin run --target` and `cabin test --target` run each executable through
+the triple's entry, without a shell, before falling back to running it directly on the build machine
+or refusing; the refusal now names the table.  The executable's path follows the runner's
+arguments, then the executable's own.  A relative program path resolves against the current
+directory, as a `[toolchain]` path does, and a runner that cannot start is named in the test result.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -683,12 +690,21 @@ output directory, and `check` skipping the build context - was shown to fail its
 macOS x86_64 C and C++ program.  Not run: a build context on Linux or Windows outside CI's portable
 tests.
 
+Stage 04, fifth change: with Apple Clang, a CLI test cross-builds for `x86_64-apple-macos13` and
+hands the C program and the C test to a runner, named by a path relative to the current directory,
+that records its arguments, through `cabin run` and `cabin test`; a Unix unit test hands a test
+file that is not executable to a runner that prints its arguments, and another names a runner that
+cannot start.  Removing the runner from the test runner's spawn, either command's runner check
+before its refusal, the relative path's resolution, or the runner's name in the spawn error fails
+these tests; config unit tests for the table and its rejections; `cargo ci` on macOS.  Verified cross combination: Apple Clang, macOS arm64 to macOS x86_64 through a
+runner.  Not run: an emulator such as `qemu-user`, or Rosetta (not installed here).
+
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
 reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
 despite its timed-out test.
 
-**Unfinished.**  Stages 04-14.  Follow-ups found in stage 01, outside its scope:
+**Unfinished.**  Stages 05-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
 "Blocked workflow"); a transitively requested unknown feature is reported as a resolution conflict
 naming `<package>[<feature>]` rather than with the direct-request diagnostic; `metadata` and
@@ -724,11 +740,34 @@ and `cabin explain` walk build edges with one platform.  Found alongside, in bot
 dependency still builds and links it (`cabin-build/src/planner/lowering.rs`, `resolve_target_dep`),
 though [features](features.md) says a disabled optional dependency never links.
 
-## Handoff to stage 04
+## Handoff to stages 05 and 07
 
-Stage 04 starts from contracts section 1.  Stage 03 makes a revision's resolution metadata
-`dependencies`, `features`, `standards`, and `links`.  A declaration a later stage adds to index
-metadata that resolution reads - build or tool dependencies, providers, actions - joins that set in
+Stage 04 leaves these seams:
+
+- **Platforms.**  `--target` is classified by `TargetPlatform::from_triple`; `PreparedWorkspace`
+  carries the target platform, `BuildContextPrep` the build machine's
+  (`cabin/src/cli/build_prep.rs`).  Outputs live under `<build-dir>/<triple>/<profile>/`, the build
+  context's under `build-machine/` beside `packages/` (`cabin_build::planner::BUILD_CONTEXT_DIR`).
+- **Toolchains (stage 05).**  Both contexts share one detected toolchain, and
+  `cabin_toolchain::check_build_context_compilers` refuses GCC, MSVC, and clang-cl when `--target`
+  names another machine.  A toolchain per context replaces that check; `render_build_ninja` then
+  needs rules per dialect, since `BuildGraph::append` assumes one.  Clang-family compilers get
+  `PlanRequest::clang_target`, which the build context leaves unset.  A probe result that changes
+  commands must reach the command lines or the toolchain stamp
+  (`cabin_ninja::writer::TOOLCHAIN_STAMP`), the two inputs every edge rebuilds on.
+- **Running (stage 05 probes).**  A target executable runs only natively or through
+  `PreparedWorkspace::runner`, the `[runner]` entry for `--target`; a probe that must run a program
+  built for another machine uses the same entry or runs nothing.
+- **Build-machine tools (stage 07).**  `PlanRequest::build_context` plans a context's units under
+  `BUILD_CONTEXT_DIR`, and `plan_build_context` appends that plan to the target's, building the
+  default targets of the packages build edges reach (`BuildContextPrep::roots`).  Their features
+  come from `cabin_feature::resolve_build_context_features`, and the resolver checks `links` per
+  context (`ResolveInput::link_domains`).  A build-context output runs on the build machine
+  directly, never through a runner.
+
+Stage 03 makes a revision's resolution metadata `dependencies`, `features`, `standards`, and
+`links`.  A declaration a later stage adds to index metadata that resolution reads - build or tool
+dependencies, providers, actions - joins that set in
 `cabin-index` (`ResolutionMetadata`), the file registry (`resolution_fields`), the hosted registry
 (`RESOLUTION_FIELDS`), and `cabin vendor` (`rewrite_vendored_revision`); otherwise an old pin
 resolves it with the current revision's value.

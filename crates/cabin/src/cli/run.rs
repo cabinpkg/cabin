@@ -217,9 +217,9 @@ pub(crate) fn run(
             )
         })?;
     let target = &prepared.platform.target;
-    if !prepared.platform.runs_on_build_machine() {
+    if prepared.runner.is_empty() && !prepared.platform.runs_on_build_machine() {
         bail!(
-            "built `{}` for {target}, but did not run it: the build machine cannot run {target} executables",
+            "built `{}` for {target}, but did not run it: the build machine cannot run {target} executables; configure a `[runner]` for {target} to run it",
             display_run_path(&executable, &prepared.manifest_path),
         );
     }
@@ -243,19 +243,22 @@ pub(crate) fn run(
     // \`target/debug/foo\``.  Falls back to the absolute path
     // when `--build-dir` places the binary outside the project
     // tree.
-    reporter.status(
-        "Running",
-        format_args!(
-            "`{}`",
-            display_run_path(&executable, &prepared.manifest_path)
-        ),
-    );
+    let mut shown = prepared.runner.clone();
+    shown.push(display_run_path(&executable, &prepared.manifest_path));
+    reporter.status("Running", format_args!("`{}`", shown.join(" ")));
 
     // Working directory: mirror Cargo by inheriting the user's
     // current working directory.  Trailing args (`cabin run --
     // a b`) are forwarded to the spawned program verbatim; clap
     // strips the `--` separator before we see the vec.
-    let mut command = std::process::Command::new(&executable);
+    let mut command = match prepared.runner.split_first() {
+        Some((program, runner_args)) => {
+            let mut command = std::process::Command::new(program);
+            command.args(runner_args).arg(&executable);
+            command
+        }
+        None => std::process::Command::new(&executable),
+    };
     command.envs(env_overlay.iter().map(|(k, v)| (k.as_str(), v.as_os_str())));
     // The registry credential is Cabin's input, not the program's:
     // scrub it so arbitrary package code can never read the token.
@@ -265,7 +268,7 @@ pub(crate) fn run(
     let status = command.status().with_context(|| {
         format!(
             "failed to start `{}` ({}:{})",
-            executable.display(),
+            command.get_program().display(),
             run_target.package_name,
             run_target.target_name
         )

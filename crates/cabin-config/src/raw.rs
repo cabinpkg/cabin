@@ -72,6 +72,9 @@ pub(crate) struct RawConfig {
     pub(crate) patch: Option<BTreeMap<String, RawConfigPatch>>,
     #[serde(default, rename = "source-replacement")]
     pub(crate) source_replacement: Option<BTreeMap<String, RawConfigSourceReplacement>>,
+    /// `[runner]`: `<triple> = ["program", "arg", ...]`.
+    #[serde(default)]
+    pub(crate) runner: Option<BTreeMap<String, Vec<String>>>,
     #[serde(flatten)]
     pub(crate) extra: BTreeMap<String, toml::Value>,
 }

@@ -53,8 +53,9 @@ the outcome stays distinguishable from a package with no tests at all.
 toolchain overrides (`--cc` / `--cxx` / `--ar` / `--compiler-wrapper`), the workspace-selection
 bundle (`--workspace` / `-p` / `--default-members` / `--exclude`), and the index/cache locations
 (`--index-path` / `--index-url` / `--cache-dir`).  With
-[`--target`](toolchains.md#building-for-another-platform) naming another machine, it builds the
-tests and then fails without running them.
+[`--target`](toolchains.md#building-for-another-platform) naming another machine, it runs the
+tests through the triple's configured [`[runner]`](config.md#runner), or builds them and fails
+without running them when none is configured.
 
 `--allow-no-tests` opts the user out of the empty-selection error: by default, `cabin test` exits
 with an error when the selected packages declare no `test` target, so CI does not silently pass when

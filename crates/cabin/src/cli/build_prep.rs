@@ -231,6 +231,10 @@ pub(crate) struct PreparedWorkspace {
     pub platform: cabin_core::TargetPlatform,
     /// See [`cabin_build::PlanRequest::clang_target`].
     pub clang_target: Option<String>,
+    /// The `[runner]` config entry for the `--target` triple: the
+    /// program and arguments `cabin run` / `cabin test` put before
+    /// each executable they run; empty runs it directly.
+    pub runner: Vec<String>,
     /// The build context, when the target context's packages declare
     /// build dependencies.
     pub build_context: Option<BuildContextPrep>,
@@ -638,6 +642,27 @@ pub(crate) fn prepare_workspace(
         })?)
     };
 
+    let mut runner = args
+        .toolchain
+        .target
+        .as_ref()
+        .and_then(|target| effective_config.runners.get(&target.target))
+        .map(|runner| runner.value.clone())
+        .unwrap_or_default();
+    // A relative program path means the current directory, as a
+    // `[toolchain]` path does; `cabin test` starts each test elsewhere.
+    if let Some(program) = runner.first_mut()
+        && matches!(
+            cabin_core::ToolSpec::parse(program.as_str()),
+            cabin_core::ToolSpec::Path(path) if path.is_relative()
+        )
+    {
+        *program = std::path::absolute(&*program)
+            .context("failed to determine current directory")?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("the current directory is not valid UTF-8"))?;
+    }
     Ok(PreparedWorkspace {
         manifest_path,
         effective_config,
@@ -657,6 +682,7 @@ pub(crate) fn prepare_workspace(
         dev_for,
         platform,
         clang_target: compiler_targets.clang_target,
+        runner,
         build_context,
     })
 }

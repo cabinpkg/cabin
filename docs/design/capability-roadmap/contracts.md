@@ -242,7 +242,7 @@ malicious code.  The trust model therefore states who decided to run what:
   `package`, `publish`, and the registry verifier never run actions.  `metadata` and `explain`
   run only machine probes (toolchain `--version`, pkg-config), never dependency-supplied programs.
 - **Target binaries never run on the build machine implicitly.**  Running one needs a native build
-  or an explicitly configured runner (stage 04).
+  or an explicitly configured runner (the `[runner]` config table, keyed by triple).
 
 Generated outputs belong to their unit's context and variant directory, and generated public
 headers join the unit's consumer interface (section 2) and its install export (stage 09).  When an

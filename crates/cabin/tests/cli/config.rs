@@ -92,6 +92,40 @@ profile = "release"
 }
 
 #[test]
+fn metadata_reports_runners_with_the_winning_source() {
+    let dir = project_dir(MINIMAL_PROJECT);
+    let user_home = TempDir::new().unwrap();
+    write_user_config(
+        user_home.path(),
+        "[runner]\naarch64-unknown-linux-gnu = [\"user-qemu\"]\nriscv64gc-unknown-linux-gnu = [\"qemu-riscv64\"]\n",
+    );
+    write_workspace_config(
+        dir.path(),
+        "[runner]\naarch64-unknown-linux-gnu = [\"qemu-aarch64\", \"-L\", \"/sysroot\"]\n",
+    );
+    let assertion = cabin_with_config()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .assert()
+        .success();
+    let value: serde_json::Value = serde_json::from_slice(&assertion.get_output().stdout).unwrap();
+    assert_eq!(
+        value["config"]["runners"],
+        serde_json::json!({
+            "aarch64-unknown-linux-gnu": {
+                "command": ["qemu-aarch64", "-L", "/sysroot"],
+                "value_source": "package-config",
+            },
+            "riscv64gc-unknown-linux-gnu": {
+                "command": ["qemu-riscv64"],
+                "value_source": "user-config",
+            },
+        })
+    );
+}
+
+#[test]
 fn metadata_reports_resolver_incompatible_standards() {
     let dir = project_dir(MINIMAL_PROJECT);
     write_workspace_config(
