@@ -42,6 +42,19 @@ pub enum ConfigError {
         source: ConfigParseError,
     },
 
+    /// A workspace or package config file declared `[term]`.  Terminal
+    /// settings take effect before Cabin locates a workspace, so only
+    /// the user config file and `CABIN_CONFIG` can set them; accepting
+    /// the table here would ignore it silently.
+    #[error(
+        "config file `{path}` sets `[term]`, which only the user config file or `CABIN_CONFIG` can \
+         set, as terminal output is configured before Cabin reads project config; move the table \
+         to the user config file, or use `CABIN_TERM_COLOR`, `CABIN_TERM_VERBOSE`, or \
+         `CABIN_TERM_QUIET`",
+        path = path.display(),
+    )]
+    TermOutsideUserConfig { path: PathBuf },
+
     /// A config-layer boolean env var (e.g. `CABIN_NO_CONFIG`)
     /// carried a value outside the documented truthy / falsy
     /// spellings.  Silently ignoring the value would load config
