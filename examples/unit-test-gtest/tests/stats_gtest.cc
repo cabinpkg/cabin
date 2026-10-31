@@ -26,7 +26,7 @@ TEST(StatsEdgeCases, EmptySeriesThrows) {
     EXPECT_THROW(median({}), std::invalid_argument);
 }
 
-// The googletest port intentionally excludes gtest_main.cc, so the
+// The googletest port excludes gtest_main.cc, so the
 // test target supplies its own entry point.
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

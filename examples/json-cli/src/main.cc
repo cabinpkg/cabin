@@ -2,10 +2,8 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-// A miniature manifest-inspector: parse a JSON document, pull typed
-// values out of nested objects and arrays, and emit a derived JSON
-// summary. nlohmann::json stores object keys sorted, so the dumped
-// summary is deterministic.
+// nlohmann::json stores object keys sorted, so the dumped summary is
+// deterministic.
 int main() {
     const nlohmann::json manifest = nlohmann::json::parse(R"({
         "package": { "name": "json-cli", "version": "0.1.0" },

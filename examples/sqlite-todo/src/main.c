@@ -1,9 +1,8 @@
 #include <sqlite3.h>
 #include <stdio.h>
 
-/* A miniature todo list: schema, a few inserts, one UPDATE, then a
- * listing query. Everything lives in ':memory:' so the example is
- * deterministic and leaves no files behind. */
+/* Everything lives in ':memory:' so the example is deterministic and
+ * leaves no files behind. */
 
 static int fail(sqlite3 *db, const char *what) {
     fprintf(stderr, "%s: %s\n", what, sqlite3_errmsg(db));

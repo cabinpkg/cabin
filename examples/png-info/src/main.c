@@ -3,11 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Encode a tiny RGBA image to an in-memory PNG with libpng's
- * simplified write API, then decode it back and report what a
- * png-info tool would print. The DEFLATE stream inside the PNG is
- * produced and consumed by zlib, which this package never declares:
- * it arrives transitively through the libpng dependency edge. */
+/* The DEFLATE stream inside the PNG is produced and consumed by zlib,
+ * which this package never declares: it arrives transitively through
+ * the libpng dependency edge. */
 
 int main(void) {
     static const unsigned char pixels[2 * 2 * 4] = {

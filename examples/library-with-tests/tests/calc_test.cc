@@ -2,10 +2,8 @@
 
 #include <cstdio>
 
-// A Cabin `test` target is just an executable: it passes when `main`
-// returns 0 and fails otherwise. There is no framework to learn. This
-// tiny helper records failures and stays silent on success, so a
-// passing run produces no stray output.
+// A Cabin `test` target is an executable: it passes when `main`
+// returns 0 and fails otherwise.
 namespace {
 
 int failures = 0;
