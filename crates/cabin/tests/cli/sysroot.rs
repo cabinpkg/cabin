@@ -163,18 +163,20 @@ fn metadata_tells_a_configured_sysroot_from_a_detected_sdk() {
             .unwrap()
             .ends_with(".cabin/sdks/Pinned.sdk")
     );
+    let cli_sdk = dir.path().join("cli.sdk");
+    let cli_sdk = cli_sdk.to_str().unwrap();
     assert_eq!(
-        metadata(&["--target", triple, "--sysroot", "/cli.sdk"], None)["toolchain"]["sysroot"],
-        serde_json::json!({"path": "/cli.sdk", "source": "cli"})
+        metadata(&["--target", triple, "--sysroot", cli_sdk], None)["toolchain"]["sysroot"],
+        serde_json::json!({"path": cli_sdk, "source": "cli"})
     );
     let explain = cabin_with_config()
         .current_dir(dir.path())
-        .args(["explain", "--format", "json", "--sysroot", "/cli.sdk"])
+        .args(["explain", "--format", "json", "--sysroot", cli_sdk])
         .args(["build-config", "app"])
         .output()
         .unwrap();
     let explain: serde_json::Value = serde_json::from_slice(&explain.stdout).unwrap();
-    assert_eq!(explain["configuration"]["toolchain"]["sysroot"], "/cli.sdk");
+    assert_eq!(explain["configuration"]["toolchain"]["sysroot"], cli_sdk);
     // A relative `CABIN_CONFIG` still yields an absolute sysroot, since
     // Ninja runs the commands from the build directory.
     let explicit =

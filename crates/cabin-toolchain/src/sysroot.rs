@@ -48,10 +48,10 @@ pub fn explicit_sysroot(
 }
 
 /// The SDK Apple Clang builds `platform` against when no sysroot is
-/// chosen: `SDKROOT` when it is an absolute macOS path, as the driver reads
-/// it, else what `xcrun` names for the platform.  `None` for other
-/// platforms or compilers, or when `xcrun` names nothing, which leaves
-/// the driver to its own default.
+/// chosen: `SDKROOT` when the driver would honor it (an existing
+/// absolute path other than `/`), else what `xcrun` names for the
+/// platform.  `None` for other platforms or compilers, or when `xcrun`
+/// names nothing, which leaves the driver to its own default.
 pub fn discover_apple_sdk(
     platform: &TargetPlatform,
     report: &ToolchainDetectionReport,
@@ -69,7 +69,13 @@ pub fn discover_apple_sdk(
         return None;
     }
     let path = match sdkroot.and_then(OsStr::to_str) {
-        Some(sdkroot) if sdkroot.starts_with('/') => sdkroot.to_owned(),
+        Some(sdkroot)
+            if Path::new(sdkroot).is_absolute()
+                && sdkroot != "/"
+                && Path::new(sdkroot).exists() =>
+        {
+            sdkroot.to_owned()
+        }
         _ => {
             // Mac Catalyst (`-macabi`) builds against the macOS SDK, and
             // Apple Clang builds any other x86 iOS triple for the simulator.
@@ -195,15 +201,21 @@ mod tests {
             discover("x86_64-apple-ios14.0-macabi", &apple, None).unwrap(),
             "/sdks/MacOSX27.2.sdk"
         );
-        // An absolute `SDKROOT` wins, as in Apple Clang; a name does not.
+        // An existing absolute `SDKROOT` wins, as in Apple Clang; a
+        // name, a missing path, or `/` does not.
+        let dir = assert_fs::TempDir::new().unwrap();
+        let old = dir.path().to_str().unwrap();
         assert_eq!(
-            discover("arm64-apple-macos13", &apple, Some("/sdks/Old.sdk")).unwrap(),
-            "/sdks/Old.sdk"
+            discover("arm64-apple-macos13", &apple, Some(old)).unwrap(),
+            old
         );
-        assert_eq!(
-            discover("arm64-apple-macos13", &apple, Some("macosx26")).unwrap(),
-            "/sdks/MacOSX27.2.sdk"
-        );
+        let missing = dir.path().join("Missing.sdk");
+        for sdkroot in ["macosx26", missing.to_str().unwrap(), "/"] {
+            assert_eq!(
+                discover("arm64-apple-macos13", &apple, Some(sdkroot)).unwrap(),
+                "/sdks/MacOSX27.2.sdk"
+            );
+        }
         // Other compilers and platforms keep their own default; an SDK
         // `xcrun` cannot name (here, `iphoneos`) leaves the driver's.
         let gcc = report(CompilerKind::Gcc, None);
