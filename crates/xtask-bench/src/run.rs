@@ -717,7 +717,7 @@ pub fn suite(
         })
         .collect();
     // Scenario-major order: the binaries under comparison run back to
-    // back, so slow drift in machine state affects both alike, and
+    // back, so drift slower than a scenario reaches both, and
     // which one goes first alternates, so neither always inherits a
     // cold machine.
     for (index, scenario) in scenarios.iter().enumerate() {
