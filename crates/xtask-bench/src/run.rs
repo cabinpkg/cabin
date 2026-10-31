@@ -282,16 +282,7 @@ pub fn check(
     }
     let build_dir = prepared.dir.join("build/dev");
     let log = build_dir.join(".ninja_log");
-    if log.exists() {
-        // Ninja rewrites a log with many stale entries at the start of a
-        // build; compacting first keeps the check run's appends readable.
-        let _ = Command::new("ninja")
-            .arg("-C")
-            .arg(&build_dir)
-            .args(["-t", "recompact"])
-            .output();
-    }
-    let before = fs::metadata(&log).map_or(0, |m| m.len());
+    let before = fs::read(&log).unwrap_or_default();
     let check_traces = prepared.traces.join("check");
     let output = cabin(ctx, binary, prepared, &prepared.args)
         .env(cabin_env::CABIN_TRACE_DIR, &check_traces)
@@ -299,7 +290,7 @@ pub fn check(
     ensure_success(&output, &prepared.args)?;
 
     verify(&scenario.expect, &prepared.dir, || {
-        ninja_actions(&log, before)
+        ninja_actions(&log, &before)
     })?;
 
     // A revision older than trace capture writes no summary; it is
@@ -388,16 +379,14 @@ fn verify(expect: &Expect, dir: &Path, actions: impl Fn() -> Result<Vec<String>>
     Ok(())
 }
 
-/// The outputs of the actions Ninja appended to its log after `before`
-/// bytes.
-fn ninja_actions(log: &Path, before: u64) -> Result<Vec<String>> {
+/// The outputs of the actions Ninja appended to its log after `before`,
+/// its contents when the check run started.
+fn ninja_actions(log: &Path, before: &[u8]) -> Result<Vec<String>> {
     let bytes = fs::read(log).with_context(|| format!("reading {}", log.display()))?;
-    let start = usize::try_from(before)?;
-    ensure!(
-        bytes.len() >= start,
-        "the Ninja log was rewritten during the check run"
-    );
-    Ok(String::from_utf8_lossy(&bytes[start..])
+    let appended = bytes
+        .strip_prefix(before)
+        .context("Ninja rewrote its log during the check run, so its actions are unknown")?;
+    Ok(String::from_utf8_lossy(appended)
         .lines()
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .filter_map(|line| line.split('\t').nth(3).map(str::to_owned))
@@ -754,6 +743,25 @@ pub fn suite(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_log_that_kept_its_earlier_entries_yields_actions() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join(".ninja_log");
+        let before = b"# ninja log v7\n0\t9\t1\t/b/old.o\taa\n0\t9\t1\t/b/old.o\taa\n";
+        fs::write(&log, [&before[..], b"5\t20\t2\t/b/x.o\tbb\n"].concat()).unwrap();
+        assert_eq!(ninja_actions(&log, before).unwrap(), ["/b/x.o"]);
+        fs::write(&log, before).unwrap();
+        assert!(ninja_actions(&log, before).unwrap().is_empty());
+        // Compacted, then grown past the old length: an offset into it
+        // would start inside the new action and miss it.
+        fs::write(
+            &log,
+            b"# ninja log v7\n0\t9\t1\t/b/old.o\taa\n5\t20\t2\t/b/longer-name.o\tbb\n",
+        )
+        .unwrap();
+        assert!(ninja_actions(&log, before).is_err());
+    }
 
     #[test]
     fn a_zero_instruction_count_is_missing_not_measured() {
