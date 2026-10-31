@@ -71,7 +71,7 @@ full = ["ssl", "openssl/legacy"]
 ```
 
 - `optional = true` declares an optional Cabin package dependency (supported in `[dependencies]`;
-  rejected in `[dev-dependencies]` and ``system = true` deps`).
+  rejected in `[dev-dependencies]` and `system = true` deps).
 - `features = ["..."]` requests features on the dependency package; entries must be feature names
   declared by that dependency.
 - `default-features = false` drops *this edge's* request for the dependency's `default` feature.  It

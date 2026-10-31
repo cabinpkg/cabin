@@ -14,7 +14,7 @@ selection with capability detection, `ccache` / `sccache` wrapper integration, t
 `.cabin/config.toml` system, patch / override and source replacement, the dev / test / example
 target kinds plus `cabin test`, vendoring + `--offline`, `cabin metadata` / `cabin tree` / `cabin
 explain`, the Cargo-inspired interface foundation (`cabin run`, the `cabin-env` crate), `cabin
-check`, `cabin fmt` / `cabin tidy`, `pkg-config`-driven ``system = true` deps`, `CPPFLAGS` /
+check`, `cabin fmt` / `cabin tidy`, `pkg-config`-driven `system = true` deps, `CPPFLAGS` /
 `CFLAGS` / `CXXFLAGS` / `LDFLAGS` ingestion, `-j` / `--jobs` build / run / tidy parallelism, `cabin
 new --bin` / `--lib` scaffold parity, `cabin version` plus `cabin --list`, `cabin add` / `cabin
 remove` manifest editing, `cabin clean`, and the curated foundation-port layer -
@@ -74,7 +74,7 @@ crates/
   cabin-source-discovery/ shared C/C++ source walker for fmt / tidy
   cabin-fmt/         clang-format runner used by `cabin fmt`
   cabin-tidy/        run-clang-tidy runner used by `cabin tidy`
-  cabin-system-deps/ pkg-config runner used by ``system = true` deps`
+  cabin-system-deps/ pkg-config runner used by `system = true` deps
   cabin/             `cabin` binary, command dispatch
 fuzz/                cargo-fuzz targets for the hostile-input parsers (own workspace)
 ports/               curated foundation ports
@@ -101,7 +101,7 @@ docs/
   check.md           `cabin check` (syntax-only type-check)
   fmt.md             `cabin fmt` (clang-format)
   tidy.md            `cabin tidy` (run-clang-tidy)
-  system-dependencies.md  ``system = true` deps` and pkg-config
+  system-dependencies.md  `system = true` deps and pkg-config
   new-and-init.md    scaffold semantics for `cabin new` / `cabin init`
   testing.md         `cabin test` runner
   targets.md         target kinds, `test` / `example`
@@ -1006,7 +1006,7 @@ The crate must:
 
 ### `cabin-system-deps`
 
-`pkg-config` runner consumed when a workspace declares ``system = true` deps`.  Owns executable
+`pkg-config` runner consumed when a workspace declares `system = true` deps.  Owns executable
 resolution (`CABIN_PKG_CONFIG`), `pkg-config` command-line construction, and the typed
 `SystemDependencyProbeRequest` / `SystemDependencyProbeReport` boundary.  Probes only fire when at
 least one selected primary package declares an active system dependency; dependency manifests

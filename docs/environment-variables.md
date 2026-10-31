@@ -27,7 +27,7 @@ const ... : &str = ...` constants.
 | `CABIN_TERM_QUIET` | unset | Suppress Cabin-owned status output when truthy |
 | `CABIN_FMT` | unset | Override for the `clang-format` executable `cabin fmt` spawns |
 | `CABIN_TIDY` | unset | Override for the `run-clang-tidy` executable `cabin tidy` spawns |
-| `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing ``system = true` deps` |
+| `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing `system = true` deps |
 | `CABIN_BUILD_JOBS` | unset | Number of parallel jobs the build backend should use |
 | `CABIN_RESOLVER_INCOMPATIBLE_STANDARDS` | unset | Standard-aware version preference (`allow` / `fallback`) |
 | `CABIN_TRACE_DIR` | unset | Write a performance trace and timings summary for this invocation into this directory; see [`performance.md`](performance.md) |
@@ -215,7 +215,7 @@ layers append to earlier ones; nothing replaces or erases an earlier layer):
 2. The package's own `[profile]` table.
 3. The package's matching `[target.'cfg(...)'.profile]` blocks.
 4. The selected profile's `[profile.<name>]` block.
-5. `pkg-config` contributions from ``system = true` deps`.
+5. `pkg-config` contributions from `system = true` deps.
 6. `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` - the environment layer described above.
 
 Environment flags only contribute to **primary** packages - the workspace members the user owns.
