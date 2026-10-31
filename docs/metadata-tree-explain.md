@@ -149,7 +149,7 @@ The JSON shape wraps the existing `BuildConfiguration::as_json()` document under
 |---|---|
 | Workspace selection | `--package` / `--workspace` / `--exclude` apply uniformly across `metadata`, `tree`, and `explain` and constrain the closure both commands inspect |
 | Feature selection | Feature flags run the cross-package feature resolver, so unknown features / `dep:` errors surface from `cabin metadata`, `cabin tree`, `cabin explain`, and `cabin build`. |
-| Dependency kinds | Tree's `--kind` filter walks all edges (default) or `normal` edges only; explain's `package` view reports edge kind on each step.  Dev edges stay declaration-only - `cabin metadata` lists them, but tree and explain do not walk them |
+| Dependency kinds | Tree's `--kind` filter walks all edges (default) or `normal` edges only; explain's `package` view reports edge kind on each step.  Build edges and the packages they reach show with kind `build`.  Dev edges stay declaration-only - `cabin metadata` lists them, but tree and explain do not walk them |
 | Patches | `[patch]` entries (manifest + config) light up `patched via <layer>` provenance in tree and explain. `--no-patches` disables patch application and source-replacement resolution for package inputs |
 | Source replacements | Surfaced in `cabin explain source` and `cabin metadata`; `explain source --no-patches` still lists configured declarations as observability data |
 | Vendoring / offline | `cabin tree` and `cabin explain` never reach the network and accept no `--index-path` / `--offline` flag of their own; they operate on the workspace closure plus active patches |

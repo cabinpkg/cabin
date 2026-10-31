@@ -125,6 +125,7 @@ pub(crate) fn explain(
         Some(&platform),
         &std::collections::BTreeSet::new(),
     )?;
+    let included = crate::cli::included_in_either_context(&graph, &feature_resolution, &platform)?;
 
     let explanation = match &args.command {
         ExplainCommand::Package { name } => {
@@ -134,7 +135,7 @@ pub(crate) fn explain(
                 name,
                 Some(&active_patches),
                 lockfile.as_ref(),
-                Some(&feature_resolution.included),
+                Some(&included),
                 Some(&platform),
             )?;
             cabin_explain::Explanation::Package(exp)

@@ -43,6 +43,13 @@ pub struct ResolveInput {
     /// the claims of every resolved package, because native symbol
     /// collisions ignore where a package came from.
     pub local_links: Vec<LinksClaim>,
+    /// The link/runtime domains of a root whose local packages
+    /// declare build dependencies: the target context and the build
+    /// context.  When non-empty, the post-resolution uniqueness check
+    /// runs once per domain, in place of once over `local_links` and
+    /// every resolved package, so a build tool and the target program
+    /// may each claim the same identity (contracts section 1, rule 6).
+    pub link_domains: Vec<LinkDomain>,
     /// The root's active edges onto versioned dependencies with the
     /// features they request, keyed by dependency name: `default` for
     /// an edge that keeps default features, plus edge `features` and
@@ -81,6 +88,7 @@ impl ResolveInput {
             incompatible_standards: IncompatibleStandards::default(),
             consumer_standards: ConsumerStandards { c: None, cxx: None },
             local_links: Vec::new(),
+            link_domains: Vec::new(),
             root_features: BTreeMap::new(),
             local_packages: BTreeMap::new(),
             lazy_index: false,
@@ -101,6 +109,16 @@ pub struct LinksClaim {
     pub target: String,
     /// The claimed native-library identity (`links = "z"`).
     pub links: String,
+}
+
+/// One link/runtime domain for [`ResolveInput::link_domains`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkDomain {
+    /// The names the domain's local packages depend on directly; the
+    /// resolved packages they reach belong to the domain.
+    pub roots: BTreeSet<PackageName>,
+    /// Declared claims of the domain's local packages.
+    pub local_links: Vec<LinksClaim>,
 }
 
 /// A previously-resolved version copied out of the lockfile.  Kept

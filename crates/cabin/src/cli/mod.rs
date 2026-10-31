@@ -1342,6 +1342,22 @@ pub(crate) fn compute_feature_resolution(
         .map_err(anyhow::Error::from)
 }
 
+/// The packages `features` includes plus the build context its
+/// build edges reach: what an inspection command shows.
+pub(crate) fn included_in_either_context(
+    graph: &PackageGraph,
+    features: &cabin_feature::FeatureResolution,
+    platform: &cabin_core::TargetPlatform,
+) -> Result<BTreeSet<usize>> {
+    let build = cabin_feature::resolve_build_context_features(
+        graph,
+        features,
+        Some(platform),
+        Some(&cabin_core::TargetPlatform::current()),
+    )?;
+    Ok(features.included.union(&build.included).copied().collect())
+}
+
 /// Flatten a [`cabin_feature::FeatureResolution`] into the
 /// per-package enabled-feature map the build planner consumes for
 /// `required-features` gating ([`cabin_build::PlanRequest`]'s

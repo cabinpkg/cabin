@@ -20,8 +20,8 @@ boundaries, and metadata consistency are part of it wherever those ten areas nee
 | Term | Meaning |
 | --- | --- |
 | Build machine | The machine that runs Cabin, Ninja, and every build action. |
-| Target platform | The platform a build artifact is built to run on.  Today it is always the build machine's own platform. |
-| Context | Either **target** (artifacts for the target platform; today's only context) or **build** (tools that execute on the build machine while the build runs, such as a code generator).  A native build has one platform but still two contexts. |
+| Target platform | The platform a build artifact is built to run on: the build machine's own platform unless `--target <triple>` names another. |
+| Context | Either **target** (artifacts for the target platform) or **build** (tools that execute on the build machine while the build runs, such as a code generator).  A native build has one platform but still two contexts. |
 | Package identity | `(name, source, version, revision)` - what the resolver chooses and the lockfile pins. |
 | Build unit | One target of one package built in one context with one unit configuration.  Build units are what the planner instantiates. |
 | Link/runtime domain | The build units whose code ends up in one final artifact (an executable, shared library, or loadable module) or is loaded into one process. |
@@ -72,7 +72,8 @@ Rules:
    active, so one lockfile serves every platform and `--locked`, `--offline`, `fetch`, and `vendor`
    reproduce any platform's closure; build-dependency edges join that same resolution.
 2. **Features unify per package within one context, never across contexts.**  Stage 01 completes
-   unification within a context; stage 04 separates the contexts.
+   unification within a context; stage 04 separates the contexts: `[build-dependencies]` edges seed
+   a second feature resolution, the build context's.
 3. **Units exist only where an active edge reaches them.**  A build with no build-context edges
    instantiates exactly the units it does today; a native build with the default library variant
    keeps today's paths.
@@ -86,7 +87,8 @@ Rules:
    the build machine; on a target unit it sees the target platform.
 6. **`links` uniqueness applies within a link/runtime domain.**  Two independent domains (a build
    tool and the target program) may each contain the native identity once; one domain may not
-   contain it twice.  Stage 04 implements this; until then the graph-wide check stays.
+   contain it twice.  Since stage 04 each context's closure is one domain; a finer per-artifact
+   domain is not computed.
 
 Worked examples the contract decides:
 

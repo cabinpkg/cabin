@@ -18,9 +18,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
-use cabin_core::{DependencySource, PackageName};
+use cabin_core::{DependencyKind, DependencySource, PackageName};
 use cabin_index::{IndexEntry, IndexPackageDependency, VersionMetadata};
-use cabin_resolver::LinksClaim;
+use cabin_resolver::{LinkDomain, LinksClaim};
 use cabin_workspace::{
     ActivePatchSet, ClosureVersionedDeps, PackageGraph, PackageKind, PackageSelection,
     PatchedVersionedDeps, ResolvedSelection, collect_patched_versioned_deps,
@@ -42,10 +42,16 @@ pub(crate) struct SeedInputs<'a> {
 pub(crate) struct ResolutionSeed {
     pub resolved_selection: ResolvedSelection,
     pub features: cabin_feature::FeatureResolution,
+    /// The build context the selection's build dependencies reach,
+    /// resolved apart from `features`.
+    pub build_features: cabin_feature::FeatureResolution,
     /// Declared claims of the included local packages, sorted and
     /// deduplicated - the `local_links` a resolution starts from
     /// before any fork claims join.
     pub local_links: Vec<LinksClaim>,
+    /// The target and build link domains when the build context is
+    /// not empty (see `cabin_resolver::ResolveInput::link_domains`).
+    pub link_domains: Vec<LinkDomain>,
     /// Closure-collected versioned deps with patched names excluded,
     /// plus the patched names the walk reached on active edges (the
     /// patches a direct local reference activates).
@@ -71,11 +77,14 @@ impl ResolutionSeed {
             None,
             inputs.dev_for,
         )?;
+        let build_features =
+            cabin_feature::resolve_build_context_features(inputs.graph, &features, None, None)?;
         let local_links = local_links_claims(inputs.graph, &features);
+        let build_local_links = local_links_claims(inputs.graph, &build_features);
         let closure_deps = collect_closure_versioned_deps_excluding_patches(
             inputs.graph,
             &resolved_selection,
-            &features,
+            &[&features, &build_features],
             inputs.patched_names,
             inputs.dev_for,
         )?;
@@ -84,26 +93,86 @@ impl ResolutionSeed {
             inputs.patched_names,
             &closure_deps.referenced_excluded,
         )?;
-        // The full pre-resolution seed claims: the included local
-        // packages' plus the activated forks' - a purely-local
-        // patched chain still links its forks, so their claims
-        // cannot wait for a resolution that never runs.
-        let mut claims = local_links.clone();
-        claims.extend(activated_fork_claims(
-            inputs.graph,
-            inputs.active_patches,
-            &patched_deps.activated,
-        )?);
-        claims.sort();
-        claims.dedup();
-        enforce_local_links_uniqueness(&claims)?;
+        // The full pre-resolution seed claims, per link domain: the
+        // included local packages' plus the activated forks' - a
+        // purely-local patched chain still links its forks, so their
+        // claims cannot wait for a resolution that never runs.  A fork
+        // neither context includes is reached through a registry
+        // edge, whose domain only resolution decides, so its claims
+        // join both.
+        let included_names: BTreeSet<&PackageName> = features
+            .included
+            .union(&build_features.included)
+            .map(|&idx| &inputs.graph.packages[idx].package.name)
+            .collect();
+        let fork_claims: Vec<LinksClaim> =
+            activated_fork_claims(inputs.graph, inputs.active_patches, &patched_deps.activated)?
+                .into_iter()
+                .filter(|claim| !included_names.contains(&claim.package))
+                .collect();
+        for domain_links in [&local_links, &build_local_links] {
+            let mut claims = domain_links.clone();
+            claims.extend(fork_claims.iter().cloned());
+            claims.sort();
+            claims.dedup();
+            enforce_local_links_uniqueness(&claims)?;
+        }
+        let mut build_roots = domain_roots(inputs.graph, &features, |_, kind| {
+            kind == DependencyKind::Build
+        });
+        build_roots.extend(domain_roots(inputs.graph, &build_features, |_, kind| {
+            kind != DependencyKind::Dev
+        }));
+        // A registry-only build dependency leaves the build context
+        // without local packages, but it still links apart.
+        let link_domains = if build_features.included.is_empty() && build_roots.is_empty() {
+            Vec::new()
+        } else {
+            vec![
+                LinkDomain {
+                    roots: domain_roots(inputs.graph, &features, |package, kind| {
+                        kind == DependencyKind::Normal
+                            || (kind == DependencyKind::Dev && inputs.dev_for.contains(package))
+                    }),
+                    local_links: local_links.clone(),
+                },
+                LinkDomain {
+                    roots: build_roots,
+                    local_links: build_local_links,
+                },
+            ]
+        };
         Ok(Self {
             resolved_selection,
             features,
+            build_features,
             local_links,
+            link_domains,
             closure_deps,
             patched_deps,
         })
+    }
+
+    /// Every package either context includes.
+    pub(crate) fn included(&self) -> BTreeSet<usize> {
+        self.features
+            .included
+            .union(&self.build_features.included)
+            .copied()
+            .collect()
+    }
+
+    /// Both contexts' feature requests on versioned dependencies:
+    /// resolution picks one version per name for both.
+    pub(crate) fn root_features(&self) -> BTreeMap<PackageName, BTreeSet<String>> {
+        let mut requests = self.features.versioned_requests.clone();
+        for (name, features) in &self.build_features.versioned_requests {
+            requests
+                .entry(name.clone())
+                .or_default()
+                .extend(features.iter().cloned());
+        }
+        requests
     }
 
     /// Whether anything must come from an index: the gate on every
@@ -205,8 +274,34 @@ pub(crate) fn activated_fork_claims(
     Ok(links_claims_of(graph, &resolution.included))
 }
 
-/// Build the selection's closure once and adapt a
-/// [`cabin_feature::FeatureResolution`] handle into the
+/// Names of the versioned dependencies that the local packages
+/// `features` includes declare under a kind `in_domain` accepts: the
+/// roots of one link domain.
+fn domain_roots(
+    graph: &PackageGraph,
+    features: &cabin_feature::FeatureResolution,
+    in_domain: impl Fn(&str, DependencyKind) -> bool,
+) -> BTreeSet<PackageName> {
+    let mut roots = BTreeSet::new();
+    for &idx in &features.included {
+        let pkg = &graph.packages[idx];
+        if pkg.kind != PackageKind::Local {
+            continue;
+        }
+        for dep in &pkg.package.dependencies {
+            if in_domain(pkg.package.name.as_str(), dep.kind)
+                && matches!(dep.source, DependencySource::Version(_))
+                && (!dep.optional || features.is_optional_dep_enabled(idx, dep.name.as_str()))
+            {
+                roots.insert(dep.name.clone());
+            }
+        }
+    }
+    roots
+}
+
+/// Build the selection's closure once and adapt the contexts'
+/// [`cabin_feature::FeatureResolution`]s into the
 /// `Fn(usize, &str) -> bool` optional-dep filter the workspace
 /// versioned-dep helper consumes.
 ///
@@ -220,15 +315,21 @@ pub(crate) fn activated_fork_claims(
 fn closure_and_optional_filter<'a>(
     graph: &PackageGraph,
     selection: &ResolvedSelection,
-    features: &'a cabin_feature::FeatureResolution,
+    contexts: &'a [&'a cabin_feature::FeatureResolution],
 ) -> (BTreeSet<usize>, impl Fn(usize, &str) -> bool + 'a) {
     let closure: BTreeSet<usize> = selection
         .closure(graph)
-        .intersection(&features.included)
-        .copied()
+        .into_iter()
+        .filter(|idx| {
+            contexts
+                .iter()
+                .any(|features| features.included.contains(idx))
+        })
         .collect();
     (closure, move |idx, name| {
-        features.is_optional_dep_enabled(idx, name)
+        contexts
+            .iter()
+            .any(|features| features.is_optional_dep_enabled(idx, name))
     })
 }
 
@@ -238,12 +339,12 @@ fn closure_and_optional_filter<'a>(
 fn collect_closure_versioned_deps_excluding_patches(
     graph: &PackageGraph,
     selection: &ResolvedSelection,
-    features: &cabin_feature::FeatureResolution,
+    contexts: &[&cabin_feature::FeatureResolution],
     patched_names: &BTreeSet<String>,
     dev_for: &BTreeSet<String>,
 ) -> Result<ClosureVersionedDeps> {
     let (closure, is_optional_dep_enabled) =
-        closure_and_optional_filter(graph, selection, features);
+        closure_and_optional_filter(graph, selection, contexts);
     cabin_workspace::collect_closure_versioned_deps_excluding_with_dev(
         graph,
         &closure,
@@ -298,7 +399,7 @@ pub(crate) fn local_packages(graph: &PackageGraph) -> BTreeMap<PackageName, Inde
                         },
                     ))
                 })
-                .collect();
+                .fold(BTreeMap::new(), merge_same_name_dependency);
             let links = package
                 .targets
                 .iter()
@@ -322,6 +423,27 @@ pub(crate) fn local_packages(graph: &PackageGraph) -> BTreeMap<PackageName, Inde
             )
         })
         .collect()
+}
+
+/// One name declared as both a normal and a build dependency resolves
+/// to one version that must satisfy both declarations.
+fn merge_same_name_dependency(
+    mut deps: BTreeMap<PackageName, IndexPackageDependency>,
+    (name, dep): (PackageName, IndexPackageDependency),
+) -> BTreeMap<PackageName, IndexPackageDependency> {
+    match deps.entry(name) {
+        std::collections::btree_map::Entry::Vacant(slot) => {
+            slot.insert(dep);
+        }
+        std::collections::btree_map::Entry::Occupied(mut slot) => {
+            let merged = slot.get_mut();
+            merged.req.comparators.extend(dep.req.comparators);
+            merged.optional &= dep.optional;
+            merged.features.extend(dep.features);
+            merged.default_features |= dep.default_features;
+        }
+    }
+    deps
 }
 
 fn exact_req(version: &semver::Version) -> semver::VersionReq {
@@ -679,6 +801,121 @@ links = "z"
             format!("{err:#}").contains("is claimed by multiple packages in the dependency graph"),
             "expected the collision diagnostic, got: {err:#}"
         );
+    }
+
+    /// `app` uses `za` (patched to a fork), `zb` only under
+    /// `[dev-dependencies]`, and the build tool `gen`, which links
+    /// `miniz`; the fork and `miniz` both claim `z`.
+    fn two_context_app(dir: &Path) -> (PackageGraph, ActivePatchSet) {
+        write(
+            dir,
+            "app/cabin.toml",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+za = ">=1"
+
+[dev-dependencies]
+zb = ">=1"
+
+[build-dependencies]
+gen = { path = "../gen" }
+
+[patch]
+za = { path = "../za-fork" }
+"#,
+        );
+        write(
+            dir,
+            "gen/cabin.toml",
+            r#"[package]
+name = "gen"
+version = "0.1.0"
+
+[dependencies]
+miniz = { path = "../miniz" }
+"#,
+        );
+        for (rel, name, version) in [("za-fork", "za", "1.0.0"), ("miniz", "miniz", "0.1.0")] {
+            write(
+                dir,
+                &format!("{rel}/cabin.toml"),
+                &format!(
+                    r#"[package]
+name = "{name}"
+version = "{version}"
+
+[target.{name}]
+type = "library"
+sources = ["src/{name}.c"]
+c-standard = "c11"
+links = "z"
+"#
+                ),
+            );
+            write(dir, &format!("{rel}/src/{name}.c"), "void f(void) {}\n");
+        }
+        load(&dir.join("app/cabin.toml"))
+    }
+
+    #[test]
+    fn a_fork_one_context_includes_claims_only_there() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let (graph, patches) = two_context_app(dir.path());
+        let seed = seed(&graph, &patches, SelectionMode::CurrentPackage, &[]).unwrap();
+        let [target, build] = &seed.link_domains[..] else {
+            panic!("expected two link domains: {:?}", seed.link_domains);
+        };
+        assert_eq!(target.local_links.len(), 1);
+        assert_eq!(build.local_links.len(), 1);
+        assert_ne!(target.local_links, build.local_links);
+    }
+
+    #[test]
+    fn inactive_dev_dependencies_are_not_link_domain_roots() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let (graph, patches) = two_context_app(dir.path());
+        let seed = seed(&graph, &patches, SelectionMode::CurrentPackage, &[]).unwrap();
+        assert!(
+            seed.link_domains
+                .iter()
+                .all(|domain| !domain.roots.contains(&PackageName::new("zb").unwrap())),
+            "{:?}",
+            seed.link_domains
+        );
+    }
+
+    #[test]
+    fn one_name_in_two_kinds_offers_both_declarations() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "app/cabin.toml",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+util = { version = "^1", features = ["a"] }
+
+[build-dependencies]
+util = { version = ">=1.2", features = ["b"] }
+"#,
+        );
+        let (graph, _) = load(&dir.path().join("app/cabin.toml"));
+        let packages = local_packages(&graph);
+        let app = packages[&PackageName::new("app").unwrap()]
+            .versions
+            .values()
+            .next()
+            .unwrap();
+        let util = &app.dependencies[&PackageName::new("util").unwrap()];
+        assert!(util.req.matches(&semver::Version::new(1, 2, 0)));
+        assert!(!util.req.matches(&semver::Version::new(1, 1, 0)));
+        assert!(!util.req.matches(&semver::Version::new(2, 0, 0)));
+        assert_eq!(util.features, ["a", "b"]);
     }
 
     #[test]

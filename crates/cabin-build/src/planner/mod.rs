@@ -58,6 +58,10 @@ impl ManifestTargetSelector {
     }
 }
 
+/// The directory under `<build-dir>/<profile>` that holds the build
+/// context's units.
+pub const BUILD_CONTEXT_DIR: &str = "build-machine";
+
 /// Inputs to the build planner.
 #[derive(Debug)]
 pub struct PlanRequest<'a> {
@@ -96,6 +100,12 @@ pub struct PlanRequest<'a> {
     /// `--target=` to a Clang-family driver; `None` keeps the drivers'
     /// default (a native build, or a compiler with a fixed target).
     pub clang_target: Option<String>,
+    /// Whether this plan builds the build context: tools for the
+    /// build machine, whose units land under
+    /// `<profile>/build-machine/packages` instead of
+    /// `<profile>/packages` so they never share products with the
+    /// target context's units of the same package.
+    pub build_context: bool,
     /// Resolved build profile.  Drives compile flags and the per-
     /// profile output directory.
     pub profile: ResolvedProfile,
@@ -402,10 +412,17 @@ fn emit_actions(
         // A scoped package nests as `packages/<scope>/<name>`;
         // `path_components` is the sanctioned name-to-path mapping
         // (the full name string is never one path component).
-        let pkg_build_dir = pkg.package.name.path_components().fold(
-            build_dir.join(req.profile.name.as_str()).join("packages"),
-            |dir, component| dir.join(component),
-        );
+        let profile_dir = build_dir.join(req.profile.name.as_str());
+        let packages_dir = if req.build_context {
+            profile_dir.join(BUILD_CONTEXT_DIR).join("packages")
+        } else {
+            profile_dir.join("packages")
+        };
+        let pkg_build_dir = pkg
+            .package
+            .name
+            .path_components()
+            .fold(packages_dir, |dir, component| dir.join(component));
         // The manifest directory is an OS-canonicalized path; promote
         // it to UTF-8 (rejecting non-UTF-8) so the source and include
         // paths it anchors enter the IR as `Utf8PathBuf`.

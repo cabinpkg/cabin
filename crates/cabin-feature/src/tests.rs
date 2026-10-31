@@ -852,3 +852,79 @@ fn dep_colon_skips_optional_dep_when_target_does_not_match() {
         r.enabled_optional_deps,
     );
 }
+
+/// A build edge reaches its package in the build context only, with
+/// the edge's own requests, so the target context's features never
+/// leak in.  The edge's `cfg(...)` is evaluated for the declaring
+/// unit's platform; the build-context package's own edges see the
+/// build machine.
+#[test]
+fn build_edges_resolve_a_separate_context() {
+    let linux = TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap();
+    let windows = TargetPlatform::from_triple("x86_64-pc-windows-msvc").unwrap();
+    let only_on =
+        |os: &str| Some(cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{os}")"#)).unwrap());
+    let root = make_project(
+        "root",
+        vec![
+            dep_normal_with("util", false, &["loud"], true),
+            Dependency {
+                kind: DependencyKind::Build,
+                condition: only_on("linux"),
+                ..dep_normal_with("gen", false, &["fast"], true)
+            },
+        ],
+        empty_features(),
+    );
+    let generator = make_project(
+        "gen",
+        vec![
+            dep_normal_with("util", false, &[], false),
+            Dependency {
+                condition: only_on("windows"),
+                ..dep_normal("winonly", false)
+            },
+        ],
+        features(&[], &[("fast", &[])]),
+    );
+    let util = make_project(
+        "util",
+        Vec::new(),
+        features(&["base"], &[("base", &[]), ("loud", &[])]),
+    );
+    let winonly = make_project("winonly", Vec::new(), empty_features());
+    let graph = make_graph(vec![
+        (
+            root,
+            vec![(2, DependencyKind::Normal), (1, DependencyKind::Build)],
+        ),
+        (
+            generator,
+            vec![(2, DependencyKind::Normal), (3, DependencyKind::Normal)],
+        ),
+        (util, Vec::new()),
+        (winonly, Vec::new()),
+    ]);
+    let request = RootFeatureRequest::default();
+
+    let target = resolve_features(&graph, &[0], &request, Some(&linux), &no_dev()).unwrap();
+    assert_eq!(target.included, BTreeSet::from([0, 2]));
+    assert_eq!(
+        names(&target.for_package(2).enabled_features),
+        vec!["base", "default", "loud"]
+    );
+
+    let build =
+        resolve_build_context_features(&graph, &target, Some(&linux), Some(&windows)).unwrap();
+    assert_eq!(build.included, BTreeSet::from([1, 2, 3]));
+    assert_eq!(
+        names(&build.for_package(1).enabled_features),
+        vec!["default", "fast"]
+    );
+    assert!(build.for_package(2).enabled_features.is_empty());
+
+    let target = resolve_features(&graph, &[0], &request, Some(&windows), &no_dev()).unwrap();
+    let build =
+        resolve_build_context_features(&graph, &target, Some(&windows), Some(&linux)).unwrap();
+    assert!(build.included.is_empty());
+}

@@ -143,6 +143,15 @@ pub enum ManifestError {
     },
 
     #[error(
+        "system dependencies are not supported in {section}; declared system dependency: {name:?}",
+        section = kind.manifest_section(),
+    )]
+    SystemNotSupportedForKind {
+        name: String,
+        kind: cabin_core::DependencyKind,
+    },
+
+    #[error(
         "optional dependencies are not supported in {section}; declared optional dependency: {name:?}",
         section = kind.manifest_section(),
     )]

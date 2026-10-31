@@ -53,6 +53,23 @@ pub struct BuildGraph {
     pub standard_compat_violations: Vec<StandardCompatViolation>,
 }
 
+impl BuildGraph {
+    /// Fold the build context's plan into the target context's, so
+    /// one Ninja file builds both.  The two plans' outputs live under
+    /// different directories, and no target action consumes a build
+    /// context output yet, so concatenation keeps topological order.
+    pub fn append(&mut self, other: BuildGraph) {
+        debug_assert_eq!(self.dialect, other.dialect);
+        self.actions.extend(other.actions);
+        self.default_outputs.extend(other.default_outputs);
+        self.planned_packages.extend(other.planned_packages);
+        self.compile_commands.extend(other.compile_commands);
+        self.standard_violations.extend(other.standard_violations);
+        self.standard_compat_violations
+            .extend(other.standard_compat_violations);
+    }
+}
+
 /// One standards problem recorded against a planned compile.  Each
 /// variant carries the offending compile's object path so the
 /// `cabin check` rewrite can prune violations with the same path

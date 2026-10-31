@@ -1,14 +1,15 @@
 # Dependency kinds
 
-Cabin classifies every dependency into one of two **kinds**, each declared under its own manifest
+Cabin classifies every dependency into one of three **kinds**, each declared under its own manifest
 section:
 
 | Section                  | Kind     | What it means                                                  |
 |--------------------------|----------|-----------------------------------------------------------------|
 | `[dependencies]`         | `normal` | Linked into ordinary builds.                                    |
 | `[dev-dependencies]`     | `dev`    | For tests / examples / local development tasks.                 |
+| `[build-dependencies]`   | `build`  | Tools built for the build machine; never linked into the dependent. |
 
-An individual entry inside either of these tables can additionally opt out of the Cabin registry /
+An entry inside `[dependencies]` or `[dev-dependencies]` can additionally opt out of the Cabin registry /
 resolver / fetcher path and be sourced from the system instead by setting `system = true`:
 
 ```toml
@@ -42,9 +43,12 @@ zlib = { version = ">=1.2", system = true }
 
 [dev-dependencies]
 gtest = "^1.14"
+
+[build-dependencies]
+gen = { path = "../gen" }
 ```
 
-`[dependencies]` and `[dev-dependencies]` accept the following value forms:
+`[dependencies]`, `[dev-dependencies]`, and `[build-dependencies]` accept the following value forms:
 
 - bare version-requirement string (`name = ">=10"`),
 - `{ version = "..." }`,
@@ -52,7 +56,7 @@ gtest = "^1.14"
 - `{ workspace = true }` (looks up the matching `[workspace.<kind>-dependencies]` table - see
   below),
 - `{ version = "...", system = true }` - externally-provided system dep, probed via `pkg-config` at
-  build time.
+  build time (not in `[build-dependencies]`).
 
 `system = true` is mutually exclusive with `path`, `workspace`, `features`,
 `default-features`, and `optional`; mixing the flag with any of those surfaces a clear parser error.
@@ -63,6 +67,9 @@ Every declared `system = true` dependency is required - the manifest has no `req
 The Cabin resolver runs over the union of dependency kinds that participate in *ordinary* commands:
 
 - **Normal** dependencies - included.
+- **Build** dependencies - included, with everything they reach, so `cabin.lock`, `fetch`, `vendor`,
+  `--locked`, and `--offline` cover build tools.  A package used as a build tool and as a library
+  resolves to one version for both.
 - **Dev** dependencies - **excluded by default**.  Declaration only for ordinary commands.  They
   round-trip through metadata but are not resolved, fetched, or built.  `cabin test` activates them
   as real graph edges for the *selected* primary packages so test executables can link against
@@ -71,8 +78,40 @@ The Cabin resolver runs over the union of dependency kinds that participate in *
 - **System** dependencies - **never resolved**.  They never reach the resolver.
 
 The same package name may appear under multiple kinds (e.g. a package used both as a normal dep and
-as a dev dep).  The resolver sees only the normal-kind requirement during ordinary commands; `cabin
-test` joins the selected packages' dev-kind requirements on top.
+as a dev dep).  The resolver sees the normal- and build-kind requirements during ordinary commands;
+`cabin test` joins the selected packages' dev-kind requirements on top.
+
+## Build dependencies
+
+A build dependency is a tool for the build machine, such as a code generator.  Cabin builds its
+package in the **build context**, apart from the packages it links for the platform it builds for
+(the **target context**):
+
+- The build dependency's default targets (libraries and executables) and the packages they link
+  are built for the build machine, under `<build-dir>/<profile>/build-machine/packages/<pkg>/`.
+  A package both contexts use is built twice, once per context, and the two never share objects.
+- Features unify per package within a context, never across: an edge in one context cannot turn on
+  a feature of the other context's copy.
+- A `[target.'cfg(...)'.build-dependencies]` condition is evaluated for the platform of the package
+  that declares it; everything inside the build context evaluates `cfg(...)` for the build machine.
+- `links` uniqueness applies per context: a build tool and the program may each link one package
+  claiming an identity, but neither may link two.
+- Without `--target`, the build context uses the build's compilers and environment flags
+  (`CFLAGS` and friends).  With `--target`, it uses the same compilers without `--target=` and no
+  environment flags; GCC, MSVC, and clang-cl build only their one target, so a `--target` naming
+  another machine needs Clang when build dependencies exist.  See
+  [toolchains](toolchains.md#building-for-another-platform).
+
+`cabin build`, `run`, and `test` build build dependencies but run nothing: a build step that runs
+the tool is not part of Cabin yet, so a project runs its generator itself, between builds.  `cabin
+check` checks only the selected packages' own sources and builds no build dependency.  Not yet
+supported:
+
+- system dependencies in the build context: `system = true` under `[build-dependencies]`, and a
+  workspace member built there that declares one, are rejected,
+- `[features]` entries that name a build dependency (`gen/x`, `dep:gen`),
+- publishing a package with build dependencies: `cabin package` refuses it, because package indexes
+  do not carry them yet.
 
 ## Lockfile behavior
 
@@ -93,6 +132,9 @@ fmt = ">=10"
 
 [workspace.dev-dependencies]
 gtest = "^1.14"
+
+[workspace.build-dependencies]
+gen = "^1"
 ```
 
 A member then opts into the workspace requirement with `{ workspace = true }`:
@@ -121,15 +163,15 @@ use `workspace = true`; the two flags are mutually exclusive (the parser rejects
 | `cabin add`                          | Adds an entry to `[dependencies]` (or `[dev-dependencies]` with `--dev`), preserving the manifest's formatting and comments. Writes registry deps (`<scope>/<name>@<req>` - the scoped name and an explicit requirement are both required, because `cabin add` never queries the registry for names or versions) and local path deps (`--path <dir>`). `--features` / `--no-default-features` set those fields.  Prints a note reminding you to add the dependency to a target's `deps` to link it (declaring it here only makes it *available* - see [Command behavior](#command-behavior) above). |
 | `cabin remove`                       | Deletes a named entry from `[dependencies]` (or `[dev-dependencies]` with `--dev`); removes the table when it becomes empty.  Errors if the dependency is absent. |
 | `cabin metadata`                     | Reports each Cabin package dep with its `dependency_kind`, plus a separate `system_dependencies` array.   |
-| `cabin resolve` / `update` / `fetch` | Walks normal deps; excludes dev deps; never sees system deps.                                            |
-| `cabin build`                        | Same resolution as above.  Only **normal**-kind edges link into ordinary C/C++ targets - dev deps cannot resolve through `target.<X>.deps`. |
+| `cabin resolve` / `update` / `fetch` | Walks normal and build deps; excludes dev deps; never sees system deps.                                  |
+| `cabin build`                        | Same resolution as above.  Only **normal**-kind edges link into ordinary C/C++ targets - dev and build deps cannot resolve through `target.<X>.deps`.  Build deps build for the build machine (see [Build dependencies](#build-dependencies)). |
 | `cabin test`                         | Walks normal deps **plus** `[dev-dependencies]` of the selected primary packages, so `test` targets can depend on test-only packages.  Dev-dep activation never propagates to transitive deps. |
-| `cabin package`                      | Includes per-kind dependency tables and `system-dependencies` in the canonical metadata document.         |
+| `cabin package`                      | Includes per-kind dependency tables and `system-dependencies` in the canonical metadata document; refuses build deps. |
 | `cabin publish --dry-run`            | Validates the same metadata; never touches the registry.                                                  |
 | `cabin publish --registry-dir`       | Publishes the per-kind metadata into the local file registry.                                             |
 
 Output ordering is deterministic in every command: dependency kinds iterate in canonical order
-(`normal`, `dev`), names sort ascending within each kind, and system deps sort by name.
+(`normal`, `dev`, `build`), names sort ascending within each kind, and system deps sort by name.
 
 ## Package and index metadata
 
@@ -176,9 +218,9 @@ metadata but never in the resolver's selection or the lockfile.  Per-edge `featu
 that include the same package - see [`features.md`](features.md) for the full feature-resolution
 behavior.
 
-`optional = true` is **not** supported on `[dev-dependencies]` or on `system = true` entries.  The
-manifest layer reports the violation as `OptionalNotSupportedForKind` (dev) or `SystemConflictsWith`
-(system).
+`optional = true` is **not** supported on `[dev-dependencies]`, `[build-dependencies]`, or
+`system = true` entries.  The manifest layer reports the violation as `OptionalNotSupportedForKind`
+(dev, build) or `SystemConflictsWith` (system).
 
 ## Scope
 

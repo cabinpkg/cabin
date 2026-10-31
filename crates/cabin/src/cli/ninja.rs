@@ -315,7 +315,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvo
                 if !d.matches_platform(req.platform) {
                     return false;
                 }
-                let kind_active = d.kind.is_resolved_by_default()
+                let kind_active = d.kind == cabin_core::DependencyKind::Normal
                     || (dev_active && d.kind == cabin_core::DependencyKind::Dev);
                 if !kind_active {
                     return false;

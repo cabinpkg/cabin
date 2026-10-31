@@ -23,6 +23,9 @@ fmt = ">=10"
 [target.'cfg(arch = "x86_64")'.dev-dependencies]
 gtest = "^1.14"
 
+[target.'cfg(os = "linux")'.build-dependencies]
+gen = { path = "tools/gen" }
+
 [target.'cfg(env = "musl")'.dependencies]
 zlib = { version = ">=1.2", system = true }
 ```
@@ -171,6 +174,11 @@ context is deterministic for a given machine and flags and is reported back to t
 keys read two further inputs: `feature` reads the owning package's resolved feature set, and the
 compiler keys read the resolved toolchain's detection report (the same one `cabin metadata` shows
 under `toolchain.detected`).
+
+A package built as a [build dependency](dependency-kinds.md#build-dependencies) runs on the build
+machine, so its own predicates - dependencies, sources, and flag tables - evaluate for the build
+machine even under `--target`.  The `[target.'cfg(...)'.build-dependencies]` predicate itself
+belongs to the declaring package and evaluates for that package's platform.
 
 The evaluation rules are:
 

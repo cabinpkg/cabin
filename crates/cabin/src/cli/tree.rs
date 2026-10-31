@@ -105,6 +105,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         Some(&platform),
         &std::collections::BTreeSet::new(),
     )?;
+    let included = crate::cli::included_in_either_context(&graph, &feature_resolution, &platform)?;
 
     let inputs = cabin_explain::TreeInputs {
         graph: &graph,
@@ -112,7 +113,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         lockfile: lockfile.as_ref(),
         active_patches: Some(&active_patches),
         kind_filter: args.kind.to_filter(),
-        included: Some(&feature_resolution.included),
+        included: Some(&included),
         platform: Some(&platform),
     };
     let forest = cabin_explain::build_tree(&inputs);

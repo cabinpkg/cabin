@@ -310,9 +310,10 @@ fn format_cycle(cycle: &[String]) -> String {
 }
 
 fn workspace_section_for(kind: cabin_core::DependencyKind) -> &'static str {
-    use cabin_core::DependencyKind::{Dev, Normal};
+    use cabin_core::DependencyKind::{Build, Dev, Normal};
     match kind {
         Normal => "[workspace.dependencies]",
         Dev => "[workspace.dev-dependencies]",
+        Build => "[workspace.build-dependencies]",
     }
 }

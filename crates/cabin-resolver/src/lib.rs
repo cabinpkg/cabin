@@ -45,7 +45,7 @@ use pubgrub::{PubGrubError, Ranges};
 use semver::{Version, VersionReq};
 
 pub use error::{ResolveError, ResolverConstraint};
-pub use input::{LinksClaim, LockedVersion, ResolveInput, ResolveMode};
+pub use input::{LinkDomain, LinksClaim, LockedVersion, ResolveInput, ResolveMode};
 pub use output::{BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, ResolvedSource};
 
 use crate::explanation::explain_no_solution;
@@ -124,7 +124,17 @@ fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOut
     // not in `resolve` - so `resolve_packages` (build/run/test/
     // vendor) enforces it too, and before any lockfile is written
     // from this output.
-    detect_links_collision(&links_claims_of_solution(input, index, &output.packages))?;
+    if input.link_domains.is_empty() {
+        detect_links_collision(&links_claims_of_solution(input, index, &output.packages))?;
+    }
+    for domain in &input.link_domains {
+        detect_links_collision(&links_claims_of_domain(
+            input,
+            index,
+            &output.packages,
+            domain,
+        ))?;
+    }
     Ok(output)
 }
 
@@ -190,6 +200,43 @@ fn links_claims_of_solution(
     packages: &[ResolvedPackage],
 ) -> Vec<LinksClaim> {
     let mut claims = input.local_links.clone();
+    claims.extend(resolved_claims(input, index, packages));
+    claims
+}
+
+/// The claims of one link/runtime domain: its local packages' plus
+/// those of every resolved package its roots reach.
+fn links_claims_of_domain(
+    input: &ResolveInput,
+    index: &PackageIndex,
+    packages: &[ResolvedPackage],
+    domain: &LinkDomain,
+) -> Vec<LinksClaim> {
+    let by_name: BTreeMap<&PackageName, &ResolvedPackage> = packages
+        .iter()
+        .filter(|package| package.source != ResolvedSource::Root)
+        .map(|package| (&package.name, package))
+        .collect();
+    let mut reached: BTreeMap<&PackageName, &ResolvedPackage> = BTreeMap::new();
+    let mut pending: Vec<&PackageName> = domain.roots.iter().collect();
+    while let Some(name) = pending.pop() {
+        if let Some(package) = by_name.get(name)
+            && reached.insert(name, package).is_none()
+        {
+            pending.extend(&package.dependencies);
+        }
+    }
+    let mut claims = domain.local_links.clone();
+    claims.extend(resolved_claims(input, index, reached.into_values()));
+    claims
+}
+
+fn resolved_claims<'a>(
+    input: &ResolveInput,
+    index: &PackageIndex,
+    packages: impl IntoIterator<Item = &'a ResolvedPackage>,
+) -> Vec<LinksClaim> {
+    let mut claims = Vec::new();
     for package in packages {
         // A same-named index entry is a stranger to the local root
         // and must not attribute its claims to it.
@@ -1885,6 +1932,45 @@ mod tests {
             err,
             ResolveError::LinksCollision { links, .. } if links == "sqlite3"
         ));
+    }
+
+    /// With link domains, a build tool's closure and the target
+    /// program's closure may each claim an identity once, but one
+    /// domain still may not claim it twice - through a transitive
+    /// package or against a local claim.
+    #[test]
+    fn links_uniqueness_applies_per_link_domain() {
+        let mut index = build_index(vec![
+            entry("gen-support", vec![("1.0.0", vec![("miniz", "*")], false)]),
+            entry("miniz", vec![("3.1.2", vec![], false)]),
+            entry("zlib", vec![("1.3.1", vec![], false)]),
+        ]);
+        set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
+        set_links(&mut index, "miniz", "3.1.2", &[("miniz", "z")]);
+        let domain = |roots: &[&str], local_links: Vec<LinksClaim>| LinkDomain {
+            roots: roots.iter().map(|name| pkg_name(name)).collect(),
+            local_links,
+        };
+        let mut input = make_input(vec![("zlib", "*"), ("gen-support", "*")]);
+        input.link_domains = vec![domain(&["zlib"], vec![]), domain(&["gen-support"], vec![])];
+        resolve_packages(&input, &index).expect("separate domains may share an identity");
+
+        input.link_domains = vec![
+            domain(&["zlib", "gen-support"], vec![]),
+            domain(&["gen-support"], vec![]),
+        ];
+        let err = resolve_packages(&input, &index).unwrap_err();
+        assert!(matches!(err, ResolveError::LinksCollision { links, .. } if links == "z"));
+
+        input.link_domains = vec![
+            domain(&["zlib"], vec![]),
+            domain(
+                &["gen-support"],
+                vec![local_claim("gen", "0.1.0", "vendored-z", "z")],
+            ),
+        ];
+        let err = resolve_packages(&input, &index).unwrap_err();
+        assert!(matches!(err, ResolveError::LinksCollision { links, .. } if links == "z"));
     }
 
     /// The check runs on the lean `resolve_packages` path too - the

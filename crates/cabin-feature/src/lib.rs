@@ -296,28 +296,7 @@ pub fn resolve_features(
         }
     }
 
-    // Drain the worklist to a fixed point.  Each work item either
-    // includes a package, enables a feature, enables an optional
-    // dependency, or applies a per-edge feature request;
-    // bookkeeping prevents revisits.
-    while let Some(work) = state.pop() {
-        match work {
-            WorkItem::IncludePackage { package } => state.apply_include_package(graph, package),
-            WorkItem::EnableFeature {
-                package,
-                feature,
-                source,
-            } => state.apply_feature(graph, package, &feature, source)?,
-            WorkItem::EnableOptionalDep { package, dep_name } => {
-                state.apply_optional_dep(graph, package, &dep_name);
-            }
-            WorkItem::DepFeatureRequest {
-                from_package,
-                dep_name,
-                feature,
-            } => state.apply_dep_feature_request(graph, from_package, &dep_name, &feature)?,
-        }
-    }
+    state.drain(graph)?;
 
     Ok(state.finalize())
 }
@@ -361,6 +340,44 @@ pub fn resolve_fork_island_features(
     )
 }
 
+/// Feature resolution for the build context: the packages that
+/// `target`'s `[build-dependencies]` edges reach, unified among
+/// themselves and never with the target context (contracts
+/// section 1, rule 2).
+///
+/// Each edge is seeded from a package `target` includes, with its
+/// `cfg(...)` condition evaluated against `target_platform` - the
+/// declaring unit's platform.  From there the pass follows normal
+/// and build edges against `build_machine`, since every unit it
+/// reaches runs on the build machine.  Dev edges never participate.
+/// `None` platforms admit every declaration, as in
+/// [`resolve_features`].
+///
+/// # Errors
+/// Returns [`FeatureResolverError::DepFeatureRequestUnknown`] when a
+/// build edge requests a feature its dependency does not declare,
+/// and propagates [`resolve_features`]'s worklist errors.
+pub fn resolve_build_context_features(
+    graph: &PackageGraph,
+    target: &FeatureResolution,
+    target_platform: Option<&TargetPlatform>,
+    build_machine: Option<&TargetPlatform>,
+) -> Result<FeatureResolution, FeatureResolverError> {
+    let mut state = ResolverState::new(graph, build_machine, &BTreeSet::new());
+    state.build_context = true;
+    for &package in &target.included {
+        for declared in &graph.packages[package].package.dependencies {
+            if declared.kind == DependencyKind::Build
+                && target_platform.is_none_or(|platform| declared.matches_platform(platform))
+            {
+                state.seed_build_edge(graph, package, declared)?;
+            }
+        }
+    }
+    state.drain(graph)?;
+    Ok(state.finalize())
+}
+
 #[derive(Debug)]
 struct ResolverState {
     per_package: BTreeMap<usize, ResolvedPackageFeatures>,
@@ -383,6 +400,9 @@ struct ResolverState {
     /// for this invocation.  Mirrors the workspace loader's
     /// `include_dev_for` policy.
     dev_active_for: BTreeSet<String>,
+    /// Whether this pass resolves the build context, where build
+    /// edges participate in place of dev edges.
+    build_context: bool,
 }
 
 #[derive(Debug)]
@@ -419,11 +439,14 @@ impl ResolverState {
     /// edge is materialized.  Ordinary commands pass an empty set
     /// and see the historical Normal-only behavior; activation
     /// never propagates because only the selected packages are
-    /// listed.
+    /// listed.  `Build`-kind declarations participate only in the
+    /// build-context pass.
     fn dep_participates(&self, pkg: &WorkspacePackage, declared: &cabin_core::Dependency) -> bool {
-        declared.kind.is_resolved_by_default()
-            || (declared.kind == DependencyKind::Dev
-                && self.dev_active_for.contains(pkg.package.name.as_str()))
+        match declared.kind {
+            DependencyKind::Normal => true,
+            DependencyKind::Dev => self.dev_active_for.contains(pkg.package.name.as_str()),
+            DependencyKind::Build => self.build_context,
+        }
     }
 
     fn on_platform(&self, declared: &cabin_core::Dependency) -> bool {
@@ -448,6 +471,7 @@ impl ResolverState {
             work: VecDeque::new(),
             platform: platform.cloned(),
             dev_active_for: dev_active_for.clone(),
+            build_context: false,
         }
     }
 
@@ -719,6 +743,82 @@ impl ResolverState {
                 });
             }
         }
+    }
+
+    /// Drain the worklist to a fixed point.  Each work item either
+    /// includes a package, enables a feature, enables an optional
+    /// dependency, or applies a per-edge feature request;
+    /// bookkeeping prevents revisits.
+    fn drain(&mut self, graph: &PackageGraph) -> Result<(), FeatureResolverError> {
+        while let Some(work) = self.pop() {
+            match work {
+                WorkItem::IncludePackage { package } => self.apply_include_package(graph, package),
+                WorkItem::EnableFeature {
+                    package,
+                    feature,
+                    source,
+                } => self.apply_feature(graph, package, &feature, source)?,
+                WorkItem::EnableOptionalDep { package, dep_name } => {
+                    self.apply_optional_dep(graph, package, &dep_name);
+                }
+                WorkItem::DepFeatureRequest {
+                    from_package,
+                    dep_name,
+                    feature,
+                } => self.apply_dep_feature_request(graph, from_package, &dep_name, &feature)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Include a target-context package's build edge in the build
+    /// context.  The edge's feature requests are queued directly
+    /// rather than as [`WorkItem::DepFeatureRequest`]s, whose lookup
+    /// would evaluate the edge's condition against the build machine
+    /// instead of the declaring unit's platform.
+    fn seed_build_edge(
+        &mut self,
+        graph: &PackageGraph,
+        from_package: usize,
+        declared: &cabin_core::Dependency,
+    ) -> Result<(), FeatureResolverError> {
+        let pkg = &graph.packages[from_package];
+        let Some(edge) = pkg.deps.iter().find(|e| {
+            e.kind == DependencyKind::Build && graph.packages[e.index].package.name == declared.name
+        }) else {
+            if matches!(declared.source, DependencySource::Version(_)) {
+                let requests = self
+                    .versioned_requests
+                    .entry(declared.name.clone())
+                    .or_default();
+                if declared.default_features {
+                    requests.insert(DEFAULT_FEATURE_KEY.to_owned());
+                }
+                requests.extend(declared.features.iter().cloned());
+            }
+            return Ok(());
+        };
+        self.work.push_back(WorkItem::IncludePackage {
+            package: edge.index,
+        });
+        let source = || FeatureRequestSource::DependencyEdge {
+            from_package: pkg.package.name.as_str().to_owned(),
+        };
+        if declared.default_features {
+            self.queue_feature(edge.index, DEFAULT_FEATURE_KEY.to_owned(), source());
+        }
+        let declared_features = &graph.packages[edge.index].package.features.features;
+        for feature in &declared.features {
+            if feature != DEFAULT_FEATURE_KEY && !declared_features.contains_key(feature) {
+                return Err(FeatureResolverError::DepFeatureRequestUnknown {
+                    package: pkg.package.name.as_str().to_owned(),
+                    dependency: declared.name.as_str().to_owned(),
+                    feature: feature.clone(),
+                });
+            }
+            self.queue_feature(edge.index, feature.clone(), source());
+        }
+        Ok(())
     }
 
     /// Look up a dependency by name.  Returns:
