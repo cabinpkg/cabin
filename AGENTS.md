@@ -140,10 +140,14 @@ in the same change and follow the architecture document.
 
 ## Git and pull requests
 
-- All implementation work uses a branch and PR; never implement directly on
-  the default branch. Before editing, inspect status, update the default
-  branch from its remote, and create a fresh branch. Preserve all unrelated
-  local changes: do not discard, reset, overwrite, or commit them.
+- All implementation work, including documentation changes, uses a dedicated
+  temporary worktree, a branch, and a PR; never implement directly on the
+  default branch. At task start, inspect existing worktrees and their status.
+  Reuse a worktree only if it is already dedicated to the current task;
+  otherwise fetch origin and create a new worktree with a fresh branch from
+  origin/main. Do not switch, reset, or update a branch checked out in
+  another worktree. Preserve unrelated changes: do not discard, overwrite,
+  or commit them. Read-only investigation does not require a new worktree.
 - Use one branch per PR. Each PR must be the smallest cohesive change that is
   independently buildable, testable, and reviewable. Split independent
   changes by default; keep changes together when a split would leave a
@@ -151,8 +155,8 @@ in the same change and follow the architecture document.
 - If work needs multiple PRs, state their order and responsibility. Handle
   dependent PRs sequentially: do not start or open a later dependent branch
   or PR until the current PR has no blocking review findings, is green,
-  squash-merged, and the local default branch is updated. Independent PRs may
-  overlap in time only when they do not overlap in scope.
+  squash-merged, and origin/main is refreshed by fetching. Independent PRs
+  may overlap in time only when they do not overlap in scope.
 - Before starting implementation and before opening or enqueueing a PR,
   inspect all open PRs, including those in the merge queue, for potential
   conflicts in files, behavior, interfaces, and dependencies. Account for
@@ -179,5 +183,12 @@ in the same change and follow the architecture document.
   blocking findings, required checks pass, and all review comments and
   requested changes are resolved. Resolving a review comment does not imply
   implementing it: reject findings that are incorrect, speculative, out of
-  scope, or disproportionately complex, with a concise rationale. Delete the
-  merged branch.
+  scope, or disproportionately complex, with a concise rationale. Remove its
+  temporary worktree before deleting the merged branch.
+- Clean up temporary worktrees you created when their work is complete.
+  Opening or enqueueing a PR, or ending a session, is not completion.
+  Before removal, check for uncommitted and untracked files and unpushed
+  commits; preserve anything needed and confirm the task's changes are
+  merged or otherwise recoverable. Never remove another session's worktree
+  or force removal over unpreserved work. If a worktree must remain, report
+  its path and why.
