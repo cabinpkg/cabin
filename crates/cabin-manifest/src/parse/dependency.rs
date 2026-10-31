@@ -34,10 +34,7 @@ pub(super) fn route_dependency_from_raw(
 }
 
 /// Resolved dependency fields before assembling the final
-/// `Dependency`.  A named struct (rather than a positional 4-tuple)
-/// so the construction arms and the destructure in
-/// [`package_dependency_from_raw`] name each field - a field
-/// reorder can no longer silently swap two values.
+/// `Dependency`.
 struct ResolvedDep {
     source: DependencySource,
     optional: bool,
@@ -61,10 +58,8 @@ pub(super) fn package_dependency_from_raw(
             ignore_interface_standard: false,
         },
         RawDependency::Table(table) => {
-            // The router catches `system = true`.  Reaching this
-            // arm with `system = true` is an internal invariant
-            // violation; the debug assertion makes tests fail if a
-            // future refactor drops the system path.
+            // `route_dependency_from_raw` sends `system = true`
+            // tables to the system path.
             debug_assert!(!table.system, "router should have routed system deps");
             ordinary_dep_from_table(&name, table, kind)?
         }
@@ -76,12 +71,9 @@ pub(super) fn package_dependency_from_raw(
         default_features,
         ignore_interface_standard,
     } = raw_outcome;
-    // `workspace = true` inside a target-conditional table is
-    // not currently supported - workspace inheritance has no
-    // per-condition table to look up against, and silently
-    // pretending the lookup is unconditional would be
-    // surprising.  Reject explicitly so users get a clear
-    // signal.
+    // `workspace = true` is rejected under a `cfg(...)` table:
+    // there is no per-condition `[workspace.*]` table to inherit
+    // from.
     if let (Some(cond), DependencySource::Workspace) = (&condition, &source) {
         return Err(ManifestError::WorkspaceInsideConditionalTarget {
             name,
@@ -119,8 +111,7 @@ fn ordinary_dep_from_table(
         ignore_interface_standard,
     } = table;
     // `optional = true` is supported only for normal
-    // dependencies.  Dev declarations remain not-optional
-    // in this step.
+    // dependencies.
     let optional_flag = optional.unwrap_or(false);
     if optional_flag && !matches!(kind, DependencyKind::Normal) {
         return Err(ManifestError::OptionalNotSupportedForKind {
@@ -176,8 +167,7 @@ fn ordinary_dep_from_table(
 /// Produce a `SystemDependency` from a `[dependencies]` /
 /// `[dev-dependencies]` entry that
 /// carries `system = true`.  Only `version` is permitted
-/// alongside the flag; every other field is rejected with a
-/// clear error so users learn the rule.
+/// alongside the flag; every other field is rejected.
 pub(super) fn system_dependency_from_raw_table(
     name: String,
     table: RawDependencyTable,
@@ -197,10 +187,9 @@ pub(super) fn system_dependency_from_raw_table(
     } = table;
     debug_assert!(system, "router only dispatches here when system = true");
 
-    // Reject every field that has no meaning alongside
-    // `system = true`.  The order matches the user-visible field
-    // order so the first conflict reported is the one earliest
-    // in the table.
+    // Fields with no meaning alongside `system = true`.  When
+    // several are present, the first in this fixed order is
+    // reported, regardless of their order in the table.
     let forbidden: &[(&'static str, bool)] = &[
         ("path", path.is_some()),
         ("workspace", workspace.is_some()),

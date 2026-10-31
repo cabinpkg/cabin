@@ -35,12 +35,12 @@ use thiserror::Error;
 /// Input shape for [`discover_sources`].
 ///
 /// The request mirrors the shared CLI surface for `cabin fmt`
-/// and `cabin tidy`, but is intentionally agnostic to any one
-/// command's semantics.  Callers translate
-/// their domain-specific selection into a list of `roots`,
-/// resolve their own build / vendor / cache directories into
+/// and `cabin tidy`, but is agnostic to any one command's
+/// semantics.  Callers translate their domain-specific selection
+/// into a list of `roots`, resolve their own build / vendor / cache
+/// directories into
 /// [`SourceDiscoveryRequest::excluded_directories`], and pass
-/// any per-path `--exclude` flags through verbatim.
+/// any per-path `--exclude` flags through, absolutized.
 #[derive(Debug, Clone)]
 pub struct SourceDiscoveryRequest {
     /// Absolute directories to walk.  Each root is walked
@@ -67,9 +67,9 @@ pub struct SourceDiscoveryRequest {
     /// honors `.gitignore`, `.ignore`, parent-directory
     /// ignore files, and global git excludes.  When `false`
     /// (the `--no-ignore-vcs` flag) every VCS ignore rule is
-    /// disabled but the hard-coded excludes (`.git`, build /
-    /// vendor / cache directories, `excluded_paths`) remain in
-    /// force.
+    /// disabled but hidden entries, the builtin directory names
+    /// (`.git`, build / cache directories), and the caller-supplied
+    /// excludes remain in force.
     pub respect_vcs_ignore: bool,
 }
 
@@ -89,9 +89,9 @@ pub struct DiscoveredSourceFile {
 #[derive(Debug, Error)]
 pub enum SourceDiscoveryError {
     /// `excluded_paths` / `excluded_directories` contained a
-    /// relative path.  The caller is expected to absolutise
-    /// excludes against the package root before invoking the
-    /// walker; this error catches a bypass of that rule.
+    /// relative path.  The caller is expected to absolutize
+    /// excludes before invoking the walker; this error catches a
+    /// bypass of that rule.
     #[error("exclude path must be absolute: {path}")]
     ExcludeNotAbsolute {
         /// The offending exclude entry, rendered as the caller
@@ -178,13 +178,9 @@ fn walk_root(
     found: &mut BTreeSet<PathBuf>,
 ) -> Result<(), SourceDiscoveryError> {
     if !root.exists() {
-        // A non-existent root is not an error: a workspace
-        // member directory may not exist if it was excluded
-        // from `[workspace.members]` glob expansion or if a
-        // sub-package was removed.  The walker's contract
-        // is "return every C/C++ file we can see", not "verify
-        // every root exists" - that lives at the orchestration
-        // layer where a clearer diagnostic is available.
+        // A non-existent root yields no files; checking that roots
+        // exist belongs to the caller, which can give a clearer
+        // diagnostic.
         return Ok(());
     }
 
@@ -214,11 +210,8 @@ fn walk_root(
         .git_global(respect_vcs_ignore)
         .ignore(respect_vcs_ignore)
         .parents(respect_vcs_ignore)
-        // Deterministic order makes the walk's filter
-        // decisions reproducible across platforms.  The final
-        // result is sorted by absolute path in `found` regardless,
-        // but a stable filter order also keeps diagnostics
-        // deterministic.
+        // `found` sorts the result regardless; a stable walk order
+        // makes the first reported walk error deterministic.
         .sort_by_file_name(std::ffi::OsStr::cmp);
 
     // Prune excluded directories instead of walking them and
@@ -252,8 +245,7 @@ fn walk_root(
     for entry in builder.build() {
         let entry = entry?;
         let path = entry.path();
-        // No file type means the entry refers to the start
-        // path itself in some `ignore` configurations.
+        // `ignore` yields no file type only for a `-` (stdin) root.
         let Some(file_type) = entry.file_type() else {
             continue;
         };
@@ -285,11 +277,8 @@ fn path_under_any(path: &Path, dirs: &BTreeSet<PathBuf>) -> bool {
 /// - C++ source: `.cc`, `.cpp`, `.cxx`, `.c++`, `.C`
 /// - C/C++ headers: `.h`, `.hh`, `.hpp`, `.hxx`
 ///
-/// Sources mirror `cabin_core::classify_source` plus the
-/// conventional `.c++` / `.C` aliases.  Headers cover the
-/// extensions the toolchain treats as C/C++ headers.  The set
-/// is deliberately small: unrecognized extensions are *not*
-/// formatted, which is the conservative default.
+/// Sources mirror `cabin_core::classify_source`.  Headers cover the
+/// extensions the toolchain treats as C/C++ headers.
 pub(crate) const RECOGNIZED_EXTENSIONS: &[&str] =
     &["c", "cc", "cpp", "cxx", "c++", "C", "h", "hh", "hpp", "hxx"];
 
@@ -460,10 +449,6 @@ mod tests {
 
     #[test]
     fn root_equal_to_excluded_directory_yields_nothing() {
-        // The walker's `filter_entry` is never consulted for the
-        // root itself, so the root-boundary guard must catch an
-        // exclusion naming the root - direct-child files must not
-        // leak while subdirectories are pruned.
         let dir = TempDir::new().unwrap();
         dir.child("main.cc").touch().unwrap();
         dir.child("sub/other.cc").touch().unwrap();
@@ -516,9 +501,6 @@ mod tests {
     fn excluded_trees_are_pruned_not_traversed() {
         use std::os::unix::fs::PermissionsExt;
 
-        // Pruning must skip the excluded tree entirely: an
-        // unreadable directory inside `build/` would otherwise fail
-        // the whole walk for files the caller never asked about.
         let dir = TempDir::new().unwrap();
         dir.child("src/main.cc").touch().unwrap();
         dir.child("build/unreadable/trap.cc").touch().unwrap();
@@ -594,8 +576,6 @@ mod tests {
     #[test]
     fn output_is_deterministically_sorted() {
         let dir = TempDir::new().unwrap();
-        // Write in a deliberately scrambled order - the walker
-        // must still emit ascending paths.
         for f in ["z/last.cc", "a/first.cc", "m/middle.cc"] {
             dir.child(f).touch().unwrap();
         }

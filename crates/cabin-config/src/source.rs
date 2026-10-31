@@ -21,7 +21,8 @@ pub enum ConfigSource {
     /// for non-workspace projects.
     Package,
     /// Config file pointed at explicitly by the `CABIN_CONFIG`
-    /// environment variable.  Highest precedence among config files.
+    /// environment variable.  When it is set to a non-empty path, no
+    /// other config file loads.
     Explicit,
 }
 

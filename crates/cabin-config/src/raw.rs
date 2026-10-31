@@ -1,11 +1,7 @@
-//! Private serde structures that mirror the on-disk
-//! `.cabin/config.toml` shape.  These types live behind
-//! `pub(crate)` so the rest of the workspace never depends on the
-//! raw layout.
-//!
-//! The parser in `parse.rs` immediately turns these into typed
-//! values from `cabin-core` (or this crate's own typed model) so
-//! downstream code only ever sees validated data.
+//! Serde structures mirroring the on-disk `.cabin/config.toml`
+//! shape.  They are `pub(crate)`: `parse.rs` converts them into
+//! validated `cabin-core` or crate-local types, so no other crate
+//! depends on the raw layout.
 
 use std::collections::BTreeMap;
 
@@ -42,16 +38,15 @@ pub(crate) struct RawConfigSourceReplacement {
 
 /// Top-level shape of a `.cabin/config.toml` file.
 ///
-/// Unknown top-level tables surface through the catch-all
-/// `extra` map and become a [`crate::ConfigParseError::UnknownTopLevelTable`]
-/// during validation.  Going through serde's `flatten` means a
-/// helpful error message can name the offending table rather than
-/// the generic "unknown field" wording `deny_unknown_fields` would
-/// produce.
+/// Unknown top-level keys land in the flattened `extra` map, so
+/// validation can reject credential keys as
+/// [`crate::ConfigParseError::UnsupportedAuthKey`] and everything
+/// else as [`crate::ConfigParseError::UnknownTopLevelTable`], whose
+/// message lists the supported tables.
 ///
-/// `target` is captured separately - and rejected - so users see
-/// "target-conditioned config tables are not supported" instead of
-/// "unknown table `target`", which would be misleading.
+/// `target` is captured separately and rejected as
+/// [`crate::ConfigParseError::TargetConditionedNotSupported`], which
+/// points users to the package manifest.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawConfig {
     #[serde(default)]
@@ -157,10 +152,7 @@ pub(crate) struct RawToolchain {
     pub(crate) ar: Option<String>,
 }
 
-/// Shape of `[term]` in a config file.  Supported keys: `color`,
-/// `verbose`, and `quiet`.  New keys here must travel through
-/// the same raw → parsed → effective pipeline as the rest of
-/// the config crate; consumers must not read raw values directly.
+/// Shape of `[term]` in a config file.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawTerm {

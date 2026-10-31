@@ -46,7 +46,6 @@ greet = { path = "../greet" }
         .unwrap();
     let graph = load_workspace(dir.path().join("app/cabin.toml")).unwrap();
     assert_eq!(graph.packages.len(), 2);
-    // greet must come before app in topological order.
     assert_eq!(graph.packages[0].package.name.as_str(), "greet");
     assert_eq!(graph.packages[1].package.name.as_str(), "app");
     assert_eq!(
@@ -100,7 +99,6 @@ b = { path = "../b" }
         .iter()
         .map(|p| p.package.name.as_str())
         .collect();
-    // Topo order: c before b before a.
     let pos = |n: &str| names.iter().position(|x| *x == n).unwrap();
     assert!(pos("c") < pos("b"));
     assert!(pos("b") < pos("a"));
@@ -371,12 +369,9 @@ fmt = ">=10.0.0 <11.0.0"
         )
         .unwrap();
     let graph = load_workspace(dir.path().join("app/cabin.toml")).unwrap();
-    // Only the root package is loaded - versioned deps don't pull in
-    // any local manifests.
     assert_eq!(graph.packages.len(), 1);
     let app = &graph.packages[0];
     assert!(app.deps.is_empty());
-    // But the Package still records the declared dependency.
     assert_eq!(app.package.dependencies.len(), 1);
     assert_eq!(app.package.dependencies[0].name.as_str(), "fmt");
     assert!(matches!(
@@ -439,7 +434,6 @@ fn ver(s: &str) -> semver::Version {
 #[test]
 fn loads_registry_package_via_versioned_dep() {
     let dir = TempDir::new().unwrap();
-    // Root depends on `fmt` versionally.
     dir.child("app/cabin.toml")
         .write_str(
             r#"[package]
@@ -476,12 +470,10 @@ version = "10.2.1"
     )
     .unwrap();
     assert_eq!(graph.packages.len(), 2);
-    // Topological order: fmt before app.
     assert_eq!(graph.packages[0].package.name.as_str(), "fmt");
     assert_eq!(graph.packages[0].kind, PackageKind::Registry);
     assert_eq!(graph.packages[1].package.name.as_str(), "app");
     assert_eq!(graph.packages[1].kind, PackageKind::Local);
-    // Only `app` is primary.
     assert_eq!(graph.primary_packages, vec![1]);
     // The dep edge is recorded so cabin-build can resolve target deps.
     let edges: Vec<(usize, DependencyKind)> = graph.packages[1]
@@ -663,7 +655,6 @@ version = "10.2.1"
     )
     .unwrap();
     assert_eq!(graph.packages.len(), 3);
-    // Topological order: fmt before spdlog before app.
     let names: Vec<&str> = graph
         .packages
         .iter()
@@ -1112,9 +1103,7 @@ harness = { path = "../harness-that-does-not-exist" }
         .unwrap();
     let graph = load_workspace(dir.path().join("cabin.toml"))
         .expect("dev path-dep should not be traversed by ordinary load");
-    // Only the root package is loaded.
     assert_eq!(graph.packages.len(), 1);
-    // But the package still records the declaration.
     let app = &graph.packages[0];
     assert_eq!(app.package.dependencies.len(), 1);
     assert_eq!(app.package.dependencies[0].kind, DependencyKind::Dev);
@@ -1834,7 +1823,6 @@ spdlog = "^1"
         },
     )
     .expect("selection-aware load should not require spdlog");
-    // app, b, and fmt all loaded; no `spdlog` was added.
     let names: BTreeSet<&str> = graph
         .packages
         .iter()
@@ -1870,10 +1858,9 @@ fmt = ">=10 <11"
 "#,
         )
         .unwrap();
-    // A non-empty registry shifts the loader out of the
-    // legacy "skip versioned deps" mode.  Build a sham entry
-    // for some other package so registry_by_name is
-    // populated but does not contain `fmt`.
+    // A non-empty registry makes the loader resolve versioned deps
+    // instead of skipping them; the sham `other` entry populates the
+    // name lookup without `fmt`.
     dir.child("registry/other/cabin.toml")
         .write_str("[package]\nname = \"other\"\nversion = \"1.0.0\"\n")
         .unwrap();

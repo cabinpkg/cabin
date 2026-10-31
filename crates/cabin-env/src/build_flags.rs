@@ -80,17 +80,9 @@ impl EnvBuildFlags {
 }
 
 /// Read `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and `LDFLAGS` through
-/// the supplied env-lookup closure, parse each value using
-/// POSIX shell-style word splitting (via [`shlex::split`]), and
-/// return the typed view.
-///
-/// Empty and whitespace-only values yield an empty vector for
-/// that bucket.  Malformed shell input is surfaced as an
-/// [`EnvBuildFlagsError`] that names the offending environment
-/// variable so the diagnostic is actionable.
-///
-/// The function never invokes a shell and never depends on
-/// platform-specific shell behavior.
+/// the supplied env-lookup closure and split each value with
+/// [`split_flag_text`].  Unset, empty, and whitespace-only values
+/// yield an empty vector for that bucket.
 ///
 /// # Errors
 /// Returns [`EnvBuildFlagsError::NonUtf8`] when one of the four
@@ -138,7 +130,7 @@ pub fn split_flag_text(input: &str) -> Option<Vec<String>> {
     shlex::split(&normalize(input))
 }
 
-/// Normalize an env-var value before handing it to
+/// Normalize flag-style text before handing it to
 /// [`shlex::split`].
 ///
 /// Two of `shlex`'s defaults are appropriate for parsing a shell
@@ -214,10 +206,7 @@ fn normalize(input: &str) -> String {
 /// actionable.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EnvBuildFlagsError {
-    /// The environment variable held a non-UTF-8 byte sequence
-    /// that Cabin cannot interpret as shell-like text.  Variable
-    /// values are expected to be UTF-8; non-UTF-8 input is
-    /// reported here rather than silently dropped.
+    /// The environment variable held a non-UTF-8 byte sequence.
     #[error("invalid {name}: value is not valid UTF-8")]
     NonUtf8 { name: &'static str },
     /// The value was UTF-8 but POSIX shell-style word splitting
@@ -309,11 +298,6 @@ mod tests {
 
     #[test]
     fn parse_env_build_flags_preserves_unquoted_hash() {
-        // POSIX `sh` would treat `#bar -O2` as a comment, but
-        // build-flag env vars are not shell command lines: the
-        // user wrote literal characters and expects them all to
-        // reach the compiler.  Make, CMake, and autotools all
-        // preserve `#` verbatim in their flag env vars.
         let env = env_from(&[(CFLAGS, "-DFOO=1 #bar -O2")]);
         let flags = parse_env_build_flags(env).unwrap();
         assert_eq!(flags.cflags, vec!["-DFOO=1", "#bar", "-O2"]);
@@ -332,10 +316,6 @@ mod tests {
 
     #[test]
     fn parse_env_build_flags_treats_carriage_return_as_separator() {
-        // CRLF-contaminated env vars are common when values come
-        // from Windows-formatted tooling; treating `\r` as a
-        // separator prevents stray `\r` from ending up in a
-        // single argument.
         let env = env_from(&[(CXXFLAGS, "-O2\r-g")]);
         let flags = parse_env_build_flags(env).unwrap();
         assert_eq!(flags.cxxflags, vec!["-O2", "-g"]);
@@ -343,8 +323,6 @@ mod tests {
 
     #[test]
     fn parse_env_build_flags_preserves_carriage_return_inside_quotes() {
-        // `\r` inside a quoted run is part of the user's literal
-        // payload and must survive into the argument.
         let env = env_from(&[(CFLAGS, "-DPAYLOAD='a\rb'")]);
         let flags = parse_env_build_flags(env).unwrap();
         assert_eq!(flags.cflags, vec!["-DPAYLOAD=a\rb"]);

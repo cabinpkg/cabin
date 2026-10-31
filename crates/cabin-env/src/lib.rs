@@ -21,11 +21,12 @@
 //!
 //! ## Read-side env vars
 //!
-//! Constants for every `CABIN_*` variable Cabin's CLI reads
-//! live as `pub const ... : &str = "..."` in this crate.  The
-//! orchestration layer reads each one through `std::env::var`
-//! (or an injected `env_fn` for tests) and threads the value
-//! through to the right resolver.
+//! Every `CABIN_*` variable the `cabin` binary reads has a
+//! `pub const` name here, as do the GitHub Actions runner
+//! variables trusted publishing reads and the `CABIN_*` variables
+//! only the repository's `xtask-registry-admin` tooling reads.
+//! Readers look values up through `std::env` or an injected lookup
+//! closure (tests); this crate reads no environment itself.
 //!
 //! ## Run / test overlay
 //!
@@ -92,13 +93,14 @@ pub const CABIN_CACHE_DIR: &str = "CABIN_CACHE_DIR";
 /// at a specific cache directory.
 pub const CABIN_CACHE_HOME: &str = "CABIN_CACHE_HOME";
 
-/// Forbid network access for this invocation.  Equivalent to
-/// passing `--offline` on the CLI.  The CLI flag still takes
-/// precedence; the env var only sets the default.
+/// Forbid network access for this invocation when truthy (see
+/// [`parse_bool`]).  Equivalent to passing `--offline`, which has
+/// no negative form, so the CLI cannot re-enable the network.
 pub const CABIN_NET_OFFLINE: &str = "CABIN_NET_OFFLINE";
 
-/// Compiler-cache wrapper selector (`ccache`, `sccache`,
-/// `none`).  Honored by `cabin-toolchain`'s wrapper resolver.
+/// Compiler-cache wrapper selector: a wrapper command such as
+/// `ccache` or `sccache`, or `none` / `off` / `disabled`.  Honored
+/// by `cabin-toolchain`'s wrapper resolver.
 pub const CABIN_COMPILER_WRAPPER: &str = "CABIN_COMPILER_WRAPPER";
 
 /// Override for the `clang-format` executable Cabin spawns
@@ -116,13 +118,9 @@ pub const CABIN_FMT: &str = "CABIN_FMT";
 pub const CABIN_TIDY: &str = "CABIN_TIDY";
 
 /// Override for the `pkg-config` executable Cabin spawns when
-/// probing `system = true` dependencies.  Same shape as
-/// [`CABIN_FMT`] and the other Cabin tool overrides: when set
-/// and non-empty the value is used verbatim (typically an
-/// absolute path) and the `PATH` lookup is skipped; when unset,
-/// Cabin spawns `pkg-config` from `PATH`.  Cabin only invokes
-/// `pkg-config` when the workspace declares at least one
-/// `system = true` entry.
+/// probing `system = true` dependencies; same semantics as
+/// [`CABIN_FMT`].  Cabin only invokes `pkg-config` when the
+/// workspace declares at least one `system = true` entry.
 pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 
 /// Bearer token override for the remote-registry client.  When set
@@ -188,9 +186,10 @@ pub const CABIN_GOVERNOR_RELEASE_BACKUP_YES: &str = "CABIN_GOVERNOR_RELEASE_BACK
 /// `cabin` binary.
 pub const CABIN_GOVERNOR_WIPE_YES: &str = "CABIN_GOVERNOR_WIPE_YES";
 
-/// The registry directory the D1 migration command reads and writes,
-/// overriding the one resolved from this checkout; tests set it to
-/// point a command at a synthetic registry root.  Read by the
+/// The registry directory the D1 migration and registry wipe
+/// commands, and their launch guard, read, write, and run wrangler
+/// in, overriding the one resolved from this checkout; tests set it
+/// to point a command at a synthetic registry root.  Read by the
 /// repository's own maintainer tooling (`xtask-registry-admin`), never
 /// by the shipped `cabin` binary.
 pub const CABIN_REGISTRY_DIR: &str = "CABIN_REGISTRY_DIR";
@@ -209,10 +208,8 @@ pub const CABIN_MIGRATE_YES: &str = "CABIN_MIGRATE_YES";
 /// `cabin` binary.
 pub const CABIN_WIPE_YES: &str = "CABIN_WIPE_YES";
 
-/// Number of parallel jobs the build backend should use.
-/// Cargo-style: positive integer, `0` is rejected.  Cabin
-/// reads this env var when `--jobs` is not on the command
-/// line.
+/// Number of parallel jobs the build backend should use: a
+/// positive integer; `0` is rejected.
 ///
 /// Precedence: CLI `--jobs` flag > env var > `[build] jobs`
 /// config setting > backend default.
@@ -220,8 +217,7 @@ pub const CABIN_BUILD_JOBS: &str = "CABIN_BUILD_JOBS";
 
 /// Standard-aware version-preference mode (`allow` or `fallback`).
 /// The vocabulary is Cargo's `resolver.incompatible-rust-versions`
-/// verbatim.  Cabin reads this env var when the setting is not in a
-/// `[resolver]` config table.
+/// verbatim.
 ///
 /// Precedence: env var > `[resolver] incompatible-standards` config
 /// setting > built-in default (`fallback`).
@@ -252,8 +248,8 @@ pub const CABIN_TRACE_FILTER: &str = "CABIN_TRACE_FILTER";
 // Package-execution env var name constants
 // ---------------------------------------------------------------------------
 //
-// The fixed names Cabin sets on the `cabin run` / `cabin test`
-// child processes.  This is the entire injected contract.
+// Names set only on `cabin run` / `cabin test` child processes.
+// `package_env` also sets `CABIN_BUILD_DIR`, a read-side name above.
 
 /// Absolute path to the package's manifest directory.
 pub const CABIN_MANIFEST_DIR: &str = "CABIN_MANIFEST_DIR";
@@ -297,10 +293,7 @@ pub struct PackageEnvInputs<'a> {
 }
 
 /// Build the `CABIN_*` overlay surfaced to a `cabin run` /
-/// `cabin test` child process.  Returns a deterministic
-/// `BTreeMap` so two calls with the same inputs are byte-equal.
-/// Infallible: every value is copied straight from the typed
-/// inputs.
+/// `cabin test` child process, ordered by variable name.
 #[must_use]
 pub fn package_env(inputs: &PackageEnvInputs<'_>) -> BTreeMap<String, OsString> {
     let mut out = BTreeMap::new();
@@ -333,9 +326,9 @@ pub fn package_env(inputs: &PackageEnvInputs<'_>) -> BTreeMap<String, OsString> 
 // ---------------------------------------------------------------------------
 
 /// Whether a raw env-var value should be treated as truthy.
-/// Mirrors Cargo: any of `1`, `true`, `yes`, `on` (case-
-/// insensitive) is truthy; an empty string is falsy; anything
-/// else is rejected via [`BoolError::Invalid`].
+/// `1`, `true`, `yes`, `on` are truthy and `0`, `false`, `no`,
+/// `off` are falsy, all ASCII case-insensitive; an empty string is
+/// falsy.
 ///
 /// # Errors
 /// Returns [`BoolError::Invalid`] when `value` is non-empty and

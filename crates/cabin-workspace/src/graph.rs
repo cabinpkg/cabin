@@ -29,10 +29,10 @@ impl From<cabin_manifest::RootSettings> for RootSettings {
     }
 }
 
-/// A loaded set of local Cabin packages with their dependency edges
-/// resolved against the local filesystem.
+/// A loaded set of Cabin packages (local packages plus any supplied
+/// registry sources) with their dependency edges resolved.
 ///
-/// Packages appear in topological order: a package's local dependencies
+/// Packages appear in topological order: a package's dependencies
 /// always appear before the package itself in [`PackageGraph::packages`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageGraph {
@@ -50,11 +50,12 @@ pub struct PackageGraph {
     /// workspace roots this is the only place those settings are
     /// exposed.
     pub root_settings: RootSettings,
-    /// Indices of packages that count as "primary" - i.e. would be built
-    /// when no narrower package selection is given.
+    /// Indices of the primary packages: the set `--workspace` selects
+    /// and `--package` / `--exclude` may name.
     ///
     /// For a single package this is the root.  For a workspace root it
-    /// is every member declared by `[workspace.members]`.  Path dependencies
+    /// is the root package, if any, plus every `[workspace.members]`
+    /// member not removed by `[workspace.exclude]`.  Path dependencies
     /// pulled in transitively are *not* primary.
     pub primary_packages: Vec<usize>,
     /// Indices of packages listed under
@@ -73,8 +74,7 @@ pub struct PackageGraph {
 }
 
 impl PackageGraph {
-    /// Index of a package by name.  Returned together with the reference
-    /// for callers that need to record edges by index.
+    /// Index of the package named `name` in [`PackageGraph::packages`].
     pub fn index_of(&self, name: &str) -> Option<usize> {
         self.packages
             .iter()
@@ -92,58 +92,43 @@ impl PackageGraph {
     /// the selected closure
     /// ([`ResolvedSelection::closure`](crate::ResolvedSelection::closure)),
     /// not the whole graph - so an unselected member never lowers the
-    /// consumer standard for a scoped resolve.  Within each member the
-    /// targets this invocation can build count: default-buildable kinds
-    /// always, plus dev-only (`test` / `example`) targets for packages
-    /// named in `dev_for` (the set whose `[dev-dependencies]` this
-    /// invocation activates, e.g. `cabin test`), and in both cases only
-    /// when their `required-features` are satisfied by `enabled_features`
-    /// (keyed by package index).  A target gated behind an unenabled
-    /// feature, or a `test` / `example` under a plain `cabin build`, does
-    /// not lower the consumer standard.  Dev-only targets are counted
-    /// whenever `dev_for` activates them, without a per-target reachability
-    /// walk - the same conservative over-approximation applied to a path
-    /// dependency's libraries (below): it can only prefer an older, more
-    /// broadly compatible version, never lock one a built target (such as
-    /// an example a selected target references in `deps`) cannot consume.
+    /// consumer standard for a scoped resolve.  `primary` is the
+    /// originally selected subset
+    /// ([`ResolvedSelection::packages`](crate::ResolvedSelection::packages));
+    /// the rest of `members` are transitive path dependencies.
     ///
-    /// The set is deliberately every default-buildable (plus `dev_for`)
-    /// target of the selected packages, **not** the single target a
-    /// `--bin` / `--example` / test-name narrows a later build to.
-    /// `cabin.lock` is shared per project, so its versions must suit
-    /// every target `cabin build` compiles; scoping resolution to one
-    /// run/test target would under-constrain the shared lock for its
-    /// siblings.  Which target is finally compiled is a build-time
-    /// decision, downstream of resolution.
+    /// A target counts when this invocation can build it and its
+    /// `required-features` are satisfied by `enabled_features` (keyed by
+    /// package index):
+    /// - a primary package's default-buildable targets, plus its dev-only
+    ///   (`test` / `example`) targets when `dev_for` names the package
+    ///   (the set whose `[dev-dependencies]` this invocation activates,
+    ///   e.g. `cabin test`);
+    /// - a path dependency's archive-producing (library) targets only:
+    ///   it is built for the libraries its consumers link, never for its
+    ///   own executables or tests.
     ///
-    /// This is the Cargo-style workspace-level approximation used during
-    /// a partial solve: exactness is not required because the
-    /// post-resolution validation remains the correctness authority.
+    /// The set is every such target of the selected packages, not the
+    /// single target a `--bin` / `--example` / test-name narrows a later
+    /// build to: `cabin.lock` is shared per project, so its versions must
+    /// suit every target `cabin build` compiles.
     ///
-    /// `primary` is the originally selected package set
-    /// ([`ResolvedSelection::packages`](crate::ResolvedSelection::packages)),
-    /// a subset of `members`: `members` also holds the transitive
-    /// path-dependency packages the closure pulls in.  A path dependency
-    /// is built only for the library targets its consumers link, never
-    /// for its own executables/tests, so a non-primary member counts
-    /// only its archive-producing (library) targets.  Whether each such
-    /// library is in turn *reachable* (linked by a consumer target) is
-    /// deliberately not computed here: that per-target build-graph walk
-    /// is the planner's post-resolution job, and counting a path
-    /// dependency's archive targets is a conservative over-approximation
-    /// in the safe direction - it can only prefer an older, more broadly
-    /// compatible version, never cause a wrong build.
-    ///
-    /// This extends to a path dependency reached only through a
-    /// feature-disabled optional edge: the loader records optional path
-    /// edges unconditionally (only disabled optional *registry* deps are
-    /// pruned), and this walk does no package-level feature-reachability
-    /// pruning of `members`.  That is deliberate and equally safe - each
-    /// added member contributes only to the per-language `min`, which
-    /// extra targets can lower but never raise, so an unbuilt optional
-    /// dependency can at most prefer an older, more broadly compatible
-    /// version. Pruning it would only ever raise the preferred version
-    /// and never changes solvability, so it is left to the planner.
+    /// The set over-approximates in three places, none of which a
+    /// per-target reachability walk (the planner's post-resolution job)
+    /// refines here: dev-only targets count whenever `dev_for` activates
+    /// them; a path dependency's libraries count whether or not a
+    /// consumer target links them; and a path dependency reached only
+    /// through a feature-disabled optional edge counts, because the
+    /// loader records optional path edges unconditionally (only disabled
+    /// optional registry deps are pruned) and this walk does no
+    /// feature-reachability pruning of `members`.  Each is safe: an extra
+    /// target can only lower a per-language minimum, so it can only
+    /// prefer an older, more broadly compatible version and never changes
+    /// solvability.  Undercounting is not: a selected target may name an
+    /// `example` in its `deps`, which the planner then compiles, so
+    /// excluding examples could lock a version that example cannot
+    /// consume.  Exactness is not required because post-resolution
+    /// validation remains the correctness authority.
     #[must_use]
     pub fn consumer_standards(
         &self,
@@ -170,22 +155,6 @@ impl PackageGraph {
                 if target.kind.is_header_only() {
                     continue;
                 }
-                // Only targets this invocation can compile count.  A
-                // primary package builds its default-buildable targets
-                // and, under `dev_for` (`cabin test`), its dev-only
-                // (`test` / `example`) targets; a path-dep member builds
-                // only the library targets it is linked for.  Dev-only
-                // targets are counted whenever `dev_for` activates them,
-                // without walking which are actually reachable from a
-                // selected target - the same safe over-approximation
-                // applied to a path dependency's libraries below.  A
-                // selected target may reference an `example` in its
-                // `deps` (the planner then compiles it), so excluding
-                // examples could raise the consumer above a built
-                // example's standard and lock a version it cannot
-                // consume; counting one that a run does not reach only
-                // lowers the consumer (an older, more broadly compatible
-                // pick), never raises it.
                 let built = if is_primary {
                     target.kind.is_default_buildable() || (dev_active && target.kind.is_dev_only())
                 } else {
@@ -220,7 +189,7 @@ pub struct WorkspacePackage {
     /// inside [`PackageGraph::packages`] together with the
     /// [`DependencyKind`] under which it was declared.
     ///
-    /// `Normal`-kind edges always appear here.  `Dev`-kind edges
+    /// `Normal`- and `Build`-kind edges always appear here.  `Dev`-kind edges
     /// appear only when the loader was asked to activate this
     /// package's `[dev-dependencies]` via
     /// `WorkspaceLoadOptions::include_dev_for` - `cabin test` does
@@ -429,9 +398,6 @@ mod consumer_standards_tests {
         }
     }
 
-    /// The consumer standard is the per-language minimum implementation
-    /// standard across every member target, and `None` for a language
-    /// no member compiles.
     #[test]
     fn consumer_standard_is_the_workspace_minimum_per_language() {
         let workspace = graph(vec![
@@ -555,11 +521,8 @@ mod consumer_standards_tests {
     }
 
     /// An `example` is dev-only: it counts under `dev_for` (`cabin test`)
-    /// exactly like a `test` target.  A selected target can reference an
-    /// example in its `deps`, so the planner may compile it; counting
-    /// every activated example (the safe over-approximation) keeps the
-    /// consumer low enough that a built example never gets a version it
-    /// cannot consume.  A plain build does not activate it.
+    /// exactly like a `test` target, and a plain build does not activate
+    /// it.
     #[test]
     fn example_target_counts_under_dev_for() {
         let example_target = Target {
@@ -594,9 +557,6 @@ mod consumer_standards_tests {
         );
     }
 
-    /// A header-only target has no translation units, so it imposes no
-    /// consumer standard - even though `dependency_attributes` reports
-    /// its header-only inference on the dependency side.
     #[test]
     fn header_only_target_imposes_no_consumer_standard() {
         // A package whose only target is header-only compiles nothing.
@@ -654,7 +614,6 @@ mod consumer_standards_tests {
         assert_eq!(consumer.cxx, Some(CxxStandard::Cxx20));
     }
 
-    /// No members imposes nothing.
     #[test]
     fn empty_member_set_has_no_consumer_standard() {
         let workspace = graph(vec![member(

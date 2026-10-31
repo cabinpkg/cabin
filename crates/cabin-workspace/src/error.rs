@@ -144,8 +144,8 @@ pub enum WorkspaceError {
         path: PathBuf,
     },
 
-    /// A target's declared interface minimum is newer than the
-    /// implementation standard its own sources compile with.
+    /// A target's implementation standard lies outside its declared
+    /// interface range (below the minimum or above the maximum).
     #[error("invalid manifest at {path}: {source}", path = path.display())]
     #[diagnostic(code(cabin::language::interface_standard_contradiction))]
     InterfaceStandardContradiction {

@@ -19,19 +19,18 @@ pub const PACKAGE_METADATA_SCHEMA: u32 = 1;
 /// version entry, and what `dist/` contains during a publish
 /// dry-run.
 ///
-/// Field order matches the on-disk JSON shape so
-/// `serde_json::to_string_pretty` emits a stable layout.
+/// Fields serialize in declaration order, so the declaration order is
+/// the on-disk JSON key order.  Optional fields are omitted when
+/// empty, so a document that does not use a field stays byte-identical
+/// to one written before the field existed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackageMetadata {
     pub schema: u32,
     pub name: String,
     pub version: String,
-    /// Normal-kind versioned registry dependencies.  Packaging
-    /// rejects path / workspace deps, so each entry here is a
-    /// `name -> entry` pair from `[dependencies]` (entry is a
-    /// bare requirement string when the dependency has no
-    /// optional / features / default-features overrides, or a
-    /// table that records them).
+    /// Normal-kind versioned registry dependencies from
+    /// `[dependencies]`, keyed by name; see [`PackageDependencyEntry`]
+    /// for the entry shape.  Packaging rejects path / workspace deps.
     pub dependencies: BTreeMap<String, PackageDependencyEntry>,
     /// Versioned `[dev-dependencies]`.  Omitted when empty.
     #[serde(
@@ -47,24 +46,20 @@ pub struct PackageMetadata {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub system_dependencies: BTreeMap<String, SystemDependencyEntry>,
-    /// Declared `[features]`.  Omitted from the JSON when the
-    /// package has no features so older callers see the same shape
-    /// they always have.
+    /// Declared `[features]`.  Omitted when the package has none.
     #[serde(skip_serializing_if = "is_empty_features")]
     pub features: Features,
     /// Manifest-declared `[profile.<name>]` tables, preserved so
     /// downstream consumers can reproduce the same compile flags
-    /// from a published source archive.  Omitted when empty so
-    /// older readers and packages without custom profiles see
-    /// the same shape they always have.
+    /// from a published source archive.  Omitted when empty.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub profiles: BTreeMap<ProfileName, ProfileDefinition>,
     /// Manifest-declared `[toolchain]` plus any
     /// `[target.'cfg(...)'.toolchain]` tables.  Preserved so a
     /// consumer who rebuilds from source can see what tools the
     /// package author requested.  Environment- or CLI-derived
-    /// selections are deliberately not written here.  Omitted
-    /// when the manifest declares no toolchain table.
+    /// selections are not written here.  Omitted when the manifest
+    /// declares no toolchain table.
     #[serde(skip_serializing_if = "ToolchainSettings::is_empty")]
     pub toolchain: ToolchainSettings,
     /// Manifest-declared `[profile]` plus any general
@@ -73,7 +68,7 @@ pub struct PackageMetadata {
     /// reproduce the package author's defines / include directories / extra
     /// args.  Omitted when empty.
     ///
-    /// Note: when this metadata describes a registry dependency, the
+    /// When this metadata describes a registry dependency, the
     /// consumer drops the raw `cflags` / `cxxflags` / `ldflags`
     /// arrays during flag resolution (they are honored only for
     /// local packages); `defines` / `include_dirs` are still applied.
@@ -105,16 +100,14 @@ pub struct PackageMetadata {
     /// from the index without downloading its archive.  Only
     /// `library` targets may claim (manifest validation), so keys
     /// are a subset of the `standards` table's rows.  Omitted when
-    /// no target declares one so older documents stay byte-identical
-    /// (absence = no claims).
+    /// no target declares one (absence = no claims).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub links: BTreeMap<String, String>,
     /// Manifest-declared `[package.upstream]` provenance (the URL in
     /// its normalized `url`-crate serialization), preserved so the
     /// registry's external verifier can check the published tree
     /// against the pinned upstream archive.  Omitted when the
-    /// manifest declares none so older readers and packages without
-    /// provenance see the same shape they always have.
+    /// manifest declares none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream: Option<cabin_core::UpstreamProvenance>,
     pub yanked: bool,
@@ -129,8 +122,7 @@ pub struct SystemDependencyEntry {
     /// Dependency table the system declaration came from.
     pub dependency_kind: DependencyKind,
     /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate.  Omitted from the JSON when absent so older
-    /// readers see the same shape they always have.
+    /// predicate.  Omitted when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<Condition>,
 }
@@ -150,10 +142,10 @@ impl SystemDependencyEntry {
 /// document.
 ///
 /// The simplest case - a bare version requirement with no
-/// optional / features / default-features overrides - serializes
-/// as a string so existing readers and existing on-disk metadata
-/// stay byte-identical.  Anything that needs the richer fields
-/// serializes as a table.
+/// optional / features / default-features / target overrides -
+/// serializes as a string so existing readers and existing on-disk
+/// metadata stay byte-identical.  Anything that needs the richer
+/// fields serializes as a table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum PackageDependencyEntry {
@@ -178,8 +170,7 @@ pub struct PackageDependencyTable {
     pub default_features: bool,
     /// Canonical inner-expression form of an optional `cfg(...)`
     /// predicate (e.g. `os = "linux"`).  Serialized through
-    /// `Condition`'s string serde.  Omitted when absent so older
-    /// metadata stays byte-identical.
+    /// `Condition`'s string serde.  Omitted when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<Condition>,
 }
@@ -468,9 +459,6 @@ mod tests {
 
     #[test]
     fn metadata_excludes_path_dependencies() {
-        // Validation rejects path deps before we reach this code, but
-        // the function itself ignores them so it stays
-        // composable.
         let proj = package(
             "demo",
             "0.1.0",
@@ -494,12 +482,6 @@ mod tests {
         );
     }
 
-    /// The scoped shape climbs two levels (the index doc lives at
-    /// `packages/<scope>/<name>.json`) and embeds the scope in both
-    /// the artifact directory and the filename, plus the packaging
-    /// revision derived from the checksum.  It must byte-match the
-    /// hosted registry's canonical source path
-    /// (`registry/src/publish.rs`), which validates it verbatim.
     #[test]
     fn scoped_metadata_source_path_embeds_the_scope_twice() {
         let proj = package("fmtlib/fmt", "1.0.0", Vec::new());
@@ -556,8 +538,6 @@ mod tests {
         let a = render_canonical_json(&meta).unwrap();
         let b = render_canonical_json(&meta).unwrap();
         assert_eq!(a, b);
-        // Field order matches struct order so consumers can rely on
-        // it.
         let s_pos = a.find("\"schema\"").unwrap();
         let n_pos = a.find("\"name\"").unwrap();
         let v_pos = a.find("\"version\"").unwrap();
@@ -607,9 +587,6 @@ mod tests {
                 "copy": [{"from": "support/config.h.in", "to": "config.h"}],
             })
         );
-        // Declaration order is wire order: `upstream` sits between
-        // any standards table and the trailing yanked / checksum /
-        // source block.
         let u_pos = body.find("\"upstream\"").unwrap();
         assert!(u_pos < body.find("\"yanked\"").unwrap());
     }
@@ -628,9 +605,6 @@ mod tests {
         assert!(!body.contains("\"features\""));
     }
 
-    /// Declared `links` claims land in the document keyed by target
-    /// name; a package with no claims omits the field entirely so
-    /// pre-`links` documents stay byte-identical.
     #[test]
     fn metadata_carries_target_links_and_omits_when_absent() {
         use cabin_core::{LanguageStandardSettings, Target, TargetKind, TargetName};

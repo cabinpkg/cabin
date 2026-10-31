@@ -24,11 +24,10 @@
 //! public dependency baz:baz (path/to/manifest, line N)" - or, for
 //! an empty intersection, both clashing chains.
 //!
-//! The node slice is the caller's index space: resolving raw
-//! manifest `deps` references to concrete targets stays in
-//! `cabin-build`, and enumerating resolver candidates stays in
-//! `cabin-resolver`; both hand this module an already-resolved
-//! target graph.
+//! The node slice is the caller's index space: `cabin-build` resolves
+//! raw manifest `deps` references to concrete targets and hands this
+//! module an already-resolved target graph; enumerating resolver
+//! candidates stays in `cabin-resolver`.
 
 use std::path::PathBuf;
 

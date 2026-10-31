@@ -13,9 +13,8 @@ pub const ROOT_MANIFEST_NAME: &str = "cabin.toml";
 
 const CREDENTIALS_FILE_NAME: &str = "credentials.toml";
 
-/// Top-level directory names that are excluded from package archives
-/// by default.  Matched anywhere in the tree, including below the root, so
-/// nested submodules / build trees do not leak in.
+/// Directory names excluded from package archives.  Matched at any
+/// depth, so nested submodules / build trees do not leak in.
 pub const EXCLUDED_DIR_NAMES: &[&str] = &[
     ".git",
     ".hg",
@@ -51,8 +50,7 @@ pub struct PackageFile {
 
 /// Walk `root` and collect every file that should appear in the
 /// package archive, applying the include / exclude policy and
-/// rejecting unsupported entry types (symlinks, hard links, special
-/// files).
+/// rejecting unsupported entry types (symlinks, special files).
 ///
 /// `exclude_dir`, when set, names one additional directory whose
 /// contents must be omitted from the archive.  The walker compares
@@ -75,8 +73,11 @@ pub struct PackageFile {
 /// Returns [`PackageError::Io`] when reading a directory or querying
 /// an entry's type fails, [`PackageError::NonUtf8Path`] for a
 /// non-UTF-8 file name, [`PackageError::SymlinkNotSupported`] for a
-/// symlink, and [`PackageError::UnsupportedFileType`] for any entry
-/// that is neither a regular file nor a directory.
+/// symlink, [`PackageError::UnsupportedFileType`] for any entry that
+/// is neither a regular file nor a directory,
+/// [`PackageError::NonPortablePath`] for a non-portable component, and
+/// [`PackageError::CaseConflictingPaths`] for two paths that collide
+/// under case folding.
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn collect_package_files(
     root: &Path,
@@ -153,11 +154,8 @@ pub fn source_entry(source: &Utf8Path) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// Reject the archive if `cabin.toml` is not at its root.  Practically
-/// the manifest is always in the source tree, but the check protects
-/// callers from misuse (e.g. an output dir set to the package root,
-/// where the archive contract - `cabin.toml` at the root - would
-/// silently break).
+/// Reject the archive if `cabin.toml` is not at its root, as the
+/// archive contract requires.
 ///
 /// # Errors
 /// Returns [`PackageError::ArchiveMissingManifest`] when no entry has
@@ -197,8 +195,8 @@ pub fn ensure_include_matched(
 ///
 /// `manifest_substitute`, when `Some`, replaces the `cabin.toml`
 /// entry's on-disk contents with the given bytes.  The staging layer
-/// uses it to normalize `{ workspace = true }` standard markers into
-/// resolved literals so the archived manifest is self-contained.
+/// uses it to normalize `{ workspace = true }` markers into resolved
+/// literals so the archived manifest is self-contained.
 ///
 /// Determinism rules baked into this writer:
 /// - entries are written in the order their `rel_path` was sorted
@@ -350,11 +348,10 @@ fn walk(
 /// is assumed to have been produced by walking from `root`, so it
 /// always starts with `root` as a prefix.
 ///
-/// Every component the walker emits has already passed the UTF-8
-/// gate in [`walk`] (a non-UTF-8 entry name is rejected with
-/// [`PackageError::NonUtf8Path`] before it reaches here), so
-/// `to_str()` always yields `Some` and no lossy conversion of this
-/// package-relative path is needed.
+/// Every component below `root` has passed the UTF-8 gate in
+/// [`walk`] (a non-UTF-8 entry name is rejected with
+/// [`PackageError::NonUtf8Path`] or skipped before it reaches here),
+/// so `to_str()` always yields `Some`.
 fn rel_str(root: &Path, path: &Path) -> String {
     let stripped = path.strip_prefix(root).unwrap_or(path);
     stripped
@@ -371,8 +368,7 @@ fn rel_str(root: &Path, path: &Path) -> String {
 /// different file on another platform (a Win32-reserved device name,
 /// a trailing dot or space, a forbidden character).  Run for every
 /// collected file and directory so authors hit the named rule locally
-/// instead of an asynchronous registry rejection; the walk's existing
-/// symlink / UTF-8 / entry-type gates are separate concerns.
+/// instead of an asynchronous registry rejection.
 fn reject_non_portable(root: &Path, path: &Path, name: &str) -> Result<(), PackageError> {
     if let Some(violation) = cabin_fs::path::component_portability(name) {
         return Err(PackageError::NonPortablePath {
@@ -488,10 +484,6 @@ mod tests {
 
     #[test]
     fn excludes_supplied_output_dir() {
-        // Custom in-tree output directories (anything outside the
-        // hard-coded EXCLUDED_DIR_NAMES list) must be skipped when
-        // explicitly named so a previous packaging run's archive
-        // does not leak into the next archive's contents.
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str("x").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
@@ -514,9 +506,6 @@ mod tests {
 
     #[test]
     fn exclude_outside_tree_has_no_effect() {
-        // An exclude_dir that lives outside the package root is
-        // never walked into, so passing it through must not affect
-        // the resulting file list.
         let dir = TempDir::new().unwrap();
         let elsewhere = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str("x").unwrap();
@@ -647,8 +636,6 @@ mod tests {
 
     #[test]
     fn nested_directories_of_the_same_case_do_not_conflict() {
-        // Distinct nested paths sharing a real (same-case) directory
-        // prefix must not be mistaken for a collision.
         let files = [
             PackageFile {
                 rel_path: "src/a.c".to_owned(),
@@ -685,8 +672,6 @@ mod tests {
 
     #[test]
     fn archive_can_be_extracted_back() {
-        // Round-trip: archive a small tree, read the zip directory
-        // back, check `cabin.toml` is at the archive root.
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str("[package]\nname = \"x\"\n")
@@ -730,12 +715,9 @@ mod tests {
         }
     }
 
-    /// Pack-time portability gate (amendment A1): a source tree with a
-    /// non-portable file name fails packaging locally, naming the
-    /// violated rule, rather than deferring to an async registry
-    /// rejection.  Unix-only because the fixtures create real files
-    /// with names Windows would refuse; the exhaustive per-string
-    /// matrix lives in `cabin-fs`.
+    /// Unix-only because the fixtures create real files with names
+    /// Windows would refuse; the exhaustive per-string matrix lives in
+    /// `cabin-fs`.
     #[cfg(unix)]
     #[test]
     fn collect_rejects_non_portable_path_components() {

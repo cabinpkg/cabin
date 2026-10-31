@@ -4,23 +4,23 @@
 //!
 //! - `cabin package` (and the `cabin publish` dry-run flow):
 //!   a single-package manifest is validated, the source tree is
-//!   enumerated under a fixed include / exclude policy, and a
-//!   deterministic `.zip` plus a canonical per-version metadata
-//!   document are written to an output directory.
-//! - `cabin init` and `cabin new`: a minimal `cabin.toml` plus an
-//!   `src/main.cc` are generated at a target directory through the
-//!   shared [`scaffold`] entry point so both CLI surfaces produce
-//!   byte-identical layouts.
+//!   enumerated under the fixed exclusions and the manifest's optional
+//!   `include` list, and a deterministic `.zip` plus a canonical
+//!   per-version metadata document are written to an output directory.
+//! - `cabin init` and `cabin new`: a minimal `cabin.toml` plus a
+//!   binary or library C++ source tree are generated at a target
+//!   directory through the shared [`scaffold`] entry point so both CLI
+//!   surfaces produce byte-identical layouts.
 //!
 //! Crate boundaries:
 //! - this crate must not mutate any registry, run the resolver,
 //!   fetch artifacts, or invoke C/C++ compilers;
 //! - it must not implement networking, server-side functionality, or
-//!   publishing - `cabin-publish` orchestrates the dry-run flow on top
-//!   of this crate;
-//! - the archive format is intentionally narrow: a strict `zip`
-//!   profile, regular files only (directories implied), deterministic
-//!   byte-for-byte for the same logical input.
+//!   publishing - `cabin-publish` orchestrates the dry-run and
+//!   registry-publish flows on top of this crate;
+//! - the archive format is a strict `zip` profile, regular files only
+//!   (directories implied), deterministic byte-for-byte for the same
+//!   logical input.
 
 pub mod archive;
 pub mod error;
@@ -82,14 +82,14 @@ pub struct StagedPackage {
     /// resolution already applied).  Carried so publish-time consumers,
     /// namely the standard-compatibility lints of `cabin-publish`, can
     /// read the resolved D6 manifest attributes without re-loading the
-    /// manifest; those lints are the reason it is exposed.
+    /// manifest.
     pub package: cabin_core::Package,
 }
 
-/// Validate the package, walk the source tree under the fixed include
-/// / exclude policy, build the deterministic `.zip`, hash it, and
-/// generate canonical per-version metadata - all in memory.  No files
-/// are written.
+/// Validate the package, walk the source tree under the fixed
+/// exclusions and the manifest's `include` list, build the
+/// deterministic `.zip`, hash it, and generate canonical per-version
+/// metadata - all in memory.  No files are written.
 ///
 /// `cabin-publish` calls this when handing a package to a downstream
 /// writer (e.g. `cabin-registry-file`); [`package_with_project`] is
@@ -100,16 +100,16 @@ pub struct StagedPackage {
 /// pre-resolved `Package` from inside a workspace so member
 /// manifests with `dep = { workspace = true }` can be resolved
 /// against `[workspace.dependencies]` *before* their package
-/// metadata is generated.  Standalone callers leave it as `None`
-/// and trigger the documented "unresolved workspace dependency"
-/// error rather than silently emitting incomplete metadata.
+/// metadata is generated.  Standalone callers pass `None`; a
+/// `{ workspace = true }` marker then fails validation instead of
+/// emitting incomplete metadata.
 ///
 /// `output_dir`, when set, names the directory the caller will
 /// later write the staged archive into.  The staging walker omits
 /// it from the archive so a previous run's artifacts living in an
 /// in-tree output directory cannot leak back in.  Passing `None`
-/// disables the exclusion (used by `cabin-publish`, which never
-/// writes the archive back into the source tree).
+/// disables the exclusion (used by `cabin-publish`'s registry path,
+/// which writes the archive into the registry, not the source tree).
 ///
 /// `workspace_dep_requirements` carries the workspace root's raw
 /// `[workspace.<kind>-dependencies]` strings so dependency
@@ -226,11 +226,8 @@ fn ensure_declared_patches_included(
                 path: patch.as_str().to_owned(),
             });
         };
-        // Enforce the per-file cap here, where the file is on disk, so
-        // an oversized patch fails at packaging with a clear
-        // client-side error instead of publishing and then being
-        // terminally rejected by the verifier (which applies the same
-        // cap).
+        // The verifier applies the same cap; checking it here fails
+        // an oversized patch before it is published.
         let size = std::fs::metadata(&file.abs_path)
             .map_err(|source| PackageError::Io {
                 path: file.abs_path.clone(),
@@ -344,8 +341,7 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 /// `request.output_dir`.
 ///
 /// The archive is byte-deterministic for the same logical input; the
-/// zip normalization is described on [`archive::build_zip`], and the
-/// include / exclude policy is fixed.
+/// zip normalization is described on [`archive::build_zip`].
 ///
 /// Rules around overwriting existing files in `output_dir`:
 /// - if the archive at the target path is byte-identical, the run
@@ -449,12 +445,8 @@ pub(crate) fn metadata_filename(name: &PackageName, version: &semver::Version) -
 /// [`PackageError::OutputAlreadyExists`] so a stale `dist/` is not
 /// quietly clobbered.
 ///
-/// The write itself is atomic: bytes land in a sibling temporary
-/// file and only rename onto `path` after a successful write, so an
-/// interrupted run leaves the previous file (if any) in place.  The
-/// existence-and-equality check stays in front of the atomic write
-/// so the "refuse to overwrite mismatched output" guarantee is not
-/// lost.
+/// The write is atomic, so an interrupted run leaves no partial file
+/// that the next run would reject as mismatched output.
 fn write_idempotent(path: &Path, body: &[u8]) -> Result<(), PackageError> {
     if path.exists() {
         let existing = std::fs::read(path).map_err(|source| PackageError::Io {
@@ -497,7 +489,6 @@ sources = ["src/lib.cc"]
             .unwrap();
     }
 
-    /// Extract the archived `cabin.toml` text from a staged package.
     fn archived_manifest_text(staged: &StagedPackage) -> String {
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&staged.archive_bytes)).unwrap();
         let mut manifest_text = String::new();
@@ -665,9 +656,6 @@ fmt = { workspace = true, features = ["color"] }
 
     #[test]
     fn staging_enforces_the_per_patch_byte_cap() {
-        // An oversized patch must fail at packaging (client-side)
-        // rather than publishing and then being terminally rejected
-        // by the verifier, which applies the same cap.
         let dir = TempDir::new().unwrap();
         write_patched_upstream_package(&dir, true);
         dir.child("patches/0001-fix.patch")
@@ -689,9 +677,6 @@ fmt = { workspace = true, features = ["color"] }
         }
     }
 
-    /// A scoped package's staging products land flat in the output
-    /// directory under the flattened `<scope>-<name>` stem - the `/`
-    /// never reaches a filename, so nothing nests.
     #[test]
     fn staged_filenames_flatten_the_scope() {
         let name = PackageName::new("fmtlib/fmt").unwrap();
@@ -719,16 +704,10 @@ fmt = { workspace = true, features = ["color"] }
 
     #[test]
     fn stage_with_project_excludes_in_tree_output_dir_even_when_intermediate_missing() {
-        // The walker compares the user-supplied output_dir against
-        // each walked directory's absolute path, so the
-        // normalization must produce a path comparable to the
-        // canonical package root even when intermediate
-        // directories do not exist on disk yet.
         let dir = TempDir::new().unwrap();
         write_package(&dir);
         dir.child("note.md").write_str("keep").unwrap();
         let output_dir = dir.child("missing-parent/output");
-        // Ensure neither the parent nor the output dir exist.
         assert!(!output_dir.path().exists());
         let staged = stage_with_project(
             &dir.path().join("cabin.toml"),
@@ -737,8 +716,6 @@ fmt = { workspace = true, features = ["color"] }
             &cabin_core::WorkspaceDepRequirements::default(),
         )
         .unwrap();
-        // Round-trip the archive to confirm the file list and that
-        // nothing under `missing-parent/` snuck in.
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(staged.archive_bytes)).unwrap();
         let seen: Vec<String> = (0..zip.len())
             .map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned())
@@ -828,7 +805,6 @@ sources = ["src/main.cc"]
             !manifest_text.contains("workspace = true"),
             "got: {manifest_text}"
         );
-        // The baked canonical metadata matches.
         assert_eq!(
             staged.metadata.language.cxx_standard,
             Some(cabin_core::StandardDeclaration::Inherited(
@@ -930,8 +906,6 @@ sources = ["src/main.cc"]
             !manifest_text.contains("workspace = true"),
             "got: {manifest_text}"
         );
-        // Re-staging with a freshly-parsed identical override stays
-        // byte-deterministic.
         let restaged = stage_with_project(
             &dir.path().join("cabin.toml"),
             Some(resolved_override()),
@@ -966,7 +940,6 @@ sources = ["src/main.cc"]
         );
         assert!(!manifest_text.contains("workspace"), "got: {manifest_text}");
 
-        // Deterministic re-stage.
         let restaged = stage_with_project(
             &dir.path().join("cabin.toml"),
             Some(dep_marker_override(&dir)),
@@ -979,8 +952,8 @@ sources = ["src/main.cc"]
 
     #[test]
     fn staging_dep_marker_without_requirements_errors() {
-        // Same fixture + resolved override, but EMPTY requirements:
-        // the normalizer cannot rewrite the on-disk marker.
+        // With no workspace requirement for `fmt`, the normalizer has
+        // nothing to rewrite the on-disk marker to.
         let dir = TempDir::new().unwrap();
         write_dep_marker_package(&dir);
         let err = stage_with_project(

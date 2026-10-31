@@ -137,8 +137,6 @@ pub fn upsert_dependency(
         tbl.decor_mut().set_prefix("\n");
     }
 
-    // Decide before inserting: a table that is already sorted stays
-    // sorted, an unsorted one keeps its order with the entry appended.
     let was_sorted = tbl.iter().is_sorted_by_key(|(key, _)| key);
     tbl.insert(&dep.name, Item::Value(dependency_value(dep)));
     if was_sorted {
@@ -490,8 +488,6 @@ mod tests {
             out.contains("\"fmtlib/fmt\" = \"^10\""),
             "scoped key must be quoted, got:\n{out}"
         );
-        // The emitted document round-trips through the real parser
-        // with the full name as the dependency identity.
         let package = crate::parse_manifest_str(&out).unwrap().package.unwrap();
         assert_eq!(package.dependencies[0].name.as_str(), "fmtlib/fmt");
     }
@@ -698,8 +694,6 @@ sources = ["src/core.cc"]
         .unwrap()
         .unwrap();
         assert!(!out.contains("workspace = true"), "got: {out}");
-        // The rewritten text parses back to the same bounded
-        // requirement - the round-trip drops nothing.
         let parsed = crate::parse_manifest_str(&out).unwrap();
         assert_eq!(
             parsed.package.unwrap().language.interface_cxx_standard,
@@ -733,8 +727,6 @@ sources = ["src/core.cc"]
         .unwrap();
         assert!(out.contains("cxx-standard = \"c++20\""), "got: {out}");
         assert!(!out.contains("workspace = true"), "got: {out}");
-        // The rewritten text must still parse as a valid manifest
-        // with the literal value.
         let parsed = crate::parse_manifest_str(&out).unwrap();
         assert_eq!(
             parsed.package.unwrap().language.cxx_standard,

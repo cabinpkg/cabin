@@ -48,8 +48,7 @@ pub struct ActivePatch {
     /// user-visible relative form rather than the absolute
     /// canonical path.  Cabin-owned model data, so kept UTF-8.
     pub declared_path: Utf8PathBuf,
-    /// Parsed patched [`Package`].  Carried through so the
-    /// loader does not have to re-parse the manifest.
+    /// Parsed patched [`Package`].
     pub package: Package,
 }
 
@@ -106,9 +105,7 @@ impl ActivePatchSet {
     /// Adapt this set into the workspace loader's
     /// [`PatchedPackageSource`] shape.  The loader stitches each
     /// entry as a local-kind package whose `(name, version,
-    /// manifest_path)` is supplied here, so the mapping
-    /// belongs next to the loader's input type rather than in
-    /// CLI orchestration code.
+    /// manifest_path)` is supplied here.
     pub fn workspace_sources(&self) -> Vec<PatchedPackageSource> {
         self.entries
             .iter()
@@ -124,7 +121,8 @@ impl ActivePatchSet {
 /// The per-dependency filter shared by the patch-side collectors
 /// below: active kind (dev deps are declaration-only here),
 /// non-optional, and a registry `Version` source, whatever the
-/// `cfg(...)` condition (the lockfile serves every platform).  Returns the requirement when `dep` passes, keeping
+/// `cfg(...)` condition (the lockfile serves every platform).
+/// Returns the requirement when `dep` passes, keeping
 /// [`collect_patched_versioned_deps`] and
 /// [`collect_version_requirements`] on the same policy.
 fn active_versioned_req(dep: &cabin_core::Dependency) -> Option<&semver::VersionReq> {
@@ -149,10 +147,10 @@ fn active_versioned_req(dep: &cabin_core::Dependency) -> Option<&semver::Version
 /// registry dependencies introduced by patched packages to the
 /// resolver input.  The filtering policy matches
 /// `collect_closure_versioned_deps_excluding_with_dev` for a
-/// non-test build: normal deps are active, dev deps are
-/// declaration-only, optional deps are skipped until a feature
-/// resolver can prove them enabled, target predicates are ignored,
-/// and patched names are excluded.
+/// non-test build with no optional dependency enabled: `Normal` and
+/// `Build` deps are active, dev deps are declaration-only, optional
+/// deps are skipped, target predicates are ignored, and patched names
+/// are excluded.
 ///
 /// Only patches in `referenced_names` contribute - the names the
 /// closure walk actually reached on active edges.  A `[patch]`
@@ -257,20 +255,17 @@ pub fn activated_fork_indices(
         .collect()
 }
 
-/// Inputs to [`resolve_active_patches`].  Bundling them keeps the
-/// call site readable and the function signature stable as new
-/// inputs land.
+/// Inputs to [`resolve_active_patches`].
 pub struct PatchResolutionInputs<'a> {
-    /// Loaded initial workspace graph.  Used to find the
-    /// workspace root manifest and its `[patch]` table, and to
-    /// look up version requirements for patched names.
+    /// Loaded initial workspace graph.  Its `root_dir` anchors
+    /// relative manifest patch paths, and its packages supply the
+    /// version requirements on patched names.
     pub graph: &'a PackageGraph,
-    /// Manifest-declared patches plus the directory the manifest
-    /// lives in (for relative path resolution).
+    /// Manifest-declared patches.
     pub manifest_patches: &'a cabin_core::PatchManifestSettings,
     /// Config-derived patches keyed by package name.  Each entry
-    /// carries the directory of the config file that declared
-    /// it so relative paths resolve against the right base.
+    /// carries the path of the config file that declared it so
+    /// relative paths resolve against that file's directory.
     pub config_patches: &'a BTreeMap<PackageName, ConfigPatchInput>,
 }
 
@@ -282,7 +277,7 @@ pub struct PatchResolutionInputs<'a> {
 pub struct ConfigPatchInput {
     pub source: PatchSource,
     pub provenance: PatchProvenance,
-    /// Directory of the config file that declared this patch.
+    /// Path of the config file that declared this patch.
     pub declared_in: PathBuf,
 }
 
@@ -307,9 +302,6 @@ pub fn resolve_active_patches(
 ) -> Result<ActivePatchSet, PatchResolutionError> {
     let root_dir = inputs.graph.root_dir.clone();
 
-    // Merge: start with manifest patches, overlay config
-    // patches.  The overlay drops the manifest entry; we record
-    // the winning provenance so metadata can show it.
     let mut merged: BTreeMap<PackageName, MergedEntry> = BTreeMap::new();
     for (name, source) in &inputs.manifest_patches.entries {
         merged.insert(
@@ -336,10 +328,6 @@ pub fn resolve_active_patches(
         );
     }
 
-    // Collect version requirements per patched name from the
-    // initial graph so we can validate patched versions before
-    // returning.  We iterate every dep edge in every loaded
-    // package; only Version-source deps contribute requirements.
     let requirements = collect_version_requirements(inputs.graph, &merged);
 
     let mut entries: Vec<ActivePatch> = Vec::with_capacity(merged.len());
@@ -361,8 +349,8 @@ struct MergedEntry {
 /// Walk every loaded package and collect, per patched name,
 /// the set of `Version`-source requirements that are
 /// *active* for the current invocation.  Inactive declarations
-/// (dev / system kinds, optional deps regardless of feature
-/// state) are skipped so a patch on a dormant dependency does
+/// (dev deps, optional deps regardless of feature state) are
+/// skipped so a patch on a dormant dependency does
 /// not cause spurious version-mismatch errors.  Target-conditioned
 /// deps count on every platform, as in the lockfile.
 ///
@@ -519,8 +507,7 @@ pub enum PatchResolutionError {
 
     /// Cabin could not load the patched manifest.  Wraps the
     /// typed [`PatchManifestLoadError`] so callers can inspect
-    /// the failure kind; the inline `{source}` keeps the display
-    /// message identical to the historical string form.
+    /// the failure kind.
     #[error(
         "failed to parse patch manifest for `{package}` at {path}: {source}",
         path = path.display()
@@ -656,10 +643,9 @@ mod tests {
 
     #[test]
     fn active_normal_dep_still_validates_patch_version() {
-        // Negative control: an active normal dep with an
-        // unsatisfiable requirement must still surface
-        // `VersionMismatch`.  Without this, the gating change
-        // could silently regress the original validation.
+        // Negative control for the dev and optional tests above: an
+        // active normal dep with an unsatisfiable requirement still
+        // surfaces `VersionMismatch`.
         let dir = TempDir::new().unwrap();
         let graph = fixture(&dir, "[dependencies]\nfmt = \">=99\"");
         let err = resolve_with(&graph).expect_err("active requirement must reject patch");

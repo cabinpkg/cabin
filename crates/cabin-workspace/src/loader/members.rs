@@ -50,10 +50,6 @@ pub(crate) fn expand_workspace_members(
         let dirs = expand_pattern(workspace_dir, pattern, "workspace.exclude")?;
         let mut hit_any = false;
         for dir in dirs {
-            // We only canonicalize existing dirs; missing exclude
-            // dirs collapse to no-op without erroring (the pattern
-            // itself may have legitimately hit non-package
-            // directories).
             if !dir.is_dir() {
                 continue;
             }
@@ -189,13 +185,9 @@ pub(super) fn parse_workspace_dep_source(
     name: &str,
     req: &str,
 ) -> Result<DependencySource, WorkspaceError> {
-    // Wrap the raw requirement in a tiny manifest to reuse the
-    // existing dependency parser.  We round-trip through the
-    // manifest crate so error messages mention the dependency name
-    // and the failing requirement consistently.  The key is always
-    // quoted: a scoped name (`fmtlib/fmt`) is not a legal bare TOML
-    // key, and the package-name grammar excludes quotes and
-    // backslashes, so plain quoting is enough.
+    // The key is always quoted: a scoped name (`fmtlib/fmt`) is not a
+    // legal bare TOML key, and the package-name grammar excludes quotes
+    // and backslashes, so plain quoting is enough.
     let manifest = format!(
         "[package]\nname = \"workspace\"\nversion = \"0.0.0\"\n[dependencies]\n\"{name}\" = \"{}\"\n",
         req.replace('"', "\\\""),
@@ -257,11 +249,9 @@ pub(super) fn validate_workspace_pattern(
 /// - exact relative path (`tools/hello`)
 /// - single-`*` glob in the final component (`packages/*`)
 ///
-/// A glob whose prefix directory is missing expands to nothing
-/// because exclude is lenient: an exclude pattern may legitimately
-/// match directories that do not contain a `cabin.toml`.  The caller
-/// requires each member pattern to hit a manifest and each exclude
-/// pattern to hit at least one declared member.
+/// A glob whose prefix directory is missing expands to nothing.  The
+/// caller requires each member pattern to hit a manifest and each
+/// exclude pattern to hit at least one declared member.
 fn expand_pattern(
     workspace_dir: &Path,
     pattern: &str,
