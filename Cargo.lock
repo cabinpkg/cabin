@@ -688,6 +688,7 @@ dependencies = [
  "cabinpkg-env",
  "camino",
  "find-msvc-tools",
+ "shared_child",
  "thiserror",
  "tracing",
 ]

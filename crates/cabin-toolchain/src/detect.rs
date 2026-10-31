@@ -15,14 +15,16 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cabin_core::{
     ArchiverCapabilities, ArchiverIdentity, CompilerCapabilities, CompilerIdentity, ResolvedTool,
     ResolvedToolchain, ToolDetection, ToolKind, ToolchainDetectionReport, derive_ar_capabilities,
     derive_cxx_capabilities, parse_ar_version_output, parse_cxx_version_output,
 };
+use shared_child::SharedChild;
 use thiserror::Error;
 
 /// Run a tool with `args` and capture its merged output.
@@ -124,39 +126,48 @@ pub(crate) fn run_command_with_timeout(
     path: &Path,
     timeout: Duration,
 ) -> Result<RunOutput, RunError> {
-    let mut child = command
-        // The registry credential is Cabin's input, not the probed
-        // tool's: scrub it so a custom compiler / archiver / wrapper
-        // binary can never read the token.
-        .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
-        .env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN)
-        // Give the subprocess a clean stdin so detectors that
-        // read from stdin (some old GCC wrappers do) cannot wait
-        // for user input.
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| RunError::Spawn {
-            path: path.to_path_buf(),
-            source,
-        })?;
+    let child = SharedChild::spawn(
+        command
+            // The registry credential is Cabin's input, not the probed
+            // tool's: scrub it so a custom compiler / archiver / wrapper
+            // binary can never read the token.
+            .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
+            .env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN)
+            // Give the subprocess a clean stdin so detectors that
+            // read from stdin (some old GCC wrappers do) cannot wait
+            // for user input.
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .map_err(|source| RunError::Spawn {
+        path: path.to_path_buf(),
+        source,
+    })?;
 
-    let stdout = child.stdout.take().expect("stdout pipe requested");
-    let stderr = child.stderr.take().expect("stderr pipe requested");
+    let stdout = child.take_stdout().expect("stdout pipe requested");
+    let stderr = child.take_stderr().expect("stderr pipe requested");
     let stdout_reader = thread::spawn(move || read_pipe(stdout));
-    let stderr_reader = thread::spawn(move || read_pipe(stderr));
-
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|source| RunError::Read {
-            path: path.to_path_buf(),
-            source,
-        })? {
-            break status;
+    // The stderr reader also waits for the exit, so the deadline needs
+    // no polling and no third thread, and the child can still be
+    // killed meanwhile.
+    let child = Arc::new(child);
+    let (finished, finish) = mpsc::channel();
+    thread::spawn({
+        let child = Arc::clone(&child);
+        move || {
+            let stderr = read_pipe(stderr);
+            let _ = finished.send((stderr, child.wait()));
         }
-        let now = Instant::now();
-        if now >= deadline {
+    });
+    let (stderr, status) = match finish.recv_timeout(timeout) {
+        Ok(finished) => finished,
+        // The deadline is for the exit: a process the tool left behind
+        // may hold stderr open longer, and its output is waited for.
+        Err(_) if matches!(child.try_wait(), Ok(Some(_))) => {
+            finish.recv().expect("the stderr reader always reports")
+        }
+        Err(_) => {
             let _ = child.kill();
             let _ = child.wait();
             return Err(RunError::Timeout {
@@ -164,17 +175,14 @@ pub(crate) fn run_command_with_timeout(
                 timeout,
             });
         }
-        // A probe exits in a few milliseconds, and a command runs
-        // several in sequence, so a coarse tick adds up to a tick to each.
-        thread::sleep(
-            deadline
-                .saturating_duration_since(now)
-                .min(Duration::from_millis(1)),
-        );
     };
-
+    let read = |source| RunError::Read {
+        path: path.to_path_buf(),
+        source,
+    };
+    let status = status.map_err(read)?;
+    let stderr = stderr.map_err(read)?;
     let stdout = collect_pipe(stdout_reader, path)?;
-    let stderr = collect_pipe(stderr_reader, path)?;
     Ok(RunOutput {
         status: status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
@@ -864,5 +872,46 @@ mod tests {
     #[test]
     fn process_runner_timeout_helper() {
         thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    fn process_runner_waits_for_output_a_leftover_process_holds() {
+        let exe = std::env::current_exe().expect("current test executable");
+
+        let output = run_process_with_timeout(
+            &exe,
+            &[
+                "--ignored",
+                "--exact",
+                "detect::tests::process_runner_leftover_helper",
+            ],
+            Duration::from_secs(1),
+        )
+        .expect("the tool exited before its deadline");
+
+        assert_eq!(output.status, 0);
+    }
+
+    /// Exits at once, leaving a process that holds its output open
+    /// past the caller's deadline.
+    #[ignore = "spawned by process_runner_waits_for_output_a_leftover_process_holds"]
+    #[test]
+    #[allow(clippy::zombie_processes)] // the leftover outlives this process by design
+    fn process_runner_leftover_helper() {
+        let exe = std::env::current_exe().expect("current test executable");
+        Command::new(exe)
+            .args([
+                "--ignored",
+                "--exact",
+                "detect::tests::process_runner_leftover_sleeper",
+            ])
+            .spawn()
+            .expect("spawn the leftover process");
+    }
+
+    #[ignore = "spawned by process_runner_leftover_helper"]
+    #[test]
+    fn process_runner_leftover_sleeper() {
+        thread::sleep(Duration::from_secs(2));
     }
 }

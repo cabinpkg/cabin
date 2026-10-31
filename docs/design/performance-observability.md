@@ -200,8 +200,8 @@ baseline, and after a semicolon the smaller differences reported as `Increased` 
 harness alternates which goes first).  Load that changes between the blocks moves every sample of
 one side, which no statistic over the samples can tell from a real change: in the loaded run the
 same binary's `build/touch-source-cxx` medians were 983 ms and 580 ms, with 98 of the 100 pairs of
-the two sides' samples ordered one way.  Instruction counts drift too: the toolchain probes are polled every
-millisecond, so a probe that waits longer retires more instructions, and `gc/clean-10k`'s count,
+the two sides' samples ordered one way.  Instruction counts drift too: the toolchain probes were polled every
+millisecond, so a probe that waited longer retired more instructions, and `gc/clean-10k`'s count,
 mostly the kernel unlinking 10,000 files, moved 3-7% between the two sides.
 
 **Change.**  A difference counts as real only when the samples' ranks separate (a Mann-Whitney
@@ -272,7 +272,8 @@ it was refuted: the coarse tick hid the shims' cost.
 | `xcrun` shims (`/usr/bin/cc`, `c++`, `ar`) | 67.5 ms | 53.3 ms |
 | Resolved paths (`--cc`, `--cxx`, `--ar`) | 68.4 ms | 38.0 ms |
 
-**Fix.**  The probe loop now sleeps at most 1 ms between checks (#2070).
+**Fix.**  The probe loop slept at most 1 ms between checks (#2070), until it stopped polling (see
+"Investigation: toolchain detection").
 
 **Found on the way, not changed:**
 
@@ -321,9 +322,28 @@ Instructions are within 1% (the two helper threads), and peak RSS is unchanged.
 
 **Not changed.**  Apple SDK discovery runs `xcrun --show-sdk-path` only after detection, since it
 needs to know the compiler is Apple Clang; starting it alongside the probes would save a few more
-milliseconds at the cost of an `xcrun` run for every other compiler on macOS.  The probe runner
-also wakes every millisecond to check for the child's exit, so a slower probe retires more
-instructions.
+milliseconds at the cost of an `xcrun` run for every other compiler on macOS.
+
+**Waiting for the exit.**  The probe runner noticed a probe's exit by waking every millisecond to
+check, so a probe that waited longer retired more instructions.  The thread that reads the probe's
+error output now also waits for the exit, and the runner blocks on that thread's message until the
+probe's deadline: no wake-ups, and no thread beyond the two output readers.  The deadline still
+applies to the exit alone: a probe that exited in time, leaving a process that holds its output
+open, is waited for as before.  Release builds of `main` (74e960928) and the change, 60 runs each, interleaved:
+
+| Scenario | Instructions | Change | Verdict |
+| --- | ---: | ---: | --- |
+| `inspect/metadata-c` | 53.39 -> 52.80 M | -1.1% | Decreased |
+| `inspect/metadata-cxx` | 53.33 -> 52.78 M | -1.0% | Decreased |
+| `build/noop-c` | 63.53 -> 63.02 M | -0.8% | Unchanged |
+| `build/noop-cxx` | 63.68 -> 63.15 M | -0.8% | Decreased |
+| `test/run-c` | 94.88 -> 94.18 M | -0.7% | Unchanged |
+| `test/run-cxx` | 93.61 -> 92.71 M | -1.0% | Unchanged |
+| `startup/version` (control: no detection) | 38.42 -> 38.41 M | -0.0% | Unchanged |
+
+Wall time, CPU time, and peak RSS moved within the noise (other builds shared the machine, and wall
+time's noise was 17-65%).  The `Unchanged` rows moved as much as the others, within their
+interquartile range.
 
 ## Investigation: generated-file writes and manifest size
 
