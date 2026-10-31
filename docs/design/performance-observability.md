@@ -296,5 +296,5 @@ parses 8 documents instead of 188.
 | --- | --- | --- | --- |
 | Trace capture and summary | verified locally | CI test suite | CI test suite |
 | `getrusage` memory and CPU in the summary | verified locally | CI test suite (non-zero peak asserted) | unsupported: `process` is `null` (asserted) |
-| `cargo perf run`, every scenario | verified locally | Performance workflow: the smoke subset on pull requests, every scenario weekly | not verified; `--prepare` uses `cmd.exe` quoting |
+| `cargo perf run`, every scenario | verified locally | Performance workflow: the smoke subset on pull requests, every scenario weekly | Performance workflow: the smoke subset on pull requests, its resets run by `cmd.exe` from a path with a space |
 | Criterion benches | verified locally | CI test suite (one iteration each) | CI test suite (one iteration each) |
