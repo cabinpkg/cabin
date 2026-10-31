@@ -313,6 +313,9 @@ pub(crate) struct PreparedWorkspace {
     /// See [`cabin_build::PlanRequest::sysroot`].  The build context
     /// builds with the compilers' default.
     pub sysroot: Option<cabin_core::Sysroot>,
+    /// Whether `sysroot` was configured (`--sysroot`, `[sysroot]`)
+    /// rather than detected.
+    pub configured_sysroot: bool,
     /// The `[runner]` config entry for the `--target` triple: the
     /// program and arguments `cabin run` / `cabin test` put before
     /// each executable they run; empty runs it directly.
@@ -679,6 +682,7 @@ pub(crate) fn prepare_workspace(
     let written_sysroot = sysroot_choice
         .as_ref()
         .and_then(|choice| choice.written.clone());
+    let configured_sysroot = written_sysroot.is_some();
     let sysroot = sysroot_choice.map(|choice| choice.sysroot);
     // Feature resolution's reach: the closure through edges active on
     // this platform, now that the graph also holds every other platform's.
@@ -799,6 +803,7 @@ pub(crate) fn prepare_workspace(
         platform,
         clang_target: compiler_targets.clang_target,
         sysroot,
+        configured_sysroot,
         runner,
         build_context,
     })

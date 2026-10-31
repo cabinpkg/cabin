@@ -354,6 +354,77 @@ pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvo
     }
 }
 
+/// After a failed build against a configured sysroot, probe whether a
+/// minimal program builds against it with each link driver and the
+/// flags the plan uses, so a sysroot that compiles but cannot link
+/// reads as such rather than as the package's own error.  Quiet when
+/// the probe builds or cannot run, like the link hint.
+fn emit_sysroot_diagnostic(req: &NinjaInvocationRequest<'_>, profile_build_root: &std::path::Path) {
+    use cabin_build::BuildAction;
+    use cabin_toolchain::{Answer, Check, Execution, ProbeRequest, ProbeToolchain, Step};
+
+    // Ninja runs every command from the profile root.
+    let Some(dir) = camino::Utf8Path::from_path(profile_build_root) else {
+        return;
+    };
+    let actions = &req.plan_graph.actions;
+    let mut probed = BTreeSet::new();
+    for (link, sysroot) in actions.iter().filter_map(|action| match action {
+        BuildAction::Link(link) => link.sysroot.as_ref().map(|sysroot| (link, sysroot)),
+        _ => None,
+    }) {
+        if !probed.insert(&link.linker) {
+            continue;
+        }
+        let Some(compile) = actions.iter().find_map(|action| match action {
+            // The target context's compile, not a build-context one.
+            BuildAction::Compile(compile)
+                if compile.compiler == link.linker && compile.sysroot.as_ref() == Some(sysroot) =>
+            {
+                Some(compile)
+            }
+            _ => None,
+        }) else {
+            continue;
+        };
+        let toolchain = ProbeToolchain {
+            dialect: req.plan_graph.dialect,
+            compiler: &link.linker,
+            target: link.target.as_deref(),
+            sysroot: Some(sysroot),
+            env: &[],
+            dir,
+            execution: Execution::Unavailable,
+        };
+        let request = ProbeRequest {
+            standard: compile.standard,
+            gnu_extensions: compile.gnu_extensions,
+            check: Check::Links("int main(void) { return 0; }\n".to_owned()),
+            arguments: compile.arguments.clone(),
+            link_flags: link.arguments.clone(),
+            link_libs: Vec::new(),
+        };
+        let answer = cabin_toolchain::probe(&toolchain, &request, &cabin_toolchain::ProcessRunner);
+        let language = compile.standard.language().human_label();
+        let sysroot = &sysroot.path;
+        match answer {
+            Ok(Answer::No { step, output }) => {
+                let outcome = if step == Step::Compile {
+                    format!("does not compile against the configured sysroot {sysroot}")
+                } else {
+                    format!("compiles against the configured sysroot {sysroot} but does not link")
+                };
+                req.reporter.help(&format!(
+                    "a minimal {language} program {outcome}:\n{}",
+                    output.trim_end()
+                ));
+            }
+            Ok(_) => {}
+            Err(error) => tracing::debug!(%error, "the sysroot probe could not run"),
+        }
+    }
+}
+
 /// Emit the cargo-style `Compiling <name> v<ver> (<dir>)`
 /// header for a single package.  Local packages render their
 /// manifest directory in parentheses; registry packages drop
@@ -517,6 +588,9 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     /// The `[gc]` settings: whether and how to collect unused outputs
     /// after the build.
     pub gc: crate::cli::gc::GcSettings,
+    /// Whether the plan's sysroot was configured rather than detected,
+    /// which a failed build probes.
+    pub configured_sysroot: bool,
     pub reporter: Reporter,
 }
 
@@ -642,6 +716,9 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     }
     if !run.status.success() {
         emit_link_diagnostic_if_applicable(&run, req);
+        if req.configured_sysroot {
+            emit_sysroot_diagnostic(req, &profile_build_root);
+        }
         anyhow::bail!("ninja exited with {}", run.status);
     }
     Ok(Built {

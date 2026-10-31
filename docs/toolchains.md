@@ -433,6 +433,29 @@ compiles probe sources, never reads sources outside the package being built, and
 network.  Output is captured deterministically; identical toolchains on identical machines yield
 identical `ToolchainDetectionReport`s.
 
+### Probes
+
+Where a question needs the compiler itself, Cabin builds a small probe program the way the build
+compiles and links it: the same compiler, `--target=`, sysroot, language mode, and flags, spelled by
+the same dialect and run from the directory Ninja runs commands in.  A probe checks that a header compiles, that a type is complete, that a symbol is declared
+and links, or that a source compiles, links, or runs, and answers one of:
+
+- *yes*;
+- *no*, naming the step that failed (compile, link, or run) with the tool's output: the toolchain
+  does not support it;
+- *unknown*: the program built but would have to run for a platform the build machine cannot run,
+  and no [`[runner]`](config.md#runner) is configured, so nothing established the answer.
+
+A compiler or linker that cannot start, crashes, is killed, or runs past the 60-second deadline is
+an error, not a *no*; a probe program that crashes is a *no*.  A probe builds in a fresh directory beneath the build's and removes it, and nothing is
+cached, so every probe asks the current toolchain.
+
+One command path probes today.  When `cabin build`, `run`, or `test` fails with a configured sysroot
+(`--sysroot` or `[sysroot]`), Cabin builds a minimal program with each link driver of the plan and
+the flags of one of its compiles, and adds a `help:` naming the sysroot when the program compiles
+but does not link, or does not compile.  A build that succeeds, a detected Apple SDK, and every
+other command run no probe.
+
 ## Build configuration fingerprint
 
 `BuildConfiguration::fingerprint` is a SHA-256 over the resolved build-configuration inputs that
@@ -644,7 +667,8 @@ explicitly selected toolset is honored.
 Items marked *planned* belong to the capability roadmap
 ([ledger](design/capability-roadmap/ledger.md)) and are not implemented yet.
 
-- Compiler probe compilations beyond running `--version` (planned: stage 05).
+- Probe checks a manifest declares, such as those behind a generated configuration header
+  (planned: stage 07).
 - Sysroot discovery beyond Apple SDKs, and a sysroot for the build-machine context (planned:
   stage 05).
 - A fully supported GCC/Clang-style toolchain on Windows (MinGW / clang).  MSVC is the supported

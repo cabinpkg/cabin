@@ -1,15 +1,17 @@
 //! Toolchain detection helpers used by the Cabin build pipeline.
 //!
 //! This crate owns toolchain resolution, subprocess-based tool detection,
-//! sysroot selection, compiler-wrapper resolution, and Ninja lookup. It does not parse
-//! manifests or write build plans; downstream crates consume the typed
-//! resolved values and detection reports exposed here.
+//! sysroot selection, compile/link/run probes, compiler-wrapper resolution,
+//! and Ninja lookup. It does not parse manifests or write build plans;
+//! downstream crates consume the typed resolved values and detection reports
+//! exposed here.
 
 pub mod detect;
 pub mod error;
 pub mod msvc;
 pub mod ninja;
 mod path_search;
+pub mod probe;
 pub mod resolve;
 pub mod sysroot;
 pub mod target;
@@ -22,6 +24,9 @@ pub use detect::{
 pub use error::ToolchainError;
 pub use msvc::{msvc_environment, msvc_tool_path, path_is_discovered_msvc_cl};
 pub use ninja::locate_ninja;
+pub use probe::{
+    Answer, Check, Execution, ProbeError, ProbeRequest, ProbeRunner, ProbeToolchain, Step, probe,
+};
 pub use resolve::{
     ConfigToolEntry, ConfigToolchainLayer, Inputs as ResolveInputs, resolve_toolchain,
 };

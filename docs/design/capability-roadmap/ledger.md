@@ -364,7 +364,8 @@ Stages 05 and 04; used by 06-14.
 **Blocked workflow.**  Generating a configuration header from a compile check; a supported MinGW
 toolchain.
 
-**Necessary changes.**  Typed compile and link probes whose results record their inputs; sysroot
+**Necessary changes.**  Typed compile and link probes built with the selected toolchain, target,
+sysroot, and flags, and reused, if at all, only under a key of those inputs; sysroot
 and SDK selection with explicit choices over discovery; configured choices distinguished from
 detected facts in diagnostics and metadata; MinGW promoted only with CI evidence.
 
@@ -460,9 +461,8 @@ a toolchain identity stamp every action depends on; `[build-dependencies]` with 
 per-context features, and per-context `links`; runners for `cabin run` and `cabin test`, after stage
 11's test-concurrency change.
 
-Stage 05's pull requests, in order: sysroots and the Apple SDK; typed compile and link probes with a
-cache keyed by their inputs; a toolchain per context; MinGW promoted on build, link, run, and CI
-evidence.
+Stage 05's pull requests, in order: sysroots and the Apple SDK; typed compile, link, and run
+probes; a toolchain per context; MinGW promoted on build, link, run, and CI evidence.
 
 **Changes.**  Stage 00: this ledger, the contracts page, and the scope alignment listed above.
 Stage 00 counts as adopted once this ledger is on `main`.
@@ -593,6 +593,22 @@ names the platform's SDK, an absolute `SDKROOT` or what `xcrun --show-sdk-path` 
 configuration fingerprint hashes an explicit sysroot as written and leaves a detected SDK out, as it
 leaves out resolved tool paths.  The build
 context keeps the compilers' default.
+
+Stage 05, second change: `cabin_toolchain::probe` builds a probe program through `cabin-driver`'s
+lowering, with the compiler, `--target=`, sysroot, GNU mode, and flags the caller passes, from the
+directory the build runs commands in, and answers a
+header, type, symbol, compile, link, or run check with `Answer::Yes`, `Answer::No` naming the
+failing step and its output, or `Answer::Unknown` when the program built but nothing can run it (no
+runner for a target the build machine cannot run); a compiler or linker that cannot start, crashes,
+is killed, or times out is a `ProbeError`.  When `cabin build`, `run`, or `test` fails with a configured sysroot, the CLI
+probes a minimal program per link driver with the plan's flags and names the sysroot in a `help:`
+when it compiles but does not link, or does not compile.  Probe results are not reused: the only
+consumer runs after a failure, where a reused answer could outlive a sysroot fixed in place, so
+there is nothing to invalidate yet.  Stage 07's configuration checks call `probe` with a target's
+effective standard, GNU mode, `CompileArguments`, and link flags, and `Execution` from `[runner]` and
+`TargetPlatform::runs_on_build_machine`; an `Unknown` must not become a defined macro.  Reusing
+answers across builds needs a key over the compiler path and version banner, dialect, target,
+sysroot, standard, flags, source, and execution; a sysroot's contents are not in it.
 
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
@@ -733,6 +749,16 @@ paths, both lowered spellings, the MSVC-dialect refusal, the SDK `xcrun` names p
 choice.  Removing the Apple lowering, the `SDKROOT`
 read, tidy's SDK, or the absolute path fails the macOS CLI tests; `cargo ci` on macOS.  Not run: a sysroot for another machine (none installed here), the Linux test
 outside CI, and iOS SDKs.
+
+Stage 05, second change: unit tests drive `probe` with a scripted runner: each check stops after
+its last step, a failing step is the answer and names the step, a crashing probe program is a
+*no*, a compiler that cannot start or is killed is an error, a run with nothing to run it is
+`Unknown` once the program builds, and the commands carry the target, sysroot, flags, and runner.
+Integration tests ask the build machine's default toolchain C and C++ checks with each answer and
+step, and name a compiler that does not exist.  A macOS CLI test builds against a sysroot holding
+only the SDK's headers and reads the C and C++ `help:` lines.  Run on macOS (Apple Clang); Linux
+and Windows (MSVC) only in CI.  No Linux fixture for the hint: GCC keeps library paths relative to
+its own installation under a sysroot, so a headers-only sysroot can still link there.
 
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
