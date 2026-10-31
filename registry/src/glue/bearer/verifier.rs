@@ -31,7 +31,8 @@ struct AdminVersionRecord {
 /// verifier's work list. Each entry's `name` is the canonical
 /// `<scope>/<name>` and carries the stored canonical metadata document
 /// (parsed, so the response is one JSON value); the listing is
-/// deterministic: ordered by scope, then name, then version.
+/// deterministic: ordered by scope, then name, then version, then
+/// revision.
 pub(super) async fn admin_versions_response(
     req: &Request,
     db: &D1Database,
@@ -165,14 +166,14 @@ fn verdict_binding_matches(
 /// pins (still no D1), then one transaction consuming the jti - its
 /// zero-changed-rows answer is the replay refusal - with the lazy
 /// expiry prune alongside. Consuming the jti before the business logic
-/// is safe here, unlike the exchange's mint coupling: nothing hinges on
-/// this request succeeding afterwards: a request that fails before its
-/// verdict commits leaves the row pending, and the next run lists it
-/// again and `PATCH`es with a freshly minted token (one that fails after
-/// the commit changed the row as intended; a lost reclaim is the
-/// documented orphan). `false` means refused;
-/// the caller answers the uniform 401 while the real reason is logged
-/// here - no pin/signature/replay oracle.
+/// is safe here, unlike the exchange's mint coupling, because nothing
+/// hinges on this request succeeding afterwards: a request that fails
+/// before its verdict commits leaves the row pending, and the next run
+/// lists it again and `PATCH`es with a freshly minted token (one that
+/// fails after the commit changed the row as intended; a lost reclaim
+/// is the documented orphan). `false` means refused; the caller answers
+/// the uniform 401 while the real reason is logged here - no
+/// pin/signature/replay oracle.
 pub(super) async fn verdict_authn(
     req: &Request,
     env: &Env,
@@ -188,7 +189,7 @@ pub(super) async fn verdict_authn(
     let Some(jwt) = auth::bearer_token(&header) else {
         return refused("the authorization header is not a bearer credential");
     };
-    // Worker clocks are epoch MILLISECONDS; the verifier takes seconds.
+    // Worker clocks are epoch milliseconds; the verifier takes seconds.
     #[allow(clippy::cast_possible_truncation)]
     let now_secs = (now_epoch_ms() / 1000.0) as i64;
     let claims = match trustpub::verify(

@@ -1,5 +1,5 @@
 //! The verification lifecycle's pure domain logic: the
-//! `versions.verification` status values, the verdict request body and
+//! `revisions.verification` status values, the verdict request body and
 //! transition rules, the artifact read gate, and the stuck-verifier
 //! alert (`docs/remote-registry.md`, "Verification lifecycle").
 //!
@@ -12,13 +12,13 @@ use serde::Deserialize;
 
 use crate::error;
 
-/// The `versions.verification` column. Every published version is
+/// The `revisions.verification` column. Every published revision is
 /// `pending` until the external verifier renders a verdict; only
-/// `verified` versions are part of the registry (composed into package
+/// `verified` revisions are part of the registry (composed into package
 /// documents, downloadable with ordinary tokens, immutable). `rejected`
-/// versions never became part of the registry: their blob is reclaimed,
-/// their quota refunded, and the same `(scope, name, version)` may be
-/// republished.
+/// revisions never became part of the registry: their blob is reclaimed
+/// (unless another live revision stores the same bytes), their quota
+/// refunded, and the same `(scope, name, version)` may be republished.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Pending,
@@ -59,17 +59,14 @@ pub enum Verdict {
 /// `{"verdict":"verified"|"rejected","reason":"...","checksum":"...",
 /// "published_at":"..."}`; `reason` is required for rejections (it is
 /// recorded on the row) and ignored otherwise. `checksum` and
-/// `published_at` echo what the admin listing reported and bind the
-/// verdict to exactly that row generation - a verdict computed against
-/// one listing must never land on a replacement published meanwhile
-/// (the checksum names the archive bytes; `published_at` changes on
-/// every replacement, catching even a same-bytes republish with new
-/// metadata). Both are **required** for both verdicts: the checksum
-/// names the revision the verdict targets, and `published_at` names
-/// the publish event - a byte-identical revival regenerates the row
-/// under the same checksum, so without the generation bind a delayed
-/// rejection computed against the rejected generation's listing
-/// would land on the revived one.
+/// `published_at` are required for both verdicts; they echo what the
+/// admin listing reported and bind the verdict to exactly that row
+/// generation. The checksum names the revision the verdict targets, and
+/// `published_at` names the publish event: a byte-identical revival
+/// regenerates the row under the same checksum with a new
+/// `published_at`, so without the generation bind a delayed verdict
+/// computed against the rejected generation's listing would land on the
+/// revived one.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VerdictBody {
@@ -112,8 +109,8 @@ pub struct ParsedVerdict {
 /// # Errors
 ///
 /// The fixed `400` detail string for a malformed body, an unknown
-/// verdict value, a rejection without a reason, a missing checksum
-/// (both verdicts) and `published_at` (both verdicts) binding, or a
+/// verdict value, a rejection without a reason, a missing or empty
+/// `checksum` or `published_at` binding (either verdict), or a
 /// non-canonical checksum.
 pub fn parse_verdict(body: &[u8]) -> Result<ParsedVerdict, &'static str> {
     let Ok(VerdictBody {
@@ -137,12 +134,6 @@ pub fn parse_verdict(body: &[u8]) -> Result<ParsedVerdict, &'static str> {
             None => return Err(error::VERDICT_REASON_REQUIRED),
         },
     };
-    // Both bindings are required for both verdicts.  The checksum
-    // names the revision; `published_at` names the publish event.
-    // Rejections need the pair as much as verifications do: a
-    // byte-identical revival regenerates the row under the same
-    // checksum, and a delayed rejection bound only by bytes would
-    // land on the revived generation instead of the one it judged.
     let Some(checksum) = checksum.filter(|checksum| !checksum.is_empty()) else {
         return Err(error::VERDICT_BINDING_REQUIRED);
     };
@@ -326,10 +317,6 @@ mod tests {
 
     #[test]
     fn parse_verdict_requires_the_listing_binding_for_both_verdicts() {
-        // The verdict must name the exact row generation it judged -
-        // the archive checksum and the listing's published_at.  For
-        // rejections the generation bind is what keeps a delayed
-        // verdict off a byte-identical revival.
         for body in [
             br#"{"verdict":"verified"}"#.as_slice(),
             br#"{"verdict":"verified","checksum":"aa12"}"#,
@@ -411,11 +398,8 @@ mod tests {
             transition(Status::Rejected, Verdict::Verified),
             Transition::Conflict(error::VERSION_REJECTED_REVERDICT)
         );
-        // Repeating the applied rejection is the idempotent 200, same
-        // as repeating a verification: the caller has already matched
-        // the generation binding, so this is a retry after a lost
-        // response, not a late duplicate racing a revival (a revival
-        // changes published_at and 409s as target-changed first).
+        // Repeating the applied rejection is the idempotent 200 too
+        // (see `Transition::Conflict` for why no revival reaches it).
         assert_eq!(
             transition(Status::Rejected, Verdict::Rejected),
             Transition::NoOp

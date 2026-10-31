@@ -165,7 +165,8 @@ pub const RATE_LIMITED: Denial = Denial {
     detail: "publish rate limit exceeded; retry after the token bucket refills",
 };
 /// The governor's per-user read-fairness refusal
-/// ([`ClassQuotas::artifact_reads_per_day`]); `Retry-After` carries the
+/// ([`ClassQuotas::artifact_reads_per_day`],
+/// [`ClassQuotas::source_reads_per_day`]); `Retry-After` carries the
 /// seconds until the UTC day rolls over.
 pub const READ_RATE_LIMITED: Denial = Denial {
     status: 429,
@@ -173,9 +174,9 @@ pub const READ_RATE_LIMITED: Denial = Denial {
     detail: "read rate limit exceeded; retry after the daily read allowance resets",
 };
 /// The pre-credential admission refusal on the two public OIDC
-/// endpoints and the session mint (`glue::oidc_admission`): one fixed
-/// shape for all three, decided before any credential is read, so it
-/// carries no validity signal.
+/// endpoints and the session mint (`glue::bearer::oidc_admission`): one
+/// fixed shape for all three, decided before any credential is read, so
+/// it carries no validity signal.
 pub const OIDC_RATE_LIMITED: Denial = Denial {
     status: 429,
     code: "rate_limited",
@@ -288,18 +289,16 @@ pub fn check_publish(
 /// `(principal, cap)` pair for the governor's per-principal daily
 /// window.
 ///
-/// Tokened callers key on their registry user id, as before public
-/// reads.  Anonymous callers - the read plane is public
-/// (`docs/architecture.md`, "Origins and roles") - key on the
-/// client IP Cloudflare stamps on every edge request
-/// (`CF-Connecting-IP`, which the edge overwrites, so it is not
+/// Tokened callers key on their registry user id.  Anonymous callers -
+/// the read plane is public (`docs/architecture.md`, "Origins and
+/// roles") - key on the client IP Cloudflare stamps on every edge
+/// request (`CF-Connecting-IP`, which the edge overwrites, so it is not
 /// caller-controlled).  They must be bounded by *something*: the
 /// deployed WAF rate limiter deliberately covers only the website
 /// origin's write/auth surface, never `registry.cabinpkg.com` reads
 /// ([`runbook.md`](../docs/runbook.md), "Zone rate limiting (WAF)"),
-/// so without this one unauthenticated caller could
-/// drain the shared `b_ordinary` pool and 503 everyone else's
-/// uncached downloads.
+/// so without this one unauthenticated caller could drain the shared
+/// `b_ordinary` pool and 503 everyone else's uncached downloads.
 ///
 /// A request with no client-IP header (local dev; the edge always
 /// sets it in production) falls back to one shared anonymous window
@@ -637,8 +636,7 @@ mod tests {
         assert_eq!(cap, DEFAULT.artifact_reads_per_day);
     }
 
-    /// A tokened caller keys on its user id and its own class cap,
-    /// exactly as before the read plane became public.
+    /// A tokened caller keys on its user id and its own class cap.
     #[test]
     fn tokened_artifact_reads_key_on_the_user() {
         let quotas = quotas_for_class("operator");
@@ -832,12 +830,13 @@ mod verification {
 
     /// The bucket's production input domain. The class is one of the two
     /// the map grants. A stored bucket was written by an *allowed* take
-    /// of this very function (`glue::cas_bucket`; NULL columns, the
-    /// documented operator reset, read as `None`), so its balance is a
-    /// non-negative balance under some class and its timestamp a past
-    /// clock reading - the balance bound is what the proof below
-    /// establishes for the next write, the inductive invariant. A row
-    /// edited by hand to other values is outside the domain.
+    /// of this very function (`glue::bearer::package::cas_bucket`; NULL
+    /// columns, the documented operator reset, read as `None`), so its
+    /// balance is a non-negative balance under some class and its
+    /// timestamp a past clock reading - the balance bound is what the
+    /// proof below establishes for the next write, the inductive
+    /// invariant. A row edited by hand to other values is outside the
+    /// domain.
     #[kani::proof]
     fn take_publish_token_is_the_documented_bucket() {
         let quotas = if kani::any() { OPERATOR } else { DEFAULT };

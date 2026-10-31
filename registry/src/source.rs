@@ -4,13 +4,13 @@
 //! this module decides which `Range` headers are acceptable and how a
 //! request maps onto the stored blob.
 //!
-//! The policy deliberately deviates from RFC 9110, which says to ignore
-//! an absent or malformed `Range` and serve the whole representation:
-//! the route exists to serve bounded slices, so an absent header is a
-//! `400` and everything that is not a single bounded range within
-//! [`MAX_RANGE_BYTES`] - multiple ranges, an open-ended
-//! `bytes=<start>-`, an oversized span - is refused with `416` instead
-//! of falling back to streaming the archive.
+//! The policy deviates from RFC 9110 section 14.2, under which a request
+//! without `Range`, or one whose `Range` the server ignores, gets a `200`
+//! with the whole representation: the route exists to serve bounded
+//! slices, so an absent header is a `400` and everything that is not a
+//! single bounded range within [`MAX_RANGE_BYTES`] - multiple ranges, an
+//! open-ended `bytes=<start>-`, an oversized span - is refused with `416`
+//! instead of falling back to streaming the archive.
 
 /// The largest slice one request may read. A per-request resource
 /// bound, nothing more: sequential requests can still walk the whole
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn everything_else_is_refused() {
-        // Absent, malformed, open-ended, multi-range, oversized, signed,
+        // Empty, malformed, open-ended, multi-range, oversized, signed,
         // padded: the policy accepts exactly the two bounded forms.
         let over = MAX_RANGE_BYTES;
         for header in [
@@ -218,8 +218,6 @@ mod tests {
             assert_eq!(parse_range(Some(header)), Err(INVALID_RANGE), "{header:?}");
             assert_eq!(INVALID_RANGE.status, 416);
         }
-        // No header at all is the 400 - the client forgot the header -
-        // not the 416 range refusal.
         assert_eq!(parse_range(None), Err(RANGE_REQUIRED));
         assert_eq!(RANGE_REQUIRED.status, 400);
     }

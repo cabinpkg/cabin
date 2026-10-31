@@ -285,7 +285,7 @@ const SERVICE_MODE_TTL_SECS: f64 = 60.0;
 /// propagates into [`write_gate`]'s 500 - while the read gate drops the
 /// error with `.ok()` and refuses only on an affirmatively read
 /// `ReadsBlocked` (`breaker::read_gate_refuses`), which the fail-closed
-/// parse can never produce. [`count_download`]'s deferred task follows
+/// parse can never produce. `read::count_download`'s deferred task follows
 /// the write direction, where any failure only skips a telemetry
 /// increment, never a response.
 async fn service_mode(env: &Env, db: &D1Database) -> worker::Result<breaker::Mode> {

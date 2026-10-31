@@ -75,8 +75,8 @@ pub enum OpPool {
     BVerifier,
     /// Class B on the publish path: existence heads.
     BPublish,
-    /// Class B for infrastructure: replication source reads, dump
-    /// re-read verification.
+    /// Class B for infrastructure: replication heads and source reads,
+    /// dump re-read verification.
     BInfra,
 }
 
@@ -98,9 +98,14 @@ impl OpPool {
 // Limits
 // ---------------------------------------------------------------------
 
-/// Additions stay overflow-free: every limit is clamped here, `used`
-/// and `SUM(bytes)` never exceed a limit by more than one commit's
-/// bytes, and per-request amounts are validated small.
+/// Every limit is clamped here and `validate` bounds per-request amounts
+/// by it (or by `MAX_CONSUME_N`), so the guarded `used + n <= limit`
+/// cannot overflow `i64` and keeps `used` at most this value.
+/// `SUM(bytes)` has no such bound: commits never refuse, so it can pass
+/// a limit.  The storage admission `SUM(bytes) + n` stays in range while
+/// the ledger total, a sum of recorded object sizes, stays within the
+/// `i64::MAX - LIMIT_CLAMP` (about 6.9e18 bytes) of headroom the clamp
+/// leaves.
 const LIMIT_CLAMP: u64 = i64::MAX as u64 / 4;
 
 /// Hard per-pool ceilings. Env-overridable (`GOVERNOR_*`; see
@@ -443,8 +448,8 @@ const ROLL_OP_WINDOW: &str = "INSERT INTO op_windows (pool, window, used) VALUES
 const CONSUME_OPS: &str =
     "UPDATE op_windows SET used = used + ?2 WHERE pool = ?1 AND used + ?2 <= ?3";
 
-/// Compensation for a refused decision; clamped so a stray double
-/// compensation can never mint allowance below zero usage.
+/// Compensation for a refused decision; clamped at zero so a stray
+/// double compensation cannot drive `used` negative.
 const UNCONSUME_OPS: &str = "UPDATE op_windows SET used = MAX(used - ?2, 0) WHERE pool = ?1";
 
 const ROLL_PRINCIPAL_WINDOW: &str =
@@ -468,20 +473,13 @@ const OBJECT_KEYS: &str = "SELECT key, bytes, state FROM objects WHERE pool = ?1
 /// Stale fairness rows carry no meaning once their day passed.
 const PRUNE_PRINCIPAL_WINDOWS: &str = "DELETE FROM principal_windows WHERE window < ?1";
 
-// The operator-triggered ledger wipe (pre-launch only, guarded by the
-// caller on `meta.launched`). The registry wipe empties both buckets -
-// the primary blobs and the whole BACKUP bucket - so every storage row,
-// `primary`, `backup` and `dump` alike, restarts from zero; the operator
-// command proves both buckets empty before and after posting it, so the
-// ledger never understates an object that still bills. Reconciliation
-// rebuilds whatever the fresh registry accrues. The monthly
-// `op_windows` are NOT wiped: they count R2
-// operations Cloudflare has already metered this month, reconciliation
-// cannot rebuild them (R2 exposes no per-pool op counter), and zeroing
-// them mid-month would re-mint a full month of Class A/B allowance on
-// top of the ops that already ran. Daily `principal_windows` are
-// fairness-only (they never grant pool allowance) and roll forward on
-// their own, so clearing them is harmless.
+// The pre-launch ledger wipe; `wipe` documents the guard and why
+// `op_windows` survive. Every storage row may go because the registry
+// wipe empties both buckets and the operator command proves them empty
+// before and after posting, so the ledger never understates an object
+// that still bills; reconciliation rebuilds whatever the fresh registry
+// accrues. Daily `principal_windows` are fairness-only (they never grant
+// pool allowance), so clearing them is harmless.
 const WIPE_OBJECTS: &str = "DELETE FROM objects";
 const WIPE_PRINCIPAL_WINDOWS: &str = "DELETE FROM principal_windows";
 
@@ -616,8 +614,8 @@ fn validate(decision: &Decision) -> Result<(), Refusal> {
         // reserve of the same content-addressed key. The upper bound
         // keeps the admission arithmetic overflow-free (the same clamp
         // the limits get); anything a configured pool could actually
-        // admit passes. An artifact-sized cap here once broke nightly
-        // dumps the moment the database outgrew it.
+        // admit passes. An artifact-sized cap would refuse nightly dumps
+        // once the database outgrows it.
         if bytes == 0 || bytes > LIMIT_CLAMP {
             return Err(invalid("object bytes out of range"));
         }
@@ -627,16 +625,14 @@ fn validate(decision: &Decision) -> Result<(), Refusal> {
             return Err(invalid("object key length out of range"));
         }
     }
-    // Each (pool, key) may take part in at most one storage operation
-    // per decision. Reserve and commit ADD capacity; release REMOVES
-    // it. Mixing them for one key in a single decision has no
-    // conservative direction: `decide` applies commits before releases,
-    // so a commit+release of one key would record the object as
-    // committed and then delete its ledger row while the object still
-    // exists in R2 - an under-count that mints free capacity. Real
-    // callers always separate these into distinct decisions (reserve
-    // before the R2 write, commit/release after), so a collision is a
-    // caller bug the engine refuses outright rather than applies.
+    // Each (pool, key) takes part in at most one storage operation per
+    // decision. Reserve and commit add usage; release removes it. Mixed
+    // for one key they have no conservative direction: `decide` applies
+    // commits before releases, so a commit and a release of one key
+    // would delete the ledger row of an object that still exists in R2,
+    // an under-count that mints free capacity. Real callers send the
+    // reserve before the R2 write and the commit or release in a later
+    // decision, so a repeated key is a caller bug and is refused.
     let mut seen: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
     for entry in decision
         .reserve
@@ -681,7 +677,7 @@ fn apply_consume(
             ROLL_PRINCIPAL_WINDOW,
             &[pool.as_str().into(), principal.as_str().into(), day.into()],
         )?;
-        #[allow(clippy::cast_possible_wrap)] // clamped to LIMIT_CLAMP
+        #[allow(clippy::cast_possible_wrap)] // validated <= LIMIT_CLAMP
         let cap = cap as i64;
         let changed = store.exec(
             CONSUME_PRINCIPAL,
@@ -997,9 +993,7 @@ pub fn reconcile(
             Some(&stored) if stored != bytes => report.mismatched.push(obj.key.clone()),
             Some(_) => {}
         }
-        // The same conservative commit upsert the settle path uses:
-        // records missing objects, settles reserved rows a lost
-        // acknowledgement stranded, and only ever grows byte counts.
+        // The settle path's commit upsert (see `ReconcileReport`).
         store.exec(
             COMMIT_OBJECT,
             &[
@@ -1031,9 +1025,9 @@ pub fn reconcile(
 /// buckets, and must never run against a launched registry
 /// (`docs/runbook.md`, "Wipe procedure (pre-launch only)"). The monthly
 /// `op_windows` survive on purpose: they mirror R2 operations
-/// Cloudflare already metered this month and are not reconstructable,
-/// so zeroing them would mint fresh monthly allowance for spend that
-/// already happened.
+/// Cloudflare already metered this month and cannot be rebuilt (R2
+/// exposes no per-pool op counter), so zeroing them would mint fresh
+/// monthly allowance for spend that already happened.
 ///
 /// # Errors
 ///
@@ -1687,11 +1681,9 @@ mod tests {
     #[test]
     fn reconcile_skips_a_zero_byte_live_object() {
         let mut store = Sqlite::new();
-        // A 0-byte "live" object is corrupt D1 data - a real archive is
-        // never empty - so reconcile must not record a phantom row for
-        // it (that row would later `KeyConflict` a real reserve of the
-        // same content-addressed key), the same invariant N2 enforces
-        // on the request path.
+        // A 0-byte "live" object is corrupt D1 data, which `validate`
+        // also refuses on the request path; reconcile skips the entry and
+        // records the rest.
         let report = reconcile(
             &mut store,
             NOW,
@@ -1893,11 +1885,8 @@ mod tests {
     fn a_key_cannot_be_committed_and_released_in_one_decision() {
         let mut store = Sqlite::new();
         let limits = small_limits();
-        // commit ADDS the object's bytes, release REMOVES its row, and
-        // `decide` runs commits before releases: applied together for
-        // one key the net direction is non-conservative - the object
-        // stays in R2 while the ledger loses its row, minting free
-        // capacity. The engine refuses the ambiguous decision outright.
+        // Applied together, the release would delete the committed row
+        // of an object still in R2 (see `validate`).
         let commit_then_release = Decision {
             commit: vec![Commit {
                 pool: StoragePool::Primary,
@@ -2085,10 +2074,11 @@ mod tests {
 
     #[test]
     fn usage_and_reconcile_surface_storage_failure() {
-        // The breaker cron and admin route rely on usage()/reconcile()
-        // returning Err - not an empty/zero snapshot - during a storage
-        // incident, so they fail closed instead of reading a false
-        // "healthy zero" that would disable the budget breaker.
+        // During a storage incident usage()/reconcile() must return Err,
+        // not an empty snapshot or report: the object then answers 500,
+        // so the admin route reports the governor unavailable and the
+        // cron logs that it did not answer, instead of showing an empty
+        // ledger.
         let mut store = Flaky::failing_on(0);
         assert!(usage(&mut store).is_err());
         let mut store = Flaky::failing_on(0);
@@ -2339,8 +2329,9 @@ mod tests {
         .expect("decide runs");
         assert!(!outcome.ok, "a regressed clock must not reset the window");
 
-        // A zero op limit (a GOVERNOR_R2_CLASS_B_*="0" typo fails closed
-        // to zero) refuses every consume on that pool.
+        // A zero op limit (set explicitly, or an unparsable
+        // GOVERNOR_R2_CLASS_B_* value failing closed) refuses every
+        // consume on that pool.
         let zero = Limits {
             b_source_month: 0,
             ..small_limits()

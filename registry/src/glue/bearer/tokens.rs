@@ -43,19 +43,19 @@ const MAX_EXCHANGE_BODY_BYTES: usize = 16 * 1024;
 /// JWT verification (JWKS via Cache/network, never D1). Claims
 /// matching the deployment-pinned verifier identity take the verifier
 /// arm: a verify-scoped mint backed by the operator identity
-/// `VERIFIER_BACKING_ACCOUNT_ID` names, deliberately in front of the
-/// breaker's write gate - like the verdict route and the read plane's
-/// verify exemption, the verification pipeline must be able to drain
-/// the pending queue whatever the service mode. Everything else is the
-/// config arm: the write gate (`503`, like every write - moved behind
-/// the verification, so the gate now speaks only to callers presenting
-/// a verifiable JWT, as it elsewhere speaks only to authenticated
-/// ones), then config match and backing owner. Both arms end in
+/// `VERIFIER_BACKING_ACCOUNT_ID` names, ahead of the breaker's write
+/// gate - like the verdict route and the read plane's verify
+/// exemption, the verification pipeline must be able to drain the
+/// pending queue whatever the service mode. Everything else is the
+/// config arm: the write gate (`503`, like every write; it runs after
+/// JWT verification, so it answers only callers presenting a
+/// verifiable JWT, as elsewhere it answers only authenticated ones),
+/// then config match and backing owner. Both arms end in
 /// [`exchange_mint`]'s one transaction. Every refusal other than the
-/// gate's answers the byte-identical uniform 401 - no
-/// config/signature/replay oracle - with the real reason logged for
-/// the operator. Returns the minted token row id so the request log
-/// ties to the row.
+/// admission `429` and the gate's `503` answers the byte-identical
+/// uniform 401 - no config/signature/replay oracle - with the real
+/// reason logged for the operator. Returns the minted token row id so
+/// the request log ties to the row.
 pub(super) async fn trustpub_exchange_response(
     req: &mut Request,
     env: &Env,
@@ -78,7 +78,7 @@ pub(super) async fn trustpub_exchange_response(
         return refused("malformed body".to_owned());
     };
 
-    // Worker clocks are epoch MILLISECONDS; the verifier takes seconds.
+    // Worker clocks are epoch milliseconds; the verifier takes seconds.
     #[allow(clippy::cast_possible_truncation)]
     let now_secs = (now_epoch_ms() / 1000.0) as i64;
     let claims = match trustpub::verify(
@@ -191,14 +191,13 @@ enum ExchangeMint<'a> {
     Verify,
 }
 
-/// The exchange's terminal transaction, shared by both arms - the
-/// spec's steps 6-8: the once-only jti consume, the mint (guarded
-/// inside the SQL on the consume's `changes()`, so it must stay the
-/// immediately following statement), then the lazy expiry prunes
-/// (deliberately no cron). A replayed jti answers as zero consumed
-/// rows without minting - the uniform 401; any batch failure rolls the
-/// consume back with everything else, so a transient 500 never burns a
-/// still-valid JWT.
+/// The exchange's terminal transaction, shared by both arms: the
+/// once-only jti consume, the mint (guarded inside the SQL on the
+/// consume's `changes()`, so it must stay the immediately following
+/// statement), then the lazy expiry prunes (no cron). A replayed jti
+/// answers as zero consumed rows without minting - the uniform 401;
+/// any batch failure rolls the consume back with everything else, so a
+/// transient 500 never burns a still-valid JWT.
 async fn exchange_mint(
     env: &Env,
     db: &D1Database,

@@ -12,11 +12,12 @@ statements! {
     /// The source viewer's lookup: the checksum plus the stored archive
     /// size, which bounds the ranged read before R2 is consulted (the
     /// blob was written from the same bytes the size was recorded
-    /// from). The verified filter sits in the query like
-    /// [`CURRENT_REVISIONS_BY_PACKAGE`](super::packages::CURRENT_REVISIONS_BY_PACKAGE)'s, so pending, rejected, and
-    /// corrupt-status rows are missing rows by construction - sessions
-    /// have no verify scope, so unlike the artifact route there is no
-    /// pending carve-out to branch on.
+    /// from). Like
+    /// [`CURRENT_REVISIONS_BY_PACKAGE`](super::packages::CURRENT_REVISIONS_BY_PACKAGE),
+    /// it reads the verified-only `current_revisions` view, so pending,
+    /// rejected, and corrupt-status rows are missing rows by
+    /// construction - sessions have no verify scope, so unlike the
+    /// artifact route there is no pending carve-out to branch on.
     SOURCE_VERSION_LOOKUP =
         "SELECT checksum, archive_size FROM current_revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3";

@@ -98,9 +98,10 @@ statements! {
 
     /// Creates the package row on its first published version - unless
     /// that would create a `-`/`_` twin of an existing same-scope
-    /// package ([`TWIN_PACKAGE_EXISTS`](super::quota::TWIN_PACKAGE_EXISTS) is the preflight that renders
-    /// the `400`; this in-batch guard closes the race between two
-    /// concurrent twin publishes, whose preflights both saw neither).
+    /// package ([`TWIN_PACKAGE_EXISTS`](super::quota::TWIN_PACKAGE_EXISTS)
+    /// is the preflight that renders the `400`; this in-batch guard
+    /// closes the race between two concurrent twin publishes, whose
+    /// preflights both saw neither).
     INSERT_PACKAGE =
         "INSERT OR IGNORE INTO packages (scope, name, created_at, created_by) \
          SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS \
@@ -120,9 +121,9 @@ statements! {
     /// Inserts a genuinely new revision row, starting `pending`.
     /// Three guards are enforced *inside* the transaction, so
     /// concurrent publishes cannot race past the preflight reads:
-    /// the version row must exist (zero changed rows after
-    /// [`INSERT_VERSION_ROW`] means the twin guard suppressed the
-    /// package and nothing was persisted); no row may already hold
+    /// the version row must exist (it is absent after
+    /// [`INSERT_VERSION_ROW`] exactly when the twin guard suppressed the
+    /// package, and then nothing is persisted); no row may already hold
     /// this revision id (a racing byte-identical publish whose twin
     /// committed first must lose to the re-read, not fail the
     /// primary key and abort the whole batch); and unless `?10`
@@ -148,16 +149,16 @@ statements! {
     /// Revives a rejected revision in place (back to `pending`),
     /// guarded on the row still being rejected (any rejected generation
     /// of these bytes revives alike) and on the new stamp (`?2`)
-    /// exceeding the row's: a
-    /// revival never repeats the `published_at` of the generation it
-    /// replaces, so `(checksum, published_at)` names one publish event
-    /// however the sampling Workers' clocks relate (an equal or earlier
-    /// sample loses like any other race; a retry lands once its sample
-    /// is later than the stored stamp).  The revision id derives from the bytes, so a
-    /// revival is always byte-identical to what was rejected -
-    /// `checksum` never changes - and the opt-in guard (`?6`, like
-    /// [`INSERT_REVISION`]'s) keeps an unflagged revival from slipping
-    /// a different-bytes revision back beside a live one.
+    /// exceeding the row's: a revival never repeats the `published_at`
+    /// of the generation it replaces, so `(checksum, published_at)` names
+    /// one publish event however the sampling Workers' clocks relate (an
+    /// equal or earlier sample loses like any other race; a retry lands
+    /// once its sample is later than the stored stamp). The revision id
+    /// derives from the bytes, so a revival is always byte-identical to
+    /// what was rejected - `checksum` never changes - and the opt-in
+    /// guard (`?6`, like [`INSERT_REVISION`]'s) keeps an unflagged
+    /// revival from slipping a different-bytes revision back beside a
+    /// live one.
     REVIVE_REJECTED_REVISION =
         "UPDATE revisions SET metadata_json = ?1, published_at = ?2, published_by = ?3, \
          verification = 'pending', verification_reason = NULL, verified_at = NULL \

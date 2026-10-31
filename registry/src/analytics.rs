@@ -5,8 +5,8 @@
 //! Dataset and field names below are external contracts - verify them
 //! against the current Cloudflare GraphQL Analytics documentation
 //! (<https://developers.cloudflare.com/analytics/graphql-api/>) when a
-//! query starts coming back rejected. The cron path degrades gracefully:
-//! a rejected dataset just yields `None` for that metric.
+//! query starts coming back rejected. On the cron path a rejected
+//! dataset yields `None` for that metric.
 
 use serde_json::Value;
 
@@ -261,7 +261,6 @@ mod tests {
         // A group missing the metric.
         let body = response(WORKERS_DATASET, r#"{"sum":{"errors":1}}"#);
         assert_eq!(parse_sum(&body, WORKERS_DATASET, "requests"), None);
-        // Not JSON at all.
         assert_eq!(parse_sum("<html>", WORKERS_DATASET, "requests"), None);
     }
 }

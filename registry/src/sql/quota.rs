@@ -24,18 +24,21 @@ statements! {
          ELSE (SELECT COUNT(*) FROM packages WHERE created_by = ?1 AND created_at >= ?2) END \
          AS new_today FROM users WHERE id = ?1";
 
-    /// Counts the package [`INSERT_PACKAGE`](super::packages::INSERT_PACKAGE) just created toward its
-    /// creator. It must directly follow that insert in the batch: the
-    /// `changes()` coupling of [`INSERT_TRUSTPUB_TOKEN`](super::trustpub::INSERT_TRUSTPUB_TOKEN), so an
-    /// ignored or twin-suppressed insert counts nothing.
+    /// Counts the package
+    /// [`INSERT_PACKAGE`](super::packages::INSERT_PACKAGE) just created
+    /// toward its creator. It must directly follow that insert in the
+    /// batch: the `changes()` coupling of
+    /// [`INSERT_TRUSTPUB_TOKEN`](super::trustpub::INSERT_TRUSTPUB_TOKEN),
+    /// so an ignored or twin-suppressed insert counts nothing.
     COUNT_USER_PACKAGE =
         "UPDATE users SET package_count = package_count + 1 \
          WHERE id = ?1 AND (SELECT changes()) = 1";
 
     /// Charges an archive to its publisher, directly after the
-    /// [`INSERT_REVISION`](super::packages::INSERT_REVISION) or [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION) that made the
-    /// row live (same `changes()` coupling; a revival is byte-identical,
-    /// so `?2` is the row's own `archive_size`).
+    /// [`INSERT_REVISION`](super::packages::INSERT_REVISION) or
+    /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)
+    /// that made the row live (same `changes()` coupling; a revival is
+    /// byte-identical, so `?2` is the row's own `archive_size`).
     COUNT_USER_STORED_BYTES =
         "UPDATE users SET stored_bytes = stored_bytes + ?2 \
          WHERE id = ?1 AND (SELECT changes()) = 1";
@@ -66,7 +69,7 @@ statements! {
     /// `REPLACE` in the query, not a normalized column: the
     /// `packages_folded_name` expression index serves it. The
     /// self-exclusion keeps the predicate identical to the in-batch
-    /// guards on [`INSERT_PACKAGE`](super::packages::INSERT_PACKAGE) / [`INSERT_VERSION_ROW`](super::packages::INSERT_VERSION_ROW).
+    /// guard on [`INSERT_PACKAGE`](super::packages::INSERT_PACKAGE).
     TWIN_PACKAGE_EXISTS =
         "SELECT COUNT(*) AS n FROM packages WHERE scope = ?1 AND name != ?2 \
          AND REPLACE(name, '_', '-') = REPLACE(?2, '_', '-')";

@@ -2,10 +2,10 @@
 //! OAuth sign-in (`/login`, `/callback`), the scope-claim flow's
 //! dedicated OAuth roundtrip (`/claim/<scope>`, `/callback/claim`), and
 //! the session-cookie user API (`/api/v1/user/*`) - JSON except the
-//! source viewer's ranged byte reads ([`package_source`]). The
-//! bearer-token planes live in [`crate::glue`]; no plane accepts
-//! another's credential. Sessions, GitHub access tokens, and issued
-//! registry tokens are never logged.
+//! source viewer's ranged byte reads ([`package_source`]) - and the
+//! public stats plane (`/api/v1/stats`). The bearer-token planes live
+//! in [`crate::glue`]; no plane accepts another's credential. Sessions
+//! and GitHub access tokens are never logged.
 
 use serde::Deserialize;
 use worker::wasm_bindgen::JsValue;
@@ -71,9 +71,8 @@ pub async fn respond_session(
     }
     let db = env.d1("DB")?;
     // The allowlist admitted the id, but its identity row may be gone
-    // (the post-wipe scenario): every endpoint - the token routes
-    // included - answers the same 401 as no session, never a phantom
-    // empty listing or a foreign-key 500.
+    // (the post-wipe scenario): every endpoint answers the same 401 as
+    // no session, never a phantom empty listing or a foreign-key 500.
     let Some(user) = user_record(&db, session.github_id).await? else {
         return json_error(401, error::AUTH_REQUIRED);
     };
@@ -122,7 +121,7 @@ pub async fn respond_session(
 }
 
 /// The public stats plane (`docs/architecture.md`, "Download counts"):
-/// the one unauthenticated JSON subtree on the website origin. Exactly
+/// the one credential-free JSON subtree on the website origin. Exactly
 /// `GET /api/v1/stats` exists; unknown paths under the subtree are
 /// public 404s (never the bearer plane's 401), and non-GET is 405.
 pub async fn respond_stats(req: &Request, env: &Env, path: &str) -> worker::Result<Response> {
@@ -239,9 +238,9 @@ fn login(env: &Env) -> worker::Result<Response> {
 }
 
 /// `GET /claim/<scope>`: start a scope claim's dedicated OAuth roundtrip.
-/// Mirrors `/login`, with two deliberate differences: the sealed state
-/// also carries the scope being claimed (so the callback grants exactly
-/// what this route validated), and the authorize request asks for
+/// Mirrors `/login`, except that the sealed state also carries the
+/// scope being claimed (so the callback grants exactly what this route
+/// validated), and the authorize request asks for
 /// `read:org` - the org-claim check reads the user's own membership -
 /// while ordinary sign-in keeps its scopeless request.
 ///
@@ -361,8 +360,6 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         return denied(&[clear_state]);
     }
 
-    // The access token is transient by design: one `/user` read, then
-    // dropped at the end of this scope.
     let Some(access_token) = github_access_token(env, &code, &callback_url(env)?).await? else {
         return denied(&[clear_state]);
     };
@@ -1358,8 +1355,8 @@ fn csrf_ok(req: &Request) -> worker::Result<bool> {
 }
 
 /// Security headers on every browser-plane response: scripts and external
-/// resources are locked out wholesale, and nothing (in particular the one
-/// response carrying a plaintext token) is cached.
+/// resources are locked out wholesale, and `no-store` is the default (only
+/// the public stats summary overrides it).
 fn web_headers(headers: &mut Headers) -> worker::Result<()> {
     headers.set(
         "content-security-policy",

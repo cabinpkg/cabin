@@ -209,8 +209,8 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
 /// or query string, so no request input can alias or bust an entry.
 /// The path exists on no route (the registry host answers its uniform
 /// 401 there), and the Worker runs on every request to its hostnames,
-/// so the entry is reachable only through this handler - after Bearer
-/// auth and the D1 verified-version gate.
+/// so the entry is reachable only through this handler, after the D1
+/// verified-version gate.
 fn blob_cache_url(checksum: &str) -> String {
     format!(
         "https://registry.cabinpkg.com/__cache/blobs/sha256/{}",
@@ -500,8 +500,7 @@ async fn charged_blob_read(
 
 thread_local! {
     /// Buffered download counts per served verified version, flushed
-    /// to D1 in one batch under `crate::telemetry`'s policy - the
-    /// replacement for the old one-D1-write-per-download pattern.
+    /// to D1 in one batch under `crate::telemetry`'s policy.
     static PENDING_DOWNLOADS: RefCell<HashMap<(String, String, String), u32>> =
         RefCell::new(HashMap::new());
     static LAST_DOWNLOAD_FLUSH_MS: Cell<f64> = const { Cell::new(0.0) };

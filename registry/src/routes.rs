@@ -1,7 +1,8 @@
-//! Read-route matching and path-component validation.
+//! Route matching, hostname roles, and path-component validation.
 //!
-//! Validation happens here, before any D1 or R2 lookup: a path that does not
-//! parse is an ordinary 404 and never reaches storage.
+//! Read, OAuth, and session route components are validated here,
+//! before any D1 or R2 lookup, so a component that does not parse never
+//! reaches storage. [`ApiRoute`] segments are only split.
 
 /// A matched, validated read route. Package identity is always the
 /// scoped pair: `scope` is the registry-native namespace entity and
@@ -47,9 +48,9 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
         // stable URL. Stripping the literal `<scope>-<name>-` prefix
         // stays unambiguous even though scopes and names may themselves
         // contain hyphens, because both strings are already fixed by
-        // the directory segments; the trailing revision split stays
-        // unambiguous because a revision is exactly 16 hex characters
-        // while lookups are exact-string either way.
+        // the directory segments. The revision split takes the last
+        // `-`: a valid revision (16 hex characters) contains none, so
+        // any hyphen in a pre-release version lies to its left.
         let stem = file
             .strip_prefix(scope)?
             .strip_prefix('-')?
@@ -291,10 +292,10 @@ pub enum SessionRoute<'a> {
 }
 
 /// Matches `path` against the session routes. Scopes (the scope
-/// grammar), GitHub ids (numeric), and the source route's package
-/// triple (the read-plane grammars, like [`match_route`] - the
-/// components become an R2-backed read) are validated here before they
-/// reach a D1 query.
+/// grammar), package names and versions (the read-plane grammars, like
+/// [`match_route`] - the source route's components become an R2-backed
+/// read), and GitHub ids (numeric) are validated here before they reach
+/// a D1 query.
 pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
     match path {
         "/api/v1/user" => Some(SessionRoute::User),
@@ -364,7 +365,7 @@ pub fn is_session_path(path: &str) -> bool {
 }
 
 /// The public stats plane's one route (`docs/architecture.md`,
-/// "Download counts"): the sole unauthenticated JSON path on the
+/// "Download counts"): the sole credential-free JSON path on the
 /// website origin.
 pub const STATS_PATH: &str = "/api/v1/stats";
 
@@ -385,8 +386,9 @@ pub enum Role {
     /// The machine read plane only: `/config.json`, `/packages/*`,
     /// `/artifacts/*`, `/healthz`.
     Registry,
-    /// The website origin: `/login`, `/callback`, and `/api/*` (the
-    /// Bearer mutation routes plus the session user API).
+    /// The website origin: the OAuth routes (`/login`, `/callback*`,
+    /// `/claim/*`) and `/api/*` (the Bearer mutation routes, the session
+    /// user API, and the public stats).
     Website,
 }
 
@@ -457,7 +459,7 @@ pub fn is_valid_version(version: &str) -> bool {
 /// A valid packaging-revision id is exactly 16 lowercase hex
 /// characters - the leading prefix of the archive checksum. Mirrors
 /// the client's `cabin_core::registry::is_valid_packaging_revision`
-/// (this workspace deliberately does not depend on the Cabin crates).
+/// (the Worker does not depend on the Cabin crates).
 pub fn is_valid_revision(revision: &str) -> bool {
     revision.len() == 16
         && revision
@@ -504,8 +506,8 @@ mod tests {
                 revision: "00112233aabbccdd"
             })
         );
-        // The removed build-metadata shape fails ordinary validation:
-        // registry versions are plain upstream versions.
+        // Build metadata never parses: registry versions are plain
+        // upstream versions.
         assert_eq!(
             match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1+cabin.1-00112233aabbccdd.zip"),
             None
@@ -629,8 +631,8 @@ mod tests {
             match_web_route("/claim/my-org"),
             Some(WebRoute::Claim { scope: "my-org" })
         );
-        // The exact path wins over the claim pattern; "claim" itself
-        // stays claimable.
+        // The claim callback and a claim of the scope "claim" are
+        // distinct routes.
         assert_eq!(
             match_web_route("/callback/claim"),
             Some(WebRoute::ClaimCallback)
@@ -710,8 +712,7 @@ mod tests {
                 version: "1.0.0-rc.1"
             })
         );
-        // The removed build-metadata version shape fails ordinary
-        // validation here too.
+        // Build metadata never parses here either.
         assert_eq!(
             match_session_route("/api/v1/user/source/my-org/my_pkg-2/1.0.0-rc.1+b.5"),
             None
@@ -1129,8 +1130,8 @@ mod tests {
             "1.2.3-",
             "1.0.0+",
             "1.0.0-01",
-            // Build metadata is the removed packaging-revision shape:
-            // registry versions are plain upstream versions.
+            // Build metadata: registry versions are plain upstream
+            // versions.
             "1.0.0+build",
             "1.0.0-rc.1+b-2",
             "1.3.1+cabin.1",

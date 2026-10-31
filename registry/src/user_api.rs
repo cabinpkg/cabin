@@ -121,7 +121,7 @@ pub const INVALID_SEARCH_QUERY: &str = "the q query parameter must be 1 to 64 ch
 pub const SEARCH_LIMIT: usize = 20;
 
 /// Validates a search term: 1 to 64 characters after trimming
-/// (counted in chars, like token names). The term is ASCII-lowercased:
+/// (counted in chars, not bytes). The term is ASCII-lowercased:
 /// the search statement's `instr` compares bytes exactly
 /// ([`crate::sql::SEARCH_VERIFIED_VERSIONS`] explains why it is not a
 /// `LIKE`), and names are lowercase by grammar, so the fold is what
@@ -314,8 +314,8 @@ pub struct PackageDetailRow {
 /// # Errors
 ///
 /// When `rows` is empty (the caller answers 404 before composing) or
-/// a stored entry is not a JSON object - an internal invariant break
-/// the caller reports as a 500, never a client error.
+/// the newest row's stored metadata is not a JSON object - an internal
+/// invariant break the caller reports as a 500, never a client error.
 pub fn package_detail_json(
     scope: &str,
     name: &str,

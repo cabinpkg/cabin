@@ -622,10 +622,8 @@ fn revision_opt_in_guard_is_enforced_inside_the_insert() {
         .expect("revision count");
     assert_eq!(revisions, 2);
 
-    // Once every live sibling shares the incoming bytes... it cannot:
-    // distinct revisions imply distinct bytes. But a version whose only
-    // revisions are rejected accepts a fresh one without the flag - the
-    // recovery path.
+    // A version whose only revisions are rejected accepts a fresh one
+    // without the flag - the recovery path.
     conn.execute(
         "UPDATE revisions SET verification = 'rejected' WHERE scope = 'alpha'",
         [],

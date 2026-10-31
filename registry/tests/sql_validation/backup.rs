@@ -7,8 +7,8 @@ use crate::common::{migrated_connection, seed_scope_collision};
 
 /// The verified-backup queue derives its R2 key from the canonical
 /// `sha256:<64 lowercase hex>` column value by stripping the
-/// algorithm prefix, keeping the OCI-style `blobs/sha256/<hex>` key
-/// layout stable across the prefixed-column migration.
+/// algorithm prefix: the key layout is the OCI-style
+/// `blobs/sha256/<hex>`.
 #[test]
 fn verified_backup_enqueue_strips_the_checksum_prefix() {
     let conn = migrated_connection();

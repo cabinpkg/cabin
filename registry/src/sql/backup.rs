@@ -2,12 +2,13 @@
 
 statements! {
     /// Enqueues a just-verified version's blob for backup replication,
-    /// in the same batch as [`MARK_REVISION_VERIFIED`](super::packages::MARK_REVISION_VERIFIED): the row appears
-    /// exactly when the verified transition applied (the guards repeat
-    /// the mark's), so the queue is recorded transactionally with the
-    /// transition and a crash can never lose the work. Shared checksums
-    /// collapse onto one queue row; a key already replicated re-enters
-    /// harmlessly (the drain's head sees the copy and settles).
+    /// in the same batch as
+    /// [`MARK_REVISION_VERIFIED`](super::packages::MARK_REVISION_VERIFIED):
+    /// the row appears exactly when the verified transition applied (the
+    /// guards repeat the mark's), so the queue is recorded transactionally
+    /// with the transition and a crash can never lose the work. Shared
+    /// checksums collapse onto one queue row; a key already replicated
+    /// re-enters harmlessly (the drain's head sees the copy and settles).
     ENQUEUE_VERIFIED_BACKUP =
         "INSERT INTO backup_pending (key, bytes, enqueued_at) \
          SELECT 'blobs/sha256/' || substr(checksum, 8), archive_size, ?6 FROM revisions \

@@ -139,14 +139,12 @@ mod tests {
     use super::*;
 
     const THIRTY_DAYS: u64 = MIN_ACCOUNT_AGE_DAYS * SECS_PER_DAY;
-    // 2008-01-14T04:33:35Z, GitHub's canonical example `created_at`.
+    // GitHub's canonical example `created_at`.
     const OCTOCAT_CREATED: &str = "2008-01-14T04:33:35Z";
     const OCTOCAT_SECS: u64 = 1_200_285_215;
 
     #[test]
     fn an_existing_user_always_proceeds() {
-        // The field is not even consulted: young, missing, and
-        // malformed profiles all sign in as before.
         assert_eq!(gate(true, Some(OCTOCAT_CREATED), 0), Gate::Proceed);
         assert_eq!(gate(true, None, 0), Gate::Proceed);
         assert_eq!(gate(true, Some("garbage"), 0), Gate::Proceed);
@@ -236,8 +234,8 @@ mod tests {
     fn timestamps_parse_to_the_documented_epochs() {
         assert_eq!(parse_utc_secs("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(parse_utc_secs(OCTOCAT_CREATED), Some(OCTOCAT_SECS));
-        // Leap days in years divisible by four exist, century
-        // non-leap-years' do not (2000's does, 2100's does not).
+        // Gregorian leap rule: every fourth year, except centuries not
+        // divisible by 400 (2000 is a leap year, 2100 is not).
         assert_eq!(parse_utc_secs("2024-02-29T00:00:00Z"), Some(1_709_164_800));
         assert!(parse_utc_secs("2000-02-29T00:00:00Z").is_some());
         assert!(parse_utc_secs("2100-02-29T00:00:00Z").is_none());

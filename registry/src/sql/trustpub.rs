@@ -42,8 +42,8 @@ statements! {
 
     /// Lazy minted-token cleanup beside the jti prune, ridden on each
     /// exchange and each session mint (deliberately no cron): every
-    /// token kind is machine-minted and expiring now, and an expired
-    /// row is pure residue nobody manages.
+    /// token kind is machine-minted and expiring, and an expired row is
+    /// pure residue nobody manages.
     PRUNE_EXPIRED_SHORT_LIVED_TOKENS =
         "DELETE FROM tokens WHERE expires_at <= ?1";
 
@@ -51,14 +51,15 @@ statements! {
     /// the immediately preceding [`CONSUME_OIDC_JTI`] in the same batch
     /// actually inserted its row: `changes()` is connection-scoped and
     /// statement-sequential, the same cross-statement coupling
-    /// [`INSERT_USER_FOR_NEW_IDENTITY`](super::auth::INSERT_USER_FOR_NEW_IDENTITY) / [`UPSERT_IDENTITY`](super::auth::UPSERT_IDENTITY) ride
-    /// through `last_insert_rowid()`. One transaction, guard inside it:
-    /// a replayed jti (zero changes) mints nothing, and any batch
-    /// failure rolls the consume back with the mint, so a 500 never
-    /// burns a still-valid JWT. The schema's trustpub
-    /// CHECK re-enforces the shape written here: expiring within a day
-    /// of `created_at`, scope-limited, publish-scoped, and carrying the
-    /// config's granted quota class on the row itself.
+    /// [`INSERT_USER_FOR_NEW_IDENTITY`](super::auth::INSERT_USER_FOR_NEW_IDENTITY)
+    /// / [`UPSERT_IDENTITY`](super::auth::UPSERT_IDENTITY) ride through
+    /// `last_insert_rowid()`. One transaction, guard inside it: a
+    /// replayed jti (zero changes) mints nothing, and any batch failure
+    /// rolls the consume back with the mint, so a 500 never burns a
+    /// still-valid JWT. The schema's trustpub CHECK re-enforces the shape
+    /// written here: expiring within a day of `created_at`,
+    /// scope-limited, publish-scoped, and carrying the config's granted
+    /// quota class on the row itself.
     INSERT_TRUSTPUB_TOKEN =
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
                              expires_at, scope_limit, kind, quota_class) \
@@ -68,10 +69,9 @@ statements! {
     /// The verifier arm's mint, [`INSERT_TRUSTPUB_TOKEN`]'s sibling with
     /// the same batch coupling: it must directly follow
     /// [`CONSUME_OIDC_JTI`], whose `changes()` it guards on. The
-    /// schema's verify shape re-enforces what is written here:
-    /// verify-scoped, unconfined, and NULL `quota_class` so the token
-    /// inherits the backing user's class - exactly the row the static
-    /// verify token carried, minus the unbounded lifetime.
+    /// schema's verify shape re-enforces what is written here: expiring
+    /// within a day of `created_at`, verify-scoped, unconfined, and NULL
+    /// `quota_class` so the token inherits the backing user's class.
     INSERT_TRUSTPUB_VERIFY_TOKEN =
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
                              expires_at, kind) \
