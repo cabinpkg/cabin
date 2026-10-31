@@ -236,8 +236,8 @@ Criterion compares against its own saved baselines:
 ### In CI
 
 The Performance workflow is not a required check.  On a pull request that touches the Rust code it
-runs `cargo perf run --smoke` on Linux, so a smoke scenario that fails its check shows up before
-merge; a shared runner's numbers flag only gross changes.  Every Monday on `main`, and when
+runs `cargo perf run --smoke` on Linux and Windows, from a checkout path with a space in it, so a
+smoke scenario that fails its check, or a reset the shell misquotes, shows up before merge; a shared runner's numbers flag only gross changes.  Every Monday on `main`, and when
 dispatched by hand on any branch, it runs every scenario, ports included, with
 `--fail-on-regression` against the dispatched `base` revision or, by default, the same branch as
 it was eight days earlier.  Consecutive weekly runs therefore overlap by a day, and a regression

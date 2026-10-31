@@ -43,6 +43,7 @@ workflows:
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
+        - 'ilammy/msvc-dev-cmd@v1.13.0'
     '.github/workflows/ports-publish.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/cache@v6.1.0'
