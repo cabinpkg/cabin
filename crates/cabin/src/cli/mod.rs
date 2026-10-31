@@ -18,6 +18,7 @@ pub(crate) mod env_flags;
 pub(crate) mod explain;
 pub(crate) mod fetch_output;
 pub(crate) mod fmt;
+pub(crate) mod gc;
 pub(crate) mod login;
 pub(crate) mod metadata;
 pub(crate) mod ninja;
@@ -344,11 +345,11 @@ pub(crate) enum Command {
     /// linking.  No object files or binaries are produced.  Faster than
     /// a full build for catching compile errors.
     Check(BuildArgs),
-    /// Remove the built directory.
+    /// Remove build outputs.
     ///
     /// Deletes Cabin-generated build artifacts under the
-    /// resolved `--build-dir`.  Source files are never
-    /// touched.
+    /// resolved `--build-dir`, or with `--gc` only those unused
+    /// for a while.  Source files are never touched.
     Clean(CleanArgs),
     /// Run a binary of the local package.
     ///
@@ -552,6 +553,24 @@ pub(crate) struct CleanArgs {
     /// order.
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Remove only the build outputs Cabin's usage records show
+    /// unused under the `[gc]` retention policy, in every profile
+    /// and target.
+    #[arg(long, conflicts_with_all = ["profile", "release", "target", "package", "workspace", "default_members", "exclude"])]
+    pub gc: bool,
+
+    /// With `--gc`: remove outputs unused for more than DAYS active
+    /// days (days on which a build used this build directory).
+    /// Overrides `gc.max-age`.
+    #[arg(long, value_name = "DAYS", requires = "gc")]
+    pub max_age: Option<std::num::NonZeroU32>,
+
+    /// With `--gc`: then remove the least recently used outputs until
+    /// the rest fit in SIZE (for example `10GiB`).  Overrides
+    /// `gc.max-size`.
+    #[arg(long, value_name = "SIZE", requires = "gc", value_parser = cabin_core::parse_byte_size)]
+    pub max_size: Option<u64>,
 
     /// Workspace package-selection flags.
     #[command(flatten)]

@@ -322,10 +322,13 @@ Build outputs are profile-aware:
 <build-dir>/<profile>/cabin-toolchain.json
 <build-dir>/<profile>/packages/<package>/<target>/...
 <build-dir>/<profile>/build-machine/packages/<package>/<target>/...
+<build-dir>/.cabin-gc/...
+<build-dir>/.cabin-build.lock
 ```
 
 The `build-machine` tree holds [build dependencies](dependency-kinds.md#build-dependencies), built
-for the build machine.
+for the build machine.  `.cabin-gc` and `.cabin-build.lock` serve
+[unused-output collection](#unused-build-outputs).
 
 Two effects:
 
@@ -335,6 +338,54 @@ Two effects:
 Profile names are validated up front (ASCII alphanumerics, `_`, `-`, `.`; non-empty; not `.` / `..`;
 not starting with `.`) so a malformed name is rejected at parse time instead of slipping into
 filesystem layout.
+
+## Unused build outputs
+
+A build directory keeps the outputs of every profile, `--target` platform, package selection, and
+source file it has ever built, so outputs of renamed sources, removed packages, and profiles no
+longer used pile up.  Cabin removes those it can tell are unused.  A build never depends on that:
+Ninja rebuilds any output that is missing, so collecting only trades disk space for rebuild time.
+
+**What counts as unused.**  `build`, `check`, `run`, and `test` record, in `<build-dir>/.cabin-gc/`,
+that their plan uses each object, depfile, static library, executable, and `cabin check` stamp it
+names.  Age is counted in *active days*: days on which one of those commands used the build
+directory.  A project left alone for a month ages nothing, and a build that skips a package,
+profile, or platform does not make its outputs unused.  An output is unused once no plan has used it
+for more than `max-age` active days (default 30).  A command records its use when it starts, so a
+program that `cabin run` keeps running for days counts as used on the day it started.
+
+**When it is removed.**  The first `build`, `check`, `run`, or `test` of an active day removes
+unused outputs once it no longer uses its own: after a successful build, or once the program or
+tests exit.  It stops removing after one second; the next build continues where it stopped.  It
+skips collection when another Cabin process is using the build directory or its file system has no
+file locks, and a collection problem is a warning, never a build failure.
+`[gc] auto = false` turns this off (see [`config.md`](config.md#gc)).
+
+`cabin clean --gc` collects now, without the time limit, waiting for other Cabin processes to finish
+with the build directory.  `--dry-run` lists what it would remove and writes nothing.
+`--max-age <DAYS>` and `--max-size <SIZE>` override the configured policy for one run.
+
+**Size budget.**  With `max-size`, after the age rule, collection removes the least recently used
+outputs until the recorded outputs fit, but never one used on the current or previous active day; it
+warns when those alone exceed the budget.  Sizes are file lengths, not allocated disk space.
+
+**What is never removed.**  Collection removes only a regular file at a path a plan recorded, never
+through a symlink or junction below the build directory, and then the directories it emptied in
+that output tree.  The build directory itself may be a link, to another disk for example; a build
+directory `cabin clean` refuses for holding the workspace, a package, or sources is never
+collected.  It never removes `build.ninja`, `compile_commands.json`, Ninja's logs, files other tools
+write beside outputs (such as the `.pdb` and `.ilk` an MSVC link writes for a user-supplied
+`/DEBUG`), outputs from before Cabin recorded usage, or anything outside the build directory: the
+source-archive cache, vendored sources, and compiler-cache data are not build outputs.
+`cabin clean` removes everything but the lock file.
+
+**Concurrent commands.**  `build`, `check`, `run`, and `test` hold a shared lock on
+`<build-dir>/.cabin-build.lock` while they use outputs; `run` and `test` hold it until the program
+or tests exit.  Collection and `cabin clean` take it exclusively.  The lock is advisory, so it orders
+Cabin processes only; Cabin releases without it do not take it, and a file system without file
+locks orders nothing.  Two builds of one profile at once can each overwrite the other's usage
+record, so an output can look older than it is and be rebuilt after a collection.  An unreadable or
+newer-format usage record makes collection keep the outputs it lists.
 
 ## Build configuration fingerprint
 

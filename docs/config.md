@@ -80,6 +80,10 @@ build-dir = "build"
 profile = "release"
 compiler-wrapper = "ccache"
 
+[gc]
+max-age = 30
+max-size = "10 GiB"
+
 [resolver]
 incompatible-standards = "fallback"
 
@@ -163,6 +167,19 @@ shell-split. Precedence is `--compiler-wrapper` / `--no-compiler-wrapper` →
 `CABIN_COMPILER_WRAPPER` → config `[build] compiler-wrapper` → workspace-root
 manifest `[build] compiler-wrapper` → no wrapper. See
 [`compiler-cache.md`](compiler-cache.md).
+
+### `[gc]`
+
+Policy for removing [unused build outputs](profiles.md#unused-build-outputs).
+
+| Key        | Type    | Notes                                                                 |
+| ---------- | ------- | --------------------------------------------------------------------- |
+| `auto`     | boolean | Whether `build`, `check`, `run`, and `test` collect on their own.  Default `true`; `false` leaves collection to `cabin clean --gc`. |
+| `max-age`  | integer | Active days an output may go unused before it is removed.  Default `30`; must be positive. |
+| `max-size` | string  | Size budget for the recorded outputs, such as `"10 GiB"`: a whole number with an optional `B`, `KB`, `MB`, `GB`, `TB`, `KiB`, `MiB`, `GiB`, or `TiB` unit.  No budget by default. |
+
+`cabin clean --gc --max-age <DAYS>` and `--max-size <SIZE>` override `max-age` and `max-size` for
+one run.  `cabin metadata` reports the effective values under `config.gc`, with `max_size` in bytes.
 
 ### `[resolver]`
 

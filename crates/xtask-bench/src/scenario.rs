@@ -6,6 +6,8 @@ use std::io;
 use std::path::Path;
 use std::time::SystemTime;
 
+use cabin_build::gc;
+use camino::Utf8PathBuf;
 use xtask_bench::fixture::{self, Lang, ProjectShape};
 
 pub const PROJECT: [ProjectShape; 2] = [
@@ -21,6 +23,8 @@ pub const PROJECT: [ProjectShape; 2] = [
     },
 ];
 pub const WORKSPACE_MEMBERS: usize = 40;
+/// Where [`Mutation::Stale`] plants its outputs.
+const STALE_DIR: &str = "build/stale";
 
 /// The input directory a scenario starts from.  Each run gets its own
 /// copy, so one binary's build state never leaks into another's.
@@ -57,6 +61,10 @@ pub enum Mutation {
     Touch(String),
     /// Delete a file or directory if it exists.
     Remove(String),
+    /// Plant this many outputs under [`STALE_DIR`], recorded as unused
+    /// for just over the default max-age, and leave today a new active
+    /// day for the build directory.
+    Stale(usize),
 }
 
 impl Mutation {
@@ -78,15 +86,43 @@ impl Mutation {
                     other => other,
                 }
             }
+            Mutation::Stale(count) => {
+                let stale = dir.join(STALE_DIR);
+                fs::create_dir_all(&stale)?;
+                let mut outputs = Vec::with_capacity(*count);
+                for i in 0..*count {
+                    let path = stale.join(format!("{i}.o"));
+                    fs::write(&path, b"")?;
+                    outputs.push(Utf8PathBuf::try_from(path).map_err(io::Error::other)?);
+                }
+                record_stale(&dir.join("build"), &outputs).map_err(io::Error::other)
+            }
         }
     }
 
-    pub fn args(&self) -> [&str; 2] {
+    pub fn args(&self) -> [String; 2] {
         match self {
-            Mutation::Touch(path) => ["touch", path],
-            Mutation::Remove(path) => ["remove", path],
+            Mutation::Touch(path) => ["touch".to_owned(), path.clone()],
+            Mutation::Remove(path) => ["remove".to_owned(), path.clone()],
+            Mutation::Stale(count) => ["stale".to_owned(), count.to_string()],
         }
     }
+}
+
+/// Record `outputs` as used just over the default max-age active days
+/// before yesterday, with every day since an active one.
+fn record_stale(build: &Path, outputs: &[Utf8PathBuf]) -> Result<(), gc::GcError> {
+    let days = u64::from(gc::DEFAULT_MAX_AGE.get()) + 1;
+    let yesterday = gc::today() - 1;
+    gc::record_use(
+        build,
+        outputs.iter().map(Utf8PathBuf::as_path),
+        yesterday - days,
+    )?;
+    for day in yesterday - days + 1..=yesterday {
+        gc::record_use(build, std::iter::empty(), day)?;
+    }
+    Ok(())
 }
 
 /// What a correct run of the scenario does, checked once on an
@@ -108,6 +144,8 @@ pub enum Expect {
     /// Exit status 0, Ninja ran no action, and the `JUnit` report at
     /// this path lists exactly this many test cases.
     TestCases(String, usize),
+    /// Exit status 0, `removed` no longer exists, and `kept` still does.
+    Collects { removed: String, kept: String },
 }
 
 #[derive(Debug, Clone)]
@@ -184,6 +222,15 @@ fn archives(count: usize) -> Expect {
     Expect::Entries("cache/archives/sha256".to_owned(), count)
 }
 
+/// The planted outputs are gone and `kept`, which a collection keeps
+/// and a whole `cabin clean` would not, survives.
+fn collects(kept: &str) -> Expect {
+    Expect::Collects {
+        removed: STALE_DIR.to_owned(),
+        kept: kept.to_owned(),
+    }
+}
+
 fn unlock() -> Mutation {
     Mutation::Remove("cabin.lock".to_owned())
 }
@@ -213,7 +260,7 @@ pub fn catalog() -> Vec<Scenario> {
 }
 
 /// The single-package scenarios, once per language.
-fn project_scenarios(shape: ProjectShape) -> [Scenario; 7] {
+fn project_scenarios(shape: ProjectShape) -> [Scenario; 8] {
     let lang = shape.lang;
     let s = lang.suffix();
     let project = Fixture::Project(lang);
@@ -250,6 +297,12 @@ fn project_scenarios(shape: ProjectShape) -> [Scenario; 7] {
         .prepare(Mutation::Remove("dist".to_owned()))
         // The archive and its metadata.
         .expect(Expect::Entries("dist".to_owned(), 2)),
+        // The first build of an active day: every record of the plan is
+        // rewritten, and a collection runs.
+        Scenario::new(format!("gc/new-day-{s}"), project, BUILD)
+            .setup(BUILD)
+            .prepare(Mutation::Stale(1))
+            .expect(collects("build/dev/packages/bench/obj")),
     ]
 }
 
@@ -261,6 +314,13 @@ fn shared_scenarios() -> Vec<Scenario> {
         Scenario::new("workspace/build-noop", Fixture::Workspace, BUILD)
             .setup(BUILD)
             .expect(Expect::NoActions),
+        Scenario::new(
+            "gc/clean-10k",
+            Fixture::Project(Lang::Cxx),
+            &["clean", "--gc"],
+        )
+        .prepare(Mutation::Stale(10_000))
+        .expect(collects(&format!("build/{}", gc::CATALOG_DIR))),
         // `cabin resolve` writes the lockfile, and a locked re-resolve
         // skips the search these scenarios exist to time.
         Scenario::new("resolve/wide", Fixture::Consumer("wide"), RESOLVE)

@@ -17,7 +17,8 @@ explain`, the Cargo-inspired interface foundation (`cabin run`, the `cabin-env` 
 check`, `cabin fmt` / `cabin tidy`, `pkg-config`-driven `system = true` deps, `CPPFLAGS` /
 `CFLAGS` / `CXXFLAGS` / `LDFLAGS` ingestion, `-j` / `--jobs` build / run / tidy parallelism, `cabin
 new --bin` / `--lib` scaffold parity, `cabin version` plus `cabin --list`, `cabin add` / `cabin
-remove` manifest editing, `cabin clean`, and the curated foundation-port layer -
+remove` manifest editing, `cabin clean` and unused build-output collection, and the curated
+foundation-port layer -
 version-pinned upstream C/C++ libraries under
 [`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/),
 published to the registry under the `cabin-ports` scope
@@ -176,7 +177,8 @@ The crate must:
 - stay reusable by client / server / shared tooling alike.
 
 Generic filesystem helper policy lives in `cabin-fs`; `cabin-core` stays focused on typed domain
-models and pure logic.
+models and pure logic.  `cabin_core::byte_size` parses the size spelling config and CLI share
+(`[gc] max-size`, `cabin clean --gc --max-size`).
 
 ### `cabin-manifest`
 
@@ -859,7 +861,11 @@ resolution, and Ninja lookup.  The crate must:
 Owns backend-independent build planning: `PackageGraph` plus `ResolvedToolchain`, per-package build
 flags, per-package language standards, and build settings become a `BuildGraph` of compile /
 assemble / archive / link actions, with pre-Ninja validation of requested standards against the detected toolchain and
-interface-standard enforcement across the target dependency closure.  The crate must:
+interface-standard enforcement across the target dependency closure.  It also owns the build
+directory's lifecycle: `clean` plans and performs `cabin clean`, and `gc` records which outputs
+each plan uses, removes those unused for too long, and owns the build-directory lock that orders
+both against commands using the outputs (see [`profiles.md`](profiles.md#unused-build-outputs)).
+The crate must:
 
 - not write Ninja syntax or any other backend's syntax;
 - not invoke Ninja;
@@ -1886,7 +1892,7 @@ cabin_config::discover_config_files
     CABIN_CONFIG_HOME, falling back to the xdg-resolved user config
     home with the `cabin` application prefix
  - deny_unknown_fields parsing of [registry] / [paths] / [build] /
-    [toolchain] / [term] (private serde shape)
+    [gc] / [toolchain] / [term] (private serde shape)
  - reject [target.'cfg(...)'.<...>] tables, auth/token/credentials/
     registries tables, registry index-path/url conflicts, and empty
     or invalid values

@@ -136,6 +136,7 @@ A run writes into `target/perf/runs/<unix time>/` (or `--out`):
 | Tests | `test/run-c`, `test/run-cxx` | Running 12 test executables with nothing to rebuild |
 | Packaging | `package/package-c`, `package/package-cxx`, `package/vendor` | Archive staging, and vendoring 20 registry packages |
 | Workspaces | `workspace/metadata`, `workspace/tree`, `workspace/build-noop` | A 40-member workspace of alternating C and C++ packages, each linking the previous one |
+| Build-output collection | `gc/new-day-c`, `gc/new-day-cxx`, `gc/clean-10k` | The first no-op build of an active day, which rewrites the plan's usage records and collects one unused output, in C and C++; `cabin clean --gc` removing 10,000 unused outputs |
 | Resolution | `resolve/wide`, `resolve/deep`, `resolve/update-wide` | Solving 100 direct dependencies whose newest versions are all unsatisfiable, a 60-deep chain, and writing the lockfile |
 | Registry metadata | `index/http-wide`, `index/http-lazy` | The sparse HTTP index over loopback, and an 8-deep optional-feature chain that needs one resolution round per level |
 | Artifacts | `artifact/fetch-cold`, `artifact/fetch-warm` | Downloading, verifying, and extracting 20 archives; re-validating a warm cache |
@@ -153,8 +154,9 @@ Every scenario and binary works on a private copy.
   and do what it claims: a no-op build runs no Ninja action, a one-source touch compiles exactly
   one object, a header touch compiles exactly its includers, a clean build compiles every source,
   a test run rebuilds nothing and its JUnit report lists every test, a resolution locks every
-  package, a fetch leaves one archive per dependency in the cache, and packaging and vendoring
-  write every expected file.  A scenario that fails its check is reported as `FAILED` with the
+  package, a fetch leaves one archive per dependency in the cache, packaging and vendoring
+  write every expected file, and a collection removes the unused outputs planted for it and
+  nothing it must keep.  A scenario that fails its check is reported as `FAILED` with the
   reason and no numbers, and `cargo perf run` exits 1, unless only the `--base` revision failed
   it: an older Cabin without a flag the scenario uses leaves that scenario uncompared.  A
   binary from before trace capture is checked and timed all the same, without phases.

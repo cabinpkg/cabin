@@ -135,6 +135,7 @@ Each scenario's check is what keeps a number honest; see `performance.md`.
 | Index and registry metadata | `index/http-wide`, `index/http-lazy` (loopback sparse HTTP) | exit 0, from no lockfile; the lockfile lists every package | `index/load-file-registry` | done; no warm/cold metadata split, because Cabin keeps no metadata cache |
 | Workspace and planning | `workspace/metadata`, `workspace/tree`, `workspace/build-noop` | exit 0; no Ninja action | `workspace/load-40`, `manifest/parse-*` | done; no planning bench: in a traced `workspace/build-noop`, `plan` takes 1.8 ms of 79 ms, against 40 ms for toolchain detection and 14 ms for writing `build.ninja` and `compile_commands.json` |
 | Clean and incremental builds | `build/clean-*`, `build/touch-source-*`, `build/touch-header-*` | exact compiled-object count from the `.ninja_log` delta | - | done |
+| Build-output collection | `gc/new-day-*`, `gc/clean-10k` | exit 0; the planted unused outputs are gone, and live outputs or the usage records survive | - | done |
 | Artifacts and file system | `artifact/fetch-cold`, `artifact/fetch-warm`, `package/vendor`, `package/package-*` | exit 0; one cached archive per dependency; every package vendored; the archive and its metadata written | `artifact/extract-zip` | done |
 | Tests | `test/run-c`, `test/run-cxx` | exit 0; no Ninja action; the JUnit report lists all 12 tests | - | done |
 | Real packages | `ports/*` (`--ports`) | exit 0; every port locked and one cached archive per port; the clean build compiles, the no-op runs no Ninja action | - | done |

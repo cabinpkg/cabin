@@ -156,6 +156,7 @@ fn run_cli(cli: Cli) -> Result<ExitCode> {
             let mutation = match action.as_str() {
                 "touch" => Mutation::Touch(path),
                 "remove" => Mutation::Remove(path),
+                "stale" => Mutation::Stale(path.parse()?),
                 other => bail!("unknown mutation {other}"),
             };
             mutation.apply(&std::env::current_dir()?)?;

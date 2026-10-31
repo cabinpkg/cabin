@@ -47,9 +47,10 @@ fn clean_removes_build_dir() {
         .success()
         .stdout(predicate::str::contains("Removed"));
 
-    assert!(
-        !dir.path().join("build").exists(),
-        "build dir should be gone"
+    assert_eq!(
+        dir_entries(&dir.path().join("build")),
+        [".cabin-build.lock"],
+        "everything but the lock file is gone"
     );
     assert!(dir.path().join("cabin.toml").exists(), "manifest preserved");
     assert!(
@@ -58,6 +59,15 @@ fn clean_removes_build_dir() {
     );
     assert!(dir.path().join("cabin.lock").exists(), "lockfile preserved");
     assert!(dir.path().join("vendor").exists(), "vendor preserved");
+}
+
+fn dir_entries(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
 }
 
 #[test]
@@ -263,7 +273,7 @@ fn clean_respects_custom_build_dir() {
         .assert()
         .success();
 
-    assert!(!custom.exists(), "custom build dir should be removed");
+    assert_eq!(dir_entries(&custom), [".cabin-build.lock"]);
     // Default `build/` was never created and must remain absent.
     assert!(!dir.path().join("build").exists());
 }

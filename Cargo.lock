@@ -331,6 +331,8 @@ dependencies = [
  "camino",
  "predicates",
  "semver",
+ "serde",
+ "serde_json",
  "thiserror",
  "tracing",
 ]
@@ -3077,6 +3079,7 @@ version = "0.17.0"
 dependencies = [
  "anyhow",
  "cabinpkg-artifact",
+ "cabinpkg-build",
  "cabinpkg-core",
  "cabinpkg-env",
  "cabinpkg-feature",
@@ -3085,6 +3088,7 @@ dependencies = [
  "cabinpkg-publish",
  "cabinpkg-resolver",
  "cabinpkg-workspace",
+ "camino",
  "clap",
  "criterion",
  "semver",
