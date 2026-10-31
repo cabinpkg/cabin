@@ -335,7 +335,6 @@ impl<'de, S: Deserialize<'de> + StandardLevel> Deserialize<'de> for Cell<S> {
                             }
                             min = Some(map.next_value()?);
                         }
-                        // An explicit `null` reads as unbounded.
                         "max" => {
                             if saw_max {
                                 return Err(de::Error::duplicate_field("max"));
@@ -550,12 +549,6 @@ mod tests {
         );
     }
 
-    /// An undeclared library-like target still gets a row, serialized
-    /// as `{}` - the target existing and imposing nothing is itself
-    /// information.  (Row 5 for C++, but row 6 makes C forbidden, so a
-    /// truly empty `{}` needs no declared C either; use a header-only
-    /// target with no standards at all, which the manifest layer would
-    /// reject in practice but the derivation handles.)
     #[test]
     fn unconstrained_row_serializes_as_empty_object() {
         let mut metadata = StandardsMetadata::default();
@@ -623,9 +616,8 @@ mod tests {
         assert_eq!(parsed, metadata);
     }
 
-    /// The three requirement shapes round-trip through JSON: omitted
-    /// key (unconstrained), `{min}` (minimum), and `"none"`
-    /// (forbidden).
+    /// The `{min}` (minimum) and `"none"` (forbidden) cells round-trip
+    /// through JSON.
     #[test]
     fn cells_round_trip() {
         let mut metadata = StandardsMetadata::default();

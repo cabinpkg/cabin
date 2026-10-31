@@ -158,9 +158,8 @@ impl fmt::Display for UpstreamFormat {
 
 /// One declarative file placement applied to the extracted upstream
 /// tree: copy `from` to `to`, both validated non-empty safe relative
-/// paths so neither can escape the source root.  Mirrors a port
-/// recipe's `[[copy]]` step: a static file-to-file copy, never a
-/// build script or codegen hook.
+/// paths so neither can escape the source root.  A static
+/// file-to-file copy, never a build script or codegen hook.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UpstreamCopy {
     from: Utf8PathBuf,
@@ -185,8 +184,9 @@ impl UpstreamCopy {
         // truncates the file; a case-folded pair materializes a case
         // conflict the packaging walk rejects.  Either way the
         // declaration could never verify, so it is a parse error.
-        // The collision fold (lowercase + NFC) matches the package
-        // archive's conflict rule and the patch engine's.
+        // `collision_fold` (lowercase + NFC) is the patch engine's
+        // fold; it adds NFC to the package archive's lowercase-only
+        // conflict rule.
         if collision_fold(from.as_str()) == collision_fold(to.as_str()) {
             return Err(UpstreamError::SelfReferentialCopy {
                 from: from.into_string(),
@@ -342,10 +342,13 @@ impl UpstreamProvenance {
     ///
     /// # Errors
     /// Returns the first failing [`UpstreamError`]: an unparsable,
-    /// non-HTTPS, or credential-bearing `url`; a `checksum` that is
-    /// not `sha256:` followed by 64 lowercase hex characters; a
+    /// overlong, non-HTTPS, or credential-bearing `url`; a `checksum`
+    /// that is not `sha256:` followed by 64 lowercase hex characters; a
     /// `format` other than `"tar.gz"` / `"zip"`; a `strip_prefix`
-    /// that is not a single non-empty relative path component; or a
+    /// that is not a single non-empty portable path component; more
+    /// than [`MAX_COPY_STEPS`] copies, a prefixed copy source over the
+    /// archive entry-path cap, or copy paths that collide under
+    /// folding or nest; or more than [`MAX_PATCH_FILES`] patches, or a
     /// `patches` entry that is unsafe or conflicts with a copy path,
     /// another patch, or the root manifest.
     pub fn new(
@@ -669,8 +672,7 @@ mod tests {
     #[test]
     fn rejects_bad_checksums() {
         for checksum in [
-            // A bare digest - the pre-rename spelling - carries no
-            // algorithm and must not slip through.
+            // A bare digest carries no algorithm.
             SHA,
             "sha256:deadbeef",
             &format!("sha512:{SHA}"),
@@ -690,8 +692,8 @@ mod tests {
                 "{checksum:?}: {err:?}"
             );
         }
-        // The wrapped diagnostic keeps the pre-refactor sentence: the
-        // field context plus the shared normative checksum grammar.
+        // The wrapped diagnostic is the field context plus the shared
+        // checksum sentence.
         let err =
             UpstreamProvenance::new(URL, "sha256:zzz", "tar.gz", None, Vec::new(), Vec::new())
                 .unwrap_err();
@@ -1148,8 +1150,7 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("unknown field"), "{err}");
 
-        // The pre-rename `sha256` key is a plain unknown field on the
-        // wire, exactly like any other retired spelling.
+        // The retired `sha256` key is a plain unknown field.
         let err = serde_json::from_value::<UpstreamProvenance>(serde_json::json!({
             "url": URL, "checksum": CHECKSUM, "format": "zip", "sha256": SHA
         }))

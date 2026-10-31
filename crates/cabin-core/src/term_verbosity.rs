@@ -7,7 +7,8 @@
 //! layer, and the status reporter share one parsing rule and one
 //! error wording.
 //!
-//! Parsing entry points are deliberately narrow:
+//! Parsing entry points:
+//! - [`Verbosity::from_verbose_count`] maps the `-v` repetition count;
 //! - [`Verbosity::parse_bool_env`] reads `CABIN_TERM_VERBOSE`
 //!   and `CABIN_TERM_QUIET`;
 //! - [`Verbosity::from_config_pair`] turns the two booleans
@@ -18,8 +19,7 @@ use std::fmt;
 
 /// User-selected verbosity for Cabin-owned status output.
 ///
-/// The default is [`Verbosity::Normal`], which preserves Cabin's
-/// pre-existing status-message volume.  Variants are ordered from
+/// The default is [`Verbosity::Normal`].  Variants are ordered from
 /// quietest to loudest so callers can compare with `>=`:
 ///
 /// ```ignore
@@ -32,8 +32,8 @@ pub enum Verbosity {
     /// JSON documents, the user program's stdout under
     /// `cabin run`) are unaffected.
     Quiet,
-    /// Default volume.  Status lines such as `cabin: wrote
-    /// build.ninja` are emitted; verbose-only lines are not.
+    /// Default volume.  Status lines such as `Compiling <name>
+    /// v<version>` are emitted; verbose-only lines are not.
     #[default]
     Normal,
     /// Adds Cabin-owned context lines such as the resolved
@@ -86,9 +86,8 @@ impl Verbosity {
 
     /// Combine the two config booleans `term.verbose` and
     /// `term.quiet` into a single verbosity.  Returns
-    /// `Ok(None)` when neither is set so callers can fall through
-    /// to the next layer in the precedence chain.  Returns
-    /// [`InvalidVerbosityCombination`] when both are true.
+    /// `Ok(None)` when neither is `true` so callers can fall through
+    /// to the next layer in the precedence chain.
     ///
     /// # Errors
     /// Returns [`InvalidVerbosityCombination`] when both `verbose` and `quiet`
@@ -109,8 +108,7 @@ impl Verbosity {
     /// `CABIN_TERM_VERBOSE` and `CABIN_TERM_QUIET`: the documented
     /// truthy spellings (`1`, `true`, `yes`, `on`, case-insensitive)
     /// opt in; the falsy spellings (empty, `0`, `false`, `no`,
-    /// `off`) opt out.  Other strings produce a typed error so the
-    /// CLI can surface a copy-pasteable message.
+    /// `off`, case-insensitive) opt out.
     ///
     /// # Errors
     /// Returns [`VerbosityEnvError`] when `raw` matches none of the

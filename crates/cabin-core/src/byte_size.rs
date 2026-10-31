@@ -1,6 +1,6 @@
 //! Byte-size values such as the `[gc] max-size` budget.
 //!
-//! The type lives in `cabin-core` because config parsing and the CLI
+//! The parser lives in `cabin-core` because config parsing and the CLI
 //! both read the same spelling.
 
 use thiserror::Error;

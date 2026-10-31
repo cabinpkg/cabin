@@ -11,8 +11,7 @@
 //!
 //! A packaging-revision id (the digest's leading 16 hex characters,
 //! see [`crate::registry`]) is a derived *identifier*, not a
-//! checksum: it is carried bare, and deliberately never parses as a
-//! [`Checksum`].
+//! checksum: it is carried bare and never parses as a [`Checksum`].
 
 use std::fmt;
 

@@ -7,9 +7,8 @@ use super::identity::{
 };
 use crate::language_standard::{CStandard, CxxStandard};
 
-/// Where one capability decision came from.  Recorded so
-/// `cabin metadata` can show whether Cabin trusted the version
-/// alone, ran a probe, or fell back to a conservative default.
+/// Where one capability decision came from, as `cabin metadata`
+/// reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CapabilitySource {
@@ -65,7 +64,7 @@ pub struct CompilerCapabilities {
     pub gcc_style_flags: Capability,
     /// Accepts MSVC-style `/O<n>`, `/DNAME`, `/I dir`.
     pub msvc_style_flags: Capability,
-    /// Accepts `-MMD -MF <file>` to write a make-style depfile.
+    /// Accepts `-MD -MF <file>` to write a make-style depfile.
     pub depfile_mmd_mf: Capability,
     /// Can mark dependency include directories as *system* search
     /// paths so diagnostics inside their headers are suppressed.
@@ -90,8 +89,7 @@ pub struct ArchiverCapabilities {
 /// version at or above the threshold is `supported`; below it,
 /// `unsupported`.  An unparsed version (`None`) is `supported` as an
 /// assumed default - a recognized compiler always reports a version,
-/// so a parse miss must not reject an otherwise-modern compiler,
-/// matching the per-standard validation policy.
+/// so a parse miss must not reject an otherwise-modern compiler.
 fn version_gated_capability(
     version: Option<&CompilerVersion>,
     min_major: u32,
@@ -107,10 +105,8 @@ fn version_gated_capability(
 }
 
 /// Derive a [`CompilerCapabilities`] set from the detected
-/// identity.  Decisions are made from the recognized compiler
-/// kind, with conservative defaults for [`CompilerKind::Unknown`].
-/// No probe commands are run from this function - the caller's
-/// detection layer already gathered everything we need.
+/// identity's kind and, for version-gated capabilities, its version,
+/// with conservative defaults for [`CompilerKind::Unknown`].
 pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilities {
     let gcc_style = if identity.kind.supports_gcc_style_command_line() {
         Capability::supported_from(CapabilitySource::Version)
@@ -133,13 +129,6 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
     } else {
         Capability::unsupported_from(CapabilitySource::AssumedDefault)
     };
-    // `-isystem` is part of the base GCC/Clang command line, so every
-    // recognized GNU-dialect compiler can mark dependency includes as
-    // system search paths. `cl /external:I` left
-    // `/experimental:external` in VS2019 16.10 (`cl` 19.29);
-    // `clang-cl` understands the `/external:` block since clang 13.
-    // Unknown compilers stay conservative so the planner never
-    // assumes `-isystem` semantics for a compiler it cannot identify.
     let external_include_dirs = match identity.kind {
         CompilerKind::Clang | CompilerKind::AppleClang | CompilerKind::Gcc => {
             Capability::supported_from(CapabilitySource::Version)
@@ -296,10 +285,6 @@ pub fn derive_ar_capabilities(identity: &ArchiverIdentity) -> ArchiverCapabiliti
     } else {
         Capability::unsupported_from(CapabilitySource::AssumedDefault)
     };
-    // Honest across both dialects: `ar` / `llvm-ar` archive via
-    // `ar crs`, `lib.exe` via `lib /OUT:`.  The `ar_crs` capability
-    // above stays GNU-specific (`lib.exe` does not accept `crs`),
-    // but both shapes do produce a static library.
     let static_library_output = if identity.kind.produces_static_library() {
         Capability::supported_from(CapabilitySource::Version)
     } else {

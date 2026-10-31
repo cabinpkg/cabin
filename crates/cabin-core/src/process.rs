@@ -3,11 +3,11 @@
 //! Cabin spawns external tools (formatters, linters, the C/C++
 //! toolchain) and needs to report *how* they exited without leaking
 //! platform-specific `ExitStatus` details into its own error and
-//! report types. [`ExitStatusKind`] is that stable, serializable-free
-//! summary; [`exit_status_kind`] derives it once at the spawn site.
+//! report types.  [`exit_status_kind`] derives an [`ExitStatusKind`]
+//! once at the spawn site.
 
-/// Stringified exit-status kind preserved so the orchestration layer
-/// can decide whether to display an exit code or a signal.
+/// How a child process exited: an exit code, a terminating signal, or
+/// neither.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExitStatusKind {
     /// The process exited normally with this code.

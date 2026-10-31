@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 pub enum CompilerKind {
     /// LLVM Clang.
     Clang,
-    /// Apple-shipped Clang (`Apple clang version …`).  Treated as
-    /// Clang-compatible for capability purposes; tracked separately
-    /// for diagnostics.
+    /// Apple-shipped Clang (`Apple clang version …`).  Accepts Clang's
+    /// command line, but its version numbers are Apple's own, so
+    /// version gates use separate thresholds.
     AppleClang,
     /// LLVM `clang-cl`: Clang's `cl.exe`-compatible driver.  Reports a
     /// `clang version …` banner like Clang, but accepts the MSVC
@@ -57,8 +57,8 @@ impl CompilerKind {
     }
 
     /// Whether this compiler accepts the GCC-style command line
-    /// the current C++ backend emits (`-O<n>`, `-std=c++NN`,
-    /// `-MMD -MF`, `-DNAME`, `-Idir`, …).  Note `clang-cl` is
+    /// the GCC/Clang backend emits (`-O<n>`, `-std=c++NN`,
+    /// `-MD -MF`, `-DNAME`, `-Idir`, …).  Note `clang-cl` is
     /// excluded: it is Clang but parses the MSVC command line.
     pub fn supports_gcc_style_command_line(self) -> bool {
         matches!(
@@ -184,7 +184,7 @@ impl CompilerVersion {
     }
 
     /// Formatted `major.minor.patch` view, omitting unset
-    /// components.  Used in metadata JSON and `CABIN_*` env vars.
+    /// components.  Used in metadata JSON.
     pub fn to_display_string(&self) -> String {
         match (self.minor, self.patch) {
             (Some(min), Some(pat)) => format!("{}.{}.{}", self.major, min, pat),
@@ -219,12 +219,15 @@ pub struct CompilerIdentity {
     /// could not parse.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<CompilerVersion>,
-    /// Optional default target triple as the compiler reported it
-    /// (the "Target: …" line from Clang, or an analogous GCC line).
+    /// Default target triple as the compiler's `--version` output
+    /// reports it: Clang's `Target: …` line, or the triple for the
+    /// architecture ending `cl`'s banner.  GCC's `--version` reports
+    /// none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
-    /// First non-empty line of combined `--version` output, kept
-    /// for diagnostics.  Truncated to a sensible length.
+    /// First non-empty line of combined `--version` output, kept for
+    /// diagnostics and part of [`CompilerIdentity::build_identity`].
+    /// Truncated to a sensible length.
     pub raw_version_line: String,
 }
 

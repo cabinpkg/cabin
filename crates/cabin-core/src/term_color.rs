@@ -2,9 +2,8 @@
 //!
 //! This is a single-purpose enum mirroring Cargo's `--color`
 //! tri-state (`auto` / `always` / `never`).  It lives in
-//! `cabin-core` so the CLI parser, the config layer, and the
-//! diagnostic renderer all share one parsing rule and one error
-//! wording.
+//! `cabin-core` so the env and config layers share one parsing
+//! rule and one error wording.
 //!
 //! Parsing is implemented for `&str` inputs that come from two
 //! places:
@@ -13,15 +12,12 @@
 //! - config files (and any other typed-string source), parsed via
 //!   [`ColorChoice::from_config_value`].
 //!
-//! The CLI uses clap's `ValueEnum` derive directly, which keeps
-//! the help text "[possible values: auto, always, never]" wired
-//! to the same set of variants.
+//! `--color` is parsed by clap through a `ValueEnum` mirror
+//! (`CliColorChoice` in `cabin`) that converts into this type.
 
 use std::fmt;
 
-/// User-selected terminal-color mode.  The default is
-/// [`ColorChoice::Auto`], which lets the renderer fall back to
-/// terminal detection (TTY check + `NO_COLOR` honoring).
+/// User-selected terminal-color mode.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorChoice {
     /// Emit colors only when stderr is connected to a terminal
@@ -37,8 +33,7 @@ pub enum ColorChoice {
 
 impl ColorChoice {
     /// Stable string label for this variant.  Round-trips through
-    /// [`ColorChoice::from_config_value`] and serializes to TOML
-    /// without surprises.
+    /// [`ColorChoice::from_config_value`].
     pub fn as_str(self) -> &'static str {
         match self {
             ColorChoice::Auto => "auto",
@@ -75,10 +70,8 @@ impl ColorChoice {
     }
 
     fn from_str_inner(raw: &str) -> Option<Self> {
-        // The accepted spelling list is exactly what `--color`
-        // accepts; we deliberately do not lowercase or trim
-        // surrounding whitespace because both env variables and
-        // config values use exact-match parsing elsewhere.
+        // Exact match on the spellings `--color` accepts: no case
+        // folding, no trimming.
         match raw {
             "auto" => Some(ColorChoice::Auto),
             "always" => Some(ColorChoice::Always),
@@ -106,9 +99,7 @@ impl fmt::Display for ColorChoice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColorEnvError {
     /// Name of the environment variable whose value failed to
-    /// parse.  Always `"CABIN_TERM_COLOR"` today; carrying it
-    /// keeps the message generation in one spot if a future
-    /// alias variable is ever recognized.
+    /// parse (`CABIN_TERM_COLOR`).
     pub variable: &'static str,
     /// The raw, invalid value as the user provided it.
     pub value: String,

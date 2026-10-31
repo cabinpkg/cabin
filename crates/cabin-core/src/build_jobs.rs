@@ -1,18 +1,14 @@
 //! Typed model for build-backend parallelism.
 //!
-//! Cabin lets users override the number of parallel jobs the
-//! build backend (currently Ninja) runs with through the
-//! Cargo-style `-j` / `--jobs <N>` family of flags, the
-//! `CABIN_BUILD_JOBS` environment variable, and the
-//! `[build] jobs` config key.  The orchestration layer reads
-//! each layer's raw input and parses it through this module so
-//! every consumer downstream sees the same validated value.
+//! The job count for the build backend (currently Ninja) comes from
+//! `-j` / `--jobs <N>`, the `CABIN_BUILD_JOBS` environment variable, or
+//! the `[build] jobs` config key.  Every layer's raw input parses
+//! through this module, so every consumer sees the same validated value.
 //!
-//! Crate boundaries: the type lives in `cabin-core` because
-//! multiple crates need to *carry* it (config, CLI, planner).
-//! Backend-specific conversion - turning
-//! [`BuildJobs`] into an argv fragment for a particular tool -
-//! belongs to the call site that spawns that tool, not here.
+//! Crate boundaries: the type lives in `cabin-core` because several
+//! crates carry it (config, CLI, `cabin-tidy`).  Conversion of
+//! [`BuildJobs`] into a tool's argv fragment belongs to the call site
+//! that spawns that tool.
 
 use std::num::NonZeroU32;
 use std::str::FromStr;
@@ -22,10 +18,7 @@ use thiserror::Error;
 
 /// Validated build-parallelism setting.
 ///
-/// Wraps a `NonZeroU32` so the rest of the codebase cannot
-/// observe a zero / negative count. `u32` is wide enough for
-/// every realistic core / job count and serializes trivially
-/// to a string `-jN` argument.
+/// Wraps a `NonZeroU32`, so no consumer observes a zero count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildJobs(NonZeroU32);
 
@@ -54,11 +47,9 @@ impl FromStr for BuildJobs {
         if trimmed.is_empty() {
             return Err(BuildJobsParseError::Empty);
         }
-        // `u32::from_str` rejects negative numbers and
-        // non-digit values without us having to special-case
-        // either.  We forward the original (untrimmed) input
-        // through the error so the diagnostic quotes exactly
-        // what the user wrote.
+        // `u32::from_str` rejects negative and non-numeric values.
+        // The error carries the untrimmed input so the diagnostic
+        // quotes what the user wrote.
         let parsed: u32 = trimmed.parse().map_err(|_| BuildJobsParseError::Invalid {
             value: s.to_owned(),
         })?;

@@ -7,9 +7,6 @@
 //! target.  The same target may carry both `.c` and `.cc` sources;
 //! classification is per-file.
 //!
-//! This module is data and pure logic only.  Filesystem traversal
-//! and process spawning live elsewhere.
-//!
 //! ## Recognized extensions
 //!
 //! | Extension | Language |
@@ -42,8 +39,7 @@ pub enum SourceLanguage {
 
 impl SourceLanguage {
     /// Stable lower-case identifier suitable for diagnostics,
-    /// JSON output, and rule names. `c` for C and `cxx` for C++ -
-    /// matching the [`crate::ToolKind`] keys.
+    /// JSON output, and rule names: `c` for C and `cxx` for C++.
     pub const fn as_key(self) -> &'static str {
         match self {
             Self::C => "c",
@@ -68,20 +64,14 @@ impl std::fmt::Display for SourceLanguage {
 }
 
 /// Classify a source file by its filename extension.  Returns
-/// `None` when the extension is missing or unrecognized - the
-/// planner surfaces an explicit diagnostic in that case rather
-/// than silently picking a default compiler.
+/// `None` when the extension is missing or unrecognized.
 ///
 /// Extension matching is case-sensitive on the lower-case forms
 /// (`.c`, `.cc`, `.cpp`, `.cxx`, `.c++`) and accepts the
 /// upper-case `.C` extension that traditionally indicates a C++
 /// translation unit on POSIX systems.
 pub fn classify_source(path: &Utf8Path) -> Option<SourceLanguage> {
-    // We deliberately do not lower-case the extension: `.C` is
-    // the only non-lower-case spelling Cabin recognizes (POSIX
-    // C++ convention), and matching it explicitly avoids
-    // collapsing `.C` and `.c` into the same bucket on
-    // case-insensitive filesystems.
+    // Lower-casing the extension would classify `.C` (C++) as `.c` (C).
     let ext = path.extension()?;
     match ext {
         "c" => Some(SourceLanguage::C),
@@ -125,11 +115,6 @@ pub fn classify_assembly(path: &Utf8Path) -> Option<AssemblySyntax> {
 /// executable built only from assembly - because the C++ driver is
 /// the one Cabin always validates (and the one that assembled the
 /// objects on GNU); the C compiler may be an unchecked host default.
-///
-/// The slice form (rather than a generic `IntoIterator`) keeps
-/// the predicate cheap to call on the per-target language
-/// manifests the planner already collects, and lets callers
-/// reason about the input by reading the call site directly.
 pub fn link_driver_language(languages: &[SourceLanguage]) -> SourceLanguage {
     if languages.is_empty() || languages.contains(&SourceLanguage::Cxx) {
         SourceLanguage::Cxx
@@ -169,9 +154,6 @@ mod tests {
 
     #[test]
     fn classification_is_case_sensitive_for_lower_case_only() {
-        // `.C` is the legitimate POSIX upper-case C++ extension;
-        // anything else upper-cased is unrecognized so the
-        // planner can surface a clear error instead of guessing.
         assert_eq!(
             classify_source(&Utf8PathBuf::from("file.C")),
             Some(SourceLanguage::Cxx)

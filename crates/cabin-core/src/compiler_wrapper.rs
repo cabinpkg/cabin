@@ -53,11 +53,10 @@ impl fmt::Display for CompilerWrapperKind {
 
 /// What the user (or a manifest layer) asked for, structurally.
 ///
-/// `Disabled` is *explicit* opt-out: a higher-precedence layer can
-/// no longer turn a wrapper back on.  `Use(_)` selects a specific
-/// wrapper kind.  Layers that did not express any preference are
-/// represented as `Option::None` at the call site, not as a variant
-/// here.
+/// The first layer that expresses a request wins, so `Disabled` is an
+/// explicit opt-out that a lower-precedence layer cannot turn back
+/// on.  A layer with no preference is `Option::None` at the call
+/// site, not a variant here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum CompilerWrapperRequest {
@@ -72,7 +71,8 @@ pub enum CompilerWrapperRequest {
 impl CompilerWrapperRequest {
     /// Parse a manifest / CLI / env value.  Accepts:
     ///
-    /// - `"none"` (case-insensitive) → [`Self::Disabled`].
+    /// - `"none"`, `"off"`, or `"disabled"` (ASCII case-insensitive) →
+    ///   [`Self::Disabled`].
     /// - Any other non-empty value selects that executable name or path.
     ///
     /// # Errors
@@ -155,7 +155,7 @@ impl fmt::Display for CompilerWrapperSource {
 }
 
 /// Identity captured from a wrapper executable's `--version`
-/// output.  Populated by `cabin-toolchain::detect_compiler_wrapper`
+/// output.  Populated by `cabin-toolchain`'s `resolve_compiler_wrapper`
 /// and surfaced through metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerWrapperIdentity {
@@ -197,16 +197,16 @@ pub struct ResolvedCompilerWrapper {
     pub spec: String,
     pub source: CompilerWrapperSource,
     /// Detected identity (`Some` when version probing succeeded).
-    /// Always emitted by `cabin metadata` even when `None`, so
-    /// callers do not have to special-case the absence.
+    /// [`ResolvedCompilerWrapper::as_json`] renders `None` as null
+    /// `version` and `raw_version_line`, so both keys are always
+    /// present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<CompilerWrapperIdentity>,
 }
 
 impl ResolvedCompilerWrapper {
-    /// Compact JSON view used by `cabin metadata`.  Mirrors the
-    /// shape of [`crate::ResolvedTool::as_json`] so consumers see a
-    /// consistent pattern.
+    /// Compact JSON view used by `cabin metadata`, in the shape of
+    /// [`crate::ResolvedTool::as_json`].
     pub fn as_json(&self) -> serde_json::Value {
         let version = self
             .identity

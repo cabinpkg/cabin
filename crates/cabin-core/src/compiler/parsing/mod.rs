@@ -1,10 +1,9 @@
 //! Pure parsers for compiler / archiver `--version` output.
 //!
-//! Family-specific banner recognition and version extraction live
-//! in one submodule per compiler family (`CMake`'s
-//! `Modules/Compiler/*` organization is the reference); this
-//! module owns the classification dispatch and the shared
-//! line-shaping helpers.
+//! Family-specific version extraction lives in one submodule per
+//! tool family (`CMake`'s `Modules/Compiler/*` organization is the
+//! reference); this module owns kind classification, dispatch, and
+//! the shared line-shaping helpers.
 
 mod apple;
 mod ar;
@@ -16,17 +15,17 @@ use super::identity::{ArchiverIdentity, ArchiverKind, CompilerIdentity, Compiler
 
 /// Pure parser for compiler `--version` output.
 ///
-/// Recognizes the canonical first-line shapes Cabin cares about:
+/// Recognizes these banner shapes:
 ///
 /// - `clang version 17.0.6 (...)`
 /// - `Apple clang version 14.0.3 (clang-1403.0.22.14.1)`
 /// - `g++ (Ubuntu 11.4.0-1ubuntu1) 11.4.0`
 /// - `Microsoft (R) C/C++ Optimizing Compiler Version 19.39.x`
-/// - any other first non-empty line → [`CompilerKind::Unknown`].
+/// - any other output → [`CompilerKind::Unknown`].
 ///
-/// Also picks up the `Target: aarch64-apple-darwin` / similar
-/// follow-up line when present so metadata can show the
-/// compiler-reported target without running additional probes.
+/// Also extracts the compiler-reported default target: Clang's
+/// `Target: <triple>` line, or the triple for the architecture ending
+/// `cl`'s banner.
 pub fn parse_cxx_version_output(text: &str) -> CompilerIdentity {
     let lines: Vec<&str> = text
         .lines()
@@ -99,12 +98,10 @@ fn parse_target_line(lines: &[&str]) -> Option<String> {
     None
 }
 
-/// Pure parser for archiver `--version` output.  The recognized
-/// families (`ar` and `llvm-ar`) print one line that includes the
-/// family name.  Anything else is classified as
-/// [`ArchiverKind::Unknown`]; archivers that exit non-zero on
-/// `--version` are left to the subprocess layer to surface as
-/// `Unknown`.
+/// Pure parser for archiver `--version` output.  Recognizes GNU
+/// `ar`, `llvm-ar`, and `lib.exe` banners; anything else is
+/// [`ArchiverKind::Unknown`], which `cabin-toolchain` then retries by
+/// the tool's file name (BSD `ar` does not implement `--version`).
 pub fn parse_ar_version_output(text: &str) -> ArchiverIdentity {
     let lines: Vec<&str> = text
         .lines()

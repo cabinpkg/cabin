@@ -1,12 +1,10 @@
 //! Typed compiler / tool identity and capability model.
 //!
-//! Cabin's build planner emits GCC/Clang-style commands.  The
-//! `ResolvedToolchain` (see [`crate::toolchain`]) says *which*
+//! The `ResolvedToolchain` (see [`crate::toolchain`]) says *which*
 //! tools the user picked; this module says *what those tools are*
-//! and *what they can do*.  The
-//! resolver in `cabin-toolchain::detect` runs harmless `--version`
-//! invocations against each resolved tool, hands the output to the
-//! pure parsers in this module, and assembles a typed
+//! and *what they can do*.  The detector in `cabin-toolchain::detect`
+//! runs `--version` against each resolved tool, hands the output to
+//! the pure parsers in this module, and assembles a typed
 //! [`ToolchainDetectionReport`].
 //!
 //! This module is data and pure logic only.  Process spawning,

@@ -15,9 +15,8 @@ pub fn hex_digest(digest: &[u8]) -> String {
 }
 
 /// Stream `reader` through SHA-256 and return the lower-case hex
-/// digest.  This is the shared primitive behind every Cabin file /
-/// archive integrity check; callers own opening the file and mapping
-/// any [`std::io::Error`] into their crate's own error type (and
+/// digest.  Callers own opening the file and mapping any
+/// [`std::io::Error`] into their crate's own error type (and
 /// re-attaching path context).
 ///
 /// # Errors
@@ -29,11 +28,10 @@ pub fn hash_reader<R: Read>(reader: R) -> std::io::Result<String> {
 
 /// Stream `reader` into `writer` in 64 KiB chunks, hashing the bytes
 /// with SHA-256 as they pass through, and return the lower-case hex
-/// digest.  This is the shared primitive behind Cabin's
-/// stream-to-temp-and-verify archive staging (download, local copy,
-/// vendor): the bytes are written exactly once while the digest is
-/// computed in the same pass, so a torn copy surfaces as a checksum
-/// mismatch rather than a silently bad archive.
+/// digest.  Intended for stream-to-temp-and-verify archive staging:
+/// the digest covers exactly the bytes written, so a source that
+/// changed or was truncated surfaces as a checksum mismatch, not a
+/// silently bad archive.
 ///
 /// Like [`hash_reader`], callers own opening and creating the handles
 /// and mapping any [`std::io::Error`] into their crate's own error
@@ -47,9 +45,7 @@ pub fn hash_copy<R: Read, W: Write>(mut reader: R, mut writer: W) -> std::io::Re
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        // Retried, not an error: a signal landing mid-read must not
-        // fail a hash the next attempt would have finished.
-        // (`write_all` below already retries.)
+        // `write_all` retries `Interrupted` itself; `read` does not.
         let n = match reader.read(&mut buf) {
             Ok(n) => n,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,

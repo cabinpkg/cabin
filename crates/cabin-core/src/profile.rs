@@ -12,9 +12,8 @@
 //! Manifests may declare additional `[profile.<name>]` tables to
 //! override the built-in defaults or to add custom presets that
 //! `inherit` from one of the built-ins.  Resolution merges
-//! parents-first and is fully typed; the rest of Cabin
-//! (`cabin-build`, `cabin`, `cabin-package`) consumes a
-//! [`ResolvedProfile`] directly and never sees raw TOML.
+//! parents-first and is fully typed; `cabin-build` and `cabin`
+//! consume a [`ResolvedProfile`] directly and never see raw TOML.
 //!
 //! This module owns the *model and the resolver*.  Manifest parsing
 //! lives in `cabin-manifest`; CLI flag handling lives in
@@ -94,9 +93,8 @@ pub struct ProfileDefaults {
 
 /// Semantic optimization level.  Mirrors the GCC / Clang `-O`
 /// family without exposing raw flag strings at the manifest
-/// layer; each value maps to a fixed GCC / Clang-style `-O` flag
-/// (see [`OptLevel::as_flag`]) that the build planner appends
-/// verbatim.  There is no per-toolchain flag translation today.
+/// layer; [`OptLevel::as_flag`] is the GCC / Clang spelling, and
+/// `cabin-driver` translates each level for MSVC `cl.exe`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OptLevel {
     /// `-O0`.  No optimization; the dev profile default.
@@ -109,15 +107,13 @@ pub enum OptLevel {
     O3,
     /// `-Os`.  Optimize for size.
     S,
-    /// `-Oz`.  Optimize harder for size; emitted verbatim as the
-    /// GCC / Clang `-Oz` spelling with no per-toolchain fallback.
+    /// `-Oz`.  Optimize harder for size.
     Z,
 }
 
 impl OptLevel {
-    /// Compiler flag for this level.  The string form is stable and
-    /// is what the build planner appends to C/C++ compile
-    /// commands.
+    /// GCC / Clang flag for this level, appended verbatim to
+    /// GNU-like C/C++ compile commands.
     pub fn as_flag(self) -> &'static str {
         match self {
             OptLevel::O0 => "-O0",
@@ -129,8 +125,8 @@ impl OptLevel {
         }
     }
 
-    /// Value used in JSON / metadata serialization.  Mirrors the
-    /// public manifest key (`opt-level`).
+    /// Spelling of the `opt-level` manifest value; also used in
+    /// JSON / metadata serialization.
     pub fn as_str(self) -> &'static str {
         match self {
             OptLevel::O0 => "0",
@@ -182,13 +178,11 @@ impl<'de> Deserialize<'de> for OptLevel {
 }
 
 impl OptLevel {
-    /// Parse the public manifest form.  Accepts integers `0..=3`
-    /// and the lowercase letters `"s"` / `"z"` exactly.  Anything
-    /// else returns a stable, user-facing error string.
+    /// Parse the public manifest form.
     ///
     /// # Errors
-    /// Returns an error string when `raw` is not one of `0`, `1`, `2`, `3`,
-    /// `"s"`, or `"z"`.
+    /// Returns a user-facing error string when `raw` is not exactly one
+    /// of `0`, `1`, `2`, `3`, `"s"`, or `"z"`.
     pub fn parse(raw: &str) -> Result<Self, String> {
         match raw {
             "0" => Ok(OptLevel::O0),
@@ -315,9 +309,7 @@ fn profile_name_problem(name: &str) -> Option<&'static str> {
     }
 }
 
-/// A string that is not a valid [`ProfileName`].  The constructor
-/// surfaces this error type so callers (CLI, manifest parser) can
-/// format a clear diagnostic without duplicating the rule.
+/// A string that is not a valid [`ProfileName`].
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 #[error("invalid profile name {value:?}; {reason}")]
 pub struct InvalidProfileName {
@@ -345,8 +337,8 @@ pub struct ProfileDefinition {
     pub assertions: Option<bool>,
     /// Per-profile flag overrides for `[profile.<name>]` - defines,
     /// include directories, and extra compile / link arguments that
-    /// apply when this profile is selected.  `None` when the profile
-    /// has no flag overrides.
+    /// apply when this profile, or a profile inheriting from it, is
+    /// selected.  `None` when the profile has no flag overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build: Option<crate::build_flags::ProfileFlags>,
 }
@@ -397,9 +389,6 @@ pub enum ProfileSource {
 }
 
 /// Fully resolved profile.
-///
-/// Scalar fields are typed and concrete; downstream consumers
-/// (build planner, CLI) read this struct directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfile {
     pub name: ProfileName,
@@ -417,9 +406,10 @@ pub struct ResolvedProfile {
 }
 
 impl ResolvedProfile {
-    /// Compact JSON view used by `cabin metadata` and by
-    /// `CABIN_BUILD_CONFIGURATION_JSON`.  Field order matches the
-    /// struct declaration order so the on-disk shape is stable.
+    /// Compact JSON view used by `cabin metadata` and by the
+    /// `configuration` object of `cabin explain build-config --format
+    /// json`.  Field order matches the struct declaration order so the
+    /// output shape is stable.
     pub fn as_json(&self) -> serde_json::Value {
         serde_json::json!({
             "name": self.name.as_str(),
@@ -455,9 +445,7 @@ pub enum ProfileResolutionError {
     #[error("profile `{profile}` inherits from unknown profile `{parent}`")]
     UnknownInheritedProfile { profile: String, parent: String },
 
-    /// The inheritance graph contains a cycle.  The chain is
-    /// rendered with `->` separators so the diagnostic is
-    /// scannable in CI logs.
+    /// The inheritance graph contains a cycle.
     #[error("profile inheritance cycle detected: {}", display_chain(.chain))]
     InheritanceCycle { chain: Vec<String> },
 
@@ -507,8 +495,8 @@ fn display_chain(chain: &[String]) -> String {
 /// - if the selection names a custom profile, walk the
 ///   `inherits` chain to a built-in root, merge fields
 ///   parents-first, mark the result as [`ProfileSource::Custom`];
-/// - the chain is checked for cycles and unknown parents up
-///   front so the merge step never panics.
+/// - cycles and unknown parents are rejected before the merge,
+///   so the merge step never panics.
 ///
 /// Merge semantics across the inherits chain:
 ///
@@ -549,10 +537,8 @@ pub fn resolve_profile(
     let mut seen: BTreeSet<ProfileName> = BTreeSet::new();
     let mut cursor = selection.name.clone();
 
-    // Walk inheritance up to a built-in root.  The chain ends as
-    // soon as either (a) `cursor` names a built-in or (b) `cursor`
-    // names a manifest definition that has no `inherits` (which is
-    // only legal for built-in overrides).
+    // Walk `inherits` links until `cursor` names a built-in; after
+    // `validate_definitions`, only built-ins lack `inherits`.
     loop {
         if !seen.insert(cursor.clone()) {
             // Cycle: render the chain ending at the offending name.
@@ -689,10 +675,8 @@ fn validate_definitions(
     Ok(())
 }
 
-/// Enumerate every profile name reachable for a given definition
-/// set: the two built-ins plus every manifest-declared name.
-/// Useful for `cabin metadata --profile-list`-style consumers
-/// without forcing each caller to special-case built-ins.
+/// Every profile name a definition set makes selectable, sorted:
+/// the two built-ins plus every manifest-declared name.
 pub fn available_profile_names(
     definitions: &BTreeMap<ProfileName, ProfileDefinition>,
 ) -> Vec<ProfileName> {

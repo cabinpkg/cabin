@@ -71,8 +71,7 @@ impl fmt::Display for ExperimentalFeature {
 impl std::str::FromStr for ExperimentalFeature {
     type Err = UnknownExperimentalFeature;
 
-    // Exact-match parsing, mirroring the other typed CLI/env value
-    // parsers in this crate: no case folding, no trimming.
+    // Exact match: no case folding, no trimming.
     fn from_str(raw: &str) -> Result<Self, Self::Err> {
         Self::ALL
             .into_iter()
