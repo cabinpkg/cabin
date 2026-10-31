@@ -134,6 +134,41 @@ impl Dialect {
             },
         }
     }
+
+    /// `args` as the contents of a response file that this dialect's
+    /// archiver and linker read in their place.  GCC, Clang, and `ar`
+    /// split a response file at whitespace and honor quotes and
+    /// backslash escapes, so every argument is spelled with each
+    /// whitespace, quote, and backslash character backslash-escaped.
+    /// MSVC tools split it like a command line, and read it as UTF-8
+    /// only after a byte order mark.  Neither form can carry a NUL.
+    #[must_use]
+    pub fn response_file_content(self, args: &[String]) -> String {
+        let mut out = String::new();
+        if self == Dialect::Msvc {
+            out.push('\u{feff}');
+        }
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            match self {
+                Dialect::Msvc => windows_quote_arg(arg, &mut out),
+                Dialect::GnuLike => {
+                    if arg.is_empty() {
+                        out.push_str("''");
+                    }
+                    for c in arg.chars() {
+                        if c.is_ascii_whitespace() || matches!(c, '\x0b' | '\'' | '"' | '\\') {
+                            out.push('\\');
+                        }
+                        out.push(c);
+                    }
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Ninja's header-dependency discovery mode for a dialect's compile
@@ -147,6 +182,51 @@ pub enum NinjaDeps {
         /// Value for Ninja's `msvc_deps_prefix`.
         prefix: &'static str,
     },
+}
+
+/// Append one argument to `out` using `CommandLineToArgvW` quoting.
+///
+/// An argument is emitted verbatim unless it is empty or contains a
+/// space, tab, or double-quote - so backslash-laden Windows paths like
+/// `/FoC:\build\main.obj` pass through untouched, while
+/// `C:\Program Files\…\cl.exe` is wrapped in double quotes.  Inside a
+/// quoted argument, a run of N backslashes is doubled to 2N when it
+/// precedes the closing quote, and emitted as 2N+1 (then `\"`) when it
+/// precedes an embedded double-quote; elsewhere backslashes are
+/// literal.
+pub fn windows_quote_arg(arg: &str, out: &mut String) {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        out.push_str(arg);
+        return;
+    }
+    out.push('"');
+    let mut backslashes = 0usize;
+    for c in arg.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                // These backslashes precede a quote: escape each, then
+                // the quote itself.
+                for _ in 0..=backslashes * 2 {
+                    out.push('\\');
+                }
+                out.push('"');
+                backslashes = 0;
+            }
+            other => {
+                for _ in 0..backslashes {
+                    out.push('\\');
+                }
+                backslashes = 0;
+                out.push(other);
+            }
+        }
+    }
+    // Trailing backslashes precede the closing quote, so double them.
+    for _ in 0..backslashes * 2 {
+        out.push('\\');
+    }
+    out.push('"');
 }
 
 #[cfg(test)]
@@ -204,5 +284,27 @@ mod tests {
                 prefix: "Note: including file:"
             }
         );
+    }
+
+    #[test]
+    fn windows_quote_doubles_trailing_backslashes_before_closing_quote() {
+        // A trailing backslash inside a quoted arg would escape the
+        // closing quote, so a run of N is doubled to 2N.
+        let mut out = String::new();
+        windows_quote_arg(r"C:\dir with space\", &mut out);
+        assert_eq!(out, "\"C:\\dir with space\\\\\"");
+    }
+
+    #[test]
+    fn windows_quote_escapes_embedded_quote_and_its_backslashes() {
+        // An embedded `"` is escaped as `\"`, and a run of N backslashes
+        // immediately before it becomes 2N+1 backslashes.
+        let mut zero = String::new();
+        windows_quote_arg(r#"a "b"#, &mut zero); // no backslash before the quote
+        assert_eq!(zero, "\"a \\\"b\"");
+
+        let mut one = String::new();
+        windows_quote_arg(r#"a\"b"#, &mut one); // one backslash before the quote
+        assert_eq!(one, "\"a\\\\\\\"b\"");
     }
 }

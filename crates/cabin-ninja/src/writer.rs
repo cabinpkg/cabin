@@ -4,6 +4,7 @@ use std::path::Path;
 use cabin_build::BuildGraph;
 use cabin_driver::{
     BuildAction, CompileMode, Dialect, LoweredAction, LoweredActionKind, NinjaDeps, lower,
+    windows_quote_arg,
 };
 use cabin_fs::write_atomic;
 
@@ -395,7 +396,7 @@ fn write_edge(
         // can have this name.
         let path = format!("{}+.rsp", action.outputs[0]);
         command_value = command_line(&[program.clone(), format!("@{path}")])?;
-        response_file = Some((path, response_file_content(dialect, args)?));
+        response_file = Some((path, dialect.response_file_content(args)));
     }
     // Check edges bind the argv to `$checkcmd` so the `c_check` /
     // `cxx_check` rule can run it through the shell-free
@@ -523,39 +524,6 @@ pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
     })
 }
 
-/// `args` as the contents of a response file that the program reads in
-/// their place.  GCC, Clang, and `ar` split a response file at
-/// whitespace and honor quotes and backslash escapes, so every argument
-/// is spelled with each whitespace, quote, and backslash character
-/// backslash-escaped.  MSVC tools split it like a command line, and read
-/// it as UTF-8 only after a byte order mark.
-fn response_file_content(dialect: Dialect, args: &[String]) -> Result<String, NinjaError> {
-    match dialect {
-        Dialect::Msvc => Ok(format!("\u{feff}{}", windows_join(args)?)),
-        Dialect::GnuLike => {
-            let mut out = String::new();
-            for (i, arg) in args.iter().enumerate() {
-                if arg.contains('\0') {
-                    return Err(NinjaError::UnquotableArgument(arg.clone()));
-                }
-                if i > 0 {
-                    out.push(' ');
-                }
-                if arg.is_empty() {
-                    out.push_str("''");
-                }
-                for c in arg.chars() {
-                    if c.is_ascii_whitespace() || matches!(c, '\x0b' | '\'' | '"' | '\\') {
-                        out.push('\\');
-                    }
-                    out.push(c);
-                }
-            }
-            Ok(out)
-        }
-    }
-}
-
 /// Join an argv into a single Windows command line, following the
 /// `CommandLineToArgvW` convention `CreateProcess` uses to split it
 /// back into arguments.  This is the quoting Ninja needs on Windows,
@@ -576,51 +544,6 @@ fn windows_join(args: &[String]) -> Result<String, NinjaError> {
         windows_quote_arg(arg, &mut out);
     }
     Ok(out)
-}
-
-/// Append one argument to `out` using `CommandLineToArgvW` quoting.
-///
-/// An argument is emitted verbatim unless it is empty or contains a
-/// space, tab, or double-quote - so backslash-laden Windows paths like
-/// `/FoC:\build\main.obj` pass through untouched, while
-/// `C:\Program Files\…\cl.exe` is wrapped in double quotes.  Inside a
-/// quoted argument, a run of N backslashes is doubled to 2N when it
-/// precedes the closing quote, and emitted as 2N+1 (then `\"`) when it
-/// precedes an embedded double-quote; elsewhere backslashes are
-/// literal.
-fn windows_quote_arg(arg: &str, out: &mut String) {
-    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
-        out.push_str(arg);
-        return;
-    }
-    out.push('"');
-    let mut backslashes = 0usize;
-    for c in arg.chars() {
-        match c {
-            '\\' => backslashes += 1,
-            '"' => {
-                // These backslashes precede a quote: escape each, then
-                // the quote itself.
-                for _ in 0..=backslashes * 2 {
-                    out.push('\\');
-                }
-                out.push('"');
-                backslashes = 0;
-            }
-            other => {
-                for _ in 0..backslashes {
-                    out.push('\\');
-                }
-                backslashes = 0;
-                out.push(other);
-            }
-        }
-    }
-    // Trailing backslashes precede the closing quote, so double them.
-    for _ in 0..backslashes * 2 {
-        out.push('\\');
-    }
-    out.push('"');
 }
 
 #[cfg(test)]
@@ -1069,28 +992,6 @@ mod tests {
             joined,
             "\"C:\\Program Files\\Microsoft Visual Studio\\VC\\cl.exe\" /nologo"
         );
-    }
-
-    #[test]
-    fn windows_quote_doubles_trailing_backslashes_before_closing_quote() {
-        // A trailing backslash inside a quoted arg would escape the
-        // closing quote, so a run of N is doubled to 2N.
-        let mut out = String::new();
-        windows_quote_arg(r"C:\dir with space\", &mut out);
-        assert_eq!(out, "\"C:\\dir with space\\\\\"");
-    }
-
-    #[test]
-    fn windows_quote_escapes_embedded_quote_and_its_backslashes() {
-        // An embedded `"` is escaped as `\"`, and a run of N backslashes
-        // immediately before it becomes 2N+1 backslashes.
-        let mut zero = String::new();
-        windows_quote_arg(r#"a "b"#, &mut zero); // no backslash before the quote
-        assert_eq!(zero, "\"a \\\"b\"");
-
-        let mut one = String::new();
-        windows_quote_arg(r#"a\"b"#, &mut one); // one backslash before the quote
-        assert_eq!(one, "\"a\\\\\\\"b\"");
     }
 
     #[test]
