@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+use cabin_fs::path::PortabilityViolation;
 use camino::Utf8PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -65,7 +66,7 @@ impl PackageName {
             if !is_valid_package_base_name(&value) {
                 return Err(ValidationError::InvalidPackageName(value));
             }
-            return Ok(Self(value));
+            return Self::with_portable_components(value);
         };
         if base.contains('/') {
             return Err(ValidationError::PackageNameTooManySlashes(value));
@@ -79,7 +80,24 @@ impl PackageName {
         if !is_valid_package_base_name(base) {
             return Err(ValidationError::InvalidPackageName(value));
         }
-        Ok(Self(value))
+        Self::with_portable_components(value)
+    }
+
+    /// Each part of a name is a directory under a build's `packages/`,
+    /// so none may be a Windows device name.  The grammar leaves that
+    /// the only way a part fails to be portable.  The registry refuses
+    /// the same names (`registry/src/names.rs`).
+    fn with_portable_components(value: String) -> Result<Self, ValidationError> {
+        match value
+            .split('/')
+            .find(|part| cabin_fs::path::component_portability(part).is_some())
+        {
+            Some(device) => Err(ValidationError::WindowsDevicePackageName {
+                device: device.to_owned(),
+                name: value,
+            }),
+            None => Ok(Self(value)),
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -359,16 +377,30 @@ impl TargetName {
     /// # Errors
     /// Returns [`ValidationError::EmptyTargetName`] for an empty name,
     /// [`ValidationError::TargetNameContainsWhitespace`] when the name contains
-    /// whitespace, and [`ValidationError::UnsafeTargetName`] when it fails the
-    /// [`is_path_safe_name`] predicate.
+    /// whitespace, [`ValidationError::UnsafeTargetName`] when it fails the
+    /// [`is_path_safe_name`] predicate, and
+    /// [`ValidationError::NonPortableTargetName`] when Windows would read
+    /// it as another name or a device
+    /// ([`cabin_fs::path::component_portability`]).
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
-        validate_path_safe_name(
+        let name = validate_path_safe_name(
             value.into(),
             ValidationError::EmptyTargetName,
             ValidationError::TargetNameContainsWhitespace,
             ValidationError::UnsafeTargetName,
-        )
-        .map(Self)
+        )?;
+        let reason = match cabin_fs::path::component_portability(&name) {
+            None => return Ok(Self(name)),
+            Some(PortabilityViolation::TrailingDot) => {
+                "target names must not end with `.`, which Windows drops from file names, so the target's outputs could take another target's paths"
+            }
+            Some(PortabilityViolation::WindowsDeviceName) => {
+                "the part of a target name before its first `.` must not be a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, or `LPT1`-`LPT9`, in any letter case), which Windows cannot use as a file or directory name"
+            }
+            // `is_path_safe_name` rules out every other violation.
+            Some(other) => other.detail(),
+        };
+        Err(ValidationError::NonPortableTargetName { name, reason })
     }
 
     pub fn as_str(&self) -> &str {
@@ -1343,12 +1375,18 @@ impl Package {
     }
 
     fn validate_targets(targets: &[Target]) -> Result<(), ValidationError> {
-        let mut seen: HashSet<&str> = HashSet::with_capacity(targets.len());
+        // Keyed by lowercase name: two names one letter case apart would
+        // share output files and object directories on a case-insensitive
+        // filesystem.
+        let mut seen: HashMap<String, &str> = HashMap::with_capacity(targets.len());
         for target in targets {
-            if !seen.insert(target.name.as_str()) {
-                return Err(ValidationError::DuplicateTargetName(
-                    target.name.as_str().to_owned(),
-                ));
+            let name = target.name.as_str();
+            if let Some(other) = seen.insert(name.to_ascii_lowercase(), name) {
+                return Err(if other == name {
+                    ValidationError::DuplicateTargetName(name.to_owned())
+                } else {
+                    ValidationError::TargetNamesDifferOnlyInCase(other.to_owned(), name.to_owned())
+                });
             }
             validate_target_include_dirs(target)?;
             if let Some(path) = target.instruction_sets.keys().find(|path| {
@@ -1979,6 +2017,64 @@ mod tests {
     }
 
     #[test]
+    fn target_name_rejects_names_windows_reads_as_another() {
+        for (raw, reason) in [
+            ("foo.", "end with `.`"),
+            ("foo.bar.", "end with `.`"),
+            ("nul", "device name"),
+            ("CON", "device name"),
+            ("Prn.txt", "device name"),
+            ("aux.tar.gz", "device name"),
+            ("com1", "device name"),
+            ("LPT9.lib", "device name"),
+        ] {
+            let err = TargetName::new(raw).unwrap_err();
+            assert!(
+                matches!(&err, ValidationError::NonPortableTargetName { name, .. } if name == raw),
+                "{raw:?}: {err:?}"
+            );
+            assert!(err.to_string().contains(reason), "{raw:?}: {err}");
+        }
+        // Device names only match a whole stem, and Windows has no `COM0`.
+        for raw in [
+            "Foo",
+            "fooBar",
+            "foo.bar",
+            "con-x",
+            "console",
+            "nul_check",
+            "com10",
+            "COM0",
+            "lpt0.a",
+            "x.nul",
+        ] {
+            assert!(TargetName::new(raw).is_ok(), "{raw:?} should be accepted");
+        }
+    }
+
+    #[test]
+    fn package_name_rejects_windows_device_names() {
+        for (raw, device) in [
+            ("con", "con"),
+            ("aux", "aux"),
+            ("com1", "com1"),
+            ("lpt9/fmt", "lpt9"),
+            ("fmtlib/nul", "nul"),
+        ] {
+            assert_eq!(
+                PackageName::new(raw).unwrap_err(),
+                ValidationError::WindowsDevicePackageName {
+                    name: raw.to_owned(),
+                    device: device.to_owned()
+                }
+            );
+        }
+        for raw in ["con-x", "console", "com0", "lpt0", "com10", "con-x/aux-1"] {
+            assert!(PackageName::new(raw).is_ok(), "{raw:?} should be accepted");
+        }
+    }
+
+    #[test]
     fn project_accepts_valid_targets() {
         let package = Package::new(
             pkg("hello"),
@@ -2007,6 +2103,25 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, ValidationError::DuplicateTargetName("a".into()));
+    }
+
+    #[test]
+    fn project_rejects_targets_one_letter_case_apart() {
+        let err = Package::new(
+            pkg("hello"),
+            version(),
+            vec![
+                target("Tool", TargetKind::Executable, &[]),
+                target("lib", TargetKind::Library, &[]),
+                target("tool", TargetKind::Library, &[]),
+            ],
+            Vec::new(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            ValidationError::TargetNamesDifferOnlyInCase("Tool".into(), "tool".into())
+        );
     }
 
     #[test]

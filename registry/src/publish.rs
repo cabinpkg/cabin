@@ -451,7 +451,10 @@ pub fn validate_metadata(
     for map in [&parsed.dependencies, &parsed.dev_dependencies] {
         for key in map.keys() {
             let scoped = key.split_once('/').is_some_and(|(scope, name)| {
-                crate::routes::is_valid_scope(scope) && crate::routes::is_valid_name(name)
+                crate::routes::is_valid_scope(scope)
+                    && crate::routes::is_valid_name(name)
+                    && !crate::names::is_device_stem(scope)
+                    && !crate::names::is_device_stem(name)
             });
             if !scoped {
                 return Err(INVALID_DEPENDENCY_NAME);
@@ -466,6 +469,22 @@ pub fn validate_metadata(
         return Err(YANKED_AT_PUBLISH);
     }
     Ok(parsed)
+}
+
+/// Mirror of the client's `cabin_core::TargetName` grammar, pinned by
+/// a parity test.
+fn is_valid_target_name(target: &str) -> bool {
+    !target.is_empty()
+        && target != "."
+        && target != ".."
+        && !target.starts_with('.')
+        && !target.starts_with('-')
+        && target
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        // What Windows would read as another name or a device.
+        && !target.ends_with('.')
+        && !crate::names::is_device_stem(target.split('.').next().unwrap_or_default())
 }
 
 /// The canonical document omits `links` when no target claims, so a
@@ -484,7 +503,7 @@ fn non_empty_links_map<'de, D: serde::Deserializer<'de>>(
 
 /// Lexical mirror of the client's `links` rules
 /// (`cabin_core::validate_links_identity` plus the target-name
-/// grammar and `Package`-level claim uniqueness), like
+/// grammar and `Package`-level target-name and claim uniqueness), like
 /// [`validate_upstream`]: a strict subset, so an honest client is
 /// never rejected here, and a hand-crafted document cannot park an
 /// entry that could only fail at verification time.
@@ -510,16 +529,10 @@ fn validate_links(
     standards: Option<&serde_json::Value>,
 ) -> Result<(), &'static str> {
     let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    // A package's target names never differ only in letter case.
+    let mut targets = std::collections::BTreeSet::new();
     for (target, value) in links {
-        let valid_target = !target.is_empty()
-            && target != "."
-            && target != ".."
-            && !target.starts_with('.')
-            && !target.starts_with('-')
-            && target
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
-        if !valid_target {
+        if !is_valid_target_name(target) || !targets.insert(target.to_ascii_lowercase()) {
             return Err(INVALID_LINKS);
         }
         let Some(identity) = value.as_str() else {
@@ -748,6 +761,42 @@ mod tests {
     /// `400`s, so a document that could only fail at verification
     /// time never enters the pending queue.
     #[test]
+    fn target_names_mirror_the_client_grammar() {
+        for name in [
+            "z",
+            "Tool",
+            "tool.v2",
+            "lib1",
+            "COM0",
+            "lpt0.a",
+            "con-x",
+            "console",
+            "x.nul",
+            "z.",
+            "a.b.",
+            "nul",
+            "Con.txt",
+            "LPT9.a",
+            "aux.tar.gz",
+            ".",
+            "..",
+            ".z",
+            "-z",
+            "a b",
+            "a/b",
+            "a\\b",
+            "",
+            "é",
+        ] {
+            assert_eq!(
+                is_valid_target_name(name),
+                cabin_core::TargetName::new(name).is_ok(),
+                "{name:?}"
+            );
+        }
+    }
+
+    #[test]
     fn validate_metadata_rejects_malformed_links() {
         // The grammar cases keep an empty `standards` table: their
         // errors fire before the cross-table row check runs.
@@ -770,6 +819,20 @@ mod tests {
         for (label, standards, links, expected) in [
             ("bad key", NO_ROWS, r#"{"..": "z"}"#, INVALID_LINKS),
             ("leading dash key", NO_ROWS, r#"{"-z": "z"}"#, INVALID_LINKS),
+            ("trailing dot key", NO_ROWS, r#"{"z.": "z"}"#, INVALID_LINKS),
+            ("device key", NO_ROWS, r#"{"nul": "z"}"#, INVALID_LINKS),
+            (
+                "device stem key",
+                NO_ROWS,
+                r#"{"Con.txt": "z"}"#,
+                INVALID_LINKS,
+            ),
+            (
+                "keys one letter case apart",
+                NO_ROWS,
+                r#"{"Z": "y", "z": "z"}"#,
+                INVALID_LINKS,
+            ),
             ("empty identity", NO_ROWS, r#"{"z": ""}"#, INVALID_LINKS),
             (
                 "identity with space",
@@ -1312,6 +1375,8 @@ mod tests {
             "a//b",
             "fmtlib/",
             "/fmt",
+            "fmtlib/nul",
+            "con/fmt",
         ] {
             let with_dep = metadata_json("fmtlib", "fmt", "1.0.0").replace(
                 "\"dependencies\": {}",

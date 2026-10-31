@@ -252,8 +252,10 @@ then resolved through its last `..` to a physical path, following symlinks, with
 anything: Ninja removes `..` without consulting the filesystem, so a spelling such as `link/../build`, where `link` is a symlink, would otherwise name
 one directory to Ninja and another to the compiler.  Windows removes `..` the same way Ninja does.
 
-Two targets with the same `<target>` name in the same package would collide here; the planner
-rejects duplicate target names within a package, so this is a static guarantee.
+Two targets with the same `<target>` name in the same package would collide here; a package
+cannot declare two target names that are equal or differ only in letter case, so this is a static
+guarantee.  A build also refuses any other pair of outputs that would share a path, before it
+writes anything (see [target names](manifest.md#targetname)).
 
 ## Dependency-kind policy summary
 

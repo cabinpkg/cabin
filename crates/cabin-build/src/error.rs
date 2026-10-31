@@ -60,6 +60,18 @@ pub enum BuildError {
     )]
     PackageNameCollidesWithScope { package: String, scoped: String },
 
+    /// Two build steps' outputs would land on one path, or one step's
+    /// file where another's output needs a directory
+    /// ([`crate::validate_output_paths`]).
+    #[error(
+        "build outputs `{first}` and `{second}` collide: {reason}; rename a target, source, or package, or list a source only once, so their outputs differ"
+    )]
+    OutputPathConflict {
+        first: Utf8PathBuf,
+        second: Utf8PathBuf,
+        reason: &'static str,
+    },
+
     /// A target's `deps` entry names a package that the owning
     /// manifest only declares under `[dev-dependencies]`, but no
     /// active dev edge backs it: either the referencing target is

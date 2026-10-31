@@ -25,6 +25,15 @@ const DOS_DEVICE_STEMS: &[&str] = &[
 /// (a released name would instantly be claimable).
 const PROJECT_RESERVED: &[&str] = &["cabin", "cabinpkg", "std", "core"];
 
+/// Whether `stem` is a reserved DOS device stem, in any letter case.
+/// The client refuses a package-name part, or a target name's part
+/// before its first `.`, that is one.
+pub fn is_device_stem(stem: &str) -> bool {
+    DOS_DEVICE_STEMS
+        .iter()
+        .any(|device| device.eq_ignore_ascii_case(stem))
+}
+
 /// Whether `name` is refused as a package name (publish `400`) or a
 /// scope name (the claim flow's uniform denied redirect).
 pub fn is_reserved(name: &str) -> bool {

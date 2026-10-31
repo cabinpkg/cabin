@@ -43,13 +43,19 @@ pub fn is_safe_single_component(value: &str) -> bool {
 }
 
 /// Reserved DOS device names.  Windows resolves any path component
-/// whose stem (the text before the first `.`) equals one of these,
-/// case-insensitively and with or without an extension, to a
-/// character device rather than a file under the target: an entry
-/// named `NUL` writes to the null device instead of materializing a
-/// regular file.  The `COM`/`LPT` families additionally reserve their
-/// Unicode superscript-digit forms, listed in
+/// whose stem (the text before the first `.`, less trailing spaces)
+/// equals one of these, case-insensitively and with or without an
+/// extension, to a character device rather than a file under the
+/// target: an entry named `NUL` writes to the null device instead of
+/// materializing a regular file.  The `COM`/`LPT` families additionally
+/// reserve their Unicode superscript-digit forms, listed in
 /// [`SUPERSCRIPT_DEVICE_STEMS`].
+///
+/// `COM0` and `LPT0` are ordinary names: Win32 path parsing takes only
+/// the digits 1-9 (and the superscripts) as a device number, and
+/// Microsoft's "Naming Files, Paths, and Namespaces" dropped the two
+/// from its reserved list in 2025 for that reason.  `OneDrive` refuses
+/// them as a sync-service rule, not a filesystem one.
 const DOS_DEVICE_NAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
@@ -147,8 +153,13 @@ pub fn component_portability(component: &str) -> Option<PortabilityViolation> {
     if component.starts_with(' ') {
         return Some(PortabilityViolation::LeadingSpace);
     }
-    // Reserved names match on the stem before the first dot.
-    let stem = component.split('.').next().unwrap_or(component);
+    // Reserved names match on the stem before the first dot, which
+    // Windows reads without trailing spaces (`nul .txt` is `NUL`).
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or(component)
+        .trim_end_matches(' ');
     if DOS_DEVICE_NAMES
         .iter()
         .chain(SUPERSCRIPT_DEVICE_STEMS)
@@ -342,13 +353,72 @@ mod tests {
     fn component_portability_flags_reserved_device_names() {
         // Case-insensitive, with or without an extension, and the
         // superscript `COM`/`LPT` forms.
-        for name in ["CON", "nul", "Com1.txt", "LPT9", "COM\u{b9}", "aux.h"] {
+        for name in [
+            "CON",
+            "nul",
+            "Com1.txt",
+            "LPT9",
+            "COM\u{b9}",
+            "aux.h",
+            "nul .txt",
+            "COM1  .h",
+        ] {
             assert_eq!(
                 component_portability(name),
                 Some(PortabilityViolation::WindowsDeviceName),
                 "{name} should be a reserved device name"
             );
         }
+        // Digit 0 is no device number, and a device name is only
+        // reserved as the whole stem.
+        for name in [
+            "COM0",
+            "lpt0.txt",
+            "Com0.h",
+            "COM10",
+            "console",
+            "nul_check",
+            "con-x",
+        ] {
+            assert_eq!(component_portability(name), None, "{name}");
+        }
+    }
+
+    /// The device rule above matches what Windows does: the names it
+    /// accepts are ordinary files and directories, while `NUL` is not.
+    #[cfg(windows)]
+    #[test]
+    fn windows_creates_the_device_like_names_the_rule_accepts() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let accepted = ["COM0", "lpt0.txt", "Com0.h", "nul_check", "COM10"];
+        for name in accepted {
+            assert_eq!(component_portability(name), None, "{name}");
+            std::fs::write(dir.path().join(name), name).unwrap();
+        }
+        std::fs::create_dir(dir.path().join("LPT0")).unwrap();
+        std::fs::write(dir.path().join("LPT0").join("inner"), "inner").unwrap();
+        // Written to the null device: no entry appears.
+        std::fs::write(dir.path().join("NUL"), "device").unwrap();
+
+        let mut listed: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        listed.sort();
+        let mut expected: Vec<String> = accepted.iter().map(|name| (*name).to_owned()).collect();
+        expected.push("LPT0".to_owned());
+        expected.sort();
+        assert_eq!(listed, expected);
+        for name in accepted {
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join(name)).unwrap(),
+                name
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("LPT0").join("inner")).unwrap(),
+            "inner"
+        );
     }
 
     #[test]

@@ -5044,3 +5044,139 @@ fn standard_compat_violations_are_toolchain_independent() {
         "violations must not depend on the resolved toolchain or dialect"
     );
 }
+
+fn output_conflict(
+    targets: Vec<CoreTarget>,
+    dialect: Dialect,
+    fold_case: bool,
+) -> Option<(String, String, &'static str)> {
+    let package = Package::new(pkg_name("app"), version(), targets, Vec::new()).unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    req.dialect = dialect;
+    let packages = "/abs/proj/build/dev/packages/app/";
+    match crate::validate::validate_output_paths_folding(&plan(&req).unwrap(), fold_case) {
+        Ok(()) => None,
+        Err(BuildError::OutputPathConflict {
+            first,
+            second,
+            reason,
+        }) => Some((
+            first.as_str().replace('\\', "/").replace(packages, ""),
+            second.as_str().replace('\\', "/").replace(packages, ""),
+            reason,
+        )),
+        Err(other) => panic!("{other}"),
+    }
+}
+
+/// Outputs are compared as the dialect names them, so a target named
+/// like another's artifact collides only where the names meet.
+#[test]
+fn output_conflicts_follow_the_dialects_file_names() {
+    let targets = || {
+        vec![
+            target("foo", TargetKind::Library, &["src/foo.c"], &[]),
+            target(
+                "libfoo.a",
+                TargetKind::Executable,
+                &["src/main.c"],
+                &["foo"],
+            ),
+        ]
+    };
+    assert_eq!(
+        output_conflict(targets(), Dialect::GnuLike, false),
+        Some((
+            "libfoo.a".into(),
+            "libfoo.a".into(),
+            "they are the same file"
+        ))
+    );
+    // MSVC writes `foo.lib` and `libfoo.a.exe`.
+    assert_eq!(output_conflict(targets(), Dialect::Msvc, true), None);
+
+    // An executable named `obj` is a file where objects need a directory.
+    let targets = || {
+        vec![
+            target("foo", TargetKind::Library, &["src/foo.c"], &[]),
+            target("obj", TargetKind::Executable, &["src/main.c"], &["foo"]),
+        ]
+    };
+    assert_eq!(
+        output_conflict(targets(), Dialect::GnuLike, false),
+        Some((
+            "obj".into(),
+            "obj/foo/src/foo.c.o".into(),
+            "the second needs a directory where the first is a file"
+        ))
+    );
+    assert_eq!(output_conflict(targets(), Dialect::Msvc, true), None);
+}
+
+/// A source listed twice writes one object twice everywhere.  Sources
+/// one letter case apart, such as C `foo.c` and C++ `foo.C`, collide
+/// only where the filesystem ignores case.
+#[test]
+fn output_conflicts_compare_paths_as_the_filesystem_does() {
+    let twice = || {
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["./src/main.c", "src/main.c"],
+            &[],
+        )]
+    };
+    for fold_case in [false, true] {
+        assert_eq!(
+            output_conflict(twice(), Dialect::GnuLike, fold_case),
+            Some((
+                "obj/app/src/main.c.o".into(),
+                "obj/app/src/main.c.o".into(),
+                "they are the same file"
+            ))
+        );
+    }
+    let cased = || {
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/foo.C", "src/foo.c"],
+            &[],
+        )]
+    };
+    assert_eq!(output_conflict(cased(), Dialect::GnuLike, false), None);
+    assert_eq!(
+        output_conflict(cased(), Dialect::GnuLike, true),
+        Some((
+            "obj/app/src/foo.C.o".into(),
+            "obj/app/src/foo.c.o".into(),
+            "they differ only in letter case, which this filesystem ignores"
+        ))
+    );
+}
+
+/// Several executables linking one library share it as an input, and
+/// the build context's units live apart from the target context's.
+#[test]
+fn shared_inputs_and_both_contexts_do_not_conflict() {
+    let package = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![
+            target("foo", TargetKind::Library, &["src/foo.c"], &[]),
+            target("a", TargetKind::Executable, &["src/a.c"], &["foo"]),
+            target("b", TargetKind::Executable, &["src/b.c"], &["foo"]),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    let mut bg = plan(&req).unwrap();
+    req.build_context = true;
+    bg.append(plan(&req).unwrap());
+    crate::validate::validate_output_paths_folding(&bg, true).unwrap();
+}

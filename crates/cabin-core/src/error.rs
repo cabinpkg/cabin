@@ -32,6 +32,11 @@ pub enum ValidationError {
     )]
     InvalidPackageScope { name: String, scope: String },
 
+    #[error(
+        "package name {name:?} is not valid; `{device}` is a Windows device name (`con`, `prn`, `aux`, `nul`, `com1`-`com9`, or `lpt1`-`lpt9`), which Windows cannot use as the package's build directory"
+    )]
+    WindowsDevicePackageName { name: String, device: String },
+
     #[error("target name must not be empty")]
     EmptyTargetName,
 
@@ -43,8 +48,16 @@ pub enum ValidationError {
     )]
     UnsafeTargetName(String),
 
+    #[error("target name {name:?} is not valid; {reason}")]
+    NonPortableTargetName { name: String, reason: &'static str },
+
     #[error("duplicate target name: {0:?}")]
     DuplicateTargetName(String),
+
+    #[error(
+        "target names {0:?} and {1:?} differ only in letter case, so on a case-insensitive filesystem, such as macOS's or Windows' default, their outputs would be the same files; rename one of them"
+    )]
+    TargetNamesDifferOnlyInCase(String, String),
 
     #[error(
         "system dependency name {0:?} is not valid; a pkg-config module name must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must not start with `.` or `-`, and must not be `.` or `..`"
