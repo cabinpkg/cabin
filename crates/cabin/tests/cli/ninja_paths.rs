@@ -173,12 +173,14 @@ fn long_archive_and_link_commands_use_response_files() {
     require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path().join("long paths");
-    // 150 objects per command: on Linux each path is ~900 bytes (over
-    // the 120 KiB inline limit together); Windows keeps paths under
-    // `MAX_PATH` and needs only 24 KiB.
+    // On Linux, 150 objects of ~900 bytes each pass the 128 KiB a single
+    // `/bin/sh -c` argument may hold.  Windows keeps each path under
+    // `MAX_PATH`, so 900 objects of ~200 bytes pass both `CreateProcess`'s
+    // 32,767 characters and the 128 KiB line MSVC tools read from a
+    // response file.
     let segment = "s".repeat(if cfg!(windows) { 100 } else { 200 });
     let nested = [segment.as_str(); if cfg!(windows) { 1 } else { 4 }].join("/");
-    let count = 150;
+    let count = if cfg!(windows) { 900 } else { 150 };
     let sources = |prefix: &str| {
         (0..count)
             .map(|i| format!("\"{prefix}/{nested}/u{i}.c\""))
@@ -225,6 +227,9 @@ fn long_archive_and_link_commands_use_response_files() {
         .stdout(predicate::str::contains(format!("value={}", 2 * last)));
     let manifest = fs::read_to_string(dir.join("build/dev/build.ninja")).unwrap();
     assert_eq!(manifest.matches("\n  rspfile = ").count(), 2, "{manifest}");
+    if cfg!(windows) {
+        assert_eq!(manifest.matches("\n  rsp_head = ").count(), 2, "{manifest}");
+    }
     cabin()
         .args(["-v", "build"])
         .current_dir(&dir)

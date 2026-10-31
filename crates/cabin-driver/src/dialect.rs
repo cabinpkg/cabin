@@ -135,19 +135,36 @@ impl Dialect {
         }
     }
 
-    /// `args` as the contents of a response file that this dialect's
-    /// archiver and linker read in their place.  GCC, Clang, and `ar`
-    /// split a response file at whitespace and honor quotes and
+    /// What a response file this dialect's archiver and linker read
+    /// starts with: MSVC tools read one as UTF-8 only after a byte order
+    /// mark.
+    #[must_use]
+    pub fn response_file_header(self) -> &'static str {
+        match self {
+            Dialect::GnuLike => "",
+            Dialect::Msvc => "\u{feff}",
+        }
+    }
+
+    /// Whether this dialect's archiver and linker need a response file's
+    /// inputs on lines of their own: MSVC tools reject a line of 128 KiB
+    /// or more (LNK1170), so a library of many objects cannot list them
+    /// on one.  GCC, Clang, and `ar` read lines of any length.
+    #[must_use]
+    pub fn response_file_input_lines(self) -> bool {
+        self == Dialect::Msvc
+    }
+
+    /// `args` spelled for a response file that this dialect's archiver
+    /// and linker read in their place, separated by spaces.  GCC, Clang,
+    /// and `ar` split a response file at whitespace and honor quotes and
     /// backslash escapes, so every argument is spelled with each
     /// whitespace, quote, and backslash character backslash-escaped.
-    /// MSVC tools split it like a command line, and read it as UTF-8
-    /// only after a byte order mark.  Neither form can carry a NUL.
+    /// MSVC tools split it like a command line.  Neither form can carry
+    /// a NUL.
     #[must_use]
-    pub fn response_file_content(self, args: &[String]) -> String {
+    pub fn response_file_args(self, args: &[String]) -> String {
         let mut out = String::new();
-        if self == Dialect::Msvc {
-            out.push('\u{feff}');
-        }
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
                 out.push(' ');

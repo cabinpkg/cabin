@@ -204,13 +204,24 @@ fn render_with_inline_limit(
         out.push_str("  description = $description\n\n");
     }
 
+    // Ninja expands `$in_newline` only in a rule's bindings, and a rule
+    // with `rspfile_content` must name an `rspfile`; an edge that sets
+    // no `rsp_file` writes none.
+    let input_lines = if cfg!(windows) && graph.dialect.response_file_input_lines() {
+        "  rspfile = $rsp_file\n  rspfile_content = $rsp_head $in_newline $rsp_tail\n"
+    } else {
+        ""
+    };
+
     out.push_str("rule cxx_archive\n  command = ");
     out.push_str(&archive_command_line(check_stamp_runner, graph.dialect)?);
     out.push('\n');
+    out.push_str(input_lines);
     out.push_str("  description = $description\n\n");
 
     out.push_str("rule link_executable\n");
     out.push_str("  command = $command\n");
+    out.push_str(input_lines);
     out.push_str("  description = $description\n\n");
 
     for action in &graph.actions {
@@ -411,7 +422,7 @@ fn write_edge(
     // Archive and link commands grow with the number of objects; past the
     // inline limit the arguments move into a response file that Ninja
     // writes before the command runs and removes after it succeeds.
-    let mut response_file = None;
+    let mut response_file = Vec::new();
     if matches!(
         action.kind,
         LoweredActionKind::ArchiveStaticLibrary | LoweredActionKind::LinkExecutable
@@ -422,7 +433,7 @@ fn write_edge(
         // can have this name.
         let path = format!("{}+.rsp", action.outputs[0]);
         command_value = command_line(&[program.clone(), format!("@{path}")])?;
-        response_file = Some((path, dialect.response_file_content(args)));
+        response_file = response_file_bindings(action, args, dialect, path);
     }
     // Check edges bind the argv to `$checkcmd` so the `c_check` /
     // `cxx_check` rule can run it through the shell-free
@@ -448,14 +459,57 @@ fn write_edge(
         write_var(out, "deps", "msvc")?;
         write_var(out, "msvc_deps_prefix", DEPFILE_DEPS_PREFIX)?;
     }
-    if let Some((path, content)) = &response_file {
-        write_var(out, "rspfile", path)?;
-        write_var(out, "rspfile_content", content)?;
+    for (key, value) in &response_file {
+        write_var(out, key, value)?;
     }
     write_var(out, "description", &action.description)?;
     out.push('\n');
 
     Ok(())
+}
+
+/// The edge bindings that hand `args` to the tool through the response
+/// file at `path`.
+fn response_file_bindings(
+    action: &LoweredAction,
+    args: &[String],
+    dialect: Dialect,
+    path: String,
+) -> Vec<(&'static str, String)> {
+    let header = dialect.response_file_header();
+    // The rule's `$in_newline` writes the edge's inputs one per line,
+    // quoted for the host as `$in` is, which is how MSVC tools read
+    // them on Windows; the arguments around them keep their places.
+    let inputs = action.inputs.len();
+    match (cfg!(windows) && dialect.response_file_input_lines() && inputs > 0)
+        .then(|| {
+            args.windows(inputs).position(|run| {
+                run.iter()
+                    .map(String::as_str)
+                    .eq(action.inputs.iter().map(|input| input.as_str()))
+            })
+        })
+        .flatten()
+    {
+        Some(start) => {
+            let (before, rest) = args.split_at(start);
+            vec![
+                ("rsp_file", path),
+                (
+                    "rsp_head",
+                    format!("{header}{}", dialect.response_file_args(before)),
+                ),
+                ("rsp_tail", dialect.response_file_args(&rest[inputs..])),
+            ]
+        }
+        None => vec![
+            ("rspfile", path),
+            (
+                "rspfile_content",
+                format!("{header}{}", dialect.response_file_args(args)),
+            ),
+        ],
+    }
 }
 
 fn write_var(out: &mut String, key: &str, value: &str) -> Result<(), NinjaError> {
@@ -1317,25 +1371,56 @@ mod tests {
     }
 
     #[test]
-    fn msvc_response_files_are_command_line_quoted_with_a_byte_order_mark() {
+    fn msvc_response_files_list_inputs_one_per_line_after_a_byte_order_mark() {
         let archive = BuildAction::Archive(ArchiveAction {
             archiver: Utf8PathBuf::from("C:/VC/lib.exe"),
             output: Utf8PathBuf::from("C:/b/foo.lib"),
-            inputs: vec![Utf8PathBuf::from("C:/b/a b.obj")],
+            inputs: vec![
+                Utf8PathBuf::from("C:/b/a b.obj"),
+                Utf8PathBuf::from("C:/b/c.obj"),
+            ],
             description: "LIB C:/b/foo.lib".into(),
         });
+        let link = BuildAction::Link(LinkAction {
+            linker: Utf8PathBuf::from("C:/VC/cl.exe"),
+            target: None,
+            sysroot: None,
+            output: Utf8PathBuf::from("C:/b/$app.exe"),
+            inputs: vec![
+                Utf8PathBuf::from("C:/b/main.obj"),
+                Utf8PathBuf::from("C:/b/foo.lib"),
+            ],
+            arguments: vec!["/DEBUG".into()],
+            link_libs: vec!["ws2_32".into()],
+            frameworks: vec![],
+            description: "LINK C:/b/$app.exe".into(),
+        });
         let body = render_with_inline_limit(
-            &msvc_graph_with(vec![archive]),
+            &msvc_graph_with(vec![archive, link]),
             Path::new("/opt/cabin/bin/cabin"),
             0,
         )
         .unwrap();
-        assert!(
-            body.contains(
-                "  rspfile_content = \u{feff}/nologo /OUT:C:/b/foo.lib \"C:/b/a b.obj\"\n"
-            ),
-            "{body}"
-        );
+        // Ninja quotes `$in_newline` for the host, which MSVC tools read
+        // only on Windows; `/link` and its options share the last line.
+        let expected: &[&str] = if cfg!(windows) {
+            &[
+                "  rspfile = $rsp_file\n  rspfile_content = $rsp_head $in_newline $rsp_tail\n",
+                "  rsp_file = C:/b/foo.lib+.rsp\n  rsp_head = \u{feff}/nologo /OUT:C:/b/foo.lib\n  \
+                 rsp_tail = \n",
+                "  rsp_file = C:/b/$$app.exe+.rsp\n  rsp_head = \u{feff}/nologo\n  rsp_tail = ws2_32.lib /FeC:/b/$$app.exe /link \
+                 /SUBSYSTEM:CONSOLE /DEBUG\n",
+            ]
+        } else {
+            &[
+                "  rspfile_content = \u{feff}/nologo /OUT:C:/b/foo.lib \"C:/b/a b.obj\" C:/b/c.obj\n",
+                "  rspfile_content = \u{feff}/nologo C:/b/main.obj C:/b/foo.lib ws2_32.lib \
+                 /FeC:/b/$$app.exe /link /SUBSYSTEM:CONSOLE /DEBUG\n",
+            ]
+        };
+        for line in expected {
+            assert!(body.contains(line), "{body}");
+        }
     }
 
     #[test]
