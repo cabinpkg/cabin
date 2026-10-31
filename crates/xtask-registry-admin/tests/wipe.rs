@@ -64,10 +64,10 @@ impl World {
         fs::write(dir.path().join("root/migrations/0001_init.sql"), b"one").expect("a migration");
         let shim = dir.path().join("bin");
         fs::create_dir_all(&shim).expect("the shim directory");
-        let node = shim.join("node");
+        let script = shim.join("node.sh");
         let created = dir.path().join("created");
         fs::write(
-            &node,
+            &script,
             format!(
                 "#!/usr/bin/env bash\n\
                  printf '%s\\n' \"$*\" >>\"{log}\"\n\
@@ -84,6 +84,16 @@ impl World {
             ),
         )
         .expect("the node shim");
+        // Only `cp` opens the executable for writing, so no sibling test's
+        // spawned child inherits a writable descriptor that would make the
+        // exec fail with ETXTBSY (see `launch_guard.rs`).
+        let node = shim.join("node");
+        let copied = std::process::Command::new("cp")
+            .arg(&script)
+            .arg(&node)
+            .status()
+            .expect("cp is runnable");
+        assert!(copied.success());
         fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).expect("chmod node");
         Self { dir }
     }
