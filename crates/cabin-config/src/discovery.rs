@@ -122,7 +122,9 @@ pub struct ConfigDiscovery {
 /// workspace/package file exists but fails to read (errors other
 /// than not-found), [`ConfigError::Parse`] when any read file
 /// is not valid Cabin config TOML, [`ConfigError::NonUtf8Path`]
-/// when a discovered config file path is not valid UTF-8, and
+/// when a discovered config file path is not valid UTF-8,
+/// [`ConfigError::TermOutsideUserConfig`] when a workspace or package
+/// file declares `[term]`, and
 /// [`ConfigError::InvalidBoolEnv`] when `CABIN_NO_CONFIG` is set
 /// to a value outside the documented truthy / falsy spellings.
 #[tracing::instrument(level = "debug", skip_all)]
@@ -148,8 +150,9 @@ pub fn discover_config_files(
     }
 
     let mut files = Vec::new();
-    if let Some(path) = locate_user_config(&inputs.env, inputs.xdg_user_config_home.as_deref())
-        && let Some(file) = read_optional(&path, ConfigSource::User)?
+    let user = locate_user_config(&inputs.env, inputs.xdg_user_config_home.as_deref());
+    if let Some(path) = &user
+        && let Some(file) = read_optional(path, ConfigSource::User)?
     {
         files.push(file);
     }
@@ -161,6 +164,13 @@ pub fn discover_config_files(
             ConfigSource::Package
         };
         if let Some(file) = read_optional(&path, source)? {
+            // `CABIN_CONFIG_HOME` may name this project's `.cabin`, making
+            // the file the user config too, whose `[term]` applies.
+            if file.parsed.term.is_some()
+                && !user.as_deref().is_some_and(|user| same_file(user, &path))
+            {
+                return Err(ConfigError::TermOutsideUserConfig { path });
+            }
             files.push(file);
         }
     }
@@ -223,6 +233,11 @@ fn read_optional(
         path: utf8_config_path(path)?,
         parsed,
     }))
+}
+
+/// Whether `a` and `b` resolve to one existing file, however spelled.
+fn same_file(a: &Path, b: &Path) -> bool {
+    matches!((fs::canonicalize(a), fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
 }
 
 fn locate_user_config(env: &EnvLookup<'_>, xdg_user_config_home: Option<&Path>) -> Option<PathBuf> {
@@ -656,6 +671,74 @@ mod tests {
         assert!(
             message.contains("target-conditioned config tables are not supported"),
             "expected target-conditioned rejection, got: {message}"
+        );
+    }
+
+    #[test]
+    fn term_is_rejected_outside_the_user_and_explicit_config() {
+        // An empty table too: it is as ineffective as a populated one.
+        for (body, is_workspace_root) in [
+            ("[term]\ncolor = \"never\"\n", true),
+            ("[term]\nquiet = true\n", false),
+            ("[term]\n", true),
+        ] {
+            let project = TempDir::new().unwrap();
+            let path = write_config(project.path(), body);
+            let inputs = ConfigDiscoveryInputs {
+                workspace: Some(WorkspaceLayout {
+                    root_dir: project.path(),
+                    is_workspace_root,
+                }),
+                env: env_with(&[]),
+                xdg_user_config_home: None,
+            };
+            let err = discover_config_files(&inputs).unwrap_err();
+            assert!(
+                matches!(&err, ConfigError::TermOutsideUserConfig { path: p } if *p == path),
+                "{err}"
+            );
+        }
+
+        let home = TempDir::new().unwrap();
+        write_user_config(home.path(), "[term]\ncolor = \"never\"\n");
+        let explicit = home.path().join("explicit.toml");
+        std::fs::write(&explicit, "[term]\nverbose = true\n").unwrap();
+        let user = ConfigDiscoveryInputs {
+            workspace: None,
+            env: env_with(&[]),
+            xdg_user_config_home: Some(home_xdg_config_home(home.path())),
+        };
+        assert_eq!(discover_config_files(&user).unwrap().loaded_files.len(), 1);
+        let explicit = ConfigDiscoveryInputs {
+            workspace: None,
+            env: env_with(&[("CABIN_CONFIG", explicit.to_str().unwrap())]),
+            xdg_user_config_home: None,
+        };
+        assert_eq!(
+            discover_config_files(&explicit).unwrap().loaded_files.len(),
+            1
+        );
+
+        // A user config that is also the project's file keeps its `[term]`,
+        // and still counts as project config for everything else.
+        let project = TempDir::new().unwrap();
+        write_config(project.path(), "[term]\ncolor = \"never\"\n");
+        // Spelled apart from the workspace's path, as a relative or
+        // symlinked `CABIN_CONFIG_HOME` would be.
+        std::fs::create_dir(project.path().join("sub")).unwrap();
+        let home = project.path().join("sub/../.cabin");
+        let shared = ConfigDiscoveryInputs {
+            workspace: Some(WorkspaceLayout {
+                root_dir: project.path(),
+                is_workspace_root: true,
+            }),
+            env: env_with(&[("CABIN_CONFIG_HOME", home.to_str().unwrap())]),
+            xdg_user_config_home: None,
+        };
+        let loaded = discover_config_files(&shared).unwrap().loaded_files;
+        assert_eq!(
+            loaded.iter().map(|file| file.source).collect::<Vec<_>>(),
+            [ConfigSource::User, ConfigSource::Workspace]
         );
     }
 

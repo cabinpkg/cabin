@@ -33,7 +33,8 @@ pub struct ParsedConfig {
     pub resolver: ParsedResolver,
     pub gc: ParsedGc,
     pub toolchain: ParsedToolchain,
-    pub term: ParsedTerm,
+    /// `None` when the file has no `[term]` table.
+    pub term: Option<ParsedTerm>,
     pub patches: BTreeMap<PackageName, PatchSource>,
     /// Keyed by the original locator; each value is its replacement.
     pub source_replacements: BTreeMap<SourceLocator, SourceLocator>,
@@ -158,10 +159,7 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         Some(t) => parsed_toolchain_from_raw(t)?,
         None => ParsedToolchain::default(),
     };
-    let term = match raw.term {
-        Some(t) => parsed_term_from_raw(t)?,
-        None => ParsedTerm::default(),
-    };
+    let term = raw.term.map(parsed_term_from_raw).transpose()?;
     let patches = match raw.patch {
         Some(rows) => parsed_patches_from_raw(rows)?,
         None => BTreeMap::new(),
@@ -1094,7 +1092,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(parsed.term.color, Some(ColorChoice::Auto));
+        assert_eq!(parsed.term.unwrap().color, Some(ColorChoice::Auto));
     }
 
     #[test]
@@ -1110,7 +1108,7 @@ mod tests {
                 "#
             );
             let parsed = parse_config_str(&body).unwrap();
-            assert_eq!(parsed.term.color, Some(expected));
+            assert_eq!(parsed.term.unwrap().color, Some(expected));
         }
     }
 
@@ -1150,13 +1148,19 @@ mod tests {
     #[test]
     fn term_verbose_true_yields_verbose_level() {
         let parsed = parse_config_str("[term]\nverbose = true\n").unwrap();
-        assert_eq!(parsed.term.verbosity, Some(cabin_core::Verbosity::Verbose));
+        assert_eq!(
+            parsed.term.unwrap().verbosity,
+            Some(cabin_core::Verbosity::Verbose)
+        );
     }
 
     #[test]
     fn term_quiet_true_yields_quiet_level() {
         let parsed = parse_config_str("[term]\nquiet = true\n").unwrap();
-        assert_eq!(parsed.term.verbosity, Some(cabin_core::Verbosity::Quiet));
+        assert_eq!(
+            parsed.term.unwrap().verbosity,
+            Some(cabin_core::Verbosity::Quiet)
+        );
     }
 
     #[test]
@@ -1171,7 +1175,7 @@ mod tests {
     #[test]
     fn term_verbose_false_falls_back_to_unset() {
         let parsed = parse_config_str("[term]\nverbose = false\nquiet = false\n").unwrap();
-        assert_eq!(parsed.term.verbosity, None);
+        assert_eq!(parsed.term.unwrap().verbosity, None);
     }
 
     #[test]

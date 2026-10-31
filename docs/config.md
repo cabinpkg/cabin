@@ -41,7 +41,8 @@ If `CABIN_NO_CONFIG=1` is set, no files load at all.  The metadata view still re
 ## Precedence
 
 For every setting Cabin's config layer can supply (registry source, paths, build defaults,
-toolchain, compiler wrapper) the precedence order is, highest to lowest:
+toolchain, compiler wrapper) the precedence order is, highest to lowest (`[term]` skips the
+package-local and workspace layer, which cannot set it; see [`[term]`](#term)):
 
 1. **CLI flag** - e.g., `--profile`, `--cxx`, `--compiler-wrapper`, `--index-path`, `--cache-dir`.
 2. **Environment variable** - e.g., `CXX`, `AR`, `CABIN_COMPILER_WRAPPER`.  Empty values are treated
@@ -259,9 +260,12 @@ default `auto`.  Verbosity precedence: `-q` / `-v` - > `CABIN_TERM_QUIET` / `CAB
 `[term]` `quiet` / `verbose` config - > normal.  See
 [`environment-variables.md`](environment-variables.md) for the values and their behavior.
 
-Cabin settles these before it locates the workspace, so `[term]` is read from the user config, or
-from the `CABIN_CONFIG` file when that is set; a workspace or package `.cabin/config.toml` `[term]`
-table has no effect.
+Cabin settles these before it locates the workspace, so only the user config, or the `CABIN_CONFIG`
+file when that is set, can hold `[term]`.  A workspace or package `.cabin/config.toml` with a
+`[term]` table, even an empty one, fails every command that reads it, naming the file, instead of
+being ignored: a command finds the project config only once it has located its workspace, after
+its terminal output is already configured.  When `CABIN_CONFIG_HOME` names the project's `.cabin`
+directory, that file is the user config too, and its `[term]` applies.
 
 `cabin metadata` reports, under `config.term`, the color and verbosity a command run without
 `--color`, `-v`, or `-q` uses, each with the environment variable, config file, or default it came

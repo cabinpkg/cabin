@@ -11,9 +11,8 @@
 //!
 //! This is the only place terminal settings are resolved, and
 //! it runs before any workspace is located, so it observes only
-//! the user-level config (or the `CABIN_CONFIG` file): a
-//! workspace or package `.cabin/config.toml` `[term]` table does
-//! not apply.
+//! the user-level config (or the `CABIN_CONFIG` file); config
+//! discovery rejects a workspace or package `[term]` table.
 
 use std::process::ExitCode;
 

@@ -184,13 +184,8 @@ fn metadata_reports_layered_jobs_and_user_terminal_settings() {
         user_home.path(),
         "[build]\njobs = 2\n\n[term]\ncolor = \"never\"\nverbose = true\n",
     );
-    // The package file's `jobs` wins over the user file's.  Its
-    // `[term]` table does not apply: terminal settings are resolved
-    // before the workspace is located, from the user config alone.
-    write_workspace_config(
-        dir.path(),
-        "[build]\nprofile = \"release\"\njobs = 6\n\n[term]\ncolor = \"always\"\nquiet = true\n",
-    );
+    // The package file's `jobs` wins over the user file's.
+    write_workspace_config(dir.path(), "[build]\nprofile = \"release\"\njobs = 6\n");
     let config = metadata_config(
         cabin_with_config()
             .env("CABIN_CONFIG_HOME", user_home.path())
@@ -211,6 +206,40 @@ fn metadata_reports_layered_jobs_and_user_terminal_settings() {
             "verbosity": { "value": "verbose", "value_source": "user-config" },
         })
     );
+}
+
+#[test]
+fn term_in_workspace_or_package_config_is_rejected() {
+    let package = project_dir(MINIMAL_PROJECT);
+    let workspace = TempDir::new().unwrap();
+    workspace
+        .child("cabin.toml")
+        .write_str("[workspace]\nmembers = [\"pkg\"]\n")
+        .unwrap();
+    workspace
+        .child("pkg/cabin.toml")
+        .write_str(MINIMAL_PROJECT)
+        .unwrap();
+    for dir in [package.path(), workspace.path()] {
+        write_workspace_config(dir, "[term]\ncolor = \"always\"\n");
+        for command in ["metadata", "build"] {
+            let assert = cabin_with_config()
+                .args([command, "--manifest-path"])
+                .arg(dir.join("cabin.toml"))
+                .assert()
+                .failure();
+            let expected = host_path(".cabin/config.toml`sets`[term]`");
+            let stderr = stderr_with_wrapping_joined(&assert);
+            assert!(stderr.contains(&expected), "{expected} in {stderr}");
+        }
+        assert!(!dir.join("build").exists());
+        // With project config disabled, the file is never read.
+        cabin()
+            .args(["metadata", "--manifest-path"])
+            .arg(dir.join("cabin.toml"))
+            .assert()
+            .success();
+    }
 }
 
 #[test]

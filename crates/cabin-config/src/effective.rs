@@ -292,11 +292,13 @@ fn apply_parsed(
             source,
         });
     }
-    if let Some(choice) = parsed.term.color {
-        effective.term.color = Some(EffectiveColor { choice, source });
-    }
-    if let Some(level) = parsed.term.verbosity {
-        effective.term.verbosity = Some(EffectiveVerbosity { level, source });
+    if let Some(term) = &parsed.term {
+        if let Some(choice) = term.color {
+            effective.term.color = Some(EffectiveColor { choice, source });
+        }
+        if let Some(level) = term.verbosity {
+            effective.term.verbosity = Some(EffectiveVerbosity { level, source });
+        }
     }
     for (package, spec) in &parsed.patches {
         effective.patches.insert(
@@ -610,39 +612,13 @@ mod tests {
     }
 
     #[test]
-    fn term_color_workspace_overrides_user() {
-        use crate::parse::ParsedTerm;
-        let user = ParsedConfig {
-            term: ParsedTerm {
-                color: Some(ColorChoice::Auto),
-                verbosity: None,
-            },
-            ..Default::default()
-        };
-        let workspace = ParsedConfig {
-            term: ParsedTerm {
-                color: Some(ColorChoice::Always),
-                verbosity: None,
-            },
-            ..Default::default()
-        };
-        let effective = merge_loaded_files(vec![
-            loaded(ConfigSource::User, "/u/.config/cabin/config.toml", user),
-            loaded(ConfigSource::Workspace, "/ws/.cabin/config.toml", workspace),
-        ]);
-        let term = effective.term.color.expect("merged color present");
-        assert_eq!(term.choice, ColorChoice::Always);
-        assert_eq!(term.source, ConfigSource::Workspace);
-    }
-
-    #[test]
     fn term_color_user_kept_when_workspace_silent() {
         use crate::parse::ParsedTerm;
         let user = ParsedConfig {
-            term: ParsedTerm {
+            term: Some(ParsedTerm {
                 color: Some(ColorChoice::Never),
                 verbosity: None,
-            },
+            }),
             ..Default::default()
         };
         let workspace = ParsedConfig::default();
