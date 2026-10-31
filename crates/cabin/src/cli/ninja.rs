@@ -482,6 +482,9 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     /// Resolved, absolute build directory - the parent of the
     /// per-profile build root.
     pub build_dir: &'a std::path::Path,
+    /// `build_dir` above any `--target` triple, which holds the
+    /// build-directory lock and the usage catalog.
+    pub build_root: &'a std::path::Path,
     /// Active build profile; its name selects the `build/<profile>`
     /// root and labels the `Finished` banner the caller prints.
     pub profile: &'a cabin_core::ResolvedProfile,
@@ -511,22 +514,50 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     pub ninja: &'a std::path::Path,
     /// Parallelism for Ninja's `-j` flag, or `None` to let Ninja pick.
     pub jobs: Option<cabin_core::BuildJobs>,
+    /// The `[gc]` settings: whether and how to collect unused outputs
+    /// after the build.
+    pub gc: crate::cli::gc::GcSettings,
     pub reporter: Reporter,
+}
+
+/// A finished build: how long Ninja took, and the build-directory lock,
+/// held shared for as long as the caller still uses the outputs (the
+/// program `cabin run` starts, the tests `cabin test` runs).  A
+/// collection that came due runs when this is dropped, once the outputs
+/// are no longer in use: collecting takes the lock exclusively, which
+/// releases it for a moment.
+pub(crate) struct Built {
+    pub elapsed: std::time::Duration,
+    lock: cabin_build::gc::BuildDirLock,
+    due: Option<crate::cli::gc::DueCollection>,
+}
+
+impl Drop for Built {
+    fn drop(&mut self) {
+        if let Some(due) = &self.due {
+            due.run(&self.lock);
+        }
+    }
 }
 
 /// Write `build.ninja` + `compile_commands.json` for the planned graph
 /// under `build/<profile>/`, invoke Ninja there, and surface a
-/// link-failure hint before bailing on a non-zero exit.  Returns the
-/// wall-clock time the Ninja invocation took so callers can print
-/// their own cargo-style `Finished` banner.
+/// link-failure hint before bailing on a non-zero exit.  The build
+/// directory is locked shared and the plan's products recorded as used
+/// before Ninja runs; after a successful build that starts a new active
+/// day, unused outputs are collected when the returned [`Built`] is
+/// dropped (see [`crate::cli::gc`]).  Returns the wall-clock time the
+/// Ninja invocation took, for the caller's cargo-style `Finished`
+/// banner, and the lock.
 ///
 /// # Errors
-/// Returns an error if the build root cannot be created, the Ninja
-/// files cannot be written, Ninja cannot be spawned, or Ninja exits
-/// non-zero.
-pub(crate) fn invoke_ninja_and_report(
-    req: &NinjaInvocationRequest<'_>,
-) -> anyhow::Result<std::time::Duration> {
+/// Returns an error if the build directory cannot be locked, the use of
+/// its outputs cannot be recorded, the build root cannot be created,
+/// the Ninja files cannot be written, Ninja cannot be spawned, or Ninja
+/// exits non-zero.
+pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyhow::Result<Built> {
+    let lock = crate::cli::gc::lock_shared(req.build_root, req.reporter)?;
+    let collection_due = crate::cli::gc::record_use(req.build_root, req.plan_graph)?;
     let profile_build_root = req.build_dir.join(req.profile.name.as_str());
     std::fs::create_dir_all(&profile_build_root).with_context(|| {
         format!(
@@ -597,7 +628,18 @@ pub(crate) fn invoke_ninja_and_report(
         emit_link_diagnostic_if_applicable(&run, req);
         anyhow::bail!("ninja exited with {}", run.status);
     }
-    Ok(build_started.elapsed())
+    Ok(Built {
+        elapsed: build_started.elapsed(),
+        lock,
+        due: (req.gc.auto && collection_due).then(|| {
+            crate::cli::gc::DueCollection::new(
+                req.build_root,
+                req.graph,
+                req.gc.policy,
+                req.reporter,
+            )
+        }),
+    })
 }
 
 #[cfg(test)]

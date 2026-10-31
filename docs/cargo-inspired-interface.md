@@ -19,7 +19,7 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 | `cabin remove` | `cargo remove` | Removes a `[dependencies]` (or, with `--dev`, `[dev-dependencies]`) entry from `cabin.toml`. |
 | `cabin build` | `cargo build` | Plans + invokes Ninja |
 | `cabin check` | `cargo check` | Reuses the build graph but compiles in syntax-only mode (`-fsyntax-only`; `/Zs` under MSVC); no objects or binaries |
-| `cabin clean` | `cargo clean` | Removes Cabin-generated build artifacts |
+| `cabin clean` | `cargo clean` | Removes Cabin-generated build artifacts; `--gc` removes only those unused for a while (see [`profiles.md`](profiles.md#unused-build-outputs)) |
 | `cabin run` | `cargo run` | Builds and runs an exec target; `--` forwards args |
 | `cabin test` | `cargo test` | Builds + runs `test` targets; `--` forwards args to each |
 | `cabin fetch` | `cargo fetch` | Downloads + verifies registry artifacts |

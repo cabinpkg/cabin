@@ -224,6 +224,9 @@ pub(crate) struct PreparedWorkspace {
     pub approx_standards: cabin_build::RequestedStandards,
     pub prep: BuildPrep,
     pub build_dir: PathBuf,
+    /// `build_dir` above any `--target` triple: where the build-directory
+    /// lock and the usage catalog live.
+    pub build_root: PathBuf,
     pub ninja: PathBuf,
     pub lockfile_pinned: BTreeSet<(String, String)>,
     pub dev_for: BTreeSet<String>,
@@ -538,6 +541,28 @@ pub(crate) fn prepare_workspace(
         super::config::resolve_build_dir_with_env(args.build_dir, &effective_config);
     let mut build_dir = super::absolutise(&build_dir_input)
         .with_context(|| format!("failed to resolve build dir {}", build_dir_input.display()))?;
+    // Ninja drops `..` lexically, while Unix resolves it after any
+    // symlink before it, so `link/../build` would name one directory to
+    // Ninja (and the `cabin recreate` it runs on `$out`) and another to
+    // the compiler and archiver.  Resolving the path up to its last `..`
+    // gives the spelling both agree on; Windows drops `..` lexically too.
+    let components: Vec<_> = build_dir.components().collect();
+    if cfg!(unix)
+        && let Some(last) = components
+            .iter()
+            .rposition(|component| *component == std::path::Component::ParentDir)
+    {
+        let (head, tail) = components.split_at(last + 1);
+        let head: PathBuf = head.iter().collect();
+        // The OS resolves `..` only after a directory that exists.
+        std::fs::create_dir_all(&head)
+            .with_context(|| format!("failed to create build directory {}", head.display()))?;
+        build_dir = cabin_fs::canonicalize(&head)
+            .with_context(|| format!("failed to resolve build dir {}", build_dir.display()))?
+            .join(tail.iter().collect::<PathBuf>());
+    }
+
+    let build_root = build_dir.clone();
     if let Some(target) = &args.toolchain.target {
         build_dir.push(&target.target);
     }
@@ -626,27 +651,6 @@ pub(crate) fn prepare_workspace(
         reporter,
     })?;
     let enabled_features = super::enabled_features_by_package(&feature_resolution);
-    // Ninja drops `..` lexically, while Unix resolves it after any
-    // symlink before it, so `link/../build` would name one directory to
-    // Ninja (and the `cabin recreate` it runs on `$out`) and another to
-    // the compiler and archiver.  Resolving the path up to its last `..`
-    // gives the spelling both agree on; Windows drops `..` lexically too.
-    let components: Vec<_> = build_dir.components().collect();
-    if cfg!(unix)
-        && let Some(last) = components
-            .iter()
-            .rposition(|component| *component == std::path::Component::ParentDir)
-    {
-        let (head, tail) = components.split_at(last + 1);
-        let head: PathBuf = head.iter().collect();
-        // The OS resolves `..` only after a directory that exists.
-        std::fs::create_dir_all(&head)
-            .with_context(|| format!("failed to create build directory {}", head.display()))?;
-        build_dir = cabin_fs::canonicalize(&head)
-            .with_context(|| format!("failed to resolve build dir {}", build_dir.display()))?
-            .join(tail.iter().collect::<PathBuf>());
-    }
-
     let build_context = if build_features.included.is_empty() {
         None
     } else {
@@ -698,6 +702,7 @@ pub(crate) fn prepare_workspace(
         approx_standards,
         prep,
         build_dir,
+        build_root,
         ninja,
         lockfile_pinned,
         dev_for,

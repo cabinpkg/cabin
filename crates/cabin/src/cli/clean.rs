@@ -28,6 +28,28 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
         .collect();
     let protected_source_paths = clean_protected_source_paths(&graph);
 
+    if args.gc {
+        let mut policy = crate::cli::gc::GcSettings::from_config(&effective_config).policy;
+        if let Some(max_age) = args.max_age {
+            policy.max_age = max_age;
+        }
+        if let Some(max_size) = args.max_size {
+            policy.max_size = Some(max_size);
+        }
+        return crate::cli::gc::clean_gc(
+            &cabin_build::gc::CollectRequest {
+                build_dir: &build_dir,
+                workspace_root: &graph.root_dir,
+                package_roots: &package_roots,
+                protected_source_paths: &protected_source_paths,
+                policy,
+                dry_run: args.dry_run,
+                time_limit: None,
+            },
+            reporter,
+        );
+    }
+
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
@@ -84,21 +106,36 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
         CleanScope::Whole
     };
 
-    let plan = plan_clean(&CleanRequest {
+    let request = CleanRequest {
         build_dir: &build_dir,
         workspace_root: &graph.root_dir,
         package_roots: &package_roots,
         protected_source_paths: &protected_source_paths,
         scope,
         target: args.target.as_ref().map(|t| t.target.as_str()),
-    })
-    .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    };
+    let mut plan = plan_clean(&request).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    // Wait for commands using the outputs, then plan again: the tree may
+    // have changed meanwhile.  Planning first keeps the lock file out of
+    // a directory the safety checks refuse.
+    let _lock = if args.dry_run || plan.removals.is_empty() {
+        None
+    } else {
+        let lock = crate::cli::gc::lock_exclusive(&build_dir, reporter)?;
+        plan = plan_clean(&request).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        Some(lock)
+    };
 
     if plan.removals.is_empty() {
         if args.dry_run {
             reporter.status(
                 "Removed",
                 format_args!("nothing under {} (dry-run)", build_dir.display()),
+            );
+        } else if build_dir.exists() {
+            reporter.status(
+                "Removed",
+                format_args!("nothing under {}", build_dir.display()),
             );
         } else {
             reporter.status(

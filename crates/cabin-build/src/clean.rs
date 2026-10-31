@@ -8,6 +8,8 @@
 //! <build_dir>/<profile>/compile_commands.json
 //! <build_dir>/<profile>/packages/<pkg>/...
 //! <build_dir>/<profile>/build-machine/packages/<pkg>/...
+//! <build_dir>/.cabin-gc/...           (the usage catalog, see crate::gc)
+//! <build_dir>/.cabin-build.lock       (never removed)
 //! ```
 //!
 //! Safety contract:
@@ -32,7 +34,8 @@ use cabin_core::{PackageName, ProfileName};
 /// What `cabin clean` should remove.
 #[derive(Debug, Clone)]
 pub enum CleanScope {
-    /// Remove the entire build directory.  Used by the no-flag
+    /// Remove everything in the build directory except its lock file
+    /// (see [`crate::gc::BuildDirLock`]).  Used by the no-flag
     /// invocation `cabin clean`.
     Whole,
     /// Remove a single profile sub-tree
@@ -169,6 +172,25 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
         None => req.build_dir.to_path_buf(),
     };
     let candidates = match &req.scope {
+        // The lock file outlives every clean (see
+        // `gc::BuildDirLock`), so a whole clean empties the build
+        // directory around it.  Under `--target` the triple's tree goes.
+        CleanScope::Whole if req.target.is_none() => match std::fs::read_dir(&root) {
+            Ok(entries) => entries
+                .map(|entry| entry.map(|entry| entry.path()))
+                .filter(|path| {
+                    path.as_ref().map_or(true, |path| {
+                        path.file_name() != Some(std::ffi::OsStr::new(crate::gc::LOCK_FILENAME))
+                    })
+                })
+                .collect::<Result<_, _>>()
+                .map_err(|source| CleanError::Io {
+                    path: root.clone(),
+                    source,
+                })?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(source) => return Err(CleanError::Io { path: root, source }),
+        },
         CleanScope::Whole => vec![root],
         CleanScope::Profile(profile) => vec![root.join(profile.as_str())],
         CleanScope::Packages { profiles, packages } => {
@@ -205,7 +227,11 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
         }
     }
 
-    let mut existing: Vec<PathBuf> = candidates.into_iter().filter(|p| p.exists()).collect();
+    // `symlink_metadata`, not `exists`: a dangling link is still removed.
+    let mut existing: Vec<PathBuf> = candidates
+        .into_iter()
+        .filter(|p| std::fs::symlink_metadata(p).is_ok())
+        .collect();
     existing.sort();
     existing.dedup();
 
@@ -257,7 +283,14 @@ pub fn execute_clean(plan: &CleanPlan) -> Result<CleanReport, CleanError> {
     Ok(CleanReport { removed })
 }
 
-fn validate_safe_build_dir(
+/// Refuse a build directory that `cabin clean` - or a collection - must
+/// not remove from: an empty path, the root, the home directory, the
+/// workspace or a package root, a directory overlapping declared
+/// sources, or a symlink.
+///
+/// # Errors
+/// The matching [`CleanError`] safety-guard variant.
+pub fn validate_safe_build_dir(
     build_dir: &Path,
     workspace_root: &Path,
     package_roots: &[PathBuf],
@@ -408,12 +441,38 @@ mod tests {
     }
 
     #[test]
-    fn plan_whole_lists_build_dir() {
+    fn plan_whole_lists_everything_but_the_lock_file() {
         let tmp = TempDir::new().unwrap();
         let build_dir = tmp.child("build");
         populate_layout(&build_dir);
+        build_dir
+            .child(crate::gc::LOCK_FILENAME)
+            .write_str("")
+            .unwrap();
+        build_dir
+            .child(".cabin-gc/state.json")
+            .write_str("{}")
+            .unwrap();
         let plan = plan_clean(&req(build_dir.path(), tmp.path(), CleanScope::Whole)).unwrap();
-        assert_eq!(plan.removals, vec![build_dir.to_path_buf()]);
+        assert_eq!(
+            plan.removals,
+            vec![
+                build_dir.child(".cabin-gc").to_path_buf(),
+                build_dir.child("dev").to_path_buf(),
+                build_dir.child("release").to_path_buf(),
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plan_whole_lists_a_dangling_link() {
+        let tmp = TempDir::new().unwrap();
+        let build_dir = tmp.child("build");
+        build_dir.create_dir_all().unwrap();
+        std::os::unix::fs::symlink(tmp.child("gone"), build_dir.child("link")).unwrap();
+        let plan = plan_clean(&req(build_dir.path(), tmp.path(), CleanScope::Whole)).unwrap();
+        assert_eq!(plan.removals, vec![build_dir.child("link").to_path_buf()]);
     }
 
     #[test]
@@ -501,8 +560,11 @@ mod tests {
         populate_layout(&build_dir);
         let plan = plan_clean(&req(build_dir.path(), tmp.path(), CleanScope::Whole)).unwrap();
         let report = execute_clean(&plan).unwrap();
-        assert_eq!(report.removed, vec![build_dir.to_path_buf()]);
-        build_dir.assert(predicate::path::missing());
+        assert_eq!(report.removed.len(), 2);
+        build_dir.child("dev").assert(predicate::path::missing());
+        build_dir
+            .child("release")
+            .assert(predicate::path::missing());
     }
 
     #[test]

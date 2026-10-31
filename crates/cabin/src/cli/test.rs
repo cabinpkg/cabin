@@ -310,22 +310,26 @@ pub(crate) fn test(
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
 
     // `cabin test` prints no `Finished` banner - the test summary
-    // is its completion signal - so the returned build duration is
-    // unused here.
-    crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
-        build_dir: &prepared.build_dir,
-        profile: &prepared.profile,
-        plan_graph: &plan_graph,
-        graph: &prepared.graph,
-        toolchain: &prepared.toolchain,
-        detection: &prepared.detection_report,
-        feature_resolution: &prepared.feature_resolution,
-        platform: &prepared.platform,
-        dev_for: &prepared.dev_for,
-        ninja: &prepared.ninja,
-        jobs,
-        reporter,
-    })?;
+    // is its completion signal - so only the returned lock is kept: it
+    // stays held until the tests finish, so no collection or `cabin
+    // clean` removes what they run.
+    let _built =
+        crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
+            build_dir: &prepared.build_dir,
+            build_root: &prepared.build_root,
+            profile: &prepared.profile,
+            plan_graph: &plan_graph,
+            graph: &prepared.graph,
+            toolchain: &prepared.toolchain,
+            detection: &prepared.detection_report,
+            feature_resolution: &prepared.feature_resolution,
+            platform: &prepared.platform,
+            dev_for: &prepared.dev_for,
+            ninja: &prepared.ninja,
+            jobs,
+            gc: crate::cli::gc::GcSettings::from_config(&prepared.effective_config),
+            reporter,
+        })?;
 
     // Build → run hand-off.  The plan builder reads `test`
     // targets out of the graph and aligns them with the

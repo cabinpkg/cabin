@@ -21,6 +21,7 @@
 pub mod check;
 pub mod clean;
 pub mod error;
+pub mod gc;
 pub mod graph;
 pub mod link_diagnostics;
 pub mod planner;

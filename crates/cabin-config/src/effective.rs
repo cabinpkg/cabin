@@ -16,7 +16,7 @@ use cabin_core::{
     SourceReplacementEntry, SourceReplacementSettings, ToolSpec, Verbosity,
 };
 
-use crate::parse::{ParsedConfig, ParsedRegistry};
+use crate::parse::{ParsedConfig, ParsedGc, ParsedRegistry};
 use crate::source::{ConfigSource, LoadedConfigFile, SourcedValue};
 
 /// Fully merged config consumed by the rest of the workspace.
@@ -31,6 +31,7 @@ pub struct EffectiveConfig {
     pub paths: EffectivePaths,
     pub build: EffectiveBuild,
     pub resolver: EffectiveResolver,
+    pub gc: EffectiveGc,
     pub toolchain: EffectiveToolchain,
     pub compiler_wrapper: Option<EffectiveCompilerWrapper>,
     pub term: EffectiveTerm,
@@ -133,6 +134,14 @@ pub struct EffectiveResolver {
     pub incompatible_standards: Option<SourcedValue<IncompatibleStandards>>,
 }
 
+/// `[gc]` view, after merging; `None` keys take the built-in default.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EffectiveGc {
+    pub auto: Option<SourcedValue<bool>>,
+    pub max_age: Option<SourcedValue<std::num::NonZeroU32>>,
+    pub max_size: Option<SourcedValue<u64>>,
+}
+
 /// Resolved `[build] jobs` value plus the file it came from.
 /// The typed [`cabin_core::BuildJobs`] inner value rules out a
 /// zero / negative count at the merge boundary.
@@ -194,6 +203,18 @@ fn apply_file(effective: &mut EffectiveConfig, file: &LoadedConfigFile) {
     apply_parsed(effective, file.source, &base, &file.parsed, file);
 }
 
+fn apply_gc(gc: &mut EffectiveGc, parsed: &ParsedGc, source: ConfigSource) {
+    if let Some(auto) = parsed.auto {
+        gc.auto = Some(SourcedValue::new(auto, source));
+    }
+    if let Some(max_age) = parsed.max_age {
+        gc.max_age = Some(SourcedValue::new(max_age, source));
+    }
+    if let Some(max_size) = parsed.max_size {
+        gc.max_size = Some(SourcedValue::new(max_size, source));
+    }
+}
+
 fn apply_parsed(
     effective: &mut EffectiveConfig,
     source: ConfigSource,
@@ -238,6 +259,7 @@ fn apply_parsed(
             source,
         });
     }
+    apply_gc(&mut effective.gc, &parsed.gc, source);
     if let Some(incompatible_standards) = parsed.resolver.incompatible_standards {
         effective.resolver.incompatible_standards =
             Some(SourcedValue::new(incompatible_standards, source));

@@ -173,10 +173,18 @@ pub enum ConfigParseError {
     #[error("config key `resolver.incompatible-standards` is invalid: {0}")]
     InvalidIncompatibleStandards(cabin_core::UnknownIncompatibleStandards),
 
+    /// `gc.max-age` was zero, negative, or too large.
+    #[error("config key `gc.max-age` is invalid: got {value}, expected a positive number of days")]
+    InvalidGcMaxAge { value: i64 },
+
+    /// `gc.max-size` did not parse as a size.
+    #[error("config key `gc.max-size` is invalid: {0}")]
+    InvalidGcMaxSize(cabin_core::ByteSizeParseError),
+
     /// A top-level table the parser did not recognize.  Lists the
     /// supported tables so users can see the full surface.
     #[error(
-        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, toolchain, term, patch, source-replacement, runner"
+        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, gc, toolchain, term, patch, source-replacement, runner"
     )]
     UnknownTopLevelTable { table: String },
 
