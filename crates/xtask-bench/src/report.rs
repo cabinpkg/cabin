@@ -153,8 +153,12 @@ pub enum Verdict {
     Improved,
     Unchanged,
     Regressed,
-    /// Failed its check on one side, or only one side has it.
+    /// The candidate failed its check or lacks the scenario.
     Invalid,
+    /// Only the baseline failed its check or lacks the scenario, as
+    /// an older Cabin does when a scenario uses a newer flag: there is
+    /// nothing to compare against.
+    NoBaseline,
 }
 
 /// Classify every scenario both sides measured.  A change counts only
@@ -175,6 +179,11 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
             let stats = sides.and_then(|(b, c)| Some((Stats::of(b)?, Stats::of(c)?)));
             let valid = base.is_some_and(|b| b.valid) && cand.is_some_and(|c| c.valid);
             let Some((b, c)) = stats.filter(|_| valid) else {
+                let verdict = if cand.is_some_and(|c| c.valid) && !base.is_some_and(|b| b.valid) {
+                    Verdict::NoBaseline
+                } else {
+                    Verdict::Invalid
+                };
                 if name == "wall" {
                     out.push(Comparison {
                         scenario: scenario.clone(),
@@ -183,7 +192,7 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
                         candidate_median: None,
                         change: None,
                         noise: None,
-                        verdict: Verdict::Invalid,
+                        verdict,
                     });
                 }
                 continue;
@@ -228,7 +237,12 @@ pub fn write_compare(
             "**Warning:** the two sides ran on different hosts or fixtures; the numbers are not comparable.\n\n",
         );
     }
-    for verdict in [Verdict::Regressed, Verdict::Improved, Verdict::Invalid] {
+    for verdict in [
+        Verdict::Regressed,
+        Verdict::Improved,
+        Verdict::Invalid,
+        Verdict::NoBaseline,
+    ] {
         let count = rows.iter().filter(|r| r.verdict == verdict).count();
         writeln!(md, "- {verdict:?}: {count}")?;
     }
@@ -360,6 +374,8 @@ fn format_metric(metric: &str, value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     fn results(label: &str, scenarios: Vec<(&str, Vec<f64>, bool)>) -> Results {
@@ -423,21 +439,38 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_check_or_missing_side_is_invalid() {
+    fn only_the_candidate_failing_or_lacking_a_scenario_is_invalid() {
         let rows = compare(
             &results(
                 "base",
-                vec![("s", vec![1.0], false), ("gone", vec![1.0], true)],
+                vec![
+                    ("old-flag", vec![1.0], false),
+                    ("gone", vec![1.0], true),
+                    ("broken", vec![1.0], true),
+                ],
             ),
             &results(
                 "cand",
-                vec![("s", vec![1.0], true), ("new", vec![1.0], true)],
+                vec![
+                    ("old-flag", vec![1.0], true),
+                    ("new", vec![1.0], true),
+                    ("broken", vec![1.0], false),
+                ],
             ),
         );
-        assert!(
-            rows.iter().all(|r| r.verdict == Verdict::Invalid),
-            "{rows:?}"
+        assert_eq!(rows.len(), 4, "one wall row per scenario: {rows:?}");
+        let verdicts: BTreeMap<_, _> = rows
+            .iter()
+            .map(|r| (r.scenario.as_str(), r.verdict))
+            .collect();
+        assert_eq!(
+            verdicts,
+            BTreeMap::from([
+                ("broken", Verdict::Invalid),
+                ("gone", Verdict::Invalid),
+                ("new", Verdict::NoBaseline),
+                ("old-flag", Verdict::NoBaseline),
+            ])
         );
-        assert_eq!(rows.len(), 3);
     }
 }
