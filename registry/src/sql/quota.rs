@@ -21,7 +21,8 @@ statements! {
     USER_PACKAGE_COUNTS =
         "SELECT package_count, \
          CASE WHEN EXISTS (SELECT 1 FROM packages WHERE scope = ?3 AND name = ?4) THEN 0 \
-         ELSE (SELECT COUNT(*) FROM packages WHERE created_by = ?1 AND created_at >= ?2) END \
+         ELSE (SELECT COUNT(*) FROM packages WHERE created_by = ?1 \
+               AND created_at >= ?2 AND created_at < substr(?2, 1, 10) || 'U') END \
          AS new_today FROM users WHERE id = ?1";
 
     /// Counts the package
@@ -53,12 +54,14 @@ statements! {
                      WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?4) \
          AND (SELECT changes()) = 1";
 
-    /// Revisions published into one package since a cutoff (the daily
-    /// per-package version quota; a respin spends it like a new
-    /// version - both store a new archive).
-    COUNT_PACKAGE_VERSIONS_SINCE =
+    /// Revisions published into one package on the UTC day `?3`
+    /// (`crate::quota::utc_day_prefix`) - the daily per-package version
+    /// quota; a respin spends it like a new version, both store a new
+    /// archive.
+    COUNT_PACKAGE_VERSIONS_ON_DAY =
         "SELECT COUNT(*) AS n FROM revisions \
-         WHERE scope = ?1 AND name = ?2 AND published_at >= ?3";
+         WHERE scope = ?1 AND name = ?2 AND published_at >= ?3 \
+               AND published_at < substr(?3, 1, 10) || 'U'";
 
     /// Whether the package row already exists (new-package quotas).
     PACKAGE_EXISTS = "SELECT COUNT(*) AS n FROM packages WHERE scope = ?1 AND name = ?2";
@@ -78,7 +81,9 @@ statements! {
     USER_USAGE =
         "SELECT COALESCE(SUM(CASE WHEN verification != 'rejected' \
          THEN archive_size ELSE 0 END), 0) AS stored_bytes, \
-         COALESCE(SUM(CASE WHEN published_at >= ?2 THEN 1 ELSE 0 END), 0) AS published_today, \
+         COALESCE(SUM(CASE WHEN published_at >= ?2 \
+                           AND published_at < substr(?2, 1, 10) || 'U' \
+                      THEN 1 ELSE 0 END), 0) AS published_today, \
          COALESCE(SUM(verification = 'verified'), 0) AS verified_count, \
          COALESCE(SUM(verification = 'pending'), 0) AS pending_count, \
          COALESCE(SUM(verification = 'rejected'), 0) AS rejected_count \

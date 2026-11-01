@@ -4,7 +4,10 @@
 
 use cabin_registry_worker::sql;
 
-use crate::common::{migrated_connection, seed_scope_collision};
+use crate::common::{Limits, migrated_connection, seed_scope_collision};
+
+/// The UTC day the seeded and test stamps fall in.
+const DAY: &str = "2026-07-15T";
 
 /// The scoped statements executed against colliding `(name, version)`
 /// rows: `prepare` alone cannot catch a missing scope predicate or a
@@ -52,11 +55,11 @@ fn scoped_statements_never_cross_scopes() {
     // Quota counts key on (scope, name).
     let versions_today: i64 = conn
         .query_row(
-            sql::COUNT_PACKAGE_VERSIONS_SINCE,
-            rusqlite::params!["alpha", "pkg", "2026-07-15"],
+            sql::COUNT_PACKAGE_VERSIONS_ON_DAY,
+            rusqlite::params!["alpha", "pkg", "2026-07-15T"],
             |row| row.get(0),
         )
-        .expect("alpha versions since");
+        .expect("alpha versions on the day");
     assert_eq!(versions_today, 1);
 
     // Mutations only touch the addressed scope.
@@ -345,6 +348,7 @@ fn reverse_dependencies_match_exact_scoped_keys_on_verified_rows_only() {
 /// to `prepare`, so they are executed here.
 #[test]
 fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
+    let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
 
@@ -377,7 +381,17 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
     let insert_package = |scope: &str, name: &str| -> usize {
         conn.execute(
             sql::INSERT_PACKAGE,
-            rusqlite::params![scope, name, "2026-07-15T01:00:00.000Z", 2],
+            rusqlite::params![
+                scope,
+                name,
+                "2026-07-15T01:00:00.000Z",
+                2,
+                10,
+                limits.bytes,
+                DAY,
+                limits.packages_daily,
+                limits.packages_total
+            ],
         )
         .expect("guarded package insert")
     };
@@ -387,7 +401,16 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
     let insert_version = |scope: &str, name: &str, version: &str| -> usize {
         conn.execute(
             sql::INSERT_VERSION_ROW,
-            rusqlite::params![scope, name, version],
+            rusqlite::params![
+                scope,
+                name,
+                version,
+                2,
+                10,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
+            ],
         )
         .expect("guarded version-row insert");
         conn.execute(
@@ -402,7 +425,10 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
                 "2026-07-15T01:00:00.000Z",
                 10,
                 2,
-                0
+                0,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
             ],
         )
         .expect("guarded revision insert")
@@ -441,7 +467,9 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
 /// primary key), and a shared blob already counted by another live
 /// row.
 #[test]
+#[allow(clippy::too_many_lines)] // the batch statements' full bind lists
 fn publish_accounting_mirrors_the_insert_guards() {
+    let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
     let stored = |conn: &rusqlite::Connection| -> String {
@@ -455,31 +483,83 @@ fn publish_accounting_mirrors_the_insert_guards() {
     let account = |scope: &str, name: &str, version: &str, checksum: &str, size: i64| {
         conn.execute(
             sql::COUNT_STORED_BYTES_ON_PUBLISH,
-            rusqlite::params![checksum, size, scope, name, version, checksum, 0],
+            rusqlite::params![
+                checksum,
+                size,
+                scope,
+                name,
+                version,
+                checksum,
+                0,
+                2,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
+            ],
         )
         .expect("accounting upsert");
     };
     let insert = |scope: &str, name: &str, version: &str, stamp: &str| -> usize {
         conn.execute(
             sql::INSERT_REVISION,
-            rusqlite::params![scope, name, version, "ee", "ee", "{}", stamp, 40, 2, 0],
+            rusqlite::params![
+                scope,
+                name,
+                version,
+                "ee",
+                "ee",
+                "{}",
+                stamp,
+                40,
+                2,
+                0,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
+            ],
         )
         .expect("guarded revision insert")
+    };
+
+    let package = |name: &str, stamp: &str| -> usize {
+        conn.execute(
+            sql::INSERT_PACKAGE,
+            rusqlite::params![
+                "alpha",
+                name,
+                stamp,
+                2,
+                40,
+                limits.bytes,
+                DAY,
+                limits.packages_daily,
+                limits.packages_total
+            ],
+        )
+        .expect("guarded package insert")
+    };
+    let version_row = |name: &str, version: &str| -> usize {
+        conn.execute(
+            sql::INSERT_VERSION_ROW,
+            rusqlite::params![
+                "alpha",
+                name,
+                version,
+                2,
+                40,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
+            ],
+        )
+        .expect("guarded version-row insert")
     };
 
     // The winner's batch: package + version land, no live reference
     // to checksum 'ee' exists yet, so the accounting counts the bytes
     // and the insert applies.
-    conn.execute(
-        sql::INSERT_PACKAGE,
-        rusqlite::params!["alpha", "foo-bar", "2026-07-15T01:00:00.000Z", 2],
-    )
-    .expect("winner package");
-    conn.execute(
-        sql::INSERT_VERSION_ROW,
-        rusqlite::params!["alpha", "foo-bar", "1.0.0"],
-    )
-    .expect("winner version row");
+    package("foo-bar", "2026-07-15T01:00:00.000Z");
+    version_row("foo-bar", "1.0.0");
     account("alpha", "foo-bar", "1.0.0", "ee", 40);
     assert_eq!(
         insert("alpha", "foo-bar", "1.0.0", "2026-07-15T01:00:00.000Z"),
@@ -501,22 +581,8 @@ fn publish_accounting_mirrors_the_insert_guards() {
 
     // The twin's batch: package and version row suppressed, so the
     // version-exists conjunct refuses both the count and the insert.
-    assert_eq!(
-        conn.execute(
-            sql::INSERT_PACKAGE,
-            rusqlite::params!["alpha", "foo_bar", "2026-07-15T01:00:01.000Z", 2],
-        )
-        .expect("twin package"),
-        0
-    );
-    assert_eq!(
-        conn.execute(
-            sql::INSERT_VERSION_ROW,
-            rusqlite::params!["alpha", "foo_bar", "1.0.0"],
-        )
-        .expect("twin version row"),
-        0
-    );
+    assert_eq!(package("foo_bar", "2026-07-15T01:00:01.000Z"), 0);
+    assert_eq!(version_row("foo_bar", "1.0.0"), 0);
     account("alpha", "foo_bar", "1.0.0", "ee", 40);
     assert_eq!(
         insert("alpha", "foo_bar", "1.0.0", "2026-07-15T01:00:01.000Z"),
@@ -527,11 +593,7 @@ fn publish_accounting_mirrors_the_insert_guards() {
     // A different version publishing the same bytes: the insert lands
     // (its own revision key), but the blob is already a live row's -
     // no double count.
-    conn.execute(
-        sql::INSERT_VERSION_ROW,
-        rusqlite::params!["alpha", "foo-bar", "2.0.0"],
-    )
-    .expect("second version row");
+    version_row("foo-bar", "2.0.0");
     account("alpha", "foo-bar", "2.0.0", "ee", 40);
     assert_eq!(
         insert("alpha", "foo-bar", "2.0.0", "2026-07-15T01:00:02.000Z"),
@@ -586,6 +648,7 @@ fn admin_packages_reports_names_and_vetted_flags_deterministically() {
 /// lands and the superseded revision stays.
 #[test]
 fn revision_opt_in_guard_is_enforced_inside_the_insert() {
+    let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
 
@@ -602,7 +665,10 @@ fn revision_opt_in_guard_is_enforced_inside_the_insert() {
                 "2026-07-15T02:00:00.000Z",
                 10,
                 2,
-                opt_in
+                opt_in,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
             ],
         )
         .expect("guarded revision insert")
@@ -646,7 +712,11 @@ fn revision_opt_in_guard_is_enforced_inside_the_insert() {
                 opt_in,
                 "1.0.0",
                 revision,
-                checksum
+                checksum,
+                10,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
             ],
         )
         .expect("guarded revival")
@@ -759,12 +829,25 @@ fn package_document_reads_seek_the_package() {
 /// stored document for its `resolution`.
 #[test]
 fn a_respin_may_change_resolution_metadata() {
+    let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
     let changed = r#"{"dependencies":{"acme/b":"^1"}}"#;
     conn.execute(
         sql::COUNT_STORED_BYTES_ON_PUBLISH,
-        rusqlite::params!["cc", 5, "alpha", "pkg", "1.0.0", "cc", 1],
+        rusqlite::params![
+            "cc",
+            5,
+            "alpha",
+            "pkg",
+            "1.0.0",
+            "cc",
+            1,
+            2,
+            limits.bytes,
+            DAY,
+            limits.versions_daily
+        ],
     )
     .expect("accounting upsert");
     let inserted = conn
@@ -780,7 +863,10 @@ fn a_respin_may_change_resolution_metadata() {
                 "2026-07-15T02:00:00.000Z",
                 5,
                 2,
-                1
+                1,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
             ],
         )
         .expect("respin insert");
@@ -857,6 +943,7 @@ fn version_yank_state_serves_the_yanked_and_verified_columns() {
 /// statements commit in the same transaction.
 #[test]
 fn a_refused_revival_never_counts_its_bytes() {
+    let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
     // Reject alpha's revision, refund its 10 bytes, then land a live
@@ -889,7 +976,11 @@ fn a_refused_revival_never_counts_its_bytes() {
             10,
             "aa",
             0,
-            "2026-07-15T03:00:00.000Z"
+            "2026-07-15T03:00:00.000Z",
+            2,
+            limits.bytes,
+            DAY,
+            limits.versions_daily
         ],
     )
     .expect("revival accounting");
@@ -905,7 +996,11 @@ fn a_refused_revival_never_counts_its_bytes() {
                 0,
                 "1.0.0",
                 "aa",
-                "aa"
+                "aa",
+                10,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
             ],
         )
         .expect("guarded revival");
@@ -924,7 +1019,11 @@ fn a_refused_revival_never_counts_its_bytes() {
             10,
             "aa",
             1,
-            "2026-07-15T03:00:00.000Z"
+            "2026-07-15T03:00:00.000Z",
+            2,
+            limits.bytes,
+            DAY,
+            limits.versions_daily
         ],
     )
     .expect("revival accounting");
@@ -940,7 +1039,11 @@ fn a_refused_revival_never_counts_its_bytes() {
                 1,
                 "1.0.0",
                 "aa",
-                "aa"
+                "aa",
+                10,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
             ],
         )
         .expect("guarded revival");
@@ -955,6 +1058,7 @@ fn a_refused_revival_never_counts_its_bytes() {
 /// listed against the rejected generation can never bind the revival.
 #[test]
 fn revival_must_advance_the_rejected_generations_stamp() {
+    let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
     conn.execute(
@@ -973,14 +1077,42 @@ fn revival_must_advance_the_rejected_generations_stamp() {
     let revive_count = |stamp: &str| {
         conn.execute(
             sql::COUNT_STORED_BYTES_ON_REVIVAL,
-            rusqlite::params!["alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 1, stamp],
+            rusqlite::params![
+                "alpha",
+                "pkg",
+                "1.0.0",
+                "aa",
+                "aa",
+                10,
+                "aa",
+                1,
+                stamp,
+                2,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
+            ],
         )
         .expect("revival accounting");
     };
     let revive = |stamp: &str| -> usize {
         conn.execute(
             sql::REVIVE_REJECTED_REVISION,
-            rusqlite::params!["{}", stamp, 2, "alpha", "pkg", 1, "1.0.0", "aa", "aa"],
+            rusqlite::params![
+                "{}",
+                stamp,
+                2,
+                "alpha",
+                "pkg",
+                1,
+                "1.0.0",
+                "aa",
+                "aa",
+                10,
+                limits.bytes,
+                DAY,
+                limits.versions_daily
+            ],
         )
         .expect("guarded revival")
     };

@@ -142,9 +142,12 @@ pub fn take_publish_token(prev: Option<Bucket>, now_ms: f64, quotas: &ClassQuota
 }
 
 /// The `YYYY-MM-DDT` prefix of an ISO 8601 UTC timestamp. Every timestamp
-/// of the same UTC calendar day starts with it, and every earlier day
-/// compares lexicographically below it, so `published_at >= prefix` is
-/// the "today" window in SQL. `None` when the input is not ISO-shaped.
+/// of the same UTC calendar day starts with it, every earlier day
+/// compares lexicographically below it, and every later day at or above
+/// its successor `YYYY-MM-DDU`, so the SQL day window is
+/// `col >= ?day AND col < substr(?day, 1, 10) || 'U'`. The upper bound
+/// matters: a publish sampled just before midnight must not count rows
+/// stamped after it. `None` when the input is not ISO-shaped.
 pub fn utc_day_prefix(now_iso: &str) -> Option<&str> {
     let prefix = now_iso.get(..11)?;
     (prefix.as_bytes()[10] == b'T').then_some(prefix)
@@ -466,6 +469,9 @@ mod tests {
         assert!("2026-07-09T00:00:00.000Z" >= "2026-07-09T");
         assert!("2026-07-09T23:59:59.999Z" >= "2026-07-09T");
         assert!("2026-07-08T23:59:59.999Z" < "2026-07-09T");
+        // ... and the next day compares at or above the successor.
+        assert!("2026-07-09T23:59:59.999Z" < "2026-07-09U");
+        assert!("2026-07-10T00:00:00.000Z" >= "2026-07-09U");
         assert_eq!(utc_day_prefix("not a timestamp"), None);
         assert_eq!(utc_day_prefix("2026-07-09"), None);
         assert_eq!(utc_day_prefix(""), None);

@@ -1,12 +1,34 @@
 //! Shared fixtures: the migrated in-memory database and the helpers
 //! more than one statement module exercises.
 
-use cabin_registry_worker::sql;
+use cabin_registry_worker::{quota, sql};
 
 #[path = "../../src/test_db.rs"]
 mod test_db;
 
 pub use test_db::migrated_connection;
+
+/// One class's publish limits as the publish glue binds them into the
+/// write batches' quota guards: D1 binds every number as a REAL.
+pub struct Limits {
+    pub bytes: f64,
+    pub versions_daily: f64,
+    pub packages_daily: f64,
+    pub packages_total: f64,
+}
+
+impl Limits {
+    #[allow(clippy::cast_precision_loss)]
+    pub fn of(class: &str) -> Self {
+        let quotas = quota::quotas_for_class(class);
+        Self {
+            bytes: quotas.max_total_bytes_per_user as f64,
+            versions_daily: quotas.max_versions_per_package_per_day as f64,
+            packages_daily: quotas.max_new_packages_per_day as f64,
+            packages_total: quotas.max_packages_total as f64,
+        }
+    }
+}
 
 /// One sign-in's identity upsert, exactly as the OAuth callback runs it:
 /// both statements back-to-back on one connection, user creation first

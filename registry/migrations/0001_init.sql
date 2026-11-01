@@ -354,6 +354,10 @@ CREATE TABLE revisions (
     FOREIGN KEY (scope, name, version) REFERENCES versions (scope, name, version)
 );
 CREATE INDEX revisions_published_by ON revisions (published_by);
+-- The daily per-package version quota's day count, which the publish
+-- preflight and every publish batch statement's quota guard run: a
+-- range over the package's revisions of one day, not its history.
+CREATE INDEX revisions_published_at ON revisions (scope, name, published_at);
 -- The checksum index serves the storage self-accounting's
 -- first-reference check at publish.
 CREATE INDEX revisions_checksum ON revisions (checksum);
