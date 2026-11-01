@@ -529,10 +529,36 @@ fn no_ignore_vcs_includes_gitignored_files() {
     assert!(body.contains("src/generated.cc"));
 }
 
+/// Make `<dir>/<build>` the workspace's own build directory, as a
+/// build does before writing outputs into it.
+fn claim_build_dir(dir: &Path, build: &str) {
+    std::fs::create_dir(dir.join(build)).unwrap();
+    cabin_build::owner::claim(&dir.join(build), dir).unwrap();
+}
+
+#[test]
+fn tidy_claims_a_new_build_directory() {
+    let dir = TempDir::new().unwrap();
+    write_minimal_project(dir.path());
+    cabin_with_fake_tidy()
+        .current_dir(dir.path())
+        .env("CABIN_FAKE_TIDY_RECORD", dir.path().join("argv.log"))
+        .arg("tidy")
+        .assert()
+        .success();
+    // An unclaimed compile database would make a later build refuse
+    // the directory as one an older Cabin wrote.
+    assert_eq!(
+        cabin_build::owner::owner(&dir.path().join("build"), dir.path()).unwrap(),
+        cabin_build::owner::Owner::This
+    );
+}
+
 #[test]
 fn build_and_cache_directories_are_not_checked() {
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
+    claim_build_dir(dir.path(), "build");
     // Sources under directories that source discovery always
     // skips.  None is a target source, so the compile-database
     // filter would also drop them; the test pins only that none
@@ -576,6 +602,7 @@ fn build_and_cache_directories_are_not_checked() {
 fn custom_build_directory_is_not_checked() {
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
+    claim_build_dir(dir.path(), "out");
     dir.child("out/dev/scratch.cc")
         .write_str("int s() {}\n")
         .unwrap();

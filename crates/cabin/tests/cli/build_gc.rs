@@ -283,7 +283,7 @@ sources = ["src/main.c"]
 
 /// `cabin` as a child the test talks to while it runs, isolated as
 /// [`cabin()`] isolates it.  Its stderr goes to the test's own.
-fn spawn_cabin(dir: &Path, args: &[&str]) -> std::process::Child {
+pub(super) fn spawn_cabin(dir: &Path, args: &[&str]) -> std::process::Child {
     let template = cabin();
     let mut cmd = std::process::Command::new(template.get_program());
     for (key, value) in template.get_envs() {

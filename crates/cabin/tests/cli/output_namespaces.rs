@@ -220,6 +220,8 @@ fn old_usage_records_collect_only_the_tree_they_name() {
     let triple = &build_machine_triple();
     write_project(dir, triple);
     let build = dir.join("build");
+    fs::create_dir(&build).unwrap();
+    cabin_build::owner::claim(&build, dir).unwrap();
     // An output `--target <triple>` wrote, and recorded, before `.targets`.
     let rel = format!(
         "{triple}/dev/packages/app/obj/app/src/old.c.{}",

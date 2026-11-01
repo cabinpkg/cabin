@@ -10,6 +10,7 @@ use anyhow::{Context as _, Result};
 use cabin_build::gc::{
     BuildDirLock, CollectReport, CollectRequest, GcError, Policy, Reason, collect,
 };
+use cabin_build::owner;
 
 use crate::cli::term_verbosity::Reporter;
 
@@ -50,18 +51,52 @@ fn wait_message(reporter: Reporter) -> impl FnOnce() {
     }
 }
 
-/// Lock `build_root` for using its outputs.
-pub(crate) fn lock_shared(build_root: &Path, reporter: Reporter) -> Result<BuildDirLock> {
+/// Lock `build_root` for using its outputs as the workspace at
+/// `workspace_root`, recording that workspace as its owner if the
+/// directory is new (see [`cabin_build::owner`]).
+///
+/// # Errors
+/// Refuses a build directory another workspace owns, or one holding
+/// files but no owner record.
+pub(crate) fn lock_shared(
+    build_root: &Path,
+    workspace_root: &Path,
+    reporter: Reporter,
+) -> Result<BuildDirLock> {
+    let lock = BuildDirLock::shared(build_root, wait_message(reporter))?;
+    // A claim runs under the lock held exclusively, so while this one is
+    // held shared the record cannot change.
+    match owner::owner(build_root, workspace_root)? {
+        owner::Owner::This => return Ok(lock),
+        owner::Owner::Unrecorded => {
+            return Err(owner::OwnerError::Unrecorded {
+                build_dir: build_root.to_path_buf(),
+            }
+            .into());
+        }
+        owner::Owner::Nobody => drop(lock),
+    }
+    // The same process cannot take the lock exclusively while it holds
+    // it shared.
+    {
+        let _claiming = BuildDirLock::exclusive(build_root, wait_message(reporter))?;
+        owner::claim(build_root, workspace_root)?;
+    }
     Ok(BuildDirLock::shared(build_root, wait_message(reporter))?)
 }
 
-/// Lock `build_root` for removing outputs.
+/// Lock `build_root` for removing outputs of the workspace at
+/// `workspace_root`.
 ///
 /// # Errors
 /// Refuses, rather than wait forever, a build directory that a
 /// `cabin run` or `cabin test` this process runs under keeps in use
-/// until this process exits.
-pub(crate) fn lock_exclusive(build_root: &Path, reporter: Reporter) -> Result<BuildDirLock> {
+/// until this process exits, and one another workspace owns.
+pub(crate) fn lock_exclusive(
+    build_root: &Path,
+    workspace_root: &Path,
+    reporter: Reporter,
+) -> Result<BuildDirLock> {
     if let Some(dirs) = std::env::var_os(cabin_env::CABIN_BUILD_DIRS_IN_USE) {
         let root = cabin_fs::canonicalize_or_input(build_root);
         if dirs
@@ -75,7 +110,11 @@ pub(crate) fn lock_exclusive(build_root: &Path, reporter: Reporter) -> Result<Bu
             );
         }
     }
-    Ok(BuildDirLock::exclusive(build_root, wait_message(reporter))?)
+    let lock = BuildDirLock::exclusive(build_root, wait_message(reporter))?;
+    // Another workspace may have claimed the directory while this
+    // command waited.
+    owner::owner(build_root, workspace_root)?;
+    Ok(lock)
 }
 
 /// Record that the plan's products are in use.  Fails the command when
@@ -189,7 +228,7 @@ pub(crate) fn clean_gc(request: &CollectRequest<'_>, reporter: Reporter) -> Resu
     let _lock = if request.dry_run {
         None
     } else {
-        Some(lock_exclusive(build_dir, reporter)?)
+        Some(lock_exclusive(build_dir, request.workspace_root, reporter)?)
     };
     let report = collect(request)?;
     if report.collected.is_empty() {

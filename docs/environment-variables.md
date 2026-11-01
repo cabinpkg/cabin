@@ -272,7 +272,7 @@ overlay:
 | `CABIN_PACKAGE_NAME` | Package name as the manifest declares it |
 | `CABIN_PACKAGE_VERSION` | Resolved package version |
 | `CABIN_PROFILE` | Active profile (`dev`, `release`, ...) |
-| `CABIN_BUILD_DIR` | Resolved build directory, under `--target` too, so a `cabin` the program runs uses the same build directory |
+| `CABIN_BUILD_DIR` | Resolved build directory, under `--target` too, so a `cabin` the program runs uses the same build directory.  A `cabin` for another workspace needs its own `--build-dir`, since a build directory [serves one workspace](profiles.md#build-directory-ownership) |
 | `CABIN_PROFILE_DIR` | Absolute path to the directory holding the profile's outputs: `$CABIN_BUILD_DIR/$CABIN_PROFILE`, or `$CABIN_BUILD_DIR/.targets/<triple>/$CABIN_PROFILE` under `--target` |
 | `CABIN_BUILD_DIRS_IN_USE` | The build directories that this and any enclosing `cabin run` or `cabin test` keep in use until the program exits, one per line.  A `cabin clean` of one fails instead of waiting for them forever |
 

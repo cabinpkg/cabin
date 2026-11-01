@@ -26,7 +26,8 @@ use cabin_core::{PackageName, ProfileName};
 #[derive(Debug, Clone)]
 pub enum CleanScope {
     /// Remove everything in the build directory except its lock file
-    /// (see [`crate::gc::BuildDirLock`]); with a `--target`, remove
+    /// (see [`crate::gc::BuildDirLock`]) and owner record (see
+    /// [`crate::owner`]); with a `--target`, remove
     /// that platform's [`crate::layout::platform_dir`] instead.  Used
     /// when `cabin clean` selects no profile or package.
     Whole,
@@ -191,15 +192,18 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
         }
     };
     let candidates = match &req.scope {
-        // The lock file outlives every clean (see
-        // `gc::BuildDirLock`), so a whole clean empties the build
-        // directory around it.  Under `--target` the triple's tree goes.
+        // The lock file and the owner record outlive every clean (see
+        // `gc::BuildDirLock` and `owner`), so a whole clean empties the
+        // build directory around them.  Under `--target` the triple's
+        // tree goes.
         CleanScope::Whole if req.target.is_none() => match std::fs::read_dir(&root) {
             Ok(entries) => entries
                 .map(|entry| entry.map(|entry| entry.path()))
                 .filter(|path| {
                     path.as_ref().map_or(true, |path| {
-                        path.file_name() != Some(std::ffi::OsStr::new(crate::gc::LOCK_FILENAME))
+                        path.file_name().is_none_or(|name| {
+                            name != crate::gc::LOCK_FILENAME && name != crate::owner::OWNER_FILENAME
+                        })
                     })
                 })
                 .collect::<Result<_, _>>()
@@ -451,13 +455,17 @@ mod tests {
     }
 
     #[test]
-    fn plan_whole_lists_everything_but_the_lock_file() {
+    fn plan_whole_lists_everything_but_the_lock_file_and_owner() {
         let tmp = TempDir::new().unwrap();
         let build_dir = tmp.child("build");
         populate_layout(&build_dir);
         build_dir
             .child(crate::gc::LOCK_FILENAME)
             .write_str("")
+            .unwrap();
+        build_dir
+            .child(crate::owner::OWNER_FILENAME)
+            .write_str("{}")
             .unwrap();
         build_dir
             .child(".cabin-gc/state.json")
