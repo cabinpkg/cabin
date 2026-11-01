@@ -1387,6 +1387,12 @@ fn a_project_config_loopback_index_never_receives_the_env_token() {
     assert_fs::fixture::ChildPath::new(app.join(".cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
         .unwrap();
+    // Trusting the project lets it choose the index, but not hand that
+    // index the token.
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&trust_table(&app))
+        .unwrap();
 
     for command in ["resolve", "fetch"] {
         let mut cmd = cabin();
@@ -1397,6 +1403,7 @@ fn a_project_config_loopback_index_never_receives_the_env_token() {
         }
         let assertion = cmd
             .env_remove("CABIN_NO_CONFIG")
+            .env("CABIN_CONFIG_HOME", &home)
             .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
             .assert()
             .failure();
@@ -1427,6 +1434,7 @@ fn a_project_config_loopback_index_never_receives_the_env_token() {
         .args(["resolve", "--manifest-path"])
         .arg(app.join("cabin.toml"))
         .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
@@ -1448,6 +1456,7 @@ fn a_project_config_loopback_index_never_receives_the_env_token() {
         .args(["-Z", "remote-registry", "yank", "acme/demo@0.1.0"])
         .current_dir(&app)
         .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
         .failure();
@@ -3647,7 +3656,11 @@ fn an_agreeing_batch_is_only_as_credential_eligible_as_its_least_member() {
     // the batch, and demo's in-tree project config for demo.
     let home = dir.path().join("config-home");
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
-        .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url))
+        .write_str(&format!(
+            "[registry]\nindex-url = \"{}\"\n{}",
+            server.url,
+            trust_table(&demo)
+        ))
         .unwrap();
     assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url))
@@ -3692,6 +3705,10 @@ fn a_batch_disagreeing_on_the_registry_fails_before_any_network() {
     assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{second}\"\n"))
         .unwrap();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&trust_table(dir.path()))
+        .unwrap();
 
     let assertion = cabin()
         .args(["-Z", "remote-registry", "publish", "--manifest-path"])
@@ -3699,6 +3716,7 @@ fn a_batch_disagreeing_on_the_registry_fails_before_any_network() {
         .arg("--manifest-path")
         .arg(demo.join("cabin.toml"))
         .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
         .failure();
@@ -3730,6 +3748,10 @@ fn a_flagless_disagreeing_batch_answers_the_feature_error() {
     assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{second}\"\n"))
         .unwrap();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&trust_table(dir.path()))
+        .unwrap();
 
     let assertion = cabin()
         .args(["publish", "--manifest-path"])
@@ -3737,6 +3759,7 @@ fn a_flagless_disagreeing_batch_answers_the_feature_error() {
         .arg("--manifest-path")
         .arg(demo.join("cabin.toml"))
         .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
@@ -3762,7 +3785,10 @@ fn a_source_replacement_hop_splitting_the_batch_is_refused() {
     let (declared, replaced) = dead_loopback_url_pair();
     let home = dir.path().join("config-home");
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
-        .write_str(&format!("[registry]\nindex-url = \"{declared}\"\n"))
+        .write_str(&format!(
+            "[registry]\nindex-url = \"{declared}\"\n{}",
+            trust_table(&demo)
+        ))
         .unwrap();
     assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
         .write_str(&format!(
@@ -3805,6 +3831,10 @@ fn a_remote_and_local_mix_in_a_batch_is_refused() {
             dead_loopback_url()
         ))
         .unwrap();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&trust_table(dir.path()))
+        .unwrap();
 
     // demo with no registry source at all, then with a local path:
     // both are the same "no remote index" answer.
@@ -3820,6 +3850,7 @@ fn a_remote_and_local_mix_in_a_batch_is_refused() {
             .arg("--manifest-path")
             .arg(demo.join("cabin.toml"))
             .env_remove("CABIN_NO_CONFIG")
+            .env("CABIN_CONFIG_HOME", &home)
             .assert()
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();

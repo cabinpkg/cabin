@@ -9,11 +9,11 @@
 
 use std::collections::BTreeMap;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use cabin_core::{
     ColorChoice, CompilerWrapperRequest, IncompatibleStandards, PackageName, PatchSource,
-    SourceReplacementEntry, SourceReplacementSettings, ToolSpec, Verbosity,
+    SourceLocator, SourceReplacementEntry, SourceReplacementSettings, ToolSpec, Verbosity,
 };
 
 use crate::parse::{ParsedConfig, ParsedGc, ParsedRegistry};
@@ -66,6 +66,41 @@ impl EffectiveConfig {
         self.trusted_projects
             .iter()
             .any(|dir| std::fs::canonicalize(dir).is_ok_and(|dir| root.starts_with(dir)))
+    }
+
+    /// The root of the project whose own `.cabin/config.toml` loaded,
+    /// if one did.
+    pub fn project_root(&self) -> Option<&Utf8Path> {
+        self.loaded_files
+            .iter()
+            .find(|file| matches!(file.source, ConfigSource::Workspace | ConfigSource::Package))
+            .and_then(|file| file.path.parent()?.parent())
+    }
+
+    /// Whether the project at `root` may have its own config point Cabin
+    /// at `index`.  An index inside the project, such as a vendor
+    /// directory, serves only bytes the checkout already holds; any
+    /// other index, a URL above all, is a registry origin the project
+    /// would be choosing for the user, so it needs the project trusted.
+    /// A path must lie under `root` as written, so the check never opens
+    /// one named elsewhere, such as a network share, and again once both are
+    /// canonicalized, so neither `..` nor a symlink in the checkout leads
+    /// outside it.  A path that does not resolve is not inside: one that
+    /// fails now could still be read later.  Entries beneath an inside
+    /// index are not checked: the project already chooses their bytes, and
+    /// a symlink out of it adds nothing a committed file could not.
+    pub fn project_may_use_index(&self, root: &std::path::Path, index: &SourceLocator) -> bool {
+        let inside = match index {
+            SourceLocator::IndexPath { path } => {
+                path.as_std_path().starts_with(root)
+                    && matches!(
+                        (std::fs::canonicalize(path), std::fs::canonicalize(root)),
+                        (Ok(path), Ok(root)) if path.starts_with(&root)
+                    )
+            }
+            SourceLocator::IndexUrl { .. } => false,
+        };
+        inside || self.trusts_project(root)
     }
 }
 
@@ -378,8 +413,6 @@ fn resolve_relative(base: &Utf8Path, value: &Utf8Path) -> Utf8PathBuf {
     }
 }
 
-use camino::Utf8Path;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -671,5 +704,42 @@ mod tests {
             base: Utf8PathBuf::from("/u/.config/cabin"),
         };
         assert_eq!(setting.absolute(), Utf8PathBuf::from("/abs/cache"));
+    }
+
+    /// An index the checkout holds is the project's to use; one beside
+    /// it, reached by `..` or through a symlink in the checkout, one that
+    /// does not exist, or any URL, needs the project trusted.
+    #[test]
+    fn a_project_may_use_only_an_index_inside_it_unless_trusted() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let root = dir.path().join("app");
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+        std::fs::create_dir_all(dir.path().join("mirror")).unwrap();
+        let path = |rel: &str| SourceLocator::IndexPath {
+            path: Utf8PathBuf::from_path_buf(root.join(rel)).unwrap(),
+        };
+        let url = SourceLocator::IndexUrl {
+            url: "https://example.com/index".to_owned(),
+        };
+        let mut config = EffectiveConfig::default();
+        assert!(config.project_may_use_index(&root, &path("vendor")));
+        assert!(!config.project_may_use_index(&root, &path("missing")));
+        assert!(!config.project_may_use_index(&root, &path("../mirror")));
+        let beside = SourceLocator::IndexPath {
+            path: Utf8PathBuf::from_path_buf(dir.path().join("mirror")).unwrap(),
+        };
+        assert!(!config.project_may_use_index(&root, &beside));
+        assert!(!config.project_may_use_index(&root, &url));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.path().join("mirror"), root.join("link")).unwrap();
+            assert!(!config.project_may_use_index(&root, &path("link")));
+        }
+
+        config
+            .trusted_projects
+            .push(Utf8PathBuf::from_path_buf(root.clone()).unwrap());
+        assert!(config.project_may_use_index(&root, &path("../mirror")));
+        assert!(config.project_may_use_index(&root, &url));
     }
 }

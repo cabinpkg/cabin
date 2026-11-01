@@ -204,7 +204,8 @@ fn effective_publish_index_url(
         return Ok(None);
     };
     let locator = crate::cli::config::index_source_kind_to_locator(&source.kind);
-    let resolution = crate::cli::patch::apply_source_replacement(locator, &config, false)?;
+    let resolution =
+        crate::cli::patch::apply_source_replacement(locator, source.from_project, &config, false)?;
     let user_chosen = crate::cli::config::index_origin_user_chosen(&source, &resolution);
     match resolution.resolved {
         cabin_core::SourceLocator::IndexPath { .. } => Ok(None),

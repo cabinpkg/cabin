@@ -137,6 +137,11 @@ choose only one at the same precedence level``.  Across precedence levels, the h
 file's variant replaces the lower file's value entirely (so a workspace-level `index-url` overrides
 a user-level `index-path`).
 
+A project's own `.cabin/config.toml` may name an `index-path` to an existing directory inside the
+project, such as a vendor directory; any other index it names, a URL above all, needs the project in [`[trust]`](#trust).
+Otherwise `cabin resolve`, `cabin update`, and any command that opens the index fail with an error
+naming the index and the table, before any connection, since a checkout must not choose which registry the user's dependencies come from.
+
 `cabin metadata` does not contact the configured `index-url`; network access still happens only when
 a command (like `cabin resolve --index-url ...` or a build with versioned dependencies) needs the
 index.
@@ -244,6 +249,8 @@ The full schema, validation rules, and lockfile / metadata behavior live in
 - URLs containing `userinfo` (e.g., `https://user:pw@example.com/index`) are rejected so credentials
   never leak.
 - Replacement chains are walked once with cycle detection.
+- A chain that walks an entry from a project's own `.cabin/config.toml` must end at an index the
+  project may name itself, as for `[registry]`, so a project cannot redirect an index the user chose.
 - Member manifests cannot declare `[patch]` tables.
 - `cabin package` rejects manifests with a non-empty `[patch]` table; config patches and source
   replacements are excluded from package archives by `.cabin/`'s existing exclusion rule.
@@ -284,7 +291,8 @@ from.  Like `-j`, those flags belong to one invocation and never appear there.  
 
 ### `[trust]`
 
-Projects whose own configuration may choose an executable by path.
+Projects whose own configuration may choose an executable by path, or a package index outside the
+project ([`[registry]`](#registry), [`[source-replacement]`](#patch-and-source-replacement)).
 
 | Key        | Type             | Notes                                                    |
 | ---------- | ---------------- | -------------------------------------------------------- |
@@ -297,8 +305,8 @@ table, unless the project is trusted: Cabin runs the chosen tools even for `cabi
 editor may run on opening a folder.  A choice on the command line or in the environment needs no
 trust and outranks the project's (for a `--target` build's build-machine tools, `HOST_CC`,
 `HOST_CXX`, and `HOST_AR`); one in the user config needs no trust either, but a project's
-`.cabin/config.toml` outranks it.  Trust governs only which executables Cabin starts by name: a bare
-name runs whatever `PATH` finds, including a launcher such as a rustup proxy that honors the
+`.cabin/config.toml` outranks it.  For executables, trust governs only which ones Cabin starts by
+name: a bare name runs whatever `PATH` finds, including a launcher such as a rustup proxy that honors the
 checkout's own toolchain files, and a project's own build flags can still make the compiler load
 code (`-fplugin`, `-B`), so building an untrusted project is no safer than running its makefile.
 

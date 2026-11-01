@@ -374,12 +374,6 @@ fn fetch_refuses_a_source_path_outside_the_index_root() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), None);
     let index = dir.path().join("index");
-    dir.child("app/.cabin/config.toml")
-        .write_str(&format!(
-            "[registry]\nindex-path = {:?}\n",
-            index.to_str().unwrap()
-        ))
-        .unwrap();
     let secret = dir.child("secret.txt");
     secret.write_str("private").unwrap();
     let secret_hex =
@@ -387,9 +381,11 @@ fn fetch_refuses_a_source_path_outside_the_index_root() {
     let absolute = secret.path().to_str().unwrap().to_owned();
     for source_path in [absolute.as_str(), "../secret.txt", "../missing.txt"] {
         write_index_entry(&index, "fmt", "10.2.1", "{}", &"0".repeat(64), source_path);
-        cabin_with_config()
+        cabin()
             .args(["fetch", "--manifest-path"])
             .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(&index)
             .arg("--cache-dir")
             .arg(dir.path().join("cache"))
             .assert()

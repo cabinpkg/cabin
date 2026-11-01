@@ -602,15 +602,21 @@ fn resolve_frozen_rejects_config_index_url() {
     assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
         .unwrap();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&trust_table(&dir.path().join("app")))
+        .unwrap();
     cabin_with_config()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
+        .env("CABIN_CONFIG_HOME", &home)
         .assert()
         .success();
 
     cabin_with_config()
         .args(["resolve", "--frozen", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
+        .env("CABIN_CONFIG_HOME", &home)
         .assert()
         .failure()
         .stderr(predicate::str::contains("--index-url"))

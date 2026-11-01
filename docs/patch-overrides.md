@@ -136,6 +136,10 @@ the lockfile, `cabin metadata`, and `cabin explain` keep it as written.
 URLs containing `userinfo` (e.g., `https://user:pw@example.com/index`) are rejected at parse time so
 credentials never leak into the lockfile, log output, or the metadata view.
 
+A replacement declared in a project's own `.cabin/config.toml` takes effect only when the chain ends
+at an existing directory inside the project or the project is in the user config's
+[`[trust]`](config.md#trust) table; otherwise resolving against the index fails.
+
 ### Replacement chain + cycle detection
 
 When the orchestration layer opens the configured index source, it walks the replacement map once:
