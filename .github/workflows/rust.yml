@@ -33,9 +33,8 @@ jobs:
     uses: ./.github/workflows/changes.yml
 
   # Format, clippy, and docs share one runner: each alone is
-  # dominated by setup. The clippy and docs steps keep the old
-  # per-job gate and skip on toml-only changes. Branch protection
-  # pins `lint` below, never this job.
+  # dominated by setup. The clippy and docs steps skip on toml-only
+  # changes. Branch protection pins `lint` below, never this job.
   lint-work:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true'
@@ -177,7 +176,6 @@ jobs:
   # Branch protection pins this aggregate: a skipped matrix job never
   # posts per-leg names. `always()`, never `!cancelled()`: a cancelled
   # run must fail this check, not skip it to a green required check.
-  # Fails closed when the gate itself failed.
   build-and-test-required:
     needs: [changes, build-and-test, fuzz]
     if: always()
@@ -202,13 +200,11 @@ jobs:
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.rust }},${{ needs.changes.outputs.fuzz }}
 
-  # Verify Cabin auto-discovers the MSVC toolchain itself, with no
-  # Developer Command Prompt / vcvarsall activation. This job deliberately
-  # omits `ilammy/msvc-dev-cmd` so `cl.exe` / `lib.exe` and `INCLUDE` /
-  # `LIB` are NOT on the environment; a green run proves the
-  # `find-msvc-tools` discovery path works end to end. Kept separate from
-  # `build-and-test` so the proven, pre-activated path can never be
-  # reddened by this one.
+  # Cabin must find MSVC itself through `find-msvc-tools`: this job
+  # omits `ilammy/msvc-dev-cmd`, so neither `cl.exe` / `lib.exe` nor
+  # `INCLUDE` / `LIB` is on the environment. Separate from
+  # `build-and-test` so a discovery failure cannot fail the
+  # pre-activated path.
   windows-msvc-autodiscovery:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
@@ -229,8 +225,7 @@ jobs:
           # Guard against a false green: if the runner image ever ships
           # `INCLUDE` / `LIB` pre-set, Cabin's `already_activated()` check
           # short-circuits and the `find-msvc-tools` discovery path is
-          # never exercised. Fail loudly so this job keeps proving what it
-          # claims to.
+          # never exercised.
           if ($env:INCLUDE -or $env:LIB) {
             Write-Error "INCLUDE/LIB are set; MSVC is pre-activated, so this job would not test auto-discovery."
             exit 1
@@ -247,17 +242,12 @@ jobs:
             if ($code -ne 0) { exit $code }
           }
 
-  # Reality-check `--version` detection and compiler cfg conditions
-  # against real versioned compilers. The canned-banner unit corpus is
-  # the primary parser coverage; these passes prove end to end that a
-  # pinned gcc-N / clang-N is detected with the right family + major
-  # version and that compiler-gated profile flags flip accordingly.
-  # macOS (AppleClang) and Windows (MSVC) stay covered by
-  # `build-and-test`. One pass per family on one runner - one
-  # checkout, cache restore, and toolchain setup instead of two; the
-  # clang pass still rebuilds the CC-sensitive tail of the dependency
-  # graph (ring's build script tracks CC/CXX). A failed gcc pass
-  # skips the clang passes (accepted).
+  # Checks `--version` detection and compiler cfg conditions against
+  # the real pinned gcc and clang; unit tests on canned banners cover
+  # the parser, and `build-and-test` covers AppleClang and MSVC. Both
+  # families share one runner, saving a second checkout, cache
+  # restore, and toolchain setup; a failed gcc pass skips the clang
+  # passes (accepted).
   compiler-detection:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
