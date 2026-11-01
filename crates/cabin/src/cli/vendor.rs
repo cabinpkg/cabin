@@ -192,20 +192,6 @@ pub(crate) fn vendor(
             "versioned dependencies require --index-path or a `[registry] index-path` config setting"
         );
     };
-    // Vendoring reads per-package metadata directly off disk so
-    // the vendor directory ends up byte-stable, which requires a
-    // local file index.  Reject a configured URL here, before the
-    // artifact pipeline reaches for the network and surfaces a
-    // less specific error.
-    if matches!(
-        index_source.kind,
-        crate::cli::config::IndexSourceKind::Url(_)
-    ) {
-        bail!(
-            "`cabin vendor` requires a local `--index-path` source so per-package metadata can be copied verbatim into the vendor directory"
-        );
-    }
-
     let inputs = crate::cli::config::resolve_pipeline_inputs(
         Some(index_source),
         &effective_config,
@@ -243,7 +229,7 @@ pub(crate) fn vendor(
     let index_dir = match &inputs.index_source {
         cabin_core::SourceLocator::IndexPath { path } => path.as_std_path().to_path_buf(),
         cabin_core::SourceLocator::IndexUrl { .. } => bail!(
-            "`cabin vendor` requires a local `--index-path` source so per-package metadata can be copied verbatim into the vendor directory"
+            "`cabin vendor` requires a local index source so per-package metadata can be copied verbatim into the vendor directory"
         ),
     };
 

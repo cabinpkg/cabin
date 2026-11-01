@@ -368,11 +368,10 @@ pub(crate) fn enforce_offline_post_replacement(
     );
 }
 
-/// Post-`apply_source_replacement` variant of vendor's
-/// local-index check.  The pre-replacement check at the call site
-/// catches direct `[registry] index-url` cases; this one catches
-/// the path → URL replacement case the same way
-/// [`enforce_offline_post_replacement`] does for `--offline`.
+/// Vendor's local-index rule, checked on the replacement chain's
+/// terminal source - before any request - since vendoring copies
+/// per-package metadata off disk.  A configured URL that
+/// `[source-replacement]` maps to a local index therefore vendors.
 pub(crate) fn enforce_vendor_local_index_post_replacement(
     resolution: &cabin_core::SourceReplacementResolution,
 ) -> Result<()> {
@@ -381,11 +380,11 @@ pub(crate) fn enforce_vendor_local_index_post_replacement(
     };
     if resolution.hops.is_empty() {
         bail!(
-            "`cabin vendor` requires a local `--index-path` source so per-package metadata can be copied verbatim into the vendor directory; the resolved index source is the URL `{url}`"
+            "`cabin vendor` requires a local index source so per-package metadata can be copied verbatim into the vendor directory, but the resolved index source is the URL `{url}`; pass `--index-path <dir>`, or map the URL to a local `index-path` with `[source-replacement]`"
         );
     }
     bail!(
-        "`cabin vendor` requires a local `--index-path` source, but `[source-replacement]` redirected the index to the URL `{url}`; remove the offending source-replacement entry or pass `--no-patches`"
+        "`cabin vendor` requires a local index source, but `[source-replacement]` redirected the index to the URL `{url}`; point the offending source-replacement entry at a local `index-path`"
     );
 }
 

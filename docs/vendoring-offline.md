@@ -76,11 +76,13 @@ vendored unless they are in the selection's build closure.
 | `--frozen`   | required, kept | not populated  | written (explicit output) | not used; HTTP index rejected |
 | `--offline`  | written        | populated      | written                   | **forbidden** |
 
-`cabin vendor` requires a local file-registry index (`--index-path` or `[registry] index-path`) so
-the per-package metadata it copies into the vendor directory is byte-stable.  An HTTP index URL
-supplied by a `[registry] index-url` config setting - or one reached via `[source-replacement]` - is
-rejected before any network attempt.  Already-cached artifacts and local file-registry indexes are
-unaffected.
+`cabin vendor` reads per-package metadata from a local file-registry index so the documents it
+copies into the vendor directory are byte-stable.  The rule applies to the index source left after
+`[source-replacement]`: `--index-path`, `[registry] index-path`, or a `[registry] index-url` that a
+`[source-replacement]` entry maps to a local `index-path` all vendor.  When the replacement chain
+ends at an HTTP URL, `cabin vendor` refuses before any network attempt; it never vendors from an
+HTTP index.  Under `--offline` a configured `index-url` is refused before replacement applies, as
+for every other command, so pass the local index with `--index-path` instead.
 
 `cabin vendor --frozen` is the documented "rebuild a vendor directory from the existing artifact
 cache without touching the lockfile or refreshing the cache" flow.  The vendor directory is the
@@ -155,7 +157,7 @@ environment policy.
 | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `--offline forbids network access, but the resolved index source is the URL …` | A `[registry] index-url` config setting is active.                         | Pass `--index-path <vendor-dir>` or remove the URL setting from the active config.        |
 | `--offline forbids network access, but no index source is configured, so versioned dependencies would resolve through the default registry …` | Nothing names an index, so the default hosted registry applies.            | Pass `--index-path <vendor-dir>` (a `cabin vendor` output) and re-run.                     |
-| `cabin vendor requires a local --index-path source …`                          | The resolved index source is a URL (config or `[source-replacement]`).      | Switch to a local `--index-path` source or adjust the offending config entry.             |
+| `cabin vendor requires a local index source …`                                 | The index source left after `[source-replacement]` is a URL.                | Pass `--index-path`, map the URL to a local `index-path` with `[source-replacement]`, or fix the offending entry. |
 | `vendor directory already contains <path> with checksum sha256:… which does not match …` | A previous run left a stale archive on disk.                               | Delete the offending file (or the whole `vendor/artifacts/<scope>/<name>/` subdir) and re-run. |
 | `checksum mismatch while vendoring …`                                           | The artifact in the cache no longer matches the index's recorded checksum. | Clear the cache (`--cache-dir <new-dir>`) or refresh the index, then re-run `cabin vendor`. |
 | `vendoring requires the source index to expose packages/<name>.json at …`       | The local `--index-path` is missing per-package metadata.                  | Re-publish the package with `cabin publish --registry-dir <dir>` so the file appears.       |
