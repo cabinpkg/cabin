@@ -51,6 +51,11 @@ pub struct TargetNode {
     pub attributes: DependencyAttributes,
     /// Where the populated fields of `attributes` were declared.
     pub sites: DeclarationSites,
+    /// Whether the target has an interface of its own.  Without one
+    /// (an executable-like target) its own `ReqOf`, at most the strict
+    /// C++-to-C default, stays out of `R_L`; its public dependencies'
+    /// requirements still pass through it.
+    pub has_interface: bool,
     /// Dependency edges in declaration order.  Only public edges
     /// propagate requirements (spec D10); private edges may be
     /// passed along unfiltered and are ignored here.
@@ -402,19 +407,21 @@ fn compose<S: Copy + Ord>(
     results: &[Option<EffectiveTarget>],
     of: impl Fn(&EffectiveTarget) -> &Effective<S>,
 ) -> Effective<S> {
-    let contributions = std::iter::once(Contribution {
+    let own = node.has_interface.then(|| Contribution {
         requirement: own,
         attained: Attained::Own(origin(node, own_source, decl_site, impl_site)),
-    })
-    .chain(node.deps.iter().filter(|edge| edge.public).map(|edge| {
-        let dep = of(results[edge.to]
-            .as_ref()
-            .expect("topological order visits dependencies first"));
-        Contribution {
-            requirement: dep.requirement,
-            attained: Attained::Via(edge.to),
-        }
-    }));
+    });
+    let contributions = own
+        .into_iter()
+        .chain(node.deps.iter().filter(|edge| edge.public).map(|edge| {
+            let dep = of(results[edge.to]
+                .as_ref()
+                .expect("topological order visits dependencies first"));
+            Contribution {
+                requirement: dep.requirement,
+                attained: Attained::Via(edge.to),
+            }
+        }));
 
     let mut forbidden: Option<Attained> = None;
     let mut lower: Option<(S, Attained)> = None;
@@ -592,6 +599,7 @@ mod tests {
             manifest_path: PathBuf::from(format!("{name}/cabin.toml")),
             attributes,
             sites: DeclarationSites::default(),
+            has_interface: true,
             deps: deps
                 .iter()
                 .map(|&(to, public)| TargetEdge { to, public })
@@ -885,6 +893,7 @@ mod tests {
                 decl_cxx: None,
             },
             sites: DeclarationSites::default(),
+            has_interface: true,
             deps: Vec::new(),
         };
         h.sites.impl_c = Some(site("h/cabin.toml", 10));
