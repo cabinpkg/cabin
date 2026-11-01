@@ -926,17 +926,11 @@ fmt = ">=10.0.0 <11.0.0"
 fn metadata_reports_config_supplied_toolchain_cxx() {
     let dir = project_dir(MINIMAL_PROJECT);
     let bin = TempDir::new().unwrap();
-    let cxx = fake_tool_with_output(bin.path(), "fake-clang++", "clang version 17.0.6\n", "", 0);
+    // A bare name: a project's own config names a tool by path only
+    // when the user trusts the project.
+    let _cxx = fake_tool_with_output(bin.path(), "fake-clang++", "clang version 17.0.6\n", "", 0);
     let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
-    write_workspace_config(
-        dir.path(),
-        &format!(
-            r#"[toolchain]
-cxx = "{cxx}"
-"#,
-            cxx = cxx.display()
-        ),
-    );
+    write_workspace_config(dir.path(), "[toolchain]\ncxx = \"fake-clang++\"\n");
     let user_home = TempDir::new().unwrap();
     let assertion = cabin_with_config()
         .args(["metadata", "--manifest-path"])
@@ -948,7 +942,7 @@ cxx = "{cxx}"
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
     let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let cxx_view = &value["toolchain"]["tools"]["cxx"];
-    assert_eq!(cxx_view["spec"].as_str(), Some(cxx.to_str().unwrap()));
+    assert_eq!(cxx_view["spec"].as_str(), Some("fake-clang++"));
     assert_eq!(cxx_view["source"].as_str(), Some("package-config"));
     assert_eq!(
         value["config"]["toolchain"]["cxx"]["value_source"].as_str(),

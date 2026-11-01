@@ -55,6 +55,20 @@ where
     }
 }
 
+/// Whether resolution looks `spec` up on `PATH`, which the user
+/// controls, rather than reading it as a path a project could point
+/// into its own checkout.  It is a single plain component with no
+/// separator of either kind: resolution reads any separator as a path,
+/// and Windows reads `C:x` as a drive-relative one.
+pub fn is_path_lookup_name(spec: &str) -> bool {
+    let mut components = Path::new(spec).components();
+    !spec.contains(['/', '\\'])
+        && matches!(
+            (components.next(), components.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        )
+}
+
 /// Whether `name` lexically looks like a path rather than a bare
 /// program name to look up on `PATH` - it contains a `/` separator
 /// (or a `\` on Windows).  Resolution probes such values as explicit
@@ -62,4 +76,19 @@ where
 /// [`crate::ninja`] must apply the same rule.
 pub(crate) fn looks_like_relative_path(name: &str) -> bool {
     name.contains('/') || (cfg!(windows) && name.contains('\\'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_path_lookup_name;
+
+    #[test]
+    fn only_a_single_plain_component_is_looked_up_on_path() {
+        assert!(is_path_lookup_name("clang++"));
+        for spec in [".", "..", "./cc", "shim/.", "bin\\cc", "/usr/bin/cc"] {
+            assert!(!is_path_lookup_name(spec), "{spec}");
+        }
+        #[cfg(windows)]
+        assert!(!is_path_lookup_name("C:cc"));
+    }
 }

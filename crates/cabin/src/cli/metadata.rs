@@ -600,6 +600,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         compiler_wrapper_override_from_args(&args.toolchain)?,
         workspace_compiler_wrapper_settings(&graph).as_ref(),
         &effective_config,
+        &graph.root_dir,
     ) {
         Ok(w) => w,
         Err(err) => {

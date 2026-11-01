@@ -54,6 +54,16 @@ pub enum ConfigError {
     )]
     TermOutsideUserConfig { path: PathBuf },
 
+    /// A workspace or package config file that is not also the user
+    /// config file declared `[trust]`.  Trust is what a project's own
+    /// config cannot grant itself.
+    #[error(
+        "config file `{path}` sets `[trust]`, which only the user config file or `CABIN_CONFIG` can \
+         set, as a project cannot trust itself",
+        path = path.display(),
+    )]
+    TrustOutsideUserConfig { path: PathBuf },
+
     /// A config-layer boolean env var (e.g. `CABIN_NO_CONFIG`)
     /// carried a value outside the documented truthy / falsy
     /// spellings.  Silently ignoring the value would load config
@@ -136,6 +146,10 @@ pub enum ConfigParseError {
     #[error("config key `sysroot.{triple}` must be a non-empty path")]
     EmptySysroot { triple: String },
 
+    /// A `[trust] projects` entry is not an absolute path.
+    #[error("config key `trust.projects` entry `{path}` must be an absolute path")]
+    RelativeTrustedProject { path: camino::Utf8PathBuf },
+
     /// `[term].color` carried a value that is not one of
     /// `auto` / `always` / `never`.  The wording lists the legal
     /// set so the user can fix the file without consulting the
@@ -198,7 +212,7 @@ pub enum ConfigParseError {
     /// A top-level table the parser did not recognize.  Lists the
     /// supported tables so users can see the full surface.
     #[error(
-        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, gc, toolchain, term, patch, source-replacement, runner, sysroot"
+        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, gc, toolchain, term, trust, patch, source-replacement, runner, sysroot"
     )]
     UnknownTopLevelTable { table: String },
 

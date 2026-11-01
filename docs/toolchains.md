@@ -224,7 +224,8 @@ The workspace root manifest may declare a general `[toolchain]` table plus any n
 `[target.'cfg(...)'.toolchain]` overrides.  Member or path-dep manifests that declare a
 `[toolchain]` table are rejected with the error `toolchain selection may only appear in the
 workspace root manifest`.  As with `--cxx`, a relative tool path resolves against the current
-directory.
+directory.  Like a project's `.cabin/config.toml`, the manifest may name a tool by path only when
+the user [trusts the project](config.md#trust); a bare name is looked up on `PATH`.
 
 ```toml
 [toolchain]

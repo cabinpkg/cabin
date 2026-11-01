@@ -64,6 +64,8 @@ pub(crate) struct RawConfig {
     #[serde(default)]
     pub(crate) term: Option<RawTerm>,
     #[serde(default)]
+    pub(crate) trust: Option<RawTrust>,
+    #[serde(default)]
     pub(crate) target: Option<BTreeMap<String, toml::Value>>,
     #[serde(default)]
     pub(crate) patch: Option<BTreeMap<String, RawConfigPatch>>,
@@ -150,6 +152,14 @@ pub(crate) struct RawToolchain {
     pub(crate) cxx: Option<String>,
     #[serde(default)]
     pub(crate) ar: Option<String>,
+}
+
+/// Shape of `[trust]` in a config file.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawTrust {
+    #[serde(default)]
+    pub(crate) projects: Vec<Utf8PathBuf>,
 }
 
 /// Shape of `[term]` in a config file.

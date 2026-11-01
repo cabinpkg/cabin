@@ -35,6 +35,9 @@ pub struct EffectiveConfig {
     pub toolchain: EffectiveToolchain,
     pub compiler_wrapper: Option<EffectiveCompilerWrapper>,
     pub term: EffectiveTerm,
+    /// `[trust] projects` from every loaded file; discovery admits
+    /// the table only in the user config file and `CABIN_CONFIG`.
+    pub trusted_projects: Vec<Utf8PathBuf>,
     /// Active config-derived patches keyed by package name.
     /// Higher-priority files override lower files on overlap.
     pub patches: BTreeMap<PackageName, EffectivePatch>,
@@ -48,6 +51,22 @@ pub struct EffectiveConfig {
     /// files override lower files on overlap.
     pub sysroots: BTreeMap<String, EffectivePathSetting>,
     pub loaded_files: Vec<LoadedConfigFile>,
+}
+
+impl EffectiveConfig {
+    /// Whether the user trusts the project rooted at `root`: it is at or
+    /// below a `[trust] projects` directory.  Both sides are
+    /// canonicalized, so another spelling of the same directory (a
+    /// symlink, or a case difference on a case-insensitive file system)
+    /// matches, and an entry that does not exist trusts nothing.
+    pub fn trusts_project(&self, root: &std::path::Path) -> bool {
+        let Ok(root) = std::fs::canonicalize(root) else {
+            return false;
+        };
+        self.trusted_projects
+            .iter()
+            .any(|dir| std::fs::canonicalize(dir).is_ok_and(|dir| root.starts_with(dir)))
+    }
 }
 
 /// `[term]` view, after merging.
@@ -293,6 +312,9 @@ fn apply_parsed(
             source,
         });
     }
+    effective
+        .trusted_projects
+        .extend(parsed.trusted_projects.iter().flatten().cloned());
     if let Some(term) = &parsed.term {
         if let Some(choice) = term.color {
             effective.term.color = Some(EffectiveColor { choice, source });
