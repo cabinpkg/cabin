@@ -23,20 +23,24 @@ const REVISION_RESOLUTION_SCHEMA: u32 = 2;
 /// file does not exist (a fresh package).
 ///
 /// # Errors
-/// Returns [`RegistryError::Io`] when the file exists but cannot be
-/// read, [`RegistryError::PackageIndexJson`] when its contents are not
+/// Returns [`RegistryError::Io`] when reading fails for any reason
+/// other than the file not existing,
+/// [`RegistryError::PackageIndexJson`] when its contents are not
 /// valid package-index JSON, and
 /// [`RegistryError::PackageIndexUnsupportedSchema`] when the parsed
 /// schema is neither [`PACKAGE_INDEX_SCHEMA`] nor the
 /// per-revision-resolution schema.
 pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let body = fs::read_to_string(path).map_err(|source| RegistryError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let body = match fs::read_to_string(path) {
+        Ok(body) => body,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(RegistryError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
     let index: PackageIndex =
         serde_json::from_str(&body).map_err(|error| RegistryError::PackageIndexJson {
             path: path.to_path_buf(),
@@ -477,6 +481,23 @@ mod tests {
             "not escaped: {rendered}"
         );
         assert!(!rendered.contains('\u{1b}'), "not escaped: {rendered}");
+    }
+
+    /// Only a missing index means a fresh package; any other read
+    /// failure must surface instead of reading as one.  Unix-only
+    /// because the provoked error is `ENOTDIR`.
+    #[cfg(unix)]
+    #[test]
+    fn read_optional_propagates_errors_other_than_not_found() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let file = dir.path().join("packages");
+        fs::write(&file, "").unwrap();
+        let err = read_optional(&file.join("demo.json")).unwrap_err();
+        assert!(matches!(err, RegistryError::Io { .. }), "{err:?}");
+        assert_eq!(
+            read_optional(&dir.path().join("absent.json")).unwrap(),
+            None
+        );
     }
 
     const STAMP: &str = "2026-01-01T00:00:00Z";
