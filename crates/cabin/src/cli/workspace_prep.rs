@@ -55,6 +55,7 @@ pub(crate) fn load_workspace_and_patches(
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
+                system: &[],
                 registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
                 include_dev_for: &BTreeSet::new(),
             },

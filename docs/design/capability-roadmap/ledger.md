@@ -466,11 +466,11 @@ per-context features, and per-context `links`; runners for `cabin run` and `cabi
 Stage 05's pull requests, in order: sysroots and the Apple SDK; typed compile, link, and run
 probes; a toolchain per context; MinGW promoted on build, link, run, and CI evidence.
 
-Stage 06's pull requests, in order: the planner builds against system-provided library targets; a
-root `[system-provided]` policy with a pkg-config provider, which skips fetching what only the
-system-provided packages need and refuses a package provided both ways in one context;
-multi-target packages; static linking and cross sysroots; an explicit-prefix provider for MSVC; the
-build context's own providers.
+Stage 06's pull requests, in order: the planner builds against system-provided library targets; the
+workspace loader takes system packages Cabin synthesizes; a root `[system-provided]` policy with a
+pkg-config provider, which skips fetching what only the system-provided packages need and refuses a
+package provided both ways in one context; config layers and multi-target packages; static linking
+and cross sysroots; an explicit-prefix provider for MSVC; the build context's own providers.
 
 **Changes.**  Stage 00: this ledger, the contracts page, and the scope alignment listed above.
 Stage 00 counts as adopted once this ledger is on `main`.
@@ -656,6 +656,12 @@ arguments ahead of the compile's standard and profile flags, so a provider's `-s
 wins; every link that reaches it appends its link arguments, in the provider's order, after the
 archives and the package's `ldflags`.  No command populates the map yet.
 
+Stage 06, second change: `WorkspaceLoadOptions::system` takes packages Cabin synthesizes instead of
+reading a manifest.  Each loads as a registry package under a path below the root manifest, which
+no manifest can share, and versioned dependencies of its name link to it.  Its own dependencies go
+through the registry policy like a registry package's, so a caller declares only those it supplies.
+No command passes any yet.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -840,6 +846,10 @@ supplied definition disagreeing with an `interface-defines` entry is a conflict.
 puts provider flags ahead of the standard and profile flags in both dialects, and the Ninja writer
 test routes a provider flag Ninja's depfile parser cannot read through `cabin depfile`.  Removing
 or reordering any one hook fails a test.
+
+Stage 06, second change: a loader unit test links an application to a system `zlib` and to `fmt`,
+and the system `zlib` to `fmt`, and refuses a system `zlib` whose dependency nothing fetched under
+the strict registry policy; dropping the manifest-name skip or the registry kind fails it.
 
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to

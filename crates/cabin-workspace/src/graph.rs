@@ -267,7 +267,8 @@ pub enum PackageKind {
     /// dependencies declared by a [`PackageKind::Registry`] package.
     Local,
     /// A registry package whose source archive was already fetched and
-    /// extracted into the artifact cache.  Untrusted: its own `[profile]`
+    /// extracted into the artifact cache, or one the build takes from the
+    /// system, which Cabin synthesizes.  Untrusted: its own `[profile]`
     /// `cflags` / `cxxflags` / `ldflags` are dropped during build-flag
     /// resolution.
     Registry,
