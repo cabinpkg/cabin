@@ -1369,21 +1369,18 @@ fn lockfile_from_resolution(
             .filter(|n| resolved_names.contains(n.as_str()))
             .cloned()
             .collect();
-        // A previously pinned packaging revision is kept while it is
-        // still published, exactly like a locked version: someone
-        // else's respin must never churn this lockfile.  The update
-        // modes move their targets to the current revision, and a pin
-        // the index no longer lists falls back to the current revision
-        // the same way a vanished version falls back to a fresh
-        // selection.
+        // A previously pinned packaging revision is kept, exactly like
+        // a locked version: someone else's respin must never churn
+        // this lockfile.  The update modes move their targets to the
+        // current revision; outside them the resolver has refused a
+        // pin the index no longer lists.
         let kept_pin = match mode {
             cabin_resolver::ResolveMode::UpdateAll => None,
             cabin_resolver::ResolveMode::UpdatePackage(updated) if updated == &pkg.name => None,
             _ => previous
                 .and_then(|prev| prev.find(&pkg.name))
                 .filter(|locked| locked.version == pkg.version)
-                .and_then(|locked| locked.checksum.clone())
-                .filter(|pin| meta.revisions.values().any(|rev| &rev.checksum == pin)),
+                .and_then(|locked| locked.checksum.clone()),
         };
         packages.push(LockedPackage {
             name: pkg.name.clone(),

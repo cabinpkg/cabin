@@ -494,3 +494,153 @@ fn a_respin_that_adds_a_dependency_leaves_old_pins_on_their_graph() {
         current
     );
 }
+
+/// A pin moves only through `cabin update`.  An index that serves the
+/// locked version with other bytes - another registry the run was
+/// pointed at, or a tampered one - fails the ordinary run and leaves
+/// the lockfile alone, instead of re-pinning to whatever the index now
+/// offers.
+#[test]
+fn an_index_without_the_pinned_revision_fails_instead_of_re_pinning() {
+    let dir = TempDir::new().unwrap();
+    let trusted = dir.path().join("trusted");
+    let other = dir.path().join("other");
+    publish_fmt(&dir.path().join("pkg"), &trusted, "1", false);
+    publish_fmt(&dir.path().join("pkg"), &other, "666", false);
+    let manifest = write_consumer(&dir.path().join("consumer"));
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&trusted)
+        .assert()
+        .success();
+    let lockfile = manifest.parent().unwrap().join("cabin.lock");
+    let before = fs::read_to_string(&lockfile).unwrap();
+
+    for command in ["resolve", "fetch"] {
+        cabin()
+            .args([command, "--manifest-path"])
+            .arg(&manifest)
+            .arg("--index-path")
+            .arg(&other)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "checksum mismatch for locked package",
+            ))
+            .stderr(predicate::str::contains("cabin update"));
+        assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
+    }
+
+    // Moving to the other index's bytes is the deliberate update.
+    cabin()
+        .args(["update", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&other)
+        .assert()
+        .success();
+    assert_eq!(
+        &locked_checksum(&lockfile)["sha256:".len()..][..16],
+        fmt_revisions(&other).0
+    );
+}
+
+/// A locked version the index no longer lists at all fails the
+/// ordinary run too, rather than moving to another version the
+/// requirement admits: published versions are never removed, only
+/// yanked.
+#[test]
+fn an_index_without_the_pinned_version_fails_instead_of_moving_it() {
+    let dir = TempDir::new().unwrap();
+    let trusted = dir.path().join("trusted");
+    let other = dir.path().join("other");
+    publish_fmt(&dir.path().join("pkg"), &trusted, "1", false);
+    publish_fmt(&dir.path().join("pkg"), &other, "777", false);
+    // `other` lists the package only as 10.2.2.
+    let document = other.join("packages/fmtlib/fmt.json");
+    let body = fs::read_to_string(&document).unwrap();
+    assert_eq!(body.matches("\"10.2.1\": {").count(), 1);
+    fs::write(&document, body.replace("\"10.2.1\": {", "\"10.2.2\": {")).unwrap();
+    let consumer = dir.child("consumer/cabin.toml");
+    consumer
+        .write_str(
+            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n\
+             [dependencies]\n\"fmtlib/fmt\" = \"^10.2\"\n",
+        )
+        .unwrap();
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(consumer.path())
+        .arg("--index-path")
+        .arg(&trusted)
+        .assert()
+        .success();
+    let lockfile = dir.path().join("consumer/cabin.lock");
+    let before = fs::read_to_string(&lockfile).unwrap();
+
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(consumer.path())
+        .arg("--index-path")
+        .arg(&other)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "locked package \"fmtlib/fmt\" 10.2.1 is not present in the index",
+        ));
+    assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
+}
+
+/// The pinned revision is checked even when the run would select
+/// another version: an index that drops it and yanks the locked version
+/// would otherwise move the pin to bytes of its choosing.
+#[test]
+fn an_index_without_the_pinned_revision_fails_even_when_resolution_moves_on() {
+    let dir = TempDir::new().unwrap();
+    let trusted = dir.path().join("trusted");
+    let other = dir.path().join("other");
+    publish_fmt(&dir.path().join("pkg"), &trusted, "1", false);
+    publish_fmt(&dir.path().join("pkg"), &other, "888", false);
+    // `other` yanks its own 10.2.1 and offers the same bytes as 10.2.2.
+    let document = other.join("packages/fmtlib/fmt.json");
+    let mut body: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&document).unwrap()).unwrap();
+    let versions = body["versions"].as_object_mut().unwrap();
+    let mut newer = versions["10.2.1"].clone();
+    newer["yanked"] = serde_json::Value::Bool(false);
+    versions.insert("10.2.2".to_owned(), newer);
+    versions["10.2.1"]["yanked"] = serde_json::Value::Bool(true);
+    fs::write(&document, body.to_string()).unwrap();
+    let consumer = dir.child("consumer/cabin.toml");
+    consumer
+        .write_str(
+            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n\
+             [dependencies]\n\"fmtlib/fmt\" = \"^10.2\"\n",
+        )
+        .unwrap();
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(consumer.path())
+        .arg("--index-path")
+        .arg(&trusted)
+        .assert()
+        .success();
+    let lockfile = dir.path().join("consumer/cabin.lock");
+    let before = fs::read_to_string(&lockfile).unwrap();
+
+    for command in ["resolve", "fetch"] {
+        cabin()
+            .args([command, "--manifest-path"])
+            .arg(consumer.path())
+            .arg("--index-path")
+            .arg(&other)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "checksum mismatch for locked package \"fmtlib/fmt\" 10.2.1",
+            ));
+        assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
+    }
+}
