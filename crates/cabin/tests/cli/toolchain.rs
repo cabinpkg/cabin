@@ -465,6 +465,55 @@ sources = ["src/main.cc"]
     );
 }
 
+/// A relative compiler path names a file under the current directory,
+/// though Ninja runs each compile from the build directory.
+#[cfg(unix)]
+#[test]
+fn relative_compiler_paths_resolve_against_the_current_directory() {
+    require_c_and_cxx_build_tools();
+    let find = |names: [&'static str; 3]| names.into_iter().find(|n| command_exists(n)).unwrap();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.capp]
+type = "executable"
+sources = ["src/main.c"]
+
+[target.cxxapp]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    dir.child("src/main.cc")
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    fs::create_dir(dir.path().join("bin")).unwrap();
+    for (fake, real) in [
+        ("cc", find(["cc", "clang", "gcc"])),
+        ("cxx", find(["c++", "clang++", "g++"])),
+    ] {
+        write_executable(
+            &dir.path().join("bin").join(fake),
+            &format!("#!/bin/sh\nexec {real} \"$@\"\n"),
+        );
+    }
+    cabin()
+        .current_dir(dir.path())
+        .args(["build", "--cc", "./bin/cc", "--cxx", "./bin/cxx"])
+        .assert()
+        .success();
+}
+
 /// `cl` searches `INCLUDE` and `link` searches `LIB`, which no command
 /// line names, so pointing either somewhere else rebuilds, and an
 /// unchanged environment rebuilds nothing.
