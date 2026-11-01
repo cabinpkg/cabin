@@ -37,7 +37,7 @@ jobs:
   # changes. Branch protection pins `lint` below, never this job.
   lint-work:
     needs: changes
-    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true'
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true' || needs.changes.outputs.filter-file == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -77,6 +77,10 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+      - name: Filter coverage guard
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.filter-file == 'true'
+        run: cargo workflow-filter-coverage
+
   # Branch protection pins this, not `lint-work`: `always()`, never
   # `!cancelled()`, fails it closed on a failed or cancelled gate.
   lint:
@@ -95,7 +99,7 @@ jobs:
         with:
           result: ${{ needs.lint-work.result }}
           gate-result: ${{ needs.changes.result }}
-          filter-values: ${{ needs.changes.outputs.rust }},${{ needs.changes.outputs.toml }}
+          filter-values: ${{ needs.changes.outputs.rust }},${{ needs.changes.outputs.toml }},${{ needs.changes.outputs.filter-file }}
 
   # Branch protection requires `build-and-test-required` below,
   # never a matrix leg.

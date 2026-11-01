@@ -4,11 +4,14 @@
 # `cargo workflow-superseded --relevant-to <filter>`, which scopes the
 # deploy and publish freshness guards. Keep entries double-quoted on
 # comment-free lines (in the lists the guards read, the strict parser
-# otherwise fails the steps they gate), and keep the lists coarse.
-# Each workflow's gate list ends with the CI files it consumes - its
-# own workflow file, the shared gate workflow, any local action, and
-# this filter file - so an edit to any of them re-runs exactly the
-# workflows it affects.
+# otherwise fails the steps they gate), and keep the lists coarse,
+# except the crate-scoped ones. The lists
+# `cargo workflow-filter-coverage` checks, `rust` among them, take
+# literal entries only; `!` entries exclude (the gate's
+# `some-with-excludes`). Each workflow's gate list ends with the CI
+# files it consumes - its own workflow file, the shared gate workflow,
+# any local action, and this filter file - so an edit to any of them
+# re-runs exactly the workflows it affects.
 
 # rust.yml: the workspace and everything its tests stage (examples/
 # run under the CLI tests, ports/ feed the publisher tests). Carries
@@ -46,8 +49,9 @@ website:
   - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
-# registry.yml: the registry workspace, its crates/ path-deps, and
-# the xtask guards built from the root workspace.
+# registry.yml's conformance and deploy jobs and the deploy's
+# freshness check: the registry workspace, its crates/ path-deps,
+# and the xtask guards built from the root workspace.
 # SAFETY: keep this a superset of `ports` minus `ports/**` and
 # ports-publish's own workflow file - ports-publish's deploy wait
 # treats a job-skipped Registry run as already-deployed
@@ -57,6 +61,50 @@ website:
 registry:
   - "registry/**"
   - "crates/**"
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - "rust-toolchain.toml"
+  - ".cargo/**"
+  - ".github/workflows/registry.yml"
+  - ".github/workflows/changes.yml"
+  - ".github/actions/required-gate/**"
+  - ".github/path-filters.yml"
+
+# registry.yml's build and Kani jobs: the registry workspace and every
+# crate but those outside what those jobs build, which
+# `cargo workflow-filter-coverage` checks.
+registry-build:
+  - "registry/**"
+  - "crates/**"
+  - "!crates/cabin/**"
+  - "!crates/cabin-build/**"
+  - "!crates/cabin-config/**"
+  - "!crates/cabin-credentials/**"
+  - "!crates/cabin-diagnostics/**"
+  - "!crates/cabin-driver/**"
+  - "!crates/cabin-explain/**"
+  - "!crates/cabin-feature/**"
+  - "!crates/cabin-fmt/**"
+  - "!crates/cabin-index/**"
+  - "!crates/cabin-index-http/**"
+  - "!crates/cabin-lockfile/**"
+  - "!crates/cabin-ninja/**"
+  - "!crates/cabin-publish/**"
+  - "!crates/cabin-registry-api/**"
+  - "!crates/cabin-registry-file/**"
+  - "!crates/cabin-resolver/**"
+  - "!crates/cabin-source-discovery/**"
+  - "!crates/cabin-system-deps/**"
+  - "!crates/cabin-test/**"
+  - "!crates/cabin-tidy/**"
+  - "!crates/cabin-toolchain/**"
+  - "!crates/cabin-vendor/**"
+  - "!crates/cabin-workspace/**"
+  - "!crates/xtask-bench/**"
+  - "!crates/xtask-dist/**"
+  - "!crates/xtask-fuzz/**"
+  - "!crates/xtask-port-publish/**"
+  - "!crates/xtask-registry-fixtures/**"
   - "Cargo.toml"
   - "Cargo.lock"
   - "rust-toolchain.toml"
@@ -82,8 +130,9 @@ tlc:
   - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
-# ports-publish.yml: ports/ are what it publishes; the publisher and
-# the cabin client build from the root workspace.
+# ports-publish.yml's publish freshness check: ports/ are what it
+# publishes; the publisher and the cabin client build from the root
+# workspace.
 ports:
   - "ports/**"
   - "crates/**"
@@ -91,6 +140,31 @@ ports:
   - "Cargo.lock"
   - "rust-toolchain.toml"
   - ".cargo/**"
+  - ".github/workflows/ports-publish.yml"
+  - ".github/workflows/changes.yml"
+  - ".github/path-filters.yml"
+
+# ports-publish.yml's pull-request dry-run: the ports and every crate
+# but those outside what it builds, which `cargo workflow-filter-coverage`
+# checks. .gitattributes decides the bytes the Windows leg checks out.
+ports-dry-run:
+  - "ports/**"
+  - "crates/**"
+  - "!crates/cabin-registry-verify/**"
+  - "!crates/xtask-bench/**"
+  - "!crates/xtask-ci/**"
+  - "!crates/xtask-dist/**"
+  - "!crates/xtask-fuzz/**"
+  - "!crates/xtask-registry-admin/**"
+  - "!crates/xtask-registry-fixtures/**"
+  - "!crates/xtask-registry-guard/**"
+  - "!crates/xtask-registry-smoke/**"
+  - "!crates/xtask-workflow-guard/**"
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - "rust-toolchain.toml"
+  - ".cargo/**"
+  - ".gitattributes"
   - ".github/workflows/ports-publish.yml"
   - ".github/workflows/changes.yml"
   - ".github/path-filters.yml"

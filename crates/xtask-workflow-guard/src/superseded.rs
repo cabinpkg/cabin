@@ -9,7 +9,8 @@
 //! deploys or publishes, so skipping for it would strand this run's
 //! work with no later run redoing it.
 //!
-//! The entries reach git as `:(glob)` pathspecs, whose `**` semantics
+//! The entries reach git as `:(glob)` pathspecs, and `!` entries as
+//! `:(exclude,glob)` ones, whose `**` semantics
 //! match the dorny/paths-filter matcher on the shapes the lists use
 //! (directory prefixes and exact filenames). `--full-history` walks
 //! every parent of a merge, so history simplification cannot hide a
@@ -41,7 +42,7 @@ const OUTPUT_LINE: &str = "superseded=true\n";
 
 /// The shared filter file, relative to the repository root the
 /// workflows run the alias from.
-const FILTER_FILE: &str = ".github/path-filters.yml";
+pub(crate) const FILTER_FILE: &str = ".github/path-filters.yml";
 
 /// Answer whether `origin/main` carries a commit after `$GITHUB_SHA` -
 /// scoped, when a filter name is given, to commits matching that
@@ -78,7 +79,8 @@ fn fetch_origin_main() -> Result<()> {
     Ok(())
 }
 
-/// The named filter's entries as `:(glob)` pathspecs.
+/// The named filter's entries as `:(glob)` pathspecs, `!` entries as
+/// exclusions, so git matches as the gate's `some-with-excludes` does.
 fn filter_pathspecs(name: &str) -> Result<Vec<String>> {
     let text =
         std::fs::read_to_string(FILTER_FILE).with_context(|| format!("reading {FILTER_FILE}"))?;
@@ -87,7 +89,10 @@ fn filter_pathspecs(name: &str) -> Result<Vec<String>> {
     })?;
     Ok(entries
         .iter()
-        .map(|entry| format!(":(glob){entry}"))
+        .map(|entry| match entry.strip_prefix('!') {
+            Some(excluded) => format!(":(exclude,glob){excluded}"),
+            None => format!(":(glob){entry}"),
+        })
         .collect())
 }
 
@@ -101,7 +106,7 @@ fn filter_pathspecs(name: &str) -> Result<Vec<String>> {
 /// unread; a header the grammar misses (`ports: # note`) reads as a
 /// line of the section before it, which fails here when that section
 /// is `name`'s.
-fn filter_entries(text: &str, name: &str) -> Option<Vec<String>> {
+pub(crate) fn filter_entries(text: &str, name: &str) -> Option<Vec<String>> {
     let mut entries = Vec::new();
     let mut sections = Vec::new();
     let mut in_section = false;

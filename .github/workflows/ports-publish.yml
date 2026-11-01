@@ -45,7 +45,7 @@ jobs:
     # must never publish): the publish preflight, then each port's
     # probe, on each platform the ports must support.
     needs: changes
-    if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.ports == 'true') || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.exchange-check)) }}
+    if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.ports-dry-run == 'true') || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.exchange-check)) }}
     runs-on: ${{ matrix.os }}
 
     strategy:

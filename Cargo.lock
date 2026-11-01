@@ -3249,6 +3249,8 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "clap",
+ "serde",
+ "serde_json",
  "sha2",
 ]
 

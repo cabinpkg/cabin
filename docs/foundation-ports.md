@@ -290,9 +290,11 @@ archives, so a rerun stays a no-op either way.
 
 ### Publish automation
 
-The workflow `.github/workflows/ports-publish.yml` automates the tool.  Every ports-relevant
-pull request (the `ports` filter in `.github/path-filters.yml`) runs the complete `--dry-run`
-preflight with no secrets.  Publishing is manual only: dispatching the
+The workflow `.github/workflows/ports-publish.yml` automates the tool.  Every pull request that
+can change the dry-run's result runs the complete `--dry-run` preflight with no secrets, on
+Linux, macOS, and Windows: the `ports-dry-run` filter in `.github/path-filters.yml` matches the
+ports, every crate in the dependency closure of the `cabin` binary and the publisher (checked by
+`cargo workflow-filter-coverage`), and the build configuration.  Publishing is manual only: dispatching the
 workflow from `main` publishes the set to `https://registry.cabinpkg.com` (dispatching it on any
 other ref runs the dry-run instead, never a publish), so a ports change merged to `main` reaches
 the registry at the next dispatch - and the same dispatch is the recovery path after a

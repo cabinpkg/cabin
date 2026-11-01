@@ -117,8 +117,9 @@ Deploy skew: `cabin-website` deploys automatically on every push to
 `main` (Workers Builds); `cabin-registry` deploys from CI (the
 `deploy-registry` job in `.github/workflows/registry.yml`) on pushes
 to `main` with registry-relevant changes (the `registry` filter in
-`.github/path-filters.yml`); the build and conformance jobs validate
-the change pre-merge, on its pull-request and merge-queue runs, and a
+`.github/path-filters.yml`); the conformance job, and the build job
+for any change to what the Worker builds from, validate the change
+pre-merge, on its pull-request and merge-queue runs, and a
 red merge-queue run never merges, so the previous Worker keeps
 serving. A merge that changes the session-plane JSON
 contract therefore briefly has the account pages ahead of the live
