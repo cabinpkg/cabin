@@ -115,8 +115,9 @@ cabin metadata --cxx clang++         # report the toolchain a build *would* pick
 ```
 
 `--cc` / `--cxx` / `--ar` accept either a bare command name (resolved against `PATH`) or an explicit
-filesystem path.  Whitespace-only values are rejected at parse time.  The flags apply only to the
-current command invocation; nothing is written back to the manifest.
+filesystem path, relative to the current directory.  Whitespace-only values are rejected at parse
+time.  The flags apply only to the current command invocation; nothing is written back to the
+manifest.
 
 `cabin build`, `cabin check`, `cabin run`, `cabin test`, `cabin metadata`, and `cabin explain`
 accept the flags, along with `--target`.  `cabin resolve`, `cabin update`, `cabin
@@ -222,7 +223,8 @@ in.
 The workspace root manifest may declare a general `[toolchain]` table plus any number of conditional
 `[target.'cfg(...)'.toolchain]` overrides.  Member or path-dep manifests that declare a
 `[toolchain]` table are rejected with the error `toolchain selection may only appear in the
-workspace root manifest`.
+workspace root manifest`.  As with `--cxx`, a relative tool path resolves against the current
+directory.
 
 ```toml
 [toolchain]

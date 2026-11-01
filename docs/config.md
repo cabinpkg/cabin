@@ -285,7 +285,7 @@ Persistent defaults for the C/C++ tool selection from [`toolchains.md`](toolchai
 
 | Key   | Type   | Notes                                                              |
 | ----- | ------ | ------------------------------------------------------------------ |
-| `cc`  | string | Bare command name searched on `PATH`, or an explicit filesystem path. |
+| `cc`  | string | Bare command name searched on `PATH`, or an explicit filesystem path, relative to the current directory. |
 | `cxx` | string | Same shape as `cc`, for the C++ compiler driver.                   |
 | `ar`  | string | Same shape as `cc`, for the static-library archiver.               |
 

@@ -433,7 +433,7 @@ where
     F: Fn(&str) -> Option<OsString> + ?Sized,
     P: Fn(&Path) -> bool + ?Sized,
 {
-    match spec {
+    let found = match spec {
         ToolSpec::Path(path) => {
             if probe(path.as_std_path()) {
                 Some(path.as_std_path().to_path_buf())
@@ -445,15 +445,26 @@ where
             let path = Path::new(name);
             if path.is_absolute() || looks_like_relative_path(name) {
                 if probe(path) {
-                    return Some(path.to_path_buf());
+                    Some(path.to_path_buf())
+                } else {
+                    find_with_exe_suffix(path, probe)
                 }
-                return find_with_exe_suffix(path, probe);
+            } else {
+                // On Windows without an activated MSVC environment, `cl` /
+                // `lib` / `link` are not on `PATH`; fall back to discovering
+                // them from the registry so a build works vcvars-free.
+                search_path(name, env, probe).or_else(|| crate::msvc::msvc_tool_path(name))
             }
-            // On Windows without an activated MSVC environment, `cl` /
-            // `lib` / `link` are not on `PATH`; fall back to discovering
-            // them from the registry so a build works vcvars-free.
-            search_path(name, env, probe).or_else(|| crate::msvc::msvc_tool_path(name))
         }
+    }?;
+    // Ninja runs commands from the build directory, so a path found
+    // relative to the current directory (or, on Windows, to its drive)
+    // is anchored to it.  `absolute` keeps a symlink's name, which picks
+    // a driver mode (`clang++`).
+    if found.is_absolute() {
+        Some(found)
+    } else {
+        std::path::absolute(found).ok()
     }
 }
 
@@ -483,12 +494,21 @@ mod tests {
             manifest,
             platform,
             env: Box::new(move |k| env.get(k).cloned()),
-            probe: Box::new(move |p| existing.contains(p)),
+            probe: Box::new(move |p| std::path::absolute(p).is_ok_and(|p| existing.contains(&p))),
         }
     }
 
+    /// `p` as resolution anchors it: unchanged on Unix, on the current
+    /// drive on Windows.
+    fn abs(p: &str) -> Utf8PathBuf {
+        Utf8PathBuf::from_path_buf(std::path::absolute(p).unwrap()).unwrap()
+    }
+
     fn path_set(items: &[&str]) -> HashSet<PathBuf> {
-        items.iter().map(PathBuf::from).collect()
+        items
+            .iter()
+            .map(|p| std::path::absolute(p).unwrap())
+            .collect()
     }
 
     fn fake_env(
@@ -510,7 +530,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let resolved = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, abs("/usr/bin/clang++"));
         assert_eq!(resolved.cxx.source, ToolSource::Default);
         assert_eq!(resolved.ar.source, ToolSource::Default);
         assert!(resolved.cc.is_none());
@@ -527,8 +547,39 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(r.cxx.path, abs("/usr/bin/clang++"));
         assert_eq!(r.cxx.source, ToolSource::Cli);
+    }
+
+    #[test]
+    fn relative_path_is_anchored_to_the_current_directory() {
+        let manifest = ToolchainSettings::default();
+        let selection = ToolchainSelection::default()
+            .with_cli(ToolKind::CxxCompiler, ToolSpec::parse("./bin/clang++"));
+        let host = host();
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let existing = path_set(&["./bin/clang++", "/usr/bin/ar"]);
+        let inputs = make_inputs(&selection, &manifest, &host, env, existing);
+        let r = resolve_toolchain(&inputs).unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(r.cxx.path, cwd.join("bin").join("clang++"));
+        assert_eq!(r.cxx.spec, ToolSpec::parse("./bin/clang++"));
+    }
+
+    // Ninja may run from a build directory on another drive.
+    #[cfg(windows)]
+    #[test]
+    fn a_path_rooted_without_a_drive_gets_the_current_drive() {
+        let manifest = ToolchainSettings::default();
+        let selection = ToolchainSelection::default()
+            .with_cli(ToolKind::CxxCompiler, ToolSpec::parse(r"\tools\cl.exe"));
+        let host = host();
+        let env = fake_env(&[("PATH", r"\tools")]);
+        let existing = path_set(&[r"\tools\cl.exe", r"\tools\lib.exe"]);
+        let inputs = make_inputs(&selection, &manifest, &host, env, existing);
+        let r = resolve_toolchain(&inputs).unwrap();
+        assert!(r.cxx.path.is_absolute(), "{}", r.cxx.path);
+        assert_eq!(r.cxx.path, abs(r"\tools\cl.exe"));
     }
 
     #[test]
@@ -541,7 +592,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(r.cxx.path, abs("/usr/bin/clang++"));
         assert_eq!(r.cxx.source, ToolSource::Env);
     }
 
@@ -556,7 +607,7 @@ mod tests {
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
         assert_eq!(r.cxx.source, ToolSource::Manifest);
-        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/g++"));
+        assert_eq!(r.cxx.path, abs("/usr/bin/g++"));
     }
 
     #[cfg(unix)]
@@ -609,7 +660,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(r.cxx.path, abs("/usr/bin/clang++"));
         assert_eq!(r.cxx.source, ToolSource::ManifestConditional);
     }
 
@@ -637,7 +688,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/g++"));
+        assert_eq!(r.cxx.path, abs("/usr/bin/g++"));
         assert_eq!(r.cxx.source, ToolSource::Manifest);
     }
 
@@ -675,7 +726,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/cl.exe", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let resolved = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/cl.exe"));
+        assert_eq!(resolved.cxx.path, abs("/usr/bin/cl.exe"));
     }
 
     #[test]
@@ -732,7 +783,7 @@ mod tests {
         let mut inputs = make_inputs(&selection, &manifest, &host, env, existing);
         inputs.config = Some(&layer);
         let resolved = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, abs("/usr/bin/clang++"));
         assert_eq!(resolved.cxx.source, ToolSource::WorkspaceConfig);
     }
 
@@ -754,7 +805,7 @@ mod tests {
         inputs.config = Some(&layer);
         let resolved = resolve_toolchain(&inputs).unwrap();
         assert_eq!(resolved.cxx.source, ToolSource::Env);
-        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, abs("/usr/bin/clang++"));
     }
 
     #[test]
@@ -776,7 +827,7 @@ mod tests {
         inputs.config = Some(&layer);
         let resolved = resolve_toolchain(&inputs).unwrap();
         assert_eq!(resolved.cxx.source, ToolSource::PackageConfig);
-        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, abs("/usr/bin/clang++"));
     }
 
     #[test]
@@ -800,7 +851,7 @@ mod tests {
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
         let cc = r.cc.expect("explicit C compiler resolved");
-        assert_eq!(cc.path, Utf8PathBuf::from("/usr/bin/clang"));
+        assert_eq!(cc.path, abs("/usr/bin/clang"));
         assert_eq!(cc.source, ToolSource::Cli);
     }
 
@@ -823,10 +874,10 @@ mod tests {
         let r =
             resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
         let cc = r.cc.unwrap();
-        assert_eq!(cc.path, "/usr/bin/x86_64-w64-mingw32-gcc");
+        assert_eq!(cc.path, abs("/usr/bin/x86_64-w64-mingw32-gcc"));
         assert_eq!(cc.spec, ToolSpec::Name("x86_64-w64-mingw32-gcc".into()));
         assert_eq!(cc.source, ToolSource::Default);
-        assert_eq!(r.ar.path, "/usr/bin/x86_64-w64-mingw32-ar");
+        assert_eq!(r.ar.path, abs("/usr/bin/x86_64-w64-mingw32-ar"));
 
         // A chosen C compiler names the C++ compiler and archiver.
         let selection = ToolchainSelection::default().with_cli(
@@ -843,9 +894,9 @@ mod tests {
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let r =
             resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
-        assert_eq!(r.cxx.path, "/opt/llvm/bin/clang++-18");
+        assert_eq!(r.cxx.path, abs("/opt/llvm/bin/clang++-18"));
         assert_eq!(r.cxx.spec, ToolSpec::parse("/opt/llvm/bin/clang++-18"));
-        assert_eq!(r.ar.path, "/opt/llvm/bin/llvm-ar-18");
+        assert_eq!(r.ar.path, abs("/opt/llvm/bin/llvm-ar-18"));
 
         // Windows spells names in any case.
         let selection = ToolchainSelection::default()
@@ -854,7 +905,7 @@ mod tests {
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let r =
             resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
-        assert_eq!(r.ar.path, "/vc/bin/lib.exe");
+        assert_eq!(r.ar.path, abs("/vc/bin/lib.exe"));
 
         let selection = ToolchainSelection::default()
             .with_cli(ToolKind::CxxCompiler, ToolSpec::parse("/llvm/clang-cl-18"));
@@ -862,8 +913,8 @@ mod tests {
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let r =
             resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
-        assert_eq!(r.ar.path, "/llvm/llvm-lib-18");
-        assert_eq!(r.cc.unwrap().path, "/llvm/clang-cl-18");
+        assert_eq!(r.ar.path, abs("/llvm/llvm-lib-18"));
+        assert_eq!(r.cc.unwrap().path, abs("/llvm/clang-cl-18"));
 
         // Not a C++ driver name, so no C sibling: not the lead itself.
         let selection = ToolchainSelection::default().with_cli(
@@ -874,7 +925,7 @@ mod tests {
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let r =
             resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
-        assert_eq!(r.cc.unwrap().path, "/usr/bin/gcc");
+        assert_eq!(r.cc.unwrap().path, abs("/usr/bin/gcc"));
     }
 
     /// Only Windows defaults to MSVC tools.
@@ -895,7 +946,7 @@ mod tests {
         ]);
         let r =
             resolve_toolchain(&make_inputs(&selection, &manifest, &host, env, existing)).unwrap();
-        assert_eq!(r.cc.unwrap().path, "/bin/gcc.exe");
-        assert_eq!(r.ar.path, "/bin/ar.exe");
+        assert_eq!(r.cc.unwrap().path, abs("/bin/gcc.exe"));
+        assert_eq!(r.ar.path, abs("/bin/ar.exe"));
     }
 }

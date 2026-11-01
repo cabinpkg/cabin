@@ -351,12 +351,21 @@ mod tests {
             config: None,
             manifest: manifest.general.as_ref(),
             env: Box::new(move |k| env.get(k).cloned()),
-            probe: Box::new(move |p| existing.contains(p)),
+            probe: Box::new(move |p| std::path::absolute(p).is_ok_and(|p| existing.contains(&p))),
         }
     }
 
+    /// `p` as resolution anchors it: unchanged on Unix, on the current
+    /// drive on Windows.
+    fn abs(p: &str) -> Utf8PathBuf {
+        Utf8PathBuf::from_path_buf(std::path::absolute(p).unwrap()).unwrap()
+    }
+
     fn path_set(items: &[&str]) -> HashSet<PathBuf> {
-        items.iter().map(PathBuf::from).collect()
+        items
+            .iter()
+            .map(|p| std::path::absolute(p).unwrap())
+            .collect()
     }
 
     #[test]
@@ -382,7 +391,7 @@ mod tests {
         let inputs = make_inputs(Some(request("ccache")), &manifest, &host, env, existing);
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
         assert_eq!(resolved.kind, kind("ccache"));
-        assert_eq!(resolved.path, Utf8PathBuf::from("/usr/local/bin/ccache"));
+        assert_eq!(resolved.path, abs("/usr/local/bin/ccache"));
         assert_eq!(resolved.source, CompilerWrapperSource::Cli);
         assert!(resolved.identity.is_none());
     }
@@ -402,7 +411,7 @@ mod tests {
         );
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
         assert_eq!(resolved.kind, kind("icecc"));
-        assert_eq!(resolved.path, Utf8PathBuf::from("/opt/tools/icecc"));
+        assert_eq!(resolved.path, abs("/opt/tools/icecc"));
         assert_eq!(resolved.spec, "/opt/tools/icecc");
     }
 
