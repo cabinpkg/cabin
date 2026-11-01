@@ -262,7 +262,7 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     if let Some(alert) = &health.alert {
         console_error!("backup health: {alert}");
     }
-    // Verification health rides every pass too: versions pending for
+    // Verification health rides every pass too: revisions pending for
     // over an hour mean the verifier is stuck or absent, and the
     // fail-safe direction (nothing pending ever becomes resolvable on
     // its own) makes that invisible to users unless it alerts here.

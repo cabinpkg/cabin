@@ -549,7 +549,8 @@ revoking first would have the cron running degraded in between. Without a
 working token the cron logs the skip, evaluates on the exact
 self-accounted storage alone, and never de-escalates the persisted mode on
 the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
-a JSON summary POST on every mode change.
+a JSON summary POST on every mode change and on every backup or stuck-verifier
+alert.
 
 ## The cost governor
 
@@ -932,7 +933,7 @@ authenticates exactly one request (its `jti` is consumed on use).
 
 Fail-safe: a failed or skipped run leaves versions pending, which only
 keeps content unexposed. The breaker cron's stuck-pending webhook
-alert ("N version(s) have been pending verification for over an hour")
+alert ("N revision(s) have been pending verification for over an hour")
 is the detection mechanism, never "the workflow ran recently" - during
 the private alpha there is no schedule at all, and post-launch GitHub
 cron schedules are **best-effort** and can be delayed or dropped under
@@ -961,7 +962,7 @@ log shows
 with the rules (`confusable_package (fmtlib/fmt)`,
 `confusable_scope (...)`, `near_name (...)`, `profanity`). Abstain
 does not fail the run, and every later pass re-logs it - that is
-by design; the stuck-pending alert ("N version(s) have been pending
+by design; the stuck-pending alert ("N revision(s) have been pending
 verification for over an hour") is the summons. Verdicts require the
 verify workflow's own OIDC identity (see above) - a manual `curl`
 with the verify token does not authenticate - so resolution is a
