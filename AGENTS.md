@@ -4,9 +4,9 @@ Cabin is a pre-1.0, Cargo-inspired, but not Cargo-compatible, package manager
 and build system for C/C++, implemented in Rust. Use Cargo vocabulary only
 when the C/C++ semantics match.
 
-`docs/architecture.md` is authoritative for architecture, crate ownership,
-data flow, and scope exclusions. If it conflicts with this file, update both
-in the same change and follow the architecture document.
+Evaluate intended behavior against user-facing contracts, explicit requirements,
+security invariants, and applicable external specifications. Code and tests are
+evidence of current behavior, not proof that the behavior is correct.
 
 ## Scoped instructions and canonical docs
 
@@ -43,11 +43,11 @@ in the same change and follow the architecture document.
 - Reuse existing code and patterns. Within Cabin-owned Rust code, prefer
   direct implementations over speculative abstraction, configuration, or
   flexibility.
-- When documentation and existing code disagree about implementation
-  conventions, follow the established patterns in the relevant code unless
-  doing so violates an explicit requirement, architectural decision, or
-  security invariant. Report each discrepancy you encounter in your final
-  reply.
+- When documentation, tests, and code disagree, investigate the discrepancy
+  against current requirements, public contracts, and security invariants.
+  Do not dismiss a substantiated correctness or security finding merely
+  because existing behavior was intentional or described as "by design".
+  Report material discrepancies in the final reply.
 - Before finalizing a change, review the complete diff for code,
   configuration, helpers, files, or dependencies that can be removed or
   simplified without changing the intended behavior.
@@ -68,21 +68,20 @@ in the same change and follow the architecture document.
 - For non-obvious correctness or safety claims, state the premises,
   relevant cases, and why the conclusion follows. A proof may be written
   in prose and be as long as needed; never omit necessary steps for brevity.
-- Ground explanations in the code, tests, or an authoritative specification.
-  Avoid speculative rationale, filler, rhetorical contrasts, and repeated
-  justification. Preserve negations and exceptions that affect correctness.
-- Do not implement features listed as deferred or "not implemented" in
-  `docs/architecture.md`, except work it marks *planned*, which lands only
-  through its stage in `docs/design/capability-roadmap/ledger.md` and
-  against that roadmap's contracts. Unknown future syntax must use generic
+- Ground explanations in code, tests, user-facing contracts, or applicable
+  external specifications. Treat these sources as fallible. Avoid speculative
+  rationale, filler, rhetorical contrasts, and repeated justification.
+  Preserve negations and exceptions that affect correctness.
+- Do not implement unrequested features solely to satisfy a roadmap or a
+  historical plan. Determine supported behavior from code, tests, and current
+  public documentation. Unknown future syntax must use generic
   `deny_unknown_fields` or clap unknown-flag diagnostics, not tailored
   rejection arms.
 - Keep C first-class alongside C++. Changes to planning, manifests, flags,
   toolchains, Ninja output, packaging, lockfiles, metadata, and related docs
   must cover both languages, including fixtures.
-- Keep generated and machine-readable output sorted or normalized. See
-  `docs/architecture.md` "Contributor-facing architecture guardrails" for
-  the affected outputs.
+- Keep generated and machine-readable output deterministic, with ordering and
+  normalization consistent with relevant public contracts and tests.
 - Add focused tests that detect a concrete behavioral regression. Prefer the
   lowest useful layer; add CLI integration coverage when end-to-end behavior
   itself is the contract, not to duplicate unit coverage. Do not test
@@ -134,8 +133,9 @@ in the same change and follow the architecture document.
 
 ## Documentation sync
 
-- Update the matching `docs/` page with user-visible behavior or architecture
-  changes.
+- Update public documentation when user-visible behavior, interfaces, or
+  compatibility contracts change. Keep implementation-only reasoning close
+  to the code, with focused tests or proofs for non-obvious invariants.
 - Update `website/` in the same change, or identify the required follow-up,
   when changing product positioning, supported languages or platforms,
   installation, top-level commands, or package-page snippets.
@@ -144,19 +144,16 @@ in the same change and follow the architecture document.
   `examples/README.md`, `ports/README.md`, and website copy. Update claims
   about the repository's current shape; leave durable upstream facts and
   policy alone.
-- Keep documentation focused on current behavior, contracts, design
-  rationale, and unresolved work. Update existing explanations instead of
-  appending implementation diaries, completed-task reports, or one-time
-  validation transcripts. Keep task history in commits and pull requests.
-- When a change resolves a documented gap or supersedes a plan, update or
-  remove the affected blocker entries, TODOs, and handoffs in the same
-  change. Preserve remaining requirements, active dependencies, and useful
-  distinctions between implemented, published, and verified behavior.
-- Preserve information that still serves readers, including design
-  rationale, compatibility boundaries, reproducible measurements, release
-  notes, and migration guidance. Prefer one authoritative explanation with
-  links over duplicated content. Do not create archive pages merely to
-  relocate obsolete task history.
+- Keep public documentation focused on current user-visible behavior and
+  contracts. Do not publish internal design plans, task ledgers, implementation
+  diaries, or one-time validation transcripts as product documentation.
+  Keep task history in commits and pull requests.
+- When a change resolves a gap, remove stale TODOs, blockers, and claims
+  where they occur. Preserve accurate distinctions between implemented,
+  published, and verified behavior.
+- Preserve user-facing compatibility boundaries, reproducible measurements,
+  release notes, and migration guidance. Avoid duplicated explanations and
+  do not relocate obsolete design history into new public archive pages.
 
 ## Git and pull requests
 
