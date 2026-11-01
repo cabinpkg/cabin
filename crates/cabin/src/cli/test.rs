@@ -345,6 +345,7 @@ pub(crate) fn test(
         &mut test_plan,
         &prepared.graph,
         &prepared.profile,
+        &prepared.build_root,
         &prepared.build_dir,
     )?;
     if test_plan.is_empty() {
@@ -459,8 +460,11 @@ fn populate_test_env_overlay(
     plan: &mut cabin_test::TestPlan,
     graph: &cabin_workspace::PackageGraph,
     profile: &cabin_core::ResolvedProfile,
-    build_dir: &std::path::Path,
+    build_root: &std::path::Path,
+    platform_dir: &std::path::Path,
 ) -> Result<()> {
+    let in_use = std::env::var_os(cabin_env::CABIN_BUILD_DIRS_IN_USE);
+    let profile_dir = cabin_build::layout::profile_dir(platform_dir, &profile.name);
     let mut failure = None;
     plan.for_each_executable_mut(|exe| {
         if failure.is_some() {
@@ -481,7 +485,9 @@ fn populate_test_env_overlay(
             package_name: pkg.package.name.as_str(),
             package_version: &pkg.package.version.to_string(),
             profile: profile.name.as_str(),
-            build_dir,
+            build_root,
+            profile_dir: &profile_dir,
+            inherited_build_dirs_in_use: in_use.as_deref(),
         });
     });
     if let Some(err) = failure {
@@ -771,8 +777,14 @@ mod tests {
         // only remaining fallible step (graph lookup) trips.
         plan.for_each_executable_mut(|exe| exe.package.clear());
 
-        let err = populate_test_env_overlay(&mut plan, &graph, &dev_profile(), Path::new("build"))
-            .expect_err("an executable with no owning package must be surfaced");
+        let err = populate_test_env_overlay(
+            &mut plan,
+            &graph,
+            &dev_profile(),
+            Path::new("build"),
+            Path::new("build"),
+        )
+        .expect_err("an executable with no owning package must be surfaced");
 
         assert!(
             err.to_string().contains("failed to build test env"),

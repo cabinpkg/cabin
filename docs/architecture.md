@@ -962,10 +962,10 @@ lives in `cabin-explain`; CLI glue stays thin.
 ### `cabin-env`
 
 Single home for every `CABIN_*` environment variable name.  Read- side names are `pub const &str`;
-the run/test side provides one typed builder, `package_env`, returning the deterministic six- key
-overlay (`CABIN_MANIFEST_DIR`, `CABIN_MANIFEST_PATH`, `CABIN_PACKAGE_NAME`, `CABIN_PACKAGE_VERSION`,
-`CABIN_PROFILE`, `CABIN_BUILD_DIR`) that `cabin run` and `cabin test` apply on top of the user's
-environment, plus `parse_bool` for read-side boolean env vars.
+the run/test side provides one typed builder, `package_env`, returning the deterministic overlay
+(`CABIN_MANIFEST_DIR`, `CABIN_MANIFEST_PATH`, `CABIN_PACKAGE_NAME`, `CABIN_PACKAGE_VERSION`,
+`CABIN_PROFILE`, `CABIN_PROFILE_DIR`, `CABIN_BUILD_DIR`, `CABIN_BUILD_DIRS_IN_USE`) that `cabin run` and `cabin test`
+apply on top of the user's environment, plus `parse_bool` for read-side boolean env vars.
 
 The crate must:
 

@@ -44,7 +44,7 @@ pub use build_flags::{
 };
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 
 use thiserror::Error;
 
@@ -249,7 +249,8 @@ pub const CABIN_TRACE_FILTER: &str = "CABIN_TRACE_FILTER";
 // ---------------------------------------------------------------------------
 //
 // Names set only on `cabin run` / `cabin test` child processes.
-// `package_env` also sets `CABIN_BUILD_DIR`, a read-side name above.
+// `package_env` also sets `CABIN_BUILD_DIR`, a read-side name above,
+// and `cabin clean` reads `CABIN_BUILD_DIRS_IN_USE`.
 
 /// Absolute path to the package's manifest directory.
 pub const CABIN_MANIFEST_DIR: &str = "CABIN_MANIFEST_DIR";
@@ -267,6 +268,17 @@ pub const CABIN_PACKAGE_VERSION: &str = "CABIN_PACKAGE_VERSION";
 /// Active profile name (`dev`, `release`, or any custom
 /// profile).
 pub const CABIN_PROFILE: &str = "CABIN_PROFILE";
+
+/// Absolute path to the directory holding the active profile's
+/// outputs, under the `--target` subtree when one was given.
+pub const CABIN_PROFILE_DIR: &str = "CABIN_PROFILE_DIR";
+
+/// The build directories that the `cabin run` and `cabin test`
+/// commands a process runs under keep in use until it exits, one per
+/// line: a path list would have no room for a build directory spelled
+/// with its separator, and Ninja cannot name one spelled with a line
+/// break.  A `cabin clean` of one would wait for them forever.
+pub const CABIN_BUILD_DIRS_IN_USE: &str = "CABIN_BUILD_DIRS_IN_USE";
 
 // ---------------------------------------------------------------------------
 // Package-execution env builder
@@ -288,8 +300,13 @@ pub struct PackageEnvInputs<'a> {
     pub package_version: &'a str,
     /// Resolved profile name (`dev`, `release`, …).
     pub profile: &'a str,
-    /// Resolved build directory.
-    pub build_dir: &'a std::path::Path,
+    /// Resolved build directory, never its `--target` or profile
+    /// subtree, so a nested `cabin` resolves the same directory.
+    pub build_root: &'a std::path::Path,
+    /// Directory holding the profile's outputs.
+    pub profile_dir: &'a std::path::Path,
+    /// [`CABIN_BUILD_DIRS_IN_USE`] as the spawning `cabin` inherited it.
+    pub inherited_build_dirs_in_use: Option<&'a OsStr>,
 }
 
 /// Build the `CABIN_*` overlay surfaced to a `cabin run` /
@@ -315,9 +332,23 @@ pub fn package_env(inputs: &PackageEnvInputs<'_>) -> BTreeMap<String, OsString> 
     );
     out.insert(CABIN_PROFILE.to_owned(), OsString::from(inputs.profile));
     out.insert(
-        CABIN_BUILD_DIR.to_owned(),
-        inputs.build_dir.as_os_str().to_owned(),
+        CABIN_PROFILE_DIR.to_owned(),
+        inputs.profile_dir.as_os_str().to_owned(),
     );
+    out.insert(
+        CABIN_BUILD_DIR.to_owned(),
+        inputs.build_root.as_os_str().to_owned(),
+    );
+    let mut in_use = OsString::new();
+    if let Some(inherited) = inputs
+        .inherited_build_dirs_in_use
+        .filter(|dirs| !dirs.is_empty())
+    {
+        in_use.push(inherited);
+        in_use.push("\n");
+    }
+    in_use.push(inputs.build_root);
+    out.insert(CABIN_BUILD_DIRS_IN_USE.to_owned(), in_use);
     out
 }
 
@@ -376,31 +407,36 @@ mod tests {
     }
 
     #[test]
-    fn package_env_emits_exactly_the_six_strict_keys() {
+    fn package_env_emits_exactly_the_strict_keys() {
         use std::path::PathBuf;
         let manifest_dir = PathBuf::from("/abs/app");
         let manifest_path = PathBuf::from("/abs/app/cabin.toml");
-        let build_dir = PathBuf::from("/abs/app/build");
+        let build_root = PathBuf::from("/abs/app/build");
+        let profile_dir = PathBuf::from("/abs/app/build/.targets/x86_64-unknown-linux-gnu/dev");
         let env = package_env(&PackageEnvInputs {
             manifest_dir: &manifest_dir,
             manifest_path: &manifest_path,
             package_name: "my-pkg",
             package_version: "0.1.0",
             profile: "dev",
-            build_dir: &build_dir,
+            build_root: &build_root,
+            profile_dir: &profile_dir,
+            inherited_build_dirs_in_use: None,
         });
         let names: Vec<&str> = env.keys().map(String::as_str).collect();
         assert_eq!(
             names,
             vec![
                 CABIN_BUILD_DIR,
+                CABIN_BUILD_DIRS_IN_USE,
                 CABIN_MANIFEST_DIR,
                 CABIN_MANIFEST_PATH,
                 CABIN_PACKAGE_NAME,
                 CABIN_PACKAGE_VERSION,
                 CABIN_PROFILE,
+                CABIN_PROFILE_DIR,
             ],
-            "package_env must emit exactly the six strict keys in BTreeMap order"
+            "package_env must emit exactly the strict keys in BTreeMap order"
         );
         assert_eq!(env.get(CABIN_MANIFEST_DIR).unwrap(), "/abs/app");
         assert_eq!(env.get(CABIN_MANIFEST_PATH).unwrap(), "/abs/app/cabin.toml");
@@ -408,5 +444,33 @@ mod tests {
         assert_eq!(env.get(CABIN_PACKAGE_VERSION).unwrap(), "0.1.0");
         assert_eq!(env.get(CABIN_PROFILE).unwrap(), "dev");
         assert_eq!(env.get(CABIN_BUILD_DIR).unwrap(), "/abs/app/build");
+        assert_eq!(
+            env.get(CABIN_PROFILE_DIR).unwrap(),
+            "/abs/app/build/.targets/x86_64-unknown-linux-gnu/dev"
+        );
+        assert_eq!(env.get(CABIN_BUILD_DIRS_IN_USE).unwrap(), "/abs/app/build");
+    }
+
+    #[test]
+    fn build_dirs_in_use_extend_the_inherited_list() {
+        use std::path::PathBuf;
+        // `:` and `;` separate a platform path list's entries.
+        let dir = PathBuf::from("/abs/tool");
+        let inner = PathBuf::from("/abs/tool/build:dev;x");
+        let inherited = OsString::from("/abs/outer/build");
+        let env = package_env(&PackageEnvInputs {
+            manifest_dir: &dir,
+            manifest_path: &dir.join("cabin.toml"),
+            package_name: "tool",
+            package_version: "0.1.0",
+            profile: "dev",
+            build_root: &inner,
+            profile_dir: &inner.join("dev"),
+            inherited_build_dirs_in_use: Some(&inherited),
+        });
+        assert_eq!(
+            env.get(CABIN_BUILD_DIRS_IN_USE).unwrap(),
+            "/abs/outer/build\n/abs/tool/build:dev;x"
+        );
     }
 }
