@@ -11,7 +11,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use cabin_driver::{BuildAction, CompileMode};
 
-use crate::graph::{BuildGraph, StandardViolation};
+use crate::PlannedStandardError;
+use crate::graph::BuildGraph;
 
 /// Stamp file `cabin stamp` writes after a successful syntax check.  Lives
 /// beside the object the normal build would have produced, so Ninja
@@ -68,16 +69,16 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
     let standard_violations = graph
         .standard_violations
         .into_iter()
-        .filter(|violation| match violation {
-            StandardViolation::AssemblyNeedsToolchain { .. } => false,
+        .filter(|violation| match violation.error {
+            PlannedStandardError::AssemblyNeedsToolchain { .. } => false,
             // Recorded against an assembly object when the target
             // compiles no C/C++, which a check never assembles.
-            StandardViolation::ConflictingInterfaceDefines { object, .. } => actions
-                .iter()
-                .any(|action| matches!(action, BuildAction::Compile(c) if &c.object == object)),
+            PlannedStandardError::ConflictingInterfaceDefines { .. } => actions.iter().any(
+                |action| matches!(action, BuildAction::Compile(c) if c.object == violation.object),
+            ),
             _ => selected_pkg_dirs
                 .iter()
-                .any(|dir| violation.object().as_std_path().starts_with(dir)),
+                .any(|dir| violation.object.as_std_path().starts_with(dir)),
         })
         .collect();
     BuildGraph {
@@ -363,11 +364,13 @@ mod tests {
     #[test]
     fn check_rewrite_prunes_dependency_standard_violations() {
         use crate::graph::StandardViolation;
-        let violation = |object: &str| StandardViolation::MsvcSpelling {
-            target: "dep:lib".to_owned(),
-            language: "C++",
-            standard: "c++23",
+        let violation = |object: &str| StandardViolation {
             object: Utf8PathBuf::from(object),
+            error: PlannedStandardError::StandardUnsupportedOnMsvcDialect {
+                target: "dep:lib".to_owned(),
+                language: "C++",
+                standard: "c++23",
+            },
         };
         let graph = BuildGraph {
             actions: vec![compile(
@@ -392,8 +395,8 @@ mod tests {
         // still gates the check.
         assert_eq!(checked.standard_violations.len(), 1);
         assert_eq!(
-            checked.standard_violations[0].object(),
-            &Utf8PathBuf::from("/abs/build/dev/packages/app/app/exotic.o")
+            checked.standard_violations[0].object,
+            Utf8PathBuf::from("/abs/build/dev/packages/app/app/exotic.o")
         );
         assert!(crate::validate_planned_standards(&checked).is_err());
     }
