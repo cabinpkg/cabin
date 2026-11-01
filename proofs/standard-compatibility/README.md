@@ -35,9 +35,10 @@ contains no `sorry` and uses no axioms beyond Lean's standard `propext`, `Quot.s
 
 ## Identifier to Lean name mapping
 
-Every Lean theorem is named after its identifier.  Finite-domain statements are proved by
-`decide` (exhaustive kernel enumeration); graph-generic statements have general proofs, not
-enumeration.
+Each identifier's theorems are named after it; helper lemmas have descriptive names.  Most
+finite-domain statements are proved by `decide` (exhaustive kernel enumeration); the rest, such
+as `L1_trans_cxx`, `L2_lub_cxx`, and `L3_*`, and every graph-generic statement have general
+proofs.
 
 | Identifier | Lean names (`StdCompat.*`) |
 |---|---|
