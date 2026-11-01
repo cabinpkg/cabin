@@ -4,9 +4,7 @@
 //! subprocess invocation, and flag classification; this module
 //! threads the typed report back into the per-package
 //! [`cabin_core::ResolvedProfileFlags`] map every Cabin pipeline
-//! consumes.  Keeping the orchestration here preserves the
-//! package rule that `cabin` stays thin: no probing,
-//! parsing, or flag-merge business logic lives in `cli.rs`.
+//! consumes.
 //!
 //! Every command that constructs a build configuration or planner
 //! request reaches [`augment_build_flags_with_system_deps`] through
@@ -35,11 +33,9 @@ use crate::cli::term_verbosity::Reporter;
 /// primary package in the supplied graph and merge the
 /// discovered flags into `build_flags`.
 ///
-/// The function is a no-op when no system dependency is active:
-/// no `pkg-config` subprocess is spawned and the supplied
-/// `build_flags` map is returned unchanged.  The pkg-config
-/// executable is only required when at least one package
-/// contributes an active system dependency.
+/// A no-op when no system dependency is active: no `pkg-config`
+/// subprocess is spawned, so the executable is required only when
+/// one is.
 pub(crate) fn augment_build_flags_with_system_deps(
     graph: &PackageGraph,
     platform: &TargetPlatform,
@@ -55,8 +51,9 @@ pub(crate) fn augment_build_flags_with_system_deps(
     let tool = PkgConfigTool::from_env(|key| std::env::var_os(key));
     // A plain pkg-config reports the build machine's libraries, which
     // must not link into a build for another machine.  A triple's `env`
-    // counts (a glibc host's `.pc` files do not fit a musl build), so on
-    // a musl host an explicit musl `--target` needs `CABIN_PKG_CONFIG`.
+    // counts (a glibc host's `.pc` files do not fit a musl build), and
+    // the build machine's `env` is guessed as `gnu` on Linux, so on a
+    // musl host an explicit musl `--target` needs one of the overrides.
     if !platform.same_machine(&TargetPlatform::current())
         && std::env::var_os(cabin_env::CABIN_PKG_CONFIG).is_none_or(|value| value.is_empty())
         && std::env::var_os("PKG_CONFIG_LIBDIR").is_none()
@@ -281,11 +278,7 @@ fn collect_active_system_deps<'a>(
         let pkg_name = package.name.as_str();
         let mut deps: Vec<&SystemDependency> = Vec::new();
         for dep in &package.system_dependencies {
-            // Per-kind activation matches Cabin-package deps:
-            // `Normal` → always active.
-            // `Dev` → only when the command opted this
-            // package into dev-dep activation
-            // (`cabin test`).
+            // Activation by kind matches Cabin-package dependencies.
             match dep.kind {
                 DependencyKind::Normal => {}
                 DependencyKind::Dev if dev_for.contains(pkg_name) => {}
@@ -307,10 +300,9 @@ fn collect_active_system_deps<'a>(
             out.push((idx, deps));
         }
     }
-    // Determinism: ascending package index.  Iteration order
-    // shows up in the deterministic flag append sequence and in
-    // any verbose output we emit, so we pin it here rather than
-    // relying on the graph's primary set being already sorted.
+    // Determinism: ascending package index, so the probe order, the
+    // verbose output, and the first reported failure do not depend on
+    // the order of the graph's primary set.
     out.sort_by_key(|(idx, _)| *idx);
     out
 }
@@ -360,9 +352,6 @@ mod tests {
 
     #[test]
     fn merge_dedups_include_paths_across_buckets() {
-        // A directory already present in the user bucket keeps it:
-        // no path is ever spelled both `-I` and `-isystem` on one
-        // command line.
         let mut f = flags();
         f.include_dirs.push(Utf8PathBuf::from("/already"));
         let contrib = SystemDependencyFlags {
@@ -461,7 +450,6 @@ mod tests {
         let dev_for = BTreeSet::new();
         let selected = BTreeSet::from([0usize]);
 
-        // MSVC cannot consume pkg-config's GNU-style flags.
         let err = ensure_dialect_supports_system_deps(
             &graph,
             &host,
@@ -475,7 +463,6 @@ mod tests {
             "expected an MSVC-specific rejection, got: {err}"
         );
 
-        // The GCC/Clang dialect consumes them, so it is accepted.
         ensure_dialect_supports_system_deps(
             &graph,
             &host,
@@ -492,7 +479,6 @@ mod tests {
         let host = TargetPlatform::current();
         let dev_for = BTreeSet::new();
         let selected = BTreeSet::from([0usize]);
-        // Nothing to reject when no system dependency is active.
         ensure_dialect_supports_system_deps(
             &graph,
             &host,
@@ -505,9 +491,6 @@ mod tests {
 
     #[test]
     fn msvc_with_unselected_system_dep_is_accepted() {
-        // The package declaring the system dependency is not in the
-        // selected closure, so an MSVC build of the rest of the workspace
-        // is not rejected - the rejection is scoped to the selected build.
         let graph = graph_with_system_deps(vec![zlib_dep()]);
         let host = TargetPlatform::current();
         let dev_for = BTreeSet::new();

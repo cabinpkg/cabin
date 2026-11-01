@@ -53,8 +53,7 @@ const DOTS_ABOUT: &str = "See all commands with --list";
 pub(crate) fn prepare_top_level_command() -> clap::Command {
     // `Command::build` forces clap to materialize its
     // auto-injected `help` pseudo-subcommand so we can
-    // address it by name. `mut_subcommand("help", …)` then
-    // hides the help row from the Commands block.
+    // address it by name.
     let mut cmd = Cli::command();
     cmd.build();
     let cmd = cmd.mut_subcommand("help", |sub| sub.hide(true)).subcommand(
@@ -62,14 +61,6 @@ pub(crate) fn prepare_top_level_command() -> clap::Command {
             .about(DOTS_ABOUT)
             .disable_help_subcommand(true),
     );
-    // Render the Commands block manually so visible aliases
-    // appear in cargo's `name, alias` style (`build, b`).
-    // Clap's `{subcommands}` placeholder uses the default
-    // `[aliases: b]` rendering, which is not what cargo
-    // emits.  See `format_commands_block` for the format.
-    //
-    // Append the cargo-style trailer that points users at
-    // `cabin help <command>` for per-subcommand detail.
     let mut after_help = format_commands_block(&cmd);
     after_help.push('\n');
     after_help.push_str("See 'cabin help <command>' for more information on a specific command.\n");

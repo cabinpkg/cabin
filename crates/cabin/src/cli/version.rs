@@ -1,15 +1,9 @@
 //! Glue between the CLI's `version` subcommand and the typed
 //! [`crate::version_info::VersionInfo`].
 //!
-//! `cabin version` is the dedicated version-reporting surface;
-//! `cabin --version` continues to work through clap's
-//! `#[command(version)]`.  The two differ deliberately:
-//!
-//! - `cabin --version` - concise, clap-framework spelling.  Same
-//!   wording as `cabin version` so scripts that pipe either form
-//!   stay equivalent.
-//! - `cabin version` - concise output by default.  Honors the
-//!   global verbosity model (`-v`) for a stable key/value block.
+//! `cabin version` and `cabin --version` (a Cabin-owned flag; clap's
+//! auto version flag is disabled) both run [`version`]: concise output
+//! by default, a stable key/value block under the global `-v`.
 //!
 //! Output is written directly to stdout rather than through the
 //! status [`crate::cli::term_verbosity::Reporter`]: a user

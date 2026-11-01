@@ -1,7 +1,6 @@
-//! Metadata JSON view construction for `cabin metadata`.
-//!
-//! The CLI command owns orchestration; this module owns only the
-//! serialisable view assembled from already-resolved typed inputs.
+//! `cabin metadata`: [`metadata`] resolves the workspace, and
+//! [`MetadataView`] is the serializable view assembled from the
+//! resolved typed inputs.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -31,11 +30,9 @@ pub(crate) struct MetadataView<'a> {
     workspace: Option<WorkspaceView<'a>>,
     pub(crate) packages: Vec<PackageView<'a>>,
     lockfile: Option<LockfileView<'a>>,
-    /// Platform context used when evaluating
-    /// `[target.'cfg(...)'.<kind>]` predicates.  Always populated
-    /// so consumers of the JSON view can see why a given dep is
-    /// active or inactive without having to re-derive the host
-    /// platform themselves.
+    /// The platform `[target.'cfg(...)'.<kind>]` predicates are
+    /// evaluated for: the `--target` triple, or the build machine.
+    /// Lets consumers see why a given dep is active or inactive.
     target_platform: TargetPlatformView,
     /// Build-profile context: the resolved `selected` profile
     /// plus every available profile name, plus the parsed
@@ -69,8 +66,7 @@ struct ProfilesView {
     available: Vec<String>,
     /// Manifest-declared profile definitions, keyed by profile
     /// name in deterministic order.  Omitted when the manifest
-    /// declares none, so packages without `[profile.*]` tables
-    /// keep their previous JSON shape.
+    /// declares none.
     #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
     definitions: serde_json::Map<String, serde_json::Value>,
 }
@@ -120,13 +116,12 @@ struct WorkspaceView<'a> {
     root: &'a Path,
     members: Vec<&'a str>,
     /// Members listed under `[workspace.default-members]`.
-    /// Empty when none are declared so the JSON shape stays
-    /// stable for callers that do not use default-members.
+    /// Omitted when none are declared.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     default_members: Vec<&'a str>,
     /// Directory paths the loader removed via
     /// `[workspace.exclude]`, normalized relative to the workspace
-    /// root.  Empty when no excludes are declared.
+    /// root.  Omitted when no excludes are declared.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     excluded_members: Vec<&'a Path>,
     /// Members the user requested via CLI flags (or the
@@ -150,22 +145,18 @@ pub(crate) struct PackageView<'a> {
     /// `system = true` declarations.  Externally provided
     /// (system libraries, SDKs, installed tools) - never resolved
     /// through the Cabin registry.  Sorted by name.  Omitted when
-    /// no system dependencies are declared so packages without
-    /// them keep their previous JSON shape.
+    /// no system dependencies are declared.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     system_dependencies: Vec<SystemDependencyView<'a>>,
     targets: &'a [cabin_core::Target],
     pub(crate) is_root: bool,
     pub(crate) is_primary: bool,
-    /// Declared `[features]`.  `None` when the manifest has
-    /// no features so older callers and tools see the same JSON
-    /// shape they always have.
+    /// Declared `[features]`.  Omitted when the manifest has no
+    /// features.
     #[serde(skip_serializing_if = "Option::is_none")]
     features: Option<&'a cabin_core::Features>,
-    /// Resolved per-package configuration.  Always populated
-    /// (defaults expand even when the user passes no flags); kept
-    /// optional so packages with zero declarations keep their
-    /// previous JSON shape.
+    /// Resolved per-package configuration.  Present only when the
+    /// package declares features or language standards.
     #[serde(skip_serializing_if = "Option::is_none")]
     configuration: Option<serde_json::Value>,
 }
@@ -177,9 +168,7 @@ struct DependencyView<'a> {
     /// emitted (even for normal dependencies) so consumers do not
     /// have to special-case the implicit-default case.
     dependency_kind: cabin_core::DependencyKind,
-    /// Whether the dependency is optional.  Omitted when `false`
-    /// so packages without optional deps keep their previous
-    /// JSON shape.
+    /// Whether the dependency is optional.  Omitted when `false`.
     #[serde(skip_serializing_if = "is_false_dep")]
     optional: bool,
     /// Per-edge feature requests on the dependency package.
@@ -187,9 +176,7 @@ struct DependencyView<'a> {
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     features: &'a [String],
     /// Whether this edge requests the dependency's `default`
-    /// feature.  Omitted when `true` (the documented default) so
-    /// the JSON shape stays stable for packages that do not opt
-    /// out.
+    /// feature.  Omitted when `true` (the documented default).
     #[serde(skip_serializing_if = "is_true_dep")]
     default_features: bool,
     /// Canonical inner-expression form of an optional `cfg(...)`
@@ -197,12 +184,10 @@ struct DependencyView<'a> {
     /// `[target.'cfg(...)']` table guarded this dependency.
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
-    /// Whether the `target` predicate matches the host platform.
-    /// `true` for unconditional dependencies (the documented
-    /// default); `false` when a `cfg(...)` predicate fails on
-    /// the current host.  Always emitted so consumers can decide
-    /// whether to surface the dependency without re-evaluating
-    /// the predicate.
+    /// Whether the `target` predicate matches the platform in
+    /// `target_platform`.  `true` for unconditional dependencies.
+    /// Always emitted so consumers can decide whether to surface
+    /// the dependency without re-evaluating the predicate.
     active: bool,
     #[serde(flatten)]
     source: DependencySourceView<'a>,
@@ -249,17 +234,13 @@ struct SystemDependencyView<'a> {
     /// predicate copied from the manifest.  Omitted when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
-    /// Whether the `target` predicate matches the host platform.
-    /// `true` for unconditional system declarations.
+    /// Whether the `target` predicate matches the platform in
+    /// `target_platform`.  `true` for unconditional system
+    /// declarations.
     active: bool,
 }
 
 /// Bundle of inputs the metadata JSON view needs.
-///
-/// Threading the growing set of build-configuration inputs through
-/// a typed struct keeps `MetadataView::from_graph_and_lock`'s
-/// surface stable: every consumer reads fields by name instead of
-/// remembering positional order.
 pub(crate) struct MetadataInputs<'a> {
     pub(crate) graph: &'a PackageGraph,
     pub(crate) lockfile: Option<&'a Lockfile>,
@@ -307,10 +288,7 @@ pub(crate) struct MetadataInputs<'a> {
     pub(crate) no_patches: bool,
 }
 
-/// Build the JSON view for a single workspace package.  The returned
-/// [`PackageView`] borrows exclusively from `pkg`, so its lifetime is
-/// tied to that reference; `graph`, `configurations`, and
-/// `platform` only supply owned or copied data.
+/// Build the JSON view for a single workspace package.
 fn build_package_view<'a>(
     graph: &PackageGraph,
     idx: usize,
@@ -326,7 +304,6 @@ fn build_package_view<'a>(
     };
     // The configuration block appears once a package declares
     // something it resolves: features or language standards.
-    // Packages with zero declarations keep their previous JSON shape.
     let declares_language =
         !package.language.is_empty() || package.targets.iter().any(|t| !t.language.is_empty());
     let configuration = if features.is_some() || declares_language {
@@ -490,10 +467,7 @@ impl<'a> MetadataView<'a> {
         };
 
         // Toolchain block: resolved tool kind / spec / source plus
-        // a per-package summary of active build flags.  Generated
-        // here so the metadata view's contract for toolchain /
-        // build-flag visibility lives next to the rest of the
-        // build-configuration shape it returns.
+        // a per-package summary of active build flags.
         let mut per_package_flags: serde_json::Map<String, serde_json::Value> =
             serde_json::Map::new();
         for (idx, _pkg) in graph.packages.iter().enumerate() {
@@ -504,20 +478,12 @@ impl<'a> MetadataView<'a> {
                 per_package_flags.insert(name, flags.as_json());
             }
         }
-        // Detected toolchain identity / capabilities.  Populated
-        // when the caller supplied a detection report; absent
-        // when detection failed (e.g. `cabin metadata` chose to
-        // continue rather than abort) or when the caller did not
-        // run detection at all.  Always present in the JSON so
-        // consumers can distinguish "we didn't try" from "we
-        // ran it" via the `null` value.
+        // Detected toolchain identity / capabilities; `null` when
+        // detection failed or did not run.
         let detected_view = match detection {
             Some(report) => report.as_json(),
             None => serde_json::Value::Null,
         };
-        // Compiler-cache wrapper sub-block. `null` when no wrapper
-        // is selected so the field is always present and consumers
-        // do not need to special-case the absence.
         let compiler_wrapper_view = match inputs.compiler_wrapper {
             Some(w) => w.as_json(),
             None => serde_json::Value::Null,
@@ -568,8 +534,6 @@ impl<'a> MetadataView<'a> {
 /// (or minimal human) view assembled by [`MetadataView`].
 pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // Metadata generation is network-free local introspection: it
-    // reads the workspace and its patch table, nothing more.
     let crate::cli::workspace_prep::WorkspacePrep {
         effective_config,
         active_patches,
@@ -623,9 +587,8 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         &effective_config,
         reporter,
     )?;
-    // Resolve the compiler wrapper. `cabin metadata` mirrors
-    // the build-side resolution but fails soft on subprocess
-    // errors so a missing wrapper executable cannot block
+    // Fails soft on subprocess errors, unlike the build-side
+    // resolution, so a missing wrapper executable cannot block
     // inspection of the rest of the workspace.
     let compiler_wrapper = match resolve_compiler_wrapper_layered(
         compiler_wrapper_override_from_args(&args.toolchain)?,
@@ -692,9 +655,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
             crate::print_pretty_json(&view, "failed to serialize metadata as JSON")?;
         }
         ResolveFormat::Human => {
-            // Human form is intentionally minimal - JSON is the
-            // contract for tooling; this branch is here so users who
-            // pass `--format human` get something readable.
+            // Minimal: JSON is the contract for tooling.
             for pkg in &view.packages {
                 println!(
                     "{} {} ({})",

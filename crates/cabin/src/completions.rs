@@ -18,9 +18,7 @@ use crate::cli::Cli;
 /// Binary name to embed in generated completion scripts.
 const BIN_NAME: &str = "cabin";
 
-/// Every shell `cabin compgen --all` writes a script for.  Other
-/// `clap_complete::Shell` variants are still accepted as a positional
-/// arg so users can ask for them explicitly.
+/// Every shell `cabin compgen --all` writes a script for.
 const ALL_SHELLS: &[Shell] = &[
     Shell::Bash,
     Shell::Zsh,
@@ -50,7 +48,6 @@ pub(crate) struct CompgenArgs {
     output_dir: Option<std::path::PathBuf>,
 }
 
-/// Top-level entry point for `cabin compgen`.
 pub(crate) fn run(args: &CompgenArgs) -> Result<()> {
     if args.all && args.output_dir.is_none() {
         bail!(
@@ -100,9 +97,8 @@ fn write_one_to_stdout(cmd: &mut clap::Command, shell: Shell) {
 }
 
 /// Filename `cabin compgen --output-dir <dir>` writes for each
-/// `Shell`.  The names match what package managers usually expect on
-/// disk (`cabin.bash`, `_cabin`, `cabin.fish`, …); deviations from
-/// `clap_complete`'s default filenames are intentional and stable.
+/// `Shell`: `clap_complete`'s default, except PowerShell's
+/// `cabin.ps1` (not `_cabin.ps1`).  The names are stable.
 fn filename_for(shell: Shell) -> String {
     match shell {
         Shell::Bash => "cabin.bash".to_owned(),

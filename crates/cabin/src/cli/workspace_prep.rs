@@ -6,8 +6,7 @@
 //! workspace so the patch table can be evaluated, and the second
 //! re-loads with the patched manifests linked in, so member paths
 //! point at the patched working copies rather than the upstream
-//! packages.  Patches are then re-resolved against the final graph,
-//! which carries version requirements the first pass could not see.
+//! packages.
 
 use std::collections::BTreeSet;
 use std::path::Path;

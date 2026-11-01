@@ -2,11 +2,7 @@
 //!
 //! Translates the CLI flag bundle into the typed inputs the
 //! shared crates accept and routes their outcomes back to the
-//! reporter.  Keeping this glue in a dedicated module preserves
-//! the package rule that `cabin` stays thin: arg parsing
-//! and reporter wiring live here, but no source-discovery
-//! algorithms and no `clang-format` command-line construction
-//! live in this file.
+//! reporter.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -96,10 +92,7 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
 
-    // Effective build directory, honoring `--build-dir` /
-    // `CABIN_BUILD_DIR` / `[paths] build-dir`.  We want the
-    // walker to exclude exactly the directory `cabin build`
-    // would have written into.
+    // Exclude exactly the directory `cabin build` would write into.
     let build_dir = super::config::resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
 
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
@@ -206,16 +199,12 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
             files_inspected,
             stderr,
         }) => {
-            // Pass clang-format's `--dry-run -Werror` stderr
-            // through verbatim so `cabin fmt --check` shows the
-            // per-file diagnostic - same shape as `cargo fmt
-            // --check`, which forwards rustfmt's diff.  An empty
-            // stderr is skipped so a `CABIN_FMT` wrapper that
-            // signals failure via exit code alone does not
-            // produce a blank line; the status banner below is
-            // the always-on Cabin-owned signal that something
-            // failed so CI users see an actionable message even
-            // when the wrapped formatter is silent.
+            // Forward clang-format's `--dry-run -Werror` stderr
+            // verbatim, as `cargo fmt --check` forwards rustfmt's
+            // diff.  An empty stderr (a `CABIN_FMT` wrapper that
+            // reports failure only through its exit code) is
+            // skipped; the `Failed` status below is printed
+            // regardless.
             if !stderr.is_empty() {
                 reporter.tool_stderr(&stderr);
             }

@@ -3,16 +3,8 @@
 //! Supports two dependency kinds: registry dependencies
 //! (`<scope>/<name>@<REQ>`) and local path dependencies
 //! (`--path <dir>`).
-//! Registry packages are always `<scope>/<name>`, so a bare name is
-//! rejected with that explanation; the requirement is explicit
-//! because `cabin add` never queries a registry (no name search or
-//! latest-version lookup).
 //! The manifest is edited format-preservingly via
-//! [`cabin_manifest::edit`], and status output mirrors `cargo add`'s
-//! visible lines (`Adding <name> v<ver> to dependencies`).  After a
-//! successful add it also prints a note reminding the user that a
-//! `[dependencies]` entry only declares the dep - each target's `deps`
-//! list is what links it (Cabin-specific; unlike Cargo).
+//! [`cabin_manifest::edit`].
 
 use std::path::{Path, PathBuf};
 

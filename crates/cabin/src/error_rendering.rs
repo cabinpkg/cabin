@@ -1,9 +1,7 @@
 //! Top-level error display for `cabin`.
 //!
 //! The dispatcher returns `anyhow::Error`; some leaves wrap a
-//! typed [`miette::Diagnostic`] (today: `ManifestError`,
-//! `WorkspaceError`, `ResolveError`, `PkgConfigError`, and any
-//! future domain error that derives `Diagnostic`).
+//! typed [`cabin_diagnostics::miette::Diagnostic`].
 //! [`render_error`] peels through the anyhow chain, asks
 //! [`crate::diagnostic_registry`] for the deepest typed
 //! candidate it can find, and routes the report through
@@ -11,8 +9,7 @@
 //! `error[<code>]: <message>` block plus the `help:` text the
 //! domain author attached.  When no typed diagnostic is found,
 //! the formatter falls back to anyhow's default `{:#}`
-//! rendering via [`write_plain_error`], which is what the rest
-//! of the CLI has emitted historically.
+//! rendering via [`write_plain_error`].
 
 use cabin_core::ColorChoice;
 use termcolor::{StandardStream, WriteColor};
@@ -45,8 +42,7 @@ pub(crate) fn render_error(error: &anyhow::Error, color: ColorChoice) {
 }
 
 /// Emit a plain `error: <message>` line, painting only the
-/// `error:` prefix.  Used by both the env-validation failure
-/// path and the anyhow fallback.
+/// `error:` prefix.
 pub(crate) fn write_plain_error(stderr: &mut StandardStream, message: &str) -> std::io::Result<()> {
     use std::io::Write as _;
 

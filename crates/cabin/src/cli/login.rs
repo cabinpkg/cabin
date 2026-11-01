@@ -1,17 +1,15 @@
 //! `cabin login` / `cabin logout`: mint or revoke a registry login
 //! session.
 //!
-//! Both commands resolve the registry the same way the fetch family
-//! does (`--index-url`, else the `[registry] index-url` config
-//! setting, else the default hosted registry) and key the stored
+//! Both commands resolve the registry from `--index-url`, else the
+//! user-level config's `[registry] index-url`, else the default hosted
+//! registry (see [`effective_registry_index_url`]), and key the stored
 //! credential on the normalized index origin.  `cabin login` runs
 //! GitHub's OAuth device flow and trades the resulting GitHub access
 //! token for a short-lived `cabin_ses_` session at the registry's
-//! `api` origin (`docs/remote-registry.md`, "Login sessions"); the
-//! GitHub token lives only on this invocation's stack - used for
-//! exactly the one exchange call, never written to disk, never
-//! logged.  `cabin logout` best-effort revokes the stored session and
-//! removes it from storage.
+//! `api` origin (`docs/remote-registry.md`, "Login sessions").
+//! `cabin logout` best-effort revokes the stored session and removes
+//! it from storage.
 
 use std::io::{IsTerminal as _, Write as _};
 
@@ -27,7 +25,7 @@ use crate::cli::term_verbosity::Reporter;
 /// same app the registry's own web sign-in uses; `registry/wrangler.jsonc`
 /// pins the identical value).  Public by design - the device flow
 /// authenticates the *user*, never the client - so it ships in the
-/// binary like Cargo ships crates.io's.
+/// binary.
 ///
 /// This also bounds interactive login: a registry whose mint pins to a
 /// different OAuth app cannot accept grants issued to this one
@@ -270,7 +268,7 @@ pub(crate) fn run_login_flow(index_url: &str, origin: &str, reporter: Reporter) 
 /// *expired* session fails here with the actionable message (the
 /// registry's uniform 401 could not name the cause), while no stored
 /// session at all proceeds tokenless so the server's own
-/// `authentication required` answer stands, exactly as before.
+/// `authentication required` answer stands.
 ///
 /// `user_chosen` carries the same origin-trust contract as
 /// [`env_token_eligible`]: the offer is made only for a registry the
@@ -509,9 +507,9 @@ fn env_token_is_set() -> bool {
 /// by construction.
 ///
 /// Kept separate from [`crate::cli::trustpub::exchange_origin_eligible`]
-/// although the two predicates now read alike: they guard different
-/// credentials (this stored login token vs. the run's OIDC JWT), and
-/// loosening one must never silently loosen the other.
+/// although the two predicates read alike: they guard different
+/// credentials (the `CABIN_REGISTRY_TOKEN` value vs. the run's OIDC
+/// JWT), and loosening one must never silently loosen the other.
 pub(crate) fn env_token_eligible(origin: &str, user_chosen: bool) -> Result<bool> {
     let default_origin =
         cabin_credentials::normalize_origin(cabin_core::registry::DEFAULT_INDEX_URL)?;

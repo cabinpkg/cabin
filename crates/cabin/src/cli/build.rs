@@ -42,12 +42,8 @@ pub(super) fn build(
     )?;
     let plan_graph = plan_prepared(&prepared, None, matches!(mode, BuildMode::Check), color)?;
 
-    // Profile-aware Ninja root: `build/<profile>/build.ninja`
-    // and `build/<profile>/compile_commands.json`.  Keeps dev /
-    // release / custom builds from overwriting each other and
-    // matches the per-package output tree the planner emits.
-    // Build-specific verbose context (the shared "wrote …" /
-    // "invoking …" lines are emitted by `invoke_ninja_and_report`).
+    // `invoke_ninja_and_report` emits the shared "wrote …" /
+    // "invoking …" verbose lines.
     reporter.verbose(format_args!(
         "cabin: profile = {}",
         prepared.profile.name.as_str()
@@ -89,9 +85,6 @@ pub(super) fn build(
             reporter,
         })?;
 
-    // Cargo-style `Finished` summary: profile name, the resolved
-    // optimization / debuginfo descriptor, and the wall-clock
-    // duration the Ninja invocation took.
     reporter.status(
         "Finished",
         format_args!(

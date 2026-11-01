@@ -20,17 +20,16 @@
 //! which calls it right after
 //! `crate::cli::system_deps::augment_build_flags_with_system_deps`
 //! so the resulting `BuildConfiguration::fingerprint` observes
-//! the user's environment.
+//! the user's environment.  `build_prep::build_context_prep` also
+//! calls it directly for a build context that is not a cross build.
 //!
 //! ## Why primary-only
 //!
-//! Cabin keeps environment flags scoped to the user's own
-//! workspace members for the same reason `pkg-config`
-//! contributions do: a stray `-Werror` in `CXXFLAGS` should
-//! never break a transitive dependency the user did not write.
-//! Registry / path dependencies still observe their own
-//! `[profile]` declarations and any flag they own, but the
-//! environment is the user's, not the dependency's.
+//! Environment flags apply only to the user's own workspace members,
+//! as `pkg-config` contributions do: a stray `-Werror` in `CXXFLAGS`
+//! must not break a dependency the user did not write.  Registry and
+//! path dependencies still observe their own `[profile]` declarations
+//! and any flag they own.
 
 use std::collections::HashMap;
 
@@ -68,11 +67,9 @@ where
         return Ok(build_flags);
     }
     apply_to_primary_packages(graph, &mut build_flags, &parsed);
-    // Verbose mode acknowledges that an environment layer
-    // applied without dumping the raw values (they can carry
-    // local paths or tokens).  Very-verbose mode prints the
-    // parsed argv tokens, matching the policy command-line
-    // display already follows.
+    // Verbose mode reports only argument counts because the values
+    // can carry local paths or tokens; very-verbose mode prints the
+    // parsed tokens, as it does for command lines.
     if reporter.verbosity().shows_very_verbose() {
         log_very_verbose(&parsed, reporter);
     } else if reporter.verbosity().shows_verbose() {
@@ -82,10 +79,7 @@ where
 }
 
 fn format_parse_error(err: EnvBuildFlagsError) -> anyhow::Error {
-    // The error message already includes the offending variable
-    // name and a stable summary of the failure mode.  Wrap as
-    // `anyhow::Error` so it flows through the standard CLI error
-    // path.
+    // The error message already names the offending variable.
     anyhow::Error::new(err)
 }
 
@@ -107,15 +101,9 @@ fn apply_to_primary_packages(
     }
 }
 
-// Verbose chatter routes through the reporter's auxiliary stderr
-// path, matching `system_deps`'s pattern. `cabin metadata`
-// reserves stdout for its JSON document, so any human-readable
-// line emitted from the shared build-orchestration path must use
-// stderr or it pollutes the machine-readable contract.
+// Both loggers write to stderr (`aux_*`): this path also runs under
+// `cabin metadata`, whose stdout is reserved for its JSON document.
 fn log_verbose(parsed: &EnvBuildFlags, reporter: Reporter) {
-    // One short line per active variable, with arg counts only.
-    // The full values can carry local include paths or tokens;
-    // very-verbose mode is the documented place to dump them.
     if !parsed.cppflags.is_empty() {
         reporter.aux_verbose(format_args!(
             "cabin: applying CPPFLAGS ({} arg{})",
@@ -347,8 +335,6 @@ mod tests {
         );
     }
 
-    /// Multi-package primary set; ensures the merge touches
-    /// every primary index, including non-root packages.
     #[test]
     fn merge_touches_every_primary_package() {
         let mut graph = one_primary_graph();

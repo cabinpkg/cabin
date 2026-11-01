@@ -27,11 +27,9 @@ use cabin_workspace::{
     ActivePatchSet, ConfigPatchInput, PackageGraph, PatchResolutionInputs, resolve_active_patches,
 };
 
-/// Build the patch-resolution input the workspace layer
-/// consumes.  Returns `None` and an empty active patch set when
-/// `--no-patches` is set; otherwise the manifest-declared
-/// patches plus the merged config-derived patches feed
-/// [`resolve_active_patches`].
+/// Resolve the active patch set: the manifest-declared patches plus
+/// the merged config-derived patches, through
+/// [`resolve_active_patches`].  `--no-patches` yields an empty set.
 pub(crate) fn load_active_patches(
     graph: &PackageGraph,
     effective_config: &EffectiveConfig,
@@ -64,9 +62,9 @@ pub(crate) fn load_active_patches(
 }
 
 /// Apply the source-replacement chain to `initial`.  Returns the
-/// terminal source plus the chain hops so callers can record
-/// them in the lockfile / metadata view. `--no-patches` disables
-/// the entire local-policy layer, including source replacement.
+/// terminal source plus the hops walked to reach it.
+/// `--no-patches` disables the entire local-policy layer, including
+/// source replacement.
 pub(crate) fn apply_source_replacement(
     initial: SourceLocator,
     effective_config: &EffectiveConfig,

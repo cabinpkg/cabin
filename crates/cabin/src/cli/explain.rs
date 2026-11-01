@@ -155,10 +155,6 @@ pub(crate) fn explain(
             cabin_explain::Explanation::Source(exp)
         }
         ExplainCommand::Feature { query } => {
-            // Build a per-package feature view limited to the
-            // package the user named.  We look up the package up
-            // front so we can map its enabled features into the
-            // typed view the cabin-explain crate consumes.
             // Split on the last `/` to mirror `explain_feature`:
             // the package part of the query may itself be scoped.
             let pkg_name = query
@@ -215,11 +211,8 @@ pub(crate) fn explain(
                 &prep.build_flags,
             )?;
             let config = cabin_explain::explain_build_config(&configurations, &graph, name)?;
-            // BuildConfiguration already has its own JSON shape
-            // documented by `cabin metadata`.  We render it
-            // directly rather than wrapping it in our `Explanation`
-            // enum so users see exactly the same shape they see
-            // in metadata's `configuration` blocks.
+            // Rendered outside `Explanation` so the JSON matches
+            // the `configuration` blocks of `cabin metadata`.
             return render_build_config(args.format, name, config);
         }
     };

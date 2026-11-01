@@ -212,9 +212,8 @@ pub(super) fn update(args: &UpdateArgs, reporter: Reporter) -> Result<()> {
         None => LockPolicy::UpdateAll,
     };
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // `cabin update` keeps its `--package <name>` flag for the
-    // dep-targeted-update meaning.  Workspace member scoping uses
-    // the dedicated bundle without `-p`.
+    // `--package` names the dependency to update, so member
+    // selection comes from a bundle without `-p`.
     let workspace_selection = build_update_workspace_selection(&args.workspace_selection);
     run_resolution(
         &ResolutionRequest {
@@ -275,11 +274,10 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let dev_for: BTreeSet<String> = BTreeSet::new();
     // Computed before the fast path so a selection typo like
     // `--package missing` fails even when there is nothing to
-    // fetch, and so the index requirement is scoped to the selected
-    // closure: unrelated members' versioned deps never force a user
-    // who passed `--package <selected>` to also pass `--index-path`,
-    // while a workspace whose only versioned edge comes from
-    // `[patch]` still needs the index.
+    // fetch, and so only the selected closure decides whether an
+    // index is read: an unrelated member's versioned deps never send
+    // `--package <selected>` to a registry, while a closure whose
+    // only versioned deps come from a `[patch]` fork still reads one.
     let seed = ResolutionSeed::compute(&SeedInputs {
         graph: &initial_graph,
         selection: &workspace_selection,
@@ -424,13 +422,11 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         bail!(crate::cli::FROZEN_INDEX_URL_ERR);
     }
 
-    // gather versioned deps from the selected primary
-    // packages, including non-root workspace members.  Pure-workspace roots
-    // (no `[package]`) work too - they take a synthetic identity.
-    // The seed folds the *referenced* patches' deps in so `cabin
-    // resolve` (and `--package` validation below) sees the same root
-    // set the artifact pipeline does; a patch reached only through a
-    // registry edge resolves to its fork's local entry.
+    // The seed folds the *referenced* patches' deps into the selected
+    // packages' versioned deps, so `cabin resolve` (and `--package`
+    // validation below) sees the same root set the artifact pipeline
+    // does; a patch reached only through a registry edge resolves to
+    // its fork's local entry.
     let dev_for: BTreeSet<String> = BTreeSet::new();
     let seed = ResolutionSeed::compute(&SeedInputs {
         graph: &graph,
@@ -443,25 +439,18 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     let root_deps = seed.root_deps()?;
     let lockfile_path = lockfile_path_for(&manifest_path);
 
-    // validate `--package` (the dep-targeted-update
-    // flag on `cabin update`) before short-circuiting on an
-    // empty resolution.  Otherwise an unknown name like
-    // `cabin update --package missing` silently succeeds when
-    // the workspace happens to have no versioned deps.
+    // Validate `cabin update --package` before the empty-resolution
+    // fast path, so an unknown name fails even when the workspace has
+    // no versioned deps.
     if let LockPolicy::UpdatePackage(name) = &request.policy
         && !root_deps.contains_key(name)
     {
-        // `cabin update --package <name>` targets a *direct*
-        // versioned dependency only.  The matching set is the
-        // resolver's input - any name declared under
-        // `[dependencies]` (the
-        // kinds that participate in ordinary resolution).
-        // Refreshing a transitive locked package requires
-        // re-running `cabin update` without `--package`, or
-        // scoping with `--workspace` / `--default-members`.
-        // `root_deps` was gathered from every *selected* package
-        // (plus active patches), so the message names the actual
-        // lookup scope rather than the workspace root.
+        // Only a name in `root_deps` can be targeted: a versioned
+        // dependency declared by a local package of the selected
+        // closure or by a patch fork it references.  A transitive
+        // locked package is refreshed by `cabin update` without
+        // `--package`.  The message names the selection, the scope
+        // `root_deps` was gathered from.
         let scope = match seed.resolved_selection.packages.as_slice() {
             [idx] => format!("`{}`", graph.packages[*idx].package.name.as_str()),
             _ => "any selected package".to_owned(),
@@ -487,11 +476,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
 
     // Patch / source-replacement state recorded into the new
     // lockfile and compared against the existing lockfile under
-    // `--locked`.  Computed early so the no-versioned-deps fast
-    // path below can still settle the record: if the user added or
-    // removed a patch since the lockfile was written, `--locked`
-    // must refuse, even though the resolver itself would otherwise
-    // have nothing to do.
+    // `--locked`; the no-versioned-deps fast path below settles it
+    // too.
     let active_patch_records = crate::cli::patch::lockfile_patches(&active_patches);
     let active_replacement_records = crate::cli::patch::lockfile_source_replacements(
         &effective_config.source_replacements,
@@ -636,10 +622,10 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         && let Some(prev) = &existing_lockfile
         && prev != &new_lockfile
     {
-        // We allowed PreferLocked-style search inside the
-        // resolver but Locked mode forces selection to come
-        // from the lockfile; this branch is a defensive
-        // fallback if a future change loosens that.
+        // Locked mode takes every version from the lockfile, but the
+        // lockfile this resolution derives can still differ: a
+        // selection covering every member prunes entries nothing
+        // needs (see `lockfile_from_resolution`).
         bail!(
             "{} is stale; run `cabin resolve` or `cabin update` to refresh it",
             lockfile_path.display()
@@ -744,9 +730,9 @@ fn print_resolve_json(output: &ResolveOutput) -> Result<()> {
 }
 
 /// What kind of resolution the CLI is asking for, plus the write /
-/// network permissions that follow from it.  One value replaces the
-/// previously separate lock mode + `frozen` + `allow_write`
-/// threading, so the three can never disagree.
+/// network permissions that follow from it.  The resolver mode,
+/// `frozen`, and `allow_write` all derive from this one value, so
+/// they cannot disagree.
 #[derive(Debug, Clone)]
 pub(crate) enum LockPolicy {
     /// Default: reuse lockfile pins that still satisfy, refresh the
@@ -820,9 +806,9 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     /// one the caller already gated its no-versioned-deps fast path
     /// on.
     pub(crate) seed: &'a ResolutionSeed,
-    /// Names of patched packages - the pipeline must skip them
-    /// because they ship from a local working copy and never need
-    /// to be fetched from the index.
+    /// Names the active patch set supplies locally, as `seed` was
+    /// computed with: a registry edge onto one resolves to its local
+    /// fork, which then counts as activated.
     pub(crate) patched_names: &'a BTreeSet<String>,
     /// Active patches recorded into the new lockfile and
     /// compared against the existing lockfile under `--locked`.
@@ -882,16 +868,16 @@ impl ArtifactPipeline {
     }
 }
 
-/// Resolved index access: either a directory on disk we already
-/// turned into a [`PackageIndex`], or a live HTTP client we will use
-/// to download artifacts.
+/// How [`build_fetch_plan`] reaches source archives: `Local` passes
+/// local paths through and refuses HTTP URLs; `Http` downloads
+/// through the index's client.
 enum IndexAccess {
     Local,
     Http(cabin_index_http::HttpClient),
 }
 
-/// Run the resolve → lockfile → fetch pipeline used by both
-/// `cabin fetch` and `cabin build`.
+/// Run the resolve → lockfile → fetch pipeline used by `cabin fetch`,
+/// `cabin vendor`, and the `build` / `run` / `test` preamble.
 #[tracing::instrument(level = "info", skip_all)]
 pub(crate) fn run_artifact_pipeline(
     request: &ArtifactPipelineRequest<'_>,
@@ -905,10 +891,6 @@ pub(crate) fn run_artifact_pipeline(
     // patch reached only through a registry edge resolves to its
     // fork's local entry.
     let root_deps = seed.root_deps()?;
-    // short-circuit when neither the selected closure nor the
-    // active patch set introduces a versioned dependency.
-    // Loading an index, walking the lockfile, and downloading
-    // artifacts are all unnecessary in that case.
     if root_deps.is_empty() {
         return Ok(ArtifactPipeline {
             fetched: Vec::new(),
@@ -976,8 +958,7 @@ pub(crate) fn run_artifact_pipeline(
         )?;
     }
 
-    // Build/run/test/vendor consume only the resolved graph (into the
-    // lockfile) and never render `held_back`, so use the lean resolve
+    // No pipeline caller renders `held_back`, so use the lean resolve
     // that skips the second `Allow`-mode solve behind the report.
     let (output, index) = resolve_with_lazy_index(&input, &source, true)?;
     ensure_registry_edges_link(&output, &input, request.patched_names)?;
@@ -1048,10 +1029,9 @@ pub(crate) fn run_artifact_pipeline(
     })
 }
 
-/// Pick the right index source for a fetch / build run, validate
-/// CLI flag combinations, and return both the metadata source the
-/// resolver reads and a tag describing which access mode the fetch
-/// plan should use.
+/// Open `index_source` for an artifact-pipeline run: the metadata
+/// source the resolver reads and the [`IndexAccess`] the fetch plan
+/// uses.  `--frozen` refuses an HTTP index.
 fn open_index_for_pipeline(
     index_source: &cabin_core::SourceLocator,
     index_user_chosen: bool,
@@ -1121,9 +1101,9 @@ fn open_http_index(
 /// packaging revision to materialize, and a pinned-but-superseded
 /// revision is fetched from its own `revisions` entry - that is the
 /// fetchability guarantee that keeps existing lockfiles building
-/// across respins.  A lockfile entry without a checksum (an index
-/// without revisions) falls back to the version-level fields and
-/// fails with the same missing-checksum error as before.
+/// across respins.  A lockfile entry without a checksum falls back to
+/// the version-level source and checksum, and fails when the index
+/// lists no checksum either.
 ///
 /// `access` decides whether HTTP-resolved sources get downloaded
 /// here (so `cabin-artifact` stays HTTP-free) or whether the source
@@ -1370,10 +1350,10 @@ fn lockfile_from_resolution(
         // A previously pinned packaging revision is kept while it is
         // still published, exactly like a locked version: someone
         // else's respin must never churn this lockfile.  The update
-        // modes deliberately move to the current revision - that is
-        // what `cabin update` is for - and a pin the index no longer
-        // lists falls back to the current revision the same way a
-        // vanished version falls back to a fresh selection.
+        // modes move their targets to the current revision, and a pin
+        // the index no longer lists falls back to the current revision
+        // the same way a vanished version falls back to a fresh
+        // selection.
         let kept_pin = match mode {
             cabin_resolver::ResolveMode::UpdateAll => None,
             cabin_resolver::ResolveMode::UpdatePackage(updated) if updated == &pkg.name => None,

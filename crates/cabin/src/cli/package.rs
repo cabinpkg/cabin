@@ -28,9 +28,8 @@ pub(super) fn publish(
     reporter: Reporter,
     features: &ExperimentalFeatures,
 ) -> Result<()> {
-    // `--output-dir` is for the staging-only `dist/` flow; combining
-    // it with `--registry-dir` is meaningless and almost always
-    // means the user picked the wrong flag, so refuse loudly.
+    // `--output-dir` belongs to the staging-only `dist/` flow and has
+    // no meaning with `--registry-dir`.
     if args.output_dir.is_some() && args.registry_dir.is_some() {
         bail!("--output-dir is not compatible with --registry-dir; pick one");
     }
@@ -325,21 +324,17 @@ struct RemotePublishReport {
 /// and, on the trusted-publishing leg, the minted token is spent only
 /// on the registry round-trips (the authenticated baseline reads and
 /// the uploads), never on the staging work that precedes the
-/// exchange.  An UPLOAD failure necessarily leaves the
-/// earlier members live (the registry has no cross-package
-/// transaction); each package's report is emitted the moment its
-/// receipt arrives, so those members' checksums and revisions are
-/// never swallowed by a later failure.  One credential serves the
-/// whole batch: a trusted-publishing run exchanges exactly one OIDC
-/// token however many packages it publishes.
+/// exchange.  An UPLOAD failure necessarily leaves the earlier
+/// members live (the registry has no cross-package transaction).
+/// One credential serves the whole batch: a trusted-publishing run
+/// exchanges exactly one OIDC token however many packages it
+/// publishes.
 ///
 /// The registry's `config.json` and the lint baselines ride the
 /// authenticated sparse-HTTP read path; the uploads themselves go
 /// through `cabin-registry-api` with the same credential, paced on
-/// the registry's `429` answers when the batch has more than one
-/// package (a serial batch can outrun the per-user publish bucket,
-/// and every attempt charges it; a single publish keeps today's
-/// fail-fast `429`).
+/// the registry's `429` answers as
+/// [`publish_with_rate_limit_pacing`] describes.
 fn publish_batch_to_remote_registry(
     registry: &crate::cli::login::EffectiveRegistryIndex,
     packages: Vec<SinglePackage>,
@@ -498,8 +493,6 @@ fn publish_batch_to_remote_registry(
         );
         // A lint rejection renders target names, not package names; in
         // a batch only this context says WHICH member to fix.
-        // A lint rejection renders target names, not package names; in
-        // a batch only this context says WHICH member to fix.
         let warnings = cabin_publish::staged_lint_warnings(&staged, &published)
             .with_context(|| format!("linting {} {}", staged.name.as_str(), staged.version))?;
         let metadata_json = cabin_package::metadata::render_canonical_json(&staged.metadata)?;
@@ -559,7 +552,7 @@ const MAX_RETRY_DELAY_SECS: u64 = 300;
 /// The typed [`cabin_registry_api::RegistryApiError::RateLimited`] is
 /// the signal - in-process, unspoofable by server-controlled detail
 /// text.  `pace` is false for a bare single-package publish, which
-/// keeps its historical fail-fast `429` - an unconditional wait would
+/// fails fast on `429` - an unconditional wait would
 /// turn a plain rate-limit refusal into twenty silent minutes of CI
 /// time - and true for multi-package batches and
 /// `--retry-rate-limits` (automation whose reruns hit the same

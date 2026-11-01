@@ -1,26 +1,21 @@
 //! Typed model and deterministic formatter for `cabin version`.
 //!
-//! `cabin --version` is the clap-style framework spelling and
-//! prints the concise `cabin <semver>` line; `cabin version`
-//! is the dedicated subcommand:
+//! `cabin version` and `cabin --version` share this formatter:
 //!
 //! - the concise form (`cabin version`) prints `cabin <semver>`;
 //! - the verbose form (`cabin version -v`, or the global
 //!   `cabin -v version`) prints a cargo-style key/value block.
 //!
 //! Runtime metadata (the OS identity) is probed through the
-//! `os_info` crate, which inspects local platform state without
-//! any network or filesystem access beyond a `uname`-equivalent
-//! syscall.  Tests construct `VersionInfo` directly through
-//! `VersionInfo::for_tests` so the formatter can be exercised
-//! against controlled inputs without touching the host
-//! environment.
+//! `os_info` crate, which reads OS release files and runs
+//! platform tools (`sw_vers`, `lsb_release`, `getconf`, …) but
+//! never touches the network.
 
 use std::fmt::Write as _;
 
-/// Output mode requested by the CLI caller.  The mapping from
-/// global verbosity to mode happens in the dispatcher so this
-/// module stays decoupled from `cabin_core::Verbosity`.
+/// Output mode requested by the CLI caller.  `cli::version` maps
+/// global verbosity to a mode, so this module stays decoupled from
+/// `cabin_core::Verbosity`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum VersionOutputMode {
     /// Concise single-line release-name + semver.
@@ -30,9 +25,7 @@ pub(crate) enum VersionOutputMode {
     Verbose,
 }
 
-/// Typed snapshot of Cabin's version-relevant metadata.  The
-/// struct is `Clone` so test helpers can compose fixtures
-/// without re-deriving every field.
+/// Typed snapshot of Cabin's version-relevant metadata.
 #[derive(Debug, Clone)]
 pub(crate) struct VersionInfo {
     /// Always present - driven by the workspace's
@@ -77,9 +70,6 @@ impl VersionInfo {
     }
 
     fn format_verbose(&self) -> String {
-        // Each labeled row contributes roughly `<label>:
-        // <value>\n`; reserve a reasonable amount up-front to
-        // keep the formatter free of intermediate allocations.
         let mut out = String::with_capacity(256);
 
         let _ = writeln!(out, "cabin {}", self.cabin_version);

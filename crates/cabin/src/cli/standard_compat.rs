@@ -290,9 +290,6 @@ fn violation_diagnostic(
     }
 }
 
-/// The downgraded note for an edge the consuming package opted out
-/// of the check: the violation is suppressed, but the edge is
-/// called out as unchecked so the override cannot silently rot.
 /// Render a dependency name as a `[dependencies]` table key: quoted
 /// unless every character is bare-key-legal (`A-Za-z0-9_-`) - a
 /// scoped name's `/` and a dotted name's `.` both need quotes (a
@@ -310,6 +307,9 @@ fn toml_dependency_key(name: &str) -> String {
     }
 }
 
+/// The downgraded note for an edge the consuming package opted out
+/// of the check: the violation is suppressed, but the edge is
+/// called out as unchecked so the override cannot silently rot.
 fn unchecked_note(violation: &StandardCompatViolation) -> StandardCompatDiagnostic {
     // Only override-suppressed violations reach this note, and a
     // suppressing entry always has a section.
@@ -422,10 +422,6 @@ mod tests {
     use cabin_build::ClashingBound;
     use std::path::PathBuf;
 
-    /// Pasting the override remedy must always yield the intended
-    /// TOML: bare-legal names stay bare, while scoped (`/`) and
-    /// dotted (`.`) names are quoted - a bare dotted key would parse
-    /// as a nested table, not the dependency.
     #[test]
     fn toml_dependency_key_quotes_non_bare_names() {
         assert_eq!(toml_dependency_key("liba"), "liba");
@@ -482,9 +478,9 @@ mod tests {
     }
 
     /// Pins the rendered shape of the transitive minimum-violation
-    /// error: severity, stable code, the consumer -> dependency
-    /// provenance arrow, origin citation, and all three remedies in
-    /// order (raise, pin, override).
+    /// error: stable code, the consumer -> dependency provenance
+    /// arrow, origin citation, and the raise and pin remedies in that
+    /// order, with the override remedy withheld.
     #[test]
     fn renders_transitive_minimum_violation() {
         let rendered = render_error(&min_violation(), false);
@@ -508,9 +504,6 @@ mod tests {
             rendered.contains("or pin `liba` to an older version (currently 1.2.0)"),
             "expected the pin remedy in: {rendered}"
         );
-        // The always-on build-time enforcement independently
-        // rejects minimum violations, so the override remedy - a
-        // dead end here - is withheld.
         assert!(
             !rendered.contains("ignore-interface-standard"),
             "a minimum violation must not offer the override: {rendered}"
@@ -660,9 +653,6 @@ mod tests {
             rendered.contains("`libb:libb` cannot be consumed from C++ at any standard level"),
             "expected the forbidden help in: {rendered}"
         );
-        // The build-time enforcement deliberately accepts `"none"`,
-        // so here the override genuinely unblocks the command and
-        // is offered - last, after the pin.
         assert!(
             rendered.contains(
                 "as a last resort, `liba = { ..., ignore-interface-standard = true }` in the \
@@ -830,9 +820,6 @@ mod tests {
             !rendered.contains("raise `app:app`"),
             "an above-maximum violation must not suggest raising: {rendered}"
         );
-        // Range violations are independently rejected by the
-        // build-time enforcement, so the override remedy stays
-        // withheld.
         assert!(
             !rendered.contains("ignore-interface-standard"),
             "a range violation must not offer the override: {rendered}"
