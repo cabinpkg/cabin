@@ -119,6 +119,12 @@ impl Smoke {
         self.auth = bearer(&format!("{}-noverify", self.token));
     }
 
+    /// A live session token held by an account `ALLOWED_GITHUB_IDS`
+    /// does not admit: the private alpha's negative subject.
+    pub fn as_outsider(&mut self) {
+        self.auth = bearer(&format!("{}-outsider", self.token));
+    }
+
     /// A fresh verifier OIDC JWT from the GitHub mock's local-only mint
     /// endpoint, claims overridden by the `overrides` JSON object
     /// (`{}` mints the pinned defaults).  Fresh per call on purpose:

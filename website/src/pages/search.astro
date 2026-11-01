@@ -4,7 +4,11 @@ import Icon from "../components/Icon.astro";
 import PackageCard from "../components/package/PackageCard.astro";
 import Pagination from "../components/ui/Pagination.astro";
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { DEFAULT_SEARCH_PAGE, DEFAULT_SEARCH_PER_PAGE } from "../lib/constants";
+import {
+    DEFAULT_SEARCH_PAGE,
+    DEFAULT_SEARCH_PER_PAGE,
+    REGISTRY_PRIVATE_ALPHA,
+} from "../lib/constants";
 import { getPackageSearchIndex } from "../lib/packages";
 import {
     getEmptySearchMessage,
@@ -39,6 +43,9 @@ const initialPagination = paginateItems(
                 </h1>
                 <p id="result-count" class="mt-2 text-ink-muted">
                     {getSearchCountLabel(initialPagination, "")}
+                </p>
+                <p class="mt-2 text-sm text-ink-muted">
+                    {REGISTRY_PRIVATE_ALPHA}
                 </p>
             </div>
         </div>

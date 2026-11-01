@@ -6,6 +6,15 @@
 /// unauthenticated response carries exactly this envelope, so callers cannot
 /// probe package existence without a token.
 pub const AUTH_REQUIRED: &str = "authentication required";
+/// The private-alpha refusal (`docs/remote-registry.md`, "Error
+/// envelope"): the hosted registry admits only the `ALLOWED_GITHUB_IDS`
+/// accounts and the automation they back. Every registry-host `401` and
+/// every `403` for a valid credential whose account is not admitted
+/// carries it, with [`PRIVATE_ALPHA_CODE`], so the client can explain
+/// the service's status instead of advising a login that cannot help.
+pub const PRIVATE_ALPHA: &str =
+    "the hosted Cabin registry is in private alpha and restricted to its maintainer";
+pub const PRIVATE_ALPHA_CODE: &str = "registry_private_alpha";
 pub const NOT_FOUND: &str = "not found";
 pub const METHOD_NOT_ALLOWED: &str = "method not allowed";
 pub const INTERNAL: &str = "internal error";
@@ -104,6 +113,14 @@ mod tests {
         assert_eq!(
             envelope(AUTH_REQUIRED),
             r#"{"errors":[{"detail":"authentication required"}]}"#
+        );
+    }
+
+    #[test]
+    fn private_alpha_envelope_matches_the_contract_byte_for_byte() {
+        assert_eq!(
+            envelope_with_code(PRIVATE_ALPHA, PRIVATE_ALPHA_CODE),
+            r#"{"errors":[{"detail":"the hosted Cabin registry is in private alpha and restricted to its maintainer","code":"registry_private_alpha"}]}"#
         );
     }
 

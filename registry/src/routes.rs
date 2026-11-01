@@ -364,14 +364,14 @@ pub fn is_session_path(path: &str) -> bool {
     path == "/api/v1/user" || path.starts_with("/api/v1/user/")
 }
 
-/// The public stats plane's one route: the sole credential-free JSON
-/// path on the website origin.
+/// The stats plane's one route: registry-wide totals, served to an
+/// admitted bearer caller.
 pub const STATS_PATH: &str = "/api/v1/stats";
 
-/// Whether `path` lies in the public `/api/v1/stats` subtree. Like
-/// [`is_session_path`], the whole subtree answers as its own plane -
-/// unknown paths under it are public 404s - so a stats-looking path
-/// never falls through to the bearer plane's 401.
+/// Whether `path` lies in the `/api/v1/stats` subtree. Like
+/// [`is_session_path`], the whole subtree answers as its own plane once
+/// the caller is authenticated - unknown paths under it are 404s, never
+/// an API route's answer.
 pub fn is_stats_path(path: &str) -> bool {
     path == STATS_PATH || path.starts_with("/api/v1/stats/")
 }
@@ -387,7 +387,7 @@ pub enum Role {
     Registry,
     /// The website origin: the OAuth routes (`/login`, `/callback*`,
     /// `/claim/*`) and `/api/*` (the Bearer mutation routes, the session
-    /// user API, and the public stats).
+    /// user API, and the stats).
     Website,
 }
 

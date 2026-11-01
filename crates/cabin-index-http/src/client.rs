@@ -28,6 +28,9 @@ const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// edge and the Workers runtime emit bare `503`s of their own.
 const OVER_BUDGET_CODE: &str = "registry_over_budget";
 const READ_RATE_LIMITED_CODE: &str = "read_rate_limited";
+/// The hosted registry's private-alpha refusal: its service status, not a
+/// credential problem the user could fix by signing in.
+const PRIVATE_ALPHA_CODE: &str = "registry_private_alpha";
 
 /// A bearer credential the client may attach to registry requests:
 /// the normalized origin the token is scoped to plus the token
@@ -161,7 +164,9 @@ impl HttpClient {
     /// token and [`IndexHttpError::TokenRejected`] when it did; a 403
     /// maps to [`IndexHttpError::MissingScope`] only when the request
     /// carried a token (a tokenless 403 stays a
-    /// [`IndexHttpError::ServerError`]); a 503 whose envelope carries
+    /// [`IndexHttpError::ServerError`]); a tokenless 401 or any 403
+    /// whose envelope carries the `registry_private_alpha` code maps to
+    /// [`IndexHttpError::PrivateAlpha`] instead; a 503 whose envelope carries
     /// the `registry_over_budget` code maps to
     /// [`IndexHttpError::RegistryOverBudget`] (the registry's read-side
     /// budget breaker) and a 429 whose envelope carries the
@@ -235,18 +240,27 @@ impl HttpClient {
             // A tokenless 403 is *not* the protocol's missing-scope
             // case (no scope was presented), so it keeps the generic
             // status mapping below.
-            Err(ureq::Error::Status(401, _)) => Err(if auth.is_some() {
-                IndexHttpError::TokenRejected {
-                    origin: origin_for_error(url),
+            //
+            // The `registry_private_alpha` code overrides the advice
+            // for a tokenless 401 and any 403: the registry is closed to
+            // this caller whatever credential it holds.  A 401 despite a
+            // token stays that token's own failure, so an admitted
+            // caller with an expired session is still told to log in.
+            Err(ureq::Error::Status(status @ (401 | 403), response)) => {
+                let origin = origin_for_error(url);
+                if status == 401 && auth.is_some() {
+                    return Err(IndexHttpError::TokenRejected { origin });
                 }
-            } else {
-                IndexHttpError::AuthRequired {
-                    origin: origin_for_error(url),
+                if envelope_code(response).as_deref() == Some(PRIVATE_ALPHA_CODE) {
+                    return Err(IndexHttpError::PrivateAlpha { origin });
                 }
-            }),
-            Err(ureq::Error::Status(403, _)) if auth.is_some() => {
-                Err(IndexHttpError::MissingScope {
-                    origin: origin_for_error(url),
+                Err(match (status, auth.is_some()) {
+                    (401, _) => IndexHttpError::AuthRequired { origin },
+                    (_, true) => IndexHttpError::MissingScope { origin },
+                    (status, false) => IndexHttpError::ServerError {
+                        name: package.to_owned(),
+                        status,
+                    },
                 })
             }
             // The registry's two coded read refusals, each bound to its
@@ -1010,6 +1024,54 @@ mod tests {
                 assert_eq!(status, 403);
             }
             other => panic!("expected ServerError(403), got {other:?}"),
+        }
+    }
+
+    /// The hosted registry's private-alpha refusal explains the service
+    /// status instead of advising a login: a tokenless 401 and a 403 with
+    /// or without a token map to `PrivateAlpha` on the code.  A 401
+    /// despite a token stays the token's own failure (an admitted caller
+    /// re-logs in), and an uncoded 401 keeps the login advice.
+    #[test]
+    fn get_bytes_maps_the_private_alpha_code() {
+        const ENVELOPE: &str = r#"{"errors":[{"detail":"the hosted Cabin registry is in private alpha and restricted to its maintainer","code":"registry_private_alpha"}]}"#;
+        let cases: [(u16, &str, bool, &str); 5] = [
+            (401, ENVELOPE, false, "PrivateAlpha"),
+            (403, ENVELOPE, false, "PrivateAlpha"),
+            (403, ENVELOPE, true, "PrivateAlpha"),
+            (401, ENVELOPE, true, "TokenRejected"),
+            (
+                401,
+                r#"{"errors":[{"detail":"authentication required"}]}"#,
+                false,
+                "AuthRequired",
+            ),
+        ];
+        for (status, body, with_token, expected) in cases {
+            let (server, url, thread) = challenge_server(status, body, &[]);
+            let mut client = HttpClient::new();
+            if with_token {
+                client = client.with_auth(auth_for(&url));
+            }
+            let err = client
+                .get_bytes(&format!("{url}/packages/cabin-ports/zlib.json"), "pkg")
+                .unwrap_err();
+            let got = match &err {
+                IndexHttpError::PrivateAlpha { origin } => {
+                    assert_eq!(origin, &url);
+                    let message = err.to_string();
+                    assert!(message.contains("private alpha"), "{message}");
+                    assert!(message.contains("--index-path"), "{message}");
+                    assert!(!message.contains("cabin login"), "{message}");
+                    "PrivateAlpha"
+                }
+                IndexHttpError::TokenRejected { .. } => "TokenRejected",
+                IndexHttpError::AuthRequired { .. } => "AuthRequired",
+                other => panic!("unexpected {other:?}"),
+            };
+            assert_eq!(got, expected, "status {status}, token {with_token}");
+            server.unblock();
+            let _ = thread.join();
         }
     }
 

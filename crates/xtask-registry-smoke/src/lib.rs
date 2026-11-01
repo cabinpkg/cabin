@@ -52,6 +52,7 @@ pub fn run() -> Result<()> {
             &token,
             &format!("{token}-verify"),
             &format!("{token}-noverify"),
+            &format!("{token}-outsider"),
         )?;
     }
     // Declared before the servers so it outlives them: the mocks are

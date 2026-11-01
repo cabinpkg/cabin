@@ -7,7 +7,7 @@ repository-root
 directory and are explicitly **not** a public registry; this directory is closed to arbitrary
 submissions and is intended to be retired incrementally as upstreams adopt native `cabin.toml`.
 
-You can search published foundation ports at https://cabinpkg.com.
+You can browse the foundation-port catalog at https://cabinpkg.com.
 
 ## Consuming a foundation port
 
@@ -23,8 +23,10 @@ The dependency key needs quotes (scoped names contain `/`), and the requirement 
 upstream version: [packaging revisions](package-index.md#packaging-revisions) are not part of the
 version string, and consumers pin them through the lockfile's checksum instead.  Registry
 dependencies resolve through the hosted registry by default (no flag; see
-[remote-registry.md](remote-registry.md#the-default-registry)), and verified packages download
-without an account or token - `cabin login` is only needed to publish.
+[remote-registry.md](remote-registry.md#the-default-registry)).  The hosted registry is in private
+alpha: it is restricted to its maintainer, so hosted foundation ports are not available to the
+public yet, and resolving one fails with an explanation of that status.  The recipes in `ports/`
+stay public, and local builds and local file registries (`--index-path`) are unaffected.
 
 There is no port-specific dependency form.  A port is an ordinary registry package, and a manifest
 that tries to name one specially (`port = true`, `port-path = "..."`) is rejected as an unknown

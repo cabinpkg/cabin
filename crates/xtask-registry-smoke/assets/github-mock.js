@@ -142,9 +142,10 @@ http.createServer((req, res) => {
     // The check-token endpoint the session mint proves identity with:
     // Basic auth with the app's own client credentials (the id is
     // wrangler.jsonc's public GITHUB_CLIENT_ID var, the secret the
-    // harness's .dev.vars value), and only this app's one token names
-    // a user - anything else is GitHub's 404, like a foreign app's
-    // token or a PAT.
+    // harness's .dev.vars value), and only this app's tokens name a
+    // user - anything else is GitHub's 404, like a foreign app's token
+    // or a PAT. gho_outsider proves 'friend' (id 2), whom
+    // ALLOWED_GITHUB_IDS does not admit.
     const basic = Buffer.from("Ov23liAgmw27EQavKC8H:smoke-client-secret").toString("base64");
     if (req.headers.authorization !== `Basic ${basic}`) {
       res.statusCode = 401;
@@ -154,8 +155,12 @@ http.createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      if (JSON.parse(body || "{}").access_token === "gho_smoke") {
-        res.end(JSON.stringify({ scopes: [], user: api["/user"] }));
+      const user = {
+        gho_smoke: api["/user"],
+        gho_outsider: { id: 2, login: "friend" },
+      }[JSON.parse(body || "{}").access_token];
+      if (user) {
+        res.end(JSON.stringify({ scopes: [], user }));
       } else {
         res.statusCode = 404;
         res.end(JSON.stringify({ message: "Not Found" }));

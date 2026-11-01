@@ -1,8 +1,8 @@
-//! The unauthenticated surface: `/healthz`, the public machine read
-//! plane, the uniform 401 and its byte-identical challenge on both
-//! roles, the session plane's challenge-less 401, the public stats
-//! subtree, the OAuth plane's host-only cookies, and the launch guard
-//! end to end.
+//! The unauthenticated surface: `/healthz`, the private-alpha read
+//! plane (only `config.json` answers), the uniform 401 and its
+//! byte-identical challenge on both roles, the session plane's
+//! challenge-less 401, the closed stats subtree, the OAuth plane's
+//! host-only cookies, and the launch guard end to end.
 //!
 //! Nothing in this module touches [`Smoke::auth`]: a leg that presents
 //! a credential passes it as a request header of its own.
@@ -19,11 +19,16 @@ use crate::context::{Base, Smoke};
 use crate::step;
 use crate::text::{capture, first_line, grep_lines, status_line_is, strip_name, text};
 
-/// The exact envelope every refusal answers with, on either role and
+/// The exact envelope every website-origin refusal answers with,
 /// whatever the path, method or credential.  Compared as text against
 /// this constant and never parsed: a `serde_json` round trip would
 /// weaken the comparison to "same fields".
 const EXPECTED_401: &str = r#"{"errors":[{"detail":"authentication required"}]}"#;
+
+/// The registry host's counterpart: the private-alpha envelope, on every
+/// 401 there and on every 403 for a valid credential the allowlist does
+/// not admit (either role).
+pub const PRIVATE_ALPHA: &str = r#"{"errors":[{"detail":"the hosted Cabin registry is in private alpha and restricted to its maintainer","code":"registry_private_alpha"}]}"#;
 
 /// The trusted-publishing token endpoint, exchanged into here and
 /// revoked from [`crate::legs::revisions`].
@@ -45,7 +50,7 @@ pub fn run(smoke: &mut Smoke, registry_dir: &Path, github_port: u16) -> Result<(
     mutation_surface(smoke)?;
     verdict_oidc_surface(smoke)?;
     session_endpoints(smoke)?;
-    public_stats(smoke)?;
+    closed_stats(smoke)?;
     oauth_plane(smoke, github_port)?;
     parameterless_callback(smoke)?;
     wipe_guard(smoke, registry_dir)
@@ -61,15 +66,24 @@ fn healthz(smoke: &mut Smoke) -> Result<()> {
 }
 
 fn read_plane(smoke: &mut Smoke) -> Result<()> {
-    step("the machine read plane is public; unknown packages are plain 404s");
+    step("only config.json is public on the read plane; it declares auth-required");
     smoke.check("/config.json", &[200])?;
-    if !capture(&smoke.body).contains(r#""auth-required":false"#) {
+    if !capture(&smoke.body).contains(r#""auth-required":true"#) {
         bail!(
-            "config.json must declare auth-required false: {}",
+            "config.json must declare auth-required true: {}",
             capture(&smoke.body)
         );
     }
-    smoke.check("/packages/smoke/withdep.json", &[200, 404])?;
+    // Every other read is the private-alpha 401 before any lookup: an
+    // existing package, an unknown one, and an artifact path answer the
+    // same bytes.
+    for path in [
+        "/packages/smoke/withdep.json",
+        "/packages/smoke/never-published.json",
+        "/artifacts/smoke/withdep/smoke-withdep-0.1.0-0123456789abcdef.zip",
+    ] {
+        uniform_401(smoke, Base::Registry, path)?;
+    }
     // A read-plane path with a credential that fails to validate is the
     // uniform 401 - a presented credential is a claim, never silently
     // downgraded to anonymous (the verifier must fail loudly on a
@@ -82,24 +96,18 @@ fn read_plane(smoke: &mut Smoke) -> Result<()> {
         &rotated(),
         None,
     )?;
-    // Method discipline: the public read plane is GET-only, and the
-    // refusal never depends on the credential - an invalid token must
-    // not turn the 405 into a token-validity oracle.
-    for credential in [None, Some(ROTATED_HEADER)] {
-        let headers = if credential.is_some() {
-            rotated()
-        } else {
-            Vec::new()
-        };
-        let url = smoke.url(Base::Registry, "/config.json");
-        let status = smoke.http("PUT", &url, &headers, None)?;
-        if status != 405 {
-            bail!(
-                "PUT /config.json (credential: {}) returned {status}, expected 405",
-                credential.unwrap_or("none")
-            );
-        }
-    }
+    // Only an anonymous GET of config.json skips admission: the read
+    // plane's 405 answers admitted callers alone (the publish leg's
+    // `closed_to_outsiders`).
+    uniform_401_with(smoke, Base::Registry, "PUT", "/config.json", &[], None)?;
+    uniform_401_with(
+        smoke,
+        Base::Registry,
+        "PUT",
+        "/config.json",
+        &rotated(),
+        None,
+    )?;
     Ok(())
 }
 
@@ -386,11 +394,11 @@ pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Resu
         &[],
         Some(br#"{"github_token":"gho_wrong"}"#),
     )?;
-    // The seeded publisher credential is itself a session row, so the
-    // leftover probe excludes it by id.
+    // The seeded publisher and outsider credentials are session rows
+    // themselves, so the leftover probe excludes them by id.
     let rows = crate::servers::d1_rows(
         "SELECT ifnull(group_concat(id, ','), '') AS ids FROM tokens \
-         WHERE kind = 'session' AND id != 'smoke'",
+         WHERE kind = 'session' AND id NOT IN ('smoke', 'smoke-outsider')",
     )?;
     let leftovers = rows
         .first()
@@ -399,6 +407,21 @@ pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Resu
         .context("list the session rows")?;
     if !leftovers.is_empty() {
         bail!("a refused mint left session rows behind: {leftovers}");
+    }
+    // An identity GitHub proves but the allowlist does not admit gets
+    // the private-alpha 403 - the one mint refusal that says why - and
+    // no session row.
+    let status = smoke.http(
+        "PUT",
+        &url,
+        &[],
+        Some(br#"{"github_token":"gho_outsider"}"#),
+    )?;
+    if status != 403 || capture(&smoke.body) != PRIVATE_ALPHA {
+        bail!(
+            "an unadmitted identity's mint answered {status}: {}",
+            text(&smoke.body)
+        );
     }
     let status = smoke.http("PUT", &url, &[], Some(br#"{"github_token":"gho_smoke"}"#))?;
     if status != 200 {
@@ -481,21 +504,14 @@ fn session_endpoints(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
-fn public_stats(smoke: &mut Smoke) -> Result<()> {
-    step("the public stats endpoint is unauthenticated json on the website origin");
-    smoke.wcheck("/api/v1/stats", &[200])?;
-    smoke.expect_body(r#""packages":"#)?;
-    smoke.expect_body(r#""versions":"#)?;
-    smoke.expect_body(r#""downloads":"#)?;
-    // The subtree is its own plane: unknown paths under it are public
-    // 404s, non-GET is 405, and on the registry host the surface does
-    // not exist.
-    smoke.wcheck("/api/v1/stats/anything", &[404])?;
-    let url = smoke.url(Base::Web, "/api/v1/stats");
-    let status = smoke.http("POST", &url, &[], None)?;
-    if status != 405 {
-        bail!("POST /api/v1/stats returned {status}, expected 405");
-    }
+fn closed_stats(smoke: &mut Smoke) -> Result<()> {
+    step("the stats subtree answers no anonymous caller");
+    // Registry-wide totals are registry data: the bearer plane's
+    // uniform 401 for every path and method under the subtree, and on
+    // the registry host the surface does not exist.
+    uniform_401(smoke, Base::Web, "/api/v1/stats")?;
+    uniform_401(smoke, Base::Web, "/api/v1/stats/anything")?;
+    uniform_401_with(smoke, Base::Web, "POST", "/api/v1/stats", &[], None)?;
     uniform_401(smoke, Base::Registry, "/api/v1/stats")
 }
 
@@ -605,8 +621,6 @@ fn set_launched(value: &str) -> Result<()> {
 
 /// The header the read-plane and admin legs present: a credential that
 /// cannot validate.
-const ROTATED_HEADER: &str = "Authorization: Bearer cabin_definitelyNotAToken";
-
 fn rotated() -> Vec<(String, String)> {
     vec![(
         "Authorization".to_owned(),
@@ -623,10 +637,12 @@ pub fn uniform_401(smoke: &mut Smoke, at: Base, path: &str) -> Result<()> {
     uniform_401_with(smoke, at, "GET", path, &[], None)
 }
 
-/// The uniform 401 on either role, which differ only in the origin the
-/// challenge names: the response must be the exact envelope plus the
-/// byte-identical `WWW-Authenticate` challenge, whatever the path,
-/// method or credential.  The header value is compared byte for byte -
+/// The uniform 401 on either role, which differ in the envelope
+/// ([`PRIVATE_ALPHA`] on the registry host, the plain
+/// `authentication required` one on the website origin) and the origin
+/// the challenge names: the response must be the exact envelope plus the
+/// byte-identical `WWW-Authenticate` challenge, whatever the path, method
+/// or credential.  The header value is compared byte for byte -
 /// a duplicated header or a suffixed value must fail - so the
 /// comparison is against the exact expected string, never a substring.
 ///
@@ -651,7 +667,11 @@ pub fn uniform_401_with(
         bail!("{path} returned {status}, expected the uniform 401");
     }
     let body = capture(&smoke.body);
-    if body != EXPECTED_401 {
+    let expected_body = match at {
+        Base::Registry => PRIVATE_ALPHA,
+        Base::Web => EXPECTED_401,
+    };
+    if body != expected_body {
         bail!("401 body mismatch on {path}: {body}");
     }
     let expected = challenge(smoke, at);

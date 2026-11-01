@@ -35,10 +35,10 @@ use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, output, results
 
 use crate::bytes::{frame, replace_all, sha256_hex};
 use crate::context::{Base, Smoke};
-use crate::legs::anonymous::uniform_401_with;
+use crate::legs::anonymous::{PRIVATE_ALPHA, uniform_401_with};
 use crate::servers::d1_json;
 use crate::step;
-use crate::text::{contains, grep_anywhere, grep_lines, read, text, write};
+use crate::text::{capture, contains, grep_anywhere, grep_lines, read, text, write};
 
 /// `--file /dev/null`: the two sites that only ask whether the object
 /// exists still make `wrangler` write it somewhere.
@@ -101,7 +101,7 @@ pub fn run(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     search_and_package_routes(smoke, inputs)?;
     verdict_idempotence(smoke, inputs, &entry, &verdict_verified)?;
     download_counting(smoke, inputs)?;
-    anonymous_counting(smoke, inputs)?;
+    closed_to_outsiders(smoke, inputs)?;
     backup_replication(inputs)?;
     heal_primary_only(smoke, inputs, &publish_body)?;
     byte_identical_no_op(smoke, inputs, &publish_body)
@@ -179,30 +179,27 @@ fn twin_and_reserved_names(
 }
 
 fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
-    step("pending versions are invisible to no-verify tokens and anonymous readers");
+    step("pending versions are invisible to no-verify tokens");
     // The no-verify subject is the CI publish-arm credential: the
     // seeded publisher session carries verify, so this is the valid
-    // token pending must stay missing for.
+    // token pending must stay missing for.  Its 404s are byte-identical:
+    // pending, rejected, and unknown stay indistinguishable from missing
+    // without a verify scope.  (Anonymous readers never get this far:
+    // the private-alpha 401 answers them first.)
     smoke.as_ci_publisher();
     smoke.check(inputs.package_path, &[404])?;
+    let pending_404 = smoke.body.clone();
     smoke.check(inputs.artifact_path, &[404])?;
-    // Anonymous readers see byte-identical 404s: pending, rejected, and
-    // unknown stay indistinguishable from missing without a verify
-    // scope.
-    smoke.anonymous();
-    smoke.check(inputs.package_path, &[404])?;
-    let anon_pending_404 = smoke.body.clone();
-    smoke.check(inputs.artifact_path, &[404])?;
-    if smoke.body != anon_pending_404 {
+    if smoke.body != pending_404 {
         bail!(
-            "anonymous pending 404s differ between routes: {}",
+            "no-verify pending 404s differ between routes: {}",
             text(&smoke.body)
         );
     }
     smoke.check("/packages/smoke/never-published.json", &[404])?;
-    if smoke.body != anon_pending_404 {
+    if smoke.body != pending_404 {
         bail!(
-            "an unknown package's anonymous 404 differs from a pending one: {}",
+            "an unknown package's no-verify 404 differs from a pending one: {}",
             text(&smoke.body)
         );
     }
@@ -515,10 +512,12 @@ fn download_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()
     // still pending - so 1 here also proves the pending fetch never
     // counted.
     await_row_downloads("1")?;
-    // The public totals reflect served downloads; >= keeps the assertion
-    // meaningful whatever else the local state holds.
+    // The totals (an admitted bearer caller's) reflect served downloads;
+    // >= keeps the assertion meaningful whatever else the local state
+    // holds.
     let url = smoke.url(Base::Web, "/api/v1/stats");
-    smoke.http("GET", &url, &[], None)?;
+    let auth = smoke.auth.clone();
+    smoke.http("GET", &url, &auth, None)?;
     if !stats_are_counted(&smoke.body) {
         bail!(
             "stats totals do not reflect the verified download: {}",
@@ -529,23 +528,55 @@ fn download_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()
     await_row_downloads("2")
 }
 
-fn anonymous_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
-    step("anonymous readers see the verified version, and their downloads count");
-    smoke.anonymous();
-    smoke.check(inputs.package_path, &[200])?;
-    smoke.expect_body(&format!(r#""name":"{}""#, scoped_name(inputs)))?;
-    // A cache-hit download without a credential: served, counted, and
+/// The private alpha holds after an admitted caller warmed the edge
+/// blob cache: neither an anonymous caller nor a valid token whose
+/// account the allowlist does not admit reads the verified version, by
+/// either route, and the outsider's token buys nothing on the website
+/// origin either.
+fn closed_to_outsiders(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
+    step("the warm verified version stays closed to anonymous and unadmitted callers");
+    for path in [inputs.package_path, inputs.artifact_path] {
+        uniform_401_with(smoke, Base::Registry, "GET", path, &[], None)?;
+    }
+    smoke.as_outsider();
+    let outsider = smoke.auth.clone();
+    for (at, method, path) in [
+        (Base::Registry, "GET", inputs.package_path),
+        (Base::Registry, "GET", inputs.artifact_path),
+        (Base::Registry, "GET", "/config.json"),
+        (Base::Web, "PUT", inputs.publish_path),
+        (Base::Web, "GET", "/api/v1/stats"),
+    ] {
+        let url = smoke.url(at, path);
+        let body: Option<&[u8]> = (method == "PUT").then_some(b"x");
+        let status = smoke.http(method, &url, &outsider, body)?;
+        if status != 403 || capture(&smoke.body) != PRIVATE_ALPHA {
+            bail!(
+                "an unadmitted token's {method} {path} answered {status}: {}",
+                text(&smoke.body)
+            );
+        }
+    }
+    // A cache-hit download by an admitted caller: served, counted, and
     // the outward answer stays no-store (the Worker-internal cache is
-    // the one caching layer that keeps the counter accurate).
+    // the one caching layer that keeps the counter accurate and the
+    // admission check in front of it).
+    smoke.as_ci_publisher();
+    let auth = smoke.auth.clone();
+    let url = smoke.url(Base::Registry, "/config.json");
+    let status = smoke.http("PUT", &url, &auth, None)?;
+    if status != 405 {
+        bail!("an admitted PUT /config.json returned {status}, expected 405");
+    }
     let url = smoke.url(Base::Registry, inputs.artifact_path);
     let (status, _) = detached_get(smoke, &url, true)?;
     if status != 200 {
-        bail!("an anonymous verified download returned {status}");
+        bail!("an admitted verified download returned {status}");
     }
     let block = text(&smoke.headers);
     if grep_lines(&block, "cache-control: no-store").is_empty() {
         bail!(
-            "an anonymous download is missing the outward no-store: {}",
+            "an admitted download is missing the outward no-store: {}",
             grep_anywhere(&block, "cache-control").join("\n")
         );
     }

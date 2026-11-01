@@ -51,8 +51,16 @@ export const ACCOUNT_URLS = {
 // Shown on every sign-in affordance while the registry is in private
 // alpha - the visitor must see this before being sent to GitHub.
 export const SIGNIN_RESTRICTION =
-    "The registry is in private alpha; sign-in is restricted to " +
-    "allowlisted maintainer accounts.";
+    "The registry is in private alpha and restricted to its maintainer; " +
+    "other accounts cannot sign in.";
+
+// Shown wherever the site catalogs foundation ports, which are built
+// from the public recipes in ports/ but served only by the hosted
+// registry - closed to the public during its private alpha.
+export const REGISTRY_PRIVATE_ALPHA =
+    "The hosted Cabin registry is in private alpha and restricted to its " +
+    "maintainer, so foundation ports are not available to the public " +
+    "through it yet.";
 
 // Why the only sign-in option is GitHub: current policy, not
 // architecture - the registry's identity schema is provider-neutral,

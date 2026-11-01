@@ -794,6 +794,91 @@ fn login_reports_the_uniform_mint_refusal() {
     assert!(!home.join("credentials.toml").exists());
 }
 
+/// The hosted registry's private-alpha envelope (`registry_private_alpha`).
+const PRIVATE_ALPHA_ENVELOPE: &str = r#"{"errors":[{"detail":"the hosted Cabin registry is in private alpha and restricted to its maintainer","code":"registry_private_alpha"}]}"#;
+
+/// A proven identity the private alpha does not admit gets the mint's
+/// coded 403: login explains the service status, not a uniform refusal,
+/// and stores nothing.
+#[test]
+fn login_reports_the_private_alpha_refusal() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    let github = GithubOauthServer::start();
+    let registry =
+        SessionRegistryServer::start_with_mint_body(403, PRIVATE_ALPHA_ENVELOPE.to_owned());
+    let assertion = cabin()
+        .args(["login", "--index-url", &registry.url])
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            "in private alpha and is currently restricted to its maintainer"
+        ),
+        "expected the private-alpha explanation in: {stderr}"
+    );
+    assert!(!home.join("credentials.toml").exists());
+}
+
+/// A registry in private alpha: `config.json` is public, every other
+/// read answers the coded refusal - `401` without a token, `403` with
+/// one.  Resolution reports the service status in both cases rather
+/// than advising a login.
+#[test]
+fn resolve_against_a_private_alpha_registry_explains_the_refusal() {
+    let dir = TempDir::new().unwrap();
+    write_app_manifest(dir.path());
+    let registry = dir.path().join("registry");
+    write_registry(&registry, r#", "auth-required": true"#);
+    let config = fs::read(registry.join("config.json")).unwrap();
+    let server = std::sync::Arc::new(tiny_http::Server::http("127.0.0.1:0").unwrap());
+    let url = format!("http://{}", server.server_addr().to_ip().unwrap());
+    let server_for_thread = std::sync::Arc::clone(&server);
+    let thread = std::thread::spawn(move || {
+        while let Ok(req) = server_for_thread.recv() {
+            let response = if req.url() == "/config.json" {
+                tiny_http::Response::from_data(config.clone())
+            } else {
+                let tokened = req.headers().iter().any(|h| h.field.equiv("Authorization"));
+                tiny_http::Response::from_data(PRIVATE_ALPHA_ENVELOPE.as_bytes().to_vec())
+                    .with_status_code(if tokened { 403 } else { 401 })
+            };
+            let _ = req.respond(response);
+        }
+    });
+
+    for token in [None, Some(TEST_TOKEN)] {
+        let mut command = cabin();
+        command
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .arg("--index-url")
+            .arg(&url);
+        if let Some(token) = token {
+            command.env("CABIN_REGISTRY_TOKEN", token);
+        }
+        let assertion = command.assert().failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            flat_contains(
+                &stderr,
+                "is in private alpha and is currently restricted to its maintainer"
+            ),
+            "expected the private-alpha explanation (token: {token:?}) in: {stderr}"
+        );
+        assert!(
+            !stderr.contains("cabin login"),
+            "a private-alpha refusal must not advise a login: {stderr}"
+        );
+    }
+    server.unblock();
+    thread.join().unwrap();
+}
+
 /// A mint response whose token is not a Cabin token is rejected
 /// before anything is written, and the error never echoes the value.
 #[test]

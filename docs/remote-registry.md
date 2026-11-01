@@ -1,9 +1,12 @@
 # Remote Registry Protocol
 
-> **Reads are public and stable; mutations are authenticated and experimental.**  Consuming
-> hosted packages - the registry `config.json`, index reads, and artifact downloads - is a normal
-> client path that needs **no account, login, or token** (`cabin login` / `cabin logout` exist
-> for the authenticated surfaces and are stable too).  The mutation surfaces
+> **The hosted registry is in private alpha.**  `registry.cabinpkg.com` - foundation ports
+> included - is restricted to its maintainer and the repository automation that account backs;
+> no other account can sign in to it or read from it yet, and anonymous requests are refused.
+> Cabin itself, local builds, local file registries (`--index-path`), and other HTTP registries
+> are unaffected.  The read routes and `cabin login` / `cabin logout` below are the stable client
+> protocol any registry may serve, publicly or behind
+> [`auth-required`](#registry-configuration).  The mutation surfaces
 > (`cabin publish --index-url`, `cabin yank`, and the admin API) require a token, stay gated
 > behind `-Z remote-registry`, and carry no compatibility promise: those routes, framings, and
 > status codes may change or disappear between releases without a migration path.
@@ -40,8 +43,9 @@ a config-supplied URL: `[source-replacement]` applies to it, `--offline` refuses
 ever materializes when the selected closure actually has versioned dependencies, so dependency-free
 projects never observe it - and it never applies to `cabin publish`, `cabin yank`, or
 `cabin vendor`, which keep requiring an explicitly named source (`cabin login` / `cabin logout` do
-fall back to it, since they manage credentials for exactly that hosted registry - reads are
-public, and a token is what unlocks publishing).
+fall back to it, since they manage credentials for exactly that hosted registry).  During the
+private alpha, a project that needs the default registry fails with the
+[private-alpha refusal](#error-envelope) unless the caller is admitted.
 
 ## Registry configuration
 
@@ -61,7 +65,7 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `auth-required` | bool | `false` | When `true`, every request to this registry **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `false`: its verified reads are public (see [Read routes](#read-routes)). |
+| `auth-required` | bool | `false` | When `true`, every request to this registry **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `true` during its private alpha (see [Read routes](#read-routes)); the declaration informs clients, and the server enforces it. |
 | `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, and `cabin publish` and `cabin login` refuse plain `http` for a host other than loopback, as the sparse HTTP client does for the index URL.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) recognize the
@@ -76,8 +80,8 @@ UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
 
 | Hostname | Role |
 | --- | --- |
-| `registry.cabinpkg.com` | The machine read plane **only**, public for verified content: `config.json`, package metadata, artifact downloads, and `/healthz`.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
-| `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, and the one unauthenticated JSON route - `GET /api/v1/stats`, aggregate download/package totals for the website's own pages (service-local; not part of the client protocol).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
+| `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, artifact downloads, and `/healthz`.  During the private alpha only `config.json` and the bodyless `/healthz` answer without an admitted credential.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
+| `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, and `GET /api/v1/stats`, aggregate download/package totals (service-local; not part of the client protocol; during the private alpha a Bearer route like the others).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
 
 On the index host, every path outside the read plane - the mutation routes included - answers
 the same uniform `401` as a missing token, whatever credential comes along: the mutation
@@ -92,10 +96,16 @@ The authenticated surfaces - publish, yank, the admin API, and any registry decl
 Authorization: Bearer cabin_ses_<base64url>
 ```
 
-- Reads on the hosted registry need no token.  When the client holds one for the origin it is
-  [still attached](#when-the-token-is-sent); a presented token that fails to validate answers
+- Reads on the hosted registry need a token whose account the private alpha admits (see
+  [Read routes](#read-routes)).  When the client holds one for the origin it is
+  [attached](#when-the-token-is-sent); a presented token that fails to validate answers
   the uniform `401` rather than being ignored, so a rotated or revoked credential fails loudly
   instead of silently reading as anonymous.
+- During the private alpha the hosted registry admits only the GitHub accounts on its operator
+  allowlist (today, the maintainer's), checked on **every** request against the account a
+  token belongs to - not only when it is minted - so a credential issued to any other account
+  is refused with the `403` [private-alpha refusal](#error-envelope).  Trusted-publishing and
+  verifier tokens are backed by an admitted account and keep their own narrower scopes.
 - Every token is short-lived and machine-minted; there are no standing API keys.
   [Login sessions](#login-sessions) mint `cabin_ses_<base64url>` tokens from a GitHub access
   token (the human flow), and [trusted publishing](#trusted-publishing) mints
@@ -122,9 +132,9 @@ The grammar is the scheme token `Cabin` (ASCII case-insensitive, per RFC 7235) f
 quoted `login_url` parameter carrying an absolute `http(s)` URL.  The header is byte-identical
 on every path and failure reason - a missing token on the mutation surface, an invalid token,
 and an unknown path all answer the same challenge - so the Bearer plane's 401s stay
-indistinguishable from one another.  Because the read plane serves unauthenticated `GET`s,
-anonymous reads are never challenged; the challenge answers every non-read-plane path of the
-index host and any read whose presented token fails to validate.
+indistinguishable from one another.  On the index host the challenge answers every `401`: each
+non-read-plane path, every read without a valid token (`config.json` excepted), and any read
+whose presented token fails to validate.
 
 ## Client-side token handling
 
@@ -293,7 +303,10 @@ presents the run's OIDC token to that origin's exchange route to obtain one.
 (`cabin: registry api = <api>`, on stderr).
 Client-side error mapping: a `401` without a stored credential advises
 `cabin login --index-url <origin>` (the actionable path to a working read); a `401` despite one
-reports the token as rejected (revoked or expired); a `403` reports a missing scope.  On an
+reports the token as rejected (revoked or expired); a `403` reports a missing scope.  The
+`registry_private_alpha` [code](#error-envelope) on a tokenless `401` or any `403` from a
+[read route](#read-routes), or on a `403` from the API, instead reports the hosted registry's
+private-alpha status, since no login can clear it.  On an
 interactive terminal, `cabin publish` and `cabin yank` with no usable stored credential offer
 to run the login flow inline before contacting the registry - only for a registry the user
 chose (`--index-url` or user-level config), never one steered by a checked-out project's
@@ -314,10 +327,9 @@ The read routes are the same shapes as the sparse HTTP index in
 | `GET /packages/<scope>/<name>.json` | Per-package index document. |
 | `GET /artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` | Source archive download, one route per [packaging revision](package-index.md#packaging-revisions).  The `<revision>` segment must be exactly 16 lowercase hex characters and the `<version>` segment must not carry SemVer build metadata; anything else is not a read route and answers the uniform `401` below before storage is consulted. |
 
-On the hosted registry all three serve unauthenticated `GET`s: no account, login, or token is
-needed to consume verified packages, and non-`GET` methods answer `405`.  A request that *does*
-present a token gets it validated - an invalid one is the uniform `401` with the
-[error envelope](#error-envelope) body
+On a public registry all three serve unauthenticated `GET`s, and non-`GET` methods answer
+`405`.  A request that *does* present a token gets it validated - an invalid one is the uniform
+`401` with the [error envelope](#error-envelope) body
 `{"errors":[{"detail":"authentication required"}]}` and the
 [login-URL challenge](#the-login-url-challenge), never a silent downgrade to anonymous.  On a
 registry declaring [`auth-required`](#registry-configuration), the package and artifact routes
@@ -326,6 +338,14 @@ or not the requested package exists - only `config.json` stays public, the disco
 [`cabin login`](#cabin-login-and-cabin-logout) bootstraps from.  Either way the `401` bytes match every
 [non-read-plane path](#one-role-per-hostname) of the index host, so the mutation surface stays
 indistinguishable from unknown paths.
+
+The hosted registry declares `auth-required` during its private alpha.  Its uniform `401` carries
+the private-alpha envelope
+`{"errors":[{"detail":"the hosted Cabin registry is in private alpha and restricted to its maintainer","code":"registry_private_alpha"}]}`,
+and a valid token whose account the alpha does not admit gets that envelope with `403`.  Both are
+decided before the method, any package data, edge-cached copy, or service state is consulted, so
+the `405` answers admitted callers only; an anonymous `GET /config.json` and the bodyless
+`/healthz` are the only answers without an admitted token.
 
 On a registry with the [verification lifecycle](#verification-lifecycle), the composed
 `/packages/<scope>/<name>.json` document contains **verified** revisions only - each version's
@@ -861,7 +881,8 @@ signature, an unknown repository, a mismatched workflow, ref, or environment, a 
 `jti` - answers the byte-identical uniform `401`, the
 [challenge](#the-login-url-challenge) included, so the route is no oracle for what is
 registered.  The config arm is gated by the registry's budget breaker like every other write
-(`503` + `Retry-After` when tripped, once the JWT has verified); the verifier arm is
+(`503` + `Retry-After` when tripped, once the JWT has matched a config whose backing owner the
+private alpha admits); the verifier arm is
 deliberately exempt, like the verdict route - the verification pipeline must be able to drain
 the pending queue whatever the service mode.
 
@@ -901,6 +922,8 @@ The registry proves the identity with one call to GitHub's
 authenticated with its own OAuth client credentials, and resolves the numeric GitHub id exactly
 as the web sign-in does - the allowlist gate included - except that no account is ever created:
 minting is for accounts that already exist, so an unknown or unadmitted identity refuses.
+Signing in grants nothing by itself: during the hosted registry's private alpha a GitHub
+account the allowlist does not name is refused here, whatever it proves.
 Check-token also pins the credential to the registry's own OAuth app: a token issued by any
 other OAuth app - even one the same account authorized - or a personal access token proves
 nothing and refuses, so a third party's GitHub grant can never become a registry login.  The
@@ -927,13 +950,16 @@ refuses a value it cannot parse as a UTC time, and stores and prints its own mil
 rendering of the parsed time, so a registry cannot smuggle text through the field.  The plaintext is rendered exactly once, in
 this response.  The minted token is a bearer token
 like any other, multi-use within its 12-hour lifetime, carrying `publish` and `yank` - plus
-`verify` when the account is the operator's own - at the account's own quota class.  Every mint failure - a
-malformed body, a rejected or unreadable GitHub lookup, an unknown or unadmitted identity -
-answers the byte-identical uniform `401`, the [challenge](#the-login-url-challenge) included.
+`verify` when the account is the operator's own - at the account's own quota class.  A proven
+identity the allowlist does not admit answers the `403`
+[private-alpha refusal](#error-envelope), so `cabin login` can say why.  Every other mint
+failure - a malformed body, a rejected or unreadable GitHub lookup, an identity that never signed
+in - answers the byte-identical uniform `401`, the [challenge](#the-login-url-challenge) included.
 The mint sits behind the same per-client admission control as the trusted-publishing exchange
-(`429` with code `rate_limited` and `Retry-After`, decided before the body is read) and behind the
-registry's budget breaker like every other write (`503` + `Retry-After` when tripped); both answer
-first, before the GitHub lookup spends anything.
+(`429` with code `rate_limited` and `Retry-After`, decided before the body is read, so before the
+GitHub lookup spends anything) and behind the registry's budget breaker like every other write
+(`503` + `Retry-After` when tripped).  The breaker answers last, after the GitHub lookup and the
+admission check, so only an admitted account learns the service state.
 
 ### Revoking a session token
 
@@ -954,8 +980,8 @@ a repeated `DELETE` idempotent - the same contract as the
 | `201` | Publish that created a packaging revision - a first publish of the version, an opted-in respin, or the revival of a rejected revision. |
 | `204` | A [trusted-publishing](#revoking-the-exchanged-token) or [session](#revoking-a-session-token) revocation that deleted the presented token. |
 | `400` | Malformed request: bad framing, an oversized body or metadata frame, invalid metadata, a version carrying build metadata, an invalid JSON body, or a `new-revision` query value other than `true`. |
-| `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there) - and every [trusted-publishing](#trusted-publishing) exchange, [login-session](#login-sessions) mint, or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge). |
-| `403` | Valid token, but the scope the route requires is missing; on publish and yank, the token's user is not a member of the route's `<scope>` (or the token is confined to a different scope), answered with one byte-identical refusal whether or not the scope exists and before the request body or the version is consulted; or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
+| `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, every non-read-plane path of the index host (never reveals whether anything exists there), and on the hosted registry every read but `config.json` - and every [trusted-publishing](#trusted-publishing) exchange, [login-session](#login-sessions) mint (unadmitted identities excepted), or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge); on the hosted registry's index host, also the `registry_private_alpha` code. |
+| `403` | Valid token, but the scope the route requires is missing; on publish and yank, the token's user is not a member of the route's `<scope>` (or the token is confined to a different scope), answered with one byte-identical refusal whether or not the scope exists and before the request body or the version is consulted; or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field; or, on the hosted registry, a valid token or proven GitHub identity whose account the private alpha does not admit (code `registry_private_alpha`), on every route except the [trusted-publishing](#trusted-publishing) exchange, which keeps its uniform `401`. |
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; a revival that lost a race or whose timestamp is not later than the rejected revision's; or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
@@ -970,7 +996,7 @@ Every non-2xx response carries the same JSON envelope:
 { "errors": [ { "detail": "authentication required" } ] }
 ```
 
-Quota, rate-limit, and budget refusals additionally carry a machine-readable `code` field:
+Quota, rate-limit, budget, and private-alpha refusals additionally carry a machine-readable `code` field:
 
 ```json
 { "errors": [ { "detail": "total package quota exhausted", "code": "quota_packages_total" } ] }
@@ -988,9 +1014,13 @@ before.  The defined codes:
 | `quota_packages_daily` | `403` | The daily new-package quota is exhausted. |
 | `quota_packages_total` | `403` | The total package quota is exhausted. |
 | `quota_versions_daily` | `403` | The daily per-package version quota is exhausted. |
+| `registry_private_alpha` | `401`, `403` | The hosted registry is in private alpha and restricted to its maintainer: the `401` answers a request without a valid token, the `403` a valid credential whose account is not admitted.  No login, scope, or retry clears it. |
 | `registry_over_budget` | `503` | The registry's budget protection refused the request: the service-wide breaker has the plane paused, or the per-request cost governor refused (or could not answer for) the specific resource the request needed; `Retry-After` covers the next re-evaluation. |
 
-Cabin maps these refusals to actionable messages.  For the breaker it keys on the
+Cabin maps these refusals to actionable messages.  `registry_private_alpha` on a read route's
+tokenless `401`, or on any `403`, reports the hosted registry as in private alpha and restricted to its maintainer,
+not a login problem; a `401` despite a token stays a rejected token, so an admitted caller with
+an expired session is still told to log in again.  For the breaker it keys on the
 `registry_over_budget` code, not on the `503` alone - a `503` can also come from the hosting
 platform, and an outage must not be reported as a budget refusal; a `503` without the code stays
 a plain server error.  A coded `503` on the mutation routes reports the registry as temporarily

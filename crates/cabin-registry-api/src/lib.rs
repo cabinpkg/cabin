@@ -68,6 +68,9 @@ const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// (`docs/remote-registry.md`, "Error envelope").  It is what separates
 /// a breaker refusal from every other `503` on the wire.
 const OVER_BUDGET_CODE: &str = "registry_over_budget";
+/// The hosted registry's private-alpha refusal (`docs/remote-registry.md`,
+/// "Error envelope"), mirrored in `cabin-index-http`.
+const PRIVATE_ALPHA_CODE: &str = "registry_private_alpha";
 
 /// Client for one registry's API origin.  Construction validates the
 /// URL (http(s), no userinfo) and enforces the same cleartext rule as
@@ -519,6 +522,11 @@ impl Refusal {
             // blaming a platform outage on the registry's budget.
             503 if self.code.as_deref() == Some(OVER_BUDGET_CODE) => {
                 RegistryApiError::RegistryOverBudget { retry_after_secs }
+            }
+            // The service's status, not the caller's credential: no
+            // login or scope change can clear it.
+            403 if self.code.as_deref() == Some(PRIVATE_ALPHA_CODE) => {
+                RegistryApiError::PrivateAlpha
             }
             status => RegistryApiError::ServerError {
                 status,
@@ -1180,6 +1188,13 @@ pub enum RegistryApiError {
 
     #[error("{detail}")]
     QuotaExceeded { detail: String },
+
+    #[error(
+        "the hosted Cabin registry is in private alpha and is currently restricted to its \
+         maintainer; other accounts cannot sign in or use it, and foundation ports are not \
+         available to the public through it yet"
+    )]
+    PrivateAlpha,
 
     #[error("{}", with_retry(
         "the registry is temporarily not accepting publishes (over its free budget)",
@@ -2007,6 +2022,25 @@ mod tests {
             } => {}
             other => panic!("expected RegistryOverBudget, got {other:?}"),
         }
+    }
+
+    /// The private-alpha 403 is the service's status on every route -
+    /// a valid token's publish and a proven identity's login mint alike -
+    /// never the scope or uniform-refusal advice.
+    #[test]
+    fn private_alpha_403_maps_to_private_alpha() {
+        const ENVELOPE: &str = r#"{"errors":[{"detail":"the hosted Cabin registry is in private alpha and restricted to its maintainer","code":"registry_private_alpha"}]}"#;
+        let mock = MockApi::respond_with_headers(403, ENVELOPE, &[]);
+        let err = mock
+            .client(Some(token()))
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .unwrap_err();
+        assert!(matches!(err, RegistryApiError::PrivateAlpha), "{err:?}");
+        assert!(err.to_string().contains("private alpha"), "{err}");
+
+        let mock = MockApi::respond_with_headers(403, ENVELOPE, &[]);
+        let err = exchange_login_session(&mock.url, "gho_secret1").unwrap_err();
+        assert!(matches!(err, RegistryApiError::PrivateAlpha), "{err:?}");
     }
 
     /// 429: the publish token bucket is empty; `Retry-After` says when

@@ -226,7 +226,9 @@ origin, see "Integrated topology and route management"; the claim
 flow's `/callback/claim` needs no OAuth-app change, because GitHub
 accepts a `redirect_uri` under the registered callback's path). Its client id is
 public and lives in `wrangler.jsonc` (`vars.GITHUB_CLIENT_ID`), next to
-`ALLOWED_GITHUB_IDS` (the numeric GitHub user ids allowed to sign in);
+`ALLOWED_GITHUB_IDS` (the numeric GitHub user ids allowed to sign in and,
+during the private alpha, to use the registry at all - every Bearer token
+is re-checked against it on use);
 the wrangler secrets are the client secret, the session secret,
 `ANALYTICS_API_TOKEN` for the budget cron, and `D1_EXPORT_API_TOKEN` for
 the nightly dump (plus the optional `NOTIFY_WEBHOOK_URL`; see "Budget
@@ -468,10 +470,13 @@ ones. Launch is a data and policy event, in order:
 3. Remove the private-alpha labels from the website (the `private α`
    badges on the sign-in affordance and the account-page shell, and the
    private-alpha copy on `/login/denied` - see `website/`).
-4. Decide and apply the write-access policy: expand
-   `ALLOWED_GITHUB_IDS` or open sign-up. Reads need no decision -
-   verified-package reads are public (`docs/remote-registry.md`, "Read
-   routes"), pre-launch and post-launch alike.
+4. Decide and apply the access policy: expand `ALLOWED_GITHUB_IDS` or
+   open sign-up. During the private alpha the allowlist also gates every
+   read except `config.json`, plus the stats, checked on each Bearer use
+   (`src/glue/mod.rs` `authenticate`), and `config.json` declares
+   `auth-required: true` (`src/documents.rs`): reopening public reads is
+   a code change, not a data flip (`docs/remote-registry.md`, "Read
+   routes").
 5. Restore the `registry-verify` cron (the `schedule` trigger in
    `.github/workflows/registry-verify.yml`, removed for the private
    alpha) and re-run the verification workflow once (see "Verification
@@ -543,7 +548,7 @@ a write block cannot fix read-driven spend. **Setting** the var is the
 act that arms the read-side breaker: the configured value becomes the
 budget, and exhausting it moves the mode to `reads_blocked`, where
 authenticated data-plane reads answer `503` (the session plane, the
-public stats, the admin plane, and the verifier's config/artifact
+stats, the admin plane, and the verifier's config/artifact
 fetches keep working). Do not set it before
 the activation procedure below.
 

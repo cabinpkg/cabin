@@ -135,12 +135,18 @@ fn d1_execute(tail: &[&str]) -> Command {
 /// # Errors
 ///
 /// If wrangler cannot be run, or the statements fail.
-pub fn seed_tokens(token: &str, verify_token: &str, noverify_token: &str) -> Result<()> {
+pub fn seed_tokens(
+    token: &str,
+    verify_token: &str,
+    noverify_token: &str,
+    outsider_token: &str,
+) -> Result<()> {
     step("seeding the smoke tokens and fixtures into the local database");
     let sql = seed_sql(
         &sha256_hex(token.as_bytes()),
         &sha256_hex(verify_token.as_bytes()),
         &sha256_hex(noverify_token.as_bytes()),
+        &sha256_hex(outsider_token.as_bytes()),
     );
     d1(&sql)
 }
@@ -156,7 +162,7 @@ pub fn seed_tokens(token: &str, verify_token: &str, noverify_token: &str) -> Res
 /// fixture, because it must belong to somebody else (user 3):
 /// publishing there must be exactly as forbidden as the unclaimed
 /// 'ghost'.
-fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
+fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &str) -> String {
     format!(
         "
     INSERT OR IGNORE INTO users (id, created_at)
@@ -179,7 +185,7 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
     DELETE FROM scope_members WHERE scope_name = 'foreign';
     INSERT INTO scope_members (scope_name, user_id, role)
       VALUES ('foreign', 3, 'owner');
-    -- The three credentials wear the only shapes the schema still
+    -- The first three credentials wear the only shapes the schema still
     -- admits, timestamped at seeding so every run stays inside the
     -- one-day expiry ceiling: the publisher is a login-session row
     -- seeded with the operator's scope set (the mint itself gives user
@@ -203,6 +209,14 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'trustpub',
               'smoke', 'default');
+    -- A live session for 'friend' (user 3, github id 2), whom
+    -- ALLOWED_GITHUB_IDS does not admit: the private alpha must refuse
+    -- a valid token held by an account that is not on the allowlist.
+    INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at,
+                                   expires_at, kind)
+      VALUES ('smoke-outsider', 3, 'smoke-outsider', '{outsider_hash}', 'publish,yank',
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'session');
     -- The browser sessions the run hand-seals cookies for: github id
     -- 0's main one every session leg rides and the one the logout leg
     -- revokes (OR REPLACE revives it on a rerun), and the ghost - a live
@@ -954,6 +968,7 @@ mod tests {
             &sha256_hex(b"cabin_smoke"),
             &sha256_hex(b"cabin_smoke-verify"),
             &sha256_hex(b"cabin_smoke-noverify"),
+            &sha256_hex(b"cabin_smoke-outsider"),
         );
         assert!(sql.starts_with("\n    INSERT OR IGNORE INTO users (id, created_at)\n"));
         assert!(sql.contains(&format!(
@@ -967,6 +982,10 @@ mod tests {
         assert!(sql.contains(&format!(
             "VALUES ('smoke-noverify', 2, 'smoke-noverify', '{}', 'publish',",
             sha256_hex(b"cabin_smoke-noverify")
+        )));
+        assert!(sql.contains(&format!(
+            "VALUES ('smoke-outsider', 3, 'smoke-outsider', '{}', 'publish,yank',",
+            sha256_hex(b"cabin_smoke-outsider")
         )));
         assert!(
             sql.ends_with("\n    UPDATE meta SET value = 'normal' WHERE key = 'service_mode';")

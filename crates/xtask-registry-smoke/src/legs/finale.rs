@@ -24,6 +24,7 @@ use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, wrangler};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex};
 use crate::context::{Base, Smoke};
+use crate::legs::anonymous::uniform_401_with;
 use crate::legs::session;
 use crate::servers::{DevServers, d1, d1_quiet, d1_rows};
 use crate::step;
@@ -393,7 +394,7 @@ fn driver_pass(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     }
     smoke.wcheck("/api/v1/admin/versions?status=rejected", &[200])?;
     smoke.expect_body(&format!(r#""version":"{DRIVER_REJECTED_VERSION}""#))?;
-    smoke.anonymous();
+    smoke.as_ci_publisher();
     let served = artifact_route(inputs, DRIVER_VERIFIED_VERSION, &clean);
     smoke.check(&served, &[200])?;
     if smoke.body != clean {
@@ -566,19 +567,14 @@ fn cached_downloads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> 
     Ok(())
 }
 
-/// Anonymous readers draw from the same exhausted `b_ordinary` pool:
-/// public reads are charged like tokened ones, so a regression that
-/// skipped admission for credential-less callers would serve this and
-/// turn public downloads into ungoverned R2 spend.
+/// Anonymous callers never reach the charged path at all: the
+/// private-alpha 401 answers them before the governor is asked, so
+/// they neither spend nor learn about the exhausted pool.
 fn uncached_refusal(smoke: &mut Smoke, artifact: &str) -> Result<()> {
     step("an uncached verified download is refused with the budget envelope");
     smoke.check(artifact, &[503])?;
     smoke.expect_body("registry_over_budget")?;
-    smoke.anonymous();
-    smoke.check(artifact, &[503])?;
-    smoke.expect_body("registry_over_budget")?;
-    smoke.as_publisher();
-    Ok(())
+    uniform_401_with(smoke, Base::Registry, "GET", artifact, &[], None)
 }
 
 fn verifier_isolation(smoke: &mut Smoke, pending: &str) -> Result<()> {
