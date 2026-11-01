@@ -46,9 +46,10 @@ cabin check --release
 cabin check --profile <name>
 ```
 
-A check honors the same profile selection as `cabin build`, defaulting to `dev`.  The profile
-matters for a syntax check: its flags (for example `-O3 -DNDEBUG` under `release`) can change which
-`#if` branches compile.  See [Build profiles](profiles.md).
+A check honors the same profile selection as `cabin build`, defaulting to the config
+`build.profile`, else `dev`.  The profile matters for a syntax check: its flags (for example
+`-O3 -DNDEBUG` under `release`) can change which `#if` branches compile.  See
+[Build profiles](profiles.md).
 
 ### Parallel jobs
 

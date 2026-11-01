@@ -147,6 +147,10 @@ const HELP_TEMPLATE: &str = concat!(
 #[derive(Debug, Parser)]
 #[command(
     name = "cabin",
+    // Fixed, so usage lines read `cabin` rather than argv[0]'s file
+    // name (`cabin.exe` on Windows), and match the help `cabin` alone
+    // prints from a command built without argv.
+    bin_name = "cabin",
     about = "A package manager and build system for C/C++",
     disable_version_flag = true,
     styles = cli_styles(),
@@ -336,13 +340,16 @@ pub(crate) enum Command {
     // `cabin --list` render the row as cargo's `build, b`.
     #[command(visible_alias = "b")]
     Build(BuildArgs),
-    /// Check a local package and its dependencies for errors.
+    /// Check a local package for errors.
     ///
-    /// Type-checks the workspace's C/C++ sources with the compiler's
-    /// `-fsyntax-only` mode, reusing the same build graph as
-    /// `cabin build` but skipping code generation, archiving, and
-    /// linking.  No object files or binaries are produced.  Faster than
-    /// a full build for catching compile errors.
+    /// Type-checks the selected packages' own C/C++ sources in the
+    /// compiler's syntax-only mode (`-fsyntax-only`, or `/Zs` for
+    /// MSVC), reusing the same build graph as `cabin build` but
+    /// skipping code generation, archiving, and linking.
+    /// Dependencies' sources are not checked; their headers are,
+    /// where the selected packages include them.  No object files or
+    /// binaries are produced.  Faster than a full build for catching
+    /// compile errors.
     Check(BuildArgs),
     /// Remove build outputs.
     ///
@@ -603,10 +610,10 @@ pub(crate) struct ManifestArgs {
     #[arg(long, value_name = "FORMAT", default_value = "json")]
     pub format: ResolveFormat,
 
-    /// Profile to evaluate for the metadata view.  Defaults to
-    /// `dev`.  The view always lists every available profile in
-    /// the `profiles.available` array regardless of which one is
-    /// selected.
+    /// Profile to evaluate for the metadata view.  Defaults to the
+    /// config `build.profile`, else `dev`.  The view always lists
+    /// every available profile in the `profiles.available` array
+    /// regardless of which one is selected.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
@@ -639,8 +646,8 @@ pub(crate) struct BuildArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Directory for build outputs (build.ninja, object files, binaries).
-    /// Defaults to `build/`; a config-provided `paths.build-dir`
-    /// overrides this default.
+    /// Precedence: `--build-dir` > `CABIN_BUILD_DIR` > `[paths]
+    /// build-dir` config setting > built-in default `build`.
     #[arg(long, value_name = "PATH")]
     pub build_dir: Option<PathBuf>,
 
@@ -653,8 +660,9 @@ pub(crate) struct BuildArgs {
     pub release: bool,
 
     /// Select the build profile (`dev`, `release`, or any custom
-    /// profile declared in `[profile.<name>]`).  Defaults to `dev`.
-    /// Mutually exclusive with `--release`.
+    /// profile declared in `[profile.<name>]`).  Defaults to the
+    /// config `build.profile`, else `dev`.  Mutually exclusive with
+    /// `--release`.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
@@ -737,10 +745,10 @@ pub(crate) struct BuildArgs {
     pub jobs: Option<cabin_core::BuildJobs>,
 }
 
-/// Toolchain-selection flag bundle shared by `cabin build` and
-/// `cabin metadata`.  Each flag accepts either a bare command name
-/// (`clang++`, resolved against `PATH`) or an explicit path
-/// (`/opt/llvm/bin/clang++`).
+/// Toolchain-selection flag bundle shared by `cabin build`, `check`,
+/// `run`, `test`, `metadata`, and `explain`.  Each flag accepts
+/// either a bare command name (`clang++`, resolved against `PATH`)
+/// or an explicit path (`/opt/llvm/bin/clang++`).
 #[derive(Debug, Args, Default)]
 pub(crate) struct ToolchainSelectionArgs {
     /// Override the C compiler.  Accepts a bare command name or a
@@ -804,7 +812,8 @@ impl ToolchainSelectionArgs {
     }
 }
 
-/// Selection-flag bundle shared by `cabin build` and `cabin metadata`.
+/// Feature-selection flag bundle shared by `cabin metadata`, `tree`,
+/// and `explain`.
 #[derive(Debug, Args, Default)]
 pub(crate) struct ConfigSelectionArgs {
     /// Enable named features.  May be repeated and/or comma-separated.
@@ -1193,9 +1202,10 @@ pub(crate) fn run(
         // and exits zero, matching the prior implicit behavior
         // (clap's auto help) but routed through the dispatcher
         // so the exit code is documented here.
-        let mut cmd =
-            <Cli as clap::CommandFactory>::command().color(crate::term_setup::clap_color(color));
-        cmd.print_help().context("failed to print top-level help")?;
+        crate::help_rendering::prepare_top_level_command()
+            .color(crate::term_setup::clap_color(color))
+            .print_help()
+            .context("failed to print top-level help")?;
         // Cargo prints help and exits 0 when invoked with no
         // arguments.  Cabin matches that.
         return Ok(ExitCode::SUCCESS);

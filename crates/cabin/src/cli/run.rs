@@ -50,7 +50,8 @@ pub(crate) struct RunArgs {
     pub release: bool,
 
     /// Build profile (`dev`, `release`, or any custom profile
-    /// declared in `[profile.<name>]`).  Defaults to `dev`.
+    /// declared in `[profile.<name>]`).  Defaults to the config
+    /// `build.profile`, else `dev`.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 

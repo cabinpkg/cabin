@@ -150,7 +150,7 @@ directory.
 | Key         | Type | Notes                                                              |
 | ----------- | ---- | ------------------------------------------------------------------ |
 | `cache-dir` | path | Override `--cache-dir`.  Used by the artifact pipeline (`cabin fetch`, `cabin build` with versioned deps). |
-| `build-dir` | path | Override the build-output directory for commands that plan, run, or remove build outputs (`build`, `clean`, `run`, `test`, `tidy`, `fmt`).  The clap default `build` still applies when no flag and no config is set. |
+| `build-dir` | path | Override the build-output directory for commands that plan, run, or remove build outputs (`build`, `check`, `clean`, `run`, `test`, `tidy`, `fmt`).  `--build-dir` and `CABIN_BUILD_DIR` override it; the default `build` applies when none is set. |
 
 Absolute paths pass through unchanged.  Cabin never serializes absolute local paths into package or
 index metadata.
