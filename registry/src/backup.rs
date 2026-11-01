@@ -28,6 +28,7 @@ pub const MONTHLY_KEEP_MONTHS: u64 = 12;
 pub const EXPECTED_TABLES: &[&str] = &[
     "users",
     "identities",
+    "browser_sessions",
     "scopes",
     "scope_members",
     "scope_claims",
@@ -732,6 +733,7 @@ mod tests {
             check.missing_tables,
             vec![
                 "identities",
+                "browser_sessions",
                 "scopes",
                 "scope_members",
                 "scope_claims",

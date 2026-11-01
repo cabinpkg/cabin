@@ -3,17 +3,18 @@
 //! owner gate's byte-identical 403, and the generation header - plus
 //! the claim-initiation fetch-metadata gate.
 //!
-//! The logout and membership legs ride the session cookie the session
-//! leg minted, so the cookie arrives as a parameter rather than being
-//! re-derived; the claim flow carries only fetch metadata and its own
-//! claim-state cookie.
+//! The membership legs ride the session cookie the session leg minted,
+//! so the cookie arrives as a parameter rather than being re-derived;
+//! the logout leg revokes a second seeded session of the same user and
+//! checks that cookie survives.  The claim flow carries only fetch
+//! metadata and its own claim-state cookie.
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 use xtask_registry_admin::display;
 
 use crate::context::{Base, Smoke};
-use crate::legs::session::{csrf_headers, session_request};
+use crate::legs::session::{csrf_headers, expires_in_an_hour, session_cookie, session_request};
 use crate::step;
 use crate::text::{capture, contains, first_line, grep_lines, status_line_is, strip_name, text};
 
@@ -43,10 +44,15 @@ pub fn run(smoke: &mut Smoke, session_cookie: &str, github_port: u16) -> Result<
     generation_header(smoke)
 }
 
-fn logout(smoke: &mut Smoke, cookie: &str) -> Result<()> {
+/// Logs out a second session of the same user (its own seeded row), so
+/// the run's main cookie must survive it.
+fn logout(smoke: &mut Smoke, main_cookie: &str) -> Result<()> {
     step("logout requires the csrf pair and clears the session cookie");
+    let cookie = &session_cookie(0, "smoke-logout", expires_in_an_hour());
     session_request(smoke, cookie, "POST", "/api/v1/user/logout", 403, &[], None)?;
     smoke.expect_body("X-CSRF-Protection")?;
+    // The refused logout revoked nothing.
+    session_request(smoke, cookie, "GET", "/api/v1/user", 200, &[], None)?;
 
     let url = smoke.url(Base::Web, "/api/v1/user/logout");
     let mut headers = vec![("Cookie".to_owned(), cookie.to_owned())];
@@ -63,6 +69,10 @@ fn logout(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     if !logout_cookie.contains("Max-Age=0") {
         bail!("logout cookie does not clear: {logout_cookie}");
     }
+
+    step("a logged-out cookie stops authenticating; the user's other session does not");
+    session_request(smoke, cookie, "GET", "/api/v1/user", 401, &[], None)?;
+    session_request(smoke, main_cookie, "GET", "/api/v1/user", 200, &[], None)?;
     Ok(())
 }
 

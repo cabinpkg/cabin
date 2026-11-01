@@ -38,15 +38,19 @@ pub fn secret_has_minimum_length(secret: &[u8]) -> bool {
     secret.len() >= MIN_SECRET_BYTES
 }
 
-/// A verified session: who, and until when. The numeric GitHub id names
-/// the external identity, resolved through the `identities` table to
-/// the registry-native user on every request - deliberately not the
-/// `users.id`, which a pre-launch wipe would re-issue: a still-valid
-/// ghost cookie sealed over a row id could then bind to whoever
-/// received that id after the wipe.
+/// A verified session: who, which sign-in, and until when. The numeric
+/// GitHub id names the external identity, resolved through the
+/// `identities` table to the registry-native user on every request -
+/// deliberately not the `users.id`, which a pre-launch wipe would
+/// re-issue: a still-valid ghost cookie sealed over a row id could then
+/// bind to whoever received that id after the wipe. `id` names the
+/// sign-in's `browser_sessions` row, which must still exist for the
+/// cookie to authenticate (logout deletes it); it is a bearer secret only
+/// together with the MAC, and is never logged.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Session {
     pub github_id: i64,
+    pub id: String,
     pub expires_at: u64,
 }
 
@@ -110,19 +114,22 @@ pub fn open_claim_state(secret: &[u8], sealed: &str, now: u64) -> Option<(String
 }
 
 /// Seals a session into the session-cookie value.
-pub fn seal_session(secret: &[u8], github_id: i64, expires_at: u64) -> String {
-    seal(secret, "session", &format!("{github_id}:{expires_at}"))
+pub fn seal_session(secret: &[u8], github_id: i64, id: &str, expires_at: u64) -> String {
+    seal(secret, "session", &format!("{github_id}:{id}:{expires_at}"))
 }
 
-/// Opens a session-cookie value while it is unexpired.
+/// Opens a session-cookie value while it is unexpired. Whether its
+/// session is still live (not logged out) is the caller's D1 check.
 pub fn open_session(secret: &[u8], sealed: &str, now: u64) -> Option<Session> {
     let payload = open(secret, "session", sealed)?;
-    let (github_id, expires_at) = payload.rsplit_once(':')?;
+    let (github_id, rest) = payload.split_once(':')?;
+    let (id, expires_at) = rest.rsplit_once(':')?;
     let session = Session {
         github_id: github_id.parse().ok()?,
+        id: id.to_owned(),
         expires_at: expires_at.parse().ok()?,
     };
-    (now < session.expires_at).then_some(session)
+    (!session.id.is_empty() && now < session.expires_at).then_some(session)
 }
 
 /// The session-plane mutation CSRF discipline, suited to a JSON API: the
@@ -251,11 +258,12 @@ mod tests {
 
     #[test]
     fn session_round_trips_until_expiry() {
-        let sealed = seal_session(SECRET, 583_231, 2_000);
+        let sealed = seal_session(SECRET, 583_231, "5e55", 2_000);
         assert_eq!(
             open_session(SECRET, &sealed, 1_999),
             Some(Session {
                 github_id: 583_231,
+                id: "5e55".to_owned(),
                 expires_at: 2_000
             })
         );
@@ -264,11 +272,12 @@ mod tests {
 
     #[test]
     fn tampering_with_any_part_is_rejected() {
-        let sealed = seal_session(SECRET, 583_231, 2_000);
+        let sealed = seal_session(SECRET, 583_231, "5e55", 2_000);
         let (payload, mac) = sealed.rsplit_once('.').unwrap();
         for tampered in [
-            format!("583232:2000.{mac}"),
-            format!("583231:9999.{mac}"),
+            format!("583232:5e55:2000.{mac}"),
+            format!("583231:5e56:2000.{mac}"),
+            format!("583231:5e55:9999.{mac}"),
             format!("{payload}.{}", mac.to_uppercase()),
             format!("{payload}.{}", &mac[..mac.len() - 1]),
             payload.to_owned(),
@@ -288,7 +297,16 @@ mod tests {
             let sealed = seal(SECRET, "state", payload);
             assert_eq!(open_state(SECRET, &sealed, 0), None, "{payload:?}");
         }
-        for payload in ["notanumber:1000", "42:notanumber", "42", ""] {
+        // The pre-revocation two-field shape included: such a cookie
+        // names no session row, so it must not open.
+        for payload in [
+            "notanumber:5e55:1000",
+            "42:5e55:notanumber",
+            "42::1000",
+            "42:1000",
+            "42",
+            "",
+        ] {
             let sealed = seal(SECRET, "session", payload);
             assert_eq!(open_session(SECRET, &sealed, 0), None, "{payload:?}");
         }
@@ -306,7 +324,7 @@ mod tests {
         let state = seal_state(SECRET, "42", 2_000);
         assert_eq!(open_session(SECRET, &state, 0), None);
         assert_eq!(open_claim_state(SECRET, &state, 0), None);
-        let session = seal_session(SECRET, 42, 2_000);
+        let session = seal_session(SECRET, 42, "5e55", 2_000);
         assert_eq!(open_state(SECRET, &session, 0), None);
         assert_eq!(open_claim_state(SECRET, &session, 0), None);
         let claim = seal_claim_state(SECRET, "fmtlib", "42", 2_000);

@@ -53,6 +53,18 @@ CREATE TABLE identities (
     PRIMARY KEY (provider, provider_account_id)
 );
 
+-- One row per live browser sign-in (src/session.rs). The id is random
+-- and sealed into the session cookie with the GitHub account id; the
+-- session plane authenticates a cookie only while its row exists, so
+-- logout deletes exactly that row and a copied cookie stops working
+-- with it. expires_at (Unix seconds) is the cookie's own sealed expiry,
+-- kept only so the sign-in batch can prune dead rows.
+CREATE TABLE browser_sessions (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider_account_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
 -- A claimed scope: the `<scope>/` prefix of every package name. The
 -- proof columns freeze which external account proved control of the
 -- same-named provider account at claim time, so a later account reusing

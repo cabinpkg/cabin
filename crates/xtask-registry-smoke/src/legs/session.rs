@@ -235,8 +235,9 @@ pub fn session_plane(smoke: &mut Smoke) -> Result<String> {
     // The session cookie is `<payload>.<hmac>` keyed by the
     // SESSION_SECRET this run pinned in `.dev.vars`, so a valid session
     // for the seeded user (github id 0, admitted by the pinned
-    // ALLOWED_GITHUB_IDS) can be minted without a GitHub round trip.
-    let mut session = session_cookie(0, expires_in_an_hour());
+    // ALLOWED_GITHUB_IDS) and its seeded session row can be minted
+    // without a GitHub round trip.
+    let mut session = session_cookie(0, SESSION_ID, expires_in_an_hour());
     let csrf = csrf_headers();
 
     step("session reads answer the seeded user");
@@ -258,9 +259,13 @@ pub fn session_plane(smoke: &mut Smoke) -> Result<String> {
 
     step("a valid session whose identity row is gone answers 401 everywhere");
     // The post-wipe ghost: allowlisted id 1 has a validly sealed cookie
-    // but no identity row - every endpoint (mutations included) answers
-    // the same 401 as no session, never an empty listing or a 500.
-    let real_session = std::mem::replace(&mut session, session_cookie(1, expires_in_an_hour()));
+    // and a live session row but no identity row - every endpoint
+    // (mutations included) answers the same 401 as no session, never an
+    // empty listing or a 500.
+    let real_session = std::mem::replace(
+        &mut session,
+        session_cookie(1, "ghost", expires_in_an_hour()),
+    );
     session_request(smoke, &session, "GET", "/api/v1/user", 401, &[], None)?;
     session_request(smoke, &session, "GET", "/api/v1/user/usage", 401, &[], None)?;
     session_request(
@@ -317,11 +322,13 @@ pub fn session_plane(smoke: &mut Smoke) -> Result<String> {
 /// The pinned `SESSION_SECRET` this run writes into `.dev.vars`.
 const SESSION_SECRET: &[u8] = b"smoke-session-secret-not-for-production";
 
-/// The sealed cookie for one github id, which the two mints differ
-/// only in.
+/// The seeded `browser_sessions` row the run's session legs ride.
+const SESSION_ID: &str = "smoke";
+
+/// The sealed cookie for one github id and session row.
 #[must_use]
-pub fn session_cookie(github_id: u64, expires_at: u64) -> String {
-    let payload = format!("{github_id}:{expires_at}");
+pub fn session_cookie(github_id: u64, session_id: &str, expires_at: u64) -> String {
+    let payload = format!("{github_id}:{session_id}:{expires_at}");
     let mac = hmac_sha256_hex(SESSION_SECRET, format!("session:{payload}").as_bytes());
     format!("cabin_session={payload}.{mac}")
 }
@@ -364,8 +371,9 @@ pub fn session_request(
     Ok(())
 }
 
-/// An hour from now, the expiry both mints seal.
-fn expires_in_an_hour() -> u64 {
+/// An hour from now, the expiry every mint seals.
+#[must_use]
+pub fn expires_in_an_hour() -> u64 {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
@@ -452,16 +460,17 @@ mod tests {
             hmac_sha256_hex(SESSION_SECRET, b"session:0:1234567890"),
             "35b8dbb6d3040e8e836b068716fa9888fe330bed49894e300eb5281d6b21d7d2"
         );
+        // printf 'session:0:smoke:1234567890' | openssl dgst ...
         assert_eq!(
-            session_cookie(0, 1_234_567_890),
-            "cabin_session=0:1234567890.\
-             35b8dbb6d3040e8e836b068716fa9888fe330bed49894e300eb5281d6b21d7d2"
+            session_cookie(0, "smoke", 1_234_567_890),
+            "cabin_session=0:smoke:1234567890.\
+             2264751291c9be093ed42a6862987e27deb27273f9b98f24a6f342f177bfb98b"
         );
-        // The ghost mint differs only in the id.
+        // printf 'session:1:ghost:1234567890' | openssl dgst ...
         assert_eq!(
-            session_cookie(1, 1_234_567_890),
-            "cabin_session=1:1234567890.\
-             4835c7943c20ee3f6f851ded62d13e306af8656644bf0d81eedac31b06fb73e5"
+            session_cookie(1, "ghost", 1_234_567_890),
+            "cabin_session=1:ghost:1234567890.\
+             1fa7b38b3e8b38fa18cc6b7ef3a14f55c7af7a354d5fd6526b8a1d6d1381c3bb"
         );
     }
 }

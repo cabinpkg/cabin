@@ -46,13 +46,40 @@ statements! {
          ON CONFLICT (provider, provider_account_id) \
          DO UPDATE SET login_snapshot = excluded.login_snapshot";
 
-    /// The session's user resolution: the sealed cookie names the
-    /// external identity, resolved to the registry-native user row on
-    /// every request.
+    /// An external identity's registry-native user row.
     USER_BY_IDENTITY =
         "SELECT i.user_id, i.login_snapshot, u.quota_class \
          FROM identities i JOIN users u ON u.id = i.user_id \
          WHERE i.provider = ?1 AND i.provider_account_id = ?2";
+
+    /// The browser session's user resolution, run on every session-plane
+    /// request: [`USER_BY_IDENTITY`] for the sealed cookie's account,
+    /// returning a row only while the cookie's `browser_sessions` row
+    /// (`?3`) exists for that same account - a logged-out cookie gets the
+    /// same no-row answer as an unknown identity, in the same single
+    /// read.
+    SESSION_USER =
+        "SELECT i.user_id, i.login_snapshot, u.quota_class \
+         FROM browser_sessions s \
+         JOIN identities i ON i.provider = ?1 AND i.provider_account_id = s.provider_account_id \
+         JOIN users u ON u.id = i.user_id \
+         WHERE s.id = ?3 AND s.provider_account_id = ?2";
+
+    /// Records a browser session at sign-in, in the identity upsert's
+    /// batch.
+    INSERT_BROWSER_SESSION =
+        "INSERT INTO browser_sessions (id, provider_account_id, expires_at) VALUES (?1, ?2, ?3)";
+
+    /// Lazy cleanup ridden on every sign-in batch (`?1` is the current
+    /// Unix second): a row past its cookie's sealed expiry can no longer
+    /// authenticate anything.
+    PRUNE_EXPIRED_BROWSER_SESSIONS = "DELETE FROM browser_sessions WHERE expires_at <= ?1";
+
+    /// Logout: revokes exactly the presented cookie's session. Both the
+    /// id and the account come from the MAC-verified cookie, so a caller
+    /// can only ever delete a session it holds the cookie for.
+    DELETE_BROWSER_SESSION =
+        "DELETE FROM browser_sessions WHERE id = ?1 AND provider_account_id = ?2";
 
     /// Mints a login-session token (`PUT /api/v1/sessions/tokens`); D1
     /// stores only the SHA-256 hex of the plaintext. The shape is fixed
