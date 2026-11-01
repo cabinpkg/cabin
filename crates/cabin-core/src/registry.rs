@@ -58,9 +58,11 @@ pub fn remote_registry_command_error(command: &str) -> String {
 /// Validate a registry config `api` value: the absolute `http(s)`
 /// base URL of the registry's web/API origin.  Returns `None` when
 /// valid and `Some(message)` naming what is wrong.  Applies the same
-/// `url` parser and rules as the sparse HTTP client's index-URL check
+/// `url` parser as the sparse HTTP client's index-URL check
 /// (`cabin-index-http`'s `parse_base_url`): `http` / `https` schemes
-/// only, a well-formed host, and no `userinfo` credentials.  The message
+/// only, a well-formed host, and no `userinfo` credentials.  Plain
+/// `http` beyond loopback is refused later, where a request would be
+/// sent (`cabin-registry-api`'s `RegistryApi::new`).  The message
 /// never echoes the raw value (`url::ParseError` renders a static
 /// description), so a credential-bearing URL cannot leak into logs.
 #[must_use]

@@ -1537,7 +1537,7 @@ by `cabin resolve`, `cabin fetch`, and `cabin build --index-path` without any re
 ### Sparse HTTP index read path
 
 ```
---index-url http://host/registry
+--index-url https://host/registry
    |
    |  cabin_index_http::HttpIndex::open
    |    GET <base>/config.json   -> RegistryConfig
