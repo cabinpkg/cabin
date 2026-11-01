@@ -14,11 +14,15 @@
 //! the user-level config (or the `CABIN_CONFIG` file); config
 //! discovery rejects a workspace or package `[term]` table.
 
+use std::ffi::OsString;
+use std::io::IsTerminal as _;
 use std::process::ExitCode;
 
 use cabin_core::{ColorChoice, ConfigValueSource, Verbosity};
+use clap::CommandFactory as _;
 use termcolor::StandardStream;
 
+use crate::cli::Cli;
 use crate::cli::term_color::CliColorChoice;
 use crate::cli::term_verbosity::{
     CliVerbosity, Reporter, discover_early_config_verbosity, resolve_verbosity,
@@ -56,19 +60,79 @@ impl TerminalSettings {
     }
 }
 
-/// Map a [`ColorChoice`] to a [`termcolor::ColorChoice`].
+/// A stderr writer that colors as `choice` says.
+pub(crate) fn stderr_stream(choice: ColorChoice) -> StandardStream {
+    StandardStream::stderr(termcolor_choice(choice, std::io::stderr().is_terminal()))
+}
+
+/// A stdout writer that colors as `choice` says.
+pub(crate) fn stdout_stream(choice: ColorChoice) -> StandardStream {
+    StandardStream::stdout(termcolor_choice(choice, std::io::stdout().is_terminal()))
+}
+
+/// Map a [`ColorChoice`] to a [`termcolor::ColorChoice`] for a
+/// stream.  termcolor's own `Auto` consults only `TERM` and
+/// `NO_COLOR`, so `auto` also requires the stream to be a terminal.
 ///
 /// `Always` maps to `AlwaysAnsi` so test output stays
 /// platform-stable: on Windows, plain `Always` would attempt to
 /// drive the console API instead of emitting ANSI escape
 /// sequences, which would defeat the integration tests that
 /// look for `\x1b[`.
-pub(crate) fn termcolor_choice(choice: ColorChoice) -> termcolor::ColorChoice {
+fn termcolor_choice(choice: ColorChoice, is_terminal: bool) -> termcolor::ColorChoice {
     match choice {
-        ColorChoice::Auto => termcolor::ColorChoice::Auto,
+        ColorChoice::Auto if is_terminal => termcolor::ColorChoice::Auto,
+        ColorChoice::Auto | ColorChoice::Never => termcolor::ColorChoice::Never,
         ColorChoice::Always => termcolor::ColorChoice::AlwaysAnsi,
-        ColorChoice::Never => termcolor::ColorChoice::Never,
     }
+}
+
+/// Map a [`ColorChoice`] to clap's, for the help and usage errors
+/// clap renders.  clap's `Auto` is already terminal-aware.
+pub(crate) fn clap_color(choice: ColorChoice) -> clap::ColorChoice {
+    match choice {
+        ColorChoice::Auto => clap::ColorChoice::Auto,
+        ColorChoice::Always => clap::ColorChoice::Always,
+        ColorChoice::Never => clap::ColorChoice::Never,
+    }
+}
+
+/// The color for output clap prints before Cabin dispatches: help
+/// and usage errors.  The precedence is
+/// [`resolve_early_terminal_state`]'s, except that an invalid
+/// `CABIN_TERM_COLOR` falls back to `auto` instead of failing.
+///
+/// clap renders help as soon as it reads `-h` / `--help`, so a
+/// later `--color` is never parsed.  The flag therefore comes from
+/// a reparse of `arguments` that treats help as an ordinary flag
+/// and tolerates errors.  That reparse still stops at the first
+/// argument clap rejects, so a `--color` after it is not seen and
+/// the environment decides the color of the error.
+pub(crate) fn clap_output_color(arguments: &[OsString]) -> clap::ColorChoice {
+    // `...` is the shortcut subcommand `prepare_top_level_command`
+    // adds; without it the reparse would stop there.
+    let flag = Cli::command()
+        .subcommand(clap::Command::new(crate::help_rendering::DOTS_HINT))
+        .ignore_errors(true)
+        .disable_help_flag(true)
+        .disable_help_subcommand(true)
+        .arg(
+            clap::Arg::new("help")
+                .short('h')
+                .long("help")
+                .global(true)
+                .action(clap::ArgAction::SetTrue),
+        )
+        .try_get_matches_from(arguments)
+        .ok()
+        .and_then(|matches| matches.get_one::<CliColorChoice>("color").copied());
+    let color = crate::cli::term_color::resolve_color_choice(
+        flag.map(Into::into),
+        |key| std::env::var(key).ok(),
+        crate::cli::term_color::discover_early_config_color(),
+    )
+    .map_or(ColorChoice::Auto, |(color, _)| color);
+    clap_color(color)
 }
 
 /// Resolve the color choice and reporter the dispatcher hands
@@ -99,7 +163,7 @@ pub(crate) fn resolve_early_terminal_state(
     ) {
         Ok(choice) => choice,
         Err(env_err) => {
-            let mut stderr = StandardStream::stderr(termcolor_choice(ColorChoice::Auto));
+            let mut stderr = stderr_stream(ColorChoice::Auto);
             let _ = write_plain_error(&mut stderr, &env_err.to_string());
             return Err(ExitCode::FAILURE);
         }
@@ -117,7 +181,7 @@ pub(crate) fn resolve_early_terminal_state(
     ) {
         Ok(level) => level,
         Err(env_err) => {
-            let mut stderr = StandardStream::stderr(termcolor_choice(color));
+            let mut stderr = stderr_stream(color);
             let _ = write_plain_error(&mut stderr, &env_err.to_string());
             return Err(ExitCode::FAILURE);
         }
@@ -159,8 +223,12 @@ mod tests {
     #[test]
     fn automatic_color_remains_terminal_aware() {
         assert!(matches!(
-            termcolor_choice(ColorChoice::Auto),
+            termcolor_choice(ColorChoice::Auto, true),
             termcolor::ColorChoice::Auto
+        ));
+        assert!(matches!(
+            termcolor_choice(ColorChoice::Auto, false),
+            termcolor::ColorChoice::Never
         ));
     }
 }

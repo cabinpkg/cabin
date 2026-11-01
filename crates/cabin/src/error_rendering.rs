@@ -33,7 +33,7 @@ pub(crate) fn render_error(error: &anyhow::Error, color: ColorChoice) {
         }
         current = err.source();
     }
-    let mut stderr = StandardStream::stderr(crate::term_setup::termcolor_choice(color));
+    let mut stderr = crate::term_setup::stderr_stream(color);
     if let Some(candidate) = deepest {
         let _ = candidate.render(error, &mut stderr);
         return;

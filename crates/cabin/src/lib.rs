@@ -132,14 +132,17 @@ where
         return code;
     }
 
-    let cmd = help_rendering::prepare_top_level_command();
-    let matches = match cmd.try_get_matches_from(arguments) {
+    let mut cmd = help_rendering::prepare_top_level_command();
+    let matches = match cmd.try_get_matches_from_mut(&arguments) {
         Ok(m) => m,
         Err(err) => {
             // `clap::Error::exit` prints `--help` to stdout and
-            // real errors to stderr with clap's own ANSI
-            // handling.
-            err.exit();
+            // real errors to stderr.  An explicit `always` / `never`
+            // applies as Cabin resolves it; `auto` is clap's own
+            // detection, which differs from Cabin's (see
+            // docs/environment-variables.md).
+            let color = term_setup::clap_output_color(&arguments);
+            err.with_cmd(&cmd.color(color)).exit();
         }
     };
     // `cabin ...` is a help-row affordance that doubles as a
@@ -167,7 +170,7 @@ where
     let trace = match trace::TraceSession::from_env(command, started) {
         Ok(trace) => trace,
         Err(message) => {
-            let mut stderr = termcolor::StandardStream::stderr(term_setup::termcolor_choice(color));
+            let mut stderr = term_setup::stderr_stream(color);
             let _ = error_rendering::write_plain_error(&mut stderr, &message);
             return ExitCode::FAILURE;
         }

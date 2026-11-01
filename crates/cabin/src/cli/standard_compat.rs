@@ -45,7 +45,7 @@ pub(crate) fn report(
     if violations.is_empty() {
         return Ok(());
     }
-    let mut stderr = termcolor::StandardStream::stderr(crate::term_setup::termcolor_choice(color));
+    let mut stderr = crate::term_setup::stderr_stream(color);
     let mut unchecked_edges: BTreeSet<(&str, &str)> = BTreeSet::new();
     let mut gating = 0usize;
     for violation in violations {

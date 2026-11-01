@@ -1183,8 +1183,7 @@ pub(crate) fn run(
     // `--list` wins over any subcommand, which it ignores (see
     // `Cli::list`), and prints in the resolved `color`.
     if cli.list {
-        let mut stdout =
-            termcolor::StandardStream::stdout(crate::term_setup::termcolor_choice(color));
+        let mut stdout = crate::term_setup::stdout_stream(color);
         crate::command_list::print_list(&mut stdout)?;
         return Ok(ExitCode::SUCCESS);
     }
@@ -1193,7 +1192,8 @@ pub(crate) fn run(
         // and exits zero, matching the prior implicit behavior
         // (clap's auto help) but routed through the dispatcher
         // so the exit code is documented here.
-        let mut cmd = <Cli as clap::CommandFactory>::command();
+        let mut cmd =
+            <Cli as clap::CommandFactory>::command().color(crate::term_setup::clap_color(color));
         cmd.print_help().context("failed to print top-level help")?;
         // Cargo prints help and exits 0 when invoked with no
         // arguments.  Cabin matches that.
