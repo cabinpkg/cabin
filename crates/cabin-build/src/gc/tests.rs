@@ -536,6 +536,30 @@ fn collection_removes_an_output_directory_whichever_spelling_held_it() {
 }
 
 #[test]
+fn a_products_output_directory_is_its_package_directory_whatever_is_named_obj() {
+    for (rel, dir) in [
+        ("dev/packages/app/obj/app/src/a.c.o", "dev/packages/app"),
+        ("dev/packages/app/app", "dev/packages/app"),
+        // A profile, package, scope, target, or source directory `obj`.
+        ("obj/packages/app/obj/app/src/a.c.o", "obj/packages/app"),
+        ("dev/packages/obj/obj/app/a.cc.o", "dev/packages/obj"),
+        ("dev/packages/obj/app/obj/app/a.c.o", "dev/packages/obj/app"),
+        ("dev/packages/app/obj/obj/obj/a.cc.o", "dev/packages/app"),
+        ("dev/packages/acme/obj/libobj.a", "dev/packages/acme/obj"),
+        (
+            "dev/build-machine/packages/obj/obj/gen/main.c.o",
+            "dev/build-machine/packages/obj",
+        ),
+        (
+            ".targets/x86_64-unknown-linux-gnu/obj/packages/obj/obj",
+            ".targets/x86_64-unknown-linux-gnu/obj/packages/obj",
+        ),
+    ] {
+        assert_eq!(split(rel), (dir, &rel[dir.len() + 1..]), "{rel}");
+    }
+}
+
+#[test]
 fn size_budget_evicts_least_recently_used_but_spares_recent_products() {
     let fx = Fixture::new();
     let a = "dev/packages/a/liba.a";
@@ -866,6 +890,13 @@ fn only_one_process_holds_the_lock_exclusively() {
     // Shared again: another shared holder gets in without waiting.
     let _third = BuildDirLock::shared(&fx.build_dir(), || waited = true).unwrap();
     assert!(!waited);
+}
+
+#[cfg(unix)]
+#[test]
+fn enotsup_means_a_file_system_without_file_locks() {
+    let err = io::Error::from_raw_os_error(libc::ENOTSUP);
+    assert!(lock::locking_unsupported(&err), "{err}");
 }
 
 fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
