@@ -208,6 +208,12 @@ pub const CABIN_MIGRATE_YES: &str = "CABIN_MIGRATE_YES";
 /// `cabin` binary.
 pub const CABIN_WIPE_YES: &str = "CABIN_WIPE_YES";
 
+/// The publisher token the registry smoke test seeds into its local D1
+/// state; unset or empty runs only the unauthenticated legs.  Read by
+/// the repository's own maintainer tooling (`xtask-registry-smoke`),
+/// never by the shipped `cabin` binary.
+pub const CABIN_REGISTRY_SMOKE_TOKEN: &str = "CABIN_REGISTRY_SMOKE_TOKEN";
+
 /// Number of parallel jobs the build backend should use: a
 /// positive integer; `0` is rejected.
 ///

@@ -38,7 +38,7 @@ use crate::context::{Base, Smoke};
 use crate::legs::anonymous::uniform_401_with;
 use crate::servers::d1_json;
 use crate::step;
-use crate::text::{contains, read, write};
+use crate::text::{contains, grep_anywhere, grep_lines, read, text, write};
 
 /// `--file /dev/null`: the two sites that only ask whether the object
 /// exists still make `wrangler` write it somewhere.
@@ -283,10 +283,12 @@ fn verify_scope_listing(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
         inputs.version,
         &inputs.work.join("entry-precap.json"),
     )?;
-    let published_at = precap
-        .get("published_at")
-        .map_or_else(|| "undefined".to_owned(), display);
-    let oversized = oversized_verdict(inputs.blob_hash, &published_at);
+    let binding = |key| {
+        precap
+            .get(key)
+            .map_or_else(|| "undefined".to_owned(), display)
+    };
+    let oversized = oversized_verdict(&binding("checksum"), &binding("published_at"));
     write(&inputs.work.join("oversized-verdict.json"), &oversized)?;
 
     let url = smoke.url(Base::Web, &admin_version(inputs));
@@ -428,10 +430,11 @@ fn real_verification(
     if status != 200 {
         bail!("the first verified download returned {status}");
     }
-    if !header_starts_with(&smoke.headers, "cache-control: no-store") {
+    let block = text(&smoke.headers);
+    if grep_lines(&block, "cache-control: no-store").is_empty() {
         bail!(
             "a cache-miss artifact is missing the outward no-store: {}",
-            grep_lines(&smoke.headers, "cache-control")
+            grep_anywhere(&block, "cache-control").join("\n")
         );
     }
     Ok(verdict)
@@ -539,10 +542,11 @@ fn anonymous_counting(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<(
     if status != 200 {
         bail!("an anonymous verified download returned {status}");
     }
-    if !header_starts_with(&smoke.headers, "cache-control: no-store") {
+    let block = text(&smoke.headers);
+    if grep_lines(&block, "cache-control: no-store").is_empty() {
         bail!(
             "an anonymous download is missing the outward no-store: {}",
-            grep_lines(&smoke.headers, "cache-control")
+            grep_anywhere(&block, "cache-control").join("\n")
         );
     }
     await_row_downloads("3")?;
@@ -900,29 +904,6 @@ fn stats_are_counted(body: &[u8]) -> bool {
     })
 }
 
-/// `grep -qi '^<prefix>'` over the header block: line-wise, anchored,
-/// case-insensitive.  The block is CRLF, and `lines` drops the `\r`
-/// that only ever trails a value.
-fn header_starts_with(headers: &[u8], prefix: &str) -> bool {
-    let block = String::from_utf8_lossy(headers).to_ascii_lowercase();
-    block.lines().any(|line| line.starts_with(prefix))
-}
-
-/// The header lines containing `needle` case-insensitively, `\r` and
-/// all, newline joined - the two no-store failures' diagnostic.
-fn grep_lines(headers: &[u8], needle: &str) -> String {
-    String::from_utf8_lossy(headers)
-        .split('\n')
-        .filter(|line| line.to_ascii_lowercase().contains(needle))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Bytes as text, for a failure message.
-fn text(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
-}
-
 fn blob_key(inputs: &PublishInputs<'_>) -> String {
     format!("blobs/sha256/{}", inputs.blob_hash)
 }
@@ -1004,20 +985,5 @@ mod tests {
         assert!(!stats_are_counted(br#"{"packages":1,"versions":2}"#));
         assert!(!stats_are_counted(br#"{"packages":"1"}"#));
         assert!(!stats_are_counted(b"not json"));
-    }
-
-    #[test]
-    fn the_header_assertion_is_anchored_and_case_insensitive() {
-        let block =
-            b"HTTP/1.1 200 OK\r\nCache-Control: no-store\r\nX-Cache-Control: public\r\n\r\n";
-        assert!(header_starts_with(block, "cache-control: no-store"));
-        assert!(!header_starts_with(
-            b"HTTP/1.1 200 OK\r\nX-Cache-Control: no-store\r\n\r\n",
-            "cache-control: no-store"
-        ));
-        assert_eq!(
-            grep_lines(block, "cache-control"),
-            "Cache-Control: no-store\r\nX-Cache-Control: public\r"
-        );
     }
 }

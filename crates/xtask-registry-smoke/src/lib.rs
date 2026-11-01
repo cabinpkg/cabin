@@ -41,7 +41,7 @@ pub fn run() -> Result<()> {
     let ports = Ports::from_env();
     // Unset and empty are the same thing, and the empty token is
     // what selects the unauthenticated run.
-    let token = std::env::var("CABIN_REGISTRY_SMOKE_TOKEN").unwrap_or_default();
+    let token = std::env::var(cabin_env::CABIN_REGISTRY_SMOKE_TOKEN).unwrap_or_default();
 
     servers::apply_migrations()?;
     if !token.is_empty() {
