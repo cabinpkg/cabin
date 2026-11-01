@@ -49,9 +49,11 @@ jobs:
         with:
           persist-credentials: false
           path: perf checkout
+      # No caches: a pull request's saves serve only that pull request,
+      # which rarely restores them (docs/design/ci-rust-caches.md).
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
+          cache: false
           rustflags: ""
           rust-src-dir: perf checkout
       - name: Set up MSVC environment
@@ -86,7 +88,7 @@ jobs:
           persist-credentials: false
           # `--base` builds a revision from this clone's history.
           fetch-depth: 0
-      # A main or tag run can write a cache scope pull requests or releases restore.
+      # A main run can write a cache scope pull requests restore.
       - name: Refuse a base outside this ref's history
         if: inputs.base != ''
         run: git merge-base --is-ancestor "$BASE" HEAD

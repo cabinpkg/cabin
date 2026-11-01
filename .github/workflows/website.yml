@@ -43,13 +43,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # No npm cache: restoring it took about as long as the downloads it saves.
       - uses: actions/setup-node@v7.1.0
         with:
           node-version-file: website/.node-version
-          cache: npm
-          # Resolved from the repository root: the job's
-          # working-directory default does not apply to action inputs.
-          cache-dependency-path: website/package-lock.json
 
       - name: Install dependencies
         run: npm ci

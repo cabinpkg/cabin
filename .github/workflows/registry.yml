@@ -187,14 +187,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # No caches: a pull request's saves serve only that pull request,
+      # which rarely restores them (docs/design/ci-rust-caches.md).
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          # A merge-group cache serves only re-runs of that one queue entry.
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
-          cache-workspaces: |
-            .
-            registry
+          cache: false
           rustflags: ""
 
       - name: Generate fixtures with the in-tree cabin
@@ -230,13 +227,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # No caches: a pull request's saves serve only that pull request,
+      # which rarely restores them (docs/design/ci-rust-caches.md).
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
-          cache-workspaces: |
-            .
-            registry
+          cache: false
           rustflags: ""
 
       - name: Install Kani
@@ -334,10 +329,11 @@ jobs:
       - name: Check the lifecycle model (scan-rejected content)
         run: java -XX:+UseParallelGC -jar tla2tools.jar -workers auto -cleanup -config RegistryLifecycleScan.cfg RegistryLifecycle.tla
 
+      # No caches: a pull request's saves serve only that pull request,
+      # which rarely restores them (docs/design/ci-rust-caches.md).
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
+          cache: false
           rustflags: ""
 
       # Each trap must be violated (registry/proofs/README.md, "Non-vacuity").

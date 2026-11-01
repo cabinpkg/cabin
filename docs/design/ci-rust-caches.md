@@ -66,11 +66,12 @@ version.
 
 Entries are immutable.  Two producer runs that compute the same key build the same lockfile, and
 GitHub refuses the second save with a warning.  GitHub evicts the least recently used entries
-once a repository exceeds its cache limit, and pull-request caches from other workflows keep this
-one over it: while this design was tested, the oldest entry in the repository was ten minutes
-old, and an entry nothing restored was gone within ten minutes.  A restore and a lookup both
-count as an access, so an entry that consumers keep restoring stays recent; one evicted anyway
-comes back at the next scheduled run.
+once a repository exceeds its 10 GB cache limit.  Pull-request saves kept this repository over it
+until the jobs in [Jobs without caches](#jobs-without-caches) stopped making them: the least
+recently used entry had been used within the hour, and the corpus `fuzz.yml` keeps on `main`
+between daily runs was evicted before the next run.  A restore and a lookup both count as an
+access, so an entry that consumers keep restoring stays recent; one evicted anyway comes back at
+the next scheduled run.
 
 The schedule, not a `push: main` trigger, keeps `.github/AGENTS.md`'s `push: main` rule intact.
 Dependency and toolchain inputs changed in 40 of the 252 commits to `main` in the 30 days before
@@ -94,10 +95,9 @@ Only these runs write the `main` cache scope that pull requests and merge groups
   group or `main` run restores, and a `merge_group` run saves only to its own queue ref.
   Consumers set `cache-save-if: false` so they skip those saves, but GitHub's scoping, not that
   input, is the boundary;
-- no privileged job restores a key `rust-cache.yml` seeds.  `deploy-registry`, ports-publish's
-  `publish` and the release build that `release.yml` runs through `dist.yml` restore their own
-  keys, none of which starts with `debug-` or `fuzz-`.  `dist.yml` is not seeded for that
-  reason.
+- no privileged job restores a key `rust-cache.yml` seeds.  `deploy-registry` and
+  ports-publish's `publish` restore their own keys, neither of which starts with `debug-` or
+  `fuzz-`, and the release build that `release.yml` runs through `dist.yml` restores no cache.
 
 No cached path holds a credential: `rust-cache` deletes `~/.cargo/credentials.toml` before saving,
 `cache-bin: false` keeps installed executables out, and the producer checks out with
@@ -140,12 +140,35 @@ slowest job, `build-and-test` on `windows-11-vs2026-arm`, went from 479 to 397 s
 also no longer spend 5 to 20 seconds per job saving.  A producer run that rebuilds every entry
 took 18 runner-minutes; one that finds its keys stops after the toolchain setup and the lookup.
 
-## Not seeded
+## Jobs without caches
 
-- `dist.yml`: `release.yml` calls it to build the attested release binaries, so a seeded entry
-  would put a shared artifact into a release; it also ran six times in five days.
-- `registry.yml`'s `conformance`, `kani` and `tlc`: a warm cache saves under 20 seconds each, off
-  the workflow's critical path.
-- `perf.yml`'s `smoke` job: it is not a required check and does not run in the merge queue, so a
-  cold build delays no merge.
+A pull request's saves serve only later runs of that pull request, and a merge group's only a
+rerun of that queue entry.  These jobs set `cache: false` rather than save entries that rarely
+hit, cost about as much to save as they return, and evict the entries above.  Pull-request runs
+from 2026-10-27 to 2026-11-01, where each job saved on every miss:
+
+| Job | Runs that restored an entry | Median run, cold / warm | Median save |
+| --- | --- | --- | --- |
+| `perf.yml` `smoke`, `ubuntu-24.04` | 8 of 72 | 228 / 124 s | 8 s |
+| `perf.yml` `smoke`, `windows-2025-vs2026` | 9 of 71 | 429 / 265 s | 27 s |
+| `registry.yml` `conformance` | 16 of 114 | 89 / 35 s | 7 s |
+| `registry.yml` `kani` | 12 of 98 | 112 / 93 s | 6 s |
+| `dist.yml` `binaries`, all five targets | 12 of 80 | 119-300 / 82-244 s | 4-22 s |
+| `dist.yml` `demo` | 3 of 17 | 243 / 198 s | 6 s |
+
+The merge-group runs of `conformance`, `kani` and `dist.yml` never restored one.  None of these
+jobs is seeded on `main` instead:
+
+- `dist.yml`: `release.yml` calls it to build the attested release binaries, which must not
+  contain a restored artifact, and it runs only when its packaging inputs change;
+- `perf.yml`'s `smoke`: it is not a required check and does not run in the merge queue, so a
+  cold build delays no merge;
+- `registry.yml`'s `conformance`, `kani` and `tlc-scan`: the merge queue already ran them cold,
+  so it loses nothing, and a pull request loses only the occasional hit above;
 - `ports-publish.yml`'s `dry-run`: building takes under a tenth of the job.
+
+`website.yml` and `ci.yml` set up Node without an npm cache for the same reason: restoring the
+website's cache took about as long as the downloads it saved, and every merge group saved its own
+145 MB copy.  Two small pull-request saves remain: `registry-build-work`'s `worker-build` install,
+about 4 MB and saved only when `main`'s copy is missing, and `proofs.yml`'s Lean build, about
+1 MB, whose restore cuts that job from about three minutes to 20 seconds.
