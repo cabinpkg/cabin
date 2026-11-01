@@ -344,6 +344,9 @@ fn plans_single_executable() {
         cc.output,
         Utf8PathBuf::from("/abs/proj/build/dev/packages/hello/obj/hello/src/main.cc.o")
     );
+    // Ninja runs every compile from the profile directory, where a
+    // relative include directory from `CFLAGS` resolves.
+    assert_eq!(cc.directory, Utf8PathBuf::from("/abs/proj/build/dev"));
     assert!(cc.arguments.iter().any(|a| a == "-std=c++17"));
 }
 
