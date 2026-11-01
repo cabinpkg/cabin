@@ -622,7 +622,9 @@ impl DevServers {
     /// cache so the download-count leg observes a fresh count
     /// (deployed: 300 s), with `DOWNLOAD_FLUSH_INTERVAL_MS=0` flushing
     /// every buffered download count immediately for the same reason
-    /// (deployed: 30 s batches).  The `GITHUB_*` entries point the claim
+    /// (deployed: 30 s batches).  `PACKAGE_CACHE_TTL_SECS=0` disables
+    /// the package-document edge cache so a verdict or yank shows in
+    /// the next read (deployed: 60 s).  The `GITHUB_*` entries point the claim
     /// flow's server-side calls and the verdict endpoint's JWKS fetch
     /// at the GitHub mock (the client secret only has to exist for the
     /// mock exchange).  `VERIFIER_BACKING_ACCOUNT_ID` overrides the
@@ -713,6 +715,7 @@ SESSION_SECRET=\"smoke-session-secret-not-for-production\"
 ALLOWED_GITHUB_IDS=\"0,1,3,4\"
 SERVICE_MODE_TTL_SECS=\"0\"
 STATS_CACHE_TTL_SECS=\"0\"
+PACKAGE_CACHE_TTL_SECS=\"0\"
 DOWNLOAD_FLUSH_INTERVAL_MS=\"0\"
 GITHUB_OAUTH_BASE=\"http://127.0.0.1:{github}\"
 GITHUB_API_BASE=\"http://127.0.0.1:{github}\"

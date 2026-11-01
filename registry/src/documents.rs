@@ -181,9 +181,67 @@ fn resolution_fields(entry: &Map<String, Value>) -> Map<String, Value> {
         .collect()
 }
 
+/// The package document's edge-cache TTL unless the
+/// `PACKAGE_CACHE_TTL_SECS` env var overrides it (0 disables the cache;
+/// the smoke test pins 0 to observe verdicts and yanks immediately).
+/// The Cache API is per colo and nothing purges it, so this bounds how
+/// long a colo can keep serving a document that predates a yank or
+/// verdict.
+pub const PACKAGE_CACHE_TTL_SECS: u64 = 60;
+
+/// The synthetic edge-cache identity of `/packages/<scope>/<name>.json`,
+/// built only from the route's validated components - never the request
+/// URL or its query string. `/` is in neither grammar, so distinct
+/// packages never share an entry. Like the archive cache's key it is no
+/// route, so the entry is reachable only through the read handler,
+/// after its credential check and read gate.
+pub fn package_cache_url(scope: &str, name: &str) -> String {
+    format!("https://registry.cabinpkg.com/__cache/packages/{scope}/{name}.json")
+}
+
+/// The `Cache-Control` for the stored copy of a package-document
+/// response, or `None` when it must not be stored. Only the composed
+/// document and the unknown-package `404` are stored, so a transient
+/// `500` never outlives its cause.
+pub fn package_cache_control(status: u16, ttl_secs: u64) -> Option<String> {
+    (ttl_secs > 0 && matches!(status, 200 | 404)).then(|| format!("public, max-age={ttl_secs}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::{Route, match_route};
+
+    #[test]
+    fn package_cache_keys_map_back_to_exactly_their_identity() {
+        // A key that parses back to its own (scope, name) is never shared,
+        // including by pairs whose concatenations or folded names agree.
+        for (scope, name) in [("ab", "c"), ("a", "bc"), ("a", "b-c"), ("a", "b_c")] {
+            let url = package_cache_url(scope, name);
+            let path = url.strip_prefix("https://registry.cabinpkg.com").unwrap();
+            assert_eq!(
+                match_route(path),
+                None,
+                "the cache key must not be servable"
+            );
+            assert_eq!(
+                match_route(path.strip_prefix("/__cache").unwrap()),
+                Some(Route::Package { scope, name })
+            );
+        }
+    }
+
+    #[test]
+    fn only_documents_and_unknown_packages_are_cached() {
+        for status in [200, 404] {
+            assert_eq!(
+                package_cache_control(status, 60).as_deref(),
+                Some("public, max-age=60")
+            );
+        }
+        assert_eq!(package_cache_control(500, 60), None);
+        assert_eq!(package_cache_control(200, 0), None);
+    }
 
     #[test]
     fn config_json_matches_the_contract_byte_for_byte() {

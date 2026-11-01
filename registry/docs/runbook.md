@@ -77,8 +77,10 @@ only that surface, not `/healthz` or the read routes on
 would throttle legitimate `cabin` traffic - resolving and fetching a
 dependency tree fans out many read requests from one IP in seconds -
 while abuse of the omitted routes can at worst exhaust free-plan quotas
-that fail closed without billing (Workers requests, D1 reads; artifact
-downloads are R2 Class B). The one rule the Free plan grants goes where
+that fail closed without billing (Workers requests; D1 reads, though a
+read-route request reads a few point rows plus rows of only the package
+it names, and a package document the edge cache still holds none;
+artifact downloads are R2 Class B). The one rule the Free plan grants goes where
 the paid exposure (R2 Class A writes) and the heavy CPU live. The zone
 security exemption above must likewise keep the machine `/api/*` traffic
 on `cabinpkg.com` out of any visitor challenge.
@@ -302,7 +304,9 @@ smoke test). What it does, in order:
 5. Bumps `meta.registry_generation` to one more than the pre-wipe value
    read in step 1 (every authenticated response except a token
    self-revocation echoes it as `x-cabin-registry-generation`, so
-   clients and smoke runs can tell the wipe happened).
+   clients and smoke runs can tell the wipe happened). A colo's edge
+   cache can keep serving a pre-wipe package document, stamp included,
+   for up to its 60 s TTL.
 6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings.
 7. Resets the governor ledger - a manual follow-up the command reminds

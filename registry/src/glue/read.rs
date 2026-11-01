@@ -116,7 +116,11 @@ pub(super) async fn handle_registry(
     } else {
         match route {
             Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
-            Route::Package { scope, name } => package_response(&db, scope, name).await?,
+            Route::Package { scope, name } => {
+                // Stamped inside: a cache hit must not read D1.
+                let response = cached_package_response(env, &db, scope, name).await?;
+                return Ok((response, auth.map(|auth| auth.token_id)));
+            }
             Route::Artifact {
                 scope,
                 name,
@@ -150,6 +154,46 @@ pub(super) async fn handle_registry(
     // stamp every read-plane response with the registry generation.
     stamp_generation(&db, &mut response).await?;
     Ok((response, auth.map(|auth| auth.token_id)))
+}
+
+/// [`package_response`] through the edge cache. No caller input
+/// reaches the composition, so one entry serves anonymous and
+/// credentialed readers alike (a credential is still validated first),
+/// and a hit reads no package rows: its generation stamp is the fill's,
+/// up to one TTL old. Fills are not coalesced, so concurrent misses each
+/// read the package. Cache errors read as misses, as for archives.
+async fn cached_package_response(
+    env: &Env,
+    db: &D1Database,
+    scope: &str,
+    name: &str,
+) -> worker::Result<Response> {
+    let ttl_secs = env
+        .var("PACKAGE_CACHE_TTL_SECS")
+        .ok()
+        .and_then(|var| var.to_string().parse::<u64>().ok())
+        .unwrap_or(documents::PACKAGE_CACHE_TTL_SECS);
+    let cache_url = documents::package_cache_url(scope, name);
+    let cache = worker::Cache::default();
+    if ttl_secs > 0
+        && let Ok(Some(cached)) = cache.get(cache_url.as_str(), false).await
+    {
+        return thaw_cached(cached);
+    }
+    let mut response = package_response(db, scope, name).await?;
+    stamp_generation(db, &mut response).await?;
+    if let Some(cache_control) = documents::package_cache_control(response.status_code(), ttl_secs)
+    {
+        let mut for_cache = response.cloned()?;
+        for_cache
+            .headers_mut()
+            .set("cache-control", &cache_control)?;
+        if let Err(err) = cache.put(cache_url.as_str(), for_cache).await {
+            console_error!("caching package document {scope}/{name} failed: {err}");
+        }
+    }
+    response.headers_mut().set("cache-control", "no-store")?;
+    Ok(response)
 }
 
 /// `GET /packages/<scope>/<name>.json`: composed from **verified**
@@ -350,8 +394,9 @@ fn thaw_cached(mut cached: Response) -> worker::Result<Response> {
         .with_status(status)
         .with_headers(headers);
     // The stored copy carries the internal `public` freshness header;
-    // the outward answer must not (it would let the edge re-serve the
-    // body without the Worker, dropping the download count).
+    // the outward answer must not: a downstream re-serve would bypass
+    // the Worker, dropping an archive's download count, and would
+    // stack its own TTL on a package document's freshness bound.
     response.headers_mut().set("cache-control", "no-store")?;
     Ok(response)
 }
