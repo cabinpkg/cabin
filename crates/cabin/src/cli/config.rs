@@ -48,16 +48,7 @@ pub(crate) fn load_effective_config(graph: &PackageGraph) -> Result<EffectiveCon
 /// and `graph.is_workspace_root` reflects the same `[workspace]`
 /// table this helper parses out of the manifest.
 pub(crate) fn load_effective_config_for_manifest(manifest_path: &Path) -> Result<EffectiveConfig> {
-    // If the manifest is missing or unreadable, defer to the
-    // workspace loader's typed diagnostic by silently producing
-    // an empty effective config (user-level config files are
-    // still ignored).  The caller will invariably try to load the
-    // workspace immediately after and that path emits the
-    // canonical `cabin::workspace::manifest_not_found` /
-    // `cabin::manifest::unreadable` errors.
-    let Ok(parsed) = cabin_manifest::load_manifest(manifest_path) else {
-        return Ok(merge_loaded_files(Vec::new()));
-    };
+    let parsed = cabin_manifest::load_manifest(manifest_path)?;
     let root_dir = manifest_path.parent().ok_or_else(|| {
         anyhow::anyhow!(
             "manifest path {} has no parent directory",
