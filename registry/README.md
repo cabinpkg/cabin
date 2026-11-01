@@ -137,7 +137,7 @@ This directory is a standalone Cargo workspace, excluded from the root
 workspace: `cargo build`/`cargo test` at the repository root never touch it.
 CI gates `.github/workflows/registry.yml`'s jobs on registry-relevant
 changes (the `registry` filter in `.github/path-filters.yml`; the build
-and Kani jobs on the narrower `registry-build` filter, the TLC job on
+and Kani jobs on the narrower `registry-build` filter, the TLC jobs on
 the narrower `tlc` filter); a run on
 `main` also deploys the Worker (its `deploy-registry` job), unless a
 newer registry-relevant commit superseded it (green, Deploy step

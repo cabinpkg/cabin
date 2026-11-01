@@ -114,7 +114,7 @@ registry-build:
   - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
-# registry.yml's tlc job: the TLA+ model and the xtask that checks its
+# registry.yml's tlc-* jobs: the TLA+ model and the xtask that checks its
 # witness traps. The model abstracts the Worker rather than compiling
 # it, so Worker and client changes cannot change TLC's verdict; a
 # runner-side TLC break surfaces on the next model change (accepted).
