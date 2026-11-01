@@ -223,8 +223,7 @@ pub(crate) fn explain(
             print!("{rendered}");
         }
         ResolveFormat::Json => {
-            let value = cabin_explain::render_explanation_json(&explanation);
-            crate::print_pretty_json(&value, "failed to serialize explanation as JSON")?;
+            crate::print_pretty_json(&explanation, "failed to serialize explanation as JSON")?;
         }
     }
     Ok(())

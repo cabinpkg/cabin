@@ -124,8 +124,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
             print!("{rendered}");
         }
         ResolveFormat::Json => {
-            let value = cabin_explain::render_tree_json(&forest);
-            crate::print_pretty_json(&value, "failed to serialize tree as JSON")?;
+            crate::print_pretty_json(&forest, "failed to serialize tree as JSON")?;
         }
     }
     Ok(())

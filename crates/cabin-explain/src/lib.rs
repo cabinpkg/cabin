@@ -8,17 +8,17 @@
 //!   primary packages,
 //!   with edges tagged by [`cabin_core::DependencyKind`] and
 //!   provenance pulled from the lockfile / active patch set.
-//!   Renderers ([`render_tree_human`] /
-//!   [`render_tree_json`]) turn the typed tree into either a
-//!   stable text drawing or a structured JSON document.
+//!   [`render_tree_human`] turns the typed tree into a stable
+//!   text drawing; its `Serialize` form is the JSON document,
+//!   which fails to serialize on a non-UTF-8 patched path.
 //!
 //! - [`explain_package`] / [`explain_target`] /
 //!   [`explain_source`] / [`explain_feature`] each return the
 //!   payload of one [`Explanation`] variant.  Each
 //!   variant carries only structured data so callers can render
 //!   either a human-readable summary
-//!   ([`render_explanation_human`]) or a stable JSON document
-//!   ([`render_explanation_json`]).
+//!   ([`render_explanation_human`]) or serialize a stable JSON
+//!   document.
 //!
 //! - [`explain_build_config`] instead returns the package's
 //!   resolved [`cabin_core::BuildConfiguration`] directly; the
@@ -401,21 +401,6 @@ fn render_source_label(source: &SourceProvenance) -> String {
     }
 }
 
-/// Render the forest as a stable JSON document.
-///
-/// # Panics
-/// Panics if a [`TreeNode`] fails to serialize via `serde_json::to_value`,
-/// which cannot happen because [`TreeNode`] derives [`Serialize`] with no
-/// fallible custom serializer.
-pub fn render_tree_json(forest: &[TreeNode]) -> serde_json::Value {
-    serde_json::Value::Array(
-        forest
-            .iter()
-            .map(|n| serde_json::to_value(n).expect("TreeNode is Serialize"))
-            .collect(),
-    )
-}
-
 /// Typed result of a `cabin explain` package, target, source,
 /// or feature query.  Renderers read the variant to choose the layout; the
 /// JSON output is a tagged union so downstream tooling sees the
@@ -458,9 +443,9 @@ pub struct PackageExplanation {
 
 /// Cap on the shortest paths reconstructed per selected root.  The
 /// number of shortest paths grows exponentially with diamond-shaped
-/// dependency graphs (two parallel deps per layer double it), so an
-/// unbounded reconstruction lets a 40-manifest checkout exhaust memory
-/// before anything is built; 64 keeps every realistic answer intact.
+/// dependency graphs (each layer of two packages that both depend on
+/// the next layer's two doubles it), so reconstruction stops at the cap
+/// to keep its work bounded.
 pub const MAX_PATHS_PER_ROOT: usize = 64;
 
 /// One step in a [`PackageExplanation::paths`] chain.
@@ -585,7 +570,7 @@ pub fn explain_package(
             shortest_paths_to(graph, root, target_idx, included, platform);
         paths_truncated |= truncated;
         for path in root_paths {
-            paths.push(materialize_path(graph, &path));
+            paths.push(materialize_path(graph, &path, included, platform));
         }
     }
     paths.sort_by(|a, b| {
@@ -753,7 +738,14 @@ fn shortest_paths_to(
     (paths, truncated)
 }
 
-fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
+/// Label each step with the first edge from its parent that the walk's
+/// `included` / `platform` scope follows.
+fn materialize_path(
+    graph: &PackageGraph,
+    path: &[usize],
+    included: Option<&BTreeSet<usize>>,
+    platform: Option<&TargetPlatform>,
+) -> Vec<ExplainStep> {
     let mut out: Vec<ExplainStep> = Vec::with_capacity(path.len());
     for (i, &idx) in path.iter().enumerate() {
         let pkg = &graph.packages[idx];
@@ -764,7 +756,7 @@ fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
             parent
                 .deps
                 .iter()
-                .find(|e| e.index == idx)
+                .find(|e| e.index == idx && follows(e, included, platform))
                 .map(|e| e.kind.as_str())
         };
         out.push(ExplainStep {
@@ -1057,16 +1049,6 @@ pub fn render_explanation_human(exp: &Explanation) -> String {
     }
 }
 
-/// Render an [`Explanation`] as a stable JSON document.
-///
-/// # Panics
-/// Panics if the [`Explanation`] fails to serialize via `serde_json::to_value`,
-/// which cannot happen because [`Explanation`] derives [`Serialize`] with no
-/// fallible custom serializer.
-pub fn render_explanation_json(exp: &Explanation) -> serde_json::Value {
-    serde_json::to_value(exp).expect("Explanation is Serialize")
-}
-
 /// Errors produced by the explain queries.  Wording is stable
 /// so integration tests can match on substrings.
 #[derive(Debug, Error)]
@@ -1330,6 +1312,26 @@ mod tests {
             .map(|path| path.iter().map(|step| step.name.as_str()).collect())
             .collect();
         assert_eq!(names, [["app", "lib", "util"]]);
+    }
+
+    #[test]
+    fn path_steps_take_the_kind_of_an_edge_active_on_the_platform() {
+        // app -> lib as a build dep gated to another OS, declared
+        // before the unconditional normal edge to the same package.
+        let mut graph = three_pkg_graph();
+        graph.packages[0].deps.insert(
+            0,
+            DependencyEdge {
+                index: 1,
+                kind: DependencyKind::Build,
+                condition: Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap()),
+                ignore_interface_standard: false,
+            },
+        );
+        let host = TargetPlatform::current();
+        let exp = explain_package(&graph, &[0], "lib", None, None, None, Some(&host)).unwrap();
+        assert_eq!(exp.paths.len(), 1);
+        assert_eq!(exp.paths[0][1].edge_kind, Some("normal"));
     }
 
     #[test]

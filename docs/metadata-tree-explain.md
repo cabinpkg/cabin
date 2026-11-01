@@ -91,8 +91,8 @@ Five subcommands:
 ### `cabin explain package <name>`
 
 Reports the resolved package's source provenance plus the minimal paths from selected roots that
-reach it, through packages the selected features include.  Paths are sorted by `(length, joined
-name sequence)` so the answer is deterministic.  At
+reach it, through packages the selected features include.  Paths are sorted by length, then by
+their package names compared step by step, so the answer is deterministic.  At
 most 64 shortest paths are kept per selected root (diamond-shaped graphs otherwise double the count
 with every layer); when a root had more, the human output says so and the JSON carries
 `"paths_truncated": true` (the field is omitted otherwise).  The `is_selected_root` flag
@@ -104,7 +104,7 @@ The JSON shape is `{ "kind": "package", "name", "version", "source", "paths": [ 
 ### `cabin explain target <name>`
 
 Reports a target's owning package, kind (the same string the manifest uses: `library`, `executable`,
-`test`, ...), source-language summary (any subset of `c`, `cxx`, `rust`), declared deps (in
+`test`, ...), source-language summary (any subset of `c`, `cxx`), declared deps (in
 declaration order), declared `required-features` (omitted when the target is not feature-gated),
 and three classification flags (`is_buildable`, `is_test`, `is_dev_only`).
 
@@ -165,8 +165,8 @@ Given the same workspace tree, the same lockfile, and the same merged effective 
 
 produce byte-identical output across runs and machines (modulo non-machine-specific paths that
 originate in the user's input).  The human formats are also stable: tree children sort by
-`(dependency_kind, name, version)`, explanation paths sort by `(length, joined name sequence)`, and
-JSON object keys are emitted in struct-declaration order through `serde`.
+`(dependency_kind, name, version)`, explanation paths sort by length and then by package names
+step by step, and JSON object keys are emitted in struct-declaration order through `serde`.
 
 If you observe non-determinism, please file a bug.  Every consumer of these commands assumes
 byte-stability.
