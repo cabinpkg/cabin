@@ -233,8 +233,7 @@ manifest that carries it.
 `cabin metadata` reports the table as declared under the top-level `system_provided` object;
 `cabin -v` prints each probed module's version.  Not yet supported: the table in config files,
 packages with several library targets, static linking (`--static`), cross-sysroot defaults, a
-provider for MSVC, and provided packages a build dependency reaches, all planned in roadmap
-[stage 06](design/capability-roadmap/ledger.md#3-system-providers).
+provider for MSVC, and provided packages a build dependency reaches.
 
 ## What Cabin does not do
 

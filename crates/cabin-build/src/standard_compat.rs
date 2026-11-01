@@ -437,7 +437,7 @@ fn dependency_attributes(
     );
     // A system-provided target's standards are the system library's,
     // which Cabin does not know: it counts as a compiled library that
-    // declares no interface (spec D9 row 4), constraining no consumer.
+    // declares no interface (D9 row 4), constraining no consumer.
     if req.system_targets.contains_key(tid) {
         attributes = DependencyAttributes {
             kind: cabin_core::standard_compatibility::DependencyKind::Compiled,
