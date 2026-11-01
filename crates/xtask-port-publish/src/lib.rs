@@ -53,7 +53,7 @@ pub struct Options {
     /// Scratch root for the staged packages, the temporary registry,
     /// and preflight build outputs.
     pub work_dir: PathBuf,
-    /// `cabin` binary for the preflight builds.
+    /// `cabin` binary for the preflight builds and the uploads.
     pub cabin: PathBuf,
 }
 

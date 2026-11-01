@@ -3,7 +3,7 @@
 //! Offline by default: every port pins an `https://` URL (the
 //! provenance rules require it) whose archive is pre-seeded into the
 //! port cache, so the cache-first fetch never touches the network.
-//! The `--publish` test serves a fake registry on a loopback
+//! The `--publish` tests serve a fake registry on a loopback
 //! `tiny_http` server.
 
 use std::fs;
@@ -152,10 +152,10 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
             "fastlz-0.5.0/fastlz.h",
             "#ifndef FASTLZ_H\n#define FASTLZ_H\nint fastlz_answer(void);\n#endif\n",
         ),
-        // Deliberately does not compile as shipped: FASTLZ_ANSWER is
-        // undefined until the committed patch supplies it, so the
-        // probe build below can only succeed if the declared patch
-        // actually ran through the shared materializer.
+        // Does not compile as shipped: FASTLZ_ANSWER is undefined
+        // until the committed patch supplies it, so the probe build
+        // can only succeed if the declared patch ran through the
+        // shared materializer.
         (
             "fastlz-0.5.0/fastlz.c",
             "#include \"fastlz.h\"\nint fastlz_answer(void) { return FASTLZ_ANSWER; }\n",
@@ -242,12 +242,11 @@ fn assert_publication_order(stdout: &str) {
     let _ = position("cabin-ports/fastlz 0.5.0");
 }
 
-/// The port staged from its committed manifest, was published
+/// `fastlz` was staged from its committed manifest, published
 /// verbatim (identity, provenance, and target key all straight from
-/// the file), and probe-built from the registry.  Its
-/// upstream source does not compile unpatched, so the probe artifact
-/// existing is proof the declared patch ran through the shared
-/// materializer.
+/// the file), and probe-built from the registry.  Its upstream source
+/// does not compile unpatched, so the probe artifact existing is proof
+/// the declared patch ran through the shared materializer.
 fn assert_patched_package_round_trip(registry: &std::path::Path, work: &std::path::Path) {
     let fastlz_index: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(registry.join("packages/cabin-ports/fastlz.json")).unwrap(),
@@ -297,11 +296,11 @@ fn write_port_package(
         .unwrap();
 }
 
-/// Scrub the environment with the same variable set as
-/// `crates/cabin/tests/common/mod.rs`'s `cabin()` helper (that
-/// helper is a private test module of the `cabinpkg` crate, so it
-/// cannot be imported here), so a developer's config, toolchain, or
-/// wrapper overrides cannot leak into the spawned `cabin` builds.
+/// Scrub a subset of the variables `crates/cabin/tests/common/mod.rs`'s
+/// `cabin()` helper scrubs (that helper is a private test module of
+/// the `cabinpkg` crate, so it cannot be imported here), so a
+/// developer's config, toolchain, or wrapper overrides cannot leak
+/// into the spawned `cabin` builds.
 fn scrubbed(mut command: Command) -> Command {
     command.env("CABIN_NO_CONFIG", "1");
     command.env("CABIN_TERM_COLOR", "never");
@@ -520,8 +519,9 @@ fn the_earliest_failing_port_is_reported_when_a_later_one_fails_first() {
     );
 }
 
-/// Fake remote registry: `config.json` + empty package reads on the
-/// sparse index, and a publish API recording every PUT.
+/// Fake remote registry: the sparse index serves `config.json` and a
+/// `cabin-ports/zlib` entry (404 otherwise), the publish API accepts
+/// authorized PUTs, and every request is recorded.
 struct FakeRegistry {
     url: String,
     requests: Arc<Mutex<Vec<(String, String, usize)>>>,
@@ -647,7 +647,7 @@ impl FakeRegistry {
 }
 
 /// The drained-bucket refusal: `429` with a one-second `Retry-After`,
-/// the smallest delay the retry loop honors, keeping the test fast.
+/// keeping the test fast.
 fn respond_rate_limited(request: tiny_http::Request) {
     let response = tiny_http::Response::from_string(
         "{\"error\":{\"code\":\"rate_limited\",\"detail\":\"publish rate limit exceeded\"}}",
@@ -705,9 +705,7 @@ fn publish_uploads_every_package_in_dependency_order() {
         .collect();
     // Dependency order: fastlz (no deps, first by name) and zlib
     // upload before libpng, all framed bodies non-trivial (metadata
-    // JSON + zip archive).  Every upload opts into new revisions: a
-    // changed committed manifest IS the deliberate intent to respin its
-    // published version.
+    // JSON + zip archive).
     assert_eq!(
         puts.iter()
             .map(|(path, _)| path.as_str())
@@ -735,7 +733,7 @@ fn publish_uploads_every_package_in_dependency_order() {
 /// The registry and probe trees the preflight leaves under
 /// `work/run/`, shared by both modes and asserted once.
 fn assert_preflight_products(work: &Path) {
-    // The temporary file registry holds both packages, scoped.
+    // The temporary file registry holds every package, scoped.
     let registry_dir = work.join("run").join("registry");
     assert!(registry_dir.join("config.json").is_file());
     let zlib_index: serde_json::Value =
@@ -844,9 +842,8 @@ fn publish_retries_a_rate_limited_package() {
         output.status.success(),
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    // The pacing lives in the spawned `cabin publish` batch now, on
-    // the typed 429 error; its warning flows through the inherited
-    // stderr.
+    // The pacing lives in the spawned `cabin publish` batch, on the
+    // typed 429 error; its warning flows through the inherited stderr.
     assert!(
         stderr.contains("the registry rate limited cabin-ports/zlib"),
         "{stderr}"
@@ -939,8 +936,7 @@ fn a_failed_preflight_makes_no_remote_mutation() {
 /// The clap wiring is the mode contract, so its two fail-opens are
 /// pinned: a bare invocation must not run the preflight, and an index
 /// URL must not turn an explicit --dry-run into a publish (a `SetTrue`
-/// flag satisfies `requires` by its defaulted value, which is how the
-/// first wiring of this group let that combination through).
+/// flag satisfies `requires` by its defaulted value).
 #[test]
 fn requires_a_mode() {
     let bare = tool().output().unwrap();

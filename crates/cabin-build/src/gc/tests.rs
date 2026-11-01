@@ -587,7 +587,7 @@ fn collection_never_follows_or_removes_links_and_directories() {
     fx.build(DAY, &[OLD_OBJ, APP]);
     work_days(&fx, DAY, 2, &["dev/packages/other/libother.a"]);
 
-    // Swap the output directory for a link to an unrelated tree, and
+    // Swap the `obj` directory for a link to an unrelated tree, and
     // the executable for a directory.
     std::fs::remove_dir_all(fx.file("dev/packages/app/obj")).unwrap();
     if !symlink_dir(&outside.child("obj"), &fx.file("dev/packages/app/obj")) {
