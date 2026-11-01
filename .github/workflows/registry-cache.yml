@@ -14,7 +14,8 @@ permissions: {}
 
 jobs:
   seed:
-    runs-on: ubuntu-latest
+    # The image its cache key names.
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
 
@@ -32,7 +33,7 @@ jobs:
         with:
           target: wasm32-unknown-unknown
           cache-on-failure: false
-          cache-shared-key: registry-build-work
+          cache-shared-key: registry-build-work-ubuntu-26.04
           cache-bin: false
           cache-workspaces: |
             .
