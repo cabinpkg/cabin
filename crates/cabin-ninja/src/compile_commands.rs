@@ -75,6 +75,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
             compile_commands: vec![CompileCommand {
                 directory: Utf8PathBuf::from("/abs/build"),
                 file: Utf8PathBuf::from("/abs/src/main.cc"),
@@ -124,6 +125,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let body = render_compile_commands(&graph).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();

@@ -926,6 +926,7 @@ fn emit_actions(
         dialect: req.dialect,
         default_outputs,
         planned_packages,
+        build_context_packages: BTreeSet::new(),
         compile_commands,
         standard_violations,
         standard_compat_violations,

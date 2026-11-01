@@ -748,6 +748,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let mingw = cabin_core::TargetPlatform::from_triple("x86_64-w64-mingw32").unwrap();
         let plan = cabin_test::plan_tests(&graph, &build_graph, &mingw, Some(&[0]));
@@ -765,6 +766,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let mut plan = cabin_test::plan_tests(
             &graph,

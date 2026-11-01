@@ -22,13 +22,18 @@ pub struct BuildGraph {
     pub dialect: Dialect,
     /// Output paths that should be marked as default targets.
     pub default_outputs: Vec<Utf8PathBuf>,
-    /// Full names of every package with at least one planned target.
-    /// Consumers that map build paths back to packages (progress
-    /// banners, link diagnostics) restrict their lookups to this
-    /// set, so an unplanned workspace member whose bare name equals
-    /// a planned package's scope can never win the reverse parse.
-    /// Sorted for determinism.
+    /// Full names of every package with at least one planned target
+    /// in this graph's own context.  Consumers that map build paths
+    /// back to packages (progress banners, link diagnostics) restrict
+    /// their lookups to the planned sets, so an unplanned workspace
+    /// member whose bare name equals a planned package's scope can
+    /// never win the reverse parse.  Sorted for determinism.
     pub planned_packages: std::collections::BTreeSet<String>,
+    /// The `planned_packages` of the build-context plan folded in by
+    /// [`Self::append`].  Kept apart because each plan rejects only its
+    /// own bare-name/scope collisions: one context's bare package may
+    /// share its name with the other context's scope.
+    pub build_context_packages: std::collections::BTreeSet<String>,
     /// One entry per C/C++ source compile, used to emit
     /// `compile_commands.json`.  Both languages contribute entries
     /// with their language-appropriate compiler driver and flags
@@ -62,7 +67,7 @@ impl BuildGraph {
         debug_assert_eq!(self.dialect, other.dialect);
         self.actions.extend(other.actions);
         self.default_outputs.extend(other.default_outputs);
-        self.planned_packages.extend(other.planned_packages);
+        self.build_context_packages.extend(other.planned_packages);
         self.compile_commands.extend(other.compile_commands);
         self.standard_violations.extend(other.standard_violations);
         self.standard_compat_violations

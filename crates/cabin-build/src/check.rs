@@ -85,6 +85,7 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
         dialect: graph.dialect,
         default_outputs,
         planned_packages: graph.planned_packages,
+        build_context_packages: graph.build_context_packages,
         compile_commands: graph.compile_commands,
         standard_violations,
         // Edge-level standard-compat violations describe the
@@ -175,6 +176,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
 
@@ -241,6 +243,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(
@@ -264,6 +267,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1, "only the compile survives");
@@ -291,6 +295,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         let lowered = lower(Dialect::GnuLike, &out.actions[0]);
@@ -316,6 +321,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1);
@@ -348,6 +354,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[]);
         assert_eq!(out.compile_commands, vec![cc]);
@@ -376,6 +383,7 @@ mod tests {
             ],
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         };
         let selected = vec![PathBuf::from("/abs/build/dev/packages/app")];
         let checked = into_check_graph(graph, &selected);
