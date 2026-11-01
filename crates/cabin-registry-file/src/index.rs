@@ -103,8 +103,8 @@ pub fn render(index: &PackageIndex, path: &Path) -> Result<String, RegistryError
 ///
 /// Returns an empty vector when the registry or the package has no
 /// index yet (a first publish).  A version entry with no `standards`
-/// field yields an empty table (absence = unconstrained), so
-/// pre-`standards` entries compare as an all-unconstrained baseline.
+/// field yields an empty table, against which PL3 makes no
+/// comparison (see `cabin_publish::lints::patch_release_findings`).
 /// Reads exactly the `<registry>/packages/<name>.json` the publish
 /// path splices into, so the lint sees the same versions the write
 /// will.
