@@ -243,10 +243,7 @@ impl<'a> Provider<'a> {
     /// Whether a lazily loaded index has yet to fetch `name`, which
     /// joins the names this round stops for.
     fn unfetched(&self, name: &PackageName) -> bool {
-        let unfetched = self.input.lazy_index
-            && !self.is_local(name)
-            && *name != self.input.root_name
-            && self.index.package(name).is_none();
+        let unfetched = matches!(self.entry(name), Err(ResolveError::MetadataNeeded(_)));
         if unfetched {
             self.unfetched.borrow_mut().insert(name.clone());
         }
@@ -284,13 +281,17 @@ impl<'a> Provider<'a> {
         name: &PackageName,
         range: &Ranges<Version>,
     ) -> Result<bool, ResolveError> {
-        // The edge requires `name` itself, so a round that reaches it
-        // stops for its metadata before it can succeed; the next round
-        // reads its features.
-        if self.unfetched(name) {
-            return Ok(false);
-        }
-        Ok(self.entry(name)?.is_some_and(|entry| {
+        let entry = match self.entry(name) {
+            // The edge requires `name` itself, so a round that reaches
+            // it stops for its metadata before it can succeed; the next
+            // round reads its features.
+            Err(ResolveError::MetadataNeeded(_)) => {
+                self.unfetched.borrow_mut().insert(name.clone());
+                return Ok(false);
+            }
+            entry => entry?,
+        };
+        Ok(entry.is_some_and(|entry| {
             entry
                 .versions
                 .iter()
@@ -559,20 +560,21 @@ impl DependencyProvider for Provider<'_> {
         range: &Self::VS,
         package_conflicts_counts: &PackageResolutionStatistics,
     ) -> Self::Priority {
-        // A package a lazily loaded index has not fetched goes last, so
-        // a round decides everything it can before it stops, and the
-        // next fetches every name it reached at once.
-        if let Node::Package(name) | Node::Feature(name, _) = node
-            && self.unfetched(name)
-        {
-            return (0, 0, Reverse(usize::MAX));
-        }
         let (count, tier) = match node {
             Node::Root(_) => (usize::from(range.contains(&self.input.root_version)), 0),
             Node::Package(name) => (self.candidate_count(name, range, None), 0),
             Node::Feature(name, feature) => (self.candidate_count(name, range, Some(feature)), 1),
         };
         if count == 0 {
+            // A package a lazily loaded index has not fetched, which
+            // counts zero, goes last, so a round decides everything it
+            // can before it stops, and the next fetches every name it
+            // reached at once.
+            if let Node::Package(name) | Node::Feature(name, _) = node
+                && self.unfetched(name)
+            {
+                return (0, 0, Reverse(usize::MAX));
+            }
             return (u32::MAX, tier, Reverse(0));
         }
         (
