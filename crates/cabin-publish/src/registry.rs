@@ -71,8 +71,8 @@ pub struct RegistryPublishReport {
 /// [`PublishError::StandardCompatibility`] when a PL1 lint rejects
 /// the package, or [`PublishError::Registry`] when reading the PL3
 /// baseline or the registry write fails - the latter propagated from
-/// `publish_to_registry` (unsafe package name, a respin without the
-/// opt-in, registry config/index problems, or I/O).
+/// `publish_to_registry` (a respin without the opt-in, registry
+/// config/index problems, or I/O).
 pub fn publish_to_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
@@ -86,8 +86,8 @@ pub fn publish_to_file_registry(
 /// # Errors
 /// Returns the same errors as [`publish_to_file_registry`], except
 /// that [`PublishError::Registry`] comes from reading the PL3
-/// baseline or from `validate_publish` (unsafe package name, a
-/// respin without the opt-in, or registry config/index problems).
+/// baseline or from `validate_publish` (a respin without the opt-in,
+/// or registry config/index problems).
 pub fn dry_run_against_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
