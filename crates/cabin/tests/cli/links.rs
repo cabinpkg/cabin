@@ -76,6 +76,7 @@ c-standard = "c11"
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     for phrase in [
         COLLISION_PHRASE,
+        r#"native library "z""#,
         "miniz v0.1.0 (target `miniz`)",
         "zlib v0.1.0 (target `zlib`)",
     ] {
@@ -993,7 +994,7 @@ c-standard = "c11"
 /// A patch chained through another patch's fork still claims: with
 /// `app -> indexed A -> patched B` and fork `B` depending on patched
 /// `C`, fork `C`'s identity participates in the graph-wide check
-/// even though no solution ever surfaces `C`.
+/// even though only fork `B`'s own edge reaches `C`.
 #[test]
 fn chained_patch_fork_claims_participate() {
     let dir = TempDir::new().unwrap();
@@ -1680,7 +1681,6 @@ fn fork_edge_default_features_off_builds_clean() {
 /// would.
 #[test]
 fn fork_edge_explicit_feature_collides_at_resolve() {
-    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let manifest = write_fork_build_fixture(
         dir.path(),

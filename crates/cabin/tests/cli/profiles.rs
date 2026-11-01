@@ -750,9 +750,8 @@ fmt = ">=10"
 "#,
         )
         .unwrap();
-    cabin()
-        .args(["metadata", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .assert()
-        .success();
+    let value = run_metadata(&dir.path().join("cabin.toml"));
+    let selected = &value["profiles"]["selected"];
+    assert_eq!(selected["name"].as_str(), Some("dev"), "{selected}");
+    assert_eq!(selected["source"].as_str(), Some("builtin"), "{selected}");
 }

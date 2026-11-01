@@ -392,21 +392,26 @@ fn package_overwrite_with_identical_bytes_succeeds() {
     let dir = TempDir::new().unwrap();
     write_simple_package(dir.path());
     let dist = dir.path().join("dist");
-    cabin()
-        .args(["package", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--output-dir")
-        .arg(&dist)
-        .assert()
-        .success();
-    // Second run with the same input must succeed silently.
-    cabin()
-        .args(["package", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--output-dir")
-        .arg(&dist)
-        .assert()
-        .success();
+    let package = || {
+        cabin()
+            .args(["package", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .arg("--output-dir")
+            .arg(&dist)
+            .assert()
+            .success()
+            .stderr("")
+            .get_output()
+            .stdout
+            .clone()
+    };
+    let first = package();
+    // Second run with the same input must succeed silently: no
+    // diagnostic, and the same report as the first run.
+    assert_eq!(
+        String::from_utf8(package()).unwrap(),
+        String::from_utf8(first).unwrap()
+    );
 }
 
 #[test]

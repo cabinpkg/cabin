@@ -128,18 +128,33 @@ include-dirs = ["include"]
         .arg(dir.path().join("build"))
         .assert()
         .success();
-    let ninja = build_ninja(dir.path());
     // The C compile carries the declared C standard; the C++ side
     // carries its own declared standard.
+    let ccdb: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dir.path().join("build/dev/compile_commands.json")).unwrap(),
+    )
+    .unwrap();
+    let arguments = |source: &str| -> Vec<String> {
+        let entry = ccdb
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["file"].as_str().unwrap().ends_with(source))
+            .unwrap_or_else(|| panic!("no compile command for {source}: {ccdb}"));
+        serde_json::from_value(entry["arguments"].clone()).unwrap()
+    };
+    let (c_flag, cxx_flag) = (host_std_flag(c_standard), host_std_flag("c++17"));
+    let c_args = arguments("util.c");
     assert!(
-        ninja.contains(&host_std_flag(c_standard)),
-        "expected `{}` in build.ninja: {ninja}",
-        host_std_flag(c_standard)
+        c_args.contains(&c_flag) && !c_args.contains(&cxx_flag),
+        "the C compile must carry only `{c_flag}`: {c_args:?}"
     );
+    let cxx_args = arguments("main.cc");
     assert!(
-        ninja.contains(&host_std_flag("c++17")),
-        "the C++ compile must carry the declared C++ standard: {ninja}"
+        cxx_args.contains(&cxx_flag) && !cxx_args.contains(&c_flag),
+        "the C++ compile must carry only `{cxx_flag}`: {cxx_args:?}"
     );
+    let ninja = build_ninja(dir.path());
     assert!(
         !ninja.contains(&host_std_flag("c11")),
         "only the declared C standard may reach a C compile: {ninja}"
@@ -567,11 +582,20 @@ fn metadata_language_block_is_deterministic_and_reports_sources() {
         app.get("gnu_extensions").is_none(),
         "the default gnu-extensions = false reports no entry: {app}"
     );
-    let again = run_metadata(&manifest);
+    let metadata_stdout = || {
+        cabin()
+            .args(["metadata", "--manifest-path"])
+            .arg(&manifest)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone()
+    };
     assert_eq!(
-        config,
-        &package_in(&again, "demo")["configuration"],
-        "configuration block must be byte-stable across runs"
+        String::from_utf8(metadata_stdout()).unwrap(),
+        String::from_utf8(metadata_stdout()).unwrap(),
+        "metadata output must be byte-stable across runs"
     );
 }
 
