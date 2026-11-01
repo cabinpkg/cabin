@@ -5190,6 +5190,69 @@ fn standard_compat_keeps_requirements_through_executable_deps() {
     );
 }
 
+/// A C consumer sees a C++ library's headers through a C++-only
+/// executable's public edge, so the library's forbidden C requirement
+/// (a declared `"none"`, or the strict C++-to-C default) is still
+/// reported even though the executable's own C++-to-C default is
+/// skipped.
+#[test]
+fn standard_compat_keeps_forbidden_c_requirements_through_cxx_executable_deps() {
+    for interface_c in [Some(cabin_core::InterfaceRequirement::None), None] {
+        let mut lib = target("cxxlib", TargetKind::Library, &["src/lib.cc"], &[]);
+        lib.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx17));
+        lib.language.interface_c_standard = interface_c.map(StandardDeclaration::Declared);
+        let cxxlib = Package::new(pkg_name("cxxlib"), version(), vec![lib], Vec::new()).unwrap();
+        let mut tool = target("tool", TargetKind::Executable, &["src/tool.cc"], &[]);
+        tool.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx17));
+        tool.deps = vec![cabin_core::TargetDep {
+            reference: "cxxlib".to_owned(),
+            public: true,
+        }];
+        let tools_pkg = Package::new(pkg_name("tools"), version(), vec![tool], Vec::new()).unwrap();
+        let mut c_app = target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c"],
+            &["tools:tool"],
+        );
+        c_app.language.c_standard = Some(StandardDeclaration::Declared(CStandard::C11));
+        let app = Package::new(
+            pkg_name("app"),
+            version(),
+            vec![c_app],
+            vec![dep("tools", "../tools")],
+        )
+        .unwrap();
+        let graph = graph_with(
+            vec![
+                make_pkg("app", "/abs/app", app, vec![1]),
+                make_pkg("tools", "/abs/tools", tools_pkg, vec![2]),
+                make_pkg("cxxlib", "/abs/cxxlib", cxxlib, vec![]),
+            ],
+            vec![0],
+            Some(0),
+        );
+        let violations = standard_compat_violations(&graph);
+        assert_eq!(violations.len(), 1, "{interface_c:?}: {violations:?}");
+        let w = &violations[0];
+        assert_eq!(w.language, SourceLanguage::C);
+        assert_eq!(w.dependency, "tools:tool");
+        assert_eq!(w.requirement, EdgeRequirement::Forbidden);
+        assert_eq!(w.origin_target, "cxxlib:cxxlib");
+        assert_eq!(
+            w.chain,
+            vec!["tools:tool".to_owned(), "cxxlib:cxxlib".to_owned()]
+        );
+        match (interface_c, &w.origin) {
+            (Some(_), RequirementOrigin::DeclaredNone { site }) => {
+                assert_eq!(site.field, "interface-c-standard");
+            }
+            (None, RequirementOrigin::CrossLanguageDefault) => {}
+            (_, origin) => panic!("{interface_c:?}: unexpected origin {origin:?}"),
+        }
+    }
+}
+
 /// The pass's inputs are manifest-declared values only: the same
 /// graph yields identical C and C++ violations when every
 /// toolchain-shaped planner input changes at once (compiler paths,

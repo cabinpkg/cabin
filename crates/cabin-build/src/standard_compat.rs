@@ -252,6 +252,11 @@ pub(crate) fn edge_violations(
             manifest_path: pkg.manifest_path.clone(),
             attributes,
             sites: declaration_sites(&node_sites),
+            // The manifest rejects `interface-*` fields on
+            // executable-like kinds and the include-dir walk takes no
+            // headers from them, so their strict C++-to-C default
+            // would warn about headers that do not exist.
+            has_interface: target.kind.is_library_like(),
             deps,
         });
         sites.push(node_sites);
@@ -338,7 +343,7 @@ pub(crate) fn edge_violations(
                     .requirement
                     .satisfied_by(consumer.standard)
             {
-                violations.extend(classified_violation(
+                violations.push(classified_violation(
                     &ViolationContext {
                         language: SourceLanguage::C,
                         consumer_field: "c-standard",
@@ -349,7 +354,6 @@ pub(crate) fn edge_violations(
                         override_section: override_section.clone(),
                         nodes: &nodes,
                         sites: &sites,
-                        topo,
                         req,
                     },
                     consumer.standard,
@@ -357,7 +361,7 @@ pub(crate) fn edge_violations(
                     effective[dep_index].c.requirement,
                     &provenance_c(&effective, dep_index),
                     req_of_c,
-                )?);
+                ));
             }
             if compiles_cxx
                 && let Some(consumer) = effective_cxx(&pkg_standards, consumer_target)
@@ -366,7 +370,7 @@ pub(crate) fn edge_violations(
                     .requirement
                     .satisfied_by(consumer.standard)
             {
-                violations.extend(classified_violation(
+                violations.push(classified_violation(
                     &ViolationContext {
                         language: SourceLanguage::Cxx,
                         consumer_field: "cxx-standard",
@@ -377,7 +381,6 @@ pub(crate) fn edge_violations(
                         override_section: override_section.clone(),
                         nodes: &nodes,
                         sites: &sites,
-                        topo,
                         req,
                     },
                     consumer.standard,
@@ -385,7 +388,7 @@ pub(crate) fn edge_violations(
                     effective[dep_index].cxx.requirement,
                     &provenance_cxx(&effective, dep_index),
                     req_of_cxx,
-                )?);
+                ));
             }
         }
     }
@@ -421,41 +424,6 @@ fn section_of(pkg_edge: &cabin_workspace::DependencyEdge) -> String {
         Some(condition) => format!("[target.'cfg({condition})'.{table}]"),
         None => format!("[{table}]"),
     }
-}
-
-/// Whether a violated requirement originates at an interface-less
-/// target's cross-language default and should be suppressed.
-///
-/// An executable-like target has no consumable interface: the
-/// manifest rejects `interface-*` fields on those kinds, and the
-/// planner's include-dir walk never takes headers from them.  The
-/// strict C++-to-C default (spec D9 row 6) presumes dependency
-/// headers a C consumer could fail to compile, so a requirement the
-/// default originates *at* such a target warns about headers that
-/// do not exist.  Requirements merely passing through it from a
-/// library behind it keep warning (their origin is the library),
-/// and the always-on build-time enforcement independently checks
-/// every dependency whose headers the consumer sees, so nothing real
-/// is lost.
-fn interface_less_default_origin(
-    provenance: &Provenance<'_>,
-    topo: &[TargetId],
-    req: &PlanRequest<'_>,
-) -> Result<bool, BuildError> {
-    // Rows 1-3 cannot originate at an executable-like target (the
-    // parser rejects its interface fields, the package-level
-    // default is gated to library-like kinds, and it is not
-    // header-only), so the cross-language default is the only
-    // origin to inspect.
-    if provenance.origin.source != ReqOfSource::CrossLanguageDefault {
-        return Ok(false);
-    }
-    let origin_tid = &topo[*provenance
-        .path
-        .last()
-        .expect("a provenance chain is never empty")];
-    let origin = lookup_target(origin_tid, req.graph)?;
-    Ok(!origin.kind.is_library_like())
 }
 
 /// Spec D6 attribute mapping for one target, with the declaration
@@ -625,15 +593,12 @@ struct ViolationContext<'a, 'b> {
     override_section: Option<String>,
     nodes: &'a [TargetNode],
     sites: &'a [NodeSites],
-    topo: &'a [TargetId],
     req: &'a PlanRequest<'b>,
 }
 
 /// Classify one violated `(edge, language)` pair into its
 /// [`StandardCompatViolation`], citing the failing bound's
 /// provenance chain - and both chains for an empty intersection.
-/// Returns `None` for the suppressed interface-less
-/// cross-language-default case.
 fn classified_violation<S: StandardLevel>(
     context: &ViolationContext<'_, '_>,
     consumer_level: S,
@@ -641,7 +606,7 @@ fn classified_violation<S: StandardLevel>(
     requirement: Requirement<S>,
     provenance: &RequirementProvenance<'_>,
     req_of: impl Fn(&DependencyAttributes) -> Requirement<S>,
-) -> Result<Option<StandardCompatViolation>, BuildError> {
+) -> StandardCompatViolation {
     let (edge_requirement, primary) = match (requirement, provenance) {
         (Requirement::Min(min), RequirementProvenance::Single(chain)) => {
             (EdgeRequirement::Min(min.level_str()), chain)
@@ -673,9 +638,6 @@ fn classified_violation<S: StandardLevel>(
             }
         }
         (Requirement::Forbidden, RequirementProvenance::Single(chain)) => {
-            if interface_less_default_origin(chain, context.topo, context.req)? {
-                return Ok(None);
-            }
             (EdgeRequirement::Forbidden, chain)
         }
         (
@@ -726,7 +688,7 @@ fn classified_violation<S: StandardLevel>(
         .last()
         .expect("a provenance chain is never empty");
     let dep_pkg = &context.req.graph.packages[context.edge.to.0];
-    Ok(Some(StandardCompatViolation {
+    StandardCompatViolation {
         consumer: format_target_id(context.consumer_tid, context.req.graph),
         language: context.language,
         consumer_standard: consumer_level.level_str(),
@@ -755,7 +717,7 @@ fn classified_violation<S: StandardLevel>(
             .clone(),
         ignored: context.ignored,
         override_section: context.override_section.clone(),
-    }))
+    }
 }
 
 /// The interface-declaration site of the origin target for
