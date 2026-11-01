@@ -664,10 +664,40 @@ stamps: a product used that day could then be collected as old.  Recording now h
 lock on `.cabin-gc` for the read-modify-write alone, taken after the check that skips it, so builds
 still run side by side and wait on each other only while one records.
 
-**Not changed.**  The first build of each active day still rewrites every shard its plan touches,
-each through an atomic write that syncs: 1.66 s for 200 shards here, under macOS's `F_FULLFSYNC`.
-A shard lost or torn by a crash authorizes no removal, so shards may not need that durability;
-whether their sync can go is left to a separate change.
+**Not changed: the syncs.**  The first build of each active day still rewrites every shard its plan
+touches through `atomic-write-file`, which syncs each one: 1.66 s for 200 shards here.  A killed
+process loses no finished write, so the syncs matter only across an operating-system crash or a
+power loss, and they protect the collection policy, never a build: a collected product is rebuilt
+when next needed.
+
+- Without the syncs, such a crash could leave a shard empty, torn, or with its rewrite lost.  One
+  that no longer parses authorizes no removal, and the next recording that rewrites it replaces it
+  with what that recording writes, so the products only it listed leave the catalog, and are never
+  collected, until a later recording lists them again.  One that still parses, with older stamps,
+  lets a later collection remove a product used on the current or previous active day.
+- Recording finishes before the build uses anything, so the syncs rule out that second case, with
+  two gaps.  On macOS, `atomic-write-file` syncs each file with `F_FULLFSYNC` but the directory,
+  and with it the rename, with a plain `fsync`, which Apple documents as reaching the drive but not
+  necessarily its storage; the next shard's `F_FULLFSYNC` flushes the drive's whole cache, so only
+  the last shard's rename stays exposed.  On Windows, `atomic-write-file` renames without
+  `MOVEFILE_WRITE_THROUGH` and syncs no directory, so nothing forces any rename to storage.
+- `recorded.json` names a plan only after its shards were rewritten, and is removed before an
+  unreadable shard is replaced.  Outside those gaps, a copy that is lost, no longer parses, or is
+  intact but stale therefore costs at most a recording: each product of a remembered plan is either
+  stamped with the day or, when the crash also lost that removal, absent from the catalog, and
+  kept.  Unsynced, a copy can also come back torn yet parseable, naming an earlier day's plan under
+  the current day, and inside the gaps it can survive a rename it vouches for.  Either way that
+  plan's older stamps stay until its first recording on a later active day.
+
+**Deferred: one sync per recording.**  Rewriting the shards in two phases would keep that guarantee,
+close the macOS gap, and cost far less there: stage and `fsync` every shard, issue one
+`F_BARRIERFSYNC`, rename them all, then sync the directory with `F_FULLFSYNC`, the ordering
+`fcntl(2)` documents for this.  A script doing so for 200 small files on APFS took 0.06-0.12 s
+against 1.2-1.5 s for `atomic-write-file`'s sequence; the two-phase sequence was not measured
+inside Cabin.  On Linux it saves only the directory sync per shard, unmeasured.  On Windows it saves
+nothing, and closing the gap there needs the renames written through, also unmeasured.  It would
+put per-platform sync code in Cabin in place of `atomic-write-file`, and no test can show what a
+power cut leaves behind, so it waits for a maintainer decision.
 
 ## Platform verification
 

@@ -406,10 +406,12 @@ pub fn record_use<'a>(
             recorded.plans.remove(0);
         }
         recorded.plans.push(plan);
-        // Unsynced, unlike the shards and the clock: a crash that tears
-        // or loses it only sends a command down the slow path, and the
-        // shards it vouches for were synced before.  More plans a day
-        // than it holds then cost a recording each, not a sync each.
+        // Unsynced, unlike the shards and the clock: a crash that loses
+        // it, or tears it so it no longer parses, only sends a command
+        // down the slow path (docs/design/performance-observability.md
+        // has the rarer crashes that make it skip a recording).  More
+        // plans a day than it holds then cost a recording each, not a
+        // sync each.
         match store_unsynced(&recorded_path, &recorded) {
             // Another process staged under the same id, which only a
             // file system without locks, shared between machines, allows:
