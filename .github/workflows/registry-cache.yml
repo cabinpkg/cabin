@@ -33,6 +33,7 @@ jobs:
           target: wasm32-unknown-unknown
           cache-on-failure: false
           cache-shared-key: registry-build-work
+          cache-bin: false
           cache-workspaces: |
             .
             registry

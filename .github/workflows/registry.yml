@@ -61,6 +61,7 @@ jobs:
           target: wasm32-unknown-unknown
           cache-on-failure: false
           cache-shared-key: registry-build-work
+          cache-bin: false
           cache-save-if: false
           # The root workspace too: the guard steps below build an
           # xtask crate from it.
