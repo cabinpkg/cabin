@@ -269,7 +269,10 @@ smoke scenario that fails its check, or a reset the shell misquotes, shows up be
 dispatched by hand on any branch, it runs every scenario, ports included, with
 `--fail-on-regression` against the dispatched `base` revision or, by default, the same branch as
 it was eight days earlier.  Consecutive weekly runs therefore overlap by a day, and a regression
-accepted on purpose stops failing once it is older than the base.  Each run copies its reports
+accepted on purpose stops failing once it is older than the base.  A dispatched `base` must be in
+the dispatched ref's own history, such as the commit a branch forked from: the comparison builds
+the base's code, and a run on `main` or a tag can write a cache scope that pull requests or
+releases restore.  Each run copies its reports
 (`report.md`, and `compare.md` for a full run) into its summary and keeps them with the results
 JSON as an artifact, for 14 days from a pull request and 90 from a full run.  Nothing is uploaded
 anywhere else, and the workflow holds no secrets.
