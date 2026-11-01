@@ -539,9 +539,11 @@ do *not* re-read `cabin.toml`, `.cabin/config.toml`, or the environment - Ninja 
 only when the command line, an explicit input, the depfile, or the output path changes, or when
 `cabin-toolchain.json` beside `build.ninja` does.  Every edge depends on that file, which records
 each detected compiler's and the archiver's family, version, `--version` line, and target (the
-build machine's too, under `--target` with build dependencies), and which
-`cabin build` rewrites only when one of them changes: a compiler whose reported version changes
-rebuilds everything, even at the same path.  Run `cabin build` after manifest, config, or toolchain
+build machine's too, under `--target` with build dependencies), and the `INCLUDE` and `LIB`
+search paths the build runs with, and which `cabin build` rewrites only when one of them changes:
+a compiler whose reported version changes rebuilds everything, even at the same path, and so does
+an `INCLUDE` or `LIB` naming other directories, which `cl`, `clang-cl`, and `link` search for
+what no command line names.  Run `cabin build` after manifest, config, or toolchain
 edits so the fingerprint and the generated commands reflect the new inputs; running Ninja directly
 against a stale `build.ninja` is intentionally supported (it's how IDEs and editor watchers
 re-invoke the incremental build) but does not pick up Cabin-level changes.
@@ -598,7 +600,8 @@ What remains:
   spelled differently, such as with an 8.3 short name, shares only the part before the first
   difference.  Editing or updating
   such a header rebuilds nothing unless `cabin-toolchain.json` changes too, as it does when a
-  compiler or the archiver reports a new version, and that rebuilds everything.
+  compiler or the archiver reports a new version or `INCLUDE` or `LIB` changes, such as for
+  another Windows SDK, and that rebuilds everything.
 
 ### Long command lines
 

@@ -464,3 +464,68 @@ sources = ["src/main.cc"]
         "a C compiler at another path must not relink the C++ program"
     );
 }
+
+/// `cl` searches `INCLUDE` and `link` searches `LIB`, which no command
+/// line names, so pointing either somewhere else rebuilds, and an
+/// unchanged environment rebuilds nothing.
+#[cfg(windows)]
+#[test]
+fn msvc_include_and_lib_changes_rebuild() {
+    require_c_and_cxx_build_tools();
+    let (Some(include), Some(lib)) = (std::env::var_os("INCLUDE"), std::env::var_os("LIB")) else {
+        eprintln!("skipping: no activated MSVC environment");
+        return;
+    };
+    let dir = TempDir::new().unwrap();
+    let root = assert_fs::fixture::ChildPath::new(dir.path());
+    root.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc", "src/value.c"]
+"#,
+        )
+        .unwrap();
+    root.child("src/value.c")
+        .write_str("#include <envdep.h>\nint c_value(void) { return ENVDEP; }\n")
+        .unwrap();
+    root.child("src/main.cc")
+        .write_str(
+            "#include <cstdio>\n#include <envdep.h>\nextern \"C\" int c_value(void);\n\
+             int main() { std::printf(\"value=%d,%d\\n\", ENVDEP, c_value()); }\n",
+        )
+        .unwrap();
+    for (name, value) in [("one", 1), ("two", 2)] {
+        root.child(format!("{name}/envdep.h"))
+            .write_str(&format!("#define ENVDEP {value}\n"))
+            .unwrap();
+    }
+    let prepend = |dir: &Path, list: &std::ffi::OsStr| {
+        let mut joined = dir.as_os_str().to_owned();
+        joined.push(";");
+        joined.push(list);
+        joined
+    };
+    let cabin_with = |headers: &str, lib: &std::ffi::OsStr, args: &[&str]| {
+        cabin()
+            .args(args)
+            .env("INCLUDE", prepend(&dir.path().join(headers), &include))
+            .env("LIB", lib)
+            .current_dir(dir.path())
+            .assert()
+            .success()
+    };
+    cabin_with("one", &lib, &["run"]).stdout(predicate::str::contains("value=1,1"));
+    cabin_with("two", &lib, &["run"]).stdout(predicate::str::contains("value=2,2"));
+    cabin_with("two", &lib, &["-v", "build"])
+        .stdout(predicate::str::contains("ninja: no work to do."));
+    let other_lib = prepend(dir.path(), &lib);
+    cabin_with("two", &other_lib, &["-v", "build"])
+        .stdout(predicate::str::contains("ninja: no work to do.").not());
+}

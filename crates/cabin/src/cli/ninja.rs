@@ -106,25 +106,9 @@ pub(crate) fn run_ninja(
     reporter: Reporter,
     graph: &cabin_workspace::PackageGraph,
     plan_graph: &cabin_build::BuildGraph,
-    apply_discovered_msvc_install: bool,
 ) -> std::io::Result<NinjaRun> {
     use std::io::{BufRead, BufReader, Write as _};
     use std::process::Stdio;
-
-    let dialect = plan_graph.dialect;
-
-    // Only an MSVC build graph gets the MSVC environment overlay
-    // (`VSLANG`, and the auto-discovered `INCLUDE` / `LIB` / `PATH`).
-    // A GNU-style toolchain on Windows must run in the environment it
-    // was resolved under: overlaying MSVC headers/libs and PATH could
-    // silently switch `clang++` / `g++` to MSVC behavior while Cabin is
-    // still emitting `.a` archives and GNU link lines.  Empty (a no-op)
-    // off Windows.  See `cabin_toolchain::msvc_environment`.
-    if dialect == cabin_build::Dialect::Msvc {
-        for (key, value) in cabin_toolchain::msvc_environment(apply_discovered_msvc_install) {
-            cmd.env(key, value);
-        }
-    }
 
     let keep_ninja_chatter = reporter.verbosity().shows_verbose();
 
@@ -604,7 +588,35 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
 
     let ninja_file = profile_build_root.join("build.ninja");
     let stamp = profile_build_root.join(cabin_ninja::writer::TOOLCHAIN_STAMP);
+    // Only an MSVC build graph gets the MSVC environment overlay
+    // (`VSLANG`, and the auto-discovered `INCLUDE` / `LIB` / `PATH`).
+    // A GNU-style toolchain on Windows must run in the environment it
+    // was resolved under: overlaying MSVC headers/libs and PATH could
+    // silently switch `clang++` / `g++` to MSVC behavior while Cabin is
+    // still emitting `.a` archives and GNU link lines.  Empty (a no-op)
+    // off Windows.  See `cabin_toolchain::msvc_environment`.
+    let ninja_env = if req.plan_graph.dialect == cabin_build::Dialect::Msvc {
+        cabin_toolchain::msvc_environment(discovered_msvc_install_applies(
+            req.toolchain,
+            req.detection.cxx.identity.kind,
+        ))
+    } else {
+        Vec::new()
+    };
     let mut identity = req.detection.build_identity();
+    // `cl`, `clang-cl`, and `link` search `INCLUDE` and `LIB` for what no
+    // command names, so a change to either rebuilds every edge, as a new
+    // compiler does.
+    for key in ["INCLUDE", "LIB"] {
+        let value = ninja_env
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.clone())
+            .or_else(|| std::env::var_os(key));
+        if let Some(value) = value {
+            identity[key] = value.to_string_lossy().into();
+        }
+    }
     // A run that plans no build context (`cabin check`, a narrower
     // `-p`) keeps the last build machine identity rather than
     // rebuilding every edge.
@@ -666,6 +678,7 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     ));
 
     let mut ninja_cmd = std::process::Command::new(req.ninja);
+    ninja_cmd.envs(ninja_env);
     // Registry credentials (the registry token and the GitHub
     // Actions OIDC request token) are Cabin's input, not the build
     // backend's: scrub them so Ninja and every compile / wrapper
@@ -686,7 +699,6 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
         req.reporter,
         req.graph,
         req.plan_graph,
-        discovered_msvc_install_applies(req.toolchain, req.detection.cxx.identity.kind),
     )
     .with_context(|| format!("failed to invoke ninja at {}", req.ninja.display()))?;
     if let Some(ninja_log) = ninja_log {
