@@ -86,6 +86,12 @@ jobs:
           persist-credentials: false
           # `--base` builds a revision from this clone's history.
           fetch-depth: 0
+      # A main or tag run can write a cache scope pull requests or releases restore.
+      - name: Refuse a base outside this ref's history
+        if: inputs.base != ''
+        run: git merge-base --is-ancestor "$BASE" HEAD
+        env:
+          BASE: ${{ inputs.base }}
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache-on-failure: false
