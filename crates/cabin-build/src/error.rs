@@ -130,6 +130,23 @@ pub enum BuildError {
         gated: Vec<(String, Vec<String>)>,
     },
 
+    /// A registry dependency's include dir holds a file that a
+    /// standard header include would open instead of the standard
+    /// header.
+    #[error(
+        "registry package `{package}` places `{path}` directly in include dir `{include_dir}` of target `{target}`, so `#include <{header}>` in every compile that depends on it would open that file{} instead of the standard header; if the package is meant to replace standard headers, allow it in the workspace root manifest with `[standard-header-shadowing] allow = [\"{package}\"]`",
+        if *.case_folded { " on a case-insensitive file system" } else { "" }
+    )]
+    StandardHeaderShadowing {
+        package: String,
+        target: String,
+        include_dir: Utf8PathBuf,
+        path: Utf8PathBuf,
+        header: &'static str,
+        /// The file's name differs from `header` in letter case.
+        case_folded: bool,
+    },
+
     #[error("target {0:?} has no source files; nothing to build")]
     EmptyTargetSources(String),
 

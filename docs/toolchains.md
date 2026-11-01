@@ -83,6 +83,45 @@ Two consequences of the spelling are worth knowing:
   falls back to plain `/I` for those directories: the historical command shape without warning
   isolation.
 
+### Standard header shadowing
+
+Every dialect searches dependency include dirs, `-isystem` and `/external:I` ones included, before
+the compiler's own standard headers.  A file named `stdint.h` or `version` directly inside a
+dependency's include dir is therefore what `#include <stdint.h>` or `#include <version>` opens, in
+the consumer's own sources and inside standard headers that include it.  On a case-insensitive
+file system (the macOS and Windows default) a name differing in letter case matches too: an
+upstream `VERSION` file is opened for `<version>`.
+
+So while planning, a build refuses a registry package (an extracted registry archive or a
+foundation port) whose library or header-only target, depended on by another target, has a file
+directly inside one of its `include-dirs` that a C or C++ standard library header include would
+open: the C headers through C23 (`<assert.h>` ... `<uchar.h>`, `<stdbit.h>`, `<stdckdint.h>`) and
+the C++ headers through C++26, including the `<cxxx>` forms and `<version>`.  Two comparisons
+decide it:
+
+- each entry's name against the standard names, ignoring letter case (including the non-ASCII
+  letters that fold to ASCII, such as `ſ`), on every host - so `VERSION` is refused on Linux too
+  and a package is judged the same everywhere;
+- each standard name looked up in the include dir by the host file system, which applies whatever
+  else it equates when the compiler opens the name (Unicode normalization, or code points HFS+
+  ignores).
+
+Directories are ignored, as compilers skip them; a header in a subdirectory (`<foo/string.h>`)
+never matches.  The error names the package, target, include dir, file, and standard header.
+Workspace members, `path` dependencies, and `[patch]`ed packages are the user's own code and are
+not checked.
+
+The check covers standard header names only: implementation-internal headers the standard
+headers include (`__config`, `bits/*`, `sys/cdefs.h`, ...) and platform headers such as
+`<unistd.h>` can be shadowed the same way and are not checked.  It guards against accidental
+collisions, such as an upstream `VERSION` file at an include root; it is not a sandbox against a
+malicious dependency, whose code is compiled and linked into the build anyway.
+
+A package meant to provide standard headers, such as a polyfill, is allowed by name in the
+workspace root manifest's [`[standard-header-shadowing]`](manifest.md#standard-header-shadowing)
+table; the table is ignored in any other manifest, so nothing in a dependency's own metadata can
+allow it.
+
 ## Precedence
 
 For every tool kind, the resolver walks the layers below in order and keeps the first one that

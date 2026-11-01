@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use cabin_core::standard_compatibility::{ConsumerStandards, dependency_attributes};
 use cabin_core::{
     CStandard, CompilerWrapperRequest, Condition, ConditionContext, CxxStandard, DependencyKind,
-    Package, PatchManifestSettings, ProfileDefinition, ProfileName, TargetPlatform,
+    Package, PackageName, PatchManifestSettings, ProfileDefinition, ProfileName, TargetPlatform,
     ToolchainSettings, resolve_language_standards,
 };
 
@@ -17,6 +17,7 @@ pub struct RootSettings {
     pub compiler_wrapper: Option<CompilerWrapperRequest>,
     pub patches: PatchManifestSettings,
     pub system_provided: cabin_core::SystemProvidedSettings,
+    pub allow_standard_header_shadowing: Vec<PackageName>,
 }
 
 impl From<cabin_manifest::RootSettings> for RootSettings {
@@ -27,6 +28,7 @@ impl From<cabin_manifest::RootSettings> for RootSettings {
             compiler_wrapper: value.compiler_wrapper,
             patches: value.patches,
             system_provided: value.system_provided,
+            allow_standard_header_shadowing: value.allow_standard_header_shadowing,
         }
     }
 }

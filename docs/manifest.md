@@ -30,12 +30,14 @@ A manifest may contain these top-level sections:
 - at most one `[patch]` table
 - at most one `[system-provided]` table (see
   [System dependencies](system-dependencies.md#system-provided-packages))
+- at most one `[standard-header-shadowing]` table
 
 A manifest must contain at least one of `[package]` and `[workspace]`.  Package-specific tables such
 as targets, dependencies, features, conditional dependency, source, and profile flag tables, and
 the flag fields of the bare `[profile]` table require `[package]`; without it they are rejected.
-Workspace policy tables such as `[workspace]`, `[profile.<name>]`, `[toolchain]`, `[patch]`, and
-`[system-provided]` may appear on a workspace root without `[package]`.
+Workspace policy tables such as `[workspace]`, `[profile.<name>]`, `[toolchain]`, `[patch]`,
+`[system-provided]`, and `[standard-header-shadowing]` may appear on a workspace root without
+`[package]`.
 
 Naming convention: manifest field names and value strings are kebab-case (`include-dirs`,
 `header-only`, `opt-level`, `dev-dependencies`).  The single exception is `cfg(...)` predicate keys
@@ -323,6 +325,24 @@ The workspace table accepts these additional fields, all optional:
 
 See [`workspaces.md`](workspaces.md) for member expansion, selection flags, and inheritance
 semantics.
+
+## `[standard-header-shadowing]`
+
+```toml
+[standard-header-shadowing]
+allow = ["acme/polyfill"]
+```
+
+A build refuses a registry package with a file directly in one of its `include-dirs` that a C or
+C++ standard library header include would open - its name matches the header's ignoring letter
+case, or the host file system resolves the header's name to it - because every compile that
+depends on the package would open that file instead of the standard header.  Implementation-internal
+headers (`__config`, `bits/*`, `sys/cdefs.h`, ...) are not checked: this guards against accidental
+collisions such as an upstream `VERSION` file, not against a malicious dependency (see
+[Standard header shadowing](toolchains.md#standard-header-shadowing)).  `allow` lists the registry
+packages exempt from that refusal, for a package meant to provide standard headers, such as a
+polyfill.  The table is read only from the workspace root manifest and ignored in member,
+path-dependency, and registry manifests, so a dependency cannot exempt itself.
 
 ## Target dependencies
 

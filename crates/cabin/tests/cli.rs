@@ -2180,6 +2180,9 @@ fn cabin_update_with_unknown_package_errors() {
 #[path = "cli/artifact_fetch.rs"]
 mod artifact_fetch;
 
+#[path = "cli/standard_header_shadowing.rs"]
+mod standard_header_shadowing;
+
 // ---------------------------------------------------------------------------
 // cabin package + cabin publish --dry-run
 // ---------------------------------------------------------------------------
