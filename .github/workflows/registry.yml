@@ -348,7 +348,7 @@ jobs:
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true'
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: production
     env:
       DEPLOY_TAG: ${{ github.run_id }}.${{ github.run_attempt }}
