@@ -92,14 +92,13 @@ pub struct TidyRequest {
     /// `run-clang-tidy` discovers the compilation database.
     pub compile_database_dir: PathBuf,
 
-    /// Absolute paths to the files the tidy driver should
-    /// process.  An empty `files` list is a valid no-op: the
+    /// Files the tidy driver should process, each spelled exactly
+    /// as the `file` of its entry in the supplied compilation
+    /// database: `run-clang-tidy` selects entries by that
+    /// spelling, so a path with any other spelling selects
+    /// nothing.  An empty `files` list is a valid no-op: the
     /// runner returns [`TidyReport::NoFiles`] and does not spawn
-    /// a subprocess.  Callers are expected to filter the list to
-    /// translation units that appear in the supplied
-    /// compilation database; `run-clang-tidy` ignores files that
-    /// have no compile entry but emitting them anyway makes the
-    /// command line longer without changing behavior.
+    /// a subprocess.
     pub files: Vec<PathBuf>,
 
     /// Operation mode.
@@ -240,7 +239,7 @@ pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
         cmd.arg("-j").arg(jobs.get().to_string());
     }
     for path in &files {
-        cmd.arg(path);
+        cmd.args(file_filters(path));
     }
 
     cmd.stdin(Stdio::null())
@@ -276,6 +275,41 @@ pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
     }
 }
 
+/// The `run-clang-tidy` positional arguments that select exactly the
+/// compilation-database entry whose `file` is spelled `path`.
+///
+/// `run-clang-tidy` joins its positional arguments with `|` into one
+/// Python regular expression and keeps each entry whose path it
+/// `re.search`es, so a bare path is a pattern: `.` matches any
+/// character, `+` is a quantifier, and `x.c` also selects `x.cc`.
+/// Each filter is the path with every Python metacharacter
+/// escaped, anchored at both ends.  Before LLVM 19 the entry's path
+/// is its `file` verbatim; since then it is `os.path.abspath` of it,
+/// which drops `.` components, collapses doubled separators, and on
+/// Windows turns `/` into `\`.  A path that normalization respells
+/// therefore also gets a filter for the normalized spelling.
+fn file_filters(path: &Path) -> Vec<String> {
+    let normalized: PathBuf = path.components().collect();
+    let mut filters = vec![literal_filter(path)];
+    // `Path` equality ignores the differences normalization makes.
+    if normalized.as_os_str() != path.as_os_str() {
+        filters.push(literal_filter(&normalized));
+    }
+    filters
+}
+
+fn literal_filter(path: &Path) -> String {
+    let mut filter = String::from("^");
+    for c in path.to_string_lossy().chars() {
+        if r"\.^$*+?{}[]|()".contains(c) {
+            filter.push('\\');
+        }
+        filter.push(c);
+    }
+    filter.push('$');
+    filter
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +343,33 @@ mod tests {
         let env = env_returning(&[(CABIN_TIDY_ENV, "")]);
         let resolved = resolve_tidy_executable(env);
         assert_eq!(resolved, OsString::from(DEFAULT_TIDY_EXECUTABLE));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_filter_matches_the_path_literally() {
+        assert_eq!(
+            file_filters(Path::new("/p/src/c++/x.cc")),
+            [r"^/p/src/c\+\+/x\.cc$"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_filters_cover_the_normalized_spelling() {
+        assert_eq!(
+            file_filters(Path::new("/p/./src//x.cc")),
+            [r"^/p/\./src//x\.cc$", r"^/p/src/x\.cc$"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_filters_cover_the_normalized_spelling() {
+        assert_eq!(
+            file_filters(Path::new(r"C:\p\src/c++/x.cc")),
+            [r"^C:\\p\\src/c\+\+/x\.cc$", r"^C:\\p\\src\\c\+\+\\x\.cc$"]
+        );
     }
 
     #[test]
