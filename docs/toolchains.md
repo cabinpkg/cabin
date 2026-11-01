@@ -282,7 +282,7 @@ ldflags = ["-static"]
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `defines` | `Array<String>` | `"NAME"` or `"NAME=value"`.  Sorted and deduplicated across layers; emitted as `-DNAME[=value]`.  Applied to both C/C++ compiles. |
+| `defines` | `Array<String>` | `"NAME"` or `"NAME=value"`.  One entry per macro across layers, sorted by name; emitted as `-DNAME[=value]`.  A target's own `defines` entry for the same macro wins.  Applied to both C/C++ compiles. |
 | `include-dirs` | `Array<Path>` | Relative paths only.  Absolute or `..`-traversal is rejected.  Duplicates collapse to first-occurrence order.  Emitted as `-I<path>`.  Applied to both C/C++ compiles. |
 | `cflags` | `Array<String>` | Escape hatch.  Passed verbatim only to **C** compile commands (e.g. `-std=c99`). |
 | `cxxflags` | `Array<String>` | Escape hatch.  Passed verbatim only to **C++** compile commands (e.g. `-fno-rtti`, `-std=c++20`). |
@@ -320,7 +320,7 @@ requires a deliberate schema decision and is deferred.
 
 | Field | Merge rule |
 | --- | --- |
-| `defines` | Union across layers, sorted and deduplicated.  Define order does not matter for `-D`. |
+| `defines` | One entry per macro name, sorted by name.  A later layer's entry replaces an earlier one for the same macro, whatever the spelling (`LEVEL`, `LEVEL=1`). |
 | `include-dirs` | Concatenated in layer order, deduplicated keeping the first occurrence.  Order matters for include search. |
 | `cflags` | Concatenated in layer order, preserving user-given order within each layer.  No deduplication. |
 | `cxxflags` | Same as `cflags`, applied only to C++ compiles. |

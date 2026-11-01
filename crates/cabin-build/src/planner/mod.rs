@@ -5,7 +5,7 @@ use cabin_core::{
     InterfaceStandardSource, LanguageStandard, Package, ResolvedCompilerWrapper,
     ResolvedLanguageStandards, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
     SourceLanguage, StandardFlagConflict, Target, TargetKind, classify_source,
-    link_driver_language,
+    link_driver_language, macro_name,
 };
 use cabin_driver::{
     ArchiveAction, AssembleAction, BuildAction, CompileAction, CompileArguments, CompileMode,
@@ -22,7 +22,7 @@ mod tests;
 
 use self::lowering::{
     collect_interface, collect_link_libs, collect_link_names, collect_system_link_args,
-    compile_dispatch, depfile_path, macro_name, object_path, promote_dir, resolve_target_dep_edge,
+    compile_dispatch, depfile_path, object_path, promote_dir, resolve_target_dep_edge,
     topo_sort_targets,
 };
 
@@ -542,7 +542,6 @@ fn emit_actions(
         // `[profile.<name>]` table, plus any `pkg-config` and
         // `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS` layers the
         // CLI applies.
-        // Layered on top of per-target defines / include dirs.
         let pkg_flags = req.build_flags.get(&tid.0);
 
         // Compose include_dirs and defines: existing target +
@@ -581,13 +580,18 @@ fn emit_actions(
                 }
             }
         }
+        // A target's own definition overrides the package's definition
+        // of the same macro, as a target's setting overrides its package's.
         let mut defines: Vec<String> = target.defines.clone();
         if let Some(flags) = pkg_flags {
-            for def in &flags.defines {
-                if !defines.contains(def) {
-                    defines.push(def.clone());
-                }
-            }
+            let target_own: HashSet<&str> = target.defines.iter().map(|d| macro_name(d)).collect();
+            defines.extend(
+                flags
+                    .defines
+                    .iter()
+                    .filter(|d| !target_own.contains(macro_name(d)))
+                    .cloned(),
+            );
         }
         // The target's own definitions override an incoming interface
         // definition of the same macro.

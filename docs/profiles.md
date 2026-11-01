@@ -250,7 +250,9 @@ scalar fields above:
 - **Scalars replace** across the inherits chain (`opt-level`, `debug`, `assertions`).  The leaf
   wins; an unset leaf field keeps its inherited value.
 - **Array flag fields append**, root-first, across the inherits chain.  Each ancestor's values come
-  first, in the order the user wrote them; the selected profile's values come last.
+  first, in the order the user wrote them; the selected profile's values come last.  `defines` is
+  the exception: the last layer to define a macro wins, and each macro is emitted once (see
+  [`toolchains.md`](toolchains.md#profile-flags)).
 
 The full effective order of array-flag layers, top to bottom in the resulting argv, is:
 

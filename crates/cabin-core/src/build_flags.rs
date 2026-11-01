@@ -18,7 +18,7 @@
 //! libraries, and frameworks.  The C/C++ argv spaces stay separate all
 //! the way to the planner.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 
@@ -199,7 +199,8 @@ impl ProfileSettings {
 
 /// Final, deterministic build-flag set fed to the planner.
 ///
-/// `defines` is sorted and deduplicated; every other list keeps
+/// `defines` holds one entry per macro, the highest-precedence
+/// layer's, sorted by macro name; every other list keeps
 /// declaration order, and `include_dirs`, `system_include_dirs`,
 /// `link_libs`, and `frameworks` also drop repeats after the first
 /// occurrence.
@@ -297,8 +298,9 @@ impl ResolvedProfileFlags {
 /// unvalidated and a `-fplugin=` / `-B<dir>` / `-specs=` /
 /// `-Xclang -load` / `-fuse-ld=<path>` entry would make the
 /// compiler or linker execute attacker-supplied code at build
-/// time. `defines` / `include_dirs` are validated at parse time
-/// (see [`ProfileFlags::validate`]) and are kept regardless of trust.
+/// time. `include_dirs` are validated at parse time (see
+/// [`ProfileFlags::validate`]) and each define reaches the compiler as
+/// a single `-D` argument, so both are kept regardless of trust.
 /// Workspace-root profile definitions are trusted and always apply.
 pub fn resolve_build_flags(
     package: &ProfileSettings,
@@ -354,8 +356,8 @@ fn apply_package_layer(
 }
 
 fn apply_layer(target: &mut ResolvedProfileFlags, layer: &ProfileFlags) {
-    // `defines` are appended verbatim here; `finalize` sort-and-dedups
-    // them once at the end.
+    // `defines` are appended verbatim here; `finalize` keeps the last
+    // entry per macro once at the end.
     target.defines.extend(layer.defines.iter().cloned());
     extend_dedup_first_occurrence(&mut target.include_dirs, &layer.include_dirs);
     target.cflags.extend(layer.cflags.iter().cloned());
@@ -378,11 +380,21 @@ fn extend_dedup_first_occurrence<T: PartialEq + Clone>(target: &mut Vec<T>, item
 }
 
 fn finalize(target: &mut ResolvedProfileFlags) {
-    // Defines with distinct names commute (`-DA -DB` and `-DB -DA`
-    // produce the same preprocessor state), so sort + dedup gives a
-    // shape that does not depend on declaration order across layers.
-    let dedup: BTreeSet<String> = target.defines.drain(..).collect();
-    target.defines = dedup.into_iter().collect();
+    // Layers apply in rising precedence, so the last entry for a macro
+    // is its effective definition.  Keeping only that entry, keyed by
+    // name, emits each macro once (no redefinition warning) in an order
+    // independent of declaration order.
+    let mut by_name = BTreeMap::new();
+    for define in target.defines.drain(..) {
+        by_name.insert(macro_name(&define).to_owned(), define);
+    }
+    target.defines = by_name.into_values().collect();
+}
+
+/// The macro a `-D` entry defines: everything before its `=`, or
+/// before the parameter list of a function-like `NAME(args)=body`.
+pub fn macro_name(define: &str) -> &str {
+    define.split(['=', '(']).next().unwrap_or(define)
 }
 
 /// Errors produced while validating a manifest-side build-flags
@@ -453,7 +465,7 @@ mod tests {
     use crate::profile::{
         ProfileDefinition, ProfileName, ProfileSelection, ResolvedProfile, resolve_profile,
     };
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn host_for(os: &str) -> TargetPlatform {
         let mut p = TargetPlatform::current();
@@ -748,6 +760,39 @@ mod tests {
             true,
         );
         assert_eq!(r.defines, vec!["A".to_owned(), "B".to_owned()]);
+    }
+
+    #[test]
+    fn a_later_layer_redefines_a_macro_whatever_its_spelling() {
+        let mut definitions = profile_definitions();
+        definitions.get_mut(&profile_name("release")).unwrap().build = Some(ProfileFlags {
+            defines: vec!["LEVEL=10".into(), "MODE".into(), "OPT=fast".into()],
+            ..Default::default()
+        });
+        let release = selected_profile("release", &definitions);
+        let settings = ProfileSettings {
+            general: ProfileFlags {
+                defines: vec!["LEVEL=2".into(), "MODE=0".into()],
+                ..Default::default()
+            },
+            conditional: vec![ConditionalProfileFlags {
+                condition: os_condition("linux"),
+                profile: Some(profile_name("release")),
+                flags: ProfileFlags {
+                    defines: vec!["OPT=all".into()],
+                    ..Default::default()
+                },
+            }],
+        };
+
+        let resolved = resolve_build_flags(
+            &settings,
+            Some(&release),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
+        assert_eq!(resolved.defines, ["LEVEL=10", "MODE", "OPT=all"]);
     }
 
     #[test]

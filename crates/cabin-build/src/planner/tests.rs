@@ -1869,6 +1869,24 @@ fn own_defines_override_an_incoming_interface_define() {
     assert_eq!(app.defines, ["MODE=3", "EXTRA"]);
 }
 
+#[test]
+fn a_target_define_overrides_the_package_definition_of_the_same_macro() {
+    let tc = toolchain_with_cc();
+    let graph = diamond_with_defines(&[], &[], &["LEVEL=1"]);
+    let flags = HashMap::from([(
+        2,
+        ResolvedProfileFlags {
+            defines: vec!["LEVEL=2".to_owned(), "MODE".to_owned()],
+            ..Default::default()
+        },
+    )]);
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_flags = &flags;
+    let bg = plan(&req).unwrap();
+    let app = &compile_for(&bg, "main.c").arguments;
+    assert_eq!(app.defines, ["LEVEL=1", "MODE"]);
+}
+
 // -----------------------------------------------------------------
 // required-features gating.
 // -----------------------------------------------------------------

@@ -42,7 +42,7 @@ pub mod version_req;
 
 pub use build_flags::{
     BuildFlagsValidationError, ConditionalProfileFlags, ProfileFlags, ProfileSettings,
-    ResolvedProfileFlags, resolve_build_flags,
+    ResolvedProfileFlags, macro_name, resolve_build_flags,
 };
 pub use build_jobs::{BuildJobs, BuildJobsParseError};
 pub use byte_size::{ByteSizeParseError, parse_byte_size};
