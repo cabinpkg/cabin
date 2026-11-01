@@ -14,7 +14,7 @@ cache per build configuration, and every `rust.yml` job restores it read-only.
 | `fuzz-ubuntu-24.04` | `rust-cache.yml` `fuzz` | `rust.yml` `fuzz` |
 
 `registry-cache.yml` seeds `registry.yml`'s `registry-build-work` separately and the older way: it
-restores the previous entry and saves on top of it, on `ubuntu-latest`.
+restores the previous entry and saves on top of it, under `registry-build-work-ubuntu-26.04`.
 
 Each `rust.yml` consumer sets `cache-shared-key`, `cache-bin: false` and `cache-save-if: false`.
 Each `rust-cache.yml` job repeats its consumers' toolchain setup and builds what they build.  The
