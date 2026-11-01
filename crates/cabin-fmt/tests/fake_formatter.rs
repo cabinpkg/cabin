@@ -16,7 +16,9 @@ use std::path::PathBuf;
 
 use assert_fs::TempDir;
 use assert_fs::prelude::*;
-use cabin_fmt::{FormatMode, FormatReport, FormatRequest, run_formatter};
+use cabin_fmt::{
+    ExitStatusKind, FormatError, FormatMode, FormatReport, FormatRequest, run_formatter,
+};
 
 fn fake_formatter_path() -> PathBuf {
     // `cargo test` builds bins in the same target directory as
@@ -96,7 +98,7 @@ fn check_mode_reports_needs_formatting_when_dirty() {
     };
     assert_eq!(files_inspected, 1);
     assert!(
-        stderr.contains("would be reformatted"),
+        stderr.contains("[-Wclang-format-violations]"),
         "fake formatter should forward its per-file diagnostic, got: {stderr:?}"
     );
 
@@ -128,6 +130,47 @@ fn check_mode_aggregates_mixed_files() {
         ),
         "expected NeedsFormatting over 2 files, got {report:?}"
     );
+}
+
+#[test]
+fn check_mode_reports_unreadable_file_as_error_not_needs_formatting() {
+    // clang-format exits 1 for an unreadable file, as it does for a
+    // formatting violation.
+    let dir = TempDir::new().unwrap();
+    let missing = dir.child("missing.cc");
+
+    let req = FormatRequest {
+        executable: OsString::from(fake_formatter_path()),
+        files: vec![missing.to_path_buf()],
+        mode: FormatMode::Check,
+    };
+    let err = run_formatter(&req).unwrap_err();
+    let FormatError::InvocationFailed { status, stderr, .. } = err else {
+        panic!("expected InvocationFailed, got {err:?}");
+    };
+    assert_eq!(status, ExitStatusKind::Code(1));
+    assert!(stderr.contains("missing.cc"), "got: {stderr:?}");
+}
+
+#[test]
+fn check_mode_reports_silent_failure_as_error_not_needs_formatting() {
+    // A `CABIN_FMT` wrapper that exits 1 without forwarding
+    // clang-format's stderr gives no evidence of a violation.
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int x = 0;\n/* FAIL SILENTLY */\n").unwrap();
+
+    let req = FormatRequest {
+        executable: OsString::from(fake_formatter_path()),
+        files: vec![file.to_path_buf()],
+        mode: FormatMode::Check,
+    };
+    let err = run_formatter(&req).unwrap_err();
+    let FormatError::InvocationFailed { status, stderr, .. } = err else {
+        panic!("expected InvocationFailed, got {err:?}");
+    };
+    assert_eq!(status, ExitStatusKind::Code(1));
+    assert_eq!(stderr, "");
 }
 
 #[test]
