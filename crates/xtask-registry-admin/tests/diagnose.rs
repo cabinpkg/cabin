@@ -17,10 +17,8 @@ fn count_columns_keep_their_select_order() {
     assert_eq!(order, ["users", "scopes", "packages", "versions"]);
 }
 
-/// Fail loudly, never as an empty bundle: a malformed answer that read
-/// as zero rows would print a section with no rows and a final
-/// `diagnose OK`, which is the one thing a diagnostics tool must not
-/// do.
+/// A malformed answer that read as zero rows would print a section with
+/// no rows and a final `diagnose OK`.
 #[test]
 fn a_malformed_answer_is_an_error_not_an_empty_result() {
     for answer in [
@@ -84,9 +82,9 @@ fn an_empty_result_reaches_the_caller_to_judge() {
     assert!(empty.is_empty(), "the counts section refuses this");
 }
 
-/// The drill takes no arguments: the pre-cutover form took an
-/// environment argument, and silently acting on the sole remaining
-/// deployment is the one thing it must not do.
+/// The drill takes no arguments, so an environment argument refuses
+/// rather than being ignored while the drill acts on the sole
+/// deployment.
 #[test]
 fn the_restore_drill_takes_no_arguments() {
     let admin = || Command::cargo_bin("xtask-registry-admin").unwrap();

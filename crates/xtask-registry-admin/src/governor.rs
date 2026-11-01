@@ -14,10 +14,8 @@
 //! Every action needs `CABIN_REGISTRY_TOKEN` (a login-session token
 //! whose `verify` scope authenticates the admin endpoint).
 //! `release` and `wipe` also need `CLOUDFLARE_API_TOKEN`: their guards
-//! prove object absence through the R2 REST API, and unlike the audit
-//! and the diagnostics bundle - which skip a section when a token is
-//! missing - an absent token here is fatal.  A skipped evidence check
-//! is not evidence.
+//! prove object absence through the R2 REST API, so an absent token is
+//! fatal.  A skipped evidence check is not evidence.
 //!
 //! `CABIN_API_ORIGIN` overrides the API origin for scratch rehearsal
 //! deployments (default `https://cabinpkg.com`; https only).  The
@@ -371,13 +369,11 @@ impl Api {
         match response {
             Ok(response) => {
                 let status = response.status();
-                // The status is the verdict and the body is whatever
-                // arrived, a partial one included. Keeping the prefix
-                // matters twice over - a body that fails to arrive
-                // after a mutation is already committed must not abort
-                // before the post-mutation R2 check that repairs a
-                // reappearing object, and a refusal whose message is
-                // cut short is still worth printing.
+                // The body is whatever arrived, a partial one included:
+                // a body that fails to arrive after a mutation committed
+                // must not abort before the post-mutation R2 check for a
+                // reappearing object, and a truncated refusal message is
+                // still worth printing.
                 let mut body = Vec::new();
                 let _ = response.into_reader().read_to_end(&mut body);
                 Ok((status, String::from_utf8_lossy(&body).into_owned()))
@@ -614,9 +610,10 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
     let buckets = deployed_buckets()?;
 
     if pool == Pool::Backup {
-        // Deleting from the append-only BACKUP bucket is an incident
-        // action, never routine maintenance - the extra confirmation
-        // marks the boundary, and the evidence rule is the same.
+        // The BACKUP bucket is append-only, so a gone backup object is
+        // an incident, never routine maintenance: the extra
+        // confirmation marks that boundary, and the evidence rule is
+        // the same.
         confirm(
             cabin_env::CABIN_GOVERNOR_RELEASE_BACKUP_YES,
             "Backup-pool accounting is append-only; releasing marks an incident, not \
@@ -854,15 +851,8 @@ fn key_exists(buckets: &Buckets, bucket: &str, key: &str) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    //! These live here because none of what they exercise - the key
-    //! grammars that bound the evidence, the prefix encoder, the two
-    //! renderers - is this crate's API.
-
     use super::*;
 
-    /// The grammars are part of the evidence guard, not input
-    /// hygiene: they bound how many objects can share the key as a
-    /// prefix, which is what makes one `per_page=5` listing proof.
     #[test]
     fn the_key_grammars_bound_the_evidence() {
         let hex = "0123456789abcdef".repeat(4);
@@ -894,8 +884,6 @@ mod tests {
         }
     }
 
-    /// `prefix.split("/").map(encodeURIComponent).join("/")`: the
-    /// separators stay separators, everything else is escaped.
     #[test]
     fn the_prefix_encoder_keeps_separators() {
         assert_eq!(encode_prefix("blobs/sha256/abc"), "blobs/sha256/abc");
@@ -934,9 +922,8 @@ mod tests {
         );
     }
 
-    /// `results.length === 0 ? "__MISSING__" : String(results[0].value)`.
-    /// The sentinel matters: it must not compare equal to a coordinated
-    /// mode, and it must not be mistaken for an empty answer.
+    /// The sentinel must not compare equal to a coordinated mode, and
+    /// must not be mistaken for an empty answer.
     #[test]
     fn the_service_mode_renders_a_missing_row_as_a_sentinel() {
         let rows = |json: &str| results(json).unwrap();
@@ -1049,7 +1036,6 @@ mod tests {
         }
     }
 
-    /// A listing row that is not an object with a `key` ends the run.
     #[test]
     fn a_listing_row_without_a_key_is_not_absence() {
         let page = |body: &str| serde_json::from_str::<Page>(body);

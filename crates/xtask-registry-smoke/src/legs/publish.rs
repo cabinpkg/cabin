@@ -5,7 +5,7 @@
 //! replication, and the idempotent re-publish that heals the primary
 //! blob only.
 //!
-//! Three shapes here look like they could be tidied and cannot be.
+//! Two shapes here look like they could be tidied and cannot be.
 //!
 //! The **oversized verdict** must reach the Worker with no
 //! `Content-Length`, because the leg's whole subject is that the body
@@ -22,11 +22,6 @@
 //! backup blob for a pending version, and no backup rewrite by a
 //! re-publish.  Trimming either one turns a real assertion into a race
 //! that passes for the wrong reason.
-//!
-//! **Downloads leave the shared body alone.**  The artifact downloads
-//! go through `detached_get`, which puts back the *previous* request's
-//! [`Smoke::body`], and its [`Smoke::headers`] too unless the caller
-//! asks for the download's own headers.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -36,9 +31,6 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
-// BLOBS_BUCKET and BACKUP_BUCKET are the two R2 buckets this span
-// reads: the content-addressed primary, and the append-only backup set
-// the verdict batch replicates into.
 use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, output, results, wrangler};
 
 use crate::bytes::{frame, replace_all, sha256_hex};
@@ -48,7 +40,7 @@ use crate::servers::d1_json;
 use crate::step;
 use crate::text::{contains, read, write};
 
-/// `--file /dev/null`: the three sites that only ask whether the object
+/// `--file /dev/null`: the two sites that only ask whether the object
 /// exists still make `wrangler` write it somewhere.
 const DEV_NULL: &str = "/dev/null";
 
@@ -59,8 +51,8 @@ const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
 const SETTLE: Duration = Duration::from_secs(1);
 
-/// The unbound verdict body, sent twice: once without the verify scope
-/// (403) and once with it (400).
+/// The unbound verdict body, sent twice: once with the publisher's
+/// bearer (the uniform 401) and once with a verifier JWT (400).
 const VERDICT_UNBOUND: &[u8] = br#"{"verdict":"verified"}"#;
 
 /// What this span needs out of the run's setup, with the fixtures as
@@ -251,8 +243,6 @@ fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
         &[],
     )?;
 
-    // The verify-scope gate's negative subject is the no-verify CI
-    // credential (the seeded publisher session carries verify).
     smoke.as_ci_publisher();
     smoke.wcheck("/api/v1/admin/versions?status=pending", &[403])?;
     smoke.expect_body("verify scope")?;
@@ -502,8 +492,8 @@ fn verdict_idempotence(
     smoke.verdict_patch(&admin_version(inputs), verdict_verified, &[200])?;
     smoke.expect_body(r#""changed":false"#)?;
     // Bound to the verified revision's checksum and publish event, which
-    // every verdict now requires: the conflict must be the transition,
-    // not a missing binding.
+    // every verdict requires: the conflict must be the transition, not a
+    // missing binding.
     let rejected = verdict_body(entry, "rejected", Some("smoke rejection"))?;
     write(&inputs.work.join("verdict-rejected.json"), &rejected)?;
     smoke.verdict_patch(&admin_version(inputs), &rejected, &[409])?;
@@ -811,9 +801,9 @@ fn refund() -> Result<()> {
 }
 
 /// `wrangler r2 object get <bucket>/<key> --file <out> --local`, and
-/// whether it succeeded: three of the four sites read a *failure* as
-/// the assertion (the object must be absent) rather than as an error.
-/// `quiet` discards stderr for those three.
+/// whether it succeeded.  Three of the four sites expect a failure: two
+/// assert the object is absent, and the backup poll retries until it
+/// appears.  `quiet` discards stderr for those three.
 fn r2_get(bucket: &str, key: &str, out: &Path, quiet: bool) -> Result<bool> {
     let target = format!("{bucket}/{key}");
     let mut command = wrangler(&[

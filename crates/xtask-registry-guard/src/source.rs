@@ -19,11 +19,10 @@ pub struct Source {
 ///
 /// A symlink to a file is listed and read through; a symlink to a
 /// directory is neither descended into nor listed (listing it would hand
-/// a directory to `read`), and a dangling one is skipped. A guard that
-/// aborts on an ordinary symlink reports no violations at all, which is
-/// the one outcome it must never produce - but a link the process cannot
-/// resolve at all is not "dangling", it is unknown, and refusing is the
-/// only safe reading of it.
+/// a directory to `read`), and a dangling one is skipped, so an ordinary
+/// symlink never aborts the scan and hides the violations behind it. A
+/// link the process cannot resolve at all is not dangling but unknown,
+/// and refuses.
 ///
 /// A file name that is not valid UTF-8 refuses too. Both the allowlists
 /// and every diagnostic are keyed by the reported path, so a name that
@@ -81,9 +80,8 @@ pub fn rust_sources(dir: &Path, prefix: &str) -> Result<Vec<Source>> {
 /// Every line under `dir` containing `pattern`, rendered as
 /// `<path>:<line>:<text>`.
 ///
-/// The match is on the bytes as written - comments and strings
-/// included - which is the point: these patterns are commissioned
-/// spellings that must not appear at all.
+/// The match is on the bytes as written, comments and strings included:
+/// these patterns are forbidden spellings that must not appear at all.
 ///
 /// # Errors
 ///

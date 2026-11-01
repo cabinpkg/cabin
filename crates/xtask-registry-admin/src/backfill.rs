@@ -9,11 +9,11 @@
 //! deletes any: the Worker's drain retires each row itself (its
 //! existence head finds the copy, settles the governor's backup ledger
 //! at the observed size, and deletes the row), so every copy made
-//! here - and every pre-queue verified blob - is absorbed, ledger
-//! included, at up to 50 rows per breaker cron pass, so until the queue
-//! drains the backup audit can honestly read the backup pool short of
-//! these copies.  Deleting or skipping rows
-//! here would leave the governor's backup ledger understating reality.
+//! here - and every pre-queue verified blob - reaches the ledger, at up
+//! to 50 rows per breaker cron pass.  Until the queue drains, the backup
+//! audit can read the backup pool short of these copies.  Deleting or
+//! skipping rows here would leave the governor's backup ledger
+//! understating reality.
 //!
 //! Requires `CLOUDFLARE_API_TOKEN` in the environment.  Idempotent:
 //! re-running skips blobs the backup already holds.  The copies run
@@ -51,7 +51,7 @@ const ENQUEUE: &str = "
   ON CONFLICT (key) DO NOTHING";
 
 // Verified only: the backup set holds exactly the content the registry
-// serves as verified (`docs/architecture.md`, "Backups"); pending
+// serves as verified (`registry/docs/architecture.md`, "Backups"); pending
 // uploads are not backed up until their verdict, and rejected blobs are
 // reclaimed.
 const VERIFIED: &str = "SELECT DISTINCT checksum FROM revisions
@@ -82,7 +82,6 @@ pub fn is_checksum(value: &str) -> bool {
 pub fn run() -> Result<()> {
     step("enqueueing every verified blob for the worker's drain");
     let enqueued = wrangler(&["d1", "execute", "DB", "--remote", "--command", ENQUEUE])
-        // Stdout discarded; wrangler's diagnostics stay on the terminal.
         .stdout(Stdio::null())
         .status()
         .context("run wrangler d1 execute")?;

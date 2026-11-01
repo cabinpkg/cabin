@@ -13,7 +13,6 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            // `FAIL: <msg>` on stderr, exit 1.
             eprintln!("FAIL: {err:#}");
             ExitCode::FAILURE
         }

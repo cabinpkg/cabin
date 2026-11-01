@@ -15,7 +15,7 @@ fn the_backfill_takes_only_lower_case_sha256() {
     )));
     for refused in [
         "",
-        // The bare pre-prefix spelling no longer matches the column.
+        // Bare hex, without the column's `sha256:` prefix.
         &"0123456789abcdef".repeat(4),
         &format!("sha256:{}", "a".repeat(63)),
         &format!("sha256:{}", "a".repeat(65)),

@@ -223,7 +223,8 @@ fn a_refused_guard_stops_the_remote_wipe_before_anything_destructive() {
     }
 }
 
-/// Without an R2 token the sweeps cannot run, so nothing runs at all.
+/// Without an R2 token the sweeps cannot run, so nothing destructive
+/// does.
 #[test]
 fn a_remote_wipe_without_an_r2_token_destroys_nothing() {
     let world = World::new("false");

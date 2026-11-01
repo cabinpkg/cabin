@@ -4,8 +4,7 @@
 //! exists to catch - a lost binding, a deleted or edited Durable Object
 //! migration, a misspelled or unparsable hard-limit var, a missing cron,
 //! a bundle that stopped exporting the class - stays caught, and the
-//! shipped config itself stays accepted. An untested guard is the one
-//! that rots.
+//! shipped config itself stays accepted.
 
 use assert_cmd::Command;
 use predicates::str::contains;
@@ -159,9 +158,7 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""crons": ["*/15 * * * *", "0 3 * * *"]"#,
         r#""crons": ["*/15 * * * *"]"#,
     ),
-    // (the stale-D1_DATABASE_ID case is built dynamically in the test:
-    // its mutation target is the live database id, which every wipe
-    // changes, and a hardcoded id would break the fixture on each one)
+    // (the stale-D1_DATABASE_ID case is `a_stale_dump_database_id_is_caught`)
     (
         "drifted_migrations_dir",
         r#""migrations_dir": "migrations""#,
@@ -248,8 +245,8 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""simple": { "limit": "60", "period": 60 }"#,
     ),
     (
-        // The platform accepts only 10 or 60; any other period would
-        // pass a naive positivity check and then fail the real deploy.
+        // The platform accepts only 10 or 60; any other period fails
+        // the real deploy.
         "unsupported_ratelimit_period",
         r#""simple": { "limit": 6, "period": 60 }"#,
         r#""simple": { "limit": 6, "period": 30 }"#,
@@ -387,8 +384,8 @@ fn a_commented_export_list_entry_is_not_an_export() {
     ));
 }
 
-/// An unreadable config is reported like an unparsable one - same
-/// streams, same summary - so CI still sees the line it reads.
+/// An unreadable config is reported like an unparsable one: same
+/// streams, same summary.
 #[test]
 fn a_missing_config_keeps_the_stream_contract() {
     let dir = assert_fs::TempDir::new().expect("scratch tree");

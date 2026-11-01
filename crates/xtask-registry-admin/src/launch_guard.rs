@@ -49,8 +49,9 @@ const DATABASE: &str = "cabin-registry";
 
 const LAUNCHED: &str = "SELECT value FROM meta WHERE key = 'launched'";
 
-/// The mode the guard was asked for.  Local state has no account-level
-/// name resolution, which is the whole of the difference.
+/// The deployed registry (`--remote`) or the emulated `.wrangler/`
+/// state (`--local`).  For the launch guard, local state has no
+/// account-level name resolution, which is the whole of the difference.
 #[derive(Clone, Copy)]
 pub enum Mode {
     Remote,

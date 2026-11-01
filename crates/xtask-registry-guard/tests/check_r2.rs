@@ -5,8 +5,7 @@
 //! governor-admitting functions - a new function, a second acquisition
 //! inside a pinned one, the UFCS and raw-identifier spellings, the name
 //! split from its receiver by a comment - stays caught, and the shapes
-//! that are not acquisitions at all stay accepted. An untested guard is
-//! the one that rots.
+//! that are not acquisitions at all stay accepted.
 
 use assert_cmd::Command;
 use predicates::str::contains;
@@ -101,7 +100,7 @@ fn unsanctioned_acquisitions_are_caught() {
             "fn f(env: &Env) { let b = env./* sneaky */bucket(\"BLOBS\"); }",
         ),
         (
-            // a line-oriented match would miss this; the scan must not be.
+            // A line-oriented match would miss this.
             "comment_between_name_and_paren_across_lines",
             "fn f(env: &Env) {\n    let b = env.\n/* explanation */\nbucket\n(\"BLOBS\");\n}",
         ),
@@ -210,7 +209,6 @@ fn an_acquisition_outside_any_function_says_so() {
     );
 }
 
-/// The committed Worker sources pass.
 #[test]
 fn the_committed_worker_sources_pass() {
     let violations = r2::check(&registry_dir()).expect("run the guard");

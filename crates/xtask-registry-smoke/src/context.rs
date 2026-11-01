@@ -97,24 +97,24 @@ impl Smoke {
         self.auth.clear();
     }
 
-    /// `as_publisher`: the ordinary publish/yank token.
+    /// The ordinary publish/yank token.
     pub fn as_publisher(&mut self) {
         self.auth = bearer(&self.token);
     }
 
-    /// `as_verifier`: the verify-scoped token, which the seeding block
-    /// derives from the publisher's by suffix.  Admin listings and the
-    /// governor only; verdict `PATCH`es authenticate with an OIDC JWT
-    /// instead ([`Smoke::verdict_patch`]).
+    /// The verify-scoped token, which the seeding block derives from the
+    /// publisher's by suffix.  Admin listings and the governor only;
+    /// verdict `PATCH`es authenticate with an OIDC JWT instead
+    /// ([`Smoke::verdict_patch`]).
     pub fn as_verifier(&mut self) {
         self.auth = bearer(&format!("{}-verify", self.token));
     }
 
-    /// `as_ci_publisher`: the seeded trustpub publish-arm token, the
-    /// confined no-verify shape a CI workflow holds.  The negative
-    /// subject for the verify-scope gates: the seeded publisher session
-    /// carries `verify`, so this is the credential that must be refused
-    /// on the admin plane and see pending versions as missing.
+    /// The seeded trustpub publish-arm token, the confined no-verify
+    /// shape a CI workflow holds.  The negative subject for the
+    /// verify-scope gates: the seeded publisher session carries `verify`,
+    /// so this is the credential that must be refused on the admin plane
+    /// and see pending versions as missing.
     pub fn as_ci_publisher(&mut self) {
         self.auth = bearer(&format!("{}-noverify", self.token));
     }
@@ -244,8 +244,8 @@ impl Smoke {
         Ok(status)
     }
 
-    /// `check_at`: a GET with the current credential whose status must
-    /// be one of `expected`; the body lands in [`Smoke::body`].
+    /// A GET with the current credential whose status must be one of
+    /// `expected`; the body lands in [`Smoke::body`].
     ///
     /// # Errors
     ///
@@ -257,7 +257,7 @@ impl Smoke {
         self.expect_status(path, status, expected)
     }
 
-    /// `check`: the registry host.
+    /// `check_at` on the registry host.
     ///
     /// # Errors
     ///
@@ -266,7 +266,7 @@ impl Smoke {
         self.check_at(Base::Registry, path, expected)
     }
 
-    /// `wcheck`: the website origin.
+    /// `check_at` on the website origin.
     ///
     /// # Errors
     ///
@@ -295,7 +295,8 @@ impl Smoke {
         self.expect_status(&format!("{method} {path}"), status, expected)
     }
 
-    /// `wrequest`: the mutation routes live on the website origin only.
+    /// `request_at` on the website origin, the only role serving the
+    /// mutation routes.
     ///
     /// # Errors
     ///
@@ -310,8 +311,8 @@ impl Smoke {
         self.request_at(Base::Web, method, path, data, expected)
     }
 
-    /// `expect_body`: the last body must contain `fixed`.  `grep -qF`,
-    /// so a fixed string and never a pattern.
+    /// The last body must contain `fixed`.  `grep -qF`, so a fixed
+    /// string and never a pattern.
     ///
     /// # Errors
     ///

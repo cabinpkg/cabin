@@ -1,8 +1,8 @@
 //! The tokened preamble and the two planes it opens with: the verifier
-//! build, the frozen fixture wiring, the two helpers every later
-//! verification leg calls (`listing_entry` and `run_verifier`), the
-//! read plane a valid token must not change, and the minted session
-//! through its ghost-identity and CSRF legs.
+//! build, the frozen fixture wiring, the two helpers later legs share
+//! (`listing_entry` and `run_verifier`), the read plane a valid token
+//! must not change, and the minted session through its ghost-identity
+//! and CSRF legs.
 //!
 //! The session cookie is the run's *second* mutable credential state:
 //! it is minted here, swapped for the ghost's and restored, and carried
@@ -38,9 +38,8 @@ const MEMBER_BODY: &str = r#"{"github_id":2,"role":"member"}"#;
 
 /// What the setup leaves behind for every leg after it: the work
 /// directory, the built verifier, the fixture pair as bytes *and* as
-/// paths (the `wrangler r2 object put --file` and `shasum -c` sites
-/// need real files), and the routes derived from the fixture's
-/// packaging revision.
+/// paths (`wrangler r2 object put --file` needs a real file), and the
+/// routes derived from the fixture's packaging revision.
 pub struct Setup {
     pub work: TempDir,
     pub verifier_bin: PathBuf,
@@ -233,10 +232,10 @@ pub fn read_plane(smoke: &mut Smoke, setup: &Setup) -> Result<()> {
 ///
 /// The first failed check.
 pub fn session_plane(smoke: &mut Smoke) -> Result<String> {
-    // The session cookie is `<payload>.<hmac>` keyed by SESSION_SECRET,
-    // which this run pinned above - so a valid session for the seeded
-    // user (github id 0, admitted by the pinned ALLOWED_GITHUB_IDS) can
-    // be minted without a GitHub round trip.
+    // The session cookie is `<payload>.<hmac>` keyed by the
+    // SESSION_SECRET this run pinned in `.dev.vars`, so a valid session
+    // for the seeded user (github id 0, admitted by the pinned
+    // ALLOWED_GITHUB_IDS) can be minted without a GitHub round trip.
     let mut session = session_cookie(0, expires_in_an_hour());
     let csrf = csrf_headers();
 
@@ -374,8 +373,8 @@ fn expires_in_an_hour() -> u64 {
 }
 
 /// HMAC-SHA256 over the 64-byte block (RFC 2104), lowercase hex.  The
-/// repository pulls in no MAC crate and this is the only site that
-/// needs one.
+/// root workspace pulls in no MAC crate (`hmac` is the separate
+/// registry workspace's), and this is its only site that needs one.
 fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
     const BLOCK: usize = 64;
     let mut padded = [0u8; BLOCK];

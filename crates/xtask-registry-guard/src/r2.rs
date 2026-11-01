@@ -285,9 +285,8 @@ fn method_at(
 /// Every banned accessor, in source order, with or without a receiver.
 ///
 /// The receiver is optional, so a longer identifier ending in one of the
-/// names matches too - deliberately loud rather than deliberately
-/// precise: this is the seam where a bucket could appear without the
-/// `bucket` token, so a near-miss spelling should stop the build.
+/// names matches too. That false positive is accepted: this is the seam
+/// where a bucket could appear without the `bucket` token.
 fn banned_accessors(source: &[u8]) -> Vec<(usize, &'static str)> {
     let mut found = Vec::new();
     let mut at = 0;

@@ -133,8 +133,7 @@ fn d1(command: &str) -> Result<Vec<serde_json::Map<String, serde_json::Value>>> 
     results(&answer)
 }
 
-/// The whole bucket, cursor-paginated.  Unlike the wipe's delete loop,
-/// an audit must walk every page.
+/// The whole bucket, cursor-paginated.
 fn list(token: &str, account: &str) -> Result<Vec<Object>> {
     let agent = agent();
     let endpoint = format!(
@@ -550,8 +549,8 @@ fn archives(verified: &[serde_json::Map<String, serde_json::Value>]) -> Result<V
             // The column holds the canonical `sha256:<hex>` value;
             // R2 keys keep the OCI-style layout, so the key drops
             // the algorithm prefix.  Anything non-canonical is a
-            // corrupt or pre-migration row the clean break does not
-            // read - refuse loudly instead of deriving a bogus key.
+            // corrupt or unsupported pre-migration row: refuse it
+            // instead of deriving a bogus key.
             let value = display(checksum);
             if !crate::backfill::is_checksum(&value) {
                 anyhow::bail!("a verified row carries a non-canonical checksum: {value}");
@@ -596,10 +595,6 @@ fn is_dump_or_sidecar(key: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    //! These live here rather than in `tests/` because what they
-    //! exercise - the listing and ledger wire shapes, and what the audit
-    //! reads them to mean - is not this crate's API.
-
     use super::*;
 
     fn listing(objects: &[(&str, u64)]) -> Vec<Object> {
@@ -636,8 +631,6 @@ mod tests {
         .unwrap()
     }
 
-    /// A bucket that agrees with D1 reports six empty sections, the dump
-    /// retention count, and - given a token - both ledgers, and passes.
     #[test]
     fn a_healthy_bucket_reports_every_section_empty() {
         let checksum = "0123456789abcdef".repeat(4);
@@ -949,12 +942,10 @@ mod tests {
         ));
     }
 
-    /// Pagination is the audit's one chance to be wrong about the whole
-    /// bucket: a page that claims more without saying where, or carries
-    /// metadata that says nothing about truncation, must stop the run.
-    /// A page with no metadata at all is the API's last page.  Reading a
-    /// first page as the whole bucket would audit only part of it - and
-    /// could still report it OK.
+    /// A page that claims more without saying where, or carries metadata
+    /// that says nothing about truncation, stops the run: reading a first
+    /// page as the whole bucket would audit only part of it and could
+    /// still report it OK.
     #[test]
     fn a_page_that_cannot_be_paginated_stops_the_audit() {
         let (objects, cursor) = page(
@@ -991,8 +982,6 @@ mod tests {
         }
     }
 
-    /// `encodeURIComponent`, which is what the cursor is escaped with
-    /// before it goes back into the query string.
     #[test]
     fn the_cursor_is_percent_encoded_like_encode_uri_component() {
         for (raw, escaped) in [

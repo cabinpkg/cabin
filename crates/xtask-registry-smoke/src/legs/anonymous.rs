@@ -4,9 +4,8 @@
 //! subtree, the OAuth plane's host-only cookies, and the launch guard
 //! end to end.
 //!
-//! Everything here runs anonymously, so nothing in this module touches
-//! [`Smoke::auth`], and the two `uniform_401` legs that present a
-//! credential pass it as a request header of their own.
+//! Nothing in this module touches [`Smoke::auth`]: a leg that presents
+//! a credential passes it as a request header of its own.
 //!
 //! The early exit with no token (one more `step`, `smoke OK`, exit 0)
 //! is deliberately *not* here: it is the caller's sequencing
@@ -23,7 +22,7 @@ use crate::text::{capture, first_line, grep_lines, status_line_is, strip_name, t
 /// The exact envelope every refusal answers with, on either role and
 /// whatever the path, method or credential.  Compared as text against
 /// this constant and never parsed: a `serde_json` round trip would
-/// weaken six assertions to "same fields".
+/// weaken the comparison to "same fields".
 const EXPECTED_401: &str = r#"{"errors":[{"detail":"authentication required"}]}"#;
 
 /// The trusted-publishing token endpoint, exchanged into here and
@@ -127,7 +126,7 @@ fn off_the_read_plane(smoke: &mut Smoke) -> Result<()> {
         &rotated(),
         None,
     )?;
-    // Write methods too: the mutation surface simply does not exist here.
+    // Write methods too: the mutation surface does not exist here.
     uniform_401_with(
         smoke,
         Base::Registry,
@@ -148,10 +147,8 @@ fn off_the_read_plane(smoke: &mut Smoke) -> Result<()> {
 
 fn mutation_surface(smoke: &mut Smoke) -> Result<()> {
     step("the mutation surface keeps the byte-identical uniform 401");
-    // Public reads narrowed the uniform-401 discipline to the mutation
-    // surface; unauthenticated publish, yank, and admin requests on the
-    // website origin must still answer the exact envelope and one
-    // byte-identical challenge.
+    // Unauthenticated publish, yank, and admin requests on the website
+    // origin answer the exact envelope and one byte-identical challenge.
     uniform_401_with(
         smoke,
         Base::Web,
@@ -601,8 +598,6 @@ fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {
     set_launched("false")
 }
 
-/// `UPDATE meta SET value = '<value>' WHERE key = 'launched'` against
-/// the local state, stdout swallowed.
 fn set_launched(value: &str) -> Result<()> {
     let command = format!("UPDATE meta SET value = '{value}' WHERE key = 'launched'");
     crate::servers::d1_quiet(&command)

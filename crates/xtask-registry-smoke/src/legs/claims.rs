@@ -3,13 +3,10 @@
 //! owner gate's byte-identical 403, and the generation header - plus
 //! the claim-initiation fetch-metadata gate.
 //!
-//! Every request here rides the session cookie the session leg minted,
-//! so the cookie arrives as a parameter rather than being re-derived.
-//!
-//! The buffer subtleties the checks depend on are spelled out at their
-//! sites: the owner gate copies the first 403 body before the second
-//! request overwrites it, and the generation-header check lands the
-//! *header* block in the body buffer.
+//! The logout and membership legs ride the session cookie the session
+//! leg minted, so the cookie arrives as a parameter rather than being
+//! re-derived; the claim flow carries only fetch metadata and its own
+//! claim-state cookie.
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
