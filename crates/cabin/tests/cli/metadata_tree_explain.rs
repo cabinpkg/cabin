@@ -63,11 +63,10 @@ fn tree_human_format_default_emits_box_drawing() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     // Both packages must appear, app as a workspace root with
     // its workspace label, lib as a normal-kind child of app.
-    assert!(stdout.contains("app v0.1.0"), "got: {stdout}");
-    assert!(stdout.contains("lib v0.1.0"), "got: {stdout}");
-    assert!(stdout.contains("[normal]"), "got: {stdout}");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert!(lines.contains(&"app v0.1.0 (workspace)"), "got: {stdout}");
     assert!(
-        stdout.contains("└── lib") || stdout.contains("├── lib"),
+        lines.contains(&"└── lib v0.1.0 [normal] (workspace)"),
         "got: {stdout}"
     );
 }

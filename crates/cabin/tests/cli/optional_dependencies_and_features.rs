@@ -122,20 +122,23 @@ fn fetch_does_not_pull_disabled_optional_into_lockfile() {
     // The disabled optional `openssl` must not appear in the
     // lockfile that fetch writes, even though the artifact
     // step itself fails on the missing fmt artifact (the
-    // index fixture omits the source block - that's a fetch
-    // concern, not a feature concern).  We only assert the
+    // index fixture names an archive that does not exist -
+    // that's a fetch concern, not a feature concern).  We only assert the
     // dep-set decision the feature resolver made.
     let dir = TempDir::new().unwrap();
     write_app_with_optional_openssl(dir.path());
-    // First run resolve to write the lockfile (resolve does
-    // not need source artifacts).
     cabin()
-        .args(["resolve", "--manifest-path"])
+        .args(["fetch", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .args(["--index-path"])
         .arg(dir.path().join("index"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
         .assert()
-        .success();
+        .failure()
+        .stderr(predicate::str::contains(
+            "source archive for `fmt 10.2.1` does not exist",
+        ));
     let lock_body = fs::read_to_string(dir.path().join("cabin.lock")).unwrap();
     assert!(
         lock_body.contains("fmt"),

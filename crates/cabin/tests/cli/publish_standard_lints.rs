@@ -326,7 +326,7 @@ fn pl3_quiet_on_first_publish() {
     let assertion = publish(&pkg_root, &registry).success();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
-        !stderr.contains("raised from"),
+        !stderr.contains("narrowed from"),
         "a first publish must not fire PL3: {stderr}"
     );
 }
@@ -346,7 +346,7 @@ fn pl3_quiet_on_minor_release() {
     let assertion = publish(&pkg_root, &registry).success();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
-        !stderr.contains("raised from"),
+        !stderr.contains("narrowed from"),
         "a minor release must not fire PL3: {stderr}"
     );
 }
