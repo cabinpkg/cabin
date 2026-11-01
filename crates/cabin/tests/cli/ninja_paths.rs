@@ -179,6 +179,58 @@ fn special_character_paths_rebuild_only_what_changed() {
         .stdout(predicate::str::contains("ninja: no work to do."));
 }
 
+/// `clang-cl` writes its own depfile, so its objects depend on headers
+/// whose paths name `Program Files`, as the Windows SDK's do, which Ninja
+/// drops from `/showIncludes` output.  Only on x64: a native ARM64
+/// `clang-cl` builds for ARM64, which an x64 MSVC environment cannot link.
+#[cfg(all(windows, target_arch = "x86_64"))]
+#[test]
+fn clang_cl_tracks_headers_ninja_takes_for_system_headers() {
+    if !command_exists("clang-cl") {
+        eprintln!("skipping: clang-cl is not on PATH");
+        return;
+    }
+    require_c_and_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let base = cabin_fs::canonicalize(tmp.path()).unwrap();
+    // A build directory outside the workspace leaves `Program Files` in
+    // the header paths Ninja makes relative to it.
+    let dir = base.join("Program Files");
+    let build = base.join("out");
+    write_project(&dir);
+    let cabin_clang_cl = |args: &[&str]| {
+        cabin()
+            .args(args)
+            .arg("--build-dir")
+            .arg(&build)
+            .env("CC", "clang-cl")
+            .env("CXX", "clang-cl")
+            .current_dir(&dir)
+            .assert()
+            .success()
+    };
+    cabin_clang_cl(&["build"]);
+    let root = build.join("dev");
+    let plan = ninja(&root, &["-n"]);
+    assert!(plan.contains("no work to do"), "{plan}");
+
+    write(&dir, "include/fx/inner.h", "#define FX_INNER 2\n");
+    let plan = ninja(&root, &["-n"]);
+    for object in ["a.cc.o", "b.c.o", "main.cc.o"] {
+        assert!(plan.contains(object), "{object} is not rebuilt: {plan}");
+    }
+    assert!(!plan.contains("plain.cc.o"), "{plan}");
+    cabin_clang_cl(&["build"]);
+    assert!(ninja(&root, &["-n"]).contains("no work to do"));
+
+    cabin_clang_cl(&["check"]);
+    cabin_clang_cl(&["-v", "check"]).stdout(predicate::str::contains("ninja: no work to do."));
+    write(&dir, "include/fx/inner.h", "#define FX_INNER 3\n");
+    cabin_clang_cl(&["-v", "check"])
+        .stdout(predicate::str::contains("a.cc.o"))
+        .stdout(predicate::str::contains("plain.cc.o").not());
+}
+
 /// Where Ninja's own depfile parser reads a depfile right - names made
 /// of the bytes every Ninja since 1.10 takes as plain text, with the
 /// escapes compilers write - Ninja records the same dependencies through

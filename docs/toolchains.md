@@ -585,9 +585,10 @@ What remains:
   the standard headers from MSVC and the Windows SDK, below `Program Files` where they install by
   default, so there a compile that goes through `cabin depfile` and includes any of them reruns on
   every build.
-- A `cl` or `clang-cl` compile's own `/showIncludes` output goes through the same filter, so its
-  object does not depend on a header whose path contains either string, which the Windows SDK's and
-  MSVC's headers do where they install by default.  Ninja first makes each path relative to the
+- A `cl` compile, and a `clang-cl` compile that keeps `/showIncludes` (see
+  [`clang-cl`](#windows--msvc)), report headers through `/showIncludes`, whose output goes through
+  the same filter, so its object does not depend on a header whose path contains either string,
+  which the Windows SDK's and MSVC's headers do where they install by default.  Ninja first makes each path relative to the
   directory it runs in, unless the header is on another drive, so only the part below the deepest
   directory the two share counts: a workspace inside `Program Files` with the default build
   directory is tracked, but a header below a directory named `Microsoft Visual Studio` inside the
@@ -667,7 +668,14 @@ the example packages that need no outbound network on a `windows-2025-vs2026` ru
 - **`clang-cl`.** LLVM's `cl.exe`-compatible driver is detected by its invoked name (its `--version`
   banner is a plain `clang version`) and drives the MSVC dialect, so `CXX=clang-cl AR=lib` is a
   coherent MSVC toolchain.  It keeps Clang's diagnostics while emitting MSVC-style flags.  Pair it
-  with `lib.exe` (the MSVC archiver).
+  with `lib.exe` (the MSVC archiver).  In place of `/showIncludes` it writes a Makefile depfile
+  (`/clang:-MD /clang:-MF<file>`) that Ninja reads with `deps = gcc`, so its objects depend on the
+  Windows SDK's and MSVC's headers, which `deps = msvc` drops (see
+  [Paths Ninja cannot spell](#paths-ninja-cannot-spell)).  It keeps `/showIncludes` run through a
+  compiler wrapper, whose cache hit replays that output but need not write the depfile, and where
+  one of the paths the depfile is spelled from would send it through `cabin depfile`, which would
+  rerun every compile that includes a Windows SDK header.  `compile_commands.json` records
+  `/showIncludes` either way, which clang-tidy drops.
 - **MSVC version is validated.** Cabin checks every requested language standard against the detected
   `cl` version before the build - `/std:c++17` needs `cl` 19.11 (VS2017 15.3), `/std:c++20` needs
   `cl` 19.29 (VS2019 16.11), `/std:c11` / `/std:c17` need `cl` 19.28 (VS2019 16.8), and standards

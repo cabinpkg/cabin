@@ -120,6 +120,7 @@ mod tests {
             object: Utf8PathBuf::from(object),
             mode: CompileMode::Object,
             depfile: Some(Utf8PathBuf::from(depfile)),
+            clang_depfile: false,
             compiler: Utf8PathBuf::from("/usr/bin/c++"),
             target: None,
             sysroot: None,

@@ -269,6 +269,7 @@ fn probe_in(
         object: object.clone(),
         mode: CompileMode::Object,
         depfile: None,
+        clang_depfile: false,
         compiler: toolchain.compiler.to_owned(),
         target: toolchain.target.map(str::to_owned),
         sysroot: toolchain.sysroot.cloned(),
