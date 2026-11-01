@@ -27,7 +27,7 @@ use crate::context::{Base, Smoke};
 use crate::legs::session;
 use crate::servers::{DevServers, d1, d1_quiet, d1_rows};
 use crate::step;
-use crate::text::{capture, contains, grep_lines, read, write};
+use crate::text::{capture, contains, grep_anywhere, grep_lines, read, write};
 
 const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
@@ -1411,15 +1411,6 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     (year, month, day)
-}
-
-/// `grep -i <needle>`, unanchored - what the diagnostics interpolate.
-fn grep_anywhere<'a>(block: &'a str, needle: &str) -> Vec<&'a str> {
-    let needle = needle.to_ascii_lowercase();
-    block
-        .split('\n')
-        .filter(|line| line.to_ascii_lowercase().contains(&needle))
-        .collect()
 }
 
 #[cfg(test)]

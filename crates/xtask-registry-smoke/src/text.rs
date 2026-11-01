@@ -38,6 +38,15 @@ pub(crate) fn grep_lines<'a>(block: &'a str, prefix: &str) -> Vec<&'a str> {
         .collect()
 }
 
+/// `grep -i <needle>`, unanchored - what the diagnostics interpolate.
+pub(crate) fn grep_anywhere<'a>(block: &'a str, needle: &str) -> Vec<&'a str> {
+    let needle = needle.to_ascii_lowercase();
+    block
+        .split('\n')
+        .filter(|line| line.to_ascii_lowercase().contains(&needle))
+        .collect()
+}
+
 /// `sed 's/^[^:]*: //'`: the name and the single space after its colon,
 /// and only when that space is there.
 pub(crate) fn strip_name(line: &str) -> &str {
