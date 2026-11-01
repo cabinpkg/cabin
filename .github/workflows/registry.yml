@@ -423,7 +423,7 @@ jobs:
           if command -v worker-build; then exit 1; fi
           if node_modules/.bin/wrangler deploy --dry-run --outdir "$RUNNER_TEMP/dry-neg" > "$RUNNER_TEMP/neg.log" 2>&1; then exit 1; fi
           cat "$RUNNER_TEMP/neg.log"
-          grep -q 'worker-build: command not found' "$RUNNER_TEMP/neg.log"
+          grep -Eq 'worker-build: (command )?not found' "$RUNNER_TEMP/neg.log"
           test ! -e build/index.js
       - name: Install worker-build
         uses: taiki-e/cache-cargo-install-action@v3.0.8
@@ -441,41 +441,3 @@ jobs:
           test "$(worker-build --version)" = 0.8.5
           test -s registry/build/index.js
           test -s registry/build/index_bg.wasm
-
-  # TEMPORARY PR PROBE, removed before merge: the scanner image builds,
-  # works offline, and a source edit reuses the worker-build layer.
-  probe-scanner-image:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - name: Free disk
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
-      - name: Build the scanner image (cold)
-        shell: bash
-        run: docker build --progress=plain -f .oss-scanner/Dockerfile -t scanner . 2>&1 | tee "$RUNNER_TEMP/build.log"
-      - name: Layer timings
-        run: grep -E '^#[0-9]+ (\[|DONE|CACHED)' "$RUNNER_TEMP/build.log"
-      - name: Offline - pinned toolchain, Worker build, test builds, wrangler
-        run: >-
-          docker run --rm --network none scanner sh -c
-          'set -e; rustc --version; test "$(worker-build --version)" = 0.8.5;
-          cd registry; worker-build --release; cargo test --locked --no-run;
-          node_modules/.bin/wrangler --version'
-      - name: A source edit reuses the toolchain and worker-build layer
-        shell: bash
-        run: |
-          echo '// probe' >> registry/src/lib.rs
-          sed '/^COPY \. \/src$/q' .oss-scanner/Dockerfile > "$RUNNER_TEMP/prefix.Dockerfile"
-          tail -3 "$RUNNER_TEMP/prefix.Dockerfile"
-          docker build --progress=plain -f "$RUNNER_TEMP/prefix.Dockerfile" . 2>&1 | tee "$RUNNER_TEMP/rebuild.log"
-          install_step=$(grep -m1 -E '^#[0-9]+ \[[0-9]+/[0-9]+\] RUN rustup toolchain install' "$RUNNER_TEMP/rebuild.log" | cut -d' ' -f1)
-          copy_step=$(grep -m1 -E '^#[0-9]+ \[[0-9]+/[0-9]+\] COPY \. /src' "$RUNNER_TEMP/rebuild.log" | cut -d' ' -f1)
-          test -n "$install_step"
-          test -n "$copy_step"
-          grep -qx "$install_step CACHED" "$RUNNER_TEMP/rebuild.log"
-          if grep -qx "$copy_step CACHED" "$RUNNER_TEMP/rebuild.log"; then exit 1; fi
