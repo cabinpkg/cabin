@@ -42,7 +42,8 @@ const U64_MAX = 18446744073709551615n;
 
 // The official SemVer 2.0.0 grammar (semver.org), which is what the
 // publisher's `semver::Version` parser implements.  Capture groups 1-3
-// are the core numbers, range-checked separately below.
+// are the core numbers, range-checked separately below; group 5 is the
+// build metadata.
 const SEMVER =
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 
@@ -190,6 +191,13 @@ async function loadPackageRecord(
     if (core.slice(1, 4).some((part) => BigInt(part) > U64_MAX)) {
         throw new Error(
             `${manifestPath} declares version "${version}", whose major, minor or patch number exceeds the u64 the publisher parses it as.`,
+        );
+    }
+    // VersionBuildMetadataNotPublishable: the packaging axis is the
+    // revision id, never the version string.
+    if (core[5] !== undefined) {
+        throw new Error(
+            `${manifestPath} declares version "${version}", which carries build metadata; registry versions are plain upstream versions.`,
         );
     }
 

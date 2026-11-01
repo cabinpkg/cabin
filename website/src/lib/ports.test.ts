@@ -312,6 +312,27 @@ test("a core version above u64::MAX fails the build", async () => {
     }
 });
 
+test("a version with build metadata fails the build", async () => {
+    // Valid SemVer, but the publisher refuses it
+    // (VersionBuildMetadataNotPublishable).
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const version = "1.0.0+x";
+        const portDir = join(dir, "fmt", version);
+        await mkdir(portDir, { recursive: true });
+        await writeFile(
+            join(portDir, "cabin.toml"),
+            packageManifest("cabin-ports/fmt", version),
+        );
+        await assert.rejects(
+            () => loadPortsFromDir(dir),
+            /carries build metadata/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
 test("the exact u64::MAX core version still loads", async () => {
     // The boundary itself is valid for the publisher, so the loader
     // must not be off by one.
