@@ -5,7 +5,8 @@ strictness preorder and intersection join (D3, D4), satisfies (D11, D12),
 ReqOf (D9), consumers and edge compatibility (D7, D13), viability (D14),
 and every finite-domain lemma L1-L6 by `decide` (the spec's appendix notes
 all these are checkable by exhaustive enumeration; `decide` is exactly
-that, kernel-checked).
+that, kernel-checked), except L3, L5, and the C++ lemmas derived from
+`Req.leB_spec` without enumeration.
 
 The requirement type contains bounded shapes `bounded a b` without a
 baked-in `a <= b` invariant (the manifest layer rejects empty declared
@@ -279,8 +280,8 @@ theorem L4_inter_c : ∀ r s : Req CLevel, ∀ lvl : CLevel,
 theorem L4_inter_cxx : ∀ r s : Req CxxLevel, ∀ lvl : CxxLevel,
     satCxx lvl (joinCxx r s) = (satCxx lvl r && satCxx lvl s) := by decide
 
-/-- D4: the empty-intersection collapse is exact - the join is `forbidden`
-iff no level satisfies both operands. -/
+/-- D4: the empty-intersection collapse is exact - for valid operands, the
+join is `forbidden` iff no level satisfies both operands. -/
 theorem L4_empty_collapse_cxx : ∀ r s : Req CxxLevel,
     validCxx r = true → validCxx s = true →
     (joinCxx r s = .forbidden ↔
@@ -444,8 +445,8 @@ theorem L6_convex_cxx : ∀ r : Req CxxLevel, ∀ lo x hi : CxxLevel,
     CxxLevel.leB lo x = true → CxxLevel.leB x hi = true →
     satCxx lo r = true → satCxx hi r = true → satCxx x r = true := by decide
 
-/-- The old upward-closure lemma is genuinely gone: raising a consumer
-past a bounded requirement's cap breaks satisfaction.  (Minimum-only
+/-- Upward closure fails: raising a consumer past a bounded
+requirement's cap breaks satisfaction.  (Minimum-only
 shapes, `forbidden` - vacuously - and ranges reaching the top of today's
 chain remain upward closed; the spec's L6 remark records the remedy
 consequence.) -/
@@ -609,7 +610,8 @@ def effectiveReqCxx {T : Type} (deps : T → List T) (wf : WellFounded (DepRel d
 
 The generic `T2_growth` takes its pointwise hypothesis in the
 structural order, which is stronger than the spec's: `atLeast bot`
-and `unconstrained` are `⊑`-equivalent but structurally unrelated.
+and `unconstrained` are `⊑`-equivalent, but `atLeast bot` is not
+structurally below `unconstrained`.
 These are the faithful readings of the spec's T2 for the concrete
 domains, via `T2_growth_of` and the denotational `JoinLub`
 instances. -/

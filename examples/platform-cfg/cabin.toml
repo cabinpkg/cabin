@@ -9,8 +9,9 @@ type = "executable"
 sources = ["src/main.cc"]
 
 # Platform-conditional preprocessor defines. Each `cfg(...)` predicate
-# is evaluated against the host platform, so every OS compiles with its
-# own define — on Windows via MSVC `/D`, elsewhere via GCC/Clang `-D`.
+# is evaluated against the platform being built for (the build machine,
+# or the `--target` triple), so every OS compiles with its own define,
+# passed as `/D` to MSVC and `-D` to GCC/Clang.
 [target.'cfg(os = "windows")'.profile]
 defines = ["CABIN_ON_WINDOWS"]
 

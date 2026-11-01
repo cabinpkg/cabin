@@ -2,9 +2,9 @@
 
 #include <cstdio>
 
-// Second test target for the same library. `cabin test` discovers and
-// runs both, in a deterministic order (by package, then target name),
-// so this one always runs after `calc_test`.
+// Second test target for the same library. `cabin test` runs both and
+// starts them in ascending (package, target name) order, so this one
+// starts after `calc_test`.
 namespace {
 
 int failures = 0;
