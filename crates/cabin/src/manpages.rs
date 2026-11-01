@@ -29,7 +29,10 @@ pub(crate) struct MangenArgs {
 }
 
 pub(crate) fn run(args: &MangenArgs) -> Result<()> {
-    let cmd = Cli::command();
+    // Building propagates the global options (`--verbose`, `-Z`, ...)
+    // into every subcommand, as clap does before parsing.
+    let mut cmd = Cli::command();
+    cmd.build();
     match args.output_dir.as_deref() {
         None => write_root_to_stdout(&cmd)?,
         Some(dir) => write_to_dir(&cmd, dir)?,
@@ -57,11 +60,10 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
         .render(&mut file)
         .with_context(|| format!("failed to render {}", root_path.display()))?;
 
-    // Renaming the subcommand to `cabin-<sub>` yields a man page
-    // whose `.TH` and SYNOPSIS show the conventional
-    // `cabin-build(1)` form; the subcommand's own arguments
-    // still render correctly because clap_mangen reads them
-    // from the same Command.
+    // Each page renders in the conventional `cabin-build(1)` form:
+    // `build()` already titled it `cabin-<sub>`, the name fills the
+    // `.TH` source field, and the bin name keeps the SYNOPSIS from
+    // reading `cabin <sub>`.
     for sub in cmd.get_subcommands() {
         // Skip clap's auto-injected `help` pseudo-subcommand: the root
         // page already documents `--help`.
@@ -79,7 +81,11 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
         // root `cabin(1)` page still observes the original hidden
         // status and omits the command from its SUBCOMMANDS list
         // to match `cabin --help`.
-        let renamed = sub.clone().name(display_name).hide(false);
+        let renamed = sub
+            .clone()
+            .name(display_name)
+            .bin_name(display_name)
+            .hide(false);
         let path = dir.join(format!("{display_name}.1"));
         let mut file = fs::File::create(&path)
             .with_context(|| format!("failed to create {}", path.display()))?;
