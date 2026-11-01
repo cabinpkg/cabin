@@ -127,8 +127,24 @@ fn mangen_writes_root_and_subcommand_pages_to_output_dir() {
     for sub in all_subcommand_names() {
         let path = out.join(format!("cabin-{sub}.1"));
         assert!(path.is_file(), "expected cabin-{sub}.1");
-        let body = fs::read(&path).unwrap();
-        assert!(!body.is_empty(), "cabin-{sub}.1 must be non-empty");
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(
+            body.contains(&format!(".TH cabin-{sub} 1"))
+                && body.contains(&format!(".SH SYNOPSIS\n\\fBcabin\\-{sub}\\fR ")),
+            "cabin-{sub}.1 must be titled and synopsized as cabin-{sub}"
+        );
+        // The global options apply to every subcommand, so each page
+        // lists them - once.
+        for option in [
+            r"\fB\-v\fR, \fB\-\-verbose\fR",
+            r"\fB\-q\fR, \fB\-\-quiet\fR",
+            r"\fB\-\-color\fR",
+            r"\fB\-Z\fR",
+            r"\fB\-V\fR, \fB\-\-version\fR",
+        ] {
+            let entries = body.lines().filter(|l| l.starts_with(option)).count();
+            assert_eq!(entries, 1, "cabin-{sub}.1 must list {option} once");
+        }
     }
 }
 
