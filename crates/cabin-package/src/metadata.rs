@@ -79,10 +79,10 @@ pub struct PackageMetadata {
     pub compiler_wrapper: Option<CompilerWrapperRequest>,
     /// Manifest-declared `[package]`-level `c-standard` /
     /// `cxx-standard` / `interface-c-standard` /
-    /// `interface-cxx-standard` fields.  Preserved (round-trip only)
-    /// so future resolver work can read requirements without
-    /// extracting the archive; pkg-config-style local build state
-    /// never lands here.  Omitted when the manifest declares none.
+    /// `interface-cxx-standard` fields.  Preserved round-trip only;
+    /// the resolver reads the typed `standards` table below instead.
+    /// pkg-config-style local build state never lands here.  Omitted
+    /// when the manifest declares none.
     #[serde(skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
     /// Declared per-target standard-compatibility table (spec D9

@@ -94,9 +94,9 @@ pub struct VersionMetadata {
     /// Older registries that omit the field continue to load.
     pub compiler_wrapper: Option<serde_json::Value>,
     /// Manifest-declared `[package]`-level language standard
-    /// fields, preserved as-is.  Round-trip only today; resolver
-    /// consumption is deferred.  Older registries that omit the
-    /// field continue to load.
+    /// fields, preserved as-is.  Round-trip only; the resolver reads
+    /// the typed `standards` table below instead.  Older registries
+    /// that omit the field continue to load.
     pub language: Option<serde_json::Value>,
     /// Declared per-target standard-compatibility table (spec D9
     /// `ReqOf`, header-only inference applied).  A **typed** view -

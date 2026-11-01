@@ -620,12 +620,11 @@ fn parse_system_dependencies(
 
 /// Reject a compiler-referencing (`cc` / `cxx` / `cc_version` /
 /// `cxx_version`) `target` condition on an index dependency entry.
-/// Index gates are evaluated with a platform-only context - no
-/// toolchain detection runs before resolution - so a compiler leaf
-/// would evaluate against family `unknown` and could activate edges
-/// for nonsense reasons.  The manifest layer already rejects these on
-/// dependency tables, so only hand-authored index entries can carry
-/// them; refuse to load such an entry.
+/// Resolution ignores index gates and builds evaluate the package
+/// manifest's own copy, whose dependency tables the manifest layer
+/// restricts to platform-only conditions.  An index entry carrying a
+/// compiler leaf therefore matches no manifest Cabin accepts and can
+/// only be hand-authored; refuse to load such an entry.
 fn reject_compiler_condition(
     package: &str,
     version: &str,

@@ -225,8 +225,8 @@ pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
     let files: Vec<&Path> = files.into_iter().collect();
 
     let mut cmd = Command::new(&request.executable);
-    // The registry credential is Cabin's input, not the linter's:
-    // scrub it so the spawned tool can never read the token.
+    // The registry credentials are Cabin's input, not the linter's:
+    // scrub them so the spawned tool can never read them.
     cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
     cmd.arg("-p").arg(&request.compile_database_dir);

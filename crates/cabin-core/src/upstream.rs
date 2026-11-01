@@ -53,8 +53,7 @@ pub enum UpstreamError {
     UnsafeCopyPath { field: &'static str, value: String },
     #[error(
         "upstream copy `from` {from:?} and `to` {to:?} name the same file (paths are compared \
-         case- and normalization-folded, matching the package archive's conflict rule); a copy must name two \
-         different files"
+         case- and normalization-folded); a copy must name two different files"
     )]
     SelfReferentialCopy { from: String, to: String },
     #[error("too many upstream copy steps ({count}): at most {MAX_COPY_STEPS} are supported")]

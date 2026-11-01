@@ -385,7 +385,7 @@ fn windows_aliasing_and_device_paths_are_rejected() {
     for name in [
         "cabin.toml.",       // trailing dot: Win32 strips it
         "cabin.toml ",       // trailing space: same
-        " cabin.toml",       // leading space: Win32 strips it too
+        " cabin.toml",       // leading space: Win32 keeps it, refused anyway
         "cabin.toml::$DATA", // NTFS default data stream
         "sub/evil:stream",   // NTFS alternate data stream
         "NUL",               // reserved device name
@@ -586,10 +586,10 @@ fn push_block(out: &mut Vec<u8>, header: &tar::Header, body: &[u8]) {
 #[test]
 fn a_pax_size_record_overrides_the_header_field() {
     // A PAX extended header carries the entry's real size, and the
-    // regular header's `size` field says something else.  The
+    // regular header's `size` field says something else (`git
+    // archive` writes 0 there for an entry of 8 GiB or more).  The
     // truncation check has to compare against the *effective* size
-    // the tar reader uses, or every legitimate PAX archive - the
-    // shape `bsdtar` and `git archive` emit - is rejected.
+    // the tar reader uses, or such an entry is rejected as truncated.
     let corpus = Corpus::new();
     let body = b"hello";
 

@@ -197,12 +197,14 @@ impl SystemDependencyFlags {
 }
 
 /// Compiler default search directories that must not be re-spelled
-/// as `-isystem`: GCC documents that naming `/usr/include` with
-/// `-isystem` reorders the system include chain and breaks
-/// `#include_next` in libc headers. `pkg-config` normally omits its
-/// built-in default dirs from `--cflags`; when a `.pc` file forces
-/// one through anyway, it stays in the plain `-I` bucket - which the
-/// compiler then ignores for directories it already searches.
+/// as `-isystem`: GCC documents that `-isystem` changes the order of
+/// the system include chain, which `#include_next` depends on, and
+/// naming `/usr/include` that way moves it ahead of libstdc++'s
+/// headers, so `<cstdlib>`'s `#include_next <stdlib.h>` fails.
+/// `pkg-config` normally omits its built-in default dirs from
+/// `--cflags`; when a `.pc` file forces one through anyway, it stays
+/// in the plain `-I` bucket - which the compiler then ignores for
+/// directories it already searches.
 const DEFAULT_SEARCH_INCLUDE_DIRS: &[&str] = &["/usr/include", "/usr/local/include"];
 
 /// Errors surfaced by the probe layer.
@@ -394,9 +396,8 @@ pub fn probe_system_dependency(
     }
 
     // Stage 2: modversion (best-effort; absence is not fatal).
-    // Some pkg-config implementations omit Version: from .pc
-    // files and exit non-zero here even when the package is
-    // present.
+    // `--exists` already enforced the requirement; the version
+    // only feeds verbose output.
     let version = best_effort_modversion(req.tool, req.name);
 
     // Stage 3 / 4: --cflags and --libs.  The version constraint
@@ -737,9 +738,9 @@ where
     I: IntoIterator<Item = OsString>,
 {
     let mut cmd = Command::new(&tool.executable);
-    // The registry credential is Cabin's input, not
-    // pkg-config's: scrub it so the spawned tool can never
-    // read the token.
+    // The registry credentials are Cabin's input, not
+    // pkg-config's: scrub them so the spawned tool can never
+    // read them.
     cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
     cmd.args(args);
