@@ -912,6 +912,55 @@ index-url = "https://example.com/index"
     );
 }
 
+/// A project's own config cannot choose the package index for the
+/// user it does not trust: not with `[registry]` (with `--no-patches`
+/// too, which drops only replacements), and not with a
+/// `[source-replacement]` hop rewriting the index the user named.  The
+/// refusal comes before any connection to the loopback port.
+#[test]
+fn a_project_config_cannot_choose_an_index_outside_an_untrusted_project() {
+    let parent = TempDir::new().unwrap();
+    let root = parent.path().join("app");
+    write_root_manifest(
+        &root,
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = "10.2.1"
+"#,
+    );
+    let chosen = "http://127.0.0.1:1";
+    let user_home = TempDir::new().unwrap();
+    let resolve = |args: &[&str]| {
+        cabin_with_config()
+            .arg("resolve")
+            .args(args)
+            .arg("--manifest-path")
+            .arg(root.join("cabin.toml"))
+            .env("CABIN_CONFIG_HOME", user_home.path())
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(format!(
+                "points the package index at `{chosen}`"
+            )))
+            .stderr(predicate::str::contains("`[trust]`"));
+    };
+
+    write_workspace_config(&root, &format!("[registry]\nindex-url = \"{chosen}\"\n"));
+    resolve(&[]);
+    resolve(&["--no-patches"]);
+
+    write_workspace_config(
+        &root,
+        &format!(
+            "[source-replacement]\n\"https://example.com/index\" = {{ index-url = \"{chosen}\" }}\n"
+        ),
+    );
+    resolve(&["--index-url", "https://example.com/index"]);
+}
+
 #[test]
 fn offline_rejects_index_path_redirected_to_url_via_source_replacement() {
     // `--offline` paired with `--index-path` is allowed up
@@ -939,6 +988,9 @@ fmt = "10.2.1"
 "#,
     );
     let user_home = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(user_home.path().join("config.toml"))
+        .write_str(&trust_table(&root))
+        .unwrap();
     let assertion = cabin_with_config()
         .args(["build", "--offline", "--manifest-path"])
         .arg(root.join("cabin.toml"))
@@ -985,6 +1037,9 @@ fmt = "10.2.1"
 "#,
     );
     let user_home = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(user_home.path().join("config.toml"))
+        .write_str(&trust_table(&root))
+        .unwrap();
     let assertion = cabin_with_config()
         .args(["vendor", "--manifest-path"])
         .arg(root.join("cabin.toml"))

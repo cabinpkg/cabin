@@ -16,10 +16,10 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use cabin_config::EffectiveConfig;
 use cabin_core::{
-    PackageName, PatchProvenance, SourceLocator, SourceReplacementResolution,
+    ConfigValueSource, PackageName, PatchProvenance, SourceLocator, SourceReplacementResolution,
     SourceReplacementSettings,
 };
 use cabin_lockfile::{LockedPatch, LockedSourceLocatorKind, LockedSourceReplacement};
@@ -65,21 +65,51 @@ pub(crate) fn load_active_patches(
 /// terminal source plus the hops walked to reach it.
 /// `--no-patches` disables the entire local-policy layer, including
 /// source replacement.
+///
+/// The checked-out project's own config chose the terminal source when
+/// it named `initial` (`initial_from_project`) or declared any hop
+/// walked.  Cabin then uses that source only if
+/// [`EffectiveConfig::project_may_use_index`] allows it, so a project
+/// cannot silently point resolution, or a publish, at a registry the
+/// user never chose, including by replacing an origin the user did.
 pub(crate) fn apply_source_replacement(
     initial: SourceLocator,
+    initial_from_project: bool,
     effective_config: &EffectiveConfig,
     no_patches: bool,
 ) -> Result<SourceReplacementResolution> {
-    if no_patches {
-        return Ok(SourceReplacementResolution {
+    let resolution = if no_patches {
+        SourceReplacementResolution {
             resolved: initial,
             hops: Vec::new(),
+        }
+    } else {
+        effective_config
+            .source_replacements
+            .resolve(&initial)
+            .map_err(|err| anyhow!(err.to_string()))?
+    };
+    let replacements = &effective_config.source_replacements.entries;
+    let from_project = initial_from_project
+        || resolution.hops.iter().any(|hop| {
+            matches!(
+                replacements[hop].provenance,
+                ConfigValueSource::WorkspaceConfig | ConfigValueSource::PackageConfig
+            )
         });
+    if from_project
+        && let Some(root) = effective_config.project_root()
+        && !effective_config.project_may_use_index(root.as_std_path(), &resolution.resolved)
+    {
+        bail!(
+            "the project's `.cabin/config.toml` points the package index at `{index}`, which Cabin \
+             uses only for a project you trust unless it is an existing directory inside the project; add {root:?} to \
+             `projects` in the `[trust]` table of your user config file, or choose the index \
+             yourself with `--index-path` or `--index-url`",
+            index = resolution.resolved,
+        );
     }
-    effective_config
-        .source_replacements
-        .resolve(&initial)
-        .map_err(|err| anyhow!(err.to_string()))
+    Ok(resolution)
 }
 
 pub(crate) fn lockfile_patches(set: &ActivePatchSet) -> Vec<LockedPatch> {

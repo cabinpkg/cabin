@@ -159,6 +159,11 @@ pub(crate) struct ResolvedIndexSource {
     /// [`effective_registry_index_url`](crate::cli::login::effective_registry_index_url)
     /// applies the same split to where a token is *stored*.
     pub user_chosen: bool,
+    /// Whether the checked-out project's own config file named this
+    /// source, which then needs the project trusted unless it lies
+    /// inside the project (see
+    /// [`apply_source_replacement`](crate::cli::patch::apply_source_replacement)).
+    pub from_project: bool,
 }
 
 pub(crate) enum IndexSourceKind {
@@ -200,6 +205,7 @@ pub(crate) fn resolve_index_source(
         return Ok(Some(ResolvedIndexSource {
             kind: IndexSourceKind::Path(path.to_path_buf()),
             user_chosen: true,
+            from_project: false,
         }));
     }
     if let Some(url) = cli_index_url {
@@ -212,16 +218,19 @@ pub(crate) fn resolve_index_source(
         return Ok(Some(ResolvedIndexSource {
             kind: IndexSourceKind::Url(url.to_owned()),
             user_chosen: true,
+            from_project: false,
         }));
     }
     Ok(config.registry.source.as_ref().map(|src| match src {
         EffectiveRegistrySource::Path(value) => ResolvedIndexSource {
             kind: IndexSourceKind::Path(value.value.clone()),
             user_chosen: config_is_user_chosen(value.source),
+            from_project: !config_is_user_chosen(value.source),
         },
         EffectiveRegistrySource::Url(value) => ResolvedIndexSource {
             kind: IndexSourceKind::Url(value.value.clone()),
             user_chosen: config_is_user_chosen(value.source),
+            from_project: !config_is_user_chosen(value.source),
         },
     }))
 }
@@ -235,6 +244,7 @@ pub(crate) fn default_index_source() -> ResolvedIndexSource {
     ResolvedIndexSource {
         kind: IndexSourceKind::Url(cabin_core::registry::DEFAULT_INDEX_URL.to_owned()),
         user_chosen: false,
+        from_project: false,
     }
 }
 
@@ -259,6 +269,7 @@ pub(crate) fn default_index_locator(
     }
     let resolution = crate::cli::patch::apply_source_replacement(
         index_source_kind_to_locator(&default_index_source().kind),
+        false,
         effective_config,
         no_patches,
     )?;
@@ -389,6 +400,7 @@ pub(crate) fn resolve_index_locator(
 ) -> Result<(cabin_core::SourceReplacementResolution, bool)> {
     let resolved = crate::cli::patch::apply_source_replacement(
         index_source_kind_to_locator(&source.kind),
+        source.from_project,
         effective_config,
         no_patches,
     )?;
@@ -1085,6 +1097,7 @@ mod tests {
         let source = ResolvedIndexSource {
             kind: IndexSourceKind::Url("https://mirror.example.com".to_owned()),
             user_chosen: true,
+            from_project: false,
         };
         let direct = url_resolution_with_hops("https://mirror.example.com", Vec::new());
         assert!(index_origin_user_chosen(&source, &direct));

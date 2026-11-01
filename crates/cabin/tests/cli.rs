@@ -131,6 +131,14 @@ fn write_minimal_project(root: &Path) {
         .unwrap();
 }
 
+/// A user config `[trust]` table trusting `dir`, for tests whose
+/// project config names a package index outside the project.
+fn trust_table(dir: &Path) -> String {
+    // A JSON string is a TOML basic string, escaped for Windows paths.
+    let dir = serde_json::to_string(dir.to_str().unwrap()).unwrap();
+    format!("[trust]\nprojects = [{dir}]\n")
+}
+
 /// [`cabin()`] with config discovery re-enabled for a single test.
 /// The user config home stays pinned to an empty directory; tests
 /// that stage a user config point `CABIN_CONFIG_HOME` at their own
