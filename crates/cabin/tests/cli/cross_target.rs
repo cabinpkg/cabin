@@ -224,7 +224,8 @@ fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
 mod apple_clang {
     use super::*;
 
-    /// The other macOS architecture: its triple and its Mach-O CPU type.
+    /// The other macOS architecture: its triple, its `cfg(arch)` name,
+    /// and its Mach-O CPU type.
     fn cross() -> (&'static str, &'static str, u32) {
         if std::env::consts::ARCH == "aarch64" {
             ("x86_64-apple-macos13", "x86_64", 0x0100_0007)
