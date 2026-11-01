@@ -121,15 +121,11 @@ fn concurrent_first_builds_let_one_workspace_claim_a_build_dir() {
         assert_eq!(failed.len(), 1, "exactly one workspace claims it");
         assert!(joined_stderr(failed[0]).contains(FOREIGN));
     }
-    // Two first builds of one workspace share the claim.  Their Ninja
-    // runs may still collide, as without the record.
+    // Two first builds of one workspace share the claim, and their Ninja
+    // runs take turns.
     let shared = tmp.path().join("same");
     for output in race(&c, &c, &shared) {
-        let stderr = joined_stderr(&output);
-        assert!(
-            output.status.success() || stderr.contains("ninjaexited"),
-            "{stderr}"
-        );
+        assert!(output.status.success(), "{}", joined_stderr(&output));
     }
 }
 

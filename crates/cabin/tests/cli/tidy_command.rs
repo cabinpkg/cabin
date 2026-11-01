@@ -58,6 +58,30 @@ fn normalize(s: &str) -> String {
     s.replace("\\\\", "/").replace('\\', "/")
 }
 
+/// The compile database clang-tidy reads is the one a build of the
+/// profile writes, so tidy waits for such a build to finish.
+#[test]
+fn tidy_waits_for_a_build_of_its_profile() {
+    let dir = TempDir::new().unwrap();
+    write_minimal_project(dir.path());
+    let build = dir.path().join("build");
+    fs::create_dir(&build).unwrap();
+    cabin_build::owner::claim(&build, dir.path()).unwrap();
+    // Stands in for a build running Ninja in the `dev` tree.
+    let tree = cabin_build::gc::BuildDirLock::exclusive(&build.join("dev"), || {}).unwrap();
+    let mut tidy = super::build_gc::spawn(&cabin_with_fake_tidy(), dir.path(), &["tidy"]);
+    let mut stdout = std::io::BufReader::new(tidy.stdout.take().unwrap());
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut stdout, &mut line).unwrap();
+    assert!(line.contains("Blocking"), "{line}");
+    assert!(!build.join("dev/compile_commands.json").exists());
+
+    drop(tree);
+    std::io::Read::read_to_string(&mut stdout, &mut line).unwrap();
+    assert!(tidy.wait().unwrap().success(), "{line}");
+    assert!(line.contains("Checked 1 file"), "{line}");
+}
+
 #[test]
 fn clean_project_tidies_successfully() {
     let dir = TempDir::new().unwrap();

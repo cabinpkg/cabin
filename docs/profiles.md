@@ -321,6 +321,7 @@ Build outputs are profile-aware:
 ```text
 <build-dir>/<profile>/build.ninja
 <build-dir>/<profile>/compile_commands.json
+<build-dir>/<profile>/.cabin-build.lock
 <build-dir>/<profile>/cabin-toolchain.json
 <build-dir>/<profile>/packages/<package>/<target>/...
 <build-dir>/<profile>/build-machine/packages/<package>/<target>/...
@@ -441,9 +442,15 @@ them the lock file and the [owner record](#build-directory-ownership).
 or tests exit.  Collection and `cabin clean` take it exclusively, so a `cabin clean` that such a
 program runs against its own build directory fails instead of waiting for it forever (see
 [`CABIN_BUILD_DIRS_IN_USE`](environment-variables.md#variables-cabin-sets-for-cabin-run-and-cabin-test)).
-The lock is advisory, so it orders Cabin processes only; Cabin releases without it do not take it,
-and a file system without file locks orders nothing.  Commands record their use one at a time, under
-a second lock inside `.cabin-gc` with the same limits, so two builds at once keep both records.  An
+Commands writing one profile's tree for one platform take turns on the tree's own
+`.cabin-build.lock`: `build`, `check`, `run`, and `test` hold it from writing the tree's Ninja files
+until Ninja exits, and `tidy` from writing its compile database until clang-tidy exits.  Builds of
+other profiles and `--target` platforms run at once, and `run` and `test` release the tree before
+the program or tests start, so a `cabin` they run can build it.  The locks are advisory and held by
+the `cabin` process, so they order Cabin processes only: Ninja, a program, or tests left running
+after their `cabin` is killed hold none, Cabin releases without them do not take them, and a file
+system without file locks orders nothing.  Commands record their use one at a time, under another
+lock inside `.cabin-gc` with the same limits, so two builds at once keep both records.  An
 unreadable or newer-format usage record makes collection keep the outputs it lists.
 
 ## Build configuration fingerprint

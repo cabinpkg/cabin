@@ -79,6 +79,26 @@ pub(crate) fn lock_shared(
     Ok(BuildDirLock::shared(build_root, wait_message(reporter))?)
 }
 
+/// Lock the output tree of one profile and platform, `profile_dir`,
+/// creating it if needed, while writing its Ninja files or compile
+/// database and running Ninja or clang-tidy on them.  Two Ninja runs on
+/// one tree would link one output twice, corrupt `.ninja_log`, or run one
+/// build's Ninja on the other's `build.ninja`, so commands using one tree
+/// take turns; other profiles and `--target` platforms have trees of their
+/// own.
+///
+/// Take it only while holding the build directory's lock shared (see
+/// [`lock_shared`]), and release it first: then no process holds or waits
+/// on it while a `cabin clean`, holding that lock exclusively, removes the
+/// tree with its lock file.  `cabin run` and `cabin test` release it before
+/// running anything, so a `cabin` their program runs can build the tree.
+pub(crate) fn lock_tree(profile_dir: &Path, reporter: Reporter) -> Result<BuildDirLock> {
+    Ok(BuildDirLock::exclusive(
+        profile_dir,
+        wait_message(reporter),
+    )?)
+}
+
 /// Lock `build_root` for removing outputs of the workspace at
 /// `workspace_root`.
 ///

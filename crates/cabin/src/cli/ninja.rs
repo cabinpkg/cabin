@@ -564,11 +564,12 @@ impl Drop for Built {
 /// in the profile directory under `build_dir`, invoke Ninja there, and
 /// surface a link-failure hint before bailing on a non-zero exit.  The
 /// build directory is locked shared and the plan's products recorded as used
-/// before Ninja runs; after a successful build that starts a new active
-/// day, unused outputs are collected when the returned [`Built`] is
-/// dropped (see [`crate::cli::gc`]).  Returns the wall-clock time the
-/// Ninja invocation took, for the caller's cargo-style `Finished`
-/// banner, and the lock.
+/// before Ninja runs, and the profile directory is locked (see
+/// [`crate::cli::gc::lock_tree`]) until Ninja exits; after a successful
+/// build that starts a new active day, unused outputs are collected when
+/// the returned [`Built`] is dropped (see [`crate::cli::gc`]).  Returns
+/// the wall-clock time the Ninja invocation took, for the caller's
+/// cargo-style `Finished` banner, and the build directory's lock.
 ///
 /// # Errors
 /// Returns an error if the build directory cannot be locked, the use of
@@ -582,12 +583,7 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     // to tell its filesystem's case sensitivity by.
     cabin_build::validate_output_paths(req.plan_graph, &profile_build_root)?;
     let collection_due = crate::cli::gc::record_use(req.build_root, req.plan_graph)?;
-    std::fs::create_dir_all(&profile_build_root).with_context(|| {
-        format!(
-            "failed to create build directory {}",
-            profile_build_root.display()
-        )
-    })?;
+    let _tree = crate::cli::gc::lock_tree(&profile_build_root, req.reporter)?;
 
     let ninja_file = profile_build_root.join("build.ninja");
     let stamp = profile_build_root.join(cabin_ninja::writer::TOOLCHAIN_STAMP);
