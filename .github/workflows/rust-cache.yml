@@ -1,0 +1,104 @@
+name: Rust Cache
+
+# Not a required check. Seeds on main the dependency caches rust.yml
+# restores read-only (docs/design/ci-rust-caches.md).
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+# rust.yml's workflow env, which the cache key hashes.
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+permissions: {}
+
+jobs:
+  # build-and-test's legs; lint-work and compiler-detection restore the
+  # ubuntu-24.04 key, windows-msvc-autodiscovery the windows-2025-vs2026 one.
+  debug:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-26
+          - windows-2025-vs2026
+          - windows-11-vs2026-arm
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+
+      # The version setup-rust-toolchain wraps, for lookup-only: an
+      # existing key skips the build, a new one builds from empty.
+      - id: cache
+        uses: Swatinem/rust-cache@v2.9.2
+        with:
+          shared-key: debug-${{ matrix.os }}
+          cache-bin: false
+          lookup-only: true
+
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cargo check --workspace --all-targets --locked
+          cargo test --workspace --all-targets --all-features --locked --no-run
+
+      - if: steps.cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-24.04'
+        run: |
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo doc --workspace --all-features --no-deps --locked
+          cargo test -p cabinpkg --test cli --locked --no-run
+          cargo build --locked --bin cabin
+          cargo build --locked -p xtask-workflow-guard
+
+      - if: steps.cache.outputs.cache-hit != 'true' && matrix.os == 'windows-2025-vs2026'
+        run: cargo build --locked --bin cabin
+
+  fuzz:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+
+      - id: cache
+        uses: Swatinem/rust-cache@v2.9.2
+        with:
+          shared-key: fuzz-ubuntu-24.04
+          cache-bin: false
+          lookup-only: true
+          workspaces: |
+            .
+            fuzz
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: rustup toolchain install
+        working-directory: fuzz
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: cargo install -q "cargo-fuzz@=0.13.2" --locked
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: cargo fuzz-check
