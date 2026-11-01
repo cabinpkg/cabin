@@ -2300,6 +2300,9 @@ mod toolchain;
 #[path = "cli/cross_target.rs"]
 mod cross_target;
 
+#[path = "cli/output_namespaces.rs"]
+mod output_namespaces;
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[path = "cli/sysroot.rs"]
 mod sysroot;

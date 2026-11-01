@@ -272,7 +272,7 @@ overlay:
 | `CABIN_PACKAGE_NAME` | Package name as the manifest declares it |
 | `CABIN_PACKAGE_VERSION` | Resolved package version |
 | `CABIN_PROFILE` | Active profile (`dev`, `release`, ...) |
-| `CABIN_BUILD_DIR` | Resolved build directory |
+| `CABIN_BUILD_DIR` | Resolved build directory, or its `.targets/<triple>` under `--target`: the directory holding `$CABIN_PROFILE`'s outputs |
 
 This is the entire injected contract: the overlay is the same for `cabin run` and `cabin test` and
 does not depend on the target's name or kind.  The user's `PATH`, `LANG`, etc. are inherited

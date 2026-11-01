@@ -329,9 +329,10 @@ pub(crate) struct PreparedWorkspace {
     pub language_standards: HashMap<usize, cabin_core::ResolvedLanguageStandards>,
     pub approx_standards: cabin_build::RequestedStandards,
     pub prep: BuildPrep,
+    /// The [`cabin_build::layout::platform_dir`] this build writes under.
     pub build_dir: PathBuf,
-    /// `build_dir` above any `--target` triple: where the build-directory
-    /// lock and the usage catalog live.
+    /// The build directory itself: where the lock and the usage catalog
+    /// live.
     pub build_root: PathBuf,
     pub ninja: PathBuf,
     pub lockfile_pinned: BTreeSet<(String, String)>,
@@ -660,11 +661,8 @@ pub(crate) fn prepare_workspace(
         ))?;
     }
 
-    let mut build_dir = super::config::resolve_build_dir(args.build_dir, &effective_config)?;
-    let build_root = build_dir.clone();
-    if let Some(target) = &args.toolchain.target {
-        build_dir.push(&target.target);
-    }
+    let build_root = super::config::resolve_build_dir(args.build_dir, &effective_config)?;
+    let build_dir = cabin_build::layout::platform_dir(&build_root, args.toolchain.target.as_ref());
 
     let toolchain_selection = super::toolchain_selection_from_args(args.toolchain)?;
     let toolchain = super::resolve_toolchain_layered(
@@ -985,23 +983,20 @@ pub(crate) fn plan_prepared(
     // syntax-only check (no codegen, no link) scoped to the selected
     // workspace packages' own translation units.
     let plan_graph = if check {
-        let packages_root = prepared
-            .build_dir
-            .join(prepared.profile.name.as_str())
-            .join("packages");
-        // Fold `path_components` so the scoping roots stay
-        // byte-identical to the planner's `packages/<scope>/<name>`
-        // output dirs, which the check-graph filter compares against.
+        let profile_dir =
+            cabin_build::layout::profile_dir(&prepared.build_dir, &prepared.profile.name);
+        // The planner's own output dirs, which the check-graph filter
+        // compares against.
         let selected_pkg_dirs: Vec<PathBuf> = prepared
             .resolved_selection
             .packages
             .iter()
             .map(|&idx| {
-                prepared.graph.packages[idx]
-                    .package
-                    .name
-                    .path_components()
-                    .fold(packages_root.clone(), |dir, c| dir.join(c))
+                cabin_build::layout::package_dir(
+                    &profile_dir,
+                    false,
+                    &prepared.graph.packages[idx].package.name,
+                )
             })
             .collect();
         cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)

@@ -362,7 +362,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // lands at the same path `cabin build` produces.  This is
     // what the user already sees in their tree and what
     // `clang-tidy -p <dir>` expects.
-    let profile_build_root = build_dir.join(profile.name.as_str());
+    let profile_build_root = cabin_build::layout::profile_dir(&build_dir, &profile.name);
     std::fs::create_dir_all(&profile_build_root).with_context(|| {
         format!(
             "failed to create build directory {}",

@@ -871,7 +871,9 @@ Owns backend-independent build planning: `PackageGraph` plus `ResolvedToolchain`
 flags, per-package language standards, and build settings become a `BuildGraph` of compile /
 assemble / archive / link actions, with pre-Ninja validation of requested standards against the detected toolchain and
 interface-standard enforcement across the target dependency closure.  It also owns the build
-directory's lifecycle: `clean` plans and performs `cabin clean`, and `gc` records which outputs
+directory's layout and lifecycle: `layout` is the one place output paths under the build directory
+are spelled (`<build-dir>/<profile>/`, and `<build-dir>/.targets/<triple>/<profile>/` for
+`--target`, which no profile name can reach), `clean` plans and performs `cabin clean`, and `gc` records which outputs
 each plan uses, removes those unused for too long, and owns the build-directory lock that orders
 both against commands using the outputs (see [`profiles.md`](profiles.md#unused-build-outputs)).
 The crate must:

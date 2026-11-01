@@ -242,7 +242,8 @@ Cabin lays test / example executables out the same way as ordinary `executable` 
 ```
 
 `<build-dir>` defaults to `build/`; `<profile>` is the resolved profile name (`dev` by default,
-`release` for `--release`, or any custom profile declared in `[profile.<name>]`).
+`release` for `--release`, or any custom profile declared in `[profile.<name>]`).  A `--target
+<triple>` build puts the same tree under `<build-dir>/.targets/<triple>/`.
 
 Every command that writes, reads, or skips the build directory (`build`, `check`, `run`, `test`,
 `clean`, `fmt`, `tidy`) resolves it the same way: a relative `--build-dir` or `CABIN_BUILD_DIR`,

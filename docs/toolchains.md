@@ -137,9 +137,12 @@ cabin build --target aarch64-unknown-linux-gnu \
   not.  A compiler Cabin cannot classify fails the build rather than guessing.  A Windows GNU
   triple (`x86_64-w64-mingw32`) is best-effort, as MinGW is: its driver names executables
   `<name>.exe`, which Cabin does not yet expect, so every build relinks them.
-- **Output.**  The build writes under `<build-dir>/<triple>/<profile>/`, beside the build machine's
-  `<build-dir>/<profile>/`, so the two builds never share an object; `cabin clean --target
-  <triple>` cleans that tree.
+- **Output.**  The build writes under `<build-dir>/.targets/<triple>/<profile>/`, apart from the
+  build machine's `<build-dir>/<profile>/`, so the two builds never share an object, even with a
+  profile named like the triple; `cabin clean --target <triple>` cleans that tree.  The triple
+  names a directory, so it must be lowercase, must not end with `.`, and its part before the first
+  `.` must not be a Windows device name (`nul.x-linux`); any of those would let two triples, or a
+  triple and a device, share one on some platform.
 - **Running.**  `cabin run --target` and `cabin test --target` run each executable through the
   [`[runner]`](config.md#runner) configured for the triple, such as an emulator:
 
@@ -152,7 +155,7 @@ cabin build --target aarch64-unknown-linux-gnu \
   Windows x64; for another machine they build, then fail with an error naming what they built:
   Cabin never runs a binary built for another machine on its own.
 - **Build dependencies.**  [Build dependencies](dependency-kinds.md#build-dependencies) build for
-  the build machine under `<build-dir>/<triple>/<profile>/build-machine/`, with the build machine's
+  the build machine under `<build-dir>/.targets/<triple>/<profile>/build-machine/`, with the build machine's
   own toolchain: `HOST_CC`, `HOST_CXX`, and `HOST_AR` in place of `CC`, `CXX`, and `AR`, then the
   manifest's `[toolchain]` tables evaluated for the build machine, then the defaults.  `--cc`,
   `--cxx`, `--ar`, `CC`, `CXX`, `AR`, and config's `[toolchain]` choose the target's tools only.

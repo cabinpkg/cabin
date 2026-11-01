@@ -1,16 +1,7 @@
 //! Plan and execute the deletion list for `cabin clean`.
 //!
-//! The on-disk layout this module operates against must stay in
-//! sync with [`crate::planner`]:
-//!
-//! ```text
-//! <build_dir>/<profile>/build.ninja
-//! <build_dir>/<profile>/compile_commands.json
-//! <build_dir>/<profile>/packages/<pkg>/...
-//! <build_dir>/<profile>/build-machine/packages/<pkg>/...
-//! <build_dir>/.cabin-gc/...           (the usage catalog, see crate::gc)
-//! <build_dir>/.cabin-build.lock       (never removed)
-//! ```
+//! The on-disk layout this module operates against is
+//! [`crate::layout`]'s; the lock file is never removed.
 //!
 //! Safety contract:
 //!
@@ -69,9 +60,9 @@ pub struct CleanRequest<'a> {
     pub protected_source_paths: &'a [PathBuf],
     /// What to clean.
     pub scope: CleanScope,
-    /// A `--target` triple: the scope applies to `<build_dir>/<triple>/`
-    /// instead of the build machine's tree.
-    pub target: Option<&'a str>,
+    /// A `--target` platform: the scope applies to its
+    /// [`crate::layout::platform_dir`] instead of the build machine's.
+    pub target: Option<&'a cabin_core::TargetPlatform>,
 }
 
 /// Deterministic deletion plan: a sorted, deduplicated list of
@@ -123,6 +114,21 @@ pub enum CleanError {
     #[error("refusing to clean symlink {}; replace it with a real directory before re-running `cabin clean`", .0.display())]
     SymlinkBuildDir(PathBuf),
 
+    #[error(
+        "refusing to clean {} as profile `{profile}`: {} is a `--target` build Cabin wrote there \
+         before it kept those under `{}`; remove {} yourself, or run `cabin clean` with no \
+         --profile, --package, or --target to empty the whole build directory",
+        dir.display(),
+        nested.display(),
+        crate::layout::TARGETS_DIR,
+        dir.display()
+    )]
+    PreviousTargetLayout {
+        profile: ProfileName,
+        dir: PathBuf,
+        nested: PathBuf,
+    },
+
     #[error("computed deletion path {} is not inside build directory {}", path.display(), build_dir.display())]
     PathEscapesBuildDir { path: PathBuf, build_dir: PathBuf },
 
@@ -150,6 +156,8 @@ pub enum CleanError {
 /// [`CleanError::PackageRootBuildDir`],
 /// [`CleanError::SourcePathBuildDir`], or
 /// [`CleanError::SymlinkBuildDir`].  Also returns
+/// [`CleanError::PreviousTargetLayout`] when a profile directory in
+/// scope holds a `--target` build from before `.targets`, and
 /// [`CleanError::PathEscapesBuildDir`] if a computed deletion
 /// candidate would fall outside `build_dir`.
 pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
@@ -160,16 +168,27 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
         req.protected_source_paths,
     )?;
 
-    let root = match req.target {
-        Some(triple) => {
-            let root = req.build_dir.join(triple);
-            // Containment below is lexical, so the triple's tree must be real too.
-            if std::fs::symlink_metadata(&root).is_ok_and(|meta| meta.file_type().is_symlink()) {
-                return Err(CleanError::SymlinkBuildDir(root));
-            }
-            root
+    let root = crate::layout::platform_dir(req.build_dir, req.target);
+    // Containment below is lexical, so every directory between the build
+    // directory and the platform's tree must be real too.
+    for dir in root.ancestors().take_while(|dir| *dir != req.build_dir) {
+        if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(CleanError::SymlinkBuildDir(dir.to_path_buf()));
         }
-        None => req.build_dir.to_path_buf(),
+    }
+    // A profile named like a triple shares its directory name with the
+    // tree a `--target` build wrote before `.targets`; never remove that
+    // tree as the profile's.
+    let profile_dir = |profile: &ProfileName| {
+        let dir = crate::layout::profile_dir(&root, profile);
+        match crate::layout::previous_target_tree(&dir) {
+            Some(nested) => Err(CleanError::PreviousTargetLayout {
+                profile: profile.clone(),
+                dir,
+                nested,
+            }),
+            None => Ok(dir),
+        }
     };
     let candidates = match &req.scope {
         // The lock file outlives every clean (see
@@ -192,25 +211,16 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
             Err(source) => return Err(CleanError::Io { path: root, source }),
         },
         CleanScope::Whole => vec![root],
-        CleanScope::Profile(profile) => vec![root.join(profile.as_str())],
+        CleanScope::Profile(profile) => vec![profile_dir(profile)?],
         CleanScope::Packages { profiles, packages } => {
             let mut out = Vec::with_capacity(profiles.len().saturating_mul(packages.len()));
             for profile in profiles {
-                let profile_root = root.join(profile.as_str());
+                let profile_dir = profile_dir(profile)?;
                 for pkg in packages {
-                    // Mirror the planner's `packages/<scope>/<name>`
-                    // nesting, in both contexts, so clean removes
-                    // exactly the directories the planner writes.
-                    for packages_dir in [
-                        profile_root.join("packages"),
-                        profile_root
-                            .join(crate::planner::BUILD_CONTEXT_DIR)
-                            .join("packages"),
-                    ] {
-                        out.push(
-                            pkg.path_components()
-                                .fold(packages_dir, |dir, c| dir.join(c)),
-                        );
+                    // Both contexts, so clean removes exactly the
+                    // directories the planner writes.
+                    for build_context in [false, true] {
+                        out.push(crate::layout::package_dir(&profile_dir, build_context, pkg));
                     }
                 }
             }
@@ -664,6 +674,91 @@ mod tests {
         assert!(matches!(err, CleanError::SourcePathBuildDir { .. }));
     }
 
+    #[test]
+    fn a_profile_named_like_a_triple_and_that_triple_clean_apart() {
+        let tmp = TempDir::new().unwrap();
+        let build = tmp.child("build");
+        let triple = "x86_64-unknown-linux-gnu";
+        build
+            .child(format!("{triple}/build.ninja"))
+            .write_str("x")
+            .unwrap();
+        build
+            .child(format!("{triple}/packages/app/app"))
+            .write_str("x")
+            .unwrap();
+        build
+            .child(format!(".targets/{triple}/{triple}/packages/app/app"))
+            .write_str("x")
+            .unwrap();
+        build
+            .child(format!(".targets/{triple}/dev/packages/app/app"))
+            .write_str("x")
+            .unwrap();
+        let platform = cabin_core::TargetPlatform::from_triple(triple).unwrap();
+
+        let native = plan_clean(&req(
+            build.path(),
+            tmp.path(),
+            CleanScope::Profile(profile(triple)),
+        ))
+        .unwrap();
+        assert_eq!(native.removals, vec![build.child(triple).to_path_buf()]);
+
+        let mut cross = req(
+            build.path(),
+            tmp.path(),
+            CleanScope::Profile(profile(triple)),
+        );
+        cross.target = Some(&platform);
+        assert_eq!(
+            plan_clean(&cross).unwrap().removals,
+            vec![
+                build
+                    .child(format!(".targets/{triple}/{triple}"))
+                    .to_path_buf()
+            ]
+        );
+        let mut cross = req(build.path(), tmp.path(), CleanScope::Whole);
+        cross.target = Some(&platform);
+        assert_eq!(
+            plan_clean(&cross).unwrap().removals,
+            vec![build.child(format!(".targets/{triple}")).to_path_buf()]
+        );
+    }
+
+    #[test]
+    fn a_target_tree_from_before_targets_is_not_cleaned_as_a_profile() {
+        let tmp = TempDir::new().unwrap();
+        let build = tmp.child("build");
+        let triple = "aarch64-unknown-linux-gnu";
+        build
+            .child(format!("{triple}/dev/build.ninja"))
+            .write_str("x")
+            .unwrap();
+        build
+            .child(format!("{triple}/dev/packages/app/app"))
+            .write_str("x")
+            .unwrap();
+        for scope in [
+            CleanScope::Profile(profile(triple)),
+            CleanScope::Packages {
+                profiles: vec![profile("dev"), profile(triple)],
+                packages: vec![package("app")],
+            },
+        ] {
+            let err = plan_clean(&req(build.path(), tmp.path(), scope)).unwrap_err();
+            assert!(
+                matches!(&err, CleanError::PreviousTargetLayout { dir, nested, .. }
+                    if *dir == build.child(triple).path() && *nested == build.child(format!("{triple}/dev")).path()),
+                "{err}"
+            );
+        }
+        // Emptying the whole build directory still reaches it.
+        let whole = plan_clean(&req(build.path(), tmp.path(), CleanScope::Whole)).unwrap();
+        assert_eq!(whole.removals, vec![build.child(triple).to_path_buf()]);
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_symlink_build_dir() {
@@ -678,21 +773,32 @@ mod tests {
         let err = plan_clean(&req(link.path(), tmp.path(), CleanScope::Whole)).unwrap_err();
         assert!(matches!(err, CleanError::SymlinkBuildDir(_)));
         // Narrowing to one triple's tree still checks the build dir,
-        // and the triple's own directory.
+        // `.targets`, and the triple's own directory.
+        let x86 = cabin_core::TargetPlatform::from_triple("x86_64-pc-linux-gnu").unwrap();
         let mut narrowed = req(link.path(), tmp.path(), CleanScope::Whole);
-        narrowed.target = Some("x86_64-pc-linux-gnu");
+        narrowed.target = Some(&x86);
         let err = plan_clean(&narrowed).unwrap_err();
         assert!(matches!(err, CleanError::SymlinkBuildDir(_)));
+        let arm = cabin_core::TargetPlatform::from_triple("aarch64-unknown-linux-gnu").unwrap();
         let build = tmp.child("build");
-        build.create_dir_all().unwrap();
+        build.child(".targets").create_dir_all().unwrap();
         std::os::unix::fs::symlink(
             target.path(),
-            build.child("aarch64-unknown-linux-gnu").path(),
+            build.child(".targets/aarch64-unknown-linux-gnu").path(),
         )
         .unwrap();
         let mut narrowed = req(build.path(), tmp.path(), CleanScope::Whole);
-        narrowed.target = Some("aarch64-unknown-linux-gnu");
+        narrowed.target = Some(&arm);
         let err = plan_clean(&narrowed).unwrap_err();
-        assert!(matches!(err, CleanError::SymlinkBuildDir(_)));
+        assert!(
+            matches!(&err, CleanError::SymlinkBuildDir(dir) if dir.ends_with("aarch64-unknown-linux-gnu"))
+        );
+        let linked = tmp.child("linked");
+        linked.create_dir_all().unwrap();
+        std::os::unix::fs::symlink(target.path(), linked.child(".targets").path()).unwrap();
+        let mut narrowed = req(linked.path(), tmp.path(), CleanScope::Whole);
+        narrowed.target = Some(&x86);
+        let err = plan_clean(&narrowed).unwrap_err();
+        assert!(matches!(&err, CleanError::SymlinkBuildDir(dir) if dir.ends_with(".targets")));
     }
 }

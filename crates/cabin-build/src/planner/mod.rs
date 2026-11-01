@@ -58,10 +58,6 @@ impl ManifestTargetSelector {
     }
 }
 
-/// The directory under `<build-dir>/<profile>` that holds the build
-/// context's units.
-pub const BUILD_CONTEXT_DIR: &str = "build-machine";
-
 /// Inputs to the build planner.
 // Independent inputs that happen to be booleans, not a state machine.
 #[allow(clippy::struct_excessive_bools)]
@@ -92,7 +88,8 @@ pub struct PlanRequest<'a> {
     /// compile a candidate's scope covers; candidates whose scope
     /// is never planned (an unbuilt sibling target) gate nothing.
     pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
-    /// Absolute path under which all build outputs are placed.
+    /// Absolute [`crate::layout::platform_dir`] of the platform this plan
+    /// builds for; the profile's outputs go under it.
     pub build_dir: PathBuf,
     /// The platform the build is for - the build machine, or the
     /// `--target` triple - against which `cfg(...)` dependency edges and
@@ -415,23 +412,12 @@ fn emit_actions(
         let target = lookup_target(tid, req.graph)?;
 
         let pkg = &req.graph.packages[tid.0];
-        // Per-profile output root keeps `dev` and `release`
-        // builds from overwriting each other and gives custom
-        // profiles a deterministic, non-colliding output tree.
-        // A scoped package nests as `packages/<scope>/<name>`;
-        // `path_components` is the sanctioned name-to-path mapping
-        // (the full name string is never one path component).
-        let profile_dir = build_dir.join(req.profile.name.as_str());
-        let packages_dir = if req.build_context {
-            profile_dir.join(BUILD_CONTEXT_DIR).join("packages")
-        } else {
-            profile_dir.join("packages")
-        };
-        let pkg_build_dir = pkg
-            .package
-            .name
-            .path_components()
-            .fold(packages_dir, |dir, component| dir.join(component));
+        let pkg_build_dir = promote_dir(&crate::layout::package_dir(
+            &crate::layout::profile_dir(&req.build_dir, &req.profile.name),
+            req.build_context,
+            &pkg.package.name,
+        ))?
+        .to_owned();
         // The manifest directory is an OS-canonicalized path; promote
         // it to UTF-8 (rejecting non-UTF-8) so the source and include
         // paths it anchors enter the IR as `Utf8PathBuf`.
