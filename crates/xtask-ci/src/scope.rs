@@ -1,6 +1,5 @@
 //! Which surfaces changed relative to `origin/main`, so the expensive
-//! checks run only where they can fail (AGENTS.md, "run only the
-//! checks that match the touched surface").
+//! checks run only where they can fail.
 //!
 //! The dangerous direction here is scoping a check OUT of a run that
 //! would have failed it - that reports green on a change CI lands red.
@@ -30,8 +29,8 @@ impl Surfaces {
 /// The surfaces a list of changed paths touches.
 ///
 /// The prefixes are matched at the start of each path: a `crates/`
-/// nested deeper (`registry/crates/x`) is deliberately not a Rust
-/// change.
+/// nested deeper (`registry/crates/x`) belongs to another workspace
+/// and is not a Rust change.
 #[must_use]
 pub fn surfaces(changed: &[String]) -> Surfaces {
     let any = |prefixes: &[&str]| {
@@ -79,8 +78,6 @@ mod tests {
             assert!(of(&[path]).rust, "{path} should be a Rust change");
         }
         for path in [
-            // Anchored at the start: a nested `crates/` belongs to
-            // another workspace.
             "registry/crates/x/src/lib.rs",
             "registry/src/lib.rs",
             "website/src/pages/index.astro",
@@ -118,8 +115,6 @@ mod tests {
         );
     }
 
-    /// No merge base means no diff, and a gate that cannot tell what
-    /// changed runs everything.
     #[test]
     fn an_unknown_base_runs_the_whole_gate() {
         assert_eq!(

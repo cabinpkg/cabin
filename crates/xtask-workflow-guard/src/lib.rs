@@ -63,7 +63,6 @@ mod tests {
     #[test]
     fn substitution_drops_nul_bytes() {
         assert_eq!(substitute(b"a\0b\n".to_vec()), b"ab");
-        // A capture of nothing but NULs is empty.
         assert!(substitute(b"\0\0".to_vec()).is_empty());
     }
 }

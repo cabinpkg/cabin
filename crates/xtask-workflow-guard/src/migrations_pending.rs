@@ -197,7 +197,7 @@ mod tests {
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         // `B` (0x42) sorts before `a` (0x61); an en_US collation would
-        // reverse them, which is the ceiling in the module docs.
+        // reverse them.
         assert_eq!(names, ["0002_B.sql", "0002_a.sql"]);
     }
 

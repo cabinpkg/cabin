@@ -39,11 +39,8 @@ pub struct PortConversion {
     /// name.  A subset of [`Self::declared_requirements`]: only an
     /// edge something actually resolves constrains the order.
     pub dependencies: Vec<PortDependencyEdge>,
-    /// EVERY registry requirement the published manifest declares,
-    /// ordering edge or not.  A dev dependency and an optional one
-    /// the default features leave off order nothing, but they still
-    /// ship in the published metadata, so a requirement no committed
-    /// version satisfies is broken metadata and must fail the run.
+    /// Every registry requirement the published manifest declares,
+    /// ordering edge or not.
     pub declared_requirements: Vec<DeclaredRequirement>,
     /// Language standards a probe consumer must use to satisfy every
     /// probed target's declared interface requirement.  `None` keeps
@@ -103,12 +100,7 @@ pub struct DeclaredRequirement {
     /// Whether some default invocation resolves this edge: a
     /// non-optional normal dependency, an optional one the default
     /// features activate, or a dev dependency (`cabin test` activates
-    /// those for the selected package).  Requirements that are active
-    /// together must be satisfiable by ONE version, because selection
-    /// joins same-name requirements into a single `VersionReq`.  An
-    /// optional dependency the defaults leave off is never resolved
-    /// alongside them, so conjoining it would reject a port that
-    /// every default invocation resolves fine.
+    /// those for the selected package).
     pub default_active: bool,
 }
 
@@ -304,34 +296,29 @@ fn registry_edges(
                         REGISTRY_SCOPE
                     );
                 }
-                // Every dependency is validated above, whatever its
-                // shape, but only one that is actually resolved
-                // becomes a publication-order edge.  A consumer's
-                // resolution of a transitive registry package drops
-                // its dev dependencies (`docs/dependency-kinds.md`)
-                // and the optional ones its default features do not
-                // activate, and the preflight probe depends on the
-                // package the ordinary way - so those are inactive
-                // in both, and two packages referencing each other
-                // only that way are valid, not a cycle.  An optional
-                // dependency the default closure DOES activate is
-                // resolved and must be published first.
-                // (Conditional edges never get here: ordering does
-                // not evaluate conditions, so they are refused
-                // outright above.)
+                // Every dependency is validated above, but only one
+                // that is resolved becomes a publication-order edge.
+                // A consumer's resolution of a transitive registry
+                // package drops its dev dependencies
+                // (`docs/dependency-kinds.md`) and the optional ones
+                // its default features do not activate, and the
+                // preflight probe depends on the package the ordinary
+                // way, so those edges are inactive in both and two
+                // packages referencing each other only that way do
+                // not form a cycle.  An optional dependency the
+                // default closure activates is resolved and must be
+                // published first.
                 //
-                // Ceiling, deliberate: activation is read from THIS
-                // package's own default closure.  A `features = [..]`
-                // request on an edge can also activate optional
-                // dependencies inside the *dependency*, and ordering
-                // does not follow that - resolving it means running
-                // `cabin-feature`'s cross-package activation, which
-                // would duplicate that engine inside scaffolding the
-                // migration deletes.  No committed port requests
-                // features on a dependency (the tree has exactly one
-                // inter-port edge, libpng -> zlib); if one ever does,
-                // preflight fails loudly on the missing package
-                // rather than publishing anything wrong.
+                // Limitation: activation is read from this package's
+                // own default closure.  A `features = [..]` request on
+                // an edge can also activate optional dependencies
+                // inside the dependency; ordering does not follow
+                // that, because resolving it means running
+                // `cabin-feature`'s cross-package activation.  No
+                // committed port requests features on a dependency.
+                // If one does, preflight, which stages and builds in
+                // publication order, fails on the missing package
+                // before anything is published.
                 let resolved_by_default =
                     !dep.optional || activated_by_default.contains(dep.name.as_str());
                 if dep.kind == cabin_core::DependencyKind::Normal && resolved_by_default {
@@ -448,13 +435,11 @@ fn probe_standards(
     // declaring `interface-c-standard = "none"` is valid and must not
     // be refused because of a C requirement no probe exercises.
     //
-    // Ceiling, deliberate: these are the DECLARED interfaces only.
-    // Cabin also composes requirements across public target edges
-    // (and infers them for header-only targets); replicating that
-    // here would duplicate the standard-compatibility engine inside
-    // scaffolding the migration deletes.  A composed floor above the
-    // probe's therefore surfaces as Cabin's own compatibility error
-    // at preflight rather than as a diagnosis here.
+    // Limitation: these are the declared interfaces only.  Cabin
+    // also composes requirements across public target edges (and
+    // infers them for header-only targets); this function does not
+    // replicate that, so a composed floor above the probe's surfaces
+    // as Cabin's own compatibility error at preflight.
     Ok(ProbeStandards {
         c: join_interface(c_targets.iter().map(|t| declared(t).0))?,
         cxx: join_interface(cxx_targets.iter().map(|t| declared(t).1))?,
@@ -775,7 +760,7 @@ mod tests {
         );
     }
 
-    /// Two migrated versions may expose different library targets:
+    /// Two versions of a port may expose different library targets:
     /// each publishes verbatim and is probed on its own targets, and
     /// nothing consumes a port through a port-wide summary, so there
     /// is no port-wide target set to keep consistent.
@@ -916,13 +901,9 @@ mod tests {
         assert!(position("cabin-ports/zlib 1.3.1") < position("cabin-ports/zlib 2.0.0"));
     }
 
-    /// Two migrated packages may dev-depend on each other: a
-    /// consumer's resolution drops a transitive package's dev
-    /// dependencies and the preflight probe is an ordinary build, so
-    /// neither edge is active and neither orders publication.
     /// An unactivated optional dependency is dropped by a consumer's
     /// resolution and by the preflight probe alike, so it must not
-    /// order publication either - two packages optionally depending
+    /// order publication - two packages optionally depending
     /// on each other are valid, not a cycle.
     #[test]
     fn optional_dependencies_do_not_order_publication() {
@@ -988,7 +969,6 @@ mod tests {
                 &package_manifest("cabin-ports/beta", "1.0.0", ""),
             );
             let conversions = load_conversions(dir.path()).unwrap();
-            // beta publishes before alpha, and the edge exists.
             let names: Vec<&str> = conversions.iter().map(|c| c.scoped_name.as_str()).collect();
             assert_eq!(names, ["cabin-ports/beta", "cabin-ports/alpha"], "{extra}");
             let alpha = conversions.last().unwrap();
@@ -1412,10 +1392,6 @@ mod tests {
         );
     }
 
-    /// Cabin permits the same name under both kinds, and selection
-    /// joins their requirements into one `VersionReq`, so disjoint
-    /// ranges are unsatisfiable together even though each half
-    /// matches a different committed version.
     #[test]
     fn disjoint_requirements_across_kinds_are_diagnosed() {
         let dir = assert_fs::TempDir::new().unwrap();
@@ -1452,11 +1428,6 @@ mod tests {
         );
     }
 
-    /// An optional dependency the default features leave off is never
-    /// resolved beside the dev edge - ordinary commands omit it and
-    /// `cabin test` still leaves it disabled - so their requirements
-    /// are checked separately, not conjoined.  Conjoining would
-    /// reject a port every default invocation resolves fine.
     #[test]
     fn an_inactive_optional_is_not_conjoined_with_the_dev_requirement() {
         let dir = assert_fs::TempDir::new().unwrap();

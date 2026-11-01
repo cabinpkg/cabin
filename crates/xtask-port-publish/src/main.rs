@@ -1,6 +1,7 @@
 //! `xtask-port-publish` — repository tool that publishes the curated
-//! foundation ports as `cabin-ports/<name>` registry packages.  See the library crate for the pipeline; this shim owns
-//! argument parsing and default resolution.
+//! foundation ports as `cabin-ports/<name>` registry packages.  See the
+//! library crate for the pipeline; this shim owns argument parsing and
+//! default resolution.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -139,8 +140,9 @@ fn default_ports_dir() -> PathBuf {
 
 /// The standard cabin cache root: `CABIN_CACHE_DIR`, then
 /// `CABIN_CACHE_HOME`, then the platform cache directory with the
-/// `cabin` suffix — the same precedence the CLI resolves, so one
-/// machine keeps a single upstream-archive cache across runs.
+/// `cabin` suffix — the CLI's precedence without its `[paths] cache-dir`
+/// config layer, so one machine keeps a single upstream-archive cache
+/// across runs.
 fn default_cache_dir() -> Result<PathBuf> {
     use etcetera::BaseStrategy;
 
@@ -169,8 +171,6 @@ fn default_cabin_path() -> Result<PathBuf> {
 mod tests {
     use super::*;
 
-    /// Without `--work-dir` every run gets a fresh directory of its own
-    /// that only its owner can enter, gone again with its guard.
     #[test]
     fn the_default_work_dir_is_fresh_owner_only_and_removed_with_its_guard() {
         let first = default_work_dir().unwrap();

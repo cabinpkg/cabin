@@ -79,12 +79,6 @@ pub fn run(arguments: &Arguments) -> Result<()> {
     Ok(())
 }
 
-// The subcommand's arguments. Every value from the run's environment
-// arrives here, because reading `GITHUB_*` is `xtask-workflow-guard`'s
-// reserved surface.
-//
-// An unset value is an error where an empty one is a value, so each of
-// the three is required and may be empty.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Arguments {
     pub target: String,
@@ -252,8 +246,7 @@ mod tests {
         root
     }
 
-    /// A scripted archiver: records the argv it was handed and answers
-    /// as told.
+    /// A scripted archiver: answers as told, and panics if run twice.
     fn archiver(answer: io::Result<bool>) -> impl FnMut(&[String]) -> io::Result<bool> {
         let mut answer = Some(answer);
         move |_| {

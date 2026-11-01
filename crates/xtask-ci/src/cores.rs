@@ -4,10 +4,9 @@
 //! Concurrent cargo invocations each default `--jobs` to the CPU
 //! count, so four unbounded phases could peak at 4N compiler jobs and
 //! swap or OOM a smaller host.  The split is static instead: the test
-//! phase gets half (it is the longest, and `--jobs` caps only its
-//! compilation - test-running parallelism is libtest's own), the rest
-//! a quarter each.  The ~1.25N aggregate peak is deliberate mild
-//! oversubscription.
+//! phase gets half (it is the longest), and clippy, check and doc
+//! divide the other half, so the shares sum to N (see [`split`] for
+//! the four-core exception).
 //!
 //! "Available" means available to *this process*, not merely online:
 //! agent and CI containers often run under an affinity mask or a
@@ -19,10 +18,9 @@ use std::path::{Path, PathBuf};
 /// The shares each concurrent phase passes to `--jobs`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Jobs {
-    /// False below four cores, where the rounded-up shares would sum
-    /// back to the oversubscription the cap exists to prevent.  The
-    /// gate then runs serially and every phase gets the whole machine,
-    /// which was already the right shape there.
+    /// False below four cores, where four phases of at least one job
+    /// each would exceed the core count.  The gate then runs serially
+    /// and every phase gets the whole machine.
     pub parallel: bool,
     pub test: u32,
     pub clippy: u32,
@@ -32,9 +30,10 @@ pub struct Jobs {
 
 /// The split, for a given core count.
 ///
-/// With four or more the shares are exact: the test phase takes half
-/// and the remainder is distributed - never independently rounded up,
-/// which compounds (2+2+3+2 = 9 jobs on a 5-core host).
+/// With four or more the test phase takes half and the remainder is
+/// distributed - never independently rounded up, which compounds
+/// (2+2+3+2 = 9 jobs on a 5-core host).  The shares sum to the core
+/// count except at four cores, where doc's floor of one job makes five.
 #[must_use]
 pub fn split(cores: u32) -> Jobs {
     if cores < 4 {
@@ -68,10 +67,8 @@ pub fn effective() -> u32 {
 /// The core count after applying the tightest cgroup CPU quota found
 /// under `proc`.
 ///
-/// `proc` is a parameter so the walk is testable: this box is macOS
-/// and has no `/proc` at all, which is exactly how an earlier version
-/// of this shipped with the whole cgroup path unreachable and its
-/// tests passing anyway.
+/// `proc` is a parameter so tests can run the walk over a fixture tree
+/// on hosts without `/proc`, such as macOS.
 #[must_use]
 pub fn quota(proc: &Path, mut cores: u32) -> u32 {
     let self_cgroup = proc.join("self/cgroup");
@@ -172,9 +169,7 @@ pub fn pair(text: &str) -> Option<(u64, u64)> {
 ///
 /// A mountinfo line is `... root mountpoint ... - fstype source
 /// super_options`, so the filesystem type is the FIRST field after the
-/// ` - ` separator and the options are the third.  Reading those
-/// positions wrong is how the v2 branch of this silently matched
-/// nothing.
+/// ` - ` separator and the options are the third.
 #[must_use]
 pub fn mount(mountinfo: &str, matches: impl Fn(&str, &str) -> bool) -> Option<(String, String)> {
     mountinfo.lines().find_map(|line| {
@@ -280,8 +275,6 @@ mod tests {
         assert_eq!(clamp(10, 100_000, 0), 10, "a zero period is no limit");
     }
 
-    /// `max` (v2) and `-1` (v1) both mean no limit and must fail the
-    /// parse rather than clamping to something.
     #[test]
     fn an_unlimited_quota_does_not_parse() {
         assert_eq!(pair("200000 100000"), Some((200_000, 100_000)));
@@ -292,8 +285,6 @@ mod tests {
         assert_eq!(pair("200000"), None);
     }
 
-    /// The component-aware prefix check: a mount root of `/tenant`
-    /// must not strip from the sibling `/tenant2/job`.
     #[test]
     fn the_ancestor_walk_is_component_aware() {
         assert_eq!(
@@ -332,10 +323,6 @@ mod tests {
         assert_eq!(quota(missing, 10), 10);
     }
 
-    /// A mountinfo line is `... root mountpoint ... - fstype source
-    /// super_options`.  Reading those positions wrong is how the v2
-    /// branch of this once matched nothing at all while every test
-    /// still passed, because this box has no `/proc`.
     #[test]
     fn the_cgroup_mount_is_found_at_the_right_fields() {
         let line = "31 23 0:27 / /sys/fs/cgroup rw,nosuid,relatime shared:9 \
@@ -361,11 +348,8 @@ mod tests {
         );
     }
 
-    /// The whole v2 walk, over a fixture `/proc` WITH the mountpoint
-    /// inside the fixture too: pointing it at the host's real
-    /// `/sys/fs/cgroup` made the assertion depend on whatever quota
-    /// the host happened to run under, and a walk that had gone dead
-    /// again would still have passed.
+    /// The whole v2 walk, with the mountpoint inside the fixture too,
+    /// so the host's own cgroup quota cannot affect the result.
     #[test]
     fn a_v2_quota_clamps_through_the_full_walk() {
         let proc = assert_fs::TempDir::new().unwrap();
@@ -393,8 +377,7 @@ mod tests {
     }
 
     /// The whole v1 walk: the pair comes from two single-value files
-    /// read separately - feeding one of them to the pair parse yields
-    /// `None` forever, which is the second way this shipped dead.
+    /// read separately, which [`pair`] cannot parse.
     #[test]
     fn a_v1_quota_clamps_through_the_full_walk() {
         let proc = assert_fs::TempDir::new().unwrap();

@@ -10,8 +10,7 @@ cargo-fuzz = true
 
 # A standalone workspace, like `registry/`: the targets build on a pinned
 # nightly with sanitizer flags that must not leak into the main
-# workspace. `Cargo.lock` was seeded from the root lockfile so shared
-# dependencies fuzz at the versions Cabin ships.
+# workspace.
 [workspace]
 members = ["."]
 
