@@ -613,12 +613,34 @@ longer grow with the number of outputs a directory held.
 Both rows are `Improved`.  `gc/new-day-c` and `gc/new-day-cxx`, which collect one output each, are
 `Unchanged`.
 
-**Not changed.**  The count still has two modes about 0.9 billion instructions apart, in both
+**The second mode.**  The count still had two modes about 0.9 billion instructions apart, in both
 builds: 4-7 of each label's 20 runs retired that much more kernel work, mostly at different runs for
-each label, so interleaving cannot line the modes up between the sides.  The change's two labels
-still differed by 0.1% in median.  The instructions of `gc/clean-10k` therefore stay a policy
-metric; the modes widen its interquartile range, to 10.9% in this run, so a smaller change there
-reads as `Unchanged` rather than as a false verdict.
+each label, so interleaving could not line the modes up between the sides.  The mode is the
+kernel's, and comes from the fixture rather than from Cabin.  On a release build of `main` at #2171,
+an interposer counting each file-system call's instructions (`thread_selfcounts`) put 4.3-4.4
+billion of a run's 5.1-5.2 billion in its 10,001 `unlink` calls, about 430,000 each; its 20,004
+`lstat` calls took 0.35 billion and everything outside the interposed calls 0.4 billion, the same in
+every run.  On macOS, removing or opening a file costs about 0.14 million fewer kernel instructions
+while the state its creation or its last open left is current, and removing or renaming any
+directory on the machine, on any volume, ends that state for every file.  Creating a directory,
+renaming a file, a failed `mkdir` or `rmdir`, `chmod`, `setxattr`, and starting processes do not.  A
+C program paid 250,000-300,000 instructions per removal of files it had just created, and
+390,000-470,000 when one directory was removed in between, anywhere; `/bin/rm` paid the same, and
+HFS+ about as much as APFS, so the work is above the file system.  `--prepare` planted the 10,000
+outputs a second or two before the timed run removed them, so a run's removals were cheaper only
+when no process on the machine removed or renamed a directory in between.  With every output
+reopened just before `cabin clean --gc`, 2 of 8 runs removed 1,480 and 3,221 outputs at the lower
+cost; with one `rmdir` after the reopening, none of 8 did.
+
+A real collection removes outputs written long before, which pay the higher cost, so on macOS the
+`stale` preparation now removes an empty directory after planting them, and every run starts from
+that state whatever else the machine does.  `gc/new-day-c` and `gc/new-day-cxx` plant their one
+output the same way.  Under this session's load, other processes removed directories often enough
+that the preparation made no difference: planting the outputs with either harness and collecting
+them at once, 16 interleaved runs at load average 85-102 removed none at the lower cost, and 38 of
+40 interleaved `cargo perf` runs of the changed harness retired 5.0-5.6 billion instructions (two
+that took 16-26 s of wall time retired 6.0-6.1 billion).  On a quieter machine the change moves the
+scenario's count to its higher mode, so its results are not comparable with ones recorded before.
 
 ## Investigation: recording build-output use
 

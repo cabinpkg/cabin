@@ -95,7 +95,19 @@ impl Mutation {
                     fs::write(&path, b"")?;
                     outputs.push(Utf8PathBuf::try_from(path).map_err(io::Error::other)?);
                 }
-                record_stale(&dir.join("build"), &outputs).map_err(io::Error::other)
+                record_stale(&dir.join("build"), &outputs).map_err(io::Error::other)?;
+                // On macOS, once any directory is removed or renamed, the
+                // next open or removal of each file costs about 0.14
+                // million more kernel instructions.  Outputs a real
+                // collection removes are past that point; without this,
+                // a run is cheaper whenever no process on the machine
+                // removed or renamed a directory since they were planted.
+                if cfg!(target_os = "macos") {
+                    let reset = dir.join("build/.bench-reset");
+                    fs::create_dir(&reset)?;
+                    fs::remove_dir(&reset)?;
+                }
+                Ok(())
             }
         }
     }
