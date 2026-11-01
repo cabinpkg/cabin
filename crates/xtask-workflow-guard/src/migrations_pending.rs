@@ -1,6 +1,9 @@
-//! The migrations deploy gate: the "Block the deploy until changed D1
+//! The migrations gate: the "Block the deploy until changed D1
 //! migrations are applied by hand" step of
-//! `.github/workflows/registry.yml`.
+//! `.github/workflows/registry.yml`'s deploy job, and the pre-merge
+//! `merge-readiness` job that runs it over every pull request's and
+//! merge group's whole tree, so a change main could not deploy never
+//! merges.
 //!
 //! This module owns the stamp: [`stamp`], [`digest`], [`applied`] and
 //! [`current`] are also how `cargo registry-migrate`,
@@ -31,13 +34,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use sha2::{Digest as _, Sha256};
 
-const APPLY: &str = "Apply the changed migrations by hand from the repository root with \
-     `cargo registry-migrate --remote`, which applies the pending files, confirms D1 reports \
-     nothing left pending, and only then refreshes the stamp; land that stamp change through a \
-     PR, whose main push deploys and supersedes this run (pre-launch, an edited already-applied \
-     migration ships through `cargo registry-wipe` instead)";
-const REPAIR: &str = "Repair what the error names through a PR, whose main push reruns this gate \
-     and supersedes this run";
+const APPLY: &str = "An operator applies the changed migrations by hand from the repository \
+     root with `cargo registry-migrate --remote`, which applies the pending files, confirms D1 \
+     reports nothing left pending, and only then refreshes the stamp; commit that stamp to the \
+     pull request that changes the migrations, or to a pull request of its own when main already \
+     carries them (pre-launch, an edited already-applied migration ships through \
+     `cargo registry-wipe` instead)";
+const REPAIR: &str = "Repair what the error names through a pull request";
 const NEVER: &str = "Never edit the stamp by hand. registry/docs/runbook.md, \"Deploy skew\"";
 
 /// Pass when the committed D1 migrations still match the stamp the
