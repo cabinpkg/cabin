@@ -165,6 +165,7 @@ fn clean_never_removes_a_target_tree_from_before_targets_as_a_profile() {
     let dir = tmp.path();
     let triple = "aarch64-unknown-linux-gnu";
     write_project(dir, triple);
+    claim_build_dir(&dir.join("build"), dir);
     // What `cabin build --target <triple>` wrote before `.targets`.
     let previous = dir.join("build").join(triple);
     let output = assert_fs::fixture::ChildPath::new(previous.join("dev/packages/app/app"));
@@ -192,6 +193,18 @@ fn clean_never_removes_a_target_tree_from_before_targets_as_a_profile() {
     // Emptying the whole build directory removes it.
     cabin_at(dir, &["clean"]).success();
     assert!(!previous.exists());
+
+    // Without an owner record nothing says the tree is Cabin's, so the
+    // refusal is the ownership one, not advice to remove the tree.
+    fs::remove_file(dir.join("build").join(cabin_build::owner::OWNER_FILENAME)).unwrap();
+    output.write_str("cross").unwrap();
+    assert_fs::fixture::ChildPath::new(previous.join("dev/build.ninja"))
+        .write_str("ninja")
+        .unwrap();
+    let assert = cabin_at(dir, &["clean", "--profile", triple]).failure();
+    let stderr = stderr_with_wrapping_joined(&assert);
+    assert!(stderr.contains("norecordoftheworkspace"), "{stderr}");
+    output.assert("cross");
 }
 
 #[test]

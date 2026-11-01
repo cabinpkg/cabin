@@ -17,6 +17,14 @@
 //! removed by Cabin, not even by `cabin clean`: a build directory
 //! changes hands only when someone removes it.
 //!
+//! The record names an owner, not the files: a directory may hold
+//! regular files of its own when it is claimed, which is why
+//! `cabin clean` never removes a regular file directly in it (see
+//! [`crate::clean`]).  A directory with no record that holds a
+//! subdirectory may be an older Cabin's build directory or no build
+//! directory at all, and nothing in it tells which, so no command
+//! builds into it or removes anything from it.
+//!
 //! [`BuildDirLock`]: crate::gc::BuildDirLock
 
 use std::io;
@@ -37,7 +45,7 @@ struct Record {
     workspace: String,
 }
 
-/// What [`owner`] found besides another workspace's record.
+/// Who [`owner`] found owns a build directory this workspace may use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Owner {
     /// The record names this workspace.
@@ -45,10 +53,6 @@ pub enum Owner {
     /// No record, and no subdirectory in the build directory, or no
     /// build directory: [`claim`] records this workspace.
     Nobody,
-    /// No record, but the build directory holds a subdirectory: a Cabin
-    /// older than the record wrote it, or it is no build directory at
-    /// all.
-    Unrecorded,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -69,10 +73,12 @@ pub enum OwnerError {
     },
 
     #[error(
-        "build directory {} holds files but no record of the workspace they belong to, as one \
-         an older Cabin wrote does; if they are this workspace's outputs, run `cabin clean` once \
-         to remove them, otherwise give this workspace its own build directory with \
-         --build-dir, CABIN_BUILD_DIR, or `[paths] build-dir`",
+        "build directory {} holds subdirectories but no record of the workspace they belong \
+         to, so Cabin neither builds into it nor removes anything from it; if it holds only the \
+         outputs of a Cabin release from before the record, remove {} yourself, otherwise give \
+         this workspace its own build directory with --build-dir, CABIN_BUILD_DIR, or `[paths] \
+         build-dir`",
+        build_dir.display(),
         build_dir.display()
     )]
     Unrecorded { build_dir: PathBuf },
@@ -93,25 +99,26 @@ pub enum OwnerError {
     },
 }
 
-/// Who owns `build_dir`, when it is not another workspace than the one
-/// at `workspace_root`.
+/// Who owns `build_dir`, when the workspace at `workspace_root` may use
+/// it.
 ///
 /// # Errors
 /// [`OwnerError::Foreign`] when the record names another workspace,
-/// [`OwnerError::Unreadable`] when it cannot be parsed, and
-/// [`OwnerError::Io`] when reading fails.
+/// [`OwnerError::Unreadable`] when it cannot be parsed,
+/// [`OwnerError::Unrecorded`] when there is none but the build
+/// directory holds a subdirectory, and [`OwnerError::Io`] when reading
+/// fails.
 pub fn owner(build_dir: &Path, workspace_root: &Path) -> Result<Owner, OwnerError> {
     let path = build_dir.join(OWNER_FILENAME);
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            return holds_outputs(build_dir).map(|holds| {
-                if holds {
-                    Owner::Unrecorded
-                } else {
-                    Owner::Nobody
-                }
-            });
+            if holds_outputs(build_dir)? {
+                return Err(OwnerError::Unrecorded {
+                    build_dir: build_dir.to_path_buf(),
+                });
+            }
+            return Ok(Owner::Nobody);
         }
         Err(source) => return Err(OwnerError::Io { path, source }),
     };
@@ -141,14 +148,10 @@ pub fn owner(build_dir: &Path, workspace_root: &Path) -> Result<Owner, OwnerErro
 /// one directory cannot both claim it.
 ///
 /// # Errors
-/// As [`owner`], and [`OwnerError::Unrecorded`] when the build
-/// directory holds files but no record.
+/// As [`owner`].
 pub fn claim(build_dir: &Path, workspace_root: &Path) -> Result<(), OwnerError> {
     match owner(build_dir, workspace_root)? {
         Owner::This => Ok(()),
-        Owner::Unrecorded => Err(OwnerError::Unrecorded {
-            build_dir: build_dir.to_path_buf(),
-        }),
         Owner::Nobody => {
             let workspace = encode(&canonical(build_dir)?, &canonical(workspace_root)?);
             let path = build_dir.join(OWNER_FILENAME);
@@ -325,7 +328,10 @@ mod tests {
         std::fs::write(build.join(".gitignore"), "*\n").unwrap();
         assert_eq!(owner(&build, &ws).unwrap(), Owner::Nobody);
         std::fs::create_dir(build.join("dev")).unwrap();
-        assert_eq!(owner(&build, &ws).unwrap(), Owner::Unrecorded);
+        assert!(matches!(
+            owner(&build, &ws),
+            Err(OwnerError::Unrecorded { .. })
+        ));
         assert!(matches!(
             claim(&build, &ws),
             Err(OwnerError::Unrecorded { .. })

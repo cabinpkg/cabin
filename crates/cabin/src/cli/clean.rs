@@ -14,10 +14,6 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
     let build_dir = super::config::resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
-    // Neither a clean nor a collection, even a dry run, touches another
-    // workspace's outputs.
-    cabin_build::owner::owner(&build_dir, &graph.root_dir)?;
-
     let package_roots: Vec<PathBuf> = graph
         .packages
         .iter()
@@ -111,6 +107,19 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
         scope,
         target: args.target.as_ref(),
     };
+    // Not even a dry run touches a build directory another workspace
+    // owns, or one with subdirectories but no owner record.  The safety
+    // guards come first: a workspace or source directory holds no record
+    // either, and their refusal names what is wrong with it.  Planning
+    // comes after, since its advice assumes the outputs are Cabin's.
+    cabin_build::clean::validate_safe_build_dir(
+        &build_dir,
+        &graph.root_dir,
+        &package_roots,
+        &protected_source_paths,
+    )
+    .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    cabin_build::owner::owner(&build_dir, &graph.root_dir)?;
     let mut plan = plan_clean(&request).map_err(|err| anyhow::anyhow!(err.to_string()))?;
     // Wait for commands using the outputs, then plan again: the tree may
     // have changed meanwhile.  Planning first keeps the lock file out of

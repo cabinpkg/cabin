@@ -140,23 +140,24 @@ fn a_clean_that_waited_for_the_lock_refuses_a_claim_made_meanwhile() {
     write_workspace(&a, false);
     write_workspace(&b, false);
     let build = a.join("build");
-    fs::create_dir(&build).unwrap();
-    fs::write(build.join("stale"), "").unwrap();
-    // Stands in for a first build of `b`, which claims the directory
-    // once `a`'s clean has checked it and waits for the lock.
+    claim_build_dir(&build, &a);
+    fs::create_dir(build.join("dev")).unwrap();
+    // Stands in for a command using `a`'s outputs, during which the
+    // directory is removed and a first build of `b` claims it.
     let lock = BuildDirLock::shared(&build, || {}).unwrap();
     let mut clean = super::build_gc::spawn_cabin(&a, &["clean"]);
     let mut stdout = BufReader::new(clean.stdout.take().unwrap());
     let mut line = String::new();
     stdout.read_line(&mut line).unwrap();
     assert!(line.contains("Blocking"), "{line}");
-    fs::remove_file(build.join("stale")).unwrap();
+    fs::remove_dir(build.join("dev")).unwrap();
+    fs::remove_file(build.join(cabin_build::owner::OWNER_FILENAME)).unwrap();
     cabin_build::owner::claim(&build, &b).unwrap();
-    fs::write(build.join("output"), "").unwrap();
+    fs::create_dir(build.join("dev")).unwrap();
     drop(lock);
     stdout.read_to_string(&mut line).unwrap();
     assert!(!clean.wait().unwrap().success(), "{line}");
-    assert!(build.join("output").exists());
+    assert!(build.join("dev").exists());
 }
 
 #[test]
@@ -197,27 +198,43 @@ fn a_moved_workspace_keeps_only_the_build_dir_inside_it() {
 }
 
 #[test]
-fn a_build_dir_without_an_owner_record_needs_a_clean_first() {
+fn a_build_dir_without_an_owner_record_is_left_alone() {
     require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("ws");
     write_workspace(&ws, false);
     let build = ws.join("build");
     cabin_in(&ws, &["build"], &build).success();
-    // As a Cabin from before the record leaves it.
+    // As a Cabin from before the record leaves it; a directory that is
+    // no build directory at all looks the same.
     let record = build.join(".cabin-workspace");
     fs::remove_file(&record).unwrap();
-    let assert = cabin_in(&ws, &["build"], &build).failure();
-    assert!(
-        stderr_with_wrapping_joined(&assert).contains("holdsfilesbutnorecordoftheworkspace"),
-        "{}",
-        stderr_with_wrapping_joined(&assert)
-    );
-    cabin_in(&ws, &["clean"], &build).success();
+    for args in [
+        &["build"][..],
+        &["clean"],
+        &["clean", "--dry-run"],
+        &["clean", "--profile", "dev"],
+        &["clean", "-p", "app"],
+        &["clean", "--gc"],
+    ] {
+        let assert = cabin_in(&ws, args, &build).failure();
+        let stderr = stderr_with_wrapping_joined(&assert);
+        assert!(
+            stderr.contains("norecordoftheworkspace"),
+            "{args:?}: {stderr}"
+        );
+    }
+    assert!(build.join("dev/packages/app").is_dir());
+    fs::remove_dir_all(&build).unwrap();
     cabin_in(&ws, &["build"], &build).success();
     assert!(record.exists());
-    // An empty directory made beforehand is claimed like a new one.
-    let empty = tmp.path().join("empty");
-    fs::create_dir(&empty).unwrap();
-    cabin_in(&ws, &["build"], &empty).success();
+    // A directory holding only files is claimed like a new one, and a
+    // clean leaves its files.
+    let plain = tmp.path().join("plain");
+    fs::create_dir(&plain).unwrap();
+    fs::write(plain.join(".gitignore"), "*\n").unwrap();
+    cabin_in(&ws, &["build"], &plain).success();
+    cabin_in(&ws, &["clean"], &plain).success();
+    assert!(plain.join(".gitignore").is_file());
+    assert!(!plain.join("dev").exists());
 }

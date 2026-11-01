@@ -112,6 +112,13 @@ fn write_hello_project(root: &Path) {
         .unwrap();
 }
 
+/// Make `build_dir` the workspace at `workspace`'s, as its first build
+/// does, so a fixture's hand-written outputs are cleanable.
+fn claim_build_dir(build_dir: &Path, workspace: &Path) {
+    fs::create_dir_all(build_dir).unwrap();
+    cabin_build::owner::claim(build_dir, workspace).unwrap();
+}
+
 /// Like [`write_hello_project`] but with a trivial `src/main.cc`
 /// body.  Used by the fmt / tidy tests, which assert on the exact
 /// on-disk source bytes rather than the program's behavior.

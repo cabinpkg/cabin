@@ -9,7 +9,10 @@
 //! - every safety check runs in [`plan_clean`], so an unsafe build
 //!   directory never reaches [`execute_clean`];
 //! - the plan only contains paths inside the resolved
-//!   `build_dir`;
+//!   `build_dir`, and never a regular file directly in it: Cabin writes
+//!   none there but its lock file and owner record, and claims a
+//!   directory only while it holds no subdirectory (see
+//!   [`crate::owner`]), so any other such file may predate the claim;
 //! - paths are sorted so dry-run output is deterministic;
 //! - `remove_dir_all` does not follow symlinks for entries
 //!   inside the tree - it removes the link, not the target - and
@@ -25,8 +28,9 @@ use cabin_core::{PackageName, ProfileName};
 /// What `cabin clean` should remove.
 #[derive(Debug, Clone)]
 pub enum CleanScope {
-    /// Remove everything in the build directory except its lock file
-    /// (see [`crate::gc::BuildDirLock`]) and owner record (see
+    /// Remove everything in the build directory but the regular files
+    /// directly in it, such as its lock file (see
+    /// [`crate::gc::BuildDirLock`]) and owner record (see
     /// [`crate::owner`]); with a `--target`, remove
     /// that platform's [`crate::layout::platform_dir`] instead.  Used
     /// when `cabin clean` selects no profile or package.
@@ -192,20 +196,10 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
         }
     };
     let candidates = match &req.scope {
-        // The lock file and the owner record outlive every clean (see
-        // `gc::BuildDirLock` and `owner`), so a whole clean empties the
-        // build directory around them.  Under `--target` the triple's
-        // tree goes.
+        // Under `--target` the triple's tree goes.
         CleanScope::Whole if req.target.is_none() => match std::fs::read_dir(&root) {
             Ok(entries) => entries
                 .map(|entry| entry.map(|entry| entry.path()))
-                .filter(|path| {
-                    path.as_ref().map_or(true, |path| {
-                        path.file_name().is_none_or(|name| {
-                            name != crate::gc::LOCK_FILENAME && name != crate::owner::OWNER_FILENAME
-                        })
-                    })
-                })
                 .collect::<Result<_, _>>()
                 .map_err(|source| CleanError::Io {
                     path: root.clone(),
@@ -244,7 +238,10 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
     // `symlink_metadata`, not `exists`: a dangling link is still removed.
     let mut existing: Vec<PathBuf> = candidates
         .into_iter()
-        .filter(|p| std::fs::symlink_metadata(p).is_ok())
+        .filter(|p| {
+            std::fs::symlink_metadata(p)
+                .is_ok_and(|meta| !meta.is_file() || p.parent() != Some(req.build_dir))
+        })
         .collect();
     existing.sort();
     existing.dedup();
@@ -455,18 +452,20 @@ mod tests {
     }
 
     #[test]
-    fn plan_whole_lists_everything_but_the_lock_file_and_owner() {
+    fn plan_whole_lists_everything_but_the_regular_files_in_the_build_dir() {
         let tmp = TempDir::new().unwrap();
         let build_dir = tmp.child("build");
         populate_layout(&build_dir);
-        build_dir
-            .child(crate::gc::LOCK_FILENAME)
-            .write_str("")
-            .unwrap();
-        build_dir
-            .child(crate::owner::OWNER_FILENAME)
-            .write_str("{}")
-            .unwrap();
+        // A claimed directory may have held files of its own.
+        for file in [
+            crate::gc::LOCK_FILENAME,
+            crate::owner::OWNER_FILENAME,
+            ".gitignore",
+            "notes.txt",
+            "fast",
+        ] {
+            build_dir.child(file).write_str("").unwrap();
+        }
         build_dir
             .child(".cabin-gc/state.json")
             .write_str("{}")
@@ -480,6 +479,13 @@ mod tests {
                 build_dir.child("release").to_path_buf(),
             ]
         );
+        let plan = plan_clean(&req(
+            build_dir.path(),
+            tmp.path(),
+            CleanScope::Profile(profile("fast")),
+        ))
+        .unwrap();
+        assert!(plan.removals.is_empty(), "{:?}", plan.removals);
     }
 
     #[cfg(unix)]
