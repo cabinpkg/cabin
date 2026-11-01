@@ -179,6 +179,14 @@ evidence of current behavior, not proof that the behavior is correct.
   conflicts in files, behavior, interfaces, and dependencies. Account for
   the latest default branch and queued PR order. Resolve or sequence
   conflicting work rather than allowing incompatible changes to proceed.
+- Before enqueueing or merging any PR, independently check the current
+  `main` Registry deployment and migration status. Do not rely on another
+  session's checks or treat a skipped or superseded deploy as successful.
+- If migrations are pending, a registry wipe is in progress, or the latest
+  non-superseded Registry deployment failed, stop all merges and merge-queue
+  submissions, including unrelated PRs. Coordinate with the recovery owner
+  and resume only after recovery and a verified production deployment.
+  Never bypass the deployment gate or edit `migrations-applied` by hand.
 - Recheck affected open and queued PRs after relevant merges. For PRs under
   your control, proactively resolve confirmed conflicts, rerun relevant
   checks, and obtain a fresh review before re-enqueueing. Do not modify
