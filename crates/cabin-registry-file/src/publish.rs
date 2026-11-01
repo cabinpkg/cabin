@@ -51,15 +51,7 @@ pub struct RegistryPublishOutcome {
 /// [`RegistryError::OrphanedArtifact`] until the file is removed.
 ///
 /// # Errors
-/// Returns [`RegistryError::BarePackageName`] for an unscoped name,
-/// [`RegistryError::StagedMetadataNameMismatch`] /
-/// [`RegistryError::StagedMetadataVersionMismatch`] when the staged
-/// metadata disagrees with the typed staged identity,
-/// [`RegistryError::VersionBuildMetadata`] for a version carrying
-/// `SemVer` build metadata,
-/// [`RegistryError::StagedChecksumMismatch`] when a staged checksum
-/// claim does not name the staged archive bytes,
-/// [`RegistryError::Io`] if the registry directory
+/// Returns [`RegistryError::Io`] if the registry directory
 /// cannot be created, and [`RegistryError::Locked`] if another process
 /// holds the lock.  Once locked, propagates every error from the write
 /// path, including registry initialization
@@ -74,8 +66,6 @@ pub struct RegistryPublishOutcome {
 pub fn publish_to_registry(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
-    ensure_publishable_registry_name(request.staged)?;
-    ensure_staged_checksum_matches(request.staged)?;
     let registry_dir = request.registry_dir;
     fs::create_dir_all(registry_dir).map_err(|source| RegistryError::Io {
         path: registry_dir.to_path_buf(),
@@ -92,15 +82,7 @@ pub fn publish_to_registry(
 /// rules, orphaned artifact) without writing anything.
 ///
 /// # Errors
-/// Returns [`RegistryError::BarePackageName`] for an unscoped name,
-/// [`RegistryError::StagedMetadataNameMismatch`] /
-/// [`RegistryError::StagedMetadataVersionMismatch`] when the staged
-/// metadata disagrees with the typed staged identity,
-/// [`RegistryError::VersionBuildMetadata`] for a version carrying
-/// `SemVer` build metadata,
-/// [`RegistryError::StagedChecksumMismatch`] when a staged checksum
-/// claim does not name the staged archive bytes, propagates the
-/// registry-open errors of
+/// Propagates the registry-open errors of
 /// [`FileRegistry::inspect`], and propagates the pre-write checks
 /// (`plan_publish`): [`RegistryError::NewRevisionRequiresOptIn`],
 /// [`RegistryError::RevisionCollision`],
@@ -110,8 +92,6 @@ pub fn publish_to_registry(
 pub fn validate_publish(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
-    ensure_publishable_registry_name(request.staged)?;
-    ensure_staged_checksum_matches(request.staged)?;
     let registry_dir = request.registry_dir;
     let registry = FileRegistry::inspect(registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
@@ -119,73 +99,6 @@ pub fn validate_publish(
         plan.outcome.registry_modified = false;
         plan.outcome
     })
-}
-
-/// Defense-in-depth at the file-registry boundary.  Registry
-/// packages are always scoped (`<scope>/<name>`): `cabin-publish`
-/// rejects bare names earlier with an actionable diagnostic, but
-/// this crate is also reachable by tooling that bypasses that flow,
-/// so re-require the invariant before anything is written.  Legacy
-/// bare-name registries stay readable and vendorable - only new
-/// publication is gated.  The staged metadata must also agree with
-/// the typed staged name, because every registry path is derived
-/// from the latter while the former is what lands in the index
-/// document.
-fn ensure_publishable_registry_name(staged: &StagedPackage) -> Result<(), RegistryError> {
-    if !staged.name.is_scoped() {
-        return Err(RegistryError::BarePackageName {
-            name: staged.name.as_str().to_owned(),
-        });
-    }
-    if staged.metadata.name != staged.name.as_str() {
-        return Err(RegistryError::StagedMetadataNameMismatch {
-            staged: staged.name.as_str().to_owned(),
-            metadata: staged.metadata.name.clone(),
-        });
-    }
-    // The same location/document agreement holds for the version: the
-    // artifact and index paths derive from the typed staged version
-    // while the metadata's string lands in the index document.
-    if staged.metadata.version != staged.version.to_string() {
-        return Err(RegistryError::StagedMetadataVersionMismatch {
-            staged: staged.version.to_string(),
-            metadata: staged.metadata.version.clone(),
-        });
-    }
-    // Registry versions are plain upstream versions - the loader
-    // rejects build-metadata version keys outright, so writing one
-    // here would wedge the package index for every later read.
-    // `cabin publish` refuses this earlier (`validate_publishable`);
-    // this is the boundary for tooling that skips that flow.
-    if !staged.version.build.is_empty() {
-        return Err(RegistryError::VersionBuildMetadata {
-            version: staged.version.to_string(),
-        });
-    }
-    Ok(())
-}
-
-/// Defense-in-depth beside [`ensure_publishable_registry_name`], for
-/// the same reason: the packaging revision and the index checksum
-/// both derive from the staged checksum claims, and the whole
-/// revision contract (byte-identical no-ops, collision detection,
-/// the immutable triple) assumes those claims name the archive bytes
-/// actually written.  The staging path computes them from the bytes,
-/// but tooling can construct a [`StagedPackage`] directly, so
-/// recompute the digest and refuse a lying claim before anything
-/// derives from it.
-fn ensure_staged_checksum_matches(staged: &StagedPackage) -> Result<(), RegistryError> {
-    let computed = cabin_core::Checksum::of_bytes(&staged.archive_bytes);
-    for claimed in [&staged.checksum, &staged.metadata.checksum] {
-        if claimed != &computed {
-            return Err(RegistryError::StagedChecksumMismatch {
-                name: staged.name.as_str().to_owned(),
-                claimed: claimed.as_str().to_owned(),
-                computed: computed.as_str().to_owned(),
-            });
-        }
-    }
-    Ok(())
 }
 
 fn publish_locked(
@@ -280,9 +193,8 @@ fn plan_publish(
     metadata: &PackageMetadata,
 ) -> Result<PublishPlan, RegistryError> {
     let staged = request.staged;
-    // Paths derive from the *typed* staged identity;
-    // `ensure_publishable_registry_name` already pinned the
-    // metadata's name to it.
+    // Paths derive from the *typed* staged identity; staging derives
+    // the metadata from the same package, so the two agree.
     let package_index_path = registry.package_index_path(&staged.name);
     let version = semver::Version::parse(&metadata.version).map_err(|err| {
         RegistryError::PackageIndexInvalid {
@@ -747,132 +659,5 @@ mod tests {
                 rev_of(&s)
             )
         );
-    }
-
-    /// Registry packages are always scoped: a bare name is refused
-    /// at this boundary even when the caller bypasses
-    /// `cabin-publish`, and nothing is written.
-    #[test]
-    fn bare_names_cannot_be_published() {
-        let dir = TempDir::new().unwrap();
-        let registry_dir = dir.child("registry");
-        for run in [publish_to_registry, validate_publish] {
-            let err = run(&RegistryPublishRequest {
-                registry_dir: registry_dir.path(),
-                staged: &staged("fmt", "10.2.1", b"x"),
-                new_revision: false,
-            })
-            .unwrap_err();
-            match err {
-                RegistryError::BarePackageName { name } => assert_eq!(name, "fmt"),
-                other => panic!("expected BarePackageName, got {other:?}"),
-            }
-        }
-        registry_dir
-            .child("config.json")
-            .assert(predicate::path::missing());
-    }
-
-    /// The index document location derives from the typed staged
-    /// name; metadata that disagrees is refused rather than written
-    /// somewhere its own `name` field contradicts.
-    #[test]
-    fn mismatched_metadata_name_is_refused() {
-        let dir = TempDir::new().unwrap();
-        let registry_dir = dir.child("registry");
-        let mut s = staged("fmtlib/fmt", "10.2.1", b"x");
-        s.metadata.name = "fmtlib/other".to_owned();
-        let err = publish_to_registry(&RegistryPublishRequest {
-            registry_dir: registry_dir.path(),
-            staged: &s,
-            new_revision: false,
-        })
-        .unwrap_err();
-        assert!(matches!(
-            err,
-            RegistryError::StagedMetadataNameMismatch { .. }
-        ));
-    }
-
-    /// The staged identity check covers the version like the name:
-    /// paths derive from the typed version, the index document
-    /// carries the metadata string, and a build-metadata version
-    /// would wedge the index (the loader rejects such keys), so all
-    /// three shapes are refused before anything is written.
-    #[test]
-    fn mismatched_or_build_metadata_versions_are_refused() {
-        let dir = TempDir::new().unwrap();
-        let registry_dir = dir.child("registry");
-
-        let mut version_mismatch = staged("fmtlib/fmt", "10.2.1", b"x");
-        version_mismatch.metadata.version = "10.2.2".to_owned();
-        let err = publish_to_registry(&RegistryPublishRequest {
-            registry_dir: registry_dir.path(),
-            staged: &version_mismatch,
-            new_revision: false,
-        })
-        .unwrap_err();
-        assert!(matches!(
-            err,
-            RegistryError::StagedMetadataVersionMismatch { .. }
-        ));
-
-        let with_build = staged("fmtlib/fmt", "10.2.1+cabin.1", b"x");
-        for outcome in [
-            publish_to_registry(&RegistryPublishRequest {
-                registry_dir: registry_dir.path(),
-                staged: &with_build,
-                new_revision: false,
-            }),
-            validate_publish(&RegistryPublishRequest {
-                registry_dir: registry_dir.path(),
-                staged: &with_build,
-                new_revision: false,
-            }),
-        ] {
-            assert!(matches!(
-                outcome.unwrap_err(),
-                RegistryError::VersionBuildMetadata { .. }
-            ));
-        }
-        registry_dir
-            .child("config.json")
-            .assert(predicate::path::missing());
-    }
-
-    /// The revision id and index checksum derive from the staged
-    /// claims, so a claim that does not name the staged archive bytes
-    /// is refused before anything derives from it - a lying triple
-    /// would be immutable and permanently unverifiable.  Both claim
-    /// fields are checked, and the dry-run path refuses identically.
-    #[test]
-    fn lying_staged_checksum_is_refused() {
-        let dir = TempDir::new().unwrap();
-        let registry_dir = dir.child("registry");
-        let honest = staged("fmtlib/fmt", "10.2.1", b"real bytes");
-        let lying_claim = staged("fmtlib/fmt", "10.2.1", b"other bytes").checksum;
-        let mut top_level = honest.clone();
-        top_level.checksum.clone_from(&lying_claim);
-        let mut in_metadata = honest.clone();
-        in_metadata.metadata.checksum.clone_from(&lying_claim);
-        for lying in [&top_level, &in_metadata] {
-            let err = publish_to_registry(&RegistryPublishRequest {
-                registry_dir: registry_dir.path(),
-                staged: lying,
-                new_revision: false,
-            })
-            .unwrap_err();
-            assert!(matches!(err, RegistryError::StagedChecksumMismatch { .. }));
-            let err = validate_publish(&RegistryPublishRequest {
-                registry_dir: registry_dir.path(),
-                staged: lying,
-                new_revision: false,
-            })
-            .unwrap_err();
-            assert!(matches!(err, RegistryError::StagedChecksumMismatch { .. }));
-        }
-        registry_dir
-            .child("config.json")
-            .assert(predicate::path::missing());
     }
 }

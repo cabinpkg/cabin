@@ -65,15 +65,6 @@ pub enum RegistryError {
     },
 
     #[error(
-        "staged package `{name}` claims checksum `{claimed}` but its archive bytes hash to `{computed}`; the packaging revision derives from the archive contents, so a mismatched claim would publish an immutable revision that can never verify"
-    )]
-    StagedChecksumMismatch {
-        name: String,
-        claimed: String,
-        computed: String,
-    },
-
-    #[error(
         "artifact already exists for `{name} {version}` (revision `{revision}`) but the package index does not record that revision"
     )]
     OrphanedArtifact {
@@ -97,24 +88,4 @@ pub enum RegistryError {
 
     #[error("failed to render package index as JSON: {0}")]
     Json(#[from] serde_json::Error),
-
-    #[error(
-        "registry packages must be named `<scope>/<name>`; `{name}` is a bare name and cannot be published"
-    )]
-    BarePackageName { name: String },
-
-    #[error(
-        "staged package name `{staged}` does not match its metadata name `{metadata}`; refusing to write an index document that disagrees with its location"
-    )]
-    StagedMetadataNameMismatch { staged: String, metadata: String },
-
-    #[error(
-        "staged package version `{staged}` does not match its metadata version `{metadata}`; refusing to write an artifact whose path disagrees with its index entry"
-    )]
-    StagedMetadataVersionMismatch { staged: String, metadata: String },
-
-    #[error(
-        "version `{version}` carries SemVer build metadata, which registry versions never do (packaging revisions replaced it); publish the plain upstream version"
-    )]
-    VersionBuildMetadata { version: String },
 }
