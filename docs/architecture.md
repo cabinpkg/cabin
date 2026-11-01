@@ -122,6 +122,7 @@ docs/
     capability-roadmap/
       contracts.md       shared contracts for the capability roadmap's stages (design)
       ledger.md          per-area evidence, stage map, and status of the roadmap
+    ci-rust-caches.md  the main-seeded Rust dependency caches CI restores
     performance-observability.md  measurement design and coverage record
     standard-compatibility/
       spec.md            normative resolver-level standard-compatibility model

@@ -136,6 +136,7 @@ export const DOCS_NAV: DocsNavSection[] = [
                 label: "Performance observability",
                 slug: "design/performance-observability",
             },
+            { label: "CI Rust caches", slug: "design/ci-rust-caches" },
         ],
     },
 ];

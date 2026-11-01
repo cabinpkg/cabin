@@ -38,7 +38,8 @@ jobs:
   lint-work:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true' || needs.changes.outputs.filter-file == 'true'
-    runs-on: ubuntu-latest
+    # The image its cache key names.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -49,9 +50,10 @@ jobs:
         - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
           with:
             cache: ${{ needs.changes.outputs.rust == 'true' }}
-            cache-on-failure: false
-            # A merge-group cache serves only re-runs of that one queue entry.
-            cache-save-if: ${{ github.event_name != 'merge_group' }}
+            # Restore-only: rust-cache.yml seeds every rust.yml key on main.
+            cache-shared-key: debug-ubuntu-24.04
+            cache-bin: false
+            cache-save-if: false
             rustflags: ""
 
         - uses: uncenter/setup-taplo@b18c8c8302695fe63d6853bc004006215ac52b91 # v2
@@ -124,8 +126,9 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
+          cache-shared-key: debug-${{ matrix.os }}
+          cache-bin: false
+          cache-save-if: false
           rustflags: ""
 
       # Every build tool ships preinstalled on the matrix images;
@@ -160,8 +163,9 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
+          cache-shared-key: fuzz-ubuntu-24.04
+          cache-bin: false
+          cache-save-if: false
           cache-workspaces: |
             .
             fuzz
@@ -220,8 +224,9 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
+          cache-shared-key: debug-windows-2025-vs2026
+          cache-bin: false
+          cache-save-if: false
           rustflags: ""
 
       - name: Build cabin and run examples without a pre-activated MSVC env
@@ -265,8 +270,9 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
+          cache-shared-key: debug-ubuntu-24.04
+          cache-bin: false
+          cache-save-if: false
           rustflags: ""
 
       # Under the gcc env already: ring's build script tracks CC/CXX,
