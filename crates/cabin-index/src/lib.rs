@@ -10,9 +10,9 @@
 //! served.
 //!
 //! This crate owns that format.  It loads the JSON files,
-//! validates them, and exposes a typed [`PackageIndex`]: whole with
-//! [`load_index`], or one package at a time by name with
-//! [`FileIndex`] so a resolution reads only the documents it needs.
+//! validates them, and exposes a typed [`PackageIndex`], read one
+//! package at a time by name with [`FileIndex`] so a resolution reads
+//! only the documents it needs.
 //! Resolution against the index lives in `cabin-resolver`.
 
 pub mod error;
@@ -21,7 +21,7 @@ pub mod model;
 mod walk;
 
 pub use error::IndexError;
-pub use loader::{FileIndex, SourceContext, load_index, parse_package_entry};
+pub use loader::{FileIndex, SourceContext, parse_package_entry};
 pub use model::{
     IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, ResolutionMetadata,
     RevisionMetadata, SourceLocation, VersionMetadata,
