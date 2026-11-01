@@ -60,20 +60,12 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      # No caches: a pull request's saves are restorable only by that
+      # pull request, so they almost never hit and only evict others.
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
+          cache: false
           rustflags: ""
-
-      # Untrusted: the tool re-hashes each restored archive against its
-      # port's pinned SHA-256 and re-downloads on mismatch. Cache only
-      # archives/: extracted sources/ trees are not re-verified on reuse.
-      - name: Cache upstream archives
-        uses: actions/cache@v6.1.0
-        with:
-          path: ${{ runner.temp }}/cabin-cache/ports/archives
-          key: ports-archives-${{ hashFiles('ports/**/cabin.toml') }}
-          restore-keys: ports-archives-
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
@@ -127,8 +119,10 @@ jobs:
           cache-on-failure: false
           rustflags: ""
 
-      # Re-hashed as in the dry-run job, so a poisoned entry cannot
-      # alter what publishes.
+      # Untrusted: the tool re-hashes each restored archive against its
+      # port's pinned SHA-256 and re-downloads on mismatch, so a poisoned
+      # entry cannot alter what publishes. Cache only archives/: extracted
+      # sources/ trees are not re-verified on reuse.
       - name: Cache upstream archives
         uses: actions/cache@v6.1.0
         with:
