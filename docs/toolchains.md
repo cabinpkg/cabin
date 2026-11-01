@@ -760,6 +760,11 @@ explicitly selected toolset is honored.
   conditions evaluate for MinGW, and build dependencies then need `HOST_CC`, `HOST_CXX`, and
   `HOST_AR`, since the build machine's default is `cl`.  Clang targeting MinGW, MSYS2's other
   environments, and build or `system = true` dependencies under MinGW are untested.
+- **Batch-file tools are rejected.** A C compiler, C++ compiler, archiver, or compiler wrapper that
+  resolves to a `.bat` or `.cmd` file (such as a `zig-cc.cmd` shim) fails resolution.  Windows runs
+  a batch file through `cmd.exe`, which re-parses its command line and acts on `&`, `|`, `%`, and
+  other characters inside arguments that Cabin cannot quote safely, so a dependency's define could
+  run commands.  Point the tool at an executable (`.exe`) instead.
 - **`system = true` dependencies are not supported under MSVC.** They are resolved with pkg-config,
   whose GNU-style `-L` / `-lfoo` / `-pthread` output the MSVC `cl` / `link` command line cannot
   consume; on Windows the `.pc` files also come from MinGW/msys2 and reference the MinGW ABI, so

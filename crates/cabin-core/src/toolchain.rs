@@ -399,6 +399,21 @@ pub enum ToolchainResolutionError {
         label = kind.human_label()
     )]
     UnsupportedCompiler { kind: ToolKind, spec: String },
+    /// On Windows, a resolved tool is a `.bat` / `.cmd` batch file.
+    /// `CreateProcess` runs one through `cmd.exe`, which re-parses the
+    /// command line and acts on `&`, `|`, `%`, and the like inside
+    /// arguments that Ninja's quoting leaves bare, so a dependency's
+    /// define could run commands.
+    #[error(
+        "{label} `{path}` selected by {source_label} is a batch file; Windows runs batch files through `cmd.exe`, which re-parses their arguments, so Cabin cannot pass them safely; use an executable (`.exe`) instead",
+        label = kind.human_label(),
+        source_label = source_label(*selected_from)
+    )]
+    BatchFile {
+        kind: ToolKind,
+        path: Utf8PathBuf,
+        selected_from: ToolSource,
+    },
     /// A resolved tool path, or a `CC` / `CXX` / `AR` value, is not
     /// valid UTF-8.  Cabin's toolchain model assumes UTF-8 paths.
     #[error(
