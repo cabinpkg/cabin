@@ -482,8 +482,8 @@ other command run no probe.
 
 ## Build configuration fingerprint
 
-`BuildConfiguration::fingerprint` is a SHA-256 over the resolved build-configuration inputs that
-`cabin metadata` and `cabin explain build-config` report.  The hash folds in:
+`BuildConfiguration::fingerprint` is a SHA-256 over resolved build-configuration inputs.  The hash
+folds in:
 
 | Section                  | Inputs                                                                                  |
 | ------------------------ | --------------------------------------------------------------------------------------- |
