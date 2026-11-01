@@ -207,9 +207,9 @@ identical to Cargo's `resolver.incompatible-rust-versions`**.
 
 - `fallback` prefers candidate versions whose declared interface standards the workspace
   satisfies, ranks a declared-incompatible version last, and never filters - so it never
-  introduces a resolution failure `allow` would not also produce.  When it passes a newer version
-  over for a standard reason, `cabin update` / `cabin resolve` name the held-back version and the
-  requirement that held it back.
+  introduces a resolution failure `allow` would not also produce.  When it selects an older
+  version than `allow` would for a standard reason, `cabin update` / `cabin resolve` report it (see
+  [`language-standards.md`](language-standards.md#version-selection)).
 - `allow` makes selection a pure function of semver constraints; standards influence only the
   post-resolution enforcement.  The strict / deterministic mode - lockfiles never move when a
   workspace standard changes.

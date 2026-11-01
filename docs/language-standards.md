@@ -401,8 +401,10 @@ variable.  The value vocabulary is Cargo's `resolver.incompatible-rust-versions`
 - `fallback` (the default) prefers versions whose declared interface standards the workspace
   satisfies, deprioritizes versions that declare nothing relevant, and ranks a
   declared-incompatible version last - newest-first within each tier, and never filtered.  When it
-  passes a newer version over for a standard reason, `cabin update` / `cabin resolve` name the
-  selected version, the newest available, and the requirement that held it back.
+  selects an older version of a package than `allow` would for a standard reason, `cabin update` /
+  `cabin resolve` name the selected version, the version `allow` selects, and the requirement that
+  held it back, or that the newer version declares no standard.  A newer version passed over in a
+  package whose selection matches `allow`'s is not reported.
 - `allow` makes selection a pure function of semver constraints: standards never move a lockfile,
   and incompatibilities surface only through the post-resolution enforcement above.  This is the
   strict / deterministic mode, not a legacy one.
