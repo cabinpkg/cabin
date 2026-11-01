@@ -29,11 +29,12 @@
 //! package directory [`crate::layout`] puts a product in; see
 //! `split` for the one ambiguous layout), so recording a use
 //! reads only the shards of the directories the plan writes, rewriting
-//! one only to raise a stamp to the current active day.  Shards and
-//! the clock are rewritten atomically; one that cannot be read, or was
-//! written by a newer format, authorizes no removal.  Commands record
-//! one at a time under the catalog's own lock, since two rewriting one
-//! shard from the same snapshot would lose one's update.  A plan already
+//! one only to raise a stamp to the current active day.  Catalog files
+//! are replaced by rename but not synced (see `store`); one that cannot
+//! be read, or was written by a newer format, authorizes no removal.
+//! Commands record one at a time under the catalog's own lock, since
+//! two rewriting one shard from the same snapshot would lose one's
+//! update.  A plan already
 //! recorded on the current active day is remembered by digest and not
 //! recorded again: collection never lowers a stamp of the current day,
 //! and replacing an unreadable shard, which drops its stamps, forgets
@@ -234,15 +235,15 @@ fn load<T: DeserializeOwned>(path: &Path) -> Result<Loaded<T>, GcError> {
     })
 }
 
+/// Staged in a file `create_new` makes, which never opens through a
+/// symlink, and renamed over `path`, which replaces whatever is there
+/// rather than writing through it.  Not synced: the catalog guides the
+/// collection policy, never a build.  An OS crash can lose or reorder
+/// these writes, so a product can look older than it is (a lost stamp,
+/// or a remembered plan whose stamps were lost) until its plan records
+/// again on a later active day, which costs at most a rebuild; a file
+/// the crash leaves unparsable authorizes no removal.
 fn store<T: Serialize>(path: &Path, value: &T) -> Result<(), GcError> {
-    let bytes = serde_json::to_vec(value).expect("catalog records serialize");
-    cabin_fs::write_atomic(path, bytes).map_err(io_err(path))
-}
-
-/// [`store`] without the sync.  Staged in a file `create_new` makes,
-/// which never opens through a symlink, and renamed over `path`, which
-/// replaces whatever is there rather than writing through it.
-fn store_unsynced<T: Serialize>(path: &Path, value: &T) -> Result<(), GcError> {
     use std::io::Write as _;
     let bytes = serde_json::to_vec(value).expect("catalog records serialize");
     let staging = path.with_extension(format!("{}.tmp", std::process::id()));
@@ -410,23 +411,7 @@ pub fn record_use<'a>(
             recorded.plans.remove(0);
         }
         recorded.plans.push(plan);
-        // Unsynced, unlike the shards and the clock: a crash that loses
-        // it, or tears it so it no longer parses, only sends a command
-        // down the slow path; a rarer one can leave it stale yet
-        // parseable, so a plan skips recording until a later active day.
-        // More plans a day than it holds then cost a recording each, not
-        // a sync each.
-        match store_unsynced(&recorded_path, &recorded) {
-            // Another process staged under the same id, which only a
-            // file system without locks, shared between machines, allows:
-            // the plan goes unremembered.
-            Err(GcError::Io { source, .. })
-                if matches!(
-                    source.kind(),
-                    io::ErrorKind::AlreadyExists | io::ErrorKind::NotFound
-                ) => {}
-            result => result?,
-        }
+        store(&recorded_path, &recorded)?;
     }
     let span = tracing::Span::current();
     span.record("products", relative.len());
