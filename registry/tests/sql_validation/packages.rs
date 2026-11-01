@@ -963,3 +963,44 @@ fn revival_must_advance_the_rejected_generations_stamp() {
     assert_eq!(revive("2026-07-15T00:00:00.001Z"), 1);
     assert_eq!(stored(), "40", "the applied revival re-counts its bytes");
 }
+
+/// A verdict lands only on the pending generation the verifier listed:
+/// a stale `published_at` (a byte-identical revival), other bytes, or a
+/// row no longer pending changes nothing, for either verdict.
+#[test]
+fn verdicts_apply_only_to_the_listed_pending_generation() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    let listed = "2026-07-15T00:00:00.000Z";
+    let stale = "2026-07-14T00:00:00.000Z";
+    let apply = |statement: &str, checksum: &str, published_at: &str| {
+        conn.execute(
+            statement,
+            rusqlite::params![
+                if statement == sql::MARK_REVISION_VERIFIED {
+                    "2026-07-15T01:00:00.000Z"
+                } else {
+                    "unsafe archive"
+                },
+                "beta",
+                "pkg",
+                "1.0.0",
+                checksum,
+                published_at,
+                "bb"
+            ],
+        )
+        .expect("apply the verdict")
+    };
+    for statement in [sql::MARK_REVISION_VERIFIED, sql::MARK_REVISION_REJECTED] {
+        conn.execute(
+            "UPDATE revisions SET verification = 'pending' WHERE scope = 'beta'",
+            [],
+        )
+        .expect("reset beta to pending");
+        assert_eq!(apply(statement, "bb", stale), 0, "a superseded generation");
+        assert_eq!(apply(statement, "cc", listed), 0, "other bytes");
+        assert_eq!(apply(statement, "bb", listed), 1, "the listed generation");
+        assert_eq!(apply(statement, "bb", listed), 0, "no longer pending");
+    }
+}
