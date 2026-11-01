@@ -6,9 +6,8 @@
 # stamped on at build time by `FakePortBuilder`, which owns the
 # generated archive's checksum.
 #
-# The fake archive stubs every declared source except png.c, so the
-# source list must stay this 15-source set for
-# `stub_declared_sources_except` to generate the same tree.
+# The fake archive carries a working png.c and an empty stub for
+# every other source this list declares.
 [package]
 name = "cabin-ports/libpng"
 version = "1.6.50"

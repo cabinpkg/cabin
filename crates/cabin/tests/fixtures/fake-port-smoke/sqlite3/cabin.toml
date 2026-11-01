@@ -2,9 +2,10 @@
 # port carries, so the registry-ports tests exercise the publish
 # pipeline (fetch, extract, materialize, build) against sources they
 # fully control.  `[package.upstream]` is stamped on at build time by
-# `FakePortBuilder`, which owns the generated archive's checksum.  The feature and cfg-gated profile blocks are part
-# of that shape: the fixtures assert the published target set, not
-# just that something compiles.
+# `FakePortBuilder`, which owns the generated archive's checksum.  The
+# `single-threaded` feature and its cfg-gated profile are part of that
+# shape: a test enables the feature through the registry edge and
+# checks the built library reports `SQLITE_THREADSAFE=0`.
 [package]
 name = "cabin-ports/sqlite3"
 version = "3.53.2"

@@ -259,15 +259,15 @@ fn metadata_fails_when_pkg_config_missing_and_system_dep_declared() {
 
 #[test]
 fn cabin_pkg_config_env_var_overrides_executable() {
-    // A fixture-publishing test that depends on the env var
-    // being honored.  If the env var were ignored, the test
-    // would fail to spawn pkg-config and metadata would error.
+    // Only the fake reports the marker define.  If the env var were
+    // ignored, Cabin would spawn `pkg-config` from PATH, which either
+    // fails or reports the host's zlib flags without the marker.
     let fixtures = Fixtures::new();
     fixtures.write(
         "zlib",
         r#"{
                 "version": "1.2.13",
-                "cflags": "-I/opt/zlib/include",
+                "cflags": "-DCABIN_FAKE_PKG_CONFIG_ZLIB",
                 "libs": "-lz"
             }"#,
     );
@@ -277,11 +277,22 @@ fn cabin_pkg_config_env_var_overrides_executable() {
         .unwrap();
     write_hello_main(dir.path());
 
-    cabin_with_fake_pkg_config(&fixtures)
+    let assertion = cabin_with_fake_pkg_config(&fixtures)
         .current_dir(dir.path())
         .arg("metadata")
         .assert()
         .success();
+    let view: serde_json::Value = serde_json::from_slice(&assertion.get_output().stdout)
+        .expect("metadata output should be JSON");
+    let extra_compile = &package_build_flags(&view)["extra_compile_args"];
+    assert!(
+        extra_compile
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "-DCABIN_FAKE_PKG_CONFIG_ZLIB"),
+        "the CABIN_PKG_CONFIG fake's cflags must reach the build flags: {extra_compile}",
+    );
 }
 
 #[test]
@@ -393,10 +404,10 @@ fn fingerprint_moves_when_pkg_config_flags_change() {
     let dir = TempDir::new().unwrap();
     // The metadata view emits `configuration` (and hence the
     // fingerprint) only for a package that declares a feature or a
-    // language setting (a standard or `gnu-extensions`).
+    // language setting; `cxx-standard` is that setting here.
     dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[features]\ndefault = []\nflag-a = []\n\n[dependencies]\nzlib = { version = \"\", system = true }\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nzlib = { version = \"\", system = true }\n")
 
             .unwrap();
     write_hello_main(dir.path());

@@ -629,6 +629,10 @@ deps = ["w"]
             ),
         "expected the C++-side error in: {flat}"
     );
+    assert!(
+        flat.find("requires C consumers") < flat.find("requires C++ consumers"),
+        "expected the C error before the C++ error in: {flat}"
+    );
     assert_eq!(
         stderr.matches(VIOLATION_CODE).count(),
         2,
