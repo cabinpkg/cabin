@@ -9,6 +9,7 @@
 //! <build-dir>/.cabin-workspace               owner record (crate::owner)
 //!
 //! <profile-dir>/build.ninja, compile_commands.json, cabin-toolchain.json
+//! <profile-dir>/.cabin-build.lock            the tree's lock (crate::gc::BuildDirLock)
 //! <profile-dir>/packages/<pkg>/              the target context's units
 //! <profile-dir>/build-machine/packages/<pkg>/   the build context's units
 //! ```

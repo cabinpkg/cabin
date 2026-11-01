@@ -11,8 +11,10 @@ use super::GcError;
 pub const LOCK_FILENAME: &str = ".cabin-build.lock";
 
 /// An OS advisory lock on `<dir>/.cabin-build.lock`: the build
-/// directory's, and the catalog's, which [`super::record_use`] holds
-/// while it records.
+/// directory's, the catalog's, which [`super::record_use`] holds while
+/// it records, and each profile directory's, which a build holds
+/// exclusively, under the build directory's held shared, while it runs
+/// Ninja there.
 ///
 /// Commands that use build outputs hold the build directory's lock
 /// shared for as long as they use them, including while `cabin run` and
@@ -21,9 +23,9 @@ pub const LOCK_FILENAME: &str = ".cabin-build.lock";
 /// including when the process dies.  The build directory's file is never
 /// removed, not even by `cabin clean`: a process already waiting on a
 /// removed file would lock a different file than one that recreated the
-/// path.  The catalog's goes with the catalog in a `cabin clean` of the
-/// whole build directory, when no command holds or waits on it (see
-/// [`super::record_use`]).
+/// path.  The catalog's and a profile directory's go with their
+/// directories in a `cabin clean`, when no command holds or waits on
+/// them (see [`super::record_use`]).
 #[derive(Debug)]
 pub struct BuildDirLock {
     file: File,

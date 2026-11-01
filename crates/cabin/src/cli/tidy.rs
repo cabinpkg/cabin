@@ -354,12 +354,9 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // The compile database lands where a native `cabin build` of this
     // profile writes its own, the directory `clang-tidy -p` reads.
     let profile_build_root = cabin_build::layout::profile_dir(&build_dir, &profile.name);
-    std::fs::create_dir_all(&profile_build_root).with_context(|| {
-        format!(
-            "failed to create build directory {}",
-            profile_build_root.display()
-        )
-    })?;
+    // Held until clang-tidy exits: a build of this profile meanwhile would
+    // replace the compile database clang-tidy reads.
+    let _tree = crate::cli::gc::lock_tree(&profile_build_root, reporter)?;
     let compile_db_path = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&compile_db_path, &plan_graph)?;
 

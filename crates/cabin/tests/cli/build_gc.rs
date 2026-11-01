@@ -222,6 +222,40 @@ fn collection_waits_for_processes_using_the_build_dir() {
 }
 
 #[test]
+fn builds_of_one_profile_tree_take_turns() {
+    require_c_and_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    build_then_rename(dir);
+    let ninja = dir.join("build/dev/build.ninja");
+    let written = fs::read(&ninja).unwrap();
+    // Stands in for a build running Ninja in the `dev` tree.
+    let tree = BuildDirLock::exclusive(&dir.join("build/dev"), || {}).unwrap();
+    // The `release` tree is its own.
+    cabin()
+        .args(["build", "--release", "--manifest-path"])
+        .arg(dir.join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.join("build"))
+        .timeout(std::time::Duration::from_secs(300))
+        .assert()
+        .success();
+
+    let mut build = spawn_cabin(dir, &["build"]);
+    let mut stdout = BufReader::new(build.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(line.contains("Blocking"), "{line}");
+    assert_eq!(fs::read(&ninja).unwrap(), written);
+
+    drop(tree);
+    stdout.read_to_string(&mut line).unwrap();
+    assert!(build.wait().unwrap().success(), "{line}");
+    assert_ne!(fs::read(&ninja).unwrap(), written);
+    assert!(object(dir, "app.cc").is_file());
+}
+
+#[test]
 fn run_collects_after_the_program_exits() {
     require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
@@ -284,7 +318,11 @@ sources = ["src/main.c"]
 /// `cabin` as a child the test talks to while it runs, isolated as
 /// [`cabin()`] isolates it.  Its stderr goes to the test's own.
 pub(super) fn spawn_cabin(dir: &Path, args: &[&str]) -> std::process::Child {
-    let template = cabin();
+    spawn(&cabin(), dir, args)
+}
+
+/// [`spawn_cabin`] with `template`'s program and environment.
+pub(super) fn spawn(template: &Command, dir: &Path, args: &[&str]) -> std::process::Child {
     let mut cmd = std::process::Command::new(template.get_program());
     for (key, value) in template.get_envs() {
         match value {
