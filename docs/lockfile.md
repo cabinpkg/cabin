@@ -268,8 +268,12 @@ of the comparators making up the requirement names the same `major.minor.patch` 
 tag - for example `fmt = "=1.0.0-alpha"` (singleton opt-in) or `fmt = ">=1.0.0-alpha, <1.0.0"`
 (range that explicitly opens the `1.0.0` pre-release window).  Wide constraints such as `fmt =
 ">=1.0.0, <2.0.0"` never pick a pre-release even if one is the only candidate published in the
-index.  A locked-in pre-release survives a follow-up `cabin resolve` so existing lockfile pins do
-not silently churn.
+index.  Requirements from different packages in the dependency graph must each admit the
+pre-release: one package's opt-in does not extend to another's, so `^1.2.0-beta.1` from one and
+`^1.0` from another select no `1.2.0` pre-release.  A workspace's own declarations of one name -
+across its members, and across one package's dependency kinds - combine into a single requirement
+first, which admits a pre-release when any of them opts in.  A locked-in pre-release survives a
+follow-up `cabin resolve` so existing lockfile pins do not silently churn.
 
 ## Resolver diagnostics
 

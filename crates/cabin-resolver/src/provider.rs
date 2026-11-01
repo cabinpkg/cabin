@@ -54,7 +54,7 @@ use cabin_core::{
 };
 use cabin_index::{IndexEntry, IndexPackageDependency, PackageIndex, VersionMetadata};
 use pubgrub::{Dependencies, DependencyProvider, PackageResolutionStatistics, Ranges};
-use semver::Version;
+use semver::{Version, VersionReq};
 
 use crate::error::{ResolveError, ResolverConstraint};
 use crate::input::{LockedVersion, ResolveInput, ResolveMode};
@@ -299,6 +299,38 @@ impl<'a> Provider<'a> {
         }))
     }
 
+    /// In `Locked` mode, record the edge `parent` places on `dep_name`
+    /// and match it against the locked version.
+    fn check_locked_edge(
+        &self,
+        parent: &PackageName,
+        dep_name: &PackageName,
+        dep: &IndexPackageDependency,
+    ) -> Result<(), EdgeError> {
+        if let Some(recorder) = &self.locked_constraints {
+            recorder.record(dep_name, parent.clone(), dep.req.clone());
+            // Matched per edge, not when `dep_name` is decided: an edge
+            // arriving after that decision would conflict with it, and
+            // the backjump would report the edge's parent instead.
+            if let Some(locked) = self.locked.get(dep_name)
+                && !self.is_local(dep_name)
+                && !dep.req.matches(&locked.version)
+            {
+                return Err(EdgeError::Fatal(
+                    ResolveError::LockedVersionViolatesConstraint {
+                        name: dep_name.as_str().to_owned(),
+                        version: locked.version.to_string(),
+                        constraints: vec![ResolverConstraint {
+                            origin: parent.clone(),
+                            requirement: dep.req.clone(),
+                        }],
+                    },
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Require one active dependency edge of `parent@version`: the
     /// package itself plus the features the edge requests.
     fn require_edge(
@@ -309,13 +341,10 @@ impl<'a> Provider<'a> {
         dep_name: &PackageName,
         dep: &IndexPackageDependency,
     ) -> Result<(), EdgeError> {
-        if let Some(recorder) = &self.locked_constraints {
-            recorder.record(dep_name, parent.clone(), dep.req.clone());
-        }
-        // Another edge pinning a local pre-release exactly leaves a
-        // bound carrying its pre-release tag in the intersected range,
-        // which admits the pre-release; semver matching admits it only
-        // when this edge opts in.
+        self.check_locked_edge(parent, dep_name, dep)?;
+        // The trimmed edge range already excludes a local pre-release
+        // this edge rejects; failing the edge here names the local
+        // version in the conflict instead of a range with a hole.
         if let Some(local) = self.input.local_packages.get(dep_name)
             && let Some(local_version) = local.versions.keys().find(|v| !v.pre.is_empty())
             && !dep.req.matches(local_version)
@@ -325,7 +354,7 @@ impl<'a> Provider<'a> {
                 dep.req
             )));
         }
-        let range = edge_range(parent, version, dep_name, dep)?;
+        let range = edge_range(self.input, self.index, parent, version, dep_name, dep)?;
         if dep.default_features && self.declares_default_features(dep_name, &range)? {
             deps.require(
                 Node::Feature(dep_name.clone(), DEFAULT_FEATURE_KEY.to_owned()),
@@ -432,8 +461,10 @@ impl<'a> Provider<'a> {
                     let (dep_name, dep) = declared_dep(name, version, feature, meta, &dep_name)?;
                     if dep.optional {
                         self.require_edge(&mut deps, name, version, dep_name, dep)?;
+                    } else {
+                        self.check_locked_edge(name, dep_name, dep)?;
                     }
-                    let range = edge_range(name, version, dep_name, dep)?;
+                    let range = edge_range(self.input, self.index, name, version, dep_name, dep)?;
                     deps.require(Node::Feature(dep_name.clone(), requested), range);
                 }
             }
@@ -442,24 +473,68 @@ impl<'a> Provider<'a> {
     }
 }
 
-/// The `PubGrub` range of one dependency edge.  An unsupported
+/// The `PubGrub` range of one dependency edge, trimmed by
+/// [`without_rejected_prereleases`].  An unsupported
 /// requirement syntax on a transitive dep is a backtrackable miss,
 /// not a fatal error: an older version of `parent` may declare the
 /// same dep with a syntax this build understands.  The root path
 /// catches unsupported syntax up front, where the error names the
 /// user-authored requirement.
 fn edge_range(
+    input: &ResolveInput,
+    index: &PackageIndex,
     parent: &PackageName,
     version: &Version,
     dep_name: &PackageName,
     dep: &IndexPackageDependency,
 ) -> Result<Ranges<Version>, EdgeError> {
-    req_to_range(&dep.req).map_err(|err| {
+    let range = req_to_range(&dep.req).map_err(|err| {
         EdgeError::Unavailable(format!(
             "{parent} {version} declares an unsupported version requirement for {dep_name}: {}",
             err.requirement,
         ))
-    })
+    })?;
+    Ok(without_rejected_prereleases(
+        input, index, dep_name, &dep.req, range,
+    ))
+}
+
+/// `range`, the numeric range of `req` on `name`, without each
+/// published pre-release of `name` that `req` rejects.  Semver's
+/// pre-release rule binds every requirement on its own, which no
+/// interval expresses; with each requirement's range trimmed, a
+/// pre-release stays in their intersection only when every one
+/// admits it, in whatever order `PubGrub` intersects them.  A name
+/// a lazily loaded index has not fetched keeps its whole range: a
+/// round that reaches it stops for its metadata before it can
+/// succeed, and the next round trims it.
+pub(crate) fn without_rejected_prereleases(
+    input: &ResolveInput,
+    index: &PackageIndex,
+    name: &PackageName,
+    req: &VersionReq,
+    range: Ranges<Version>,
+) -> Ranges<Version> {
+    let Ok(Some(entry)) = lookup(input, index, name) else {
+        return range;
+    };
+    let holes: Vec<&Version> = entry
+        .versions
+        .keys()
+        .filter(|v| !v.pre.is_empty() && range.contains(v) && !req.matches(v))
+        .collect();
+    if holes.is_empty() {
+        return range;
+    }
+    // The complement of the holes, built in one pass from the sorted
+    // keys: `(<h1)`, `(h1, h2)`, ..., `(>hn)`.
+    let lower = std::iter::once(Bound::Unbounded)
+        .chain(holes.iter().map(|v| Bound::Excluded((*v).clone())));
+    let upper = holes
+        .iter()
+        .map(|v| Bound::Excluded((*v).clone()))
+        .chain(std::iter::once(Bound::Unbounded));
+    range.intersection(&lower.zip(upper).collect())
 }
 
 /// The normal dependency a feature entry of `name@version` names.
@@ -678,9 +753,10 @@ impl Provider<'_> {
 
     /// Pick the locked version for `package` in `Locked` mode,
     /// emitting the more specific `Locked*` variants when the
-    /// locked entry conflicts with the index or with constraints
-    /// observed during this resolve.  Preflight covers root
-    /// dependencies; this branch covers transitive ones.
+    /// locked entry conflicts with the index or with the range
+    /// `PubGrub` derived during this resolve.  Preflight matches
+    /// root requirements and [`Self::require_edge`] matches every
+    /// transitive one against the locked version.
     fn choose_locked_candidate(
         &self,
         package: &PackageName,
@@ -693,21 +769,11 @@ impl Provider<'_> {
             .get(package)
             .ok_or_else(|| ResolveError::LockfileMissingPackage(package.as_str().to_owned()))?;
         validate_locked_metadata(package, locked, entry)?;
-        // The `Ranges` algebra is purely numeric, so a
-        // pre-release locked version may sit inside `range`
-        // while semver's pre-release rule still rejects it.
-        // Re-check the recorded `VersionReq`s with full semver
-        // semantics so `--locked` does not accept a lockfile
-        // entry the user's manifest does not allow.
-        let observed = recorder.snapshot(package);
-        let semver_satisfies = observed
-            .iter()
-            .all(|c| c.requirement.matches(&locked.version));
-        if !range.contains(&locked.version) || !semver_satisfies {
+        if !range.contains(&locked.version) {
             return Err(ResolveError::LockedVersionViolatesConstraint {
                 name: package.as_str().to_owned(),
                 version: locked.version.to_string(),
-                constraints: observed,
+                constraints: recorder.snapshot(package),
             });
         }
         Ok(locked.version.clone())
@@ -762,10 +828,14 @@ pub(crate) fn candidate_admits_prerelease(range: &Ranges<Version>, candidate: &V
 /// This mirrors semver's `pre_is_compatible` rule: a pre-release
 /// version is admissible against a requirement only when one of
 /// its comparators names the same triple with a non-empty `pre`
-/// field.  Because the range bounds come from those comparators
-/// (via [`req_to_range`]), checking the bounds is equivalent in
-/// practice and avoids carrying the original [`VersionReq`] set
-/// alongside the range.
+/// field.  A range [`req_to_range`] builds from one requirement has
+/// that requirement's comparators as its bounds, so the check agrees
+/// with semver there up to the approximation the `range` module
+/// documents.  On an intersection of several requirements it would
+/// admit a pre-release any one of them opts into (`^1.2.0-beta.1`
+/// and `^1.0` together admit `1.2.0-beta.3`), so each requirement's
+/// range first drops the published pre-releases it rejects
+/// ([`without_rejected_prereleases`]).
 ///
 /// Bounds with non-empty build metadata are synthetic successors
 /// (`range::just_above_all_builds`) - a comparator has no build

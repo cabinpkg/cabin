@@ -15,10 +15,12 @@
 //!
 //! The recorder is *only* constructed when the resolver is
 //! running in [`ResolveMode::Locked`].  In `Locked` mode every
-//! package has at most one allowed version, so `PubGrub` does
-//! not backtrack and `get_dependencies` is invoked at most once
-//! per package; the recorded constraints therefore describe the
-//! actual solution and stay stable.
+//! package has at most one allowed version, so a conflict leaves
+//! `PubGrub` no other version to try: it may still backjump, but
+//! only on its way to failing, and a successful resolve never
+//! backtracks.  `PubGrub` calls `get_dependencies` at most once
+//! per package and version, so the recorded constraints all come
+//! from that single candidate graph.
 //!
 //! Outside `Locked` mode `PubGrub` may try, then discard, a
 //! version of a package - leaving stale entries behind.  The
