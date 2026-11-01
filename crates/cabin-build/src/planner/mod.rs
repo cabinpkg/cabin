@@ -739,8 +739,8 @@ fn emit_actions(
             // wrapper keeps `/showIncludes` too, which its cache hit
             // replays: a hit need not write the depfile, and Ninja reads
             // a missing depfile as no dependencies.
-            compile.clang_depfile =
-                req.clang_cl.contains(&ps.language) && req.compiler_wrapper.is_none();
+            // Probe: the Windows test must fail with `/showIncludes`.
+            compile.clang_depfile = false;
             objects.push(ps.object.clone());
             actions.push(BuildAction::Compile(compile));
         }
