@@ -423,3 +423,111 @@ fn vendor_requires_a_local_terminal_after_source_replacement() {
     server.unblock();
     let _ = thread.join();
 }
+
+/// `config.json` may name any packages directory: a registry that
+/// keeps its documents under `metadata/` serves `vendor` exactly as
+/// it serves `resolve` and `fetch`, and the vendored output - in the
+/// canonical layout - builds a C consumer offline from a fresh cache
+/// with the source registry gone.
+#[test]
+fn vendor_reads_the_configured_packages_directory() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let lib = dir.path().join("greet");
+    for (path, body) in [
+        (
+            "cabin.toml",
+            "[package]\nname = \"acme/greet\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
+             [target.greet]\ntype = \"library\"\nsources = [\"src/greet.c\"]\n\
+             include-dirs = [\"include\"]\n",
+        ),
+        ("include/greet.h", "#pragma once\nint greet(void);\n"),
+        (
+            "src/greet.c",
+            "#include \"greet.h\"\nint greet(void) { return 42; }\n",
+        ),
+    ] {
+        assert_fs::fixture::ChildPath::new(lib.join(path))
+            .write_str(body)
+            .unwrap();
+    }
+    let registry = dir.path().join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(lib.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    // Same depth, so the documents' `../../artifacts/...` paths hold.
+    fs::rename(registry.join("packages"), registry.join("metadata")).unwrap();
+    let mut config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(registry.join("config.json")).unwrap()).unwrap();
+    config["packages"] = "metadata".into();
+    fs::write(registry.join("config.json"), config.to_string()).unwrap();
+
+    let proj = dir.path().join("proj");
+    for (path, body) in [
+        (
+            "cabin.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n\
+             [dependencies]\n\"acme/greet\" = \"1.0.0\"\n\n\
+             [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n\
+             deps = [\"acme/greet\"]\n",
+        ),
+        (
+            "src/main.c",
+            "#include \"greet.h\"\nint main(void) { return greet() == 42 ? 0 : 1; }\n",
+        ),
+    ] {
+        assert_fs::fixture::ChildPath::new(proj.join(path))
+            .write_str(body)
+            .unwrap();
+    }
+    let manifest = proj.join("cabin.toml");
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("acme/greet 1.0.0"));
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    cabin()
+        .args(["vendor", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    assert!(proj.join("vendor/packages/acme/greet.json").is_file());
+
+    fs::remove_dir_all(&registry).unwrap();
+    cabin()
+        .args(["build", "--offline", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(proj.join("build"))
+        .arg("--index-path")
+        .arg(proj.join("vendor"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("vendor-cache"))
+        .assert()
+        .success();
+    assert!(
+        proj.join("build/dev/packages/app")
+            .join(host_exe("app"))
+            .is_file()
+    );
+}

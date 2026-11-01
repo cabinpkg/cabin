@@ -110,6 +110,16 @@ impl FileIndex {
         &self.root
     }
 
+    /// Where `name`'s document lives: `<name>.json` or
+    /// `<scope>/<name>.json` under the packages directory.
+    #[must_use]
+    pub fn package_path(&self, name: &PackageName) -> PathBuf {
+        let mut path = self.packages_dir.clone();
+        path.extend(name.scope());
+        path.push(format!("{}.json", name.base_name()));
+        path
+    }
+
     /// Read and validate `name`'s document, `<name>.json` or
     /// `<scope>/<name>.json` under the packages directory, or `None`
     /// when there is no such file.
@@ -127,10 +137,7 @@ impl FileIndex {
         if scope.is_none() && base == "config" && self.packages_dir == self.root {
             return Ok(None);
         }
-        let mut path = self.packages_dir.clone();
-        path.extend(scope);
-        path.push(format!("{base}.json"));
-        match load_package_file(&path, scope) {
+        match load_package_file(&self.package_path(name), scope) {
             Err(IndexError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
                 Ok(None)
             }
