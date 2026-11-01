@@ -153,7 +153,7 @@ $ CABIN_RESOLVER_INCOMPATIBLE_STANDARDS=warn cabin update
 error: invalid CABIN_RESOLVER_INCOMPATIBLE_STANDARDS value "warn": invalid incompatible-standards value "warn"; expected one of: allow, fallback
 ```
 
-`fallback` prefers standard-compatible versions and reports any version held back; `allow` makes
+`fallback` prefers standard-compatible versions and reports a version it holds back; `allow` makes
 selection a pure function of semver constraints.  See
 [`language-standards.md`](language-standards.md#version-selection) and
 [`config.md`](config.md#resolver) for the full policy.

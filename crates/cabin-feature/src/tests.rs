@@ -12,7 +12,6 @@ use cabin_core::{
     Dependency, DependencyKind, DependencySource, Features, Package, PackageName, TargetPlatform,
 };
 use cabin_workspace::{DependencyEdge, PackageGraph, PackageKind, WorkspacePackage};
-use semver as _;
 
 use super::*;
 
@@ -674,40 +673,47 @@ fn default_features_request_is_default_on() {
 
 #[test]
 fn default_features_false_does_not_globally_disable() {
-    let dep = make_project("dep", Vec::new(), features(&["d"], &[("d", &[])]));
-    let root = make_project(
-        "root",
-        vec![dep_normal_with("dep", false, &["d"], false)],
+    // `a`'s edge drops `dep`'s defaults and `b`'s keeps them:
+    // unification is additive, so selecting both enables them.
+    let dep = make_project(
+        "dep",
+        Vec::new(),
+        features(&["d"], &[("d", &[]), ("e", &[])]),
+    );
+    let a = make_project(
+        "a",
+        vec![dep_normal_with("dep", false, &["e"], false)],
         empty_features(),
     );
+    let b = make_project("b", vec![dep_normal("dep", false)], empty_features());
     let graph = make_graph(vec![
         (dep, Vec::new()),
-        (root, vec![(0, DependencyKind::Normal)]),
+        (a, vec![(0, DependencyKind::Normal)]),
+        (b, vec![(0, DependencyKind::Normal)]),
     ]);
-    let res = resolve_features(
-        &graph,
-        &[1],
-        &RootFeatureRequest::default(),
-        Some(&host()),
-        &no_dev(),
-    )
-    .unwrap();
-    let r = res.for_package(0);
-    // Per-edge `features = ["d"]` plus `default-features = false`
-    // means the unified result includes only the explicit set.
-    assert!(r.enabled_features.contains("d"));
-    assert!(!r.enabled_features.contains("default"));
+    let dep_features = |roots: &[usize]| {
+        resolve_features(
+            &graph,
+            roots,
+            &RootFeatureRequest::default(),
+            Some(&host()),
+            &no_dev(),
+        )
+        .unwrap()
+        .for_package(0)
+        .enabled_features
+        .clone()
+    };
+    assert_eq!(names(&dep_features(&[1])), vec!["e"]);
+    assert_eq!(names(&dep_features(&[1, 2])), vec!["d", "default", "e"]);
 }
 
 #[test]
 fn local_feature_cycle_is_terminating_and_recorded() {
-    // `Features::validate` rejects feature cycles, so this checks
-    // that an acyclic chain a -> b -> c enables every link.
-    let package = make_project(
-        "root",
-        Vec::new(),
-        features(&[], &[("a", &["b"]), ("b", &["c"]), ("c", &[])]),
-    );
+    // `Features::validate` rejects feature cycles at load time;
+    // inject one directly to check the worklist still terminates.
+    let mut package = make_project("root", Vec::new(), empty_features());
+    package.features = features(&[], &[("a", &["b"]), ("b", &["c"]), ("c", &["a"])]);
     let graph = make_graph(vec![(package, Vec::new())]);
     let mut explicit = BTreeSet::new();
     explicit.insert("a".to_owned());

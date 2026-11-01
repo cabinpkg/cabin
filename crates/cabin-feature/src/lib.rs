@@ -300,9 +300,11 @@ pub fn resolve_features(
 ///
 /// The pass deliberately under-approximates by seeding the islands
 /// with no request at all (defaults off, nothing explicit, dev
-/// edges inactive), so only mandatory members - the roots and the
-/// non-optional dependencies reached under *every* possible
-/// incoming edge request - are `included`.  The real request
+/// edges inactive).  Resolution is additive, so only mandatory
+/// members - those included under *every* possible incoming edge
+/// request - are `included`: the roots and what their non-optional
+/// edges reach, including optional dependencies those edges' own
+/// feature requests enable.  The real request
 /// belongs to the dependents' edges (`features` /
 /// `default-features`), which the callers' resolution layer does
 /// not interpret for index edges - and assuming any particular
@@ -621,27 +623,15 @@ impl ResolverState {
         dep_name: &str,
         feature: &str,
     ) -> Result<(), FeatureResolverError> {
-        // Only propagate when the dep is *included*: non-optional
-        // deps of a resolvable kind always include; optional deps
-        // include only after `apply_optional_dep` ran.
+        // An optional dep is already enabled here: `apply_feature`
+        // queues `EnableOptionalDep` ahead of every request on one,
+        // and the worklist drains FIFO.
         let pkg = &graph.packages[from_package];
         let Some(dep_entry) = self.lookup_declared_dep(pkg, "<dep-feature-request>", dep_name)?
         else {
             // Inactive on the evaluated platform - nothing to propagate.
             return Ok(());
         };
-        if dep_entry.optional
-            && !self
-                .per_package
-                .get(&from_package)
-                .is_some_and(|r| r.enabled_optional_deps.contains(dep_name))
-        {
-            // Optional dep not enabled: drop the request (not an
-            // error).  Nothing re-emits it; `apply_feature` queues
-            // `EnableOptionalDep` ahead of every request on an
-            // optional dep, so FIFO draining never reaches here.
-            return Ok(());
-        }
         let Some(edge) = pkg.deps.iter().find(|e| {
             graph.packages[e.index].package.name.as_str() == dep_name && e.kind == dep_entry.kind
         }) else {
@@ -793,9 +783,8 @@ impl ResolverState {
     /// - `Ok(None)` when every declaration matching `dep_name`
     ///   is gated by a `cfg(...)` the evaluated platform fails
     ///   (never without a platform) -
-    ///   feature entries that reference such a dep become a
-    ///   no-op for this evaluation, mirroring Cargo's behavior
-    ///   for inactive target-conditional optional deps;
+    ///   feature entries that reference such a dep, optional or
+    ///   not, become a no-op for this evaluation;
     /// - `Err(UnknownDependency)` when no declaration of any
     ///   participating kind names `dep_name`.
     fn lookup_declared_dep<'a>(

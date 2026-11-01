@@ -347,22 +347,23 @@ fn colliding_packages(claims: &[LinksClaim]) -> BTreeSet<PackageName> {
 /// The standard-caused hold-backs of a `Fallback` resolution: the diff
 /// against the `Allow` solution.
 ///
-/// `Allow` is the newest-first selection standards never touch, so any
-/// package `Fallback` resolved to an *older* version than `Allow` did -
-/// where that newer `Allow` version is declared-incompatible with the
-/// consumer - was held back for a standard reason.  Computing the
-/// report as this diff is exact by construction: a newer version that
-/// `Allow` also passed over (out of range, unsolvable dependencies,
-/// yanked) never appears in the `Allow` solution, so it is never
-/// misreported as a standard hold.  The one miss the `Allow` solve
-/// itself cannot see is a `links` collision - the checked resolve
-/// refuses such a claim set under *any* mode.  Each row's newer pick
-/// is therefore validated independently, substituted into the
-/// otherwise-unchanged fallback solution: a pick that collides there
-/// is pruned instead of attributed to standards, while a pick
-/// realizable beside the fallback graph stays reported even when it
-/// collides with *another* row's newer pick (classifying the joint
-/// `Allow` solution would erase both rows).
+/// `Allow` is the newest-first selection standards never touch, so the
+/// diff never reports a newer version `Allow` also passed over (out of
+/// range, unsolvable dependencies, yanked): such a version never
+/// appears in the `Allow` solution.  The diff is not exact, though.
+/// `Allow` may pick a newer version only because it chose a different
+/// parent ([`admissible_under`] drops those rows), and its unchecked
+/// solve ignores `links` collisions, which the checked resolve refuses
+/// under *any* mode.  Each row's newer pick is therefore validated
+/// independently, substituted into the otherwise-unchanged fallback
+/// solution: a pick that collides there is pruned instead of attributed
+/// to standards, while a pick realizable beside the fallback graph
+/// stays reported even when it collides with *another* row's newer pick
+/// (classifying the joint `Allow` solution would erase both rows).
+/// Conversely, a hold `Allow` does not reproduce goes unreported: when
+/// `Allow`'s own parent choice confines a package to the version
+/// `Fallback` selected, a newer incompatible version the fallback graph
+/// admits is never named.
 ///
 /// Empty under `Allow`, and whenever the workspace declares no consumer
 /// standard (nothing can be incompatible).  On the `Fallback`-success
