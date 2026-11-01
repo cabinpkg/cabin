@@ -22,9 +22,6 @@ workflows:
         - 'actions/upload-artifact@v7.0.2'
     '.github/workflows/docker.yml':
         - 'actions/checkout@v7.0.1'
-    '.github/workflows/filter-probe.yml':
-        - 'actions/checkout@v7.0.1'
-        - 'dorny/paths-filter@v4.0.3'
     '.github/workflows/foundation-port-smoke.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'
