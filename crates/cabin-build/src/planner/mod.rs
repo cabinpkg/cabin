@@ -451,13 +451,27 @@ fn emit_actions(
         // paths it anchors enter the IR as `Utf8PathBuf`.
         let manifest_dir = promote_dir(&pkg.manifest_dir)?;
 
+        // The languages of the objects a link reaching this target
+        // through its dependencies takes in: every direct target dep's
+        // entry in `target_languages`.  The topo iteration guarantees
+        // dependencies are populated before we visit the dependent.
+        let linked_through: BTreeSet<SourceLanguage> = resolved_deps
+            .get(tid)
+            .into_iter()
+            .flatten()
+            .filter_map(|edge| target_languages.get(&edge.to))
+            .flatten()
+            .copied()
+            .collect();
+
         // Header-only libraries declare include dirs but no
         // translation units.  Skip every action - `collect_link_libs`
         // and `collect_interface` already walk dep targets by their
         // declared interfaces, so consumers still pick up the
-        // headers; no `.a` is available to link against.
+        // headers and link the archives behind them, whose languages
+        // the manifest passes on.
         if target.kind.is_header_only() {
-            target_languages.insert(tid.clone(), Default::default());
+            target_languages.insert(tid.clone(), linked_through);
             continue;
         }
 
@@ -785,19 +799,8 @@ fn emit_actions(
             objects.push(asm.object.clone());
         }
 
-        // Per-target language manifest: own sources' languages
-        // unioned with every direct target dep's manifest.  The
-        // topo iteration guarantees dependencies are populated
-        // before we visit the dependent.
-        let mut languages_here: BTreeSet<SourceLanguage> =
-            prepared.iter().map(|p| p.language).collect();
-        if let Some(deps) = resolved_deps.get(tid) {
-            for edge in deps {
-                if let Some(dep_langs) = target_languages.get(&edge.to) {
-                    languages_here.extend(dep_langs.iter().copied());
-                }
-            }
-        }
+        let mut languages_here = linked_through.clone();
+        languages_here.extend(prepared.iter().map(|p| p.language));
 
         match target.kind {
             TargetKind::Library => {
@@ -872,24 +875,14 @@ fn emit_actions(
                 let driver_language = link_driver_language(&languages_slice);
                 let driver_path = match driver_language {
                     SourceLanguage::Cxx => req.toolchain.cxx.path(),
-                    SourceLanguage::C => {
-                        req.toolchain
-                            .cc
-                            .as_ref()
-                            .map(cabin_core::ResolvedTool::path)
-                            .ok_or_else(|| {
-                                BuildError::MissingCCompiler {
-                                    target: format_target_id(tid, req.graph),
-                                    // A C source of this target, or the
-                                    // executable when its C objects all
-                                    // come from dependencies.
-                                    path: prepared
-                                        .iter()
-                                        .find(|p| p.language == SourceLanguage::C)
-                                        .map_or_else(|| exe_path.clone(), |p| p.abs_source.clone()),
-                                }
-                            })?
-                    }
+                    // Only a lowered C source puts C in the manifest, and
+                    // `compile_dispatch` fails its compile without `cc`.
+                    SourceLanguage::C => req
+                        .toolchain
+                        .cc
+                        .as_ref()
+                        .expect("a C object in the link closure was compiled with `cc`")
+                        .path(),
                 };
                 actions.push(BuildAction::Link(LinkAction {
                     linker: driver_path.to_path_buf(),
@@ -908,7 +901,14 @@ fn emit_actions(
                 unreachable!("header-only targets are skipped before action generation")
             }
         }
-        target_languages.insert(tid.clone(), languages_here);
+        // A dependent links this target's own objects only when they
+        // are archived (`collect_link_libs` keeps libraries).
+        let linked = if matches!(target.kind, TargetKind::Library) {
+            languages_here
+        } else {
+            linked_through
+        };
+        target_languages.insert(tid.clone(), linked);
     }
 
     let default_outputs: Vec<Utf8PathBuf> = selected
@@ -1067,8 +1067,8 @@ fn enforce_interface_standards(
         // for manifest-derived packages: `imposes_requirement` is
         // true only when some declaration (or a source file, whose
         // standard manifest loading guarantees) backs the language,
-        // and the consumer compiles the language, so its own
-        // standard was already demanded at its compile site.
+        // and the consumer compiles the language, so manifest
+        // loading demanded its own standard too.
         if let Some(object) = object_of(SourceLanguage::C)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
             && let Some(required) =
