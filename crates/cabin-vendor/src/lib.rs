@@ -67,7 +67,7 @@ pub struct VendorEntry {
     pub version: semver::Version,
     /// Digest recorded in the source index, already parsed at that
     /// boundary.  The bytes are re-hashed against it by
-    /// [`materialize`] before the stream is written to the vendor
+    /// [`materialize`] as the stream is copied into the vendor
     /// directory.
     pub checksum: cabin_core::Checksum,
     /// Filesystem path to the archive Cabin already fetched and
@@ -206,7 +206,7 @@ pub struct VendorOutcomeEntry {
 /// its subdirectories cannot be created/canonicalized or a file
 /// cannot be written, `Registry` when the file registry cannot
 /// be opened/initialized or its index cannot be rendered,
-/// `ChecksumMismatch` when a source
+/// `ChecksumMismatch` when a copied source
 /// archive's SHA-256 differs from the plan's checksum,
 /// `StaleArtifact` when an existing destination archive has a
 /// conflicting checksum, `UnsafeArtifactPath` when an artifact
@@ -254,15 +254,16 @@ pub fn materialize(
     for (name, entries) in &by_name {
         let mut version_entries: BTreeMap<String, serde_json::Value> = BTreeMap::new();
         for entry in entries {
-            let (expected_hex, revision) = verified_entry_revision(entry)?;
-            let expected_hex = expected_hex.as_str();
-            let artifact_path = registry.artifact_path(&entry.name, &entry.version, &revision);
+            // The checksum names the lockfile-pinned revision the fetch
+            // materialized; `copy_archive_if_changed` verifies the bytes.
+            let revision = entry.checksum.revision_id();
+            let artifact_path = registry.artifact_path(&entry.name, &entry.version, revision);
             let artifact_relative =
-                registry.relative_source_path(&entry.name, &entry.version, &revision);
+                registry.relative_source_path(&entry.name, &entry.version, revision);
             let written = copy_archive_if_changed(
                 &entry.archive_source,
                 &artifact_path,
-                expected_hex,
+                entry.checksum.hex(),
                 &entry.name,
                 &entry.version,
             )?;
@@ -276,7 +277,7 @@ pub fn materialize(
             let mut version_value = entry.index_entry.clone();
             rewrite_vendored_revision(
                 &mut version_value,
-                &revision,
+                revision,
                 &artifact_relative,
                 &entry.name,
                 &entry.version,
@@ -474,7 +475,7 @@ fn copy_archive_if_changed(
     }
 
     // Stream the bytes through a small buffer so the writer
-    // never holds the entire archive in memory.  Re-verify the
+    // never holds the entire archive in memory.  Verify the
     // hash on the way through so a torn copy surfaces as a
     // clean error rather than a silently bad vendor archive.
     let mut input = fs::File::open(src).map_err(|source| VendorError::Io {
@@ -547,30 +548,6 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
         path: path.to_path_buf(),
         source,
     })
-}
-
-/// Verify one plan entry's source archive against its checksum and
-/// derive the packaging revision the vendored copy publishes under:
-/// the plan's checksum names the lockfile-pinned revision the fetch
-/// materialized.  The plan promises "already-verified bytes"; the
-/// re-hash here is a courtesy so a bug in the upstream pipeline
-/// cannot surface as a silently corrupted vendor archive.
-fn verified_entry_revision(entry: &VendorEntry) -> Result<(String, String), VendorError> {
-    let actual = file_sha256(&entry.archive_source)?;
-    let expected_hex = entry.checksum.hex();
-    if actual != expected_hex {
-        return Err(VendorError::ChecksumMismatch {
-            name: entry.name.as_str().to_owned(),
-            version: entry.version.to_string(),
-            expected: entry.checksum.as_str().to_owned(),
-            actual: format!("sha256:{actual}"),
-            archive: entry.archive_source.clone(),
-        });
-    }
-    Ok((
-        expected_hex.to_owned(),
-        entry.checksum.revision_id().to_owned(),
-    ))
 }
 
 /// Reduce the vendored entry's revision axis to exactly the fetched
