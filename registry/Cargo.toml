@@ -8,7 +8,7 @@ description = "Hosted sparse HTTP registry service for Cabin, as a Cloudflare Wo
 publish = false
 
 # Standalone workspace: keeps the wasm32-targeted dependency tree and its
-# lockfile out of the root Cargo workspace (see docs/architecture.md).
+# lockfile out of the root Cargo workspace.
 [workspace]
 
 [lib]

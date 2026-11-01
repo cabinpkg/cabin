@@ -7,15 +7,15 @@ sparse HTTP file-registry contract in
 protocol document - with D1 as the canonical store and R2 for immutable
 archive blobs: the public read routes (verified
 content) plus the authenticated `publish` and `yank`
-API routes and the verifier's `verify`-scoped admin routes (validation
-order, the immutability rule, and the verification lifecycle are described
-in [`docs/architecture.md`](docs/architecture.md)), and the browser
+API routes and the verifier's `verify`-scoped admin routes (publish
+validation, the immutability rule, and the verification lifecycle are part
+of that protocol document), and the browser
 plane - GitHub OAuth sign-in plus a session-cookie JSON user API backing
 the account dashboard - served on the **website origin**
 (`cabinpkg.com`) while the registry domain serves only the machine read
-plane: one role per hostname, dispatched on the Host header. See
-[`docs/architecture.md`](docs/architecture.md) ("Origins and roles") for
-the design and [`docs/runbook.md`](docs/runbook.md) for operations.
+plane: one role per hostname, dispatched on the Host header (see
+[`../docs/remote-registry.md`](../docs/remote-registry.md#one-role-per-hostname)).
+See [`docs/runbook.md`](docs/runbook.md) for operations.
 
 The service is in private alpha: the client's read path is stable, but the
 mutation surfaces stay behind the client's `-Z remote-registry` gate, and
@@ -64,12 +64,10 @@ account to be at least 30 days old (`src/signup.rs`; a younger account
 is told the date it becomes eligible) - bound to the GitHub account
 through the `identities` table - the numeric id (never the login, which can be renamed
 and reassigned) is the external identity, and everything package- or
-token-related keys on the registry's own user id
-([`docs/architecture.md`](docs/architecture.md), "Two credential planes").
+token-related keys on the registry's own user id.
 Package names are scoped (`<scope>/<name>`), and publish/yank
 authorization is per scope: the token's user must be a member of the
-target scope ([`docs/architecture.md`](docs/architecture.md),
-"Scopes" and "The write path"). A scope is claimed from the website
+target scope. A scope is claimed from the website
 (`https://cabinpkg.com/claim/<scope>`) by proving control of the
 same-named GitHub account through a dedicated OAuth roundtrip: the
 scope must be your own login (lowercased) or an organization you are an

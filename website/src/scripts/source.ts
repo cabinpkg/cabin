@@ -1,12 +1,11 @@
 // Drives /dashboard/source: settles the shared auth probe, then browses
 // one published version's archive through the session source route
-// (registry/docs/architecture.md, "The source viewer's ranged reads").
-// The server is a byte proxy; everything zip happens here - the
-// end-of-central-directory tail is range-read first, then the central
-// directory, then one file's compressed span at a time, decompressed
-// with DecompressionStream. Content renders as text only, always via
-// textContent - never markup - with binary and oversized files replaced
-// by a notice.
+// (registry/src/source.rs). The server is a byte proxy; everything zip
+// happens here - the end-of-central-directory tail is range-read first,
+// then the central directory, then one file's compressed span at a
+// time, decompressed with DecompressionStream. Content renders as text
+// only, always via textContent - never markup - with binary and
+// oversized files replaced by a notice.
 import { PACKAGE_NAME_PATTERN } from "../lib/account.ts";
 import { bootAccountShell, setText } from "../lib/accountShell";
 import { formatBytes } from "../lib/format";

@@ -3,9 +3,7 @@ import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
-import rehypeKatex from "rehype-katex";
 import rehypeSlug from "rehype-slug";
-import remarkMath from "remark-math";
 import { SITE_URL } from "./src/lib/constants";
 import { remarkDocsLinks } from "./src/lib/remark-docs-links";
 
@@ -32,20 +30,17 @@ export default defineConfig({
         // the surface scale in global.css).
         shikiConfig: { theme: "nord" },
         // The unified (remark/rehype) pipeline from `@astrojs/markdown-remark`
-        // (GFM, Shiki, heading IDs) plus: remark steps mapping the docs'
-        // relative `*.md` cross-links to `/docs/<slug>/` and parsing `$`/`$$`
-        // math, and rehype steps that render the math with KaTeX
-        // (server-side; the stylesheet is imported by `DocsLayout.astro`),
-        // give each heading an id, and append a self-link to it
+        // (GFM, Shiki, heading IDs) plus: a remark step mapping the docs'
+        // relative `*.md` cross-links to `/docs/<slug>/`, and rehype steps
+        // that give each heading an id and append a self-link to it
         // (`src/scripts/docs.ts` turns clicking that link into "copy deep
         // link"). `processor` replaces the deprecated top-level
         // `markdown.remarkPlugins` / `markdown.rehypePlugins` options; user
         // rehype plugins run before Astro's own heading-id step, so
         // `rehype-slug` supplies the ids that `rehype-autolink-headings` needs.
         processor: unified({
-            remarkPlugins: [remarkDocsLinks, remarkMath],
+            remarkPlugins: [remarkDocsLinks],
             rehypePlugins: [
-                rehypeKatex,
                 rehypeSlug,
                 [
                     rehypeAutolinkHeadings,

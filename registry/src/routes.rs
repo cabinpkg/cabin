@@ -94,7 +94,8 @@ pub enum ApiRoute<'a> {
     /// `GET /api/v1/admin/versions?status=...`: the verifier's listing.
     AdminVersions,
     /// `GET /api/v1/admin/packages`: the corpus for the verifier's
-    /// name advisories (`docs/architecture.md`, "Name fidelity").
+    /// name advisories (`docs/remote-registry.md`, "Admin API (scope
+    /// `verify`)").
     AdminPackages,
     /// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>`: a verdict.
     AdminVerdict {
@@ -258,16 +259,14 @@ pub enum SessionRoute<'a> {
     /// deliberately does not nest under `/api/v1/user/packages` (the
     /// created-packages listing), where it would read as
     /// ownership-scoped; the `/api/v1/user` prefix is where the session
-    /// cookie's `Path` sends it, nothing more
-    /// (`docs/architecture.md`, "Origins and roles").
+    /// cookie's `Path` sends it, nothing more.
     PackageSource {
         scope: &'a str,
         name: &'a str,
         version: &'a str,
     },
     /// `GET /api/v1/user/search?q=<term>`: substring search over the
-    /// packages with a verified version, for the dashboard
-    /// (`docs/architecture.md`, "Search and reverse dependencies").
+    /// packages with a verified version, for the dashboard.
     /// The query string is parsed and validated by the handler, not
     /// here - route matching sees the bare path only.
     Search,
@@ -365,9 +364,8 @@ pub fn is_session_path(path: &str) -> bool {
     path == "/api/v1/user" || path.starts_with("/api/v1/user/")
 }
 
-/// The public stats plane's one route (`docs/architecture.md`,
-/// "Download counts"): the sole credential-free JSON path on the
-/// website origin.
+/// The public stats plane's one route: the sole credential-free JSON
+/// path on the website origin.
 pub const STATS_PATH: &str = "/api/v1/stats";
 
 /// Whether `path` lies in the public `/api/v1/stats` subtree. Like

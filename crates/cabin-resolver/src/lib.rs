@@ -433,10 +433,10 @@ fn held_back_report(
         {
             continue;
         }
-        // Rule 2 of preference-mode.md section 1: the selected version
-        // is *itself* standard-incompatible because nothing in range
-        // satisfies the consumer.  Section 2 reports its own unmet
-        // requirement, with no compatible alternative to name.
+        // The selected version is *itself* standard-incompatible
+        // because nothing in range satisfies the consumer: report its
+        // own unmet requirement, with no compatible alternative to
+        // name.
         let selected_advertised = index
             .package(&package.name)
             .and_then(|entry| entry.versions.get(&package.version))
@@ -2746,7 +2746,7 @@ mod tests {
     /// When no candidate is compatible, the newest is selected (the
     /// post-resolution validation refuses it) and the selected version's
     /// own unmet requirement is reported, with no compatible alternative
-    /// to name (preference-mode.md section 1, rule 2).
+    /// to name.
     #[test]
     fn no_compatible_candidate_reports_selected_incompatibility() {
         let mut index = build_index(vec![entry(

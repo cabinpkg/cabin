@@ -24,8 +24,7 @@ use crate::{
 };
 
 /// The one identity provider policy admits today; the `identities`
-/// schema stays provider-neutral (docs/architecture.md, "Two credential
-/// planes").
+/// schema stays provider-neutral.
 const GITHUB_PROVIDER: &str = "github";
 
 /// Routes one OAuth request; the method check happens here, the path
@@ -121,10 +120,10 @@ pub async fn respond_session(
     }
 }
 
-/// The public stats plane (`docs/architecture.md`, "Download counts"):
-/// the one credential-free JSON subtree on the website origin. Exactly
-/// `GET /api/v1/stats` exists; unknown paths under the subtree are
-/// public 404s (never the bearer plane's 401), and non-GET is 405.
+/// The public stats plane: the one credential-free JSON subtree on the
+/// website origin. Exactly `GET /api/v1/stats` exists; unknown paths
+/// under the subtree are public 404s (never the bearer plane's 401),
+/// and non-GET is 405.
 pub async fn respond_stats(req: &Request, env: &Env, path: &str) -> worker::Result<Response> {
     if path != STATS_PATH {
         return json_error(404, error::NOT_FOUND);
@@ -538,12 +537,11 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
     if scope_exists(db, &scope).await? {
         return claim_denied(&[clear_state]);
     }
-    // Name fidelity (`docs/architecture.md`, "Name fidelity"):
-    // reserved vocabulary and skeleton-confusable scopes refuse
-    // exactly like every other claim failure. This preflight read
-    // answers early; the batch below repeats the skeleton guard in
-    // SQL so two confusable claims racing through their separate
-    // OAuth roundtrips cannot both land.
+    // Name fidelity (`claim::scope_refusal`): reserved vocabulary and
+    // skeleton-confusable scopes refuse exactly like every other claim
+    // failure. This preflight read answers early; the batch below
+    // repeats the skeleton guard in SQL so two confusable claims racing
+    // through their separate OAuth roundtrips cannot both land.
     let exempt = names::parse_scope_list(
         &env.var("CLAIM_SKELETON_EXEMPT_SCOPES")
             .map(|value| value.to_string())
@@ -856,8 +854,7 @@ struct PackageDetailRecord {
 }
 
 /// `GET /api/v1/user/package/<scope>/<name>`: one visible package's
-/// verified versions and its newest version's runtime dependencies
-/// (`docs/architecture.md`, "Search and reverse dependencies").
+/// verified versions and its newest version's runtime dependencies.
 async fn package_detail(db: &D1Database, scope: &str, name: &str) -> worker::Result<Response> {
     if !package_visible(db, scope, name).await? {
         return json_error(404, error::NOT_FOUND);
@@ -935,23 +932,21 @@ struct SourceVersionRecord {
 }
 
 /// `GET /api/v1/user/source/<scope>/<name>/<version>`: a ranged read of
-/// a verified version's archive for the website's source viewer
-/// (`docs/architecture.md`, "Origins and roles"). Any verified version
-/// is readable - not only the session user's own packages, and yanked
-/// stays viewable, both matching the artifact route - while pending,
-/// rejected, corrupt-status, and missing rows are all the same 404 by
-/// construction (the verified filter sits in the query). The `Range`
-/// header is required (`400` without one), capped at
-/// [`source::MAX_RANGE_BYTES`] (`416` otherwise), and resolved against
-/// the row's stored archive size before R2 is consulted, so R2 never
-/// sees an unsatisfiable range. A source read is never counted as a
-/// download and never consults the service mode: the session plane is
-/// exempt from the read-side budget gate (`docs/architecture.md`,
-/// "Billing model: the governor and the breaker"). It is **not** exempt from
-/// the cost governor: every ranged read is a billable R2 operation, so
-/// the viewer draws from its own `b_source` pool with a per-user daily
-/// fairness cap, and fails closed - a refusal or an unreachable
-/// governor answers before R2 is consulted ("The cost governor").
+/// a verified version's archive for the website's source viewer. Any
+/// verified version is readable - not only the session user's own
+/// packages, and yanked stays viewable, both matching the artifact
+/// route - while pending, rejected, corrupt-status, and missing rows
+/// are all the same 404 by construction (the verified filter sits in
+/// the query). The `Range` header is required (`400` without one),
+/// capped at [`source::MAX_RANGE_BYTES`] (`416` otherwise), and
+/// resolved against the row's stored archive size before R2 is
+/// consulted, so R2 never sees an unsatisfiable range. A source read is
+/// never counted as a download and never consults the service mode: the
+/// session plane is exempt from the read-side budget gate. It is
+/// **not** exempt from the cost governor: every ranged read is a
+/// billable R2 operation, so the viewer draws from its own `b_source`
+/// pool with a per-user daily fairness cap, and fails closed - a
+/// refusal or an unreachable governor answers before R2 is consulted.
 #[allow(clippy::too_many_arguments)] // the route triple plus the session plumbing
 async fn package_source(
     req: &Request,

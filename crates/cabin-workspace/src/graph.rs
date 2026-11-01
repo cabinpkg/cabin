@@ -83,11 +83,10 @@ impl PackageGraph {
             .position(|p| p.package.name.as_str() == name)
     }
 
-    /// The consumer standards for standard-aware version preference
-    /// (`docs/design/standard-compatibility/preference-mode.md`
-    /// section 1): per language, the minimum effective implementation
-    /// standard (spec D6 `impl_L`) across the targets of `members` that
-    /// implement it.  `None` for a language none of them compiles - it
+    /// The consumer standards for standard-aware version preference:
+    /// per language, the minimum effective implementation standard
+    /// (D6 `impl_L`) across the targets of `members` that implement
+    /// it.  `None` for a language none of them compiles - it
     /// then imposes nothing on candidate ordering.
     ///
     /// `members` must be the package set the resolve is actually for -
@@ -150,7 +149,7 @@ impl PackageGraph {
             let resolved = resolve_language_standards(&member.package.language);
             for target in &member.package.targets {
                 // A header-only target has no translation units, so as a
-                // consumer it compiles nothing (spec D7 `langs = empty`)
+                // consumer it compiles nothing (D7 `langs = empty`)
                 // and imposes no consumer level - even though
                 // `dependency_attributes` reports its header-only
                 // inference on the dependency side.

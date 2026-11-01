@@ -15,13 +15,13 @@ struct LiveBlobRecord {
     size: i64,
 }
 
-/// The governor reconciliation pass (`docs/architecture.md`, "The cost
-/// governor"): pushes D1's authoritative live-blob set so the ledger
-/// records every referenced blob as committed usage. Increase-only by
-/// construction - the governor adds and settles, but a ledger entry D1
-/// does not name is only reported here (a candidate orphan or leaked
-/// reservation), and releasing it is the operator's explicit,
-/// evidence-backed action (`docs/runbook.md`, "The cost governor").
+/// The governor reconciliation pass: pushes D1's authoritative
+/// live-blob set so the ledger records every referenced blob as
+/// committed usage. Increase-only by construction - the governor adds
+/// and settles, but a ledger entry D1 does not name is only reported
+/// here (a candidate orphan or leaked reservation), and releasing it is
+/// the operator's explicit, evidence-backed action (`docs/runbook.md`,
+/// "The cost governor").
 pub(super) async fn reconcile_governor(env: &Env, db: &D1Database) {
     // Operator visibility: one summary line per pass, so `wrangler
     // tail` shows the ledger next to the analytics-based evaluation.

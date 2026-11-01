@@ -54,8 +54,7 @@ Cabin drives **two** command-line dialects: GCC/Clang style (`-std=c++17`, `-c`,
 `-MD`) and MSVC style (`cl /std:c++17 /c /Fo<obj> /showIncludes`, `lib /OUT:<lib>`).  The C++
 compiler picks the dialect - `cl.exe` selects MSVC, every other recognized family selects
 GCC/Clang - and the archiver and optional C compiler must agree (see
-[Validation](#validation-against-the-c-backend)).  The dialect lowering lives in [`cabin-driver`];
-see [architecture.md](architecture.md) for the IR.
+[Validation](#validation-against-the-c-backend)).
 
 ## System include directories
 
@@ -735,11 +734,7 @@ explicitly selected toolset is honored.
 
 ## Deferred / out of scope
 
-Items marked *planned* belong to the capability roadmap
-([ledger](design/capability-roadmap/ledger.md)) and are not implemented yet.
-
-- Probe checks a manifest declares, such as those behind a generated configuration header
-  (planned: stage 07).
+- Probe checks a manifest declares, such as those behind a generated configuration header.
 - Sysroot discovery beyond Apple SDKs, and a sysroot for the build-machine context.
 - A diagnostics abstraction (SARIF / JSON output formats).  Cabin neither detects nor emits either
   format.

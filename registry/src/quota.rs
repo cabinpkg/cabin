@@ -1,6 +1,6 @@
 //! Per-user publish quotas: the class -> quota map, the publish token
 //! bucket, and the pure enforcement checks the publish handler runs in
-//! order (`docs/architecture.md`, "Billing model: the governor and the breaker").
+//! order.
 //!
 //! Everything here is pure and host-testable; the wasm32 glue supplies
 //! the clock, the D1 counts, and the archive size. Daily windows are UTC
@@ -31,8 +31,7 @@ pub struct ClassQuotas {
     /// Governor fairness cap: R2-charged artifact reads (cache misses)
     /// per user per UTC day. Cache hits are free and uncounted; the
     /// cap only bounds how fast one user can drain the shared read
-    /// pool, never grants allowance (`docs/architecture.md`, "The cost
-    /// governor").
+    /// pool, never grants allowance.
     pub artifact_reads_per_day: u64,
     /// Governor fairness cap: source-viewer ranged reads per user per
     /// UTC day (every one is an R2 read; the viewer path is uncached).
@@ -57,14 +56,13 @@ const DEFAULT: ClassQuotas = ClassQuotas {
 };
 
 /// Bulk-publishing tier for the operator's own accounts, granted
-/// manually via `users.quota_class` (docs/architecture.md, "Per-user
-/// quotas"); the operator's own account is seeded pre-promoted by the
-/// baseline migration. Sized so the cabin-ports publish pipeline can
-/// seed thousands of curated ports (whole library collections such as
-/// Boost) in serial runs without a per-user limit binding. The storage
-/// cap equals the governor's default primary pool, so the governor and
-/// the breaker - which no quota class raises - are what bound this
-/// tier's spend.
+/// manually via `users.quota_class`; the operator's own account is
+/// seeded pre-promoted by the baseline migration. Sized so the
+/// cabin-ports publish pipeline can seed thousands of curated ports
+/// (whole library collections such as Boost) in serial runs without a
+/// per-user limit binding. The storage cap equals the governor's
+/// default primary pool, so the governor and the breaker - which no
+/// quota class raises - are what bound this tier's spend.
 const OPERATOR: ClassQuotas = ClassQuotas {
     max_archive_bytes: 16 * 1024 * 1024,
     max_total_bytes_per_user: 4 * 1024 * 1024 * 1024,
@@ -293,15 +291,15 @@ pub fn check_publish(
 /// window.
 ///
 /// Tokened callers key on their registry user id.  Anonymous callers -
-/// the read plane is public (`docs/architecture.md`, "Origins and
-/// roles") - key on the client IP Cloudflare stamps on every edge
-/// request (`CF-Connecting-IP`, which the edge overwrites, so it is not
-/// caller-controlled).  They must be bounded by *something*: the
-/// deployed WAF rate limiter deliberately covers only the website
-/// origin's write/auth surface, never `registry.cabinpkg.com` reads
-/// ([`runbook.md`](../docs/runbook.md), "Zone rate limiting (WAF)"),
-/// so without this one unauthenticated caller could drain the shared
-/// `b_ordinary` pool and 503 everyone else's uncached downloads.
+/// the read plane is public - key on the client IP Cloudflare stamps on
+/// every edge request (`CF-Connecting-IP`, which the edge overwrites,
+/// so it is not caller-controlled).  They must be bounded by
+/// *something*: the deployed WAF rate limiter deliberately covers only
+/// the website origin's write/auth surface, never
+/// `registry.cabinpkg.com` reads ([`runbook.md`](../docs/runbook.md),
+/// "Zone rate limiting (WAF)"), so without this one unauthenticated
+/// caller could drain the shared `b_ordinary` pool and 503 everyone
+/// else's uncached downloads.
 ///
 /// A request with no client-IP header (local dev; the edge always
 /// sets it in production) falls back to one shared anonymous window

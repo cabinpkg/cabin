@@ -1,5 +1,4 @@
-//! The SQL consolidation guard (`registry/docs/architecture.md`, "Why no
-//! ORM").
+//! The SQL consolidation guard.
 //!
 //! Every SQL statement the Worker executes must live in `src/sql/`,
 //! where `tests/sql_validation/` prepares it against the real migrated

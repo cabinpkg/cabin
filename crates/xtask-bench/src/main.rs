@@ -1,6 +1,5 @@
 //! `cargo perf`: Cabin's end-to-end benchmark harness.  See
-//! `docs/performance.md` for the workflows and
-//! `docs/design/performance-observability.md` for the design.
+//! `docs/performance.md` for the workflows.
 
 mod ports;
 mod report;

@@ -201,9 +201,9 @@ fn violation_diagnostic(
         ),
         // The pass pairs `Min` and the range shapes with a
         // declaration or inference origin, and `Forbidden` with
-        // `none` or the cross-language default (spec D9 rows 1-3,
+        // `none` or the cross-language default (D9 rows 1-3,
         // 6); bounds never originate at a cross-language default.
-        _ => unreachable!("requirement/origin combination violates spec D9: {violation:?}"),
+        _ => unreachable!("requirement/origin combination violates D9: {violation:?}"),
     };
 
     let pin = if violation.dependency_is_registry {

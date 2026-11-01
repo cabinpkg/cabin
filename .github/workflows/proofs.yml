@@ -9,12 +9,10 @@ on:
     branches: [main]
     paths:
       - "proofs/**"
-      - "docs/design/standard-compatibility/**"
       - ".github/workflows/proofs.yml"
   pull_request:
     paths:
       - "proofs/**"
-      - "docs/design/standard-compatibility/**"
       - ".github/workflows/proofs.yml"
 
 permissions:

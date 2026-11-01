@@ -3,13 +3,12 @@
 //! writes live in `web_glue`.
 //!
 //! A scope is granted by proving control of the same-named GitHub
-//! account at claim time (`docs/architecture.md`, "Scopes"): either the
-//! account is the authenticated user themself (self-claim), or it is an
-//! organization the user administers. Every check that crosses two API
-//! responses is bound by **numeric id**, never by login - logins can be
-//! renamed and reassigned between calls; ids cannot. Every refusal is
-//! uniform: the callback redirects to the same denied page whatever
-//! failed.
+//! account at claim time: either the account is the authenticated user
+//! themself (self-claim), or it is an organization the user
+//! administers. Every check that crosses two API responses is bound by
+//! **numeric id**, never by login - logins can be renamed and
+//! reassigned between calls; ids cannot. Every refusal is uniform: the
+//! callback redirects to the same denied page whatever failed.
 
 use serde::Deserialize;
 
@@ -69,11 +68,10 @@ pub fn account_id(body: &[u8]) -> Option<i64> {
 }
 
 /// Whether the requested scope must be refused on name-fidelity
-/// grounds (`docs/architecture.md`, "Name fidelity"): the reserved
-/// vocabulary is absolute, and skeleton equality with any
-/// already-claimed scope refuses - the homoglyph-style squat - unless
-/// the operator listed this exact scope in the exemption override
-/// (`CLAIM_SKELETON_EXEMPT_SCOPES`, for the rare legitimate
+/// grounds: the reserved vocabulary is absolute, and skeleton equality
+/// with any already-claimed scope refuses - the homoglyph-style squat -
+/// unless the operator listed this exact scope in the exemption
+/// override (`CLAIM_SKELETON_EXEMPT_SCOPES`, for the rare legitimate
 /// collision). Skeleton equality only, deliberately no edit distance:
 /// a claim refusal is hard and unexplained, and distance-1 collides
 /// with real login patterns (`jsmith` / `jsmith1`). Exact re-claims

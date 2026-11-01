@@ -1,5 +1,5 @@
 //! End-to-end coverage for the standard-compatibility publish-time
-//! lints of `docs/design/standard-compatibility/publish-lints.md`.
+//! lints ("Publish checks" in `docs/language-standards.md`).
 //!
 //! One fixture per lint, fire and non-fire, with a C variant beside
 //! the C++ one:

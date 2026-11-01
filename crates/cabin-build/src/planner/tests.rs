@@ -4029,7 +4029,7 @@ fn package_level_interface_range_binds_compiled_targets_without_that_language() 
     };
     // The library compiles only C and declares nothing itself; the
     // package-level interface default is what caps C++ consumers
-    // (the spec-D6 mapping applies it to every library-like
+    // (the D6 mapping applies it to every library-like
     // target), so the always-on layer must enforce it here too -
     // otherwise the per-edge override could silence a range
     // violation, which it must never be able to do.
@@ -4447,7 +4447,7 @@ fn flag_conflicts_scope_to_planned_compiles() {
 }
 
 // ---------------------------------------------------------------------------
-// standard-compat pass (spec D13 over resolved edges)
+// standard-compat pass (D13 over resolved edges)
 // ---------------------------------------------------------------------------
 
 use crate::standard_compat::{
@@ -4528,7 +4528,7 @@ fn standard_compat_off_records_nothing() {
     assert!(bg.standard_compat_violations.is_empty());
 }
 
-/// Spec D9 row 2 / D13: an explicit interface minimum above the
+/// D9 row 2 / D13: an explicit interface minimum above the
 /// consumer's effective level violates the edge, with the origin at
 /// the dependency's own declaration.
 #[test]
@@ -4753,7 +4753,7 @@ fn target_deps_resolve_through_edges_active_on_the_planned_platform() {
     plan(&req).unwrap();
 }
 
-/// Spec D9 row 4: a compiled dependency with *no* interface
+/// D9 row 4: a compiled dependency with *no* interface
 /// declaration imposes nothing at this layer - deliberately unlike
 /// the build-time enforcement, whose implementation-standard
 /// fallback still records its own violation for the same graph.
@@ -4770,15 +4770,15 @@ fn standard_compat_imposes_nothing_for_compiled_without_declaration() {
     let bg = plan(&req).unwrap();
     assert!(bg.standard_compat_violations.is_empty());
     // The build-time layer still catches it through its documented
-    // implementation-standard fallback - the two layers differ here
-    // by design (spec section 1, out-of-scope note).
+    // implementation-standard fallback - the two layers differ here,
+    // as `docs/language-standards.md` documents.
     assert!(matches!(
         bg.standard_violations.first(),
         Some(crate::StandardViolation::InterfaceIncompatibility { .. })
     ));
 }
 
-/// Spec D9 row 1: `interface-cxx-standard = "none"` is forbidden -
+/// D9 row 1: `interface-cxx-standard = "none"` is forbidden -
 /// unsatisfiable at every consumer level.
 #[test]
 fn standard_compat_reports_declared_none_as_forbidden() {
@@ -4802,7 +4802,7 @@ fn standard_compat_reports_declared_none_as_forbidden() {
     assert_eq!(site.field, "interface-cxx-standard");
 }
 
-/// Spec D10 / Example 3's mechanism: a requirement declared two
+/// D10 / Example 3's mechanism: a requirement declared two
 /// levels down reaches the consumer through a public edge, and the
 /// provenance chain names every hop down to the origin declaration.
 #[test]
@@ -4847,7 +4847,7 @@ fn standard_compat_propagates_through_public_edges_with_provenance() {
     assert!(matches!(w.origin, RequirementOrigin::Declared { .. }));
 }
 
-/// Spec D10: private edges do not propagate - the same graph with a
+/// D10: private edges do not propagate - the same graph with a
 /// private `liba -> libb` edge is clean at every consumer.
 #[test]
 fn standard_compat_does_not_propagate_through_private_edges() {
@@ -4893,7 +4893,7 @@ fn standard_compat_does_not_propagate_through_private_edges() {
     assert_eq!(seen_by_app, ["liba:liba"]);
 }
 
-/// Spec D9 row 3: a header-only dependency without an interface
+/// D9 row 3: a header-only dependency without an interface
 /// declaration infers its minimum from its (target-level)
 /// implementation standard, and the origin says so.
 #[test]
@@ -4918,7 +4918,7 @@ fn standard_compat_reports_header_only_inference() {
     assert_eq!(site.scope, DeclScope::Target("hdr".to_owned()));
 }
 
-/// Spec D13: a mixed-language consumer checks every language it
+/// D13: a mixed-language consumer checks every language it
 /// compiles on the same edge, and each violated language reports
 /// separately (sorted C before C++).
 #[test]
@@ -4955,7 +4955,7 @@ fn standard_compat_reports_each_violated_language_separately() {
     assert_eq!(violations[0].dependency, violations[1].dependency);
 }
 
-/// Spec D9 row 6: a C consumer of a C++-only dependency with no
+/// D9 row 6: a C consumer of a C++-only dependency with no
 /// declared C interface hits the strict cross-language default.
 #[test]
 fn standard_compat_reports_strict_cxx_to_c_default() {
@@ -4981,7 +4981,7 @@ fn standard_compat_reports_strict_cxx_to_c_default() {
     assert_eq!(w.origin, RequirementOrigin::CrossLanguageDefault);
 }
 
-/// Spec D13's vacuous case plus D10 propagation: a header-only
+/// D13's vacuous case plus D10 propagation: a header-only
 /// consumer's own edges never violate, but requirements flow
 /// through it to the compiling consumer above, chain included.
 #[test]
@@ -5067,7 +5067,7 @@ fn standard_compat_sites_follow_declaration_tiers() {
     assert_eq!(site.manifest_path, PathBuf::from("/abs/lib/cabin.toml"));
 }
 
-/// Spec D9 row 5: the permissive C-to-C++ default - a pure-C
+/// D9 row 5: the permissive C-to-C++ default - a pure-C
 /// library with no C++ implementation and no C++ interface
 /// declaration imposes nothing on C++ consumers, so the pass stays
 /// silent.
@@ -5084,7 +5084,7 @@ fn standard_compat_permissive_c_to_cxx_default_imposes_nothing() {
     assert!(standard_compat_violations(&graph).is_empty());
 }
 
-/// Spec Example 2's diamond: two consumers at different levels
+/// Example 2's diamond: two consumers at different levels
 /// share one dependency; only the too-old consumer's edge is
 /// violated - a compatible sibling edge neither rescues nor taints
 /// it (D13 is per edge).

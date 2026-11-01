@@ -1,5 +1,4 @@
-//! Regression cases for the R2 acquisition guard (see
-//! `registry/docs/architecture.md`, "The cost governor"): the guard runs
+//! Regression cases for the R2 acquisition guard: the guard runs
 //! against a scratch tree whose `src/` holds synthetic call sites, so
 //! every way a bucket handle could be acquired outside the pinned
 //! governor-admitting functions - a new function, a second acquisition

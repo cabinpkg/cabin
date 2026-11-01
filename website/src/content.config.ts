@@ -5,13 +5,12 @@ import { glob } from "astro/loaders";
 // Astro project.  The glob `base` is resolved relative to the Astro project
 // root (`website/`), so `../docs` points at `<repo-root>/docs`.
 //
-// The patterns match the flat, top-level Markdown pages plus the
-// `docs/design/` tree (normative design documents) - exactly the published
-// documentation.  They structurally skip the nested, git-ignored
-// `docs/superpowers/` agent workspace, so the route set stays deterministic
-// on a clean CI checkout.
+// The pattern matches only the flat, top-level Markdown pages - exactly the
+// published documentation.  It structurally skips nested directories such as
+// the git-ignored `docs/superpowers/` agent workspace, so the route set stays
+// deterministic on a clean CI checkout.
 const docs = defineCollection({
-    loader: glob({ pattern: ["*.md", "design/**/*.md"], base: "../docs" }),
+    loader: glob({ pattern: "*.md", base: "../docs" }),
 });
 
 export const collections = { docs };

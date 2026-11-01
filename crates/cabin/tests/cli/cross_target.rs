@@ -328,9 +328,9 @@ cxxapp = ["src/aarch64.c"]
         }
     }
 
-    /// The stage 04 demonstration: the build context's C generator is
-    /// built for and run on the build machine, and its output is
-    /// compiled into a C++ program for the other architecture.
+    /// The build context's C generator is built for and run on the
+    /// build machine, and its output is compiled into a C++ program for
+    /// the other architecture.
     #[test]
     fn a_build_machine_generator_feeds_a_cross_build() {
         use crate::build_dependencies::{run_generator, write_generator_project};

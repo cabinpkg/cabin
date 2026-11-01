@@ -68,7 +68,7 @@ statements! {
 
     /// Whether creating `(scope, name)` would collide with an existing
     /// same-scope package under `-`/`_` folding: the deterministic
-    /// publish reject (`docs/architecture.md`, "Name fidelity").
+    /// publish reject (`docs/remote-registry.md`, "Publish").
     /// `REPLACE` in the query, not a normalized column: the
     /// `packages_folded_name` expression index serves it. The
     /// self-exclusion keeps the predicate identical to the in-batch

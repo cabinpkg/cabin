@@ -85,13 +85,13 @@ pub struct PackageMetadata {
     /// when the manifest declares none.
     #[serde(skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
-    /// Declared per-target standard-compatibility table (spec D9
+    /// Declared per-target standard-compatibility table (D9
     /// `ReqOf`, header-only inference applied), mirroring the index
     /// entry's `standards` field so file-registry publish can splice
     /// it in without re-deriving.  Omitted when the package has no
     /// library-like targets (absence = unconstrained).  See
     /// [`cabin_core::StandardsMetadata`] and
-    /// `docs/design/standard-compatibility/registry-index.md`.
+    /// `docs/package-index.md`.
     #[serde(skip_serializing_if = "StandardsMetadata::is_empty")]
     pub standards: StandardsMetadata,
     /// Declared per-target native-library identity claims

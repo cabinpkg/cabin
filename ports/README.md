@@ -61,16 +61,14 @@ entire port removes the whole `ports/<name>/` directory.
   whose source layout fits Cabin's existing target model (a list of sources plus include
   directories), optionally placing a prebuilt file with a static `[[package.upstream.copy]]` step
   or correcting one with a declared byte-exact patch.  Ports that need code generation or a configure run do not
-  belong here until the build graph runs generated actions (planned:
-  [capability roadmap](../docs/design/capability-roadmap/ledger.md) stage 07).
+  belong here until the build graph runs generated actions.
 
 ## Policy
 
 - Sources must be pinned by URL and SHA-256.  Floating references (`latest`, branches, tag-only
   without integrity) are rejected.
 - No upstream build-system invocation today.  Cabin does not run CMake, Autotools, Meson, Make, or
-  upstream `configure` scripts; the only planned route is capability roadmap stage 07's explicit
-  artifact contract under the root's execution policy.
+  upstream `configure` scripts.
 - Patches under `patches/` (if any) should be limited to what is strictly required to make a port
   build through Cabin: build-system fixes and portability tweaks, never feature changes or
   divergence from upstream behavior.

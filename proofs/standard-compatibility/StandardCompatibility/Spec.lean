@@ -1,11 +1,10 @@
 /-
-The concrete model of docs/design/standard-compatibility/spec.md:
+The concrete model:
 level types (D2), the interval requirement domain with its denotational
 strictness preorder and intersection join (D3, D4), satisfies (D11, D12),
 ReqOf (D9), consumers and edge compatibility (D7, D13), viability (D14),
-and every finite-domain lemma L1-L6 by `decide` (the spec's appendix notes
-all these are checkable by exhaustive enumeration; `decide` is exactly
-that, kernel-checked), except L3, L5, and the C++ lemmas derived from
+and every finite-domain lemma L1-L6 by `decide` (exhaustive enumeration,
+kernel-checked), except L3, L5, and the C++ lemmas derived from
 `Req.leB_spec` without enumeration.
 
 The requirement type contains bounded shapes `bounded a b` without a
@@ -242,8 +241,7 @@ def canonCxx : Req CxxLevel → Req CxxLevel
   | r => r
 
 /-- L1's quotient characterization: two valid shapes are
-denotationally equal iff they canonicalize identically - the `≈`
-classes are exactly the ones the spec lists. -/
+denotationally equal iff they canonicalize identically. -/
 theorem L1_quotient_c : ∀ r s : Req CLevel, validC r = true → validC s = true →
     ((∀ lvl : CLevel, satC lvl r = satC lvl s) ↔ canonC r = canonC s) := by decide
 theorem L1_quotient_cxx : ∀ r s : Req CxxLevel, validCxx r = true → validCxx s = true →
@@ -377,7 +375,7 @@ theorem SCxx_le_sat {r s : VReqCxx} (h : SCxx.le r s) : leCxx r.val s.val = true
 /-! The denotational order is itself join-compatible on the valid
 subtype (join stays a least upper bound for `⊑`, L2's lub property
 read through L3/L4), so the generic growth theorems instantiate to
-the spec's `⊑` - see `T2_growth_denotational_*` below. -/
+the denotational `⊑` - see `T2_growth_denotational_*` below. -/
 
 theorem le_join_left_c (a b : Req CLevel) : leC a (joinC a b) = true :=
   (L3_denotational_c _ _).mpr fun lvl h => by
@@ -416,7 +414,7 @@ theorem denotJoinLub_cxx : JoinLub SCxx (fun a b : VReqCxx => leCxx a.val b.val 
     rw [L2_lub_cxx, Bool.and_eq_true]
     exact ⟨hac, hbc⟩
 
-/-- Spec L7 (subset claim) for the concrete domains, in the
+/-- L7 (subset claim) for the concrete domains, in the
 denotational order. -/
 theorem L7_subset_denotational_c {l l' : List VReqC} (h : ∀ a ∈ l, a ∈ l') :
     leC (SC.joinList l).val (SC.joinList l').val = true :=
@@ -425,7 +423,7 @@ theorem L7_subset_denotational_cxx {l l' : List VReqCxx} (h : ∀ a ∈ l, a ∈
     leCxx (SCxx.joinList l).val (SCxx.joinList l').val = true :=
   denotJoinLub_cxx.L7_subset h
 
-/-- Spec L7 (pointwise claim) for the concrete domains, in the
+/-- L7 (pointwise claim) for the concrete domains, in the
 denotational order. -/
 theorem L7_pointwise_denotational_c (ps : List (VReqC × VReqC))
     (h : ∀ p ∈ ps, leC p.1.val p.2.val = true) :
@@ -448,8 +446,7 @@ theorem L6_convex_cxx : ∀ r : Req CxxLevel, ∀ lo x hi : CxxLevel,
 /-- Upward closure fails: raising a consumer past a bounded
 requirement's cap breaks satisfaction.  (Minimum-only
 shapes, `forbidden` - vacuously - and ranges reaching the top of today's
-chain remain upward closed; the spec's L6 remark records the remedy
-consequence.) -/
+chain remain upward closed.) -/
 theorem L6_not_upward_closed_cxx :
     satCxx .cxx14 (.bounded .cxx11 .cxx14) = true ∧
       satCxx .cxx17 (.bounded .cxx11 .cxx14) = false := by decide
@@ -488,7 +485,7 @@ theorem L6_upward_closed_iff_c : ∀ r : Req CLevel,
 theorem L6_upward_closed_iff_cxx : ∀ r : Req CxxLevel,
     validCxx r = true → upwardClosedCxx r = !cappedBelowTopCxx r := by decide
 
-/-- Instances the spec's L6 discussion names: the failure exists in C
+/-- Further L6 instances: the failure exists in C
 too, a top-reaching C range stays upward closed today, and
 `forbidden` is upward closed vacuously. -/
 example : satC .c11 (.bounded .c99 .c11) = true ∧
@@ -606,13 +603,13 @@ def effectiveReqCxx {T : Type} (deps : T → List T) (wf : WellFounded (DepRel d
   (Rfun SCxx deps wf fun u => ⟨reqOfCxx (attrs u), reqOfCxx_valid (attrs u)⟩ : T → VReqCxx) t
     |>.val
 
-/-! ## T2 in the denotational order (the spec's `⊑`)
+/-! ## T2 in the denotational order (`⊑`)
 
 The generic `T2_growth` takes its pointwise hypothesis in the
-structural order, which is stronger than the spec's: `atLeast bot`
+structural order, which is stronger than `⊑`: `atLeast bot`
 and `unconstrained` are `⊑`-equivalent, but `atLeast bot` is not
 structurally below `unconstrained`.
-These are the faithful readings of the spec's T2 for the concrete
+These are the faithful readings of T2 for the concrete
 domains, via `T2_growth_of` and the denotational `JoinLub`
 instances. -/
 
@@ -662,7 +659,7 @@ theorem satOptCxx_antitone (o : Option CxxLevel) (r r' : Req CxxLevel)
   | none => rfl
   | some lvl => exact L5_cxx r r' lvl h hs
 
-/-- Spec C3: if every effective requirement grows (primed assignment), every
+/-- C3: if every effective requirement grows (primed assignment), every
 version viable under the primed assignment was already viable before -
 growing requirements can only shrink the viable set. -/
 theorem C3_viable_shrink {T : Type} (RC RC' : T → Req CLevel)

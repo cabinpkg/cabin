@@ -511,14 +511,12 @@ impl Refusal {
         let retry_after_secs = self.retry_after_secs;
         match self.status {
             429 => RegistryApiError::RateLimited { retry_after_secs },
-            // The service-wide budget breaker
-            // (`registry/docs/architecture.md`, "Why 503, not
-            // 402"): an operator-side, temporary refusal with
-            // `Retry-After` semantics.  Cloudflare's edge and
-            // runtime emit `503` too, so only the envelope code
-            // identifies the breaker; an uncoded `503` stays the
-            // generic server error rather than blaming a platform
-            // outage on the registry's budget.
+            // The service-wide budget breaker: an operator-side,
+            // temporary refusal with `Retry-After` semantics.
+            // Cloudflare's edge and runtime emit `503` too, so only
+            // the envelope code identifies the breaker; an uncoded
+            // `503` stays the generic server error rather than
+            // blaming a platform outage on the registry's budget.
             503 if self.code.as_deref() == Some(OVER_BUDGET_CODE) => {
                 RegistryApiError::RegistryOverBudget { retry_after_secs }
             }

@@ -48,7 +48,7 @@ pub struct ResolveInput {
     /// context.  When non-empty, the post-resolution uniqueness check
     /// runs once per domain, in place of once over `local_links` and
     /// every resolved package, so a build tool and the target program
-    /// may each claim the same identity (contracts section 1, rule 6).
+    /// may each claim the same identity.
     pub link_domains: Vec<LinkDomain>,
     /// The root's active edges onto versioned dependencies with the
     /// features they request, keyed by dependency name: `default` for

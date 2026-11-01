@@ -10,9 +10,6 @@ restating their invariants.
 - `../docs/remote-registry.md` — the protocol: routes, authentication,
   status codes, the error envelope. Client-visible behavior is specified
   here.
-- `docs/architecture.md` — the hosted service: storage, origins and roles,
-  credential planes, the write path, the verification lifecycle, the
-  governor and breaker, code layout.
 - `docs/runbook.md` — operations: provisioning, wipe, deploys, migrations
   policy, incident procedure.
 
@@ -43,8 +40,7 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer/` mutation/admin planes (`package.rs` publish/yank, `tokens.rs` token mint/revocation, `verifier.rs` listings/verdict, `governor.rs` ledger admin), `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |
 
 The table routes the common areas; for anything else, the module doc
-comments in `src/` and `docs/architecture.md` "Code layout" identify the
-owner.
+comments in `src/` identify the owner.
 
 Unless the task is about them, do not read or touch the governor and
 breaker, the backup modules, `migrations/` (schema-change policy in

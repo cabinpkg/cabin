@@ -70,7 +70,7 @@ are the registry account pages, styled after crates.io. They are static
 pages like everything else: their scripts talk to the registry's session
 user API, which the registry Worker mounts on this site's production
 origin under `/api/*` (plus `/login` and `/callback` for the GitHub
-OAuth flow) - see `registry/docs/architecture.md` in the repository. The
+OAuth flow) - see `registry/README.md` in the repository. The
 website itself holds no sessions and no secrets.
 
 - The pages ship labeled as private alpha, and sign-in is restricted to

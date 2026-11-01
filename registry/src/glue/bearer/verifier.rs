@@ -87,9 +87,9 @@ struct AdminPackageRecord {
 }
 
 /// `GET /api/v1/admin/packages` (`verify` scope): the corpus for the
-/// verifier's name advisories (`docs/architecture.md`, "Name
-/// fidelity"). Admin infrastructure like the versions listing: no
-/// scope membership, and deliberately not budget-gated - the
+/// verifier's name advisories (`docs/remote-registry.md`, "The
+/// verifier's checks"). Admin infrastructure like the versions listing:
+/// no scope membership, and deliberately not budget-gated - the
 /// verification pipeline must be able to drain the pending queue
 /// whatever the service mode.
 pub(super) async fn admin_packages_response(
@@ -247,8 +247,7 @@ pub(super) async fn verdict_authn(
 /// Deliberately **not** gated by the budget breaker, unlike publish
 /// and yank: a verdict stores no new bytes (a rejection frees them),
 /// so blocking it would only stall the pending queue - verification
-/// must be able to drain it whatever the service mode
-/// (`docs/architecture.md`, "Billing model: the governor and the breaker").
+/// must be able to drain it whatever the service mode.
 /// The response reports the resulting state plus whether this request
 /// changed it.
 pub(super) async fn verdict_response(

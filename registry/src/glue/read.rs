@@ -77,12 +77,12 @@ pub(super) async fn handle_registry(
         return Ok((response, None));
     }
 
-    // Public verified reads (`docs/architecture.md`, "Origins and
-    // roles"): a request with no `Authorization` header is an anonymous
-    // reader. A presented credential is still a claim - one that fails
-    // to validate answers the uniform 401 rather than silently
-    // degrading to anonymous, so the verifier's pending fetches fail
-    // loudly on a rotated token instead of reading as missing rows.
+    // Public verified reads (`docs/remote-registry.md`, "Read routes"):
+    // a request with no `Authorization` header is an anonymous reader.
+    // A presented credential is still a claim - one that fails to
+    // validate answers the uniform 401 rather than silently degrading
+    // to anonymous, so the verifier's pending fetches fail loudly on a
+    // rotated token instead of reading as missing rows.
     let auth = if req.headers().get("authorization")?.is_some() {
         match authenticate(req, &db, ctx).await? {
             Some(auth) => Some(auth),
@@ -92,17 +92,16 @@ pub(super) async fn handle_registry(
         None
     };
 
-    // The read-side budget gate (`docs/architecture.md`, "Billing
-    // model: the governor and the breaker"). Anonymous readers receive the
-    // same refusal as authenticated ones - a public over-budget
-    // answer necessarily reveals service state, which is inherent
-    // to public reads ("Origins and roles"). Fail-open on the mode lookup (`.ok()`): only an
+    // The read-side budget gate. Anonymous readers receive the same
+    // refusal as authenticated ones - a public over-budget answer
+    // necessarily reveals service state, which is inherent to public
+    // reads. Fail-open on the mode lookup (`.ok()`): only an
     // affirmatively read `reads_blocked` refuses, so downloads keep
-    // working through an outage of the breaker itself. The
-    // verifier's fetches - the config it discovers the api origin
-    // from and the artifacts it inspects, never the package
-    // documents - are exempt: it must be able to drain the pending
-    // queue while reads are blocked, and its spend is negligible.
+    // working through an outage of the breaker itself. The verifier's
+    // fetches - the config it discovers the api origin from and the
+    // artifacts it inspects, never the package documents - are exempt:
+    // it must be able to drain the pending queue while reads are
+    // blocked, and its spend is negligible.
     let verify_exempt = auth.as_ref().is_some_and(has_verify_scope)
         && matches!(route, Route::Config | Route::Artifact { .. });
     let mode = service_mode(env, &db).await.ok();
@@ -405,8 +404,7 @@ fn thaw_cached(mut cached: Response) -> worker::Result<Response> {
 /// operation and no governor call), then a single-flighted, governor-
 /// charged R2 read that fills the cache for everyone else. On a
 /// governor refusal or outage the R2 read is never initiated - only
-/// already-cached bodies keep serving (`docs/architecture.md`, "The
-/// cost governor").
+/// already-cached bodies keep serving.
 #[allow(clippy::too_many_arguments)] // the caller identity plus the artifact triple
 async fn verified_artifact_response(
     env: &Env,
@@ -466,7 +464,7 @@ async fn verified_artifact_response(
 /// user for a tokened caller, the edge client IP for an anonymous
 /// one ([`quota::artifact_read_fairness`]) - so no single caller can
 /// drain the shared pool and turn everyone else's uncached downloads
-/// into `503`s (`docs/architecture.md`, "The cost governor").
+/// into `503`s.
 #[allow(clippy::too_many_arguments)] // the caller identity plus the artifact triple
 async fn charged_blob_read(
     env: &Env,
@@ -530,8 +528,7 @@ async fn charged_blob_read(
     // any shared cache) to re-serve the body without running the
     // Worker, which would stop counting downloads and bypass the
     // verified-version gate; the Worker-internal Cache API copy is the
-    // one caching layer that keeps both (`docs/architecture.md`,
-    // "Download counts").
+    // one caching layer that keeps both.
     let mut for_cache = response.cloned()?;
     for_cache
         .headers_mut()
@@ -551,17 +548,16 @@ thread_local! {
     static LAST_DOWNLOAD_FLUSH_MS: Cell<f64> = const { Cell::new(0.0) };
 }
 
-/// Buffers one served verified download and flushes the buffer when
-/// the batching policy says so (`docs/architecture.md`, "Download
-/// counts"). Called only once a 200 artifact response is constructed -
-/// refusals and missing-blob 500s never count. The counter is
-/// approximate telemetry, never the hard accounting ledger: counts
-/// buffered in an isolate that dies are lost, a failed flush is logged
-/// and dropped, and nothing here can fail or delay a download. The
-/// flush - the breaker-mode read included - runs off the response path
-/// and is suppressed while the breaker blocks writes, treating an
-/// unreadable mode as blocked (the write plane's fail-closed
-/// direction).
+/// Buffers one served verified download and flushes the buffer when the
+/// batching policy (`crate::telemetry`) says so. Called only once a 200
+/// artifact response is constructed - refusals and missing-blob 500s
+/// never count. The counter is approximate telemetry, never the hard
+/// accounting ledger: counts buffered in an isolate that dies are lost,
+/// a failed flush is logged and dropped, and nothing here can fail or
+/// delay a download. The flush - the breaker-mode read included - runs
+/// off the response path and is suppressed while the breaker blocks
+/// writes, treating an unreadable mode as blocked (the write plane's
+/// fail-closed direction).
 fn count_download(env: &Env, ctx: &Context, scope: &str, name: &str, version: &str) {
     let pending = PENDING_DOWNLOADS.with(|map| {
         let mut map = map.borrow_mut();

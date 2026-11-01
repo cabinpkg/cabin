@@ -1,5 +1,4 @@
-//! The R2 acquisition guard (`registry/docs/architecture.md`, "The cost
-//! governor").
+//! The R2 acquisition guard.
 //!
 //! Every billable R2 call the Worker makes must be admitted by the cost
 //! governor before the call.  A guard cannot prove admission lexically,

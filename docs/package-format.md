@@ -340,9 +340,3 @@ Behavioral notes specific to registry publish:
   [`package-index.md`](package-index.md#packaging-revisions).
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a
   matching index entry, the publish run refuses.
-
-## Scope
-
-`cabin-package` and `cabin-publish` are the local-only archive and file-registry surface.  The
-repository-wide scope policy in [`docs/architecture.md`](architecture.md) tracks broader registry
-direction.

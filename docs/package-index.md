@@ -260,11 +260,15 @@ downloading the source archive:
   inside (`min <= max`, validated on read).  A missing `standards` block, or a missing target, is
   unconstrained everywhere - so every pre-`standards` entry stays valid unchanged.
 - `header-only` and `gnu-extensions` are per-target booleans, each omitted when `false`.
+  `gnu-extensions` never affects a requirement.
 
 The stored value is each target's **own** declared requirement, not a transitively composed one;
-`max` is written exactly when the requirement is bounded.  The full design, including how consumers
-compose requirements across dependency edges, is in
-[`design/standard-compatibility/registry-index.md`](design/standard-compatibility/registry-index.md).
+`max` is written exactly when the requirement is bounded.  `cabin publish` derives each cell from
+the resolved manifest by the rules of
+[post-resolution compatibility](language-standards.md#post-resolution-compatibility-errors), so a
+header-only target's inferred minimum is stored like a declared one, and a target that implements
+no C stores `"none"` for C unless it declares `interface-c-standard`.  It writes a row for every
+library-like target, `{}` when the row is empty, in target-name order with `"c"` before `"c++"`.
 
 ## Links metadata
 
@@ -428,7 +432,8 @@ Error mapping:
 - `404` on a package metadata URL -> the package has no versions: a direct dependency on it fails
   with ``package "<name>" was not found in index``, a transitive requirement surfaces as a
   resolution conflict, and an unselected version's dependency on it does not fail the run.
-- `5xx` -> ``HTTP index request failed for `<name>`: server returned <code>``.
+- `3xx` or `5xx` -> ``HTTP index request failed for `<name>`: server returned <code>``; redirects are
+  never followed.
 - Malformed JSON -> ``invalid package metadata from HTTP index for `<name>`: ...``.
 - Mismatched checksum on a downloaded archive -> the same artifact error (`checksum mismatch for
   ...`).

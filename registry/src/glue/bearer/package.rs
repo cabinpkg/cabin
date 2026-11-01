@@ -421,16 +421,15 @@ enum Persist {
 /// version rows plus the storage self-accounting. The row starts
 /// `pending`: it becomes resolvable only once the verifier says so.
 ///
-/// Every billable R2 call is governed (`docs/architecture.md`, "The
-/// cost governor"): the existence head consumes a publish-plane Class B
-/// op, and a fresh upload consumes a Class A op plus a storage
-/// reservation keyed by the content-addressed object key - so retries
-/// and concurrent identical publishes share one reservation instead of
-/// double-counting, and a crash after the put leaves the reservation
-/// conservatively held (never auto-released; reconciliation settles it
-/// once the D1 rows prove the blob live, and reports it otherwise).
-/// After the batch commits the reservation settles into committed
-/// usage.
+/// Every billable R2 call is governed (`crate::governor`): the
+/// existence head consumes a publish-plane Class B op, and a fresh
+/// upload consumes a Class A op plus a storage reservation keyed by the
+/// content-addressed object key - so retries and concurrent identical
+/// publishes share one reservation instead of double-counting, and a
+/// crash after the put leaves the reservation conservatively held
+/// (never auto-released; reconciliation settles it once the D1 rows
+/// prove the blob live, and reports it otherwise). After the batch
+/// commits the reservation settles into committed usage.
 ///
 /// The accounting decision lives inside the batch (one transaction): the
 /// meta bump counts the archive only when the row just inserted is the
@@ -983,9 +982,9 @@ struct Preflight<'a> {
 impl Preflight<'_> {
     /// The twin `400` or the first quota `403` this publish draws from
     /// the current rows, if any. The deterministic `-`/`_` twin reject
-    /// (`docs/architecture.md`, "Name fidelity") gates new packages
-    /// only, and answers before the quota 403s: whether a name can
-    /// exist does not depend on the publisher's quota state.
+    /// gates new packages only, and answers before the quota 403s:
+    /// whether a name can exist does not depend on the publisher's
+    /// quota state.
     async fn refusal(&self, env: &Env, db: &D1Database) -> worker::Result<Option<Response>> {
         let (counts, twin_exists) =
             publish_counts(db, self.user_id, self.scope, self.name, self.day_prefix).await?;

@@ -1,8 +1,7 @@
-//! The source viewer's ranged-read policy (`docs/architecture.md`,
-//! "Origins and roles"): pure and host-testable. The session-plane
-//! source route proxies ranged R2 reads of a verified version's archive;
-//! this module decides which `Range` headers are acceptable and how a
-//! request maps onto the stored blob.
+//! The source viewer's ranged-read policy: pure and host-testable. The
+//! session-plane source route proxies ranged R2 reads of a verified
+//! version's archive; this module decides which `Range` headers are
+//! acceptable and how a request maps onto the stored blob.
 //!
 //! The policy deviates from RFC 9110 section 14.2, under which a request
 //! without `Range`, or one whose `Range` the server ignores, gets a `200`

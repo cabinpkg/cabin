@@ -2,8 +2,7 @@
 //! pure and host-testable, mirroring [`crate::documents`] for the read
 //! plane. The totals cover **verified** versions only - the same
 //! exposure rule as the read plane - and the download total is the
-//! approximate served-download counter (`docs/architecture.md`,
-//! "Download counts").
+//! approximate served-download counter ([`crate::telemetry`]).
 
 /// The registry-wide totals the public stats endpoint serves.
 pub struct RegistryTotals {

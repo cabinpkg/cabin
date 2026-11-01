@@ -68,8 +68,8 @@ pub const IDENTITY_MISMATCH: &str =
     "metadata name, version, or source path does not match the request URL";
 pub const INVALID_NAME: &str = "invalid package name";
 pub const RESERVED_NAME: &str = "package name is reserved";
-/// The deterministic anti-typosquat reject (`docs/architecture.md`,
-/// "Name fidelity"): rendered by the glue when a publish would create
+/// The deterministic anti-typosquat reject (`docs/remote-registry.md`,
+/// "Publish"): rendered by the glue when a publish would create
 /// a new package whose name collides with a same-scope package under
 /// `-`/`_` folding.
 pub const NAME_TWIN_CONFLICT: &str =

@@ -13,8 +13,7 @@ pub const PUBLISH_SCOPE_REQUIRED: &str = "the token does not have the publish sc
 pub const YANK_SCOPE_REQUIRED: &str = "the token does not have the yank scope";
 /// The write plane's uniform authorization refusal, byte-identical for a
 /// scope that does not exist and one the user is not a member of, so
-/// authenticated writes are no scope-existence oracle
-/// (`docs/architecture.md`, "The write path").
+/// authenticated writes are no scope-existence oracle.
 pub const SCOPE_MEMBERSHIP_REQUIRED: &str =
     "the scope does not exist or the token's user is not a member of it";
 /// The membership-management analogue of [`SCOPE_MEMBERSHIP_REQUIRED`]:

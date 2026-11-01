@@ -1,8 +1,8 @@
 //! End-to-end coverage for the post-resolution standard-compatibility
 //! check.
 //!
-//! Each violation class of
-//! `docs/design/standard-compatibility/spec.md` D9 gets a fixture:
+//! Each violation class of D9 (the Lean model in
+//! `proofs/standard-compatibility`) gets a fixture:
 //! a plain interface-minimum violation (row 2), forbidden via
 //! `interface-cxx-standard = "none"` (row 1), transitive provenance
 //! through a public edge (D10), header-only inference (row 3), and
@@ -493,7 +493,7 @@ fn header_only_inference_is_marked_as_inferred() {
     let dir = TempDir::new().unwrap();
     // The C interface declaration satisfies the header-only
     // at-least-one-interface rule while leaving the C++ side to
-    // inference (spec D9 row 3).
+    // inference (D9 row 3).
     assert_fs::fixture::ChildPath::new(dir.path().join("hdr/cabin.toml"))
         .write_str(
             r#"[package]

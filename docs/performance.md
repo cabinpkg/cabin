@@ -1,9 +1,7 @@
 # Performance
 
 How to see where a Cabin command spends its time, measure it reproducibly, and catch regressions:
-trace capture, the `cargo perf` benchmarks, and profiling.  The design, the coverage record, and
-the platform verification matrix are in
-[`design/performance-observability.md`](design/performance-observability.md).
+trace capture, the `cargo perf` benchmarks, and profiling.
 
 ## Capturing a trace
 
@@ -263,8 +261,7 @@ The test also assumes both sides ran under the same conditions.  Binaries measur
 `cargo perf run` (`--base`, or several `--cabin`) come closest, since their runs interleave; a saved
 baseline was measured at another time, under whatever load the machine had then, so comparing
 against it can report a false difference.  On a loaded machine even one run can, though more
-rarely.  Before acting on a surprising row, measure both binaries in one run, and repeat it (see
-the calibration in [`design/performance-observability.md`](design/performance-observability.md)).
+rarely.  Before acting on a surprising row, measure both binaries in one run, and repeat it.
 
 ### Micro-benchmarks
 

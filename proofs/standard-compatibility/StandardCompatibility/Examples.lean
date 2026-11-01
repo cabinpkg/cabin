@@ -1,5 +1,5 @@
 /-
-The spec's appendix, mechanized: the six worked examples, checked by
+Six worked examples (Examples 1-6), checked by
 kernel computation (`decide` / `rfl`), plus Example 3 run end-to-end
 through the DAG fold `Rfun`.
 -/

@@ -51,9 +51,8 @@ const ENQUEUE: &str = "
   ON CONFLICT (key) DO NOTHING";
 
 // Verified only: the backup set holds exactly the content the registry
-// serves as verified (`registry/docs/architecture.md`, "Backups"); pending
-// uploads are not backed up until their verdict, and rejected blobs are
-// reclaimed.
+// serves as verified; pending uploads are not backed up until their
+// verdict, and rejected blobs are reclaimed.
 const VERIFIED: &str = "SELECT DISTINCT checksum FROM revisions
   WHERE verification = 'verified'";
 

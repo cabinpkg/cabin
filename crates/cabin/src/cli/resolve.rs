@@ -577,11 +577,10 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // Consumers reached only through active `[patch]` overrides are not
     // folded in: a patch is a dependency override, not a workspace
     // member, and the index / pre-patch graph does not carry its
-    // compile levels.  This shares the documented consumer-proxy
-    // optimism of `preference-mode.md` section 1 - it can only pick a
-    // too-new version that the post-resolution validation (on the
-    // patched reload) then refuses, never one `allow` would have
-    // avoided.
+    // compile levels.  Like the workspace-minimum consumer proxy, this
+    // is optimistic - it can only pick a too-new version that the
+    // post-resolution validation (on the patched reload) then refuses,
+    // never one `allow` would have avoided.
     input.consumer_standards = graph.consumer_standards(
         &seed.resolved_selection.closure(&graph),
         &seed.resolved_selection.packages,
