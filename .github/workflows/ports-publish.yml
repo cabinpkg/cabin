@@ -86,6 +86,10 @@ jobs:
       - name: Run the publisher dry-run
         env:
           CABIN_CACHE_DIR: ${{ runner.temp }}/cabin-cache
+          # Windows' default %TEMP% sits on C:, slower than RUNNER_TEMP's
+          # D:; the publisher's scratch tree and MSVC's temporaries follow TMP.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: cargo port-publish --dry-run
 
   publish:
