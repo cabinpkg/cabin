@@ -56,8 +56,6 @@ jobs:
         uses: actions/setup-node@v7.1.0
         with:
           node-version: lts/*
-          cache: npm
-          cache-dependency-path: .github/commitlint/package-lock.json
 
       - name: Install commitlint
         if: github.event_name != 'merge_group'
