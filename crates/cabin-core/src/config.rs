@@ -586,7 +586,6 @@ fn bool_bytes(b: bool) -> &'static [u8] {
     if b { b"true" } else { b"false" }
 }
 
-#[allow(clippy::too_many_lines)] // one linear pass over every hashed input
 fn compute_fingerprint(
     features: &BTreeSet<String>,
     profile: &ResolvedProfile,
@@ -595,135 +594,104 @@ fn compute_fingerprint(
     language: &LanguageStandardsSummary,
     targets: &[crate::Target],
 ) -> String {
-    // Hash a stable, line-based serialization rather than JSON so the
-    // fingerprint is independent of serialiser whitespace choices.
     let mut hasher = Sha256::new();
-    hasher.update(b"features\n");
-    for f in features {
-        hasher.update(f.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"profile\n");
-    hasher.update(b"name=");
-    hasher.update(profile.name.as_str().as_bytes());
-    hasher.update(b"\n");
-    hasher.update(b"debug=");
-    hasher.update(bool_bytes(profile.debug));
-    hasher.update(b"\n");
-    hasher.update(b"opt-level=");
-    hasher.update(profile.opt_level.as_str().as_bytes());
-    hasher.update(b"\n");
-    hasher.update(b"assertions=");
-    hasher.update(bool_bytes(profile.assertions));
-    hasher.update(b"\n");
-    hasher.update(b"toolchain\n");
-    for (kind, spec) in &toolchain.tools {
-        hasher.update(kind.as_bytes());
-        hasher.update(b"=");
-        hasher.update(spec.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"compiler-wrapper\n");
-    match &toolchain.compiler_wrapper {
-        Some(wrapper) => {
-            hasher.update(b"kind=");
-            hasher.update(wrapper.kind.as_key().as_bytes());
-            hasher.update(b"\n");
-            hasher.update(b"spec=");
-            hasher.update(wrapper.spec.as_bytes());
-            hasher.update(b"\n");
-            if let Some(version) = wrapper.version.as_deref() {
-                hasher.update(b"version=");
-                hasher.update(version.as_bytes());
-                hasher.update(b"\n");
-            }
-        }
-        None => {
-            hasher.update(b"kind=none\n");
-        }
-    }
-    if let Some(target) = &toolchain.target {
-        hasher.update(format!("target={target}\n").as_bytes());
-    }
-    if let Some(sysroot) = &toolchain.sysroot {
-        hasher.update(format!("sysroot={sysroot}\n").as_bytes());
-    }
-    hasher.update(b"build-flags\n");
-    hasher.update(b"defines\n");
-    for d in &build_flags.defines {
-        hasher.update(d.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"include-dirs\n");
-    for inc in &build_flags.include_dirs {
-        hasher.update(inc.as_str().as_bytes());
-        hasher.update(b"\n");
-    }
-    // System include dirs hash under their own header so the same
-    // directory moving between the user (`-I`) and system
-    // (`-isystem`) slots changes the fingerprint even though the
-    // path bytes are identical.
-    hasher.update(b"system-include-dirs\n");
-    for inc in &build_flags.system_include_dirs {
-        hasher.update(inc.as_str().as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"language-neutral-compile-args\n");
-    for a in &build_flags.extra_compile_args {
-        hasher.update(a.as_bytes());
-        hasher.update(b"\n");
-    }
-    // Each section starts with its own labeled header, so moving a
-    // value between sections (e.g. one flag from `cflags` to
-    // `cxxflags`) changes the hashed bytes.  Values are not escaped,
-    // so the encoding is not injective: a value equal to a later
-    // header label (`cflags = ["cxxflags"]` vs `cxxflags =
-    // ["cxxflags"]`) hashes the same.
-    hasher.update(b"cflags\n");
-    for a in &build_flags.cflags {
-        hasher.update(a.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"cxxflags\n");
-    for a in &build_flags.cxxflags {
-        hasher.update(a.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"ldflags\n");
-    for a in &build_flags.ldflags {
-        hasher.update(a.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"link-libs\n");
-    for a in &build_flags.link_libs {
-        hasher.update(a.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"frameworks\n");
-    for a in &build_flags.frameworks {
-        hasher.update(a.as_bytes());
-        hasher.update(b"\n");
-    }
+    hash_section(&mut hasher, "features", features);
+    hash_section(
+        &mut hasher,
+        "profile",
+        [
+            profile.name.as_str().as_bytes(),
+            bool_bytes(profile.debug),
+            profile.opt_level.as_str().as_bytes(),
+            bool_bytes(profile.assertions),
+        ],
+    );
+    hash_section(
+        &mut hasher,
+        "toolchain",
+        toolchain
+            .tools
+            .iter()
+            .map(|(kind, spec)| format!("{kind}={spec}")),
+    );
+    hash_section(
+        &mut hasher,
+        "compiler-wrapper",
+        toolchain.compiler_wrapper.iter().flat_map(|wrapper| {
+            [wrapper.kind.as_key(), wrapper.spec.as_str()]
+                .into_iter()
+                .chain(wrapper.version.as_deref())
+        }),
+    );
+    hash_section(&mut hasher, "target", toolchain.target.as_deref());
+    hash_section(&mut hasher, "sysroot", toolchain.sysroot.as_deref());
+    hash_section(&mut hasher, "defines", &build_flags.defines);
+    hash_section(
+        &mut hasher,
+        "include-dirs",
+        build_flags.include_dirs.iter().map(|dir| dir.as_str()),
+    );
+    // The same directory in the user (`-I`) and system (`-isystem`)
+    // slots spells a different compile command, so each slot is its
+    // own section; likewise for the C-only and C++-only flags.
+    hash_section(
+        &mut hasher,
+        "system-include-dirs",
+        build_flags
+            .system_include_dirs
+            .iter()
+            .map(|dir| dir.as_str()),
+    );
+    hash_section(
+        &mut hasher,
+        "language-neutral-compile-args",
+        &build_flags.extra_compile_args,
+    );
+    hash_section(&mut hasher, "cflags", &build_flags.cflags);
+    hash_section(&mut hasher, "cxxflags", &build_flags.cxxflags);
+    hash_section(&mut hasher, "ldflags", &build_flags.ldflags);
+    hash_section(&mut hasher, "link-libs", &build_flags.link_libs);
+    hash_section(&mut hasher, "frameworks", &build_flags.frameworks);
     // Effective language standards, values only: provenance labels
     // are reporting-only and must not move the fingerprint.
-    hasher.update(b"language-standards\n");
-    for line in language.fingerprint_lines() {
-        hasher.update(line.as_bytes());
-        hasher.update(b"\n");
-    }
-    hash_instruction_sets(&mut hasher, targets);
+    hash_section(
+        &mut hasher,
+        "language-standards",
+        language.fingerprint_lines(),
+    );
+    hash_section(
+        &mut hasher,
+        "instruction-sets",
+        targets.iter().flat_map(|target| {
+            target.instruction_sets.iter().map(|(source, sets)| {
+                let sets: Vec<_> = sets.iter().map(|set| set.as_str()).collect();
+                format!("{}:{source}={}", target.name.as_str(), sets.join(","))
+            })
+        }),
+    );
     crate::hash::hex_digest(&hasher.finalize())
 }
 
-fn hash_instruction_sets(hasher: &mut Sha256, targets: &[crate::Target]) {
-    hasher.update(b"instruction-sets\n");
-    for target in targets {
-        for (source, sets) in &target.instruction_sets {
-            let sets: Vec<_> = sets.iter().map(|set| set.as_str()).collect();
-            let line = format!("{}:{source}={}\n", target.name.as_str(), sets.join(","));
-            hasher.update(line.as_bytes());
-        }
+/// Hash one fingerprint section as its label, its value count, and its
+/// values, each byte string length-prefixed.  The prefixes make the
+/// encoding injective: no value can run into its neighbor or pass for
+/// the next section's label.
+fn hash_section<T: AsRef<[u8]>>(
+    hasher: &mut Sha256,
+    label: &str,
+    values: impl IntoIterator<Item = T>,
+) {
+    let values: Vec<T> = values.into_iter().collect();
+    hash_field(hasher, label.as_bytes());
+    hasher.update((values.len() as u64).to_le_bytes());
+    for value in &values {
+        hash_field(hasher, value.as_ref());
     }
+}
+
+fn hash_field(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update((bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
 }
 
 /// Identifier grammar for feature names.
@@ -1317,6 +1285,32 @@ mod tests {
             ..ResolvedProfileFlags::default()
         });
         assert_ne!(c_only.fingerprint, cxx_only.fingerprint);
+    }
+
+    #[test]
+    fn fingerprint_keeps_values_apart_from_section_labels_and_each_other() {
+        let define_named_like_a_label = resolve_with_flags(ResolvedProfileFlags {
+            defines: vec!["include-dirs".to_owned()],
+            ..ResolvedProfileFlags::default()
+        });
+        let include_dir_of_that_name = resolve_with_flags(ResolvedProfileFlags {
+            include_dirs: vec![Utf8PathBuf::from("include-dirs")],
+            ..ResolvedProfileFlags::default()
+        });
+        assert_ne!(
+            define_named_like_a_label.fingerprint,
+            include_dir_of_that_name.fingerprint
+        );
+
+        let one_flag = resolve_with_flags(ResolvedProfileFlags {
+            cflags: vec!["-DA\n-DB".to_owned()],
+            ..ResolvedProfileFlags::default()
+        });
+        let two_flags = resolve_with_flags(ResolvedProfileFlags {
+            cflags: vec!["-DA".to_owned(), "-DB".to_owned()],
+            ..ResolvedProfileFlags::default()
+        });
+        assert_ne!(one_flag.fingerprint, two_flags.fingerprint);
     }
 
     #[test]

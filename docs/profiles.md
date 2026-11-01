@@ -455,9 +455,9 @@ unreadable or newer-format usage record makes collection keep the outputs it lis
 
 ## Build configuration fingerprint
 
-`BuildConfiguration::fingerprint` is a SHA-256 of every input that affects build output: enabled
-features, the resolved profile (its name, `debug`, `opt-level`, `assertions`), and final resolved
-flags.  An applicable named overlay changes the fingerprint.  An overlay whose target does not
+`BuildConfiguration::fingerprint` is a SHA-256 over enabled features, the resolved profile (its
+name, `debug`, `opt-level`, `assertions`), final resolved flags, and the other inputs
+[`toolchains.md`](toolchains.md#build-configuration-fingerprint) lists.  An applicable named overlay changes the fingerprint.  An overlay whose target does not
 match or whose name is outside the selected profile chain does not.
 
 ## `cabin metadata`
