@@ -125,6 +125,21 @@ pub fn resolve_packages(
 /// resolution to diff against - see [`held_back_report`]).
 fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let output = resolve_once_unchecked(input, index)?;
+    // Checked against the locked version, not the selected one: an
+    // index that drops a pinned revision can also rewrite that
+    // version's metadata so the solver moves elsewhere.  `Locked`
+    // already validated every pin it used.
+    if !matches!(input.mode, ResolveMode::Locked) {
+        let locked = effective_locked(input);
+        for pkg in &output.packages {
+            if pkg.source == ResolvedSource::Index
+                && let Some(pin) = locked.get(&pkg.name)
+                && let Some(entry) = index.package(&pkg.name)
+            {
+                locked::check_locked_pin_listed(&pkg.name, pin, entry)?;
+            }
+        }
+    }
     // Post-resolution `links` uniqueness, over the whole graph or
     // per link domain.  Runs here - not in `resolve` - so
     // `resolve_packages` (build/run/test/vendor) enforces it too,
@@ -1349,6 +1364,38 @@ mod tests {
 
     const REV_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const REV_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    /// `PreferLocked` refuses a pin the index no longer lists instead
+    /// of re-pinning, even when the solution moves to another version.
+    #[test]
+    fn prefer_locked_fails_on_a_pin_the_index_no_longer_lists() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("10.2.1", vec![], true), ("10.2.2", vec![], false)],
+        )]);
+        inject_revisions(&mut index, "fmt", &[REV_A]);
+        let mut input = input_with_locked(
+            vec![("fmt", "*")],
+            vec![("fmt", "10.2.1")],
+            ResolveMode::PreferLocked,
+        );
+        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum =
+            Some(cabin_core::Checksum::parse(&format!("sha256:{REV_B}")).unwrap());
+        assert!(matches!(
+            resolve_packages(&input, &index).unwrap_err(),
+            ResolveError::LockedChecksumMismatch { name, .. } if name == "fmt"
+        ));
+
+        input.locked.get_mut(&pkg_name("fmt")).unwrap().version = version("10.2.0");
+        assert!(matches!(
+            resolve_packages(&input, &index).unwrap_err(),
+            ResolveError::LockedVersionMissing { name, .. } if name == "fmt"
+        ));
+
+        // Updating the package lets it move.
+        input.mode = ResolveMode::UpdatePackage(pkg_name("fmt"));
+        assert!(resolve_packages(&input, &index).is_ok());
+    }
 
     #[test]
     fn locked_mode_fails_on_checksum_mismatch() {

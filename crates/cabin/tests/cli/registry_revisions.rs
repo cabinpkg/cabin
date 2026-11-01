@@ -526,7 +526,9 @@ fn an_index_without_the_pinned_revision_fails_instead_of_re_pinning() {
             .arg(&other)
             .assert()
             .failure()
-            .stderr(predicate::str::contains("which the index no longer lists"))
+            .stderr(predicate::str::contains(
+                "checksum mismatch for locked package",
+            ))
             .stderr(predicate::str::contains("cabin update"));
         assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
     }
@@ -586,7 +588,7 @@ fn an_index_without_the_pinned_version_fails_instead_of_moving_it() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "the lockfile pins `fmtlib/fmt 10.2.1`, which the index no longer lists",
+            "locked package \"fmtlib/fmt\" 10.2.1 is not present in the index",
         ));
     assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
 }
@@ -637,7 +639,7 @@ fn an_index_without_the_pinned_revision_fails_even_when_resolution_moves_on() {
             .assert()
             .failure()
             .stderr(predicate::str::contains(
-                "the lockfile pins `fmtlib/fmt 10.2.1` to a packaging revision",
+                "checksum mismatch for locked package \"fmtlib/fmt\" 10.2.1",
             ));
         assert_eq!(fs::read_to_string(&lockfile).unwrap(), before);
     }

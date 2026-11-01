@@ -599,7 +599,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         existing_lockfile.as_ref(),
         &input.mode,
         !seed.resolved_selection.covers_all_primaries(&graph),
-    )?;
+    );
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
@@ -970,7 +970,7 @@ pub(crate) fn run_artifact_pipeline(
         existing_lockfile.as_ref(),
         &input.mode,
         !seed.resolved_selection.covers_all_primaries(graph),
-    )?;
+    );
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
@@ -1314,21 +1314,13 @@ pub(crate) fn enforce_locked_patch_state(
 /// member prunes entries nothing needs.  An entry for a patched name
 /// is carried too: an unselected member may still reach that name
 /// through a registry edge, which keeps it a registry entry.
-///
-/// Outside the update modes a pin moves only where resolution moves it
-/// (a changed requirement or feature, or a yank); `--locked` refuses
-/// even that.  Published revisions are immutable and stay listed, so a
-/// pinned revision or version the index no longer lists means the index
-/// is not the one the lockfile was resolved against, or it was tampered
-/// with: that is an error naming `cabin update`, never a silent re-pin
-/// to whatever bytes the index now offers.
 fn lockfile_from_resolution(
     output: &ResolveOutput,
     index: &cabin_index::PackageIndex,
     previous: Option<&Lockfile>,
     mode: &cabin_resolver::ResolveMode,
     keep_unconsidered: bool,
-) -> Result<Lockfile> {
+) -> Lockfile {
     let resolved_names: BTreeSet<&str> = output
         .packages
         .iter()
@@ -1358,45 +1350,16 @@ fn lockfile_from_resolution(
         // A previously pinned packaging revision is kept, exactly like
         // a locked version: someone else's respin must never churn
         // this lockfile.  The update modes move their targets to the
-        // current revision.
-        let updating = match mode {
-            cabin_resolver::ResolveMode::UpdateAll => true,
-            cabin_resolver::ResolveMode::UpdatePackage(updated) => updated == &pkg.name,
-            _ => false,
+        // current revision; outside them the resolver has refused a
+        // pin the index no longer lists.
+        let kept_pin = match mode {
+            cabin_resolver::ResolveMode::UpdateAll => None,
+            cabin_resolver::ResolveMode::UpdatePackage(updated) if updated == &pkg.name => None,
+            _ => previous
+                .and_then(|prev| prev.find(&pkg.name))
+                .filter(|locked| locked.version == pkg.version)
+                .and_then(|locked| locked.checksum.clone()),
         };
-        let locked = previous
-            .and_then(|prev| prev.find(&pkg.name))
-            .filter(|_| !updating);
-        // Checked against the locked version, not the selected one: an
-        // index that drops the pinned revision can also rewrite that
-        // version's metadata so the solver moves elsewhere.
-        if let Some(locked) = locked {
-            let Some(locked_meta) = entry.versions.get(&locked.version) else {
-                bail!(
-                    "the lockfile pins `{} {}`, which the index no longer lists; run \
-                     `cabin update` if the index is the intended source",
-                    pkg.name.as_str(),
-                    locked.version
-                );
-            };
-            if let Some(pin) = &locked.checksum
-                && !locked_meta
-                    .revisions
-                    .values()
-                    .any(|rev| &rev.checksum == pin)
-            {
-                bail!(
-                    "the lockfile pins `{} {}` to a packaging revision with checksum {pin} \
-                     which the index no longer lists; run `cabin update` if the index is the \
-                     intended source",
-                    pkg.name.as_str(),
-                    locked.version
-                );
-            }
-        }
-        let kept_pin = locked
-            .filter(|locked| locked.version == pkg.version)
-            .and_then(|locked| locked.checksum.clone());
         packages.push(LockedPackage {
             name: pkg.name.clone(),
             version: pkg.version.clone(),
@@ -1413,10 +1376,10 @@ fn lockfile_from_resolution(
         );
     }
     packages.sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
-    Ok(Lockfile {
+    Lockfile {
         version: cabin_lockfile::LOCKFILE_VERSION,
         packages,
         patches: Vec::new(),
         source_replacements: Vec::new(),
-    })
+    }
 }
