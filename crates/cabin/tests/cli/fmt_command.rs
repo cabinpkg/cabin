@@ -253,18 +253,20 @@ fn custom_build_directory_is_not_formatted() {
     dir.child("src/main.cc")
         .write_str("int main() {}\n")
         .unwrap();
-    dir.child("out/dev/scratch.cc")
+    // `artifacts` is no built-in excluded name, so only the
+    // build-directory exclusion skips it.
+    dir.child("artifacts/dev/scratch.cc")
         .write_str("int s() {}\n")
         .unwrap();
 
     cabin_with_fake_formatter()
         .current_dir(dir.path())
-        .args(["fmt", "--build-dir", "out"])
+        .args(["fmt", "--build-dir", "artifacts"])
         .assert()
         .success();
 
     assert!(read(&dir.path().join("src/main.cc")).contains(MARKER));
-    assert!(!read(&dir.path().join("out/dev/scratch.cc")).contains(MARKER));
+    assert!(!read(&dir.path().join("artifacts/dev/scratch.cc")).contains(MARKER));
 }
 
 #[test]

@@ -601,9 +601,27 @@ fn build_and_cache_directories_are_not_checked() {
 #[test]
 fn custom_build_directory_is_not_checked() {
     let dir = TempDir::new().unwrap();
-    write_minimal_project(dir.path());
-    claim_build_dir(dir.path(), "out");
-    dir.child("out/dev/scratch.cc")
+    // `artifacts` is no built-in excluded name, and the target lists the
+    // build-directory source so the compile-database filter keeps it:
+    // only the build-directory exclusion keeps it from the tidy driver.
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.hello]
+type = "executable"
+sources = ["src/main.cc", "artifacts/dev/scratch.cc"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/main.cc")
+        .write_str("int main() {}\n")
+        .unwrap();
+    claim_build_dir(dir.path(), "artifacts");
+    dir.child("artifacts/dev/scratch.cc")
         .write_str("int s() {}\n")
         .unwrap();
 
@@ -611,14 +629,14 @@ fn custom_build_directory_is_not_checked() {
     cabin_with_fake_tidy()
         .current_dir(dir.path())
         .env("CABIN_FAKE_TIDY_RECORD", &record)
-        .args(["tidy", "--build-dir", "out"])
+        .args(["tidy", "--build-dir", "artifacts"])
         .assert()
         .success();
 
     let body = normalize(&std::fs::read_to_string(&record).unwrap());
     assert!(body.contains("src/main.cc"));
     assert!(
-        !body.contains("out/dev/scratch.cc"),
+        !body.contains("artifacts/dev/scratch.cc"),
         "custom build dir should not have been checked: {body}"
     );
 }
@@ -756,13 +774,15 @@ fn very_verbose_lists_command_line() {
         stdout.contains("cabin-tidy-fake-tidy"),
         "very-verbose tidy should echo the executable: {stdout}"
     );
-    // Verbose drops the `-quiet` flag from the *spawned*
-    // tidy command, but the very-verbose command-line echo
-    // reflects what we *would* have run; verbose mode
-    // suppresses `-quiet`, so the echo also omits it.
     assert!(
         stdout.contains("-p "),
         "very-verbose tidy should echo the -p flag: {stdout}"
+    );
+    // `-vv` spawns the driver without `-quiet`, so the echo must omit
+    // it too.
+    assert!(
+        !stdout.contains("-quiet"),
+        "very-verbose tidy should echo the spawned argv: {stdout}"
     );
 }
 
