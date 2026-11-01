@@ -271,6 +271,56 @@ fn build_diagnoses_ordinary_target_referencing_dev_dependency() {
     );
 }
 
+/// A `test` target that leaves an activated dev-dependency out of its
+/// `deps` misses that dependency's header; the hint names the table
+/// the dependency is declared in.
+#[test]
+fn test_hint_names_the_dev_dependencies_table() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let manifest = write_app_with_dev_path_harness(dir.path());
+    let body = fs::read_to_string(&manifest).unwrap();
+    let edited = body.replace("deps = [\"applib\", \"harness\"]", "deps = [\"applib\"]");
+    assert_ne!(edited, body);
+    fs::write(&manifest, edited).unwrap();
+    cabin()
+        .args(["test", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "package `app` declares `harness` in `[dev-dependencies]`,",
+        ));
+}
+
+/// Only a `test` or `example` target can list a dev-dependency, so a
+/// library missing a dev-dependency's header under `cabin test` gets
+/// no hint to add it.
+#[test]
+fn test_hint_omits_dev_dependencies_for_a_library() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let manifest = write_app_with_dev_path_harness(dir.path());
+    fs::write(
+        dir.path().join("app/src/applib.cc"),
+        "#include \"harness.h\"\nint applib_answer() { return harness_answer(); }\n",
+    )
+    .unwrap();
+    let assertion = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let output = assertion.get_output();
+    assert!(String::from_utf8_lossy(&output.stdout).contains("harness.h"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("does not list it in `deps`"), "{stderr}");
+}
+
 #[test]
 fn test_resolves_versioned_deps_of_dev_path_dependency() {
     require_cxx_build_tools();
