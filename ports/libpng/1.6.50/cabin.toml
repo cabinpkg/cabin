@@ -11,11 +11,11 @@ to = "pnglibconf.h"
 name = "cabin-ports/libpng"
 version = "1.6.50"
 
-# libpng's public headers (png.h → pngconf.h) include zlib.h, and the
-# encoder/decoder call into zlib for the DEFLATE stream, so libpng
-# depends on the bundled zlib port. zlib's archive and include dirs
-# propagate through this edge, so libpng's own sources find zlib.h and
-# consumers link zlib transitively — no -lz needed below.
+# libpng's encoder/decoder call into zlib for the DEFLATE stream, so
+# libpng depends on the bundled zlib port. Only the internal
+# pngstruct.h includes zlib.h (png.h and pngconf.h do not), so the edge
+# is private: libpng's own sources find zlib.h, and consumers still
+# link zlib transitively — no -lz needed below.
 [dependencies]
 "cabin-ports/zlib" = "^1.3"
 
