@@ -37,9 +37,9 @@ cabin tidy --fix
 ```
 
 `--fix` enables `run-clang-tidy -fix`, which applies clang-tidy's suggested rewrites back to disk.
-Cabin never enables this implicitly; the rewrites are off unless you pass the flag.  In fix mode
-Cabin clamps the effective parallelism to one clang-tidy instance so concurrent rewrites cannot
-race; verbose mode reports the override when `--jobs <N>` was supplied with `N > 1`.
+Cabin never enables this implicitly; the rewrites are off unless you pass the flag.
+`run-clang-tidy` collects the fixes of every clang-tidy instance and applies them once all have
+finished, so [`--jobs`](#parallel-jobs) applies in fix mode too.
 
 ### Parallel jobs
 
