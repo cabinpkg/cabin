@@ -167,7 +167,8 @@ fn run(out: Box<dyn std::io::Write + Send>, capture: bool) -> Result<()> {
         None => scope::Surfaces::all(),
     };
 
-    let jobs = cores::split(cores::effective());
+    let cpus = std::thread::available_parallelism().map_or(1, usize::from);
+    let jobs = cores::split(u32::try_from(cpus).unwrap_or(u32::MAX));
     let mut gate = Gate::new(root.clone(), jobs.parallel, out, capture);
 
     gate.step(
