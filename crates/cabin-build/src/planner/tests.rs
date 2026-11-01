@@ -3398,6 +3398,23 @@ fn ldflags_appear_on_link_command_only() {
     }
 }
 
+#[test]
+fn object_path_rejects_a_nul_in_a_source_path() {
+    let object = |source: &str| {
+        object_path(
+            Utf8Path::new("/b"),
+            "app",
+            Utf8Path::new(source),
+            Dialect::GnuLike,
+        )
+    };
+    assert!(object("src/a.c").is_ok());
+    assert!(object("src/a.c.o\0b.c").is_err());
+    // On Windows, `C:.` would put the object at the drive's current
+    // directory.
+    assert_eq!(object("src/C:./a.c").is_err(), cfg!(windows));
+}
+
 #[cfg(unix)]
 #[test]
 fn promote_dir_rejects_non_utf8() {
@@ -5228,11 +5245,18 @@ fn output_conflicts_follow_the_dialects_file_names() {
     // MSVC writes `foo.lib` and `libfoo.a.exe`.
     assert_eq!(output_conflict(targets(), Dialect::Msvc, true), None);
 
-    // An executable named `obj` is a file where objects need a directory.
+    // An executable named `obj` is a file where objects need a directory,
+    // even with `obj-tool`, which bytewise sorts between `obj` and `obj/`.
     let targets = || {
         vec![
             target("foo", TargetKind::Library, &["src/foo.c"], &[]),
             target("obj", TargetKind::Executable, &["src/main.c"], &["foo"]),
+            target(
+                "obj-tool",
+                TargetKind::Executable,
+                &["src/tool.c"],
+                &["foo"],
+            ),
         ]
     };
     assert_eq!(

@@ -568,6 +568,16 @@ pub(super) fn object_path(
     let mut sanitized = Utf8PathBuf::new();
     for component in source.components() {
         match component {
+            // No file name holds a NUL, and the output-path check
+            // compares keys in which NUL stands for a separator.
+            Utf8Component::Normal(name) if name.contains('\0') => {
+                return Err("NUL characters are not supported".to_owned());
+            }
+            // Windows reads `C:` as a drive, which `push` would take for
+            // a new root outside the build directory.
+            Utf8Component::Normal(name) if cfg!(windows) && name.contains(':') => {
+                return Err("':' is not supported on Windows".to_owned());
+            }
             Utf8Component::Normal(name) => sanitized.push(name),
             Utf8Component::CurDir => {}
             Utf8Component::ParentDir => {
