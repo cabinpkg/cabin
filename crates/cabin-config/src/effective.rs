@@ -179,8 +179,11 @@ pub struct EffectiveCompilerWrapper {
 pub struct EffectivePatch {
     pub spec: PatchSource,
     pub source: ConfigSource,
-    /// Absolute path of the config file that declared this
-    /// patch.  Used to resolve relative `path = "..."` values.
+    /// Path of the config file that declared this patch, as
+    /// discovered: relative when `CABIN_CONFIG` or
+    /// `CABIN_CONFIG_HOME` is, which still names the file because
+    /// Cabin never changes its working directory.  Relative
+    /// `path = "..."` values resolve against its directory.
     pub declared_in: Utf8PathBuf,
 }
 
@@ -315,6 +318,7 @@ fn apply_parsed(
                 original: original.clone(),
                 replacement: replacement.clone(),
                 provenance: source_to_value(source),
+                base: base.to_path_buf(),
             },
         );
     }

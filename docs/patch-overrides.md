@@ -125,7 +125,9 @@ cannot declare source replacements.
 ```
 
 Each row carries exactly one of `index-path` or `index-url`.  Other fields (including `git` and
-`replace-with = "<name>"`) are rejected with stable error messages.
+`replace-with = "<name>"`) are rejected with stable error messages.  A relative `index-path`
+resolves against the directory of the config file that declares it, like `[registry] index-path`;
+the lockfile, `cabin metadata`, and `cabin explain` keep it as written.
 
 URLs containing `userinfo` (e.g., `https://user:pw@example.com/index`) are rejected at parse time so
 credentials never leak into the lockfile, log output, or the metadata view.
@@ -134,7 +136,8 @@ credentials never leak into the lockfile, log output, or the metadata view.
 
 When the orchestration layer opens the configured index source, it walks the replacement map once:
 each hop replaces the current locator with the entry's `replacement` value, until a locator with no
-replacement is reached (the *terminal* source).  Cycles surface `source replacement cycle detected:
+replacement is reached (the *terminal* source).  Keys and replacements match as written; only the
+terminal `index-path` resolves against its config file's directory.  Cycles surface `source replacement cycle detected:
 <hop-1> -> <hop-2> -> ...` before any index is opened.
 
 ## Per-command precedence
