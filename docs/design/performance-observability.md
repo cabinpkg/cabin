@@ -567,13 +567,21 @@ registry is waiting, and on what?
 Before the change every request waited its own round trip, so wall time was about 25-30 ms per
 request whatever the shape.
 
-**Fix.**  The dependency walk fetches each wave, every package the previous wave's metadata
-names, over up to 4 connections at once, and a lazy solve decides the packages it lacks last, so
-it reaches every one the round can before it stops and asks for all of them, even one it then
-backtracked away from, so the selection stays the one the full index gives.  The waves fetch what
-the walk always fetched; a batched round can also fetch a package that only an abandoned branch
-reaches.  The cost is the threads and the extra connections: 2-3% more instructions on the wide
-walks.
+**Fix.**  The dependency walk fetches each wave, every package the previous wave's metadata names,
+over up to 4 connections at once, and a lazy solve decides the packages it lacks last, so it reaches
+every one the round can before it stops and asks for all of them, even one it then backtracked away
+from, so the selection stays the one the full index gives.  The waves fetch what the walk always
+fetched; a batched round can also fetch a package that only an abandoned branch reaches.  They cost
+little: three worker threads and per-chunk tracing dispatch add about 0.8 M instructions to
+`index/http-wide`'s walk, while its requests and the bookkeeping around them took about 2.1 M fewer,
+so the walk ran 1.3 M instructions fewer than before.  The 2-3% the table shows came from the
+provider instead: the check that puts unfetched packages last repeated an index lookup on every
+`prioritize` and `declares_default_features` call, about 11,700 calls and 5.3 M instructions on the
+wide shapes, from a file index and an HTTP one alike (`resolve/wide` paid it too).  Now `prioritize`
+makes the check only for a package with no candidates, which every unfetched package is, and
+`declares_default_features` takes the answer from the lookup it already makes: `index/http-wide`
+200.7 -> 195.2 M and `index/rtt-wide` 203.0 -> 197.5 M, both `Improved`.  A lazy round's batching
+costs about 0.3 M in the solve and 24k per round in loading.
 
 **Not changed.**  A chain's metadata names its next package only once it arrives, so
 `index/rtt-deep` and `index/rtt-lazy` still pay one round trip per level.  Removing that needs a
