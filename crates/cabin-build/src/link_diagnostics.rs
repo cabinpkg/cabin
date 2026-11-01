@@ -3,8 +3,8 @@
 //! When a ninja link action fails, cabin has structured information
 //! the raw linker output lacks: which target failed (from ninja's
 //! `FAILED:` line), which package owns it, what that package's
-//! `[dependencies]` declares, and what the target's own `deps =`
-//! list links.  `[dependencies]` makes a dep *available*;
+//! dependency tables declare, and what the target's own `deps =`
+//! list links.  A dependency table makes a dep *available*;
 //! `[target.X].deps` is what gets passed to the linker, so a name
 //! declared in the first but missing from the second is reported.
 //!
@@ -17,7 +17,7 @@
 //! resolves a `(package, target)` pair to its dependency picture;
 //! the resulting [`LinkDiagnostic`] is rendered into a hint.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cabin_driver::Dialect;
 
@@ -42,8 +42,8 @@ pub struct LinkFailure {
 pub struct TargetDepInfo {
     /// Names of the package's dependencies active in this build (the
     /// caller applies the planner's platform, dev, and optional-feature
-    /// filters).
-    pub package_deps: BTreeSet<String>,
+    /// filters), each mapped to the manifest table declaring it.
+    pub package_deps: BTreeMap<String, String>,
     /// Names appearing in `[target.<name>].deps` for the failing
     /// target.
     pub target_deps: BTreeSet<String>,
@@ -52,13 +52,14 @@ pub struct TargetDepInfo {
 /// Diagnostic shape.  The CLI calls [`render`] to format it.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LinkDiagnostic {
-    /// `[dependencies]` declares one or more names the failing
+    /// The package declares one or more dependencies the failing
     /// target's `deps =` doesn't link.
     DeclaredButUnlinked {
         package: String,
         target: String,
-        /// Every declared name absent from `target.deps`, sorted.
-        unlinked: Vec<String>,
+        /// Every declared name absent from `target.deps`, sorted, with
+        /// the manifest table declaring it.
+        unlinked: Vec<(String, String)>,
         /// Which action exposed the gap.
         step: FailedStep,
     },
@@ -73,16 +74,18 @@ pub enum FailedStep {
     MissingHeader,
 }
 
-/// Top-level entry point.  Parses `stderr` from a build lowered for
-/// `dialect`, walks the captured failure(s), and consults
-/// `lookup_deps` to compute the gap.  Returns the first applicable
-/// diagnostic, or `None` if the stderr does not look like a
-/// recognizable link failure or missing-header compile failure.
-pub fn diagnose<F>(stderr: &str, dialect: Dialect, lookup_deps: F) -> Option<LinkDiagnostic>
+/// Top-level entry point.  Parses Ninja's captured `output` (stdout,
+/// which carries each failed action's banner and diagnostics, plus
+/// stderr) from a build lowered for `dialect`, walks the captured
+/// failure(s), and consults `lookup_deps` to compute the gap.
+/// Returns the first applicable diagnostic, or `None` if the output
+/// does not look like a recognizable link failure or missing-header
+/// compile failure.
+pub fn diagnose<F>(output: &str, dialect: Dialect, lookup_deps: F) -> Option<LinkDiagnostic>
 where
     F: Fn(&str, &str) -> Option<TargetDepInfo>,
 {
-    let (candidates, missing_header) = find_failed_target(stderr, dialect)?;
+    let (candidates, missing_header) = find_failed_target(output, dialect)?;
     // The path parse cannot tell a bare package dir from a scope
     // dir, or the planner's `/packages/` anchor from a source dir of
     // that name, so a failure line yields several readings; the first
@@ -95,10 +98,10 @@ where
         if step == FailedStep::MissingHeader && !missing_header {
             return None;
         }
-        let unlinked: Vec<String> = info
+        let unlinked: Vec<(String, String)> = info
             .package_deps
-            .difference(&info.target_deps)
-            .cloned()
+            .into_iter()
+            .filter(|(name, _)| !info.target_deps.contains(name))
             .collect();
 
         if unlinked.is_empty() {
@@ -131,7 +134,8 @@ fn is_missing_header(line: &str) -> bool {
 /// and indents continuation lines, so this body is plain: one
 /// logical paragraph per blank-line-separated block, each line
 /// short enough to live under a six-column indent without
-/// re-wrapping on an 80-column terminal.
+/// re-wrapping on an 80-column terminal, except a line naming a
+/// `[target.'cfg(...)'.<kind>]` table, which grows with the condition.
 ///
 /// Code blocks (TOML snippets) are indented four spaces inside
 /// the body; combined with the reporter's six-space indent that
@@ -146,8 +150,16 @@ pub fn render(diag: &LinkDiagnostic) -> String {
         unlinked,
         step,
     } = diag;
-    let primary = unlinked.join("`, `");
-    let first = &unlinked[0];
+    let mut by_table: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (name, table) in unlinked {
+        by_table.entry(table).or_default().push(name);
+    }
+    let declared = by_table
+        .iter()
+        .map(|(table, names)| format!("`{}` in `{table}`", names.join("`, `")))
+        .collect::<Vec<_>>()
+        .join("\nand ");
+    let first = &unlinked[0].0;
     let (gap, role) = match step {
         FailedStep::Link => ("does not link it.", "what actually gets linked."),
         FailedStep::MissingHeader => (
@@ -158,10 +170,10 @@ pub fn render(diag: &LinkDiagnostic) -> String {
     };
     let _ = write!(
         out,
-        "package `{package}` declares `{primary}` in `[dependencies]`,\n\
+        "package `{package}` declares {declared},\n\
          but `[target.{target}]` {gap}\n\
          \n\
-         `[dependencies]` makes a package available; each target's\n\
+         Declaring a dependency makes it available; each target's\n\
          `deps =` list is {role}\n\
          \n\
          Add the dep to the target:\n\
@@ -177,14 +189,17 @@ pub fn render(diag: &LinkDiagnostic) -> String {
 // Parsing
 // -------------------------------------------------------------
 
-/// Parse `stderr` for the first recognizable failed action.
+/// Parse Ninja's captured `output` for the first recognizable failed
+/// action.
 /// Returns the failing target's candidate identities (package +
 /// target name) in the order [`diagnose`] tries them: per
 /// `/packages/` anchor, the bare reading first, then - when the path
-/// is deep enough - the scoped `<scope>/<name>` reading.  The caller
-/// resolves the ambiguity against the loaded workspace.
-pub fn parse_link_failure_candidates(stderr: &str, dialect: Dialect) -> Vec<LinkFailure> {
-    find_failed_target(stderr, dialect)
+/// is deep enough - the scoped `<scope>/<name>` reading.  A
+/// three-component `<scope>/<name>/<file>` output has only the scoped
+/// reading, since a bare package writes there only under `obj/`.  The
+/// caller resolves the ambiguity against the loaded workspace.
+pub fn parse_link_failure_candidates(output: &str, dialect: Dialect) -> Vec<LinkFailure> {
+    find_failed_target(output, dialect)
         .map(|(candidates, _)| candidates)
         .unwrap_or_default()
         .into_iter()
@@ -222,7 +237,7 @@ fn extract_target_name(filename: &str, dialect: Dialect) -> &str {
 /// One `(step, package, target)` reading of a failed action's path.
 type Reading = (FailedStep, String, String);
 
-/// Find the first `FAILED:` line in ninja stderr and pull the
+/// Find the first `FAILED:` line in Ninja's output and pull the
 /// `(step, package, target)` readings out of the path it points at,
 /// plus whether that action's own output reports a missing header.
 ///
@@ -233,11 +248,11 @@ type Reading = (FailedStep, String, String);
 /// subdirectory, so the segments after `/packages/` are the
 /// load-bearing signal.  Anything before `/packages/` is
 /// platform-dependent build-root noise.  A two-component tail is a
-/// bare link output; a three-component tail is ambiguous (bare
-/// package with a subdir vs scoped package), so both readings are
-/// returned, bare first; a deeper tail is an object file.
-fn find_failed_target(stderr: &str, dialect: Dialect) -> Option<(Vec<Reading>, bool)> {
-    let mut lines = stderr.lines();
+/// bare link output and a three-component tail a scoped one, since a
+/// bare package writes nothing at that depth; a deeper tail is an
+/// object file.
+fn find_failed_target(output: &str, dialect: Dialect) -> Option<(Vec<Reading>, bool)> {
+    let mut lines = output.lines();
     while let Some(line) = lines.next() {
         // The rest of the line is one or more space-separated
         // output paths (ninja's `FAILED:` lists every output of
@@ -298,11 +313,7 @@ fn readings(tail: &[&str], dialect: Dialect) -> Vec<Reading> {
     match *tail {
         [] | [_] => Vec::new(),
         [pkg, file] => link(pkg.to_owned(), file),
-        [pkg, target, file] => [
-            link(pkg.to_owned(), target),
-            link(format!("{pkg}/{target}"), file),
-        ]
-        .concat(),
+        [scope, name, file] => link(format!("{scope}/{name}"), file),
         _ => {
             let mut candidates = Vec::new();
             if tail[1] == "obj" {
@@ -324,9 +335,17 @@ fn readings(tail: &[&str], dialect: Dialect) -> Vec<Reading> {
 mod tests {
     use super::*;
 
+    /// `names`, each declared in `[dependencies]`.
+    fn normal(names: &[&str]) -> Vec<(String, String)> {
+        names
+            .iter()
+            .map(|s| ((*s).to_owned(), "[dependencies]".to_owned()))
+            .collect()
+    }
+
     fn deps(package: &[&str], target: &[&str]) -> TargetDepInfo {
         TargetDepInfo {
-            package_deps: package.iter().map(|s| (*s).to_owned()).collect(),
+            package_deps: normal(package).into_iter().collect(),
             target_deps: target.iter().map(|s| (*s).to_owned()).collect(),
         }
     }
@@ -483,42 +502,37 @@ mod tests {
         } = diag;
         assert_eq!(package, "mytest");
         assert_eq!(target, "mytest");
-        assert_eq!(unlinked, vec!["zlib"]);
+        assert_eq!(unlinked, normal(&["zlib"]));
         assert_eq!(step, FailedStep::Link);
     }
 
-    /// A scoped package's link failure path carries two readings;
-    /// the parser yields the bare one first and the scoped
-    /// `<scope>/<name>` one second.
+    /// A three-component tail is a scoped package's link output: a
+    /// bare package writes nothing at that depth.
     #[test]
-    fn parses_scoped_failed_line_into_both_candidates() {
+    fn parses_scoped_failed_line_as_the_scoped_package() {
         let stderr = "FAILED: build/dev/packages/fmtlib/fmt/demo\nld: ...\n";
         let candidates = parse_link_failure_candidates(stderr, Dialect::GnuLike);
         assert_eq!(
             candidates,
-            vec![
-                LinkFailure {
-                    package: "fmtlib".to_owned(),
-                    target: "fmt".to_owned(),
-                },
-                LinkFailure {
-                    package: "fmtlib/fmt".to_owned(),
-                    target: "demo".to_owned(),
-                },
-            ]
+            vec![LinkFailure {
+                package: "fmtlib/fmt".to_owned(),
+                target: "demo".to_owned(),
+            }]
         );
     }
 
-    /// When only the scoped reading names a known package, the
-    /// diagnostic attributes the failure to `<scope>/<name>` and the
-    /// real target - not to a phantom package named after the scope.
+    /// A scoped link failure goes to `<scope>/<name>` and the real
+    /// target, even when a bare package named like the scope, with a
+    /// target named like the package, is planned too: the build
+    /// context is planned apart, under its own `packages/` tree.
     #[test]
     fn diagnose_resolves_the_scoped_reading() {
         let stderr = "FAILED: [code=1] /abs/build/dev/packages/fmtlib/fmt/demo\n\
              /usr/bin/c++ obj/main.cc.o -o /abs/.../demo\n\
              ld: symbol(s) not found for architecture arm64\n";
         let diag = diagnose(stderr, Dialect::GnuLike, |pkg, target| {
-            (pkg == "fmtlib/fmt" && target == "demo").then(|| deps(&["zlib"], &[]))
+            matches!((pkg, target), ("fmtlib/fmt", "demo") | ("fmtlib", "fmt"))
+                .then(|| deps(&["zlib"], &[]))
         })
         .unwrap();
         let LinkDiagnostic::DeclaredButUnlinked {
@@ -579,7 +593,7 @@ mod tests {
         })
         .unwrap();
         let LinkDiagnostic::DeclaredButUnlinked { unlinked, .. } = &diag;
-        assert_eq!(unlinked, &["fmt", "spdlog", "zlib"]);
+        assert_eq!(unlinked, &normal(&["fmt", "spdlog", "zlib"]));
     }
 
     // ---- render --------------------------------------------------
@@ -589,7 +603,7 @@ mod tests {
         let diag = LinkDiagnostic::DeclaredButUnlinked {
             package: "mytest".into(),
             target: "mytest".into(),
-            unlinked: vec!["zlib".into()],
+            unlinked: normal(&["zlib"]),
             step: FailedStep::Link,
         };
         let out = render(&diag);
@@ -597,6 +611,27 @@ mod tests {
         assert!(out.contains("`zlib`"));
         assert!(out.contains("[target.mytest]"));
         assert!(out.contains("deps = [\"zlib\"]"));
+    }
+
+    /// Each unlinked dep is named with the table declaring it, so an
+    /// activated dev-dependency does not read as a `[dependencies]`
+    /// entry.
+    #[test]
+    fn render_names_the_table_declaring_each_dep() {
+        let diag = LinkDiagnostic::DeclaredButUnlinked {
+            package: "app".into(),
+            target: "app_test".into(),
+            unlinked: vec![
+                ("gtest".into(), "[dev-dependencies]".into()),
+                ("kit".into(), "[dependencies]".into()),
+                ("zlib".into(), "[dependencies]".into()),
+            ],
+            step: FailedStep::Link,
+        };
+        let out = render(&diag);
+        assert!(out.contains("`gtest` in `[dev-dependencies]`"), "{out}");
+        assert!(out.contains("`kit`, `zlib` in `[dependencies]`"), "{out}");
+        assert!(out.contains("deps = [\"gtest\"]"), "{out}");
     }
 
     // ---- missing-header compile failures ---------------------------
@@ -620,7 +655,7 @@ mod tests {
             LinkDiagnostic::DeclaredButUnlinked {
                 package: "app".into(),
                 target: "app".into(),
-                unlinked: vec!["kit".into()],
+                unlinked: normal(&["kit"]),
                 step: FailedStep::MissingHeader,
             }
         );
@@ -710,7 +745,7 @@ mod tests {
         let diag = LinkDiagnostic::DeclaredButUnlinked {
             package: "app".into(),
             target: "app".into(),
-            unlinked: vec!["kit".into()],
+            unlinked: normal(&["kit"]),
             step: FailedStep::MissingHeader,
         };
         let out = render(&diag);

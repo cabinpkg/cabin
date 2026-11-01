@@ -15,7 +15,7 @@
 //! [`crate::cli::test`]) so each command renders Ninja output the same
 //! way.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::Context as _;
 
@@ -252,14 +252,16 @@ pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvo
         //   activated them for this invocation
         //   (`cabin test` populates `include_dev_for` with the
         //   selected test runners; ordinary builds leave it
-        //   empty, matching the loader's policy).
+        //   empty, matching the loader's policy) and the target
+        //   is a `test` or `example`, the only kinds that may
+        //   list one.
         // * Skip `optional = true` entries whose features are
         //   not enabled by the current resolution - suggesting
         //   "add this to target.deps" for a disabled optional
         //   dep would not change the link command.
-        let dev_active = include_dev_for.contains(pkg_name);
+        let dev_active = include_dev_for.contains(pkg_name) && target.kind.is_dev_only();
         let features = req.feature_resolution.for_package(pkg_idx);
-        let package_deps: BTreeSet<String> = wp
+        let package_deps: BTreeMap<String, String> = wp
             .package
             .dependencies
             .iter()
@@ -277,7 +279,12 @@ pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvo
                 }
                 true
             })
-            .map(|d| d.name.as_str().to_owned())
+            .map(|d| {
+                (
+                    d.name.as_str().to_owned(),
+                    d.kind.manifest_table(d.condition.as_ref()),
+                )
+            })
             .collect();
         // `target.deps` entries are either a bare name (same-package
         // target or a dependency package's sole library-like target)

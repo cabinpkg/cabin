@@ -964,6 +964,21 @@ impl DependencyKind {
         }
     }
 
+    /// The manifest table an entry of this kind is declared under,
+    /// spelled as a user writes it: the plain kind table, or the
+    /// `[target.'cfg(...)'.<kind>]` form for an entry declared
+    /// under `condition`.
+    pub fn manifest_table(self, condition: Option<&crate::Condition>) -> String {
+        let section = self.manifest_section();
+        match condition {
+            Some(condition) => {
+                let table = section.trim_matches(['[', ']']);
+                format!("[target.'cfg({condition})'.{table}]")
+            }
+            None => section.to_owned(),
+        }
+    }
+
     /// All kinds in canonical order. `cabin metadata` and the
     /// canonical package metadata both iterate kinds in this order
     /// so output stays deterministic.
