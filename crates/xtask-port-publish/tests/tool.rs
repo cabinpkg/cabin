@@ -472,6 +472,8 @@ fn consumer_tests_run_in_the_dry_run_and_never_in_the_publish_run() {
         String::from_utf8_lossy(&published.stderr)
     );
     assert!(!marker.path().exists(), "the publish run executed a probe");
+    let stdout = String::from_utf8_lossy(&published.stdout);
+    assert!(!stdout.contains(", run "), "{stdout}");
 
     let dry = run("--dry-run", "dry-work", None);
     let stderr = String::from_utf8_lossy(&dry.stderr);
