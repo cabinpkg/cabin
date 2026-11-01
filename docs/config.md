@@ -126,7 +126,7 @@ the full precedence is CLI flag > config `[registry]` > built-in default.
 | Key          | Type    | Notes                                                                 |
 | ------------ | ------- | --------------------------------------------------------------------- |
 | `index-path` | path    | Local-filesystem index.  Relative paths resolve against the config file's directory. |
-| `index-url`  | URL     | Sparse HTTP index URL.  Used as-is.                                    |
+| `index-url`  | URL     | Sparse HTTP index URL: `https`, or `http` only to a loopback host ([sparse HTTP index](package-index.md#sparse-http-index)). |
 
 A single config file may declare *either* `index-path` or `index-url`, never both - the parser
 rejects the combination with ``config key `registry.index-path` conflicts with `registry.index-url`;

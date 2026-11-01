@@ -65,8 +65,9 @@ impl HttpIndex {
     ///
     /// # Errors
     /// Returns [`IndexHttpError::InvalidUrl`] when `base_url` is
-    /// malformed, uses a non-`http(s)` scheme, carries credentials, or
-    /// fails to join the `config.json` path.  Returns
+    /// malformed, uses a non-`http(s)` scheme, uses plain `http` for a
+    /// host other than loopback, carries credentials, or fails to join
+    /// the `config.json` path.  Returns
     /// [`IndexHttpError::InvalidConfig`] when `config.json` is not
     /// valid JSON or its `schema`/`kind`/`packages`/`artifacts`/
     /// `auth-required`/`api` fields fail validation.  Propagates the
@@ -271,31 +272,46 @@ fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
 }
 
 /// Normalize a base URL: accept the input with or without a trailing
-/// slash, reject schemes other than `http(s)`, and reject URLs that
-/// carry `userinfo` so credentials never reach the wire or surface
-/// in transport errors.  This is a defense-in-depth: the config layer
-/// rejects credential-bearing `index-url` values, but the HTTP layer
-/// is also reachable from the CLI override (`--index-url`), so the
-/// check is duplicated here so every entry point fails closed.
+/// slash, reject schemes other than `https` and loopback `http`, and
+/// reject URLs that carry `userinfo` so credentials never reach the
+/// wire or surface in transport errors.  This is a defense-in-depth:
+/// the config layer rejects credential-bearing `index-url` values, but
+/// the HTTP layer is also reachable from the CLI override
+/// (`--index-url`), so the check is duplicated here so every entry
+/// point fails closed.
+///
+/// Plain `http` is refused beyond loopback because the index decides
+/// which bytes a fresh resolution pins: a network attacker able to
+/// rewrite it chooses the dependencies.  Every artifact URL must share
+/// the index's origin, so this one check covers downloads too.
 pub(crate) fn parse_base_url(input: &str) -> Result<url::Url, IndexHttpError> {
     let mut parsed = url::Url::parse(input).map_err(|err| IndexHttpError::InvalidUrl {
         url: input.to_owned(),
         message: err.to_string(),
     })?;
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(IndexHttpError::InvalidUrl {
+            url: redact_url_userinfo(&parsed),
+            message: "URL must not contain credentials (userinfo)".to_owned(),
+        });
+    }
     match parsed.scheme() {
-        "http" | "https" => {}
+        "https" => {}
+        "http" if cabin_credentials::url_is_loopback(parsed.as_str()) => {}
+        "http" => {
+            return Err(IndexHttpError::InvalidUrl {
+                url: input.to_owned(),
+                message: "plain `http` is allowed only for a loopback host (`localhost`, \
+                          `127.0.0.0/8`, `::1`); use `https`"
+                    .to_owned(),
+            });
+        }
         other => {
             return Err(IndexHttpError::InvalidUrl {
                 url: input.to_owned(),
                 message: format!("unsupported URL scheme {other:?}"),
             });
         }
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(IndexHttpError::InvalidUrl {
-            url: redact_url_userinfo(&parsed),
-            message: "URL must not contain credentials (userinfo)".to_owned(),
-        });
     }
     if !parsed.path().ends_with('/') {
         let new_path = format!("{}/", parsed.path());
@@ -560,6 +576,30 @@ mod tests {
                 assert!(message.contains("file"));
             }
             other => panic!("expected InvalidUrl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_base_url_refuses_plain_http_beyond_loopback() {
+        for remote in [
+            "http://registry.example.com/index/",
+            "http://10.0.0.1/",
+            "http://localhost.example.com/",
+        ] {
+            let err = parse_base_url(remote).unwrap_err();
+            assert!(
+                matches!(&err, IndexHttpError::InvalidUrl { message, .. } if message.contains("loopback")),
+                "{remote}: {err:?}"
+            );
+        }
+        for local in [
+            "http://localhost:8080/",
+            "http://127.0.0.1:1/",
+            "http://127.5.6.7/",
+            "http://[::1]/",
+            "https://registry.example.com/",
+        ] {
+            parse_base_url(local).unwrap();
         }
     }
 

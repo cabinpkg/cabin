@@ -388,7 +388,12 @@ These are deferred.
 ## Sparse HTTP index
 
 `--index-url <url>` consumes the same registry-root layout served as static HTTP files.  The base
-URL may include or omit a trailing slash; the loader normalizes it.
+URL may include or omit a trailing slash; the loader normalizes it.  It must be `https`, or plain
+`http` to a loopback host (`localhost`, `127.0.0.0/8`, `::1`) for local testing: the index decides
+which bytes a fresh resolution pins, so a cleartext index beyond the local machine would let the
+network choose the dependencies.  The rule covers every entry point - `--index-url`, `[registry]
+index-url`, and a `[source-replacement]` URL - and, since artifacts share the index origin, every
+download.
 
 Request shape:
 
