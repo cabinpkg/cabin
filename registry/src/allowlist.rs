@@ -7,9 +7,9 @@
 ///
 /// # Panics
 ///
-/// On any non-numeric entry: that is a deployment mistake (most likely a
-/// login name where the numeric id belongs), and refusing to start beats
-/// silently locking everyone out - or worse, guessing.
+/// On a non-numeric entry or one that overflows an `i64`: a deployment
+/// mistake (most likely a login name where the numeric id belongs), and
+/// refusing to start beats silently locking everyone out.
 pub fn parse_allowed_ids(raw: &str) -> Vec<i64> {
     raw.split(',')
         .map(str::trim)

@@ -34,8 +34,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// The full server-side validation path for one framed publish body, as
-/// `glue::publish_response` runs it: decode, metadata validation, digest
-/// comparison.
+/// `glue::bearer::package::publish_response` runs it: decode, metadata
+/// validation, digest comparison.
 fn validate_pair(
     scope: &str,
     name: &str,

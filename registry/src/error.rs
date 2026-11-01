@@ -77,7 +77,7 @@ pub fn envelope(detail: &str) -> String {
 
 /// Renders `detail` plus a machine-readable `code` into the envelope:
 /// `{"errors":[{"detail":"...","code":"..."}]}`. Quota, rate-limit, and
-/// budget refusals carry codes; the pre-existing errors stay detail-only
+/// budget refusals carry codes; the other errors are detail-only
 /// (clients ignore the extra field either way).
 pub fn envelope_with_code(detail: &str, code: &str) -> String {
     serde_json::json!({ "errors": [{ "detail": detail, "code": code }] }).to_string()

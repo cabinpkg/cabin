@@ -153,9 +153,9 @@ fn the_lifetime_claim_limit_counts_history_not_ownership() {
     }
     assert_eq!(member_role(&conn, "four", 2), None);
 
-    // Releasing scopes - today the operator's manual surgery, tomorrow
-    // a transfer/release endpoint - never restores capacity: the
-    // append-only history outlives the `scopes` rows.
+    // Releasing scopes (operator surgery; there is no release or
+    // transfer endpoint) never restores capacity: the append-only
+    // history outlives the `scopes` rows.
     conn.execute_batch(
         "DELETE FROM scope_members WHERE scope_name IN ('one', 'two');
          DELETE FROM scopes WHERE name IN ('one', 'two');",

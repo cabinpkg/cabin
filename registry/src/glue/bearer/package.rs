@@ -53,8 +53,8 @@ struct YankBody {
 /// exactly like one the user is not a member of), and followed - for
 /// genuinely new versions and replacements of rejected ones only - by
 /// the archive-size cap (`413`), the `-`/`_` twin-name reject for new
-/// packages (`400`, before the quotas - name validity does not depend
-/// on quota state), and the per-user quota checks (`403`);
+/// packages (`400`, before the quotas), and the per-user quota checks
+/// (`403`);
 /// on success the archive lands in R2 first (an orphaned blob from a
 /// crash between the two writes stays conservatively represented by
 /// its governor reservation - see `docs/runbook.md`), then one atomic
@@ -63,9 +63,8 @@ struct YankBody {
 /// storage self-accounting. New rows start `pending` and the `201`
 /// reports it: nothing becomes resolvable before the verifier says so.
 // The route triple plus the request plumbing exceeds the argument lint,
-// and the publish pipeline is one deliberately linear sequence of gate
-// checks in documented order, so it also runs long; splitting either
-// would scatter that structure across helpers rather than clarify it.
+// and the body is one linear sequence of gate checks in the documented
+// order; splitting either would scatter that sequence across helpers.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(super) async fn publish_response(
     req: &mut Request,
@@ -300,7 +299,7 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// breaker (`503`) like publish; yank has no rate limit or quota.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
-/// under a foreign scope. Yank applies to **verified** versions only: a
+/// under a foreign scope. Yank applies to verified versions only: a
 /// pending or rejected version was never part of the registry's
 /// resolvable surface, so there is nothing to retract and the triple
 /// answers an authenticated 404.
@@ -364,8 +363,7 @@ pub(super) async fn yank_response(
 /// `SubtleCrypto` digest - hashing multi-MiB archives with a wasm `sha2`
 /// would burn CPU budget instead. If per-request CPU ever nears the free
 /// plan's limit anyway, the next step is the runtime's `DigestStream`
-/// (hash while the body streams in, no full buffer); measurement is
-/// deferred to the load-testing step, do not rework speculatively.
+/// (hash while the body streams in, no full buffer).
 async fn sha256_hex(bytes: &[u8]) -> worker::Result<String> {
     use worker::js_sys::{Function, Promise, Reflect, Uint8Array};
     use worker::wasm_bindgen::{JsCast, JsValue};
@@ -442,21 +440,23 @@ enum Persist {
 /// The accounting decision lives inside the batch (one transaction): the
 /// meta bump counts the archive only when the row just inserted is the
 /// checksum's sole **live** (non-rejected) reference - a rejected row's
-/// bytes were refunded when its blob was reclaimed, so it must not
-/// suppress re-counting a re-uploaded blob. That way the crash-retry
-/// path - blob already uploaded but never counted - still accounts for
-/// it, a second name sharing the blob never double-counts it, and two
+/// bytes were refunded at rejection, so it must not suppress
+/// re-counting a re-uploaded blob. That way the crash-retry path -
+/// blob already uploaded but never counted - still accounts for it, a
+/// second name sharing the blob never double-counts it, and two
 /// concurrent first publishes of the same archive serialize on the
-/// transaction so exactly one of them counts it. Backup replication no
-/// longer rides publish at all: only versions that become **verified**
-/// enter the durable backup queue ([`sql::ENQUEUE_VERIFIED_BACKUP`]).
+/// transaction so exactly one of them counts it. Backup replication
+/// does not ride publish: only versions that become verified enter the
+/// durable backup queue ([`sql::ENQUEUE_VERIFIED_BACKUP`]).
 ///
-/// [`Persist::Lost`] means the batch's `-`/`_` twin guard suppressed
-/// both inserts - a twin publish won the race after this request's
-/// preflight - and nothing was persisted (the uploaded blob stays
-/// behind exactly like a crash between the two writes: an orphan the
-/// ledger keeps conservatively represented); the caller answers the
-/// twin `400`.
+/// [`Persist::Lost`] means the batch's guards suppressed the revision
+/// insert - a twin publish, a byte-identical publish, or (without the
+/// opt-in) a different-bytes sibling committed after this request's
+/// preflight - and nothing was persisted.  Unless the winner references
+/// the same blob, the upload stays behind exactly like a crash between
+/// the two writes: an orphan the ledger keeps conservatively
+/// represented.  The caller re-reads and answers as if it had arrived
+/// after the winner.
 async fn persist_new_revision(
     env: &Env,
     db: &D1Database,
@@ -744,7 +744,7 @@ async fn revive_rejected_revision(
 /// bytes, so it repairs a primary blob a reclaim race deleted. Like
 /// every repair path it is governed and opportunistic - a refusal
 /// skips it without failing the (already correct) response. Backup
-/// replication no longer rides retries: the verified-backup queue is
+/// replication does not ride retries: the verified-backup queue is
 /// durable on its own.
 async fn heal_blobs_on_retry(env: &Env, checksum: &str, archive: &[u8]) -> worker::Result<()> {
     let key = crate::checksum::blob_key(checksum);

@@ -457,8 +457,7 @@ fn the_verify_shape_is_bounded_unconfined_and_unclassed() {
     let user_id = seed_token(&conn, "tok-1", "hash-1");
     // The verify shape's positive side: the verifier arm's mint is
     // bounded like the publish shape but unconfined and unclassed -
-    // NULL quota_class inherits the backing user's class, exactly what
-    // the static verify token's row carried.
+    // NULL quota_class inherits the backing user's class.
     conn.execute(
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
                              expires_at) \
@@ -468,9 +467,7 @@ fn the_verify_shape_is_bounded_unconfined_and_unclassed() {
     )
     .expect("a bounded verify-shape trustpub token is in the domain");
     // The verify shape admits nothing beyond the bare scope: a scope
-    // limit, a quota class, or a missing expiry each fail the CHECK, so
-    // the verifier arm's mint can never carry a grant the static verify
-    // token did not.
+    // limit, a quota class, or a missing expiry each fail the CHECK.
     for (label, columns, values) in [
         (
             "verify shape with a scope limit",
@@ -520,10 +517,8 @@ fn the_verify_shape_is_bounded_unconfined_and_unclassed() {
 /// The session shape CHECK: `kind = 'session'` means bounded (within a
 /// day of issuance), carrying one of the two mintable scope sets
 /// (`publish,yank`, or with `verify` for the operator), unconfined, and
-/// unclassed - so a bug in the minting path can never
-/// widen a login into a standing or confined credential, and a
-/// long-lived session can never be inserted again once the legacy
-/// token plane is gone.
+/// unclassed - so a bug in the minting path can never widen a login
+/// into a standing or confined credential.
 #[test]
 fn the_session_shape_is_bounded_unconfined_and_unclassed() {
     let conn = migrated_connection();

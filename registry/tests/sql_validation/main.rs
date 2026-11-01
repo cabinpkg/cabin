@@ -6,11 +6,11 @@
 //! executing and accepts D1's `?N` placeholders, so a typo, a wrong
 //! column name, or schema drift fails here instead of in production -
 //! the assurance an ORM's typed columns would give at compile time,
-//! without one (`docs/architecture.md`, "Why no ORM"). The identity
-//! upsert additionally gets **executed** here: its two statements are
-//! coupled through `last_insert_rowid()`, which `prepare` cannot check.
+//! without one (`docs/architecture.md`, "Why no ORM").
 //!
-//! The executed-semantics tests are grouped by `src/sql/` statement
+//! Semantics `prepare` cannot check - in-statement guards, the
+//! `changes()` and `last_insert_rowid()` couplings - are executed by the
+//! tests in the per-domain modules, grouped by `src/sql/` statement
 //! domain; the every-statement guarantee stays here, global.
 #![cfg(not(target_arch = "wasm32"))]
 

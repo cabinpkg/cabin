@@ -13,21 +13,21 @@ statements! {
          ON CONFLICT (key) DO UPDATE SET value = excluded.value";
 
     /// Counts a published archive's bytes into `total_stored_bytes`
-    /// exactly when this batch's [`INSERT_REVISION`](super::packages::INSERT_REVISION) is about to
-    /// apply and no live row references the checksum yet.  The
-    /// statement runs *before* the insert (mirroring
-    /// [`COUNT_STORED_BYTES_ON_REVIVAL`]'s decide-then-flip shape)
-    /// and repeats the insert's guards one-for-one - the same-key
-    /// conjunct included - so a suppressed insert (a twin, a racing
-    /// byte-identical publish, an unflagged respin) can never count
-    /// bytes, and a blob some other live row already references is
-    /// never counted twice.  A post-insert
-    /// row-exists test could not tell this batch's row from a racing
-    /// byte-identical winner's, which is why the guards read the
-    /// pre-insert state instead. The CASTs
-    /// here and below keep the TEXT-affinity meta value integer-shaped:
-    /// D1 binds numbers as floats, and INTEGER + REAL would otherwise
-    /// store "254.0", which the breaker's strict u64 parse rejects.
+    /// exactly when this batch's
+    /// [`INSERT_REVISION`](super::packages::INSERT_REVISION) is about to
+    /// apply and no live row references the checksum yet. The statement
+    /// runs *before* the insert (mirroring
+    /// [`COUNT_STORED_BYTES_ON_REVIVAL`]'s decide-then-flip shape) and
+    /// repeats the insert's guards one-for-one - the same-key conjunct
+    /// included - so a suppressed insert (a twin, a racing byte-identical
+    /// publish, an unflagged respin) can never count bytes, and a blob
+    /// some other live row already references is never counted twice. A
+    /// post-insert row-exists test could not tell this batch's row from a
+    /// racing byte-identical winner's, which is why the guards read the
+    /// pre-insert state instead. The CASTs here and below keep the
+    /// TEXT-affinity meta value integer-shaped: D1 binds numbers as
+    /// floats, and INTEGER + REAL would otherwise store "254.0", which
+    /// the breaker's strict u64 parse rejects.
     COUNT_STORED_BYTES_ON_PUBLISH =
         "INSERT INTO meta (key, value) VALUES ('total_stored_bytes', \
          CASE WHEN (SELECT COUNT(*) FROM revisions \
@@ -77,12 +77,14 @@ statements! {
 
     /// Re-counts a revived rejected revision's bytes exactly when the
     /// revival is about to apply and no other live row references the
-    /// checksum - a rejection refunded them (see `src/glue/bearer/package.rs`,
-    /// `revive_rejected_revision`; revivals are byte-identical, so
-    /// the checksum is the row's own).  The conditions mirror
-    /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)'s guards one-for-one - the
-    /// opt-in (`?8`) and advancing-stamp (`?9`) conjuncts included - so the counter can
-    /// never gain bytes for a flip the guards refused.
+    /// checksum - a rejection refunded them (see
+    /// `src/glue/bearer/package.rs`, `revive_rejected_revision`; revivals
+    /// are byte-identical, so the checksum is the row's own). The
+    /// conditions mirror
+    /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)'s
+    /// guards one-for-one - the opt-in (`?8`) and advancing-stamp (`?9`)
+    /// conjuncts included - so the counter can never gain bytes for a
+    /// flip the guards refused.
     COUNT_STORED_BYTES_ON_REVIVAL =
         "UPDATE meta SET value = CAST(value AS INTEGER) + \
          CASE WHEN (SELECT verification FROM revisions \

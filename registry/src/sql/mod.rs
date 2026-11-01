@@ -1,17 +1,18 @@
-//! Every SQL statement the Worker executes, in one place. (Operational
-//! scripts under `scripts/` run their own SQL through `wrangler d1`;
-//! this module owns the service's execution paths only.)
+//! Every D1 statement the Worker executes, in one place. (The governor
+//! Durable Object's SQLite statements live in `src/governor.rs`, and the
+//! operator tooling in `crates/xtask-registry-admin` runs its own SQL
+//! through `wrangler d1 execute`; this module owns the service's D1
+//! execution paths only.)
 //!
 //! All execution goes through D1 `prepare`, and every runtime value
 //! rides a `?N` bind - parameterization is what injection safety rests
 //! on; the few fixed queries take no input at all. These consts are the
-//! single home
-//! of the executed strings so the host-target validation test
-//! (`tests/sql_validation/`) can prepare each one against the real,
+//! single home of the executed strings so the host-target validation
+//! test (`tests/sql_validation/`) can prepare each one against the real,
 //! from-zero migrated schema - catching typos, wrong column names, and
-//! schema drift at test time - and so the CI guard
-//! (`cargo check-sql`) can keep new call sites from bypassing it.
-//! See `docs/architecture.md`, "Why no ORM".
+//! schema drift at test time - and so the CI guard (`cargo check-sql`)
+//! can keep new call sites from bypassing it. See `docs/architecture.md`,
+//! "Why no ORM".
 
 /// Declares one documented `pub const` per statement and collects the
 /// module's statements into its `STATEMENTS` group, one entry of

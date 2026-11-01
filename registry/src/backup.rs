@@ -162,8 +162,9 @@ pub fn parse_export_poll(body: &str) -> ExportPoll {
 // --- Streaming dump validation -------------------------------------------
 
 /// Incremental validation of a dump as it streams through the Worker:
-/// SHA-256, total size, and presence of every expected `CREATE TABLE`
-/// statement (matched across chunk boundaries via a carried tail).
+/// SHA-256, total size, and presence of every expected `CREATE TABLE`,
+/// `CREATE VIEW`, and `INSERT INTO` statement (matched across chunk
+/// boundaries via a carried tail).
 pub struct DumpScanner {
     hasher: Sha256,
     bytes: u64,

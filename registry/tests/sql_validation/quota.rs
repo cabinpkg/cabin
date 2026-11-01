@@ -6,8 +6,9 @@ use rusqlite::{Connection, StatementStatus, params};
 
 use crate::common::{migrated_connection, resolve, sign_in};
 
-/// One `glue::cas_bucket` write: D1 binds every JS number as a REAL
-/// (the user id too) and the timestamp as the `f64` `Display` text.
+/// One `glue::bearer::package::cas_bucket` write: D1 binds every JS
+/// number as a REAL (the user id too) and the timestamp as the `f64`
+/// `Display` text.
 fn cas(
     conn: &rusqlite::Connection,
     user_id: i64,

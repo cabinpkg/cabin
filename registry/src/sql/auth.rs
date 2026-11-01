@@ -4,12 +4,11 @@
 statements! {
     /// The bearer-token lookup; the effective quota class is the token
     /// row's own when set (the trustpub exchange's granted tier), else
-    /// the owning user's. Revoked tokens never match. Neither do
-    /// expired ones (`?2` is the
-    /// current ISO-8601 instant): enforcing expiry inside this WHERE
-    /// makes an expired token produce the exact no-row result an
-    /// unknown hash does - same uniform 401, same single lookup - so
-    /// no response or timing oracle separates "expired" from
+    /// the owning user's. Revoked tokens never match. Neither do expired
+    /// ones (`?2` is the current ISO-8601 instant): enforcing expiry
+    /// inside this WHERE makes an expired token produce the exact no-row
+    /// result an unknown hash does - same uniform 401, same single
+    /// lookup - so no response or timing oracle separates "expired" from
     /// "invalid". A token is live only from `created_at` on: the
     /// trustpub lifetime ceiling anchors on `created_at`, so a minting
     /// bug forging a far-future anchor must yield a row that cannot
@@ -55,18 +54,17 @@ statements! {
          FROM identities i JOIN users u ON u.id = i.user_id \
          WHERE i.provider = ?1 AND i.provider_account_id = ?2";
 
-    /// Mints a login-session token
-    /// (`PUT /api/v1/sessions/tokens`); D1 stores only the SHA-256 hex
-    /// of the plaintext. The shape is fixed here and re-enforced by the
-    /// schema's session CHECK: bounded, unconfined, and NULL
-    /// `quota_class` so the row inherits the owning user's class live
-    /// through [`AUTH_TOKEN_LOOKUP`]'s COALESCE. The scope set is
-    /// `publish,yank`, plus `verify` only for the operator's own account
-    /// - `users.id` 1, the row the baseline migration seeds as the
-    /// operator. Quota classes stay resource tiers: promoting another
-    /// account to 'operator' raises its limits and nothing else. The
-    /// CHECK admits both strings; which user gets which is decided here
-    /// alone.
+    /// Mints a login-session token (`PUT /api/v1/sessions/tokens`); D1
+    /// stores only the SHA-256 hex of the plaintext. The shape is fixed
+    /// here and re-enforced by the schema's session CHECK: bounded,
+    /// unconfined, and NULL `quota_class` so the row inherits the owning
+    /// user's class live through [`AUTH_TOKEN_LOOKUP`]'s COALESCE. The
+    /// scope set is `publish,yank`, plus `verify` only for the operator's
+    /// own account - `users.id` 1, the row the baseline migration seeds
+    /// as the operator. Quota classes stay resource tiers: promoting
+    /// another account to 'operator' raises its limits and nothing else.
+    /// The CHECK admits both strings; which user gets which is decided
+    /// here alone.
     INSERT_SESSION_TOKEN =
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
                              expires_at, kind) \
@@ -74,7 +72,7 @@ statements! {
                  CASE WHEN ?2 = 1 THEN 'publish,yank,verify' ELSE 'publish,yank' END, \
                  ?4, ?5, 'session')";
 
-    /// [`DELETE_TRUSTPUB_TOKEN`](super::trustpub::DELETE_TRUSTPUB_TOKEN)'s session sibling, with the same
-    /// zero-changes-is-401 discipline.
+    /// [`DELETE_TRUSTPUB_TOKEN`](super::trustpub::DELETE_TRUSTPUB_TOKEN)'s
+    /// session sibling, with the same zero-changes-is-401 discipline.
     DELETE_SESSION_TOKEN = "DELETE FROM tokens WHERE id = ?1 AND kind = 'session'";
 }

@@ -6,8 +6,8 @@
 //!
 //! Protocol (internal, Worker-to-object only):
 //! `POST /decide` with a [`governor::Decision`], `GET /usage`,
-//! `POST /reconcile` with a [`governor::ReconcileRequest`]. Every
-//! handled response is 200 JSON; anything else means the governor is
+//! `POST /reconcile` with a [`governor::ReconcileRequest`], `POST /wipe`.
+//! Every handled response is 200 JSON; anything else means the governor is
 //! unavailable and callers fail closed (`crate::governor_client`).
 
 use worker::{

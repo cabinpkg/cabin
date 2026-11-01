@@ -143,7 +143,7 @@ pub(super) async fn handle_website(
         Method::Delete => match match_api_route(path) {
             Some(route @ (ApiRoute::TrustPubTokens | ApiRoute::SessionTokens)) => {
                 // Early return past the generation stamp below: the
-                // kind guard's 401 must stay HEADER-identical to the
+                // kind guard's 401 must stay header-identical to the
                 // unauthenticated one (which never gets the stamp), or
                 // the debug header becomes a token-validity oracle on
                 // this route. The 204 goes unstamped with it.

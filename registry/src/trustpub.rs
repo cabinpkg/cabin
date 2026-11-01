@@ -30,18 +30,17 @@ pub const GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.co
 pub const GITHUB_JWKS_URL: &str = "https://token.actions.githubusercontent.com/.well-known/jwks";
 
 /// The Cache API key for the fetched JWKS. A synthetic same-zone URL,
-/// NOT [`GITHUB_JWKS_URL`]: the Cache API silently refuses to store
-/// entries under an out-of-zone URL, which would turn every `put` into
-/// a logged no-op and every verification into an origin fetch. Same
+/// not [`GITHUB_JWKS_URL`]: the Cache API refuses to store entries
+/// under an out-of-zone URL, which would turn every `put` into a no-op
+/// and every verification into an origin fetch. Same
 /// pattern as the artifact cache's `__cache` identity
 /// (`registry/docs/architecture.md`, "The read plane and the edge
 /// cache").
 #[cfg(target_arch = "wasm32")]
 const JWKS_CACHE_KEY: &str = "https://registry.cabinpkg.com/__cache/github-jwks";
 
-/// The audience the registry's own exchange expects. Callers pass the
-/// audience explicitly so each endpoint's audience stays its own;
-/// this constant is the registry default, not a baked-in rule.
+/// The audience the trusted-publishing exchange expects. [`verify`]
+/// takes the audience as a parameter so each endpoint checks its own.
 pub const DEFAULT_AUDIENCE: &str = "cabinpkg.com";
 
 /// The audience the verifier callback expects. Distinct from
@@ -111,11 +110,11 @@ pub struct GithubClaims {
     /// (`oidc_used_jtis`).
     pub jti: String,
     /// When the token stops verifying (Unix seconds): the authenticated
-    /// `exp` plus the acceptance leeway, not the raw claim. The exchange
-    /// writes it to `oidc_used_jtis.expires_at` so a replay row
+    /// `exp` plus the acceptance leeway, not the raw claim. Both
+    /// endpoints write it to `oidc_used_jtis.expires_at` so a replay row
     /// outlives every instant at which [`verify`] would still accept the
-    /// token - storing raw `exp` (or re-parsing the payload, or guessing
-    /// a retention window) would reopen replay inside the leeway.
+    /// token; storing the raw `exp` would reopen replay inside the
+    /// leeway.
     pub verifiable_until: i64,
     pub repository_id: i64,
     pub repository_owner_id: i64,
@@ -348,8 +347,8 @@ pub async fn verify(
         // can force this origin fetch with a fresh random `kid` per
         // request, so every pre-auth endpoint calling this verifier (the
         // exchange PUT and the verdict PATCH) must keep its callers
-        // behind admission control: `glue::oidc_admission` gates both
-        // per client IP before any JWT work, and the production
+        // behind admission control: `glue::bearer::oidc_admission`
+        // gates both per client IP before any JWT work, and the production
         // provider's bypass path spends the global `JWKS_LIMITER`
         // budget ([`GithubJwks`]). Coalescing or negative-caching here
         // would trade away the bounded exactly-one-refetch contract.
@@ -499,8 +498,9 @@ pub struct GithubJwks {
     url: String,
     /// The global bound on cache-bypass origin refetches: the
     /// `JWKS_LIMITER` ratelimit binding (`wrangler.jsonc`), spent under
-    /// one fixed key. The per-IP admission gate (`glue::oidc_admission`)
-    /// bounds how much verification work any one caller buys; this
+    /// one fixed key. The per-IP admission gate
+    /// (`glue::bearer::oidc_admission`) bounds how much verification work
+    /// any one caller buys; this
     /// bounds the aggregate origin-fetch rate across all admitted
     /// callers. `None` - the binding missing - refuses every bypass:
     /// fail closed, `cargo check-deploy` requires the binding.
@@ -942,8 +942,6 @@ mod tests {
                 expect: Err(VerifyError::InvalidClaim("environment")),
             },
             Case {
-                // Optional means absent, not null: a present null is as
-                // unusable as any other wrong type.
                 name: "environment as null",
                 mutate: |claims| claims["environment"] = json!(null),
                 expect: Err(VerifyError::InvalidClaim("environment")),
@@ -990,9 +988,8 @@ mod tests {
 
     #[test]
     fn the_expected_audience_parameter_is_what_is_enforced() {
-        // The audience is a parameter precisely so the module's two
-        // consumers keep distinct audiences; a verifier that hardcoded
-        // [`DEFAULT_AUDIENCE`] would pass every other test.
+        // The audience is a parameter so the module's two consumers keep
+        // distinct audiences.
         let custom = "verifier.cabinpkg.com";
         let mut claims = base_claims();
         claims["aud"] = json!(custom);
@@ -1186,8 +1183,8 @@ mod tests {
                 "cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main",
                 Some("ports-publish.yml"),
             ),
-            // A ref containing `/` splits at the LAST `@`; a filename
-            // containing `@` survives the same rule.
+            // The split is at the last `@`, so a filename containing `@`
+            // survives.
             (
                 "o/r/.github/workflows/a@b.yml@refs/tags/v1.0",
                 Some("a@b.yml"),
@@ -1323,9 +1320,6 @@ mod tests {
         let configs = [other, base_config()];
         let selected = select_config(&claims, &configs).expect("one match");
         assert_eq!(selected.workflow_filename, "ports-publish.yml");
-        // Two full matches refuse rather than silently picking a
-        // winner: with one scope_limit per token, first-wins would make
-        // the loser's scope permanently unreachable.
         let mut second_scope = base_config();
         second_scope.scope = "other-scope".to_owned();
         let configs = [base_config(), second_scope];
@@ -1346,8 +1340,6 @@ mod tests {
         .expect("the deployed values parse");
         assert_eq!(pins.repository_owner_id, 35_998_702);
         assert_eq!(pins.repository_id, 119_684_778);
-        // Any unusable var refuses construction - and with it every
-        // verdict - rather than defaulting: a typo'd pin fails closed.
         // The padded id matters: `i64::from_str` takes no whitespace,
         // and trimming here would diverge from what check-deploy vets.
         for (owner, repo, file, git_ref) in [
@@ -1656,8 +1648,7 @@ mod tests {
     /// mint commits under the same jti guard, and the minted token
     /// authenticates verify-scoped, unconfined, at the backing user's
     /// own class (the token row's NULL `quota_class` falls through the
-    /// COALESCE) - the exact row the static verify token carried, now
-    /// bounded by the TTL.
+    /// COALESCE), bounded by the TTL.
     #[test]
     fn the_verifier_arm_flow_mints_a_bounded_verify_token() {
         // No hand seeding: the baseline migration itself provides the

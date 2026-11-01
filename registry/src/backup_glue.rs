@@ -5,8 +5,8 @@
 //! re-reading it, prune dumps beyond retention, and record success in
 //! `meta` - and the verified-artifact backup-queue drain that
 //! replicates blobs from BLOBS to BACKUP. Like the rest of the wasm
-//! glue this file is thin I/O wiring; every decision lives in the
-//! host-testable [`crate::backup`].
+//! glue this file is thin I/O wiring; dump validation and retention
+//! decisions live in the host-testable [`crate::backup`].
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -415,8 +415,8 @@ pub(crate) async fn drain_backup_queue(env: &Env) {
         console_error!("backup drain: a binding is missing");
         return;
     };
-    // Bounded per call: keyset-paginated pages of 10, so rows a pass
-    // keeps (missing primary blob, unconfirmed commit) are walked
+    // Bounded per call: at most five keyset-paginated pages of 10, so
+    // rows a pass keeps (a missing primary blob or body) are walked
     // past instead of re-read forever.
     let mut cursor = String::new();
     for _ in 0..5 {

@@ -49,8 +49,9 @@ wasm-bindgen-futures = "=0.4.75"
 
 # Host-target only: tests/sql_validation/ prepares every executed
 # statement (src/sql/) against the real migrated schema, and the
-# names and checksum modules' parity tests pin their mirrors to
-# cabin-fs's DOS device-stem predicate and cabin-core's `Checksum`.
+# names, checksum, and routes modules' parity tests pin their mirrors
+# to cabin-fs's DOS device-stem predicate and cabin-core's `Checksum`
+# and package-name grammars.
 # The wasm build never sees any of them.
 # rand is the trustpub tests' RSA keygen (seeded ChaCha, rsa's own
 # test pattern - the rc's keygen wants a rand_core 0.10 rng).

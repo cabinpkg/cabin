@@ -27,12 +27,12 @@ pub fn is_canonical(value: &str) -> bool {
 }
 
 /// The 64-character bare hex tail of a canonical value.  A
-/// non-canonical value (a corrupt row - the clean-break column never
-/// stores one) yields the empty tail, so every derived key collapses
-/// to the bare `blobs/sha256/` prefix: an address no object can ever
-/// occupy - a pre-change bare-hex row must NOT round-trip back to its
-/// old, still-existing key - and the read fails closed as a logged
-/// miss instead of serving or panicking.
+/// non-canonical value (a corrupt row; every writer stores the
+/// canonical spelling) yields the empty tail, so every derived key
+/// collapses to the bare `blobs/sha256/` prefix, an address no object
+/// occupies: even a bare-hex value never aliases the real object at
+/// `blobs/sha256/<hex>`, and the read fails closed as a logged miss
+/// instead of serving or panicking.
 #[must_use]
 pub fn hex(value: &str) -> &str {
     if is_canonical(value) {
@@ -100,9 +100,9 @@ mod tests {
 
     /// Corrupt column values must degrade to impossible keys and
     /// ids, never panic a request or alias a real object: the
-    /// helpers are total for any string, and a pre-change BARE hex
-    /// row - whose old key still exists in R2 - must not round-trip
-    /// back to it.
+    /// helpers are total for any string, and a bare-hex value -
+    /// whose `blobs/sha256/<hex>` key may name a real object - must
+    /// not map to that key.
     #[test]
     fn non_canonical_values_degrade_without_panicking() {
         let bare = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
