@@ -592,6 +592,7 @@ mod tests {
             fetch_path(root.path().join("probe.zip")),
             ArtifactError::ChecksumMismatch { .. }
         ));
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut escapes = vec![
             secret.to_path_buf(),
             root.path().join("packages/../../secret.txt"),
