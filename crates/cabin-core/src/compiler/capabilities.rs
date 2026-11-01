@@ -14,8 +14,11 @@ use crate::language_standard::{CStandard, CxxStandard};
 pub enum CapabilitySource {
     /// Inferred from a recognized compiler kind/version.
     Version,
-    /// Conservative default applied when the compiler kind is
-    /// `Unknown` or detection failed.
+    /// No recognized kind and version decided the answer: an
+    /// `Unknown` tool (unsupported), a recognized compiler whose
+    /// version did not parse, for a version-gated capability
+    /// (supported: fails open), or `msvc_style_flags` on a GCC/Clang
+    /// compiler (unsupported).
     AssumedDefault,
     /// The selected tool is recognizably unable to provide this
     /// capability (e.g.  MSVC asked for GCC-style flags).
@@ -206,9 +209,10 @@ pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandar
     match identity.kind {
         CompilerKind::Gcc => match standard {
             Cxx98 | Cxx11 => always,
-            // GCC >= 5 for the c++14 / c++17 spellings (the
-            // repository's long-standing c++17 gate); `-std=c++20`:
-            // GCC 10; `-std=c++23`: GCC 11; `-std=c++26`: GCC 14.
+            // GCC 5 accepts `-std=c++14` and `-std=c++17` (an
+            // undocumented alias of `c++1z` until GCC 8 documents
+            // it); `-std=c++20`: GCC 10; `-std=c++23`: GCC 11;
+            // `-std=c++26`: GCC 14.
             Cxx14 | Cxx17 => version_gated_capability(version, 5, 0),
             Cxx20 => version_gated_capability(version, 10, 0),
             Cxx23 => version_gated_capability(version, 11, 0),
@@ -243,10 +247,13 @@ pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandar
             Cxx98 | Cxx11 | Cxx23 | Cxx26 => no_flag,
         },
         CompilerKind::Msvc => match standard {
-            // `/std:` selection starts at C++14 (VS2017 / `cl`
-            // 19.10); `/std:c++17` from `cl` 19.11; `/std:c++20`
-            // became stable in VS2019 16.11 (`cl` 19.29 - 16.10
-            // shares the minor, so this slightly over-accepts it).
+            // `/std:c++14` arrived in VS2015 Update 3 (`cl`
+            // 19.00.24210), but the gate compares major.minor and
+            // earlier 19.00 builds lack `/std:`, so it starts at
+            // VS2017 (`cl` 19.10); `/std:c++17` from `cl` 19.11;
+            // `/std:c++20` became stable in VS2019 16.11 (`cl` 19.29
+            // - 16.10 shares the minor, so this slightly over-accepts
+            // it).
             Cxx14 => version_gated_capability(version, 19, 10),
             Cxx17 => version_gated_capability(version, 19, 11),
             Cxx20 => version_gated_capability(version, 19, 29),

@@ -378,7 +378,7 @@ conditions on profile flag tables (see [target-dependencies](target-dependencies
 | `clang-cl`       | `clang version <semver>` **and** invoked as `clang-cl` (the banner alone is plain Clang; the name is the deciding signal) | Supported - Clang's `cl.exe`-compatible driver; drives the MSVC dialect with Clang's diagnostics. |
 | `gcc`            | `g++` / `gcc` banner, a `(GCC)` vendor parenthetical, or the `Free Software Foundation` line | Supported (GCC ≥ 5)   |
 | `msvc`           | `Microsoft (R) C/C++ Optimizing Compiler …` (printed to stderr; `cl` exits non-zero with no input, which detection tolerates) | Supported - drives the MSVC dialect (`cl /std:… /c /Fo…`, `lib /OUT:…`). |
-| `unknown`        | Anything else (or a `--version` invocation that exits non-zero) | **Detected, rejected** when the build needs a recognized dialect.  The compiler may still appear in `cabin metadata`, but `cabin build` refuses rather than emitting commands the tool likely cannot run. |
+| `unknown`        | Anything else | **Detected, rejected** when the build needs a recognized dialect.  The compiler may still appear in `cabin metadata`, but `cabin build` refuses rather than emitting commands the tool likely cannot run. |
 
 ### Recognized archiver families
 
@@ -412,7 +412,9 @@ Each compiler detection records a typed [`CompilerCapabilities`] with these fiel
 
 Each capability records both `supported: bool` and a `source: "version" | "assumed-default" |
 "unsupported"` so `cabin metadata` shows whether the answer came from a recognized version banner or
-a conservative fallback.
+a fallback.  `assumed-default` covers an `unknown` tool (unsupported), `msvc_style_flags` on a
+GCC/Clang compiler (unsupported), and a recognized compiler whose version did not parse, which a
+version-gated capability treats as supported.
 
 Language-standard support is validated separately, against the standards the selected packages
 request rather than a fixed capability field: see the threshold tables in
