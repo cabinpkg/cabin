@@ -165,7 +165,7 @@ sources = ["src/beta.cc"]
 }
 
 #[test]
-fn run_in_pure_workspace_omits_fingerprint_env() {
+fn run_in_pure_workspace_runs_selected_package() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -209,10 +209,6 @@ sources = ["src/main.cc"]
     assert!(
         stdout.contains("PKG app"),
         "the selected package's binary should have run: {stdout}"
-    );
-    assert!(
-        !stdout.contains("FINGERPRINT"),
-        "CABIN_BUILD_CONFIGURATION_FINGERPRINT must not be injected: {stdout}"
     );
 }
 

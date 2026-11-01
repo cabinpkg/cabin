@@ -1,7 +1,4 @@
 use super::*;
-use sha2::Digest;
-use std::fs::File;
-use std::io::Write;
 
 fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
     use std::fmt::Write as _;
@@ -14,32 +11,6 @@ fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
         }
     }
     out
-}
-
-/// Build a single-entry `.zip` at `path` and return its sha256 hex.
-/// `zip::ZipWriter` stores `raw_name` unchecked, so a traversal name
-/// such as `../escape.txt` reaches the extractor, which must refuse it.
-fn make_archive_with_raw_name(path: &Path, raw_name: &str, body: &[u8]) -> String {
-    if let Some(parent) = path.parent() {
-        assert_fs::fixture::ChildPath::new(parent)
-            .create_dir_all()
-            .unwrap();
-    }
-    let f = File::create(path).unwrap();
-    let mut writer = zip::ZipWriter::new(f);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-    writer.start_file(raw_name, options).unwrap();
-    writer.write_all(body).unwrap();
-    writer.finish().unwrap().flush().unwrap();
-    sha256_hex(path)
-}
-
-fn sha256_hex(path: &Path) -> String {
-    let bytes = fs::read(path).unwrap();
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(&bytes);
-    cabin_core::hash::hex_digest(&hasher.finalize())
 }
 
 fn fmt_archive_entries() -> Vec<(&'static str, &'static str)> {
@@ -398,7 +369,7 @@ fn fetch_rejects_unsafe_archive() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
-    let hex = make_archive_with_raw_name(&archive, "../escape.txt", b"evil");
+    let hex = make_archive(&archive, &[("../escape.txt", "evil")]);
     write_index_entry(
         &dir.path().join("index"),
         "fmt",
@@ -418,8 +389,9 @@ fn fetch_rejects_unsafe_archive() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("unsafe archive entry"));
-    // Nothing escaped the cache.
-    assert!(!dir.path().join("escape.txt").exists());
+    // The extractor writes into `sources/sha256/<hex>.partial.<pid>`,
+    // so the `..` entry would land one level up.
+    assert!(!cache.join("sources/sha256/escape.txt").exists());
 }
 
 #[test]
@@ -620,6 +592,7 @@ fn build_uses_separate_cache_dir_when_specified() {
     );
 
     let cache = dir.path().join("alt-cache");
+    let cache_home = dir.path().join("cache-home");
     cabin()
         .args(["fetch", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
@@ -627,6 +600,7 @@ fn build_uses_separate_cache_dir_when_specified() {
         .arg(dir.path().join("index"))
         .arg("--cache-dir")
         .arg(&cache)
+        .env("CABIN_CACHE_HOME", &cache_home)
         .assert()
         .success();
     assert!(
@@ -635,6 +609,6 @@ fn build_uses_separate_cache_dir_when_specified() {
             .join(format!("{hex}.zip"))
             .is_file()
     );
-    // Default cache must NOT have been populated.
-    assert!(!dir.path().join("app/.cabin/cache").exists());
+    // The default cache must not have been populated.
+    assert!(!cache_home.exists());
 }
