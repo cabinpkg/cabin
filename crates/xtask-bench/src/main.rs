@@ -68,7 +68,7 @@ struct RunArgs {
     filter: Vec<String>,
     /// Only the quick subset, 5 runs each unless `--runs` sets
     /// another count: enough to check each of those scenarios, but too
-    /// few for a comparison of untied samples to show a difference.
+    /// few for a comparison to show a difference.
     #[arg(long)]
     smoke: bool,
     /// Include the foundation-port scenarios (downloads upstream

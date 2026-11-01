@@ -217,8 +217,9 @@ pub enum Runs {
 
 const MIN_TIME: Duration = Duration::from_secs(3);
 
-/// The most blocks a binary's runs of one scenario are split into.
-const MAX_BLOCKS: u32 = 10;
+/// The most blocks a binary's runs of one scenario are split into: the
+/// rounds a comparison pairs.
+const MAX_BLOCKS: u32 = 20;
 
 impl Schedule {
     /// The run count of each block, in order.  `pace` is the slowest
@@ -266,6 +267,7 @@ fn checked(
         valid: false,
         detail: String::new(),
         samples: Samples::default(),
+        blocks: Vec::new(),
         phases: serde_json::Value::Null,
         process: serde_json::Value::Null,
     };
@@ -829,6 +831,7 @@ pub fn suite(
             let mut result = result;
             if result.valid {
                 result.samples = samples(&runs);
+                result.blocks.clone_from(&blocks);
             }
             all.scenarios.push(result);
         }
@@ -866,7 +869,7 @@ mod tests {
     }
 
     #[test]
-    fn runs_split_into_at_most_ten_blocks() {
+    fn runs_split_into_at_most_twenty_blocks() {
         let exact = |runs| {
             Schedule {
                 warmup: 1,
@@ -875,7 +878,7 @@ mod tests {
             .blocks(Duration::from_secs(1))
         };
         assert_eq!(exact(5), [1; 5]);
-        assert_eq!(exact(23), [3, 3, 3, 2, 2, 2, 2, 2, 2, 2]);
+        assert_eq!(exact(23), [[2; 3].as_slice(), &[1; 17]].concat());
         let at_least = |pace| {
             Schedule {
                 warmup: 2,
@@ -885,7 +888,7 @@ mod tests {
         };
         // A slow scenario gets the floor, a fast one 3 s at its pace.
         assert_eq!(at_least(2_000).iter().sum::<u32>(), 10);
-        assert_eq!(at_least(30), [10; 10]);
+        assert_eq!(at_least(30), [5; 20]);
     }
 
     #[test]

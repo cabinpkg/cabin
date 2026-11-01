@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 /// Bumped when a results field changes name, unit, or meaning.
-pub const RESULTS_FORMAT_VERSION: u32 = 2;
+pub const RESULTS_FORMAT_VERSION: u32 = 3;
 
 /// One binary's results for one run of the suite.
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,6 +101,10 @@ pub struct ScenarioResult {
     /// Raw per-run values; `instructions` is empty where the host
     /// exposes no hardware counters.
     pub samples: Samples,
+    /// How many runs each timed block held, in the order the blocks
+    /// ran; every binary of one `cargo perf run` timed its block `i` in
+    /// round `i`.  Empty for an invalid scenario.
+    pub blocks: Vec<u32>,
     /// The check run's `CABIN_TRACE_DIR` timings summary phases.
     pub phases: serde_json::Value,
     /// The check run's `getrusage` block from the same summary, which
@@ -204,51 +208,157 @@ const FLOOR_WALL_S: f64 = 0.002;
 const FLOOR_RSS_BYTES: f64 = 1024.0 * 1024.0;
 const FLOOR_INSTRUCTIONS: f64 = 1e6;
 
-/// The two-sided 1% critical value of the standard normal: a rank-sum
-/// statistic past it means the two sides' samples are unlikely to come
-/// from one distribution.
-const Z_CRITICAL: f64 = 2.576;
+/// The two-sided significance level a difference must reach to be
+/// real.
+const ALPHA: f64 = 0.01;
 
-/// The Mann-Whitney rank-sum statistic of `candidate` against
-/// `baseline`, by the normal approximation with tie and continuity
-/// corrections: how many standard deviations the candidate's ranks sit
-/// from where they would if both sides came from one distribution.
-#[allow(clippy::cast_precision_loss)]
-fn rank_sum_z(baseline: &[f64], candidate: &[f64]) -> f64 {
-    let mut all: Vec<(f64, bool)> = baseline.iter().map(|&v| (v, false)).collect();
-    all.extend(candidate.iter().map(|&v| (v, true)));
-    all.sort_by(|x, y| x.0.total_cmp(&y.0));
-    let (n1, n2) = (baseline.len() as f64, candidate.len() as f64);
-    let total = n1 + n2;
-    let (mut rank_sum, mut ties, mut start) = (0.0, 0.0, 0);
-    while start < all.len() {
-        let value = all[start].0;
-        let end = start
-            + all[start..]
-                .iter()
-                .take_while(|x| x.0.total_cmp(&value).is_eq())
-                .count();
-        let mean_rank = (start + end + 1) as f64 / 2.0;
-        rank_sum += mean_rank * all[start..end].iter().filter(|x| x.1).count() as f64;
-        let run = (end - start) as f64;
-        ties += run * run * run - run;
-        start = end;
+/// Whether the blocks of `candidate` differ from those of `baseline`:
+/// the test's two-sided p-value, and the smallest p-value blocks of
+/// these layouts could reach at all.  Runs within a block share that
+/// moment's load, so the test takes one value per block, its median.
+/// Blocks of one layout ran round by round and pair up, which cancels
+/// the load a round shared: an exact Wilcoxon signed-rank test of the
+/// rounds' differences.  Blocks of differing layouts come from separate
+/// runs and are compared unpaired: an exact Mann-Whitney test.
+fn block_test(
+    baseline: &[f64],
+    baseline_blocks: &[u32],
+    candidate: &[f64],
+    candidate_blocks: &[u32],
+) -> (f64, f64) {
+    let (Some(b), Some(c)) = (
+        block_medians(baseline, baseline_blocks),
+        block_medians(candidate, candidate_blocks),
+    ) else {
+        return (1.0, 1.0);
+    };
+    if baseline_blocks == candidate_blocks {
+        let rounds: Vec<f64> = c.iter().zip(&b).map(|(c, b)| c - b).collect();
+        let same_way = vec![1.0; rounds.len()];
+        (signed_rank_p(&rounds), signed_rank_p(&same_way))
+    } else {
+        #[allow(clippy::cast_precision_loss)]
+        let ordered: Vec<f64> = (0..b.len() + c.len()).map(|i| i as f64).collect();
+        let (lower, upper) = ordered.split_at(b.len());
+        (rank_sum_p(&b, &c), rank_sum_p(lower, upper))
     }
-    let u = rank_sum - n2 * (n2 + 1.0) / 2.0;
-    let sigma = (n1 * n2 / 12.0 * (total + 1.0 - ties / (total * (total - 1.0)))).sqrt();
-    if sigma.is_nan() || sigma == 0.0 {
-        return 0.0;
-    }
-    ((u - n1 * n2 / 2.0).abs() - 0.5).max(0.0) / sigma
 }
 
-/// Whether `n1` and `n2` runs without ties can pass the rank test at
-/// all, which they do only when fully separated.
-#[allow(clippy::cast_precision_loss)]
-fn can_separate(n1: usize, n2: usize) -> bool {
-    let low: Vec<f64> = (0..n1).map(|i| i as f64).collect();
-    let high: Vec<f64> = (n1..n1 + n2).map(|i| i as f64).collect();
-    rank_sum_z(&low, &high) > Z_CRITICAL
+/// The interquartile range of the rounds' differences when the blocks
+/// pair up: the noise left once pairing cancels the load each round
+/// shared, which the spread of either side's runs still holds.
+fn round_spread(
+    baseline: &[f64],
+    baseline_blocks: &[u32],
+    candidate: &[f64],
+    candidate_blocks: &[u32],
+) -> Option<f64> {
+    if baseline_blocks != candidate_blocks {
+        return None;
+    }
+    let b = block_medians(baseline, baseline_blocks)?;
+    let c = block_medians(candidate, candidate_blocks)?;
+    let rounds: Vec<f64> = c.iter().zip(&b).map(|(c, b)| c - b).collect();
+    Stats::of(&rounds).map(|stats| stats.q3 - stats.q1)
+}
+
+/// The median of each block of `values`, which `blocks` splits in
+/// order; `None` unless the blocks hold exactly `values`.
+fn block_medians(values: &[f64], blocks: &[u32]) -> Option<Vec<f64>> {
+    let mut rest = values;
+    let medians = blocks
+        .iter()
+        .map(|&runs| {
+            let (block, tail) = rest.split_at_checked(usize::try_from(runs).ok()?)?;
+            rest = tail;
+            Stats::of(block).map(|stats| stats.median)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    rest.is_empty().then_some(medians)
+}
+
+/// The ranks of `values`, ties sharing their mean rank, doubled so that
+/// every rank is whole: `n` values' doubled ranks sum to `n * (n + 1)`.
+fn doubled_ranks(values: &[f64]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..values.len()).collect();
+    order.sort_by(|&x, &y| values[x].total_cmp(&values[y]));
+    let mut ranks = vec![0; values.len()];
+    let mut start = 0;
+    while start < order.len() {
+        let value = values[order[start]];
+        let tied = order[start..]
+            .iter()
+            .take_while(|&&i| values[i].total_cmp(&value).is_eq())
+            .count();
+        for &i in &order[start..start + tied] {
+            ranks[i] = 2 * start + tied + 1;
+        }
+        start += tied;
+    }
+    ranks
+}
+
+/// The share of equally likely outcomes, counted by their statistic in
+/// `ways`, whose statistic lies at least as far from `mean` as
+/// `observed`: a two-sided exact p-value.
+fn two_sided(ways: &[f64], observed: usize, mean: usize) -> f64 {
+    let distance = observed.abs_diff(mean);
+    let extreme: f64 = ways
+        .iter()
+        .enumerate()
+        .filter(|&(statistic, _)| statistic.abs_diff(mean) >= distance)
+        .map(|(_, ways)| ways)
+        .sum();
+    extreme / ways.iter().sum::<f64>()
+}
+
+/// The exact two-sided p-value of the Wilcoxon signed-rank test that
+/// `differences` center on zero: were each sign a fair coin, how likely
+/// a positive rank sum at least this far from its mean would be.  Zeros
+/// drop out.
+fn signed_rank_p(differences: &[f64]) -> f64 {
+    let nonzero: Vec<f64> = differences.iter().copied().filter(|&d| d != 0.0).collect();
+    let magnitudes: Vec<f64> = nonzero.iter().map(|d| d.abs()).collect();
+    let ranks = doubled_ranks(&magnitudes);
+    let total: usize = ranks.iter().sum();
+    let positive: usize = ranks
+        .iter()
+        .zip(&nonzero)
+        .filter(|&(_, &d)| d > 0.0)
+        .map(|(rank, _)| rank)
+        .sum();
+    // `ways[s]`: the sign patterns whose positive ranks sum to `s`.
+    let mut ways = vec![0.0; total + 1];
+    ways[0] = 1.0;
+    for &rank in &ranks {
+        for sum in (rank..=total).rev() {
+            ways[sum] += ways[sum - rank];
+        }
+    }
+    two_sided(&ways, positive, total / 2)
+}
+
+/// The exact two-sided p-value of the Mann-Whitney test that `baseline`
+/// and `candidate` come from one distribution: were every split of the
+/// ranks between the sides equally likely, how likely a candidate rank
+/// sum at least this far from its mean would be.
+fn rank_sum_p(baseline: &[f64], candidate: &[f64]) -> f64 {
+    let all: Vec<f64> = baseline.iter().chain(candidate).copied().collect();
+    let ranks = doubled_ranks(&all);
+    let total: usize = ranks.iter().sum();
+    let picks = candidate.len();
+    let observed: usize = ranks[baseline.len()..].iter().sum();
+    // `ways[k][s]`: the sets of `k` ranks that sum to `s`.
+    let mut ways = vec![vec![0.0; total + 1]; picks + 1];
+    ways[0][0] = 1.0;
+    for &rank in &ranks {
+        for k in (1..=picks).rev() {
+            for sum in (rank..=total).rev() {
+                ways[k][sum] += ways[k - 1][sum - rank];
+            }
+        }
+    }
+    two_sided(&ways[picks], observed, picks * (all.len() + 1))
 }
 
 fn metric<'a>(samples: &'a Samples, name: &str) -> &'a [f64] {
@@ -280,9 +390,8 @@ pub enum Verdict {
     Improved,
     /// No difference beyond run-to-run noise.
     Unchanged,
-    /// No difference shown, from too few runs to show one: even fully
-    /// separated untied runs of these counts would not pass the rank
-    /// test.
+    /// No difference shown, from too few blocks to show one: even
+    /// blocks that all moved the same way would not pass the test.
     Inconclusive,
     /// A real increase past the policy's minimum effect and floor.
     Regressed,
@@ -303,8 +412,8 @@ pub enum Verdict {
 }
 
 /// Classify every scenario in either results file.  A difference is real
-/// when the samples' ranks separate (`rank_sum_z`) and the medians move
-/// further than the noise, and the policy counts a real one only past
+/// when the blocks differ (`block_test`) and the medians move further
+/// than the noise, and the policy counts a real one only past
 /// the metric's minimum effect and floor.  Sides measured in separate
 /// runs did not share the machine's load, which can still make a false
 /// difference.
@@ -316,11 +425,12 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
         let base = baseline.scenarios.iter().find(|s| &s.name == scenario);
         let cand = candidate.scenarios.iter().find(|s| &s.name == scenario);
         for (name, min_effect, floor) in METRICS {
-            let sides = base
-                .zip(cand)
-                .map(|(b, c)| (metric(&b.samples, name), metric(&c.samples, name)));
+            let sides = base.zip(cand).map(|(b, c)| {
+                let (bs, cs) = (metric(&b.samples, name), metric(&c.samples, name));
+                (bs, &b.blocks, cs, &c.blocks)
+            });
             let valid = base.is_some_and(|b| b.valid) && cand.is_some_and(|c| c.valid);
-            let Some((bs, cs)) = sides.filter(|_| valid) else {
+            let Some((bs, b_blocks, cs, c_blocks)) = sides.filter(|_| valid) else {
                 let verdict = if cand.is_some_and(|c| c.valid) && !base.is_some_and(|b| b.valid) {
                     Verdict::NoBaseline
                 } else {
@@ -359,11 +469,14 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
             let change = shift / b.median;
             // The spread in the metric's own units, so which side is the
             // baseline cannot decide whether a difference is real.
-            let noise = (b.q3 - b.q1).max(c.q3 - c.q1) / b.median;
-            let separated = rank_sum_z(bs, cs) > Z_CRITICAL;
-            let verdict = if !separated && !can_separate(bs.len(), cs.len()) {
+            let spread =
+                round_spread(bs, b_blocks, cs, c_blocks).unwrap_or((b.q3 - b.q1).max(c.q3 - c.q1));
+            let noise = spread / b.median;
+            let (p, reachable) = block_test(bs, b_blocks, cs, c_blocks);
+            let real = p <= ALPHA;
+            let verdict = if !real && reachable > ALPHA {
                 Verdict::Inconclusive
-            } else if !separated || change.abs() <= noise {
+            } else if !real || change.abs() <= noise {
                 Verdict::Unchanged
             } else if change.abs() < min_effect || shift.abs() < floor {
                 if shift > 0.0 {
@@ -655,6 +768,8 @@ mod tests {
                     name: name.to_owned(),
                     valid,
                     detail: String::new(),
+                    // One run per round.
+                    blocks: vec![1; wall_s.len()],
                     samples: Samples {
                         wall_s,
                         ..Samples::default()
@@ -683,12 +798,38 @@ mod tests {
     }
 
     #[test]
-    fn the_rank_sum_statistic_corrects_for_ties_and_continuity() {
-        let z = rank_sum_z(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]);
-        assert!((z - 4.0 / 5.25_f64.sqrt()).abs() < 1e-12, "{z}");
-        let z = rank_sum_z(&[1.0, 1.0, 2.0], &[2.0, 3.0, 3.0]);
-        assert!((z - 3.5 / 4.8_f64.sqrt()).abs() < 1e-12, "{z}");
-        assert!(rank_sum_z(&[1.0; 5], &[1.0; 5]).abs() < 1e-12);
+    fn the_block_tests_are_exact() {
+        let close = |p: f64, expected: f64| assert!((p - expected).abs() < 1e-12, "{p}");
+        let rounds = |last: f64| [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, last];
+        // 8 rounds the same way: 2 of the 2^8 equally likely signs.
+        close(signed_rank_p(&rounds(8.0)), 2.0 / 256.0);
+        close(signed_rank_p(&rounds(-8.0)), 50.0 / 256.0);
+        // Zeros drop out; tied magnitudes share their mean rank.
+        close(signed_rank_p(&[0.0, 0.0, 1.0, 2.0, 3.0]), 2.0 / 8.0);
+        close(signed_rank_p(&[1.0, 1.0, -1.0, 2.0, 3.0]), 8.0 / 32.0);
+        close(signed_rank_p(&[0.0; 4]), 1.0);
+        // 5 blocks a side, separated: 2 of the C(10, 5) splits, ties or
+        // not.
+        let fives = [1.0, 2.0, 3.0, 4.0, 5.0];
+        close(rank_sum_p(&fives, &fives.map(|v| v + 5.0)), 2.0 / 252.0);
+        close(rank_sum_p(&[0.05; 5], &[0.06; 5]), 2.0 / 252.0);
+        close(rank_sum_p(&[1.0, 1.0, 2.0], &[2.0, 3.0, 3.0]), 4.0 / 20.0);
+        close(rank_sum_p(&[1.0; 5], &[1.0; 5]), 1.0);
+    }
+
+    #[test]
+    fn rounds_pair_only_within_one_layout() {
+        // Load that drifts across 10 rounds alike for both sides, and a
+        // steady 1% increase: paired, every round shows it; unpaired, the
+        // drift hides it.
+        let base: Vec<f64> = (0..10).map(|i| 1.0 + f64::from(i) * 0.05).collect();
+        let cand: Vec<f64> = base.iter().map(|v| v * 1.01).collect();
+        let (p, reachable) = block_test(&base, &[1; 10], &cand, &[1; 10]);
+        assert!(p <= ALPHA && reachable <= ALPHA, "{p}");
+        let (p, reachable) = block_test(&base, &[2; 5], &cand, &[1; 10]);
+        assert!(p > ALPHA && reachable <= ALPHA, "{p}");
+        // Blocks that do not hold the runs cannot be tested.
+        assert_eq!(block_test(&base, &[1; 9], &cand, &[1; 9]), (1.0, 1.0));
     }
 
     #[test]
@@ -715,13 +856,17 @@ mod tests {
         // A 20% median shift between samples that interleave.
         let base = vec![0.8, 0.9, 1.0, 1.2, 1.3, 0.85, 1.25, 0.95, 1.0, 1.1];
         let cand = vec![1.2, 0.8, 1.3, 1.25, 0.9, 1.2, 1.35, 0.95, 1.15, 1.3];
-        assert!(rank_sum_z(&base, &cand) <= Z_CRITICAL);
+        assert!(block_test(&base, &[1; 10], &cand, &[1; 10]).0 > ALPHA);
         assert_eq!(verdict(base, cand), Verdict::Unchanged);
-        // Ranks that separate, by less than the interquartile spread.
+        // Unpaired blocks that separate, by less than the interquartile
+        // spread of the runs.
         let base: Vec<f64> = (0..40).map(|i| 0.6 + f64::from(i % 10) * 0.1).collect();
         let cand: Vec<f64> = base.iter().map(|v| v + 0.25).collect();
-        assert!(rank_sum_z(&base, &cand) > Z_CRITICAL);
-        assert_eq!(verdict(base, cand), Verdict::Unchanged);
+        assert!(block_test(&base, &[2; 20], &cand, &[1; 40]).0 <= ALPHA);
+        let mut baseline = results("base", vec![("s", base, true)]);
+        baseline.scenarios[0].blocks = vec![2; 20];
+        let rows = compare(&baseline, &results("cand", vec![("s", cand, true)]));
+        assert_eq!(rows[0].verdict, Verdict::Unchanged);
         // Separated, but within the wider side's spread whichever side
         // is the baseline: +102% from the narrow side, -50% from the wide.
         let wide = vec![0.6, 0.62, 0.7, 0.75, 0.9, 1.1, 1.25, 1.3, 1.35, 1.4];
@@ -731,21 +876,38 @@ mod tests {
     }
 
     #[test]
-    fn untied_samples_need_six_runs_a_side() {
+    fn paired_noise_is_the_spread_of_the_rounds() {
+        // Load drifting 2% a round moves both sides alike.  Every round
+        // moved 8%, which the rounds' differences show and the spread of
+        // either side's runs, 9%, would hide.
+        let base: Vec<f64> = (0..10).map(|i| 1.0 + f64::from(i) * 0.02).collect();
+        let cand: Vec<f64> = base.iter().map(|v| v * 1.08).collect();
+        assert_eq!(verdict(base, cand), Verdict::Regressed);
+    }
+
+    #[test]
+    fn too_few_blocks_are_inconclusive() {
         let base = |n| {
             (0..n)
                 .map(|i| 1.0 + f64::from(i) * 1e-3)
                 .collect::<Vec<_>>()
         };
         let shifted = |n| base(n).into_iter().map(|v| v * 1.2).collect::<Vec<_>>();
-        // Fully separated, yet five runs a side cannot reach 1%: no
-        // claim either way.
-        assert_eq!(verdict(base(5), shifted(5)), Verdict::Inconclusive);
-        assert_eq!(verdict(base(5), base(5)), Verdict::Inconclusive);
-        assert_eq!(verdict(base(6), shifted(6)), Verdict::Regressed);
-        assert_eq!(verdict(base(6), base(6)), Verdict::Unchanged);
-        // Ties narrow the variance, so five identical runs a side can.
-        assert_eq!(verdict(vec![0.05; 5], vec![0.06; 5]), Verdict::Regressed);
+        // 7 rounds that all moved the same way cannot reach 1%: no
+        // claim either way.  Ties do not help.
+        assert_eq!(verdict(base(7), shifted(7)), Verdict::Inconclusive);
+        assert_eq!(verdict(base(7), base(7)), Verdict::Inconclusive);
+        assert_eq!(verdict(vec![0.05; 5], vec![0.06; 5]), Verdict::Inconclusive);
+        assert_eq!(verdict(base(8), shifted(8)), Verdict::Regressed);
+        assert_eq!(verdict(base(8), base(8)), Verdict::Unchanged);
+        // Unpaired, 5 blocks against 10 can reach it, 2 against 10 not.
+        let unpaired = |blocks: Vec<u32>| {
+            let mut baseline = results("base", vec![("s", base(10), true)]);
+            baseline.scenarios[0].blocks = blocks;
+            compare(&baseline, &results("cand", vec![("s", shifted(10), true)]))[0].verdict
+        };
+        assert_eq!(unpaired(vec![2; 5]), Verdict::Regressed);
+        assert_eq!(unpaired(vec![5; 2]), Verdict::Inconclusive);
     }
 
     #[test]

@@ -127,7 +127,8 @@ A run writes into `target/perf/runs/<unix time>/` (or `--out`):
   from: `build` (the commit the binary was built from, whether that checkout had uncommitted
   changes, the profile, and `rustc -V`; all `null` for a `--cabin` binary, which the harness did
   not build and does not guess about) and `harness` (the commit and cleanliness of the checkout
-  `cargo perf` was built from, which defines the scenarios).  `format_version` is `2`.
+  `cargo perf` was built from, which defines the scenarios).  `blocks` gives the runs in each
+  timed block, in the order they ran.  `format_version` is `3`.
 - `report.md`: per scenario, the median, the spread, the check run's figures for Cabin alone and
   its largest child, and the three costliest phases.
 - `compare.md` and `compare.json` when two binaries ran: each side's label, version, build, and
@@ -199,7 +200,7 @@ Every scenario and binary works on a private copy.
   sides' builds and says so when they ran on different hosts or fixtures, or were measured by
   different harness checkouts, whose scenarios may differ.
 - **Interleaved.**  With two or more binaries, each scenario is checked for every one, then timed in
-  turns: each binary's runs are split into up to 10 blocks of equal size, and the binaries take
+  turns: each binary's runs are split into up to 20 blocks of equal size, and the binaries take
   turns block by block in an order that rotates every round (A B C, B C A, C A B, ...), starting one
   place further on every scenario.  Load that comes and goes, or drifts, during a scenario therefore
   reaches every binary alike instead of one binary's runs.  Only each binary's first block takes the
@@ -220,18 +221,24 @@ $ cargo perf compare before-candidate target/perf/after/candidate.json --out tar
 ```
 
 `compare` takes two results files, or names saved with `--save-baseline`.  For every scenario and
-metric (wall time, peak memory, instructions) it first asks whether the two sides differ at all:
-the samples' ranks must separate (a Mann-Whitney test at the two-sided 1% level), and the medians
-must move further than the noise, the larger interquartile range of the two sides.  A
-difference that passes both is then judged by the policy, which counts it only past the metric's
-minimum effect (5% for wall time and peak memory, 2% for instructions) and its absolute floor
-(2 ms, 1 MiB, 1 million instructions).  Each row is:
+metric (wall time, peak memory, instructions) it first asks whether the two sides differ at all.
+Runs in one block share that moment's load, so the test takes each block's median as one value.
+Blocks of one layout pair up round by round: an exact Wilcoxon signed-rank test of the rounds'
+differences.  Binaries of one `cargo perf run` time their blocks in the same rounds, so pairing
+cancels the load each round shared; separate runs with the same run counts also pair, which cancels
+nothing but leaves the test valid.  Blocks of differing layouts are compared unpaired with an exact
+Mann-Whitney test.  The difference must reach the two-sided 1% level, and the medians must move
+further than the noise: for paired blocks, the interquartile range of the rounds' differences, which
+pairing has cleared of the load the rounds shared; otherwise the larger interquartile range of the
+two sides' runs.  A difference that passes both is then judged by the policy, which counts it only
+past the metric's minimum effect (5% for wall time and peak memory, 2% for instructions) and its
+absolute floor (2 ms, 1 MiB, 1 million instructions).  Each row is:
 
 - `Regressed` or `Improved`: a difference the policy counts;
 - `Increased` or `Decreased`: a difference smaller than the policy counts, shown so that small
   steps stay visible;
 - `Unchanged`: no difference the samples show;
-- `Inconclusive`: no difference shown, from too few runs to show one (see below);
+- `Inconclusive`: no difference shown, from too few blocks to show one (see below);
 - `Incomparable`: only one side recorded the metric, as when its platform or revision does not
   measure it;
 - `Invalid` when the candidate failed its check or lacks the scenario, or `NoBaseline` when only
@@ -241,11 +248,15 @@ minimum effect (5% for wall time and peak memory, 2% for instructions) and its a
 `Inconclusive` row: runs too few to tell either way must not pass a gate.  `run` accepts it only
 with exactly two binaries, the comparison it gates.
 
-With untied samples of equal size, the test needs at least 6 runs on each side before any difference
-can reach 1%.  With fewer, a row whose samples do not separate (tied ones still can) is
-`Inconclusive`, not `Unchanged`: too few runs to show a difference are no evidence that there is
-none.  `--smoke` runs, 5 of each quick scenario, check that each still does what it claims; to
-compare or gate, run the default count or `--runs 6` or more.
+Paired, the test needs at least 8 rounds before any difference can reach 1%, the chance that all of
+8 fair coins land alike; unpaired, 5 blocks a side, or more on one side to make up for fewer on the
+other (4 against 6, 3 against 9, 2 against 19).  With fewer, a row the test does not pass is
+`Inconclusive`, not `Unchanged`: too few blocks to show a difference are no evidence that there is
+none.  The count is the layout's, not the data's: rounds that did not move at all, or values the two
+sides share, can keep enough blocks from reaching 1%, and such a row is `Unchanged`, since blocks
+that did not all move one way are evidence against a consistent difference.  `--smoke` runs, 5 of
+each quick scenario, check that each still does what it claims; to compare or gate, run the default
+count or `--runs 8` or more.
 
 The test also assumes both sides ran under the same conditions.  Binaries measured by one
 `cargo perf run` (`--base`, or several `--cabin`) come closest, since their runs interleave; a saved
