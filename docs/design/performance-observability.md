@@ -205,8 +205,8 @@ millisecond, so a probe that waited longer retired more instructions, and `gc/cl
 mostly the kernel's (see "Investigation: build-output collection"), moved 3-7% between the two
 sides.
 
-**Change.**  A difference counts as real only when the samples' ranks separate (a Mann-Whitney
-test, two-sided 1%) and the medians move past the larger interquartile range, so the previous
+**Change.**  A difference counted as real only when the samples' ranks separated (a Mann-Whitney
+test, two-sided 1%) and the medians moved past the larger interquartile range, so the previous
 rule's guard against drift stays.  The range is compared in the metric's own units rather than
 relative to each side's median, so whether a difference is real no longer depends on which side is
 the baseline; the policy's percentages, relative to the baseline, still do.
@@ -218,7 +218,7 @@ the policy is reported as `Increased` or `Decreased` rather than hidden, and a m
 recorded is `Incomparable` rather than dropped.  The false rows that remained were drift, which
 no threshold over the samples removes; interleaving the runs (below) reduces it.
 
-**Interleaving.**  Each binary's runs of a scenario are now split into up to 10 blocks, taken in
+**Interleaving.**  Each binary's runs of a scenario were then split into up to 10 blocks, taken in
 turns in an order that rotates every round, so drift reaches every side alike.  Calibration: one
 release binary of 7325ca99c under two labels, `a` and `b`, beside `r`, the same source with a
 3 ms sleep and 3.02 million instructions added at startup (`cargo perf run --cabin a=... --cabin
@@ -254,6 +254,58 @@ the interleaved runs, which took fewer runs and, in run 3, ran under the heavies
 interleaved harness sizes a scenario from its check run, which is cold and traced, so it takes fewer
 runs than `hyperfine`'s own sizing did; `--runs` buys power where wall time matters.  Each block
 costs a `hyperfine` start, about 17 ms.
+
+**Blocks as the unit.**  The interleaved harness still tested the pooled runs as if each were
+independent.  Runs within a block share that moment's load: in runs 2 and 3, the medians of one
+binary's blocks varied 2.5-2.9 times as much as their runs alone explain (the one-way F statistic,
+wall time and instructions), and the two binaries' medians of one round correlated 0.40-0.53.  A
+test over pooled runs counts each block's shared load once per run.  A simulation fitted to those
+variances (a load each round shares across binaries, one per block, and one per run; 400 trials
+each) put the pooled test's rate of calling identical binaries different at 1.8% for 40 runs in 10
+blocks and 5.8% for 100, against its nominal 1%.
+
+The test now takes each block's median as one value.  Blocks of one layout pair up round by round,
+an exact Wilcoxon signed-rank test of the rounds' differences, and other layouts are compared
+unpaired, an exact Mann-Whitney test of the medians; both rank ties by their mean rank.  A row that
+does not reach 1% is `Inconclusive` when no arrangement of its blocks could have: below 8 paired
+rounds, or 5 blocks a side unpaired (or an uneven split as strong, such as 4 against 6).  In the
+simulation, the paired test called identical binaries different in 0.3-2.0% of trials, and found a
+shift of one run's standard deviation in 38.5% of trials with 40 runs in 10 blocks and 74.8% in 20,
+so blocks are now capped at 20 rather than 10.  The unpaired test over the same 20 blocks found it
+in 42.2%.
+
+The interquartile-range guard stays: in the calibration below, the block test without it reported
+differences between a binary and itself, and with it none.  For paired blocks the guard now takes
+the spread of the rounds' differences, not of either side's runs: a load drifting from round to
+round moves both sides alike, so pairing cancels it in the test, and a guard measured on the runs
+would still count it as noise.  A uniform 8% regression under a drift of 2% a round reads as
+`Regressed` with the rounds' spread and `Unchanged` with the runs'.
+
+Calibration: one release binary of be65ebcf5 under two labels, `a` and `b`, beside `i`, the same
+source with 6.0 million instructions added at startup, and `w`, with a 3 ms sleep (`cargo perf run
+--cabin a=... --cabin b=... --cabin i=... --cabin w=...`, every scenario but the ports ones, default
+run counts), compared with `a`, then `b`, as the baseline.  The cells give each direction; an
+injected change is counted only on rows where it passes the policy (6.0 million instructions under
+300 million, 3 ms under 60 ms).
+
+| Run | Load average | Median runs | A/A rows reported different | `i` instructions `Regressed` | `w` wall time `Regressed` |
+| --- | --- | ---: | --- | --- | --- |
+| 1 | 194 -> 45 | 13 | 0 / 0 | 30 of 33 / 31 of 32 | 1 of 12 / 1 of 10 |
+| 2 | 45 -> 22 | 17 | 0 / 0 | 31 of 33 / 32 of 33 | 6 of 15 / 5 of 16 |
+
+With the guard on either side's runs, the same data gave 28 of 33, 28 of 32, 30 of 33, and 29 of 33
+instruction rows and 0 of 12, 0 of 10, 4 of 15, and 4 of 16 wall rows.  The rounds' spread costs one
+row the runs' spread kept: in run 1, under the heaviest load, `gc/clean-10k` retired 2.1% more
+instructions in `i` than in `b`, far more than the 6.0 million added, with its rounds moving
+together, where the wider spread of its runs, whose kernel work varies with the machine's load (see
+"Investigation: build-output collection"), had kept it `Unchanged`.  The wall-time rows of `i` that
+passed the policy, such as `startup/version` at +35%, are real: the added instructions take 1-2 ms.
+Without a guard, run 2's A/A comparison reported one `Increased` and one `Decreased` row, and in run
+1 `i` improved on `a` by 11.6% in `gc/new-day-cxx`'s wall time.  In run 1 the eighth timed run of
+`b` in `build/touch-header-c` exited with status 1 under the heaviest load, and the harness keeps no
+output of a timed run to say why, so that scenario was `Invalid`.  A 3 ms change to wall time
+remains hard to show in 10-17 rounds of a loaded machine; `--runs` buys rounds, at about 17 ms of
+`hyperfine` start per block.
 
 ## Investigation: no-op build latency
 
