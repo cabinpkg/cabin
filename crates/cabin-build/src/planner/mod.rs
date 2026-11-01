@@ -21,8 +21,9 @@ mod lowering;
 mod tests;
 
 use self::lowering::{
-    collect_interface, collect_link_libs, collect_link_names, compile_dispatch, depfile_path,
-    macro_name, object_path, promote_dir, resolve_target_dep_edge, topo_sort_targets,
+    collect_interface, collect_link_libs, collect_link_names, collect_system_link_args,
+    compile_dispatch, depfile_path, macro_name, object_path, promote_dir, resolve_target_dep_edge,
+    topo_sort_targets,
 };
 
 /// Reference to a manifest target - one of the `[target.<name>]`
@@ -57,6 +58,34 @@ impl ManifestTargetSelector {
     }
 }
 
+/// What a system provider supplies for one library target of a
+/// package the build takes from the system instead of building it.
+/// The graph holds that target as a header-only target with no sources
+/// of its own, which the planner never builds; consumers receive this
+/// interface wherever they would receive the target's include dirs and
+/// `interface-defines`, and every link that reaches it takes its link
+/// arguments.
+#[derive(Debug, Default)]
+pub struct SystemTargetInterface {
+    /// Include dirs passed as plain `-I`: compiler default dirs such as
+    /// `/usr/include`, which a system search path would move ahead of
+    /// the compiler's own headers, breaking `#include_next`.
+    pub include_dirs: Vec<Utf8PathBuf>,
+    /// Include dirs passed as system search paths (`-isystem` /
+    /// `/external:I`), like a registry package's.
+    pub system_include_dirs: Vec<Utf8PathBuf>,
+    /// Preprocessor definitions for consumers' compiles, with the
+    /// conflict check `interface-defines` get.
+    pub defines: Vec<String>,
+    /// Other arguments every consumer's compiles take, verbatim, ahead
+    /// of the consumer's standard, profile, and own flags.
+    pub compile_args: Vec<String>,
+    /// Arguments every link that reaches the target takes, verbatim and
+    /// in the provider's order, after the archives and the linking
+    /// package's own `ldflags`.
+    pub link_args: Vec<String>,
+}
+
 /// Inputs to the build planner.
 // Independent inputs that happen to be booleans, not a state machine.
 #[allow(clippy::struct_excessive_bools)]
@@ -88,6 +117,9 @@ pub struct PlanRequest<'a> {
     /// compile a candidate's scope covers; candidates whose scope
     /// is never planned (an unbuilt sibling target) gate nothing.
     pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
+    /// The interfaces of the system-provided targets this plan uses,
+    /// keyed by `graph.packages` index and target name.
+    pub system_targets: &'a HashMap<(usize, String), SystemTargetInterface>,
     /// Absolute [`crate::layout::platform_dir`] of the target context's
     /// platform, which a build-context plan shares; the profile's
     /// outputs go under it.
@@ -483,6 +515,7 @@ fn emit_actions(
             target,
             &resolved_deps,
             req.graph,
+            req.system_targets,
             object,
             &mut standard_violations,
         )?;
@@ -679,6 +712,7 @@ fn emit_actions(
                     system_include_dirs: system_include_dirs.clone(),
                     defines: defines.clone(),
                     instruction_sets: ps.instruction_sets.clone(),
+                    provider_flags: collected.args.clone(),
                     extra_flags,
                 },
                 description: format!("{} {}", dispatch.description_tag, ps.object),
@@ -783,8 +817,14 @@ fn emit_actions(
                 // so the dialect lowering spells them (`-l<name>` for
                 // GNU, `<name>.lib` for MSVC) and places them after the
                 // archives for left-to-right resolution. `arguments`
-                // stays the package's own raw `ldflags`.
-                let link_arguments = ldflags.to_vec();
+                // is the package's own raw `ldflags`, then the link
+                // arguments of the system-provided targets it reaches.
+                let mut link_arguments = ldflags.to_vec();
+                link_arguments.extend(collect_system_link_args(
+                    tid,
+                    &resolved_deps,
+                    req.system_targets,
+                ));
                 // Apple's linker resolves archives in any order and
                 // warns on a repeated `-l`, so its links name each
                 // library once; other linkers search left to right.

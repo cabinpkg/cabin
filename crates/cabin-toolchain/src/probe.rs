@@ -422,6 +422,7 @@ mod tests {
                 system_include_dirs: Vec::new(),
                 defines: Vec::new(),
                 instruction_sets: Vec::new(),
+                provider_flags: Vec::new(),
                 extra_flags: vec!["-Werror".to_owned()],
             },
             link_flags: vec!["-static".to_owned()],

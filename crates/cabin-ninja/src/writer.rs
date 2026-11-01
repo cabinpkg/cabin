@@ -306,10 +306,10 @@ fn runner_token(runner: &Path) -> Result<String, NinjaError> {
 /// instead.  The paths checked are the ones a depfile is spelled from:
 /// the source, the outputs, the compiler (whose built-in include
 /// directories sit beside it), the sysroot, the include directories, and
-/// the escape-hatch flags other than `-D` defines.  A header whose own
-/// name has such a byte below an ordinary include directory is not
-/// foreseen: Ninja then records paths that do not exist, so the compile
-/// reruns on every build rather than going stale.
+/// the provider and escape-hatch flags other than `-D` defines.  A
+/// header whose own name has such a byte below an ordinary include
+/// directory is not foreseen: Ninja then records paths that do not
+/// exist, so the compile reruns on every build rather than going stale.
 fn depfile_needs_translation(action: &BuildAction) -> bool {
     let unreadable = |path: &str| {
         path.chars().any(|c| {
@@ -332,8 +332,9 @@ fn depfile_needs_translation(action: &BuildAction) -> bool {
                 .any(|path| unreadable(path.as_str()))
                 || compile
                     .arguments
-                    .extra_flags
+                    .provider_flags
                     .iter()
+                    .chain(&compile.arguments.extra_flags)
                     .any(|flag| !flag.starts_with("-D") && unreadable(flag))
         }
         BuildAction::Assemble(assemble) => {
@@ -654,6 +655,7 @@ mod tests {
                 system_include_dirs: vec![],
                 defines: vec![],
                 instruction_sets: vec![],
+                provider_flags: vec![],
                 extra_flags: vec![],
             },
             description: "CXX /abs/build/main.o".into(),
@@ -715,6 +717,7 @@ mod tests {
                 system_include_dirs: vec![],
                 defines: vec![],
                 instruction_sets: vec![],
+                provider_flags: vec![],
                 extra_flags: vec![],
             },
             description: "CHECK /abs/build/main.o".into(),
@@ -1269,6 +1272,7 @@ mod tests {
             compile_with(|c| c.arguments.include_dirs = vec!["/abs/a|b/include".into()]),
             compile_with(|c| c.arguments.system_include_dirs = vec!["/abs/a*b".into()]),
             compile_with(|c| c.arguments.extra_flags = vec!["-I/abs/a&b".into()]),
+            compile_with(|c| c.arguments.provider_flags = vec!["-I/abs/a^b".into()]),
             compile_with(|c| {
                 c.sysroot = Some(cabin_core::Sysroot {
                     path: "/abs/a;b/sdk".into(),

@@ -29,7 +29,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | implemented |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | implemented |
 | 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | implemented |
-| 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | not started |
+| 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | in progress |
 | 07 | Generated actions and build-machine tools | 4 | `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin-manifest`, `cabin-core` | 02, 04-06; 03's metadata | not started |
 | 08 | Static, shared, and loadable artifacts; PIC, DLLs, runtime lookup | 6 | `cabin-core`, `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin` | 02, 04-07 | not started |
 | 09 | Install, CMake Config and pkg-config export, relocation | 7 | owner chosen in 09; `cabin-build` | 02, 06-08 | not started |
@@ -466,6 +466,12 @@ per-context features, and per-context `links`; runners for `cabin run` and `cabi
 Stage 05's pull requests, in order: sysroots and the Apple SDK; typed compile, link, and run
 probes; a toolchain per context; MinGW promoted on build, link, run, and CI evidence.
 
+Stage 06's pull requests, in order: the planner builds against system-provided library targets; a
+root `[system-provided]` policy with a pkg-config provider, which skips fetching what only the
+system-provided packages need and refuses a package provided both ways in one context;
+multi-target packages; static linking and cross sysroots; an explicit-prefix provider for MSVC; the
+build context's own providers.
+
 **Changes.**  Stage 00: this ledger, the contracts page, and the scope alignment listed above.
 Stage 00 counts as adopted once this ledger is on `main`.
 
@@ -642,6 +648,14 @@ mixed C/C++ `platform-cfg` examples with `cabin run --target x86_64-w64-mingw32 
 tests `library-with-tests` the same way, using the MinGW-w64 GCC the `windows-2025-vs2026` image
 puts first on `PATH`.  Like `windows-msvc-autodiscovery`, it is not a required check.
 
+Stage 06, first change: the planner takes the interfaces of system-provided library targets
+(`PlanRequest::system_targets`), each held in the graph as a header-only target the planner never
+builds.  A consumer compile that reaches one through visible edges takes its include dirs (plain or
+system), its definitions under the `interface-defines` conflict check, and its other compile
+arguments ahead of the compile's standard and profile flags, so a provider's `-std=` or `-O` never
+wins; every link that reaches it appends its link arguments, in the provider's order, after the
+archives and the package's `ldflags`.  No command populates the map yet.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -817,6 +831,15 @@ binutils 2.46 from `C:\mingw64\bin`; each example printed its message, `platform
 Windows C source, and both tests passed.  Without the sibling rule, `hello-c`
 would get `cl` beside `g++`, which the dialect check refuses.  Not run: Clang targeting MinGW,
 MSYS2's other environments, and build or system dependencies under MinGW.
+
+Stage 06, first change: a planner unit test gives a system-provided `zlib` target each kind of
+interface and checks that its private dependent's C and C++ compiles take every field, with the
+compile arguments kept apart from the package's own flags, while the executable above it takes
+none; that the executable's link appends the link arguments after its `ldflags`; and that a
+supplied definition disagreeing with an `interface-defines` entry is a conflict.  A driver test
+puts provider flags ahead of the standard and profile flags in both dialects, and the Ninja writer
+test routes a provider flag Ninja's depfile parser cannot read through `cabin depfile`.  Removing
+or reordering any one hook fails a test.
 
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to

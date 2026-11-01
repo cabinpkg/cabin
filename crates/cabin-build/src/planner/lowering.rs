@@ -7,7 +7,9 @@ use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use super::{PlanRequest, TargetDepEdge, TargetId, find_target, format_target_id};
+use super::{
+    PlanRequest, SystemTargetInterface, TargetDepEdge, TargetId, find_target, format_target_id,
+};
 
 /// Resolve one declared `deps` entry into a graph edge.  The alias
 /// forms (`foo` as a same-package target or as a dependency
@@ -218,6 +220,9 @@ pub(super) struct CollectedInterface {
     pub(super) system: Vec<Utf8PathBuf>,
     /// The visible dependencies' `interface-defines`, in visit order.
     pub(super) defines: Vec<String>,
+    /// The visible system-provided targets' compile arguments, in
+    /// visit order.
+    pub(super) args: Vec<String>,
     /// The visible library-like dependency targets, in visit order.
     pub(super) visible: Vec<TargetId>,
 }
@@ -236,6 +241,7 @@ pub(super) fn collect_interface(
     target: &Target,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     graph: &PackageGraph,
+    system_targets: &HashMap<TargetId, SystemTargetInterface>,
     object: &Utf8Path,
     violations: &mut Vec<StandardViolation>,
 ) -> Result<CollectedInterface, BuildError> {
@@ -248,6 +254,7 @@ pub(super) fn collect_interface(
             .collect(),
         system: Vec::new(),
         defines: Vec::new(),
+        args: Vec::new(),
         visible: Vec::new(),
     };
     // Each visited target and the target it was reached through, for
@@ -281,17 +288,34 @@ pub(super) fn collect_interface(
             // both `-I` and `-isystem` on one command line.
             let third_party = dep_pkg.kind == cabin_workspace::PackageKind::Registry;
             let dep_manifest = promote_dir(&dep_pkg.manifest_dir)?;
-            for inc in &dep_target.include_dirs {
-                let abs = dep_manifest.join(inc);
+            let provided = system_targets.get(tid);
+            let declared = dep_target
+                .include_dirs
+                .iter()
+                .map(|inc| (dep_manifest.join(inc), third_party));
+            let supplied = provided.into_iter().flat_map(|system| {
+                let plain = system.include_dirs.iter().map(|dir| (dir.clone(), false));
+                plain.chain(
+                    system
+                        .system_include_dirs
+                        .iter()
+                        .map(|dir| (dir.clone(), true)),
+                )
+            });
+            for (abs, system) in declared.chain(supplied) {
                 if !collected.user.contains(&abs) && !collected.system.contains(&abs) {
-                    if third_party {
+                    if system {
                         collected.system.push(abs);
                     } else {
                         collected.user.push(abs);
                     }
                 }
             }
-            for define in &dep_target.interface_defines {
+            if let Some(system) = provided {
+                collected.args.extend(system.compile_args.iter().cloned());
+            }
+            let supplied_defines = provided.into_iter().flat_map(|system| &system.defines);
+            for define in dep_target.interface_defines.iter().chain(supplied_defines) {
                 let name = macro_name(define);
                 match define_origin.get(name) {
                     None => {
@@ -442,6 +466,23 @@ pub(super) fn collect_link_names(
         names.retain(|name| seen.insert(name.clone()));
     }
     names
+}
+
+/// The link arguments of the system-provided targets the link of
+/// `start` reaches, dependents before dependencies, each target's in
+/// its provider's order.  A system library never depends on a
+/// Cabin-built archive, so placing them all after the archives keeps
+/// the left-to-right resolution a GNU linker needs.
+pub(super) fn collect_system_link_args(
+    start: &TargetId,
+    resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
+    system_targets: &HashMap<TargetId, SystemTargetInterface>,
+) -> Vec<String> {
+    link_closure(start, resolved)
+        .into_iter()
+        .filter_map(|tid| system_targets.get(tid))
+        .flat_map(|system| system.link_args.iter().cloned())
+        .collect()
 }
 
 #[tracing::instrument(level = "debug", skip_all)]

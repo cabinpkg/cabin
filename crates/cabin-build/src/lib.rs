@@ -38,7 +38,7 @@ pub use check::into_check_graph;
 pub use error::{BuildError, FeatureGateFix};
 pub use graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
 pub use planner::{
-    ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind,
+    ManifestTargetSelector, PlanRequest, SystemTargetInterface, plan, select_targets_of_kind,
     selector_required_features_met,
 };
 pub use standard_compat::{

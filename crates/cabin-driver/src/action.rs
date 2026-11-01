@@ -124,6 +124,11 @@ pub struct CompileArguments {
     /// leaves it empty for `cl.exe`, which exposes every intrinsic
     /// without a flag, so on the MSVC dialect only `clang-cl` gets it.
     pub instruction_sets: Vec<InstructionSet>,
+    /// Compile arguments system providers supply for the dependencies
+    /// this source sees, verbatim.  Spelled ahead of the standard and
+    /// profile flags, so the compile's own choices win over a
+    /// provider's `-std=` or `-O`.
+    pub provider_flags: Vec<String>,
     /// Escape-hatch compile flags appended verbatim after the
     /// include block.  The user writes these in the active dialect
     /// (language-neutral first, then language-specific).
