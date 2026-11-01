@@ -34,6 +34,16 @@ pub enum ManifestError {
     #[error("manifest contains neither a [package] nor a [workspace] table")]
     EmptyManifest,
 
+    #[error(
+        "`{table}` flags compile this manifest's own package, but it has no [package]; put them in the member manifests that need them (`[profile.<name>]` flags here reach every package in the build, registry dependencies included)"
+    )]
+    ProfileFlagsWithoutPackage { table: String },
+
+    #[error(
+        "`{table}` applies to this manifest's own package, but it has no [package]; declare it in the member manifests that need it"
+    )]
+    PackageTableWithoutPackage { table: String },
+
     #[error("invalid version {value:?} in [package]: {source}")]
     Version {
         value: String,

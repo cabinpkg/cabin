@@ -1434,6 +1434,37 @@ fn pure_workspace_preserves_root_policy_settings() {
 }
 
 #[test]
+fn pure_workspace_rejects_package_level_tables() {
+    for (table, expected) in [
+        ("[profile]\ncflags = [\"-Wall\"]", "[profile]"),
+        (
+            "[target.'cfg(os = \"linux\")'.profile]\ncflags = [\"-Wall\"]",
+            "[target.'cfg(os = \"linux\")'.profile]",
+        ),
+        (
+            "[target.'cfg(os = \"linux\")'.profile.dev]\ncxxflags = [\"-Wall\"]",
+            "[target.'cfg(os = \"linux\")'.profile]",
+        ),
+        (
+            "[target.'cfg(os = \"linux\")'.dependencies]\nfmt = \"^10\"",
+            "[target.'cfg(os = \"linux\")'.dependencies]",
+        ),
+        ("[dependencies]\nfmt = \"^10\"", "[dependencies]"),
+        ("[dev-dependencies]\nfmt = \"^10\"", "[dev-dependencies]"),
+        ("[features]\nextra = []", "[features]"),
+    ] {
+        let manifest = format!("[workspace]\nmembers = [\"packages/*\"]\n\n{table}\n");
+        let err = parse_manifest_str(&manifest).unwrap_err();
+        let actual = match &err {
+            ManifestError::ProfileFlagsWithoutPackage { table }
+            | ManifestError::PackageTableWithoutPackage { table } => table.as_str(),
+            other => panic!("{table}: unexpected error {other:?}"),
+        };
+        assert_eq!(actual, expected, "{table}");
+    }
+}
+
+#[test]
 fn parses_workspace_with_root_project() {
     let manifest = r#"
             [package]

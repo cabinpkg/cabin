@@ -312,7 +312,11 @@ root manifest`, so a single workspace key cannot mean different things in differ
 
 Package-level `[profile]`, `[target.'cfg(...)'.profile]`, and
 `[target.'cfg(...)'.profile.<name>]` flag layers remain valid in each package.  A package can add
-flags for a profile name used by its consumer workspace, but it cannot define that profile.
+flags for a profile name used by its consumer workspace, but it cannot define that profile.  A
+workspace root without `[package]` has no sources of its own, so it rejects these package-level
+layers; put them in the member manifests that need them.  Flag fields on the root's
+`[profile.<name>]` tables are different: they reach every package in the build, registry
+dependencies included, so keep warning-as-error and other strictness flags out of them.
 
 ## Build directories
 
