@@ -31,11 +31,9 @@ mod preflight;
 mod provider;
 mod range;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use cabin_core::standard_compatibility::{
-    ConsumerStandards, EffectiveRequirements, edge_compatible,
-};
+use cabin_core::standard_compatibility::{ConsumerStandards, EffectiveRequirements};
 use cabin_core::{
     DEFAULT_FEATURE_KEY, FeatureEntry, IncompatibleStandards, PackageName, Requirement,
     SourceLanguage,
@@ -124,50 +122,6 @@ pub fn resolve_packages(
 /// standard hold-back report (which needs a second, `Allow`-mode
 /// resolution to diff against - see [`held_back_report`]).
 fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
-    let output = resolve_once_unchecked(input, index)?;
-    // Checked against the locked version, not the selected one: an
-    // index that drops a pinned revision can also rewrite that
-    // version's metadata so the solver moves elsewhere.  `Locked`
-    // already validated every pin it used.
-    if !matches!(input.mode, ResolveMode::Locked) {
-        let locked = effective_locked(input);
-        for pkg in &output.packages {
-            if pkg.source == ResolvedSource::Index
-                && let Some(pin) = locked.get(&pkg.name)
-                && let Some(entry) = index.package(&pkg.name)
-            {
-                locked::check_locked_pin_listed(&pkg.name, pin, entry)?;
-            }
-        }
-    }
-    // Post-resolution `links` uniqueness, over the whole graph or
-    // per link domain.  Runs here - not in `resolve` - so
-    // `resolve_packages` (build/run/test/vendor) enforces it too,
-    // and before any lockfile is written from this output.
-    if input.link_domains.is_empty() {
-        detect_links_collision(&links_claims_of_solution(input, index, &output.packages))?;
-    }
-    for domain in &input.link_domains {
-        detect_links_collision(&links_claims_of_domain(
-            input,
-            index,
-            &output.packages,
-            domain,
-        ))?;
-    }
-    Ok(output)
-}
-
-/// [`resolve_once`] without the links-uniqueness check, for
-/// `held_back_report`'s second `Allow`-mode solve, which diffs
-/// selections only - a collision in that hypothetical selection must
-/// not silently empty the report (its defensive error arm discards
-/// failures; collision-involved rows are pruned individually via
-/// [`colliding_packages`] instead).
-fn resolve_once_unchecked(
-    input: &ResolveInput,
-    index: &PackageIndex,
-) -> Result<ResolveOutput, ResolveError> {
     let locked = effective_locked(input);
 
     // Convert root requirements up front so an unsupported
@@ -223,7 +177,38 @@ fn resolve_once_unchecked(
         ) => return Err(source),
     };
 
-    Ok(selected_dependencies_to_output(input, index, solution))
+    let output = selected_dependencies_to_output(input, index, solution);
+    // Checked against the locked version, not the selected one: an
+    // index that drops a pinned revision can also rewrite that
+    // version's metadata so the solver moves elsewhere.  `Locked`
+    // already validated every pin it used.
+    if !matches!(input.mode, ResolveMode::Locked) {
+        let locked = effective_locked(input);
+        for pkg in &output.packages {
+            if pkg.source == ResolvedSource::Index
+                && let Some(pin) = locked.get(&pkg.name)
+                && let Some(entry) = index.package(&pkg.name)
+            {
+                locked::check_locked_pin_listed(&pkg.name, pin, entry)?;
+            }
+        }
+    }
+    // Post-resolution `links` uniqueness, over the whole graph or
+    // per link domain.  Runs here - not in `resolve` - so
+    // `resolve_packages` (build/run/test/vendor) enforces it too,
+    // and before any lockfile is written from this output.
+    if input.link_domains.is_empty() {
+        detect_links_collision(&links_claims_of_solution(input, index, &output.packages))?;
+    }
+    for domain in &input.link_domains {
+        detect_links_collision(&links_claims_of_domain(
+            input,
+            index,
+            &output.packages,
+            domain,
+        ))?;
+    }
+    Ok(output)
 }
 
 /// Every `links` claim the resolved graph carries: the caller's
@@ -339,26 +324,6 @@ pub fn detect_links_collision(claims: &[LinksClaim]) -> Result<(), ResolveError>
     Ok(())
 }
 
-/// Names of every package participating in an identity claimed by two
-/// or more distinct packages.  Non-failing sibling of
-/// [`detect_links_collision`] for [`held_back_report`], which prunes
-/// individual rows of a hypothetical solution rather than erroring.
-fn colliding_packages(claims: &[LinksClaim]) -> BTreeSet<PackageName> {
-    let mut by_identity: BTreeMap<&str, BTreeSet<&PackageName>> = BTreeMap::new();
-    for claim in claims {
-        by_identity
-            .entry(&claim.links)
-            .or_default()
-            .insert(&claim.package);
-    }
-    by_identity
-        .into_values()
-        .filter(|packages| packages.len() >= 2)
-        .flatten()
-        .cloned()
-        .collect()
-}
-
 /// The standard-caused hold-backs of a `Fallback` resolution: the diff
 /// against the `Allow` solution.
 ///
@@ -367,26 +332,21 @@ fn colliding_packages(claims: &[LinksClaim]) -> BTreeSet<PackageName> {
 /// range, unsolvable dependencies, yanked): such a version never
 /// appears in the `Allow` solution.  The diff is not exact, though.
 /// `Allow` may pick a newer version only because it chose a different
-/// parent ([`admissible_under`] drops those rows), and its unchecked
-/// solve ignores `links` collisions, which the checked resolve refuses
-/// under *any* mode.  Each row's newer pick is therefore validated
-/// independently, substituted into the otherwise-unchanged fallback
-/// solution: a pick that collides there is pruned instead of attributed
-/// to standards, while a pick realizable beside the fallback graph
-/// stays reported even when it collides with *another* row's newer pick
-/// (classifying the joint `Allow` solution would erase both rows).
-/// Conversely, a hold `Allow` does not reproduce goes unreported: when
-/// `Allow`'s own parent choice confines a package to the version
-/// `Fallback` selected, a newer incompatible version the fallback graph
-/// admits is never named.
+/// parent ([`admissible_under`] drops those rows).  Conversely, a hold
+/// `Allow` does not reproduce goes unreported: when `Allow`'s own parent
+/// choice confines a package to the version `Fallback` selected, a newer
+/// incompatible version the fallback graph admits is never named.
 ///
 /// Empty under `Allow`, and whenever the workspace declares no consumer
-/// standard (nothing can be incompatible).  On the `Fallback`-success
-/// path the `Allow` resolution cannot fail - solvability is identical -
-/// but a defensive error yields an empty report rather than aborting.
-/// The exception is [`ResolveError::MetadataNeeded`]: the `Allow`
-/// solve can reach a package the `Fallback` solve never needed, and
-/// the caller fetches it and resolves again.
+/// standard (nothing can be incompatible).  Solvability is identical
+/// under both modes, but the `Allow` selection can still be refused -
+/// a `links` collision among its newer picks - and then `allow`
+/// selects nothing to diff against: any such error drops the newer-pick
+/// rows rather than aborting, and a selected version that is itself
+/// incompatible is still reported.  The exception is
+/// [`ResolveError::MetadataNeeded`]: the `Allow` solve can reach a
+/// package the `Fallback` solve never needed, and the caller fetches it
+/// and resolves again.
 #[tracing::instrument(level = "debug", skip_all)]
 fn held_back_report(
     input: &ResolveInput,
@@ -403,13 +363,12 @@ fn held_back_report(
 
     let mut allow_input = input.clone();
     allow_input.incompatible_standards = IncompatibleStandards::Allow;
-    let allow = match resolve_once_unchecked(&allow_input, index) {
-        Ok(allow) => allow,
+    let allow_packages = match resolve_once(&allow_input, index) {
+        Ok(allow) => allow.packages,
         Err(err @ ResolveError::MetadataNeeded(_)) => return Err(err),
-        Err(_) => return Ok(Vec::new()),
+        Err(_) => Vec::new(),
     };
-    let allow_versions: BTreeMap<&PackageName, &Version> = allow
-        .packages
+    let allow_versions: BTreeMap<&PackageName, &Version> = allow_packages
         .iter()
         .map(|package| (&package.name, &package.version))
         .collect();
@@ -441,9 +400,7 @@ fn held_back_report(
             .package(&package.name)
             .and_then(|entry| entry.versions.get(&package.version))
             .map(|meta| meta.standards.version_wide_join());
-        if let Some(advertised) = selected_advertised
-            && !edge_compatible(consumer, advertised)
-        {
+        if let Some(advertised) = selected_advertised {
             let blocked_by = blocking_requirements(consumer, advertised);
             if !blocked_by.is_empty() {
                 held_back.push(HeldBack {
@@ -452,8 +409,8 @@ fn held_back_report(
                     newest: None,
                     blocked_by,
                 });
+                continue;
             }
-            continue;
         }
 
         // Otherwise the selected version is compatible; was a strictly
@@ -462,9 +419,6 @@ fn held_back_report(
             continue;
         };
         if *newest <= package.version {
-            continue;
-        }
-        if newer_pick_collides(package, newest, input, index, fallback_packages) {
             continue;
         }
         // `Allow` may have selected `newest` in a *different* dependency
@@ -483,68 +437,18 @@ fn held_back_report(
         else {
             continue;
         };
-        let advertised = standards.version_wide_join();
-        let blocked_by = if edge_compatible(consumer, advertised) {
-            // The newer version is compatible, so the only reason
-            // fallback passed it over is that it is undeclared and a
-            // declared-compatible older version outranks it (tier 1 over
-            // tier 2).  Report it with no requirement to cite.
-            Vec::new()
-        } else {
-            let requirements = blocking_requirements(consumer, advertised);
-            // A declared-incompatible version always has a failing
-            // clause; guard defensively.
-            if requirements.is_empty() {
-                continue;
-            }
-            requirements
-        };
+        // Empty when the newer version is compatible: fallback passed it
+        // over only because it is undeclared and a declared-compatible
+        // older version outranks it (tier 1 over tier 2).
         held_back.push(HeldBack {
             name: package.name.clone(),
             selected: package.version.clone(),
             newest: Some(newest.clone()),
-            blocked_by,
+            blocked_by: blocking_requirements(consumer, standards.version_wide_join()),
         });
     }
     held_back.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(held_back)
-}
-
-/// Whether upgrading `package` to `newest` - every other pick of the
-/// fallback `solution` held fixed - produces a `links` collision.  The
-/// fallback solution itself passed the checked resolve, so any
-/// collision in the substituted claim set involves the upgraded pick.
-///
-/// Like [`admissible_under`], this validates the local upgrade
-/// hypothesis only: the substitution swaps the pick's version in
-/// place, so dependencies the newer version *introduces* are absent -
-/// their claims from this check, their constraints from that one.
-/// Chasing them would mean re-resolving the hypothetical graph for
-/// every row; the report stays a fallback-graph-local diagnostic
-/// across both dimensions, and a cited upgrade can still fail for
-/// closure-introduced reasons when actually attempted.
-fn newer_pick_collides(
-    package: &ResolvedPackage,
-    newest: &Version,
-    input: &ResolveInput,
-    index: &PackageIndex,
-    solution: &[ResolvedPackage],
-) -> bool {
-    let substituted: Vec<ResolvedPackage> = solution
-        .iter()
-        .map(|resolved| {
-            if resolved.name == package.name {
-                ResolvedPackage {
-                    version: newest.clone(),
-                    ..resolved.clone()
-                }
-            } else {
-                resolved.clone()
-            }
-        })
-        .collect();
-    colliding_packages(&links_claims_of_solution(input, index, &substituted))
-        .contains(&package.name)
 }
 
 /// Whether `version` of `package` is admissible under the fallback
@@ -687,7 +591,7 @@ mod tests {
     use super::*;
     use cabin_core::PackageName;
     use cabin_index::{IndexEntry, PackageIndex, VersionMetadata};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
 
     fn pkg_name(s: &str) -> PackageName {
@@ -2474,107 +2378,55 @@ mod tests {
         assert!(out.held_back.is_empty());
     }
 
-    /// Standards-and-links index shared by the two hold-back pruning
-    /// tests: `fmt` and `spdlog` each have a declared-compatible 1.4.0
-    /// and an incompatible 2.0.0; `zlib` has a single version claiming
-    /// `zlib_links`; only `fmt` 2.0.0 claims "z".
-    fn pruning_index(zlib_links: &str) -> PackageIndex {
+    /// The `Allow` solve is checked like any resolve: when its newer
+    /// pick collides on `links`, `allow` selects nothing, so no newer
+    /// pick is reported; a selected version that is itself incompatible
+    /// still is, and the valid fallback resolution still succeeds.
+    #[test]
+    fn held_back_keeps_only_incompatible_selections_when_allow_collides_on_links() {
         let mut index = build_index(vec![
             entry(
                 "fmt",
                 vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
             ),
-            entry(
-                "spdlog",
-                vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
-            ),
             entry("zlib", vec![("1.0.0", vec![], false)]),
+            entry("a", vec![("1.0.0", vec![], false)]),
         ]);
-        for pkg in ["fmt", "spdlog"] {
-            set_standards(
-                &mut index,
-                pkg,
-                "2.0.0",
-                cxx_table(Requirement::Min(CxxStandard::Cxx20)),
-            );
-            set_standards(
-                &mut index,
-                pkg,
-                "1.4.0",
-                cxx_table(Requirement::Min(CxxStandard::Cxx17)),
-            );
-        }
+        set_standards(
+            &mut index,
+            "a",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.4.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
         set_links(&mut index, "fmt", "2.0.0", &[("fmt", "z")]);
-        set_links(&mut index, "zlib", "1.0.0", &[("z", zlib_links)]);
-        index
-    }
-
-    /// A newer version the `Allow` solve picks is not reported as a
-    /// standard hold-back when its `links` claim collides with another
-    /// resolved package: no mode can actually select it.  Hold-backs
-    /// of packages uninvolved in the collision are still reported.
-    #[test]
-    fn held_back_prunes_versions_unrealizable_by_links_collision() {
-        let index = pruning_index("z");
+        set_links(&mut index, "zlib", "1.0.0", &[("z", "z")]);
         let out = resolve(
             &cxx_consumer_input(
-                vec![("fmt", "*"), ("spdlog", "*"), ("zlib", "*")],
+                vec![("fmt", "*"), ("zlib", "*"), ("a", "*")],
                 CxxStandard::Cxx17,
             ),
             &index,
         )
         .unwrap();
         assert_eq!(fmt_version(&out), version("1.4.0"));
-        assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
-        assert_eq!(out.held_back[0].name.as_str(), "spdlog");
-        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
-    }
-
-    /// Two newer picks that collide only with each other are validated
-    /// independently against the fallback solution: `fmt` 2.0.0 claims
-    /// the identity `spdlog`'s *fallback* version already holds, so its
-    /// row is pruned, while `spdlog` 2.0.0 is realizable beside `fmt`'s
-    /// fallback claim and stays reported.  Classifying the joint
-    /// `Allow` solution would erase both rows.
-    #[test]
-    fn held_back_validates_each_newer_pick_against_fallback() {
-        let mut index = build_index(vec![
-            entry(
-                "fmt",
-                vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
-            ),
-            entry(
-                "spdlog",
-                vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
-            ),
-        ]);
-        for pkg in ["fmt", "spdlog"] {
-            set_standards(
-                &mut index,
-                pkg,
-                "2.0.0",
-                cxx_table(Requirement::Min(CxxStandard::Cxx20)),
-            );
-            set_standards(
-                &mut index,
-                pkg,
-                "1.4.0",
-                cxx_table(Requirement::Min(CxxStandard::Cxx17)),
-            );
-        }
-        set_links(&mut index, "fmt", "1.4.0", &[("fmt", "a")]);
-        set_links(&mut index, "fmt", "2.0.0", &[("fmt", "z")]);
-        set_links(&mut index, "spdlog", "1.4.0", &[("spdlog", "z")]);
-        set_links(&mut index, "spdlog", "2.0.0", &[("spdlog", "z")]);
-
-        let out = resolve(
-            &cxx_consumer_input(vec![("fmt", "*"), ("spdlog", "*")], CxxStandard::Cxx17),
-            &index,
-        )
-        .unwrap();
-        assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
-        assert_eq!(out.held_back[0].name.as_str(), "spdlog");
-        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
+        let rows: Vec<_> = out
+            .held_back
+            .iter()
+            .map(|row| (row.name.as_str(), row.newest.is_none()))
+            .collect();
+        assert_eq!(rows, [("a", true)], "held_back: {:?}", out.held_back);
     }
 
     /// A newer pre-release the `Allow` solve picks is no hold-back when
@@ -2617,25 +2469,6 @@ mod tests {
             "held_back: {:?}",
             out.held_back
         );
-    }
-
-    /// Sensitivity control for the pruning above: with `zlib` claiming
-    /// a distinct identity, the identical `fmt` hold-back is reported -
-    /// pruning keys on the collision, not on carrying a links table.
-    #[test]
-    fn held_back_reports_links_bearing_versions_without_collision() {
-        let index = pruning_index("y");
-        let out = resolve(
-            &cxx_consumer_input(
-                vec![("fmt", "*"), ("spdlog", "*"), ("zlib", "*")],
-                CxxStandard::Cxx17,
-            ),
-            &index,
-        )
-        .unwrap();
-        assert_eq!(out.held_back.len(), 2, "held_back: {:?}", out.held_back);
-        assert_eq!(out.held_back[0].name.as_str(), "fmt");
-        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
     }
 
     /// `resolve_packages` selects identically to `resolve` (same
