@@ -12,8 +12,9 @@
 //! Actions tokens with RSA keys published at a fixed JWKS URL, and a
 //! hand-rolled verifier over the pure-Rust `rsa` crate is one code path
 //! that runs natively in tests and on wasm32 alike - `ring`-backed JWT
-//! crates do not build for the Worker target, and `SubtleCrypto` would
-//! leave the verification logic untestable off wasm.
+//! crates need a wasm32-capable C compiler (clang) to build for the
+//! Worker target, and `SubtleCrypto` would leave the verification logic
+//! untestable off wasm.
 
 use base64ct::{Base64UrlUnpadded, Encoding as _};
 use rsa::pkcs1v15::{Signature, VerifyingKey};
@@ -53,9 +54,10 @@ pub const VERIFIER_AUDIENCE: &str = "cabinpkg.com/verifier";
 const LEEWAY_SECONDS: i64 = 60;
 
 /// How long a minted exchange token lives. Well inside the schema's
-/// one-day trustpub ceiling; long enough for one ports run to publish
-/// its whole batch on the one token (the token is multi-use within the
-/// TTL).
+/// one-day trustpub ceiling; long enough for one `cabin publish`
+/// invocation - a port-publish batch (`BATCH_SIZE` in
+/// `crates/xtask-port-publish/src/remote.rs`) - to publish on the one
+/// token (the token is multi-use within the TTL).
 pub const TOKEN_TTL_SECS: i64 = 30 * 60;
 
 /// How long a fetched JWKS stays served from the Cache API before the
@@ -578,9 +580,10 @@ impl JwksProvider for GithubJwks {
         let set: JwkSet =
             serde_json::from_str(&body).map_err(|err| provider_err(err.to_string()))?;
 
-        // The Cache API only stores responses carrying a max-age; the
-        // directive lives on the internal copy only and never reaches a
-        // client.
+        // The max-age sets the cached copy's TTL: without it production
+        // applies the default Edge TTL (120 min for a 200) and local
+        // wrangler dev expires the entry at once. The directive lives on
+        // the internal copy only and never reaches a client.
         if let Ok(mut for_cache) = worker::Response::ok(body) {
             let stored = for_cache
                 .headers_mut()

@@ -90,7 +90,7 @@ pub const GOVERNOR_UNAVAILABLE_RETRY_AFTER_SECS: u64 = 60;
 /// per environment via the same-named env vars.
 #[derive(Debug, Clone, Copy)]
 pub struct Budgets {
-    /// `BUDGET_R2_STORAGE_BYTES`; free limit 10 GiB-month across the
+    /// `BUDGET_R2_STORAGE_BYTES`; free limit 10 GB-month across the
     /// account. The metric counts primary (BLOBS) bytes only, but
     /// replication stores every verified blob a second time in BACKUP
     /// and the nightly D1 dumps add metadata copies there, so the

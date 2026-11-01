@@ -206,10 +206,12 @@ impl Smoke {
         headers: &[(String, String)],
         body: Option<&[u8]>,
     ) -> Result<u16> {
-        // The local dev servers have never been driven faster than one
-        // request every ~30 ms, so the pacing is part of the
-        // environment the run was written for, not an optimization to
-        // strip.
+        // The shell smoke's requests each paid a forked curl's startup
+        // (~30 ms), and in-process HTTP without a pause wedged workerd
+        // nondeterministically (an admin-plane GET right after the
+        // early-answered oversized PATCH hung on a fresh connection), so
+        // the pacing is part of the environment the run was written for,
+        // not an optimization to strip.
         std::thread::sleep(std::time::Duration::from_millis(25));
         let mut request = self.agent.request(method, url);
         for (name, value) in headers {

@@ -271,9 +271,10 @@ smoke test). What it does, in order:
    runs the guard immediately before anything destructive and reads the
    current `meta.registry_generation` (the input for step 5). The guard
    first proves the config's `DB` binding and the account's database
-   named `cabin-registry` are the same database (a stale binding could
-   otherwise have the flag read one database while `d1 delete` removes
-   another), then reads `meta.launched` through the binding.
+   named `cabin-registry` are the same database (`d1 delete` resolves the
+   name through the binding, so a stale binding would otherwise delete a
+   database other than the account's `cabin-registry`), then reads
+   `meta.launched` through the binding.
 2. Empties both buckets through the R2 REST API, before the database
    goes: every `blobs/`-prefixed object in `cabin-registry-blobs`, then
    every object in `cabin-registry-backup` - archived blobs, D1 dumps,
@@ -513,7 +514,7 @@ Cloudflare free limit:
 
 | Var | Default | Free limit |
 | --- | --- | --- |
-| `BUDGET_R2_STORAGE_BYTES` | 4 GiB | 10 GiB-month |
+| `BUDGET_R2_STORAGE_BYTES` | 4 GiB | 10 GB-month |
 | `BUDGET_R2_CLASS_A_MONTH` | 800,000 | 1,000,000 / month |
 | `BUDGET_WORKERS_REQ_DAY` | 80,000 | 100,000 / day |
 | `BUDGET_D1_ROWS_READ_DAY` | 4,000,000 | 5,000,000 / day |

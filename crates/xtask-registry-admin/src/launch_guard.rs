@@ -8,12 +8,13 @@
 //!
 //! Remote reads go through the `DB` binding, because wrangler resolves
 //! even a database *name* through the config, so the binding is the
-//! only real path.  Destructive commands like
-//! `d1 delete cabin-registry` resolve that name against the ACCOUNT
-//! instead, so the guard first proves the two resolutions agree: the
-//! account's database named `cabin-registry` must carry exactly the id
-//! the config binds, or the guard could read one database while a wipe
-//! deletes another.  Local mode has no name resolution - the `DB`
+//! only real path.  `d1 delete cabin-registry` resolves the name through
+//! the config as well, falling back to the account only when the config
+//! has no such entry or the entry has no id, while the wipe's `d1 create` and `d1 list` act on
+//! the account's database of that name.  So the guard first proves the
+//! two agree: the account's database named `cabin-registry` must carry
+//! exactly the id the config binds, and a config/account drift refuses
+//! before any delete.  Local mode has no name resolution - the `DB`
 //! binding is the local state - so it skips that check.
 //!
 //! Nothing reaches stdout: a passing guard is silent, and every
@@ -156,7 +157,8 @@ fn launched(rows: &[serde_json::Map<String, serde_json::Value>]) -> String {
 }
 
 /// Proves the account's `cabin-registry` is the database the config
-/// binds, so a read here and a `d1 delete` by name cannot diverge.
+/// binds, so the database the wipe recreates and lists by name is the
+/// one the guard read and `d1 delete` removes.
 fn same_database() -> Result<()> {
     let answer = output(wrangler(&["d1", "list", "--json"]).current_dir(registry_root()))
         .with_context(|| refusal("could not list the account's databases"))?;
