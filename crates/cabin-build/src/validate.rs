@@ -240,77 +240,11 @@ pub fn validate_toolchain_standards(
 /// compile cannot be silently dropped from the compile database.
 ///
 /// # Errors
-/// Returns [`BuildError::StandardUnsupportedOnMsvcDialect`],
-/// [`BuildError::GnuExtensionsUnsupportedOnMsvcDialect`],
-/// [`BuildError::AssemblyNeedsToolchain`],
-/// [`BuildError::ConflictingInterfaceDefines`],
-/// [`BuildError::StandardFlagConflict`], or
-/// [`BuildError::IncompatibleLanguageStandard`] for the first
-/// surviving violation.
+/// Returns [`BuildError::PlannedStandard`] for the first surviving
+/// violation.
 pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), BuildError> {
     match graph.standard_violations.first() {
-        Some(crate::StandardViolation::MsvcSpelling {
-            target,
-            language,
-            standard,
-            ..
-        }) => Err(BuildError::StandardUnsupportedOnMsvcDialect {
-            target: target.clone(),
-            language,
-            standard,
-        }),
-        Some(crate::StandardViolation::MsvcGnuExtensions { target, .. }) => {
-            Err(BuildError::GnuExtensionsUnsupportedOnMsvcDialect {
-                target: target.clone(),
-            })
-        }
-        Some(crate::StandardViolation::AssemblyNeedsToolchain {
-            target,
-            path,
-            syntax,
-            needs,
-            ..
-        }) => Err(BuildError::AssemblyNeedsToolchain {
-            target: target.clone(),
-            path: path.clone(),
-            syntax,
-            needs,
-        }),
-        Some(crate::StandardViolation::ConflictingInterfaceDefines {
-            target,
-            name,
-            first,
-            second,
-            ..
-        }) => Err(BuildError::ConflictingInterfaceDefines {
-            target: target.clone(),
-            name: name.clone(),
-            first: first.clone(),
-            second: second.clone(),
-        }),
-        Some(crate::StandardViolation::FlagConflict { conflict, .. }) => {
-            Err(BuildError::StandardFlagConflict(Box::new(conflict.clone())))
-        }
-        Some(crate::StandardViolation::InterfaceIncompatibility {
-            consumer,
-            dependency,
-            language,
-            consumer_standard,
-            required,
-            kind,
-            requirement_source,
-            ..
-        }) => Err(BuildError::IncompatibleLanguageStandard(Box::new(
-            crate::error::IncompatibleLanguageStandardError {
-                consumer: consumer.clone(),
-                dependency: dependency.clone(),
-                language,
-                consumer_standard,
-                required: required.clone(),
-                kind: *kind,
-                requirement_source,
-            },
-        ))),
+        Some(violation) => Err(violation.error.clone().into()),
         None => Ok(()),
     }
 }

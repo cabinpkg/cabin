@@ -1,8 +1,8 @@
-use cabin_core::StandardFlagConflict;
 use camino::Utf8PathBuf;
 
 use cabin_driver::{BuildAction, Dialect};
 
+use crate::PlannedStandardError;
 use crate::standard_compat::StandardCompatViolation;
 
 /// Backend-independent description of everything that needs to happen to
@@ -75,93 +75,18 @@ impl BuildGraph {
     }
 }
 
-/// One standards problem recorded against a planned compile.  Each
-/// variant carries the offending compile's object path so the
-/// `cabin check` rewrite can prune violations with the same path
-/// filter as the compiles they belong to.
+/// One standards problem recorded against a planned compile.  It
+/// carries the offending compile's object path so the `cabin check`
+/// rewrite can prune violations with the same path filter as the
+/// compiles they belong to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StandardViolation {
-    /// An MSVC-dialect compile whose standard `cl.exe` has no
-    /// stable `/std:` flag - the planner cannot lower it (its
-    /// compile-commands entry is omitted).
-    MsvcSpelling {
-        /// `package:target` of the offending compile.
-        target: String,
-        /// Human label of the source language (`C` / `C++`).
-        language: &'static str,
-        /// Canonical spelling of the offending standard.
-        standard: &'static str,
-        /// Object path of the offending compile.
-        object: Utf8PathBuf,
-    },
-    /// An MSVC-dialect compile whose target enables
-    /// `gnu-extensions` - `cl.exe` has no GNU dialect mode, so the
-    /// planner cannot honor the flag and must not silently ignore
-    /// it (its compile-commands entry is omitted).
-    MsvcGnuExtensions {
-        /// `package:target` of the offending compile.
-        target: String,
-        /// Object path of the offending compile.
-        object: Utf8PathBuf,
-    },
-    /// A compile that carries both a first-class standard
-    /// declaration and an explicit `-std=` / `/std:` token in its
-    /// manifest-derived flag list - the documented escape-hatch
-    /// ambiguity, scoped to compiles the declaration covers.
-    FlagConflict {
-        conflict: StandardFlagConflict,
-        /// Object path of the offending compile.
-        object: Utf8PathBuf,
-    },
-    /// A consuming compile whose effective implementation standard
-    /// falls outside a visible library-like dependency's interface
-    /// requirement for the same language - below its minimum or
-    /// above its maximum.  (A declared `"none"` never reaches this
-    /// layer; the post-resolution pass owns it together with the
-    /// per-edge override.)  Recorded against the *consumer's*
-    /// compile so the `cabin check` rewrite prunes the
-    /// incompatibility together with the compiles it protects - a
-    /// dependency-internal incompatibility never gates a check that
-    /// only compiles the selected packages' own translation units.
-    InterfaceIncompatibility {
-        consumer: String,
-        dependency: String,
-        language: &'static str,
-        consumer_standard: &'static str,
-        /// The accepted consumer range, rendered (`c++17 or newer`,
-        /// `c++11..c++20`).
-        required: String,
-        /// Which side of the requirement the consumer's level
-        /// fails.
-        kind: InterfaceViolationKind,
-        requirement_source: &'static str,
-        /// Object path of one of the consumer's compiles of the
-        /// language (every object of a target shares the same
-        /// per-package prefix the check filter tests).
-        object: Utf8PathBuf,
-    },
-    /// Two dependencies visible to one target's compiles define one
-    /// macro differently; `first` and `second` each read
-    /// `` `NAME=value` from a -> b ``.
-    ConflictingInterfaceDefines {
-        target: String,
-        name: String,
-        first: String,
-        second: String,
-        /// Object path of one of the target's compiles.
-        object: Utf8PathBuf,
-    },
-    /// An assembly source the active toolchain cannot assemble.  The
-    /// planner emits no action for it, and the `cabin check` rewrite,
-    /// which assembles nothing, drops it.
-    AssemblyNeedsToolchain {
-        target: String,
-        path: Utf8PathBuf,
-        syntax: &'static str,
-        needs: &'static str,
-        /// Object path the source would have produced.
-        object: Utf8PathBuf,
-    },
+pub struct StandardViolation {
+    /// Object path of the offending compile (for an interface
+    /// incompatibility or conflicting define, one of the target's
+    /// compiles; for an assembly source, the object it would have
+    /// produced).
+    pub object: Utf8PathBuf,
+    pub error: PlannedStandardError,
 }
 
 /// Which side of an interface requirement a consuming compile
@@ -172,22 +97,6 @@ pub enum InterfaceViolationKind {
     BelowMinimum { min: &'static str },
     /// The consumer's level is above the requirement's maximum.
     AboveMaximum { max: &'static str },
-}
-
-impl StandardViolation {
-    /// Object path of the offending compile, for the check
-    /// rewrite's path filter.
-    #[must_use]
-    pub fn object(&self) -> &Utf8PathBuf {
-        match self {
-            Self::MsvcSpelling { object, .. }
-            | Self::MsvcGnuExtensions { object, .. }
-            | Self::FlagConflict { object, .. }
-            | Self::InterfaceIncompatibility { object, .. }
-            | Self::ConflictingInterfaceDefines { object, .. }
-            | Self::AssemblyNeedsToolchain { object, .. } => object,
-        }
-    }
 }
 
 /// One entry of a Clang JSON Compilation Database.

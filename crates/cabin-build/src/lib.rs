@@ -36,7 +36,7 @@ pub use cabin_driver::{
     ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
 };
 pub use check::into_check_graph;
-pub use error::{BuildError, FeatureGateFix};
+pub use error::{BuildError, FeatureGateFix, PlannedStandardError};
 pub use graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
 pub use planner::{
     ManifestTargetSelector, PlanRequest, SystemTargetInterface, plan, select_targets_of_kind,

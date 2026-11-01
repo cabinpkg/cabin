@@ -1,5 +1,5 @@
-use crate::StandardViolation;
 use crate::error::BuildError;
+use crate::{PlannedStandardError, StandardViolation};
 use cabin_core::{SourceLanguage, Target, macro_name};
 use cabin_driver::Dialect;
 use cabin_workspace::PackageGraph;
@@ -336,20 +336,22 @@ pub(super) fn collect_interface(
                         };
                         // Registry-supplied values: escape them before
                         // they reach the terminal.
-                        violations.push(StandardViolation::ConflictingInterfaceDefines {
-                            target: format_target_id(start, graph),
-                            name: name.to_owned(),
-                            first: format!(
-                                "`{}` from {}",
-                                cabin_core::escape_control_chars(first),
-                                path_to(origin)
-                            ),
-                            second: format!(
-                                "`{}` from {}",
-                                cabin_core::escape_control_chars(define),
-                                path_to(tid)
-                            ),
+                        violations.push(StandardViolation {
                             object: object.to_owned(),
+                            error: PlannedStandardError::ConflictingInterfaceDefines {
+                                target: format_target_id(start, graph),
+                                name: name.to_owned(),
+                                first: format!(
+                                    "`{}` from {}",
+                                    cabin_core::escape_control_chars(first),
+                                    path_to(origin)
+                                ),
+                                second: format!(
+                                    "`{}` from {}",
+                                    cabin_core::escape_control_chars(define),
+                                    path_to(tid)
+                                ),
+                            },
                         });
                     }
                 }

@@ -89,7 +89,7 @@ pub(crate) fn downcast_diagnostic<'a>(
     }
 
     // Everything below only needs an area-level code.
-    // `BuildError::StandardFlagConflict` boxes the typed conflict
+    // `PlannedStandardError::StandardFlagConflict` boxes the typed conflict
     // (keeping the enum small), so its chain element can be the
     // `Box` - both shapes are listed, like the boxed
     // `ManifestError` above.

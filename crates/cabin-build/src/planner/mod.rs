@@ -1,4 +1,4 @@
-use crate::error::BuildError;
+use crate::error::{BuildError, IncompatibleLanguageStandardError, PlannedStandardError};
 use crate::graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
 use cabin_core::{AssemblySyntax, classify_assembly};
 use cabin_core::{
@@ -682,11 +682,13 @@ fn emit_actions(
             let msvc_spelling_missing =
                 req.dialect == Dialect::Msvc && standard.msvc_spelling().is_none();
             if msvc_spelling_missing {
-                standard_violations.push(StandardViolation::MsvcSpelling {
-                    target: format_target_id(tid, req.graph),
-                    language: ps.language.human_label(),
-                    standard: standard.as_str(),
+                standard_violations.push(StandardViolation {
                     object: ps.object.clone(),
+                    error: PlannedStandardError::StandardUnsupportedOnMsvcDialect {
+                        target: format_target_id(tid, req.graph),
+                        language: ps.language.human_label(),
+                        standard: standard.as_str(),
+                    },
                 });
             }
             // `cl.exe` has no GNU dialect mode, so `gnu-extensions`
@@ -695,9 +697,11 @@ fn emit_actions(
             // check-rewrite reason as the missing-spelling case.
             let msvc_gnu_extensions = req.dialect == Dialect::Msvc && gnu_extensions;
             if msvc_gnu_extensions {
-                standard_violations.push(StandardViolation::MsvcGnuExtensions {
-                    target: format_target_id(tid, req.graph),
+                standard_violations.push(StandardViolation {
                     object: ps.object.clone(),
+                    error: PlannedStandardError::GnuExtensionsUnsupportedOnMsvcDialect {
+                        target: format_target_id(tid, req.graph),
+                    },
                 });
             }
             // Escape-hatch conflicts: a candidate covers this
@@ -711,9 +715,11 @@ fn emit_actions(
                             .as_deref()
                             .is_none_or(|t| t == tid.1.as_str());
                     if covers {
-                        standard_violations.push(StandardViolation::FlagConflict {
-                            conflict: candidate.clone(),
+                        standard_violations.push(StandardViolation {
                             object: ps.object.clone(),
+                            error: PlannedStandardError::StandardFlagConflict(Box::new(
+                                candidate.clone(),
+                            )),
                         });
                     }
                 }
@@ -780,12 +786,14 @@ fn emit_actions(
                         "MSVC's `cl.exe`, beside which `ml64.exe` is installed",
                     ),
                 };
-                standard_violations.push(StandardViolation::AssemblyNeedsToolchain {
-                    target: format_target_id(tid, req.graph),
-                    path: asm.abs_source.clone(),
-                    syntax,
-                    needs,
+                standard_violations.push(StandardViolation {
                     object: asm.object.clone(),
+                    error: PlannedStandardError::AssemblyNeedsToolchain {
+                        target: format_target_id(tid, req.graph),
+                        path: asm.abs_source.clone(),
+                        syntax,
+                        needs,
+                    },
                 });
                 continue;
             };
@@ -1161,15 +1169,19 @@ fn interface_violation<S: cabin_core::StandardLevel>(
             "its effective implementation standard (no interface standard declared)"
         }
     };
-    Some(StandardViolation::InterfaceIncompatibility {
-        consumer,
-        dependency,
-        language: language.human_label(),
-        consumer_standard: consumer_standard.level_str(),
-        required: requirement.to_string(),
-        kind,
-        requirement_source,
+    Some(StandardViolation {
         object,
+        error: PlannedStandardError::IncompatibleLanguageStandard(Box::new(
+            IncompatibleLanguageStandardError {
+                consumer,
+                dependency,
+                language: language.human_label(),
+                consumer_standard: consumer_standard.level_str(),
+                required: requirement.to_string(),
+                kind,
+                requirement_source,
+            },
+        )),
     })
 }
 
