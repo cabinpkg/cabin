@@ -173,9 +173,7 @@ impl Dialect {
         windows_host: bool,
         args: &[String],
     ) -> String {
-        let windows = self == Dialect::Msvc
-            || (windows_host
-                && matches!(action, BuildAction::Archive(archive) if archive.windows_rsp_quoting));
+        let windows = self == Dialect::Msvc || self.llvm_ar_windows_quoting(action, windows_host);
         let mut out = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
@@ -196,6 +194,28 @@ impl Dialect {
             }
         }
         out
+    }
+
+    /// The option that goes before `@file` when `action`'s tool reads
+    /// its arguments from a response file.  An `llvm-ar` given Windows
+    /// quoting is told so explicitly: one whose version Cabin could not
+    /// read is assumed to be LLVM 11 or later, and an older one, which
+    /// knows no `--rsp-quoting`, then fails on the option instead of
+    /// splitting the file with GNU rules.
+    #[must_use]
+    pub fn response_file_option(
+        self,
+        action: &BuildAction,
+        windows_host: bool,
+    ) -> Option<&'static str> {
+        self.llvm_ar_windows_quoting(action, windows_host)
+            .then_some("--rsp-quoting=windows")
+    }
+
+    fn llvm_ar_windows_quoting(self, action: &BuildAction, windows_host: bool) -> bool {
+        self == Dialect::GnuLike
+            && windows_host
+            && matches!(action, BuildAction::Archive(archive) if archive.windows_rsp_quoting)
     }
 }
 
@@ -276,21 +296,31 @@ mod tests {
         let args = ["crs".to_owned(), r"C:\a b\x.o".to_owned()];
         let gnu = r"crs C:\\a\ b\\x.o";
         let windows = r#"crs "C:\a b\x.o""#;
-        for (windows_rsp_quoting, windows_host, expected) in [
-            (true, true, windows),
-            (true, false, gnu),
-            (false, true, gnu),
+        for (windows_rsp_quoting, windows_host, expected, option) in [
+            (true, true, windows, Some("--rsp-quoting=windows")),
+            (true, false, gnu, None),
+            (false, true, gnu, None),
         ] {
-            assert_eq!(
-                Dialect::GnuLike.response_file_args(
-                    &archive(windows_rsp_quoting),
-                    windows_host,
-                    &args
-                ),
-                expected,
+            let context = format!(
                 "Windows quoting: {windows_rsp_quoting}, on a Windows host: {windows_host}"
             );
+            let archive = archive(windows_rsp_quoting);
+            assert_eq!(
+                Dialect::GnuLike.response_file_args(&archive, windows_host, &args),
+                expected,
+                "{context}"
+            );
+            assert_eq!(
+                Dialect::GnuLike.response_file_option(&archive, windows_host),
+                option,
+                "{context}"
+            );
         }
+        // `lib.exe` reads its response file like a command line on its own.
+        assert_eq!(
+            Dialect::Msvc.response_file_option(&archive(true), true),
+            None
+        );
     }
 
     #[test]

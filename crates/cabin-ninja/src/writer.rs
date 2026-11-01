@@ -427,7 +427,14 @@ fn write_edge(
         // `+` is outside the target-name grammar, so no other output
         // can have this name.
         let path = format!("{}+.rsp", action.outputs[0]);
-        command_value = command_line(&[program.clone(), format!("@{path}")])?;
+        let mut argv = vec![program.clone()];
+        argv.extend(
+            dialect
+                .response_file_option(build_action, cfg!(windows))
+                .map(str::to_owned),
+        );
+        argv.push(format!("@{path}"));
+        command_value = command_line(&argv)?;
         response_file = response_file_bindings(build_action, action, args, dialect, path);
     }
     // Check edges bind the argv to `$checkcmd` and archive edges to
@@ -1357,13 +1364,20 @@ mod tests {
             0,
         )
         .unwrap();
-        let content = if cfg!(windows) {
-            "crs /abs/build/libfoo.a \"/abs/build/a b.o\""
+        let (option, content) = if cfg!(windows) {
+            (
+                "--rsp-quoting=windows ",
+                "crs /abs/build/libfoo.a \"/abs/build/a b.o\"",
+            )
         } else {
-            "crs /abs/build/libfoo.a /abs/build/a\\ b.o"
+            ("", "crs /abs/build/libfoo.a /abs/build/a\\ b.o")
         };
         assert!(
-            body.contains(&format!("  rspfile_content = {content}\n")),
+            body.contains(&format!(
+                "  archivecmd = /usr/bin/llvm-ar {option}@/abs/build/libfoo.a+.rsp\n  \
+                 rspfile = /abs/build/libfoo.a+.rsp\n  \
+                 rspfile_content = {content}\n"
+            )),
             "{body}"
         );
     }
