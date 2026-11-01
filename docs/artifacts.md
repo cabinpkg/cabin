@@ -236,8 +236,8 @@ default registry `https://registry.cabinpkg.com` would require network fetches; 
 `--index-path <dir>` (e.g. a `cabin vendor` output)
 ```
 
-Vendoring / offline workflows are separate and still require a local `--index-path`; they do not
-make frozen HTTP index URLs usable.
+Vendoring / offline workflows are separate and still require a local index; they do not make
+frozen HTTP index URLs usable.
 
 ## Limitations
 

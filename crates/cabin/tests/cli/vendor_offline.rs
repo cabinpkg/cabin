@@ -350,3 +350,76 @@ sources = ["src/lib.cc"]
         "invalid offline env diagnostic should name the variable and value: {stderr}"
     );
 }
+
+/// Vendor's local-index rule applies to the `[source-replacement]`
+/// chain's terminal source: a configured `index-url` replaced by a
+/// local index vendors, one left alone or replaced by another URL is
+/// refused, and `--offline` still refuses the configured URL before
+/// replacement - all without a request to either URL.
+#[test]
+fn vendor_requires_a_local_terminal_after_source_replacement() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let server = std::sync::Arc::new(
+        tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+    );
+    let url = format!(
+        "http://{}",
+        server.server_addr().to_ip().expect("loopback addr")
+    );
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let server_for_thread = std::sync::Arc::clone(&server);
+    let hits_for_thread = std::sync::Arc::clone(&hits);
+    let thread = std::thread::spawn(move || {
+        while let Ok(req) = server_for_thread.recv() {
+            hits_for_thread.fetch_add(1, Ordering::SeqCst);
+            let _ = req.respond(tiny_http::Response::empty(404));
+        }
+    });
+
+    let dir = TempDir::new().unwrap();
+    stage_fmt_index(dir.path());
+    stage_consumer_project(&dir.path().join("proj"));
+    // `../index` resolves against the config file's directory.
+    let home = dir.path().join("home");
+    let vendor = |config: &str, offline: bool| {
+        assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+            .write_str(&format!(
+                "[registry]\nindex-url = \"{url}/index\"\n\n[source-replacement]\n{config}\n"
+            ))
+            .unwrap();
+        let mut cmd = cabin_with_config();
+        cmd.arg("vendor");
+        if offline {
+            cmd.arg("--offline");
+        }
+        cmd.arg("--manifest-path")
+            .arg(dir.path().join("proj/cabin.toml"))
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .env("CABIN_CONFIG_HOME", &home)
+            .assert()
+    };
+    let to_local = format!("\"{url}/index\" = {{ index-path = \"../index\" }}");
+    vendor("", false)
+        .failure()
+        .stderr(predicate::str::contains(format!(
+            "the resolved index source is the URL `{url}/index`"
+        )));
+    vendor(&to_local, false).success();
+    assert!(dir.path().join("proj/vendor/packages/fmt.json").is_file());
+    vendor(&to_local, true)
+        .failure()
+        .stderr(predicate::str::contains("--offline forbids network access"));
+    vendor(
+        &format!("\"{url}/index\" = {{ index-url = \"{url}/mirror\" }}"),
+        false,
+    )
+    .failure()
+    .stderr(predicate::str::contains(format!(
+        "`[source-replacement]` redirected the index to the URL `{url}/mirror`"
+    )));
+    assert_eq!(hits.load(Ordering::SeqCst), 0, "no request to either URL");
+    server.unblock();
+    let _ = thread.join();
+}
