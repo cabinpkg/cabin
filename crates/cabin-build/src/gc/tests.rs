@@ -859,6 +859,7 @@ fn plan_products_lists_every_product_and_depfile() {
         dialect: Dialect::GnuLike,
         default_outputs: vec![],
         planned_packages: BTreeSet::new(),
+        build_context_packages: BTreeSet::new(),
         compile_commands: vec![],
         standard_violations: vec![],
         standard_compat_violations: vec![],

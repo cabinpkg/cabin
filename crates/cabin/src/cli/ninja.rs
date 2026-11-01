@@ -114,20 +114,12 @@ pub(crate) fn run_ninja(
 
     // Each `[N/M] …` progress line is attributed to its package by
     // the `packages/` segment of its output path (see
-    // `package_segment_candidates`), and the `Compiling` banner
-    // prints the first time a package shows up.  A package with no
-    // actions (e.g. header-only) therefore never gets a banner.
-    // Restricted to the packages this plan actually builds: an
-    // unplanned workspace member whose bare name equals a planned
-    // package's scope must never win the path-candidate match.
+    // `planned_package_of`), and the `Compiling` banner prints the
+    // first time a package shows up.  A package with no actions
+    // (e.g. header-only) therefore never gets a banner.
     let pkg_by_name: HashMap<&str, &cabin_workspace::WorkspacePackage> = graph
         .packages
         .iter()
-        .filter(|pkg| {
-            plan_graph
-                .planned_packages
-                .contains(pkg.package.name.as_str())
-        })
         .map(|pkg| (pkg.package.name.as_str(), pkg))
         .collect();
     let mut announced: HashSet<String> = HashSet::new();
@@ -163,13 +155,9 @@ pub(crate) fn run_ninja(
             captured_stdout.push_str(&line);
             captured_stdout.push('\n');
             if let Some(path) = ninja_progress_path(&line) {
-                // Bare candidate first, scoped second: only a
-                // candidate naming a known package is announced, so
-                // a scope directory never wins over a real package.
-                if let Some((pkg_name, pkg)) = package_segment_candidates(path, profile_root_str)
-                    .into_iter()
-                    .flatten()
-                    .find_map(|candidate| pkg_by_name.get(candidate).map(|pkg| (candidate, *pkg)))
+                if let Some((pkg_name, pkg)) =
+                    planned_package_of(path, profile_root_str, plan_graph)
+                        .and_then(|name| pkg_by_name.get(name).map(|pkg| (name, *pkg)))
                     && announced.insert(pkg_name.to_owned())
                 {
                     announce_compiling(reporter, pkg);
@@ -214,7 +202,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvo
     use cabin_build::link_diagnostics::{TargetDepInfo, diagnose, render};
 
     let graph = req.graph;
-    let planned_packages = &req.plan_graph.planned_packages;
+    let plan_graph = req.plan_graph;
     let include_dev_for = req.dev_for;
 
     // The failing action's output is on stdout (see `NinjaRun`);
@@ -232,7 +220,9 @@ pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvo
         // of this plan: the failing path came out of this plan's
         // Ninja file, so an unplanned bare member named like a
         // scope must not absorb the failure.
-        if !planned_packages.contains(pkg_name) {
+        if !plan_graph.planned_packages.contains(pkg_name)
+            && !plan_graph.build_context_packages.contains(pkg_name)
+        {
             return None;
         }
         let pkg_idx = graph.index_of(pkg_name)?;
@@ -442,18 +432,21 @@ fn ninja_progress_path(line: &str) -> Option<&str> {
 /// directory in the user's own build path - e.g. a project checked
 /// out under `~/packages/` - cannot shadow the planner's
 /// per-package segment.  Both candidates are `None` when the path
-/// lacks the segment.
+/// lacks the segment.  The flag reports whether the segment sits
+/// under the build context's directory.
 fn package_segment_candidates<'a>(
     path: &'a str,
     profile_root: Option<&str>,
-) -> [Option<&'a str>; 2] {
+) -> (bool, [Option<&'a str>; 2]) {
     const SEGMENT: &str = "/packages/";
     let search = profile_root
         .and_then(|root| path.strip_prefix(root))
         .unwrap_or(path);
     let Some(after) = search.find(SEGMENT) else {
-        return [None, None];
+        return (false, [None, None]);
     };
+    let build_context =
+        search[..after].rsplit('/').next() == Some(cabin_build::layout::BUILD_CONTEXT_DIR);
     let tail = &search[after + SEGMENT.len()..];
     let mut parts = tail.split('/');
     let first = parts.next().filter(|s| !s.is_empty());
@@ -464,7 +457,32 @@ fn package_segment_candidates<'a>(
         (Some(f), Some(s)) => Some(&tail[..f.len() + 1 + s.len()]),
         _ => None,
     };
-    [first, scoped]
+    (build_context, [first, scoped])
+}
+
+/// The planned package owning the build path `path`: the bare
+/// candidate first, the scoped one second (see
+/// [`package_segment_candidates`]), each counted only when the plan
+/// of the path's context builds it.  One plan never holds both a
+/// bare package and a scope of the same name, so at most one
+/// candidate qualifies; the two contexts are checked apart because
+/// one context's bare package may share its name with the other's
+/// scope.
+fn planned_package_of<'a>(
+    path: &'a str,
+    profile_root: Option<&str>,
+    plan_graph: &cabin_build::BuildGraph,
+) -> Option<&'a str> {
+    let (build_context, candidates) = package_segment_candidates(path, profile_root);
+    let planned = if build_context {
+        &plan_graph.build_context_packages
+    } else {
+        &plan_graph.planned_packages
+    };
+    candidates
+        .into_iter()
+        .flatten()
+        .find(|candidate| planned.contains(*candidate))
 }
 
 /// Render the optional `-jN` token plus a trailing space for
@@ -782,11 +800,11 @@ mod tests {
         let path = "/home/u/packages/proj/build/dev/packages/foo/src_main.cc.o";
         assert_eq!(
             package_segment_candidates(path, Some("/home/u/packages/proj/build/dev")),
-            [Some("foo"), Some("foo/src_main.cc.o")]
+            (false, [Some("foo"), Some("foo/src_main.cc.o")])
         );
         assert_eq!(
             package_segment_candidates(path, None),
-            [Some("proj"), Some("proj/build")]
+            (false, [Some("proj"), Some("proj/build")])
         );
         // Paths the planner did not route through the per-package
         // tree stay unattributed.
@@ -795,7 +813,7 @@ mod tests {
                 "/home/u/proj/build/dev/stamp",
                 Some("/home/u/proj/build/dev")
             ),
-            [None, None]
+            (false, [None, None])
         );
     }
 
@@ -807,13 +825,52 @@ mod tests {
         let path = "/w/build/dev/packages/fmtlib/fmt/src_lib.cc.o";
         assert_eq!(
             package_segment_candidates(path, Some("/w/build/dev")),
-            [Some("fmtlib"), Some("fmtlib/fmt")]
+            (false, [Some("fmtlib"), Some("fmtlib/fmt")])
         );
         // An output file directly under `packages/<name>` (a bare
         // package's executable) has no second component.
         assert_eq!(
             package_segment_candidates("/w/build/dev/packages/tool", Some("/w/build/dev")),
-            [Some("tool"), None]
+            (false, [Some("tool"), None])
+        );
+    }
+
+    fn plan_of(planned: &[&str]) -> cabin_build::BuildGraph {
+        cabin_build::BuildGraph {
+            actions: Vec::new(),
+            dialect: cabin_build::Dialect::GnuLike,
+            default_outputs: Vec::new(),
+            planned_packages: planned.iter().map(|name| (*name).to_owned()).collect(),
+            build_context_packages: BTreeSet::new(),
+            compile_commands: Vec::new(),
+            standard_violations: Vec::new(),
+            standard_compat_violations: Vec::new(),
+        }
+    }
+
+    /// The target context plans the scoped `acme/foo` and the build
+    /// context a bare `acme`: each context's path names its own
+    /// package, though `acme` is a reading of both.
+    #[test]
+    fn planned_package_reads_each_context_against_its_own_plan() {
+        let mut plan = plan_of(&["acme/foo"]);
+        plan.append(plan_of(&["acme"]));
+        let root = Some("/w/build/dev");
+        assert_eq!(
+            planned_package_of(
+                "/w/build/dev/packages/acme/foo/obj/foo/src/foo.c.o",
+                root,
+                &plan
+            ),
+            Some("acme/foo")
+        );
+        assert_eq!(
+            planned_package_of(
+                "/w/build/dev/build-machine/packages/acme/obj/acme/src/main.c.o",
+                root,
+                &plan
+            ),
+            Some("acme")
         );
     }
 }

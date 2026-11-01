@@ -745,6 +745,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         }
     }
 
@@ -830,6 +831,7 @@ mod tests {
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
+            build_context_packages: BTreeSet::default(),
         }
     }
 
