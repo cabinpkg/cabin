@@ -32,9 +32,9 @@ pub(crate) struct VersionInfo {
     /// `[workspace.package] version` field.
     cabin_version: String,
     /// Human-readable OS identity (`Mac OS 26.4.1 [64-bit]`,
-    /// `Ubuntu 24.04 [64-bit]`, …) captured at runtime, or
-    /// `None` when probing fails.
-    os: Option<String>,
+    /// `Ubuntu 24.04 [64-bit]`, …) captured at runtime; `Unknown`
+    /// when `os_info` cannot identify the OS.
+    os: String,
 }
 
 impl VersionInfo {
@@ -52,10 +52,10 @@ impl VersionInfo {
     /// controlled snapshot; production code calls
     /// [`VersionInfo::current`].
     #[cfg(test)]
-    fn for_tests(cabin_version: &str, os: Option<&str>) -> Self {
+    fn for_tests(cabin_version: &str, os: &str) -> Self {
         Self {
             cabin_version: cabin_version.to_owned(),
-            os: os.map(str::to_owned),
+            os: os.to_owned(),
         }
     }
 
@@ -74,9 +74,7 @@ impl VersionInfo {
 
         let _ = writeln!(out, "cabin {}", self.cabin_version);
         let _ = writeln!(out, "release: {}", self.cabin_version);
-        if let Some(os) = self.os.as_deref() {
-            let _ = writeln!(out, "os: {os}");
-        }
+        let _ = writeln!(out, "os: {}", self.os);
         out
     }
 }
@@ -84,9 +82,7 @@ impl VersionInfo {
 /// Probe the running OS through the `os_info` crate and format
 /// the result the same way cargo formats its own `os:` line -
 /// `<OS> <version> [<bitness>]`, e.g.  `Mac OS 26.4.1 [64-bit]`.
-/// Returns `None` only if every component reports as `Unknown`
-/// so the formatter can skip the row entirely.
-fn detect_os_string() -> Option<String> {
+fn detect_os_string() -> String {
     let info = os_info::get();
 
     let os_type = info.os_type();
@@ -106,9 +102,7 @@ fn detect_os_string() -> Option<String> {
     if !matches!(bitness, os_info::Bitness::Unknown) {
         let _ = write!(buf, " [{bitness}]");
     }
-
-    let buf = buf.trim().to_owned();
-    if buf.is_empty() { None } else { Some(buf) }
+    buf
 }
 
 #[cfg(test)]
@@ -116,11 +110,7 @@ mod tests {
     use super::*;
 
     fn full() -> VersionInfo {
-        VersionInfo::for_tests("x.y.z", Some("Ubuntu 24.04 [64-bit]"))
-    }
-
-    fn minimal() -> VersionInfo {
-        VersionInfo::for_tests("x.y.z", None)
+        VersionInfo::for_tests("x.y.z", "Ubuntu 24.04 [64-bit]")
     }
 
     #[test]
@@ -137,19 +127,6 @@ mod tests {
 cabin x.y.z
 release: x.y.z
 os: Ubuntu 24.04 [64-bit]
-";
-        assert_eq!(out, expected);
-    }
-
-    #[test]
-    fn verbose_format_omits_missing_optional_rows() {
-        let info = minimal();
-        let out = info.format(VersionOutputMode::Verbose);
-        // Without OS metadata, only the header and the
-        // `release:` line survive.
-        let expected = "\
-cabin x.y.z
-release: x.y.z
 ";
         assert_eq!(out, expected);
     }
