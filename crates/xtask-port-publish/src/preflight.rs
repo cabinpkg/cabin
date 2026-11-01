@@ -41,9 +41,9 @@ use crate::plan::PortConversion;
 pub struct PreflightRequest<'a> {
     /// Publication-ordered conversions from [`crate::plan`].
     pub conversions: &'a [PortConversion],
-    /// Cabin cache root; upstream archives and materialized trees
-    /// reuse the standard `<cache>/ports` layout, so an archive
-    /// fetched by an earlier run is reused, not re-downloaded.
+    /// Cabin cache root; upstream archives are cached under
+    /// `<cache>/ports`, so an archive fetched by an earlier run is
+    /// reused, not re-downloaded.
     pub cache_dir: &'a Path,
     /// Scratch root.  The preflight owns (and clears) exactly the
     /// `run/` directory beneath it, so pointing `--work-dir` at a
@@ -359,8 +359,9 @@ fn stage(
 
 /// Materialize one conversion into a staging directory and write the
 /// manifest that publishes with it, returning the directory and the
-/// time spent getting the archive.  The committed sources and the
-/// shared port cache are never mutated.
+/// time spent getting the archive.  The committed sources are never
+/// mutated; the shared port cache changes only when a missing or
+/// checksum-invalid archive is downloaded into its slot.
 fn materialize(
     conversion: &PortConversion,
     ports_cache: &Path,
@@ -373,8 +374,8 @@ fn materialize(
     // Materialization extracts on top of this directory without ever
     // clearing it, so a directory left by a previous run could
     // smuggle stale files into the packaged archive.  The preflight
-    // owns and clears its whole scratch root; any other caller must
-    // supply a fresh one.
+    // clears `run/`, which holds its sources directory; any other
+    // caller must supply a fresh one.
     if package_dir.exists() {
         bail!(
             "package directory {} already exists; stage into a fresh sources directory",
@@ -383,10 +384,10 @@ fn materialize(
     }
     let fetched = materialize_package(conversion, ports_cache, &package_dir, fetch)?;
 
-    // Written LAST, deliberately: the upstream archive extracts on
-    // top of `package_dir`, so an upstream shipping its own root
-    // `cabin.toml` would otherwise overwrite the committed manifest
-    // and publish in its place.
+    // Written last: the upstream archive extracts on top of
+    // `package_dir`, so an upstream shipping its own root `cabin.toml`
+    // would otherwise overwrite the committed manifest and publish in
+    // its place.
     fs::write(package_dir.join("cabin.toml"), &conversion.manifest)
         .with_context(|| format!("writing the manifest into {}", package_dir.display()))?;
     Ok((package_dir, fetched))
@@ -518,8 +519,7 @@ fn resolve_package_archive(
     // Atomic sibling-rename write, so a concurrent reader never sees
     // a partial archive at the content-addressed slot.  A checksum-
     // invalid entry may still occupy the slot (that is why this is a
-    // miss), and Windows' rename cannot replace an existing file -
-    // clear it first so cache corruption can self-heal.
+    // miss); it is replaced, so cache corruption self-heals.
     if cached.exists() {
         fs::remove_file(&cached).with_context(|| format!("removing stale {}", cached.display()))?;
     }
@@ -569,12 +569,10 @@ fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
 
 /// Build the port from the preflight registry through a generated
 /// probe package that depends on the exact published version, and
-/// return how long the build and the probe runs took.  The probe's
-/// standards (`c11` / `c++17`) sit at or above every committed port's
-/// interface floor.  `--offline` enforces that the file registry and
-/// the worker's run-local cache satisfy the whole build.  Probes build
-/// concurrently, so each one's output prints as a single block once it
-/// finishes.
+/// return how long the build and the probe runs took.  `--offline`
+/// enforces that the file registry and the worker's run-local cache
+/// satisfy the whole build.  Probes build concurrently, so each one's
+/// output prints as a single block once it finishes.
 fn build_probe_against_registry(
     request: &PreflightRequest<'_>,
     conversion: &PortConversion,
@@ -767,9 +765,9 @@ fn probe_manifest(conversion: &PortConversion) -> String {
     let scoped = conversion.scoped_name.as_str();
     let sole_target = conversion.sole_library_target;
     // Each consumer's standards must satisfy the joined interface
-    // requirements of the targets it links.  `c11` / `c++17` are the
-    // floor; a package declaring a stricter interface raises them
-    // (`plan::probe_standards`).  cl.exe has no `/std:` flag below
+    // requirements of the targets it links.  It takes the lowest
+    // standard those accept (`plan::probe_standards`), or `c11` /
+    // `c++17` when none is declared.  cl.exe has no `/std:` flag below
     // C11 / C++14 and Cabin refuses to stand another standard in, so
     // an MSVC host probes a lower declared floor at C11 / C++14.
     let msvc = cfg!(target_env = "msvc");

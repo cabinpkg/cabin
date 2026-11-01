@@ -16,13 +16,14 @@
 //!   ages nothing, and a clock jump in either direction moves the count
 //!   by at most one day (a clock that keeps crossing midnight back and
 //!   forth, as when machines whose clocks disagree share the directory,
-//!   counts every crossing).  Products recorded as used on the current
-//!   or the previous active day are never collected, whatever the
-//!   policy, which also covers children (Ninja, a compiler, a test) that
-//!   outlive a killed `cabin` for at least a day.
+//!   counts every forward crossing).  Products recorded as used on the
+//!   current or the previous active day are never collected, whatever
+//!   the policy, which also covers children (Ninja, a compiler, a test)
+//!   that outlive a killed `cabin` for at least a day.
 //!
 //! Whether existing bytes are fresh enough to reuse stays Ninja's call:
-//! collection only removes files, and Ninja rebuilds a missing output.
+//! collection only removes files (and directories left empty), and
+//! Ninja rebuilds a missing output.
 //!
 //! The catalog is one small file per output directory (the part of a
 //! product's path before its first `obj` component, else its parent),
@@ -432,7 +433,7 @@ pub fn record_use<'a>(
 
 /// Inputs to [`collect`].  The safety fields match
 /// [`crate::clean::CleanRequest`]'s, and refuse the same build
-/// directories.
+/// directories except a link (see [`validate_build_dir`]).
 #[derive(Debug, Clone)]
 pub struct CollectRequest<'a> {
     /// Resolved absolute build directory (without a `--target` triple).
@@ -497,8 +498,9 @@ impl CollectReport {
 }
 
 /// Refuse the build directories `cabin clean` refuses, except a link:
-/// collection removes only files beneath the directory, never the
-/// directory itself, so one linked to another disk is fine.
+/// collection removes only files beneath the directory (and directories
+/// left empty there), never the directory itself, so one linked to
+/// another disk is fine.
 ///
 /// # Errors
 /// [`GcError::UnsafeBuildDir`] for a refused directory.
@@ -788,8 +790,6 @@ fn relative_to(build_dir: &Path, product: &Utf8Path) -> Option<String> {
     is_valid_relative(&out).then_some(out)
 }
 
-/// A non-empty `/`-separated relative path with no empty, `.`, `..`,
-/// or backslash-bearing component.
 /// Whether every `/`-separated name in `rel` is one plain path
 /// component on this platform.  Windows parses `C:x` as a drive prefix,
 /// and pushing one replaces the whole path.
