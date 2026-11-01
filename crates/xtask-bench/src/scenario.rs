@@ -333,6 +333,8 @@ fn shared_scenarios() -> Vec<Scenario> {
             Fixture::Project(Lang::Cxx),
             &["clean", "--gc"],
         )
+        // `cabin clean` refuses a build directory with no owner record.
+        .setup(BUILD)
         .prepare(Mutation::Stale(10_000))
         .expect(collects(&format!("build/{}", gc::CATALOG_DIR))),
         // `cabin resolve` writes the lockfile, and a locked re-resolve
