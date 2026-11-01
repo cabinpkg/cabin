@@ -248,9 +248,10 @@ pub fn stderr_with_wrapping_joined(assert: &assert_cmd::assert::Assert) -> Strin
 /// otherwise leave the user-global cache fallback
 /// (`$CABIN_CACHE_HOME` ▶ `$XDG_CACHE_HOME/cabin` ▶
 /// `$HOME/.cache/cabin`) with nothing to resolve to in CI,
-/// where `XDG_CACHE_HOME` is unset.  The cache is
-/// content-addressed, so parallel writers to the same path are
-/// safe.  Tests that observe cache state still pass an explicit
+/// where `XDG_CACHE_HOME` is unset.  Every test process shares this
+/// path, and two processes extracting the same archive at once race
+/// (the loser's rename fails; see `cabin_artifact`'s
+/// `ensure_source`), so a test that fetches passes its own
 /// `--cache-dir`, which takes precedence.
 pub fn pin_test_cache_home(cmd: &mut Command) {
     cmd.env(

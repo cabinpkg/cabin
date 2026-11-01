@@ -263,8 +263,8 @@ impl Reporter {
     /// - blank lines inside `body` are emitted as empty
     ///   lines (no trailing whitespace) so paragraph breaks
     ///   stay clean,
-    /// - a trailing newline after the final line so the next
-    ///   error sits visually apart.
+    /// - no blank line after the final line: the leading blank
+    ///   line is the only separator.
     ///
     /// Used by failure sites that have extra context which
     /// helps the user fix the underlying problem (e.g. the

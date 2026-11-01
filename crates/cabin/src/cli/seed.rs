@@ -249,9 +249,10 @@ pub(crate) fn enforce_local_links_uniqueness(claims: &[LinksClaim]) -> Result<()
 /// of everything the forks' manifests pull into the graph (path
 /// dependencies) - the local packages the final
 /// reload will link in place of, or alongside, the upstream
-/// packages the activation suppressed.  Feature resolution never
-/// included any of them (nothing selected reaches a
-/// transitively-activated fork locally), so
+/// packages the activation suppressed.  Feature resolution includes
+/// only the forks a selected package reaches locally
+/// ([`ResolutionSeed::compute`] drops those forks' claims from this
+/// function's result), so
 /// [`cabin_feature::resolve_fork_island_features`] runs a dedicated
 /// under-approximating pass over the fork islands - see it for why
 /// only mandatory members claim here; the exact, edge-aware check
@@ -472,9 +473,10 @@ pub(crate) fn merge_versioned_deps(
                 slot.insert(req);
             }
             std::collections::btree_map::Entry::Occupied(mut slot) => {
-                // The manifest-level and island folds overlap on the
-                // forks' own deps; an identical requirement adds
-                // nothing and must not grow into ">=1, >=1".
+                // The closure walk and the patched-manifest fold
+                // overlap on a locally reached fork's own deps; an
+                // identical requirement adds nothing and must not
+                // grow into ">=1, >=1".
                 if slot.get() == &req {
                     continue;
                 }
