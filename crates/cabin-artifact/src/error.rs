@@ -12,7 +12,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ArtifactError {
     #[error(
-        "source archive for `{name} {version}` does not exist: {}",
+        "source archive for `{name} {version}` is not a file inside the registry root: {}",
         path.display()
     )]
     MissingArchive {
@@ -21,14 +21,16 @@ pub enum ArtifactError {
         path: PathBuf,
     },
 
+    /// The digest the bytes do hash to is deliberately not reported: a
+    /// local index chooses which file is hashed, and naming its digest
+    /// would disclose it.
     #[error(
-        "checksum mismatch for `{name} {version}`: expected sha256:{expected}, got sha256:{actual}"
+        "checksum mismatch for `{name} {version}`: the archive does not hash to sha256:{expected}"
     )]
     ChecksumMismatch {
         name: String,
         version: String,
         expected: String,
-        actual: String,
     },
 
     #[error("refusing to extract unsafe archive entry `{}`", escape(.0))]

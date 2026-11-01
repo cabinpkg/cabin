@@ -69,6 +69,16 @@ In both layouts a scoped package `<scope>/<name>` nests exactly one level deeper
 `<scope>/<name>`, and its source paths resolve relative to the scope directory, matching the
 published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` form.  Anything
 nested deeper than one scope directory is ignored.
+
+In both layouts a source path must name a regular file inside the index root (the directory
+`--index-path` or `[registry] index-path` names), reached without a symlink: `..` is resolved
+textually and may climb out of the packages or scope directory, never out of the root, no component
+may end in a space or a dot (which Windows would drop) or name a Windows device such as `NUL`, and an absolute path is read only when it
+spells a path inside it.  Fetch refuses any other path with the
+error it gives a missing file (`is not a file inside the registry root`), so a source path cannot
+make fetch read, hash, or probe a file elsewhere.  That covers source paths only: the loader
+reads `config.json` and the metadata files as it finds them, symlinks included.
+
 `config.json` itself must satisfy `schema = 1`, `kind = "file-registry"`, and reject `..` or
 absolute paths in the configured subdirectories.  Over the sparse HTTP index the subdirectories must
 additionally resolve, once joined onto the index URL, to the same origin as that URL, at or below its
@@ -222,7 +232,7 @@ Each revision's `source` block must take this exact shape:
 | Field | Allowed values | Description |
 | --- | --- | --- |
 | `type` | `"archive"` | Local source archives.  Other values (HTTP, OCI, Git, ...) produce a clear error. |
-| `path` | non-empty string | Absolute or relative filesystem path to the `.zip` archive.  Relative paths are resolved against the directory containing the `<package>.json` file at load time. |
+| `path` | non-empty string | Filesystem path to the `.zip` archive, which must lie [inside the index root](#directory-layouts).  Relative paths are resolved against the directory containing the `<package>.json` file at load time. |
 | `format` | `"zip"` | Zip archives. |
 
 Published artifact filenames are `<scope>-<name>-<version>-<revision>.zip` for a scoped package and

@@ -42,7 +42,7 @@ const APP_MAIN: &str = "#include \"fmt.h\"\nint main() { say_hello(); return 0; 
 fn fetch_extracts_registry_package_into_cache() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -50,7 +50,7 @@ fn fetch_extracts_registry_package_into_cache() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("cache");
@@ -83,7 +83,7 @@ fn fetch_extracts_registry_package_into_cache() {
 fn fetch_emits_json_when_requested() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -91,7 +91,7 @@ fn fetch_emits_json_when_requested() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
     let cache = dir.path().join("cache");
     let value = run_json(
@@ -116,7 +116,7 @@ fn build_links_against_registry_package() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -124,7 +124,7 @@ fn build_links_against_registry_package() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
 
     let build_dir = dir.path().join("build");
@@ -240,7 +240,7 @@ deps = ["spdlog"]
     dir.child("app/cabin.toml").write_str(app_manifest).unwrap();
     dir.child("app/src/main.cc").write_str(app_main).unwrap();
 
-    let fmt_archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let fmt_archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let fmt_hex = make_archive(&fmt_archive, &fmt_archive_entries());
 
     let spdlog_manifest = r#"[package]
@@ -260,7 +260,7 @@ deps = ["fmt"]
     let spdlog_header = "#pragma once\nvoid log_hello();\n";
     let spdlog_src =
         "#include \"spdlog.h\"\n#include \"fmt.h\"\nvoid log_hello() { say_hello(); }\n";
-    let spdlog_archive = dir.path().join("artifacts/spdlog-1.13.0.zip");
+    let spdlog_archive = dir.path().join("index/artifacts/spdlog-1.13.0.zip");
     let spdlog_hex = make_archive(
         &spdlog_archive,
         &[
@@ -276,7 +276,7 @@ deps = ["fmt"]
         "10.2.1",
         "{}",
         &fmt_hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
     write_index_entry(
         &dir.path().join("index"),
@@ -284,7 +284,7 @@ deps = ["fmt"]
         "1.13.0",
         r#"{ "fmt": ">=10.0.0 <11.0.0" }"#,
         &spdlog_hex,
-        "../artifacts/spdlog-1.13.0.zip",
+        "artifacts/spdlog-1.13.0.zip",
     );
 
     let build_dir = dir.path().join("build");
@@ -339,7 +339,7 @@ deps = ["fmt"]
 fn fetch_fails_on_checksum_mismatch() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     make_archive(&archive, &fmt_archive_entries());
     let bogus_hex = "0".repeat(64);
     write_index_entry(
@@ -348,7 +348,7 @@ fn fetch_fails_on_checksum_mismatch() {
         "10.2.1",
         "{}",
         &bogus_hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("cache");
@@ -364,11 +364,48 @@ fn fetch_fails_on_checksum_mismatch() {
         .stderr(predicate::str::contains("checksum mismatch"));
 }
 
+/// A checkout's committed `.cabin/config.toml` can point Cabin at a
+/// hostile local index.  Its `source.path` must not reach a file outside
+/// the index root, by absolute path or `..`, and the refusal must not
+/// report the outside file's digest (the old checksum-mismatch message
+/// did) or whether it exists.
+#[test]
+fn fetch_refuses_a_source_path_outside_the_index_root() {
+    let dir = TempDir::new().unwrap();
+    write_app_using_fmt(dir.path(), None);
+    let index = dir.path().join("index");
+    dir.child("app/.cabin/config.toml")
+        .write_str(&format!(
+            "[registry]\nindex-path = {:?}\n",
+            index.to_str().unwrap()
+        ))
+        .unwrap();
+    let secret = dir.child("secret.txt");
+    secret.write_str("private").unwrap();
+    let secret_hex =
+        cabin_core::hash::hash_reader(std::fs::File::open(secret.path()).unwrap()).unwrap();
+    let absolute = secret.path().to_str().unwrap().to_owned();
+    for source_path in [absolute.as_str(), "../secret.txt", "../missing.txt"] {
+        write_index_entry(&index, "fmt", "10.2.1", "{}", &"0".repeat(64), source_path);
+        cabin_with_config()
+            .args(["fetch", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "is not a file inside the registry root",
+            ))
+            .stderr(predicate::str::contains(&secret_hex).not());
+    }
+}
+
 #[test]
 fn fetch_rejects_unsafe_archive() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &[("../escape.txt", "evil")]);
     write_index_entry(
         &dir.path().join("index"),
@@ -376,7 +413,7 @@ fn fetch_rejects_unsafe_archive() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
     let cache = dir.path().join("cache");
     cabin()
@@ -427,7 +464,7 @@ fn fetch_fails_when_index_has_no_source() {
 fn frozen_uses_cache_after_initial_fetch() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -435,7 +472,7 @@ fn frozen_uses_cache_after_initial_fetch() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("cache");
@@ -465,7 +502,7 @@ fn frozen_uses_cache_after_initial_fetch() {
 fn frozen_fails_on_cache_miss() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -473,7 +510,7 @@ fn frozen_fails_on_cache_miss() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
     // Pre-populate a lockfile so --frozen can run resolution.
     cabin()
@@ -502,7 +539,7 @@ fn frozen_fails_on_cache_miss() {
 fn frozen_does_not_write_lockfile_or_cache() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -510,7 +547,7 @@ fn frozen_does_not_write_lockfile_or_cache() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
 
     // No lockfile, no cache pre-populated. --frozen must refuse.
@@ -539,7 +576,7 @@ fn fetch_fails_when_archive_manifest_disagrees() {
 name = "fmt"
 version = "10.1.0"
 "#;
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &entries);
     write_index_entry(
         &dir.path().join("index"),
@@ -547,7 +584,7 @@ version = "10.1.0"
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
     let cache = dir.path().join("cache");
     cabin()
@@ -580,7 +617,7 @@ fn fetch_with_no_versioned_deps_succeeds() {
 fn build_uses_separate_cache_dir_when_specified() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let archive = dir.path().join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -588,7 +625,7 @@ fn build_uses_separate_cache_dir_when_specified() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("alt-cache");

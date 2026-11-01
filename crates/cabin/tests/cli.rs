@@ -254,6 +254,8 @@ fn write_index_entry(
     source_path: &str,
 ) {
     let revision = &checksum[..16];
+    // Escaped, since a Windows absolute path holds backslashes.
+    let source_path = serde_json::to_string(source_path).unwrap();
     let body = format!(
         r#"{{
   "schema": 1,
@@ -267,7 +269,7 @@ fn write_index_entry(
         "{revision}": {{
           "checksum": "sha256:{checksum}",
           "published-at": "2026-01-01T00:00:00Z",
-          "source": {{ "type": "archive", "path": "{source_path}", "format": "zip" }}
+          "source": {{ "type": "archive", "path": {source_path}, "format": "zip" }}
         }}
       }}
     }}

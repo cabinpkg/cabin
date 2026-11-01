@@ -137,7 +137,7 @@ fn fetch_does_not_pull_disabled_optional_into_lockfile() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "source archive for `fmt 10.2.1` does not exist",
+            "source archive for `fmt 10.2.1` is not a file inside the registry root",
         ));
     let lock_body = fs::read_to_string(dir.path().join("cabin.lock")).unwrap();
     assert!(
