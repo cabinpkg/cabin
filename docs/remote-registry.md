@@ -334,6 +334,10 @@ revisions is indistinguishable from an unknown one.  A superseded verified revis
 downloadable, and carries its own `resolution` when it resolves differently from the current one,
 which is what keeps lockfiles that pin it building.
 
+The hosted registry serves `/packages/<scope>/<name>.json` - including the `404` for an unknown
+package - from a per-location edge cache that keeps each answer for 60 seconds and is never purged,
+so a verdict or a yank can take about a minute to reach every reader.
+
 ## Publish
 
 ```text

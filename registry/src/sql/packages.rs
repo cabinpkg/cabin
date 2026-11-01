@@ -6,12 +6,18 @@ statements! {
     /// the single "served revision" definition) with the version-level
     /// yank flag.  Pending and rejected revisions never reach
     /// composition, and a pending respin leaves the previously served
-    /// revision in place here.
+    /// revision in place here.  `CROSS JOIN` makes `versions` the outer
+    /// loop (SQLite never reorders it), so the read seeks the package
+    /// by primary key: the registry never runs `ANALYZE`, and without
+    /// `sqlite_stat1` the planner drives the flattened view from
+    /// `revisions_verification` instead, reading every verified
+    /// revision in the registry on each anonymous request.
     CURRENT_REVISIONS_BY_PACKAGE =
         "SELECT c.version, c.revision, c.metadata_json, v.yanked \
-         FROM current_revisions c \
-         JOIN versions v ON v.scope = c.scope AND v.name = c.name AND v.version = c.version \
-         WHERE c.scope = ?1 AND c.name = ?2";
+         FROM versions v \
+         CROSS JOIN current_revisions c \
+           ON c.scope = v.scope AND c.name = v.name AND c.version = v.version \
+         WHERE v.scope = ?1 AND v.name = ?2";
 
     /// Every **verified** revision of the package, for the composed
     /// document's per-version `revisions` maps: superseded revisions
@@ -198,17 +204,22 @@ statements! {
     /// metadata each carries: the session package-detail read.
     /// Served-revision-only like [`CURRENT_REVISIONS_BY_PACKAGE`], so a
     /// package with none is a missing package by construction.
+    /// `CROSS JOIN` for the reason [`CURRENT_REVISIONS_BY_PACKAGE`]
+    /// gives.
     VERIFIED_VERSION_DETAILS =
         "SELECT c.version, c.revision, c.metadata_json, v.yanked, c.published_at, v.downloads \
-         FROM current_revisions c \
-         JOIN versions v ON v.scope = c.scope AND v.name = c.name AND v.version = c.version \
-         WHERE c.scope = ?1 AND c.name = ?2";
+         FROM versions v \
+         CROSS JOIN current_revisions c \
+           ON c.scope = v.scope AND c.name = v.name AND c.version = v.version \
+         WHERE v.scope = ?1 AND v.name = ?2";
 
     /// Whether the package is visible at all (>= 1 verified version):
-    /// the reverse-dependencies target gate.
+    /// the reverse-dependencies target gate.  The unary `+` keeps the
+    /// planner off `revisions_verification`, which without
+    /// `sqlite_stat1` it would otherwise prefer to the primary key.
     HAS_VERIFIED_VERSION =
         "SELECT COUNT(*) AS n FROM revisions \
-         WHERE scope = ?1 AND name = ?2 AND verification = 'verified'";
+         WHERE scope = ?1 AND name = ?2 AND +verification = 'verified'";
 
     /// The verified versions whose stored `dependencies` map contains
     /// the canonical `<scope>/<name>` key in `?1`: a `json_each` walk

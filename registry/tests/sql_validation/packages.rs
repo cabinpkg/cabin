@@ -721,6 +721,38 @@ fn current_revisions_view_serves_the_newest_verified_revision() {
     assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
 }
 
+/// The anonymous package-document reads cost rows of the requested
+/// package only. The migrated schema has no `sqlite_stat1` (the
+/// registry never runs `ANALYZE`), so these are the plans production
+/// gets: a `revisions_verification`
+/// step would read every verified revision in the registry, and a
+/// `SCAN` every row of a table.
+#[test]
+fn package_document_reads_seek_the_package() {
+    let conn = migrated_connection();
+    for statement in [
+        sql::CURRENT_REVISIONS_BY_PACKAGE,
+        sql::VERIFIED_REVISIONS_BY_PACKAGE,
+        sql::VERIFIED_VERSION_DETAILS,
+        sql::HAS_VERIFIED_VERSION,
+    ] {
+        let mut plan = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {statement}"))
+            .expect("explain");
+        let steps: Vec<String> = plan
+            .query_map(rusqlite::params!["alpha", "pkg"], |row| row.get(3))
+            .expect("query plan")
+            .collect::<Result<_, _>>()
+            .expect("plan rows");
+        assert!(
+            steps
+                .iter()
+                .all(|step| !step.contains("revisions_verification") && !step.starts_with("SCAN")),
+            "{statement}\n{steps:#?}"
+        );
+    }
+}
+
 /// A respin may change what resolution reads: under the opt-in, a
 /// revision whose `dependencies` differ from the live one's inserts and
 /// counts its bytes, and the read plane lists each revision's own
