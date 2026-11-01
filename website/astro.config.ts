@@ -31,16 +31,17 @@ export default defineConfig({
         // steel/pine color system (the block background itself is pinned to
         // the surface scale in global.css).
         shikiConfig: { theme: "nord" },
-        // Build the default Astro markdown pipeline (GFM, Shiki, heading IDs)
-        // plus: remark steps mapping the docs' relative `*.md` cross-links to
-        // `/docs/<slug>/` and parsing `$`/`$$` math, and rehype steps that
-        // render the math with KaTeX (server-side; the stylesheet is imported
-        // by `DocsLayout.astro`), give each heading an id, and wrap it in a
-        // self-link (`src/scripts/docs.ts` turns clicking that link into
-        // "copy deep link"). `processor` is the non-deprecated replacement
-        // for the top-level `markdown.remarkPlugins` option; user rehype
-        // plugins run before Astro's own heading-id step, so `rehype-slug`
-        // supplies the ids that `rehype-autolink-headings` needs.
+        // The unified (remark/rehype) pipeline from `@astrojs/markdown-remark`
+        // (GFM, Shiki, heading IDs) plus: remark steps mapping the docs'
+        // relative `*.md` cross-links to `/docs/<slug>/` and parsing `$`/`$$`
+        // math, and rehype steps that render the math with KaTeX
+        // (server-side; the stylesheet is imported by `DocsLayout.astro`),
+        // give each heading an id, and append a self-link to it
+        // (`src/scripts/docs.ts` turns clicking that link into "copy deep
+        // link"). `processor` replaces the deprecated top-level
+        // `markdown.remarkPlugins` / `markdown.rehypePlugins` options; user
+        // rehype plugins run before Astro's own heading-id step, so
+        // `rehype-slug` supplies the ids that `rehype-autolink-headings` needs.
         processor: unified({
             remarkPlugins: [remarkDocsLinks, remarkMath],
             rehypePlugins: [

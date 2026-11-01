@@ -54,8 +54,8 @@ const features: Feature[] = [
     },
 ];
 
-// Verified end to end against the cabin binary: `new` scaffolds a binary
-// package whose main prints this exact greeting.
+// `cabin new` scaffolds a binary package whose main prints this exact
+// greeting (crates/cabin-package/src/scaffold.rs).
 const quickstart = ["cabin new hello", "cd hello", "cabin run"];
 const quickstartOutput = "Hello from Cabin";
 ---

@@ -1,8 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 
-// Recursively collect every *.html file under `directory`. Shared by the
-// post-build verification scripts (CSP inline-script check, docs-link check).
+// Recursively collect every *.html file under `directory`.
 export async function findHtmlFiles(directory) {
     const entries = await readdir(directory, { withFileTypes: true });
     const files = [];

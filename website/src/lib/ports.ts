@@ -5,13 +5,11 @@ import { parse as parseToml } from "smol-toml";
 import { extractManifestInfo } from "./manifestInfo.ts";
 import type { PackageRecord } from "./types";
 
-// The foundation ports live at the repository root under ports/.
-// Resolve that directory by walking up from the
-// current working directory to the nearest ancestor that contains it, so it
-// works whether the build runs from website/ (local `npm run build`, CI) or the
-// repo root.  We avoid import.meta.url because `astro build` bundles this
-// module into dist/.prerender/chunks/ at a different depth than this source
-// file.
+// The foundation ports live at the repository root under ports/. The
+// nearest ancestor of the current working directory that contains it is
+// used, so the build works from website/ or from the repo root.
+// import.meta.url is unusable: `astro build` bundles this module into
+// dist/.prerender/chunks/ at a different depth than this source file.
 const PORTS_SUBPATH = "ports";
 function resolvePortsDir(): string {
     let dir = process.cwd();
@@ -72,19 +70,18 @@ export async function loadPortsFromDir(
         for (const version of await listDirectories(portDir)) {
             const manifestPath = join(portDir, version, "cabin.toml");
             // Discovery mirrors `plan.rs::discover_ports`, whose
-            // `is_file()` FOLLOWS links: a version directory whose
-            // `cabin.toml` does not resolve to a regular file - absent,
-            // dangling, or a directory - is skipped, not diagnosed.
-            // Being stricter here would fail the site build on a tree
-            // that publishes fine.
+            // `is_file()` follows links: a version directory whose
+            // `cabin.toml` does not resolve to a regular file (absent,
+            // dangling, or a directory) is skipped, not diagnosed, so
+            // every tree that publishes also builds.
             const resolved = await statOrNull(manifestPath);
             if (resolved === null || !resolved.isFile()) {
                 continue;
             }
-            // It resolves to a file, so the publisher WOULD load it -
-            // and `plan.rs::load_package` then refuses a symlink,
-            // because the manifest carries the package's identity and
-            // provenance and must be the committed file itself.
+            // It resolves to a file, so the publisher loads it, and
+            // `plan.rs::load_package` refuses a symlink: the manifest
+            // carries the package's identity and provenance and must be
+            // the committed file itself.
             const marker = await lstat(manifestPath);
             if (!marker.isFile()) {
                 throw new Error(
@@ -117,9 +114,8 @@ export async function loadPortsFromDir(
     return records;
 }
 
-// A migrated port: the committed manifest already carries the
-// canonical scoped identity and a complete [package.upstream] block,
-// so nothing is converted.
+// The committed manifest already carries the canonical scoped identity
+// and a complete [package.upstream] block, so nothing is converted.
 async function loadPackageRecord(
     manifestPath: string,
     portName: string,
@@ -171,24 +167,20 @@ async function loadPackageRecord(
         );
     }
     // The publisher parses this into a typed `semver::Version`, so a
-    // string the resolver could never match must fail the build here
-    // rather than render a package page nobody can depend on.
+    // version it refuses fails the build here instead of rendering a
+    // package page nobody can depend on.
     //
-    // The SemVer 2.0.0 grammar itself, NOT node-semver's `valid()`,
-    // which accepts a leading `v` and surrounding whitespace Rust
-    // rejects and rejects integers above `Number.MAX_SAFE_INTEGER`
-    // Rust accepts.  The core numbers are then range-checked with
-    // `BigInt` - unbounded, so this stays exact rather than trading
-    // one precision limit for another - because the publisher parses
-    // them as `u64`.
+    // node-semver's `valid()` does not match Rust: it accepts a leading
+    // `v` and surrounding whitespace that Rust rejects, and rejects
+    // integers above `Number.MAX_SAFE_INTEGER` that Rust accepts.
+    // `BigInt` keeps the u64 range check exact.
     //
-    // Ceiling, deliberate: this is the version only.  Dependency and
-    // feature declarations get the same treatment via
-    // src/lib/manifestInfo.ts - structural shape checks mirroring the
-    // publisher's rejections, never semantics - and full manifest
-    // validity (targets, standards, feature resolution) stays the
-    // publisher's job: reimplementing Cabin's manifest parser in
-    // TypeScript is the duplication this loader exists to avoid.
+    // Dependency and feature declarations get only the structural shape
+    // checks in src/lib/manifestInfo.ts that mirror the publisher's
+    // rejections; full manifest validity (targets, standards, feature
+    // resolution) is the publisher's job, because reimplementing Cabin's
+    // manifest parser in TypeScript is the duplication this loader
+    // exists to avoid.
     const core = SEMVER.exec(version);
     if (core === null) {
         throw new Error(
@@ -223,9 +215,9 @@ async function loadPackageRecord(
     };
 }
 
-// Shared provenance-URL rule: credential-free HTTPS, parsed rather
-// than prefix-matched so this loader accepts whatever the client's
-// URL parser normalizes.
+// Provenance URLs must be credential-free HTTPS. They are parsed, not
+// prefix-matched, so this loader accepts whatever the client's URL
+// parser normalizes.
 function parseProvenanceUrl(archiveUrl: string, context: string): URL {
     let parsedUrl: URL;
     try {

@@ -1,11 +1,10 @@
 // Progressive independence: the marketing pages (everything except the
 // account pages, which exist to talk to the registry) must render from
 // static HTML that never depends on the registry API - no link, form
-// action, or embedded resource pointing under /api/. Prose is exempt on
-// purpose (the docs legitimately document the API); this is an HTML-level
-// guarantee about the markup, not about optional page scripts - the
-// header's auth enhancer is an external script that only upgrades the
-// page when the registry answers.
+// action, or embedded resource pointing under /api/. Prose is exempt
+// (the docs document the API). The check covers markup, not page
+// scripts: the header's auth enhancer is an external script that only
+// upgrades the page when the registry answers.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

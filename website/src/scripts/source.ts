@@ -24,12 +24,12 @@ import {
     type TreeDirectory,
 } from "../lib/sourceArchive.ts";
 
-// The package/version grammars, mirrored from the registry's route
-// validation: everything they admit is URL-path-safe verbatim, so the
-// route below is interpolated unencoded (percent-escapes would fail the
-// server's charset checks).
-// Registry versions are plain upstream versions (pre-releases legal,
-// build metadata is the removed packaging-revision shape).
+// PACKAGE_NAME_PATTERN and this version pattern admit only URL-path-safe
+// characters, so the route below is interpolated unencoded
+// (percent-escapes would fail the server's charset checks). Registry
+// versions are plain upstream versions: pre-releases are legal, and
+// build metadata is refused because the packaging axis is the revision
+// id (registry/src/routes.rs is_valid_version).
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]*)?$/;
 
 const params = new URLSearchParams(window.location.search);
@@ -80,10 +80,10 @@ async function fetchRange(range: string): Promise<SliceResult> {
     return { ok: true, slice: { bytes, size: span.size } };
 }
 
-// A span larger than one request's cap arrives in chunks. Deflated
-// spans genuinely need this: compression level is producer-only, so a
-// valid stream can be arbitrarily inefficient and exceed the cap even
-// under the display cap.
+// A span larger than one request's cap arrives in chunks. A deflated
+// span can exceed the cap even when its output is under the display
+// cap: compression level is producer-only, so a valid stream can be
+// arbitrarily inefficient.
 async function fetchSpan(start: number, length: number): Promise<SliceResult> {
     const parts: Uint8Array<ArrayBuffer>[] = [];
     let size = 0;

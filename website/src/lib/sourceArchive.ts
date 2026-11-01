@@ -4,12 +4,11 @@
 // parses the container in the browser, so the server stays a byte proxy.
 // Only what the viewer needs is parsed: the end-of-central-directory
 // record at its profile-pinned tail offset and the central directory.
-// Local headers are never fetched - the profile pins them to 30 bytes
-// plus the name with no extra field, so each entry's data offset is
-// computable from central metadata alone, and only central metadata is
-// trusted. Served archives already passed the verifier's full profile
-// check, so a violation here is a plain parse error, not something to
-// tolerate or work around.
+// Local headers are never fetched: each entry's data offset is computed
+// from central metadata alone (see parseCentralDirectory), and only
+// central metadata is trusted. Served archives already passed the
+// verifier's full profile check, so a violation here is a plain parse
+// error, not something to tolerate or work around.
 //
 // Dependency-free on purpose (like account.ts); the node:test suite in
 // sourceArchive.test.ts exercises it against archives built in-test.

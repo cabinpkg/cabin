@@ -1,8 +1,7 @@
 // Swaps the denied page's generic copy for the account-age message
 // when the registry's refusal names it (and a valid eligible date
-// rides along). The page stays fully static without the script or the
-// params - the generic copy, which must render even when the registry
-// is unreachable, is the fallback.
+// rides along). Otherwise the static generic copy stays (see
+// pages/login/denied.astro).
 import { accountAgeEligibleDate } from "../lib/loginDenied";
 
 const eligible = accountAgeEligibleDate(
