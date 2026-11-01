@@ -120,7 +120,7 @@ pub fn run(mode: Mode) -> Result<()> {
         "false" => Ok(()),
         "true" => Err(anyhow::anyhow!(
             "launch guard: the registry is launched (meta.launched = 'true'); its data is \
-             permanent and destructive maintenance is forbidden (docs/runbook.md, \
+             permanent and destructive maintenance is forbidden (registry/docs/runbook.md, \
              \"Data policy\")"
         )),
         "__MISSING__" => Err(refusal(

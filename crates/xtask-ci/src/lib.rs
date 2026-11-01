@@ -320,7 +320,9 @@ fn group(command: &mut Command) -> &mut Command {
 ///
 /// Public for the other xtask crates that manage long-running
 /// children (the registry smoke test's dev servers and mocks); the
-/// caller must have armed the teardown with [`arm_teardown`].
+/// caller must have armed the teardown with [`arm_teardown`].  The
+/// teardown table holds eight unreaped children per process: a ninth
+/// is not recorded, so a teardown signal leaves it running.
 ///
 /// # Errors
 ///

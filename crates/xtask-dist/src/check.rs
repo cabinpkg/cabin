@@ -76,8 +76,10 @@ pub fn run(archive: &Path, ref_name: &str, ref_type: &str) -> Result<()> {
 fn unpack_argv(archive: &Path, into: &Path, windows: bool) -> Vec<String> {
     let (archive, into) = (archive.display().to_string(), into.display().to_string());
     if windows {
-        // The archive name is the package's, whose version `package`
-        // already confines to characters that cannot end this literal.
+        // Neither path may contain `'`, which would end its literal.
+        // `package` confines a tag version's characters; the rest of
+        // each path is unchecked here and safe because `dist.yml`
+        // passes the matrix target, the commit SHA, and its own paths.
         vec![
             "powershell".to_owned(),
             "-NoProfile".to_owned(),

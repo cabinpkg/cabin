@@ -158,7 +158,7 @@ pub fn run(mode: Mode) -> Result<()> {
         println!(
             "before wiping: gh workflow disable ports-publish.yml, cancel any in-flight \
              ports-publish or registry-verify run, and stay clear of the 03:00 UTC nightly \
-             dump (docs/runbook.md, \"Post-wipe re-provisioning\")"
+             dump (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
         );
         or_fail(confirm());
     }
@@ -293,7 +293,7 @@ fn remote(old: &str, new: i64) -> Result<()> {
     print!(
         "wipe OK (generation {old} -> {new}; {primary} primary and {backup} backup object(s) deleted)
 
-Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
+Follow-ups, IN THIS ORDER (registry/docs/runbook.md, \"Post-wipe re-provisioning\"):
   1. commit the wrangler.jsonc database-id change and the refreshed
      migrations-applied stamp
   2. sign in again and re-claim scopes (/claim/<scope>; a GitHub org's
