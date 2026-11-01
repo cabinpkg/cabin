@@ -390,6 +390,21 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
     out
 }
 
+/// The rows that fail a `--fail-on-regression` gate: how many regressed
+/// or are invalid, and how many are inconclusive, whose runs were too
+/// few to tell either way and so cannot pass a gate.
+pub fn gate_failures(rows: &[Comparison]) -> (usize, usize) {
+    let count = |verdicts: &[Verdict]| {
+        rows.iter()
+            .filter(|r| verdicts.contains(&r.verdict))
+            .count()
+    };
+    (
+        count(&[Verdict::Regressed, Verdict::Invalid]),
+        count(&[Verdict::Inconclusive]),
+    )
+}
+
 pub fn write_compare(
     out: &Path,
     baseline: &Results,
@@ -433,6 +448,7 @@ pub fn write_compare(
         Verdict::Improved,
         Verdict::Increased,
         Verdict::Decreased,
+        Verdict::Unchanged,
         Verdict::Inconclusive,
         Verdict::Incomparable,
         Verdict::Invalid,
@@ -730,6 +746,44 @@ mod tests {
         assert_eq!(verdict(base(6), base(6)), Verdict::Unchanged);
         // Ties narrow the variance, so five identical runs a side can.
         assert_eq!(verdict(vec![0.05; 5], vec![0.06; 5]), Verdict::Regressed);
+    }
+
+    #[test]
+    fn a_gate_passes_only_a_comparison_that_could_tell() {
+        let rows = |verdicts: &[Verdict]| -> Vec<Comparison> {
+            verdicts
+                .iter()
+                .map(|&verdict| Comparison {
+                    scenario: "s".to_owned(),
+                    metric: "wall".to_owned(),
+                    baseline_median: None,
+                    candidate_median: None,
+                    change: None,
+                    noise: None,
+                    verdict,
+                })
+                .collect()
+        };
+        for passing in [
+            Verdict::Improved,
+            Verdict::Unchanged,
+            Verdict::Increased,
+            Verdict::Decreased,
+            Verdict::Incomparable,
+            Verdict::NoBaseline,
+        ] {
+            assert_eq!(gate_failures(&rows(&[passing])), (0, 0), "{passing:?}");
+        }
+        assert_eq!(gate_failures(&rows(&[Verdict::Regressed])), (1, 0));
+        assert_eq!(gate_failures(&rows(&[Verdict::Invalid])), (1, 0));
+        assert_eq!(gate_failures(&rows(&[Verdict::Inconclusive; 3])), (0, 3));
+        let mixed = [
+            Verdict::Unchanged,
+            Verdict::Regressed,
+            Verdict::Improved,
+            Verdict::Inconclusive,
+        ];
+        assert_eq!(gate_failures(&rows(&mixed)), (1, 1));
     }
 
     #[test]
