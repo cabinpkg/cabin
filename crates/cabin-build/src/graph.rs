@@ -189,7 +189,7 @@ impl StandardViolation {
 ///
 /// `arguments` is kept as a list so each backend / consumer can render it
 /// however the format requires (LLVM accepts both `command` and
-/// `arguments` keys; `cabin-ninja` emits `command`).
+/// `arguments` keys; `cabin-ninja` emits `arguments`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileCommand {
     pub directory: Utf8PathBuf,

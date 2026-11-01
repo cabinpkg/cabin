@@ -4,10 +4,15 @@ use cabin_build::BuildGraph;
 use serde::Serialize;
 
 use crate::error::NinjaError;
-use crate::writer::{shell_join, write_if_changed};
+use crate::writer::write_if_changed;
 
 /// Write a Clang JSON Compilation Database describing every C/C++ compile in
 /// `graph` to `path`, and return whether the file changed.
+///
+/// Each entry spells its command as an `arguments` array, which Clang
+/// reads verbatim on every host; a `command` string would need the
+/// quoting of the host Clang tooling runs on (Windows command-line
+/// rules on Windows, Bash rules elsewhere).
 ///
 /// The file is written only when its contents change, and then
 /// atomically: the rendered JSON lands in a sibling temporary file and
@@ -16,8 +21,7 @@ use crate::writer::{shell_join, write_if_changed};
 /// directory must already exist.
 ///
 /// # Errors
-/// Propagates rendering failures from [`render_compile_commands`]
-/// ([`NinjaError::UnquotableArgument`] or [`NinjaError::Json`]), and
+/// Propagates [`NinjaError::Json`] from [`render_compile_commands`], and
 /// returns [`NinjaError::Io`] when the atomic write to `path` fails (for
 /// example, when the parent directory is missing).
 #[tracing::instrument(level = "info", skip_all)]
@@ -34,9 +38,8 @@ pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<bool, N
 /// infallible.
 ///
 /// # Errors
-/// Returns [`NinjaError::UnquotableArgument`] when a compile command
-/// argument cannot be shell-quoted, and [`NinjaError::Json`] if
-/// `serde_json` fails to serialize the entries.
+/// Returns [`NinjaError::Json`] if `serde_json` fails to serialize the
+/// entries.
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn render_compile_commands(graph: &BuildGraph) -> Result<String, NinjaError> {
     let mut entries: Vec<Entry<'_>> = Vec::with_capacity(graph.compile_commands.len());
@@ -44,7 +47,7 @@ pub fn render_compile_commands(graph: &BuildGraph) -> Result<String, NinjaError>
         entries.push(Entry {
             directory: cc.directory.as_str(),
             file: cc.file.as_str(),
-            command: shell_join(&cc.arguments)?,
+            arguments: &cc.arguments,
             output: cc.output.as_str(),
         });
     }
@@ -56,7 +59,7 @@ pub fn render_compile_commands(graph: &BuildGraph) -> Result<String, NinjaError>
 struct Entry<'a> {
     directory: &'a str,
     file: &'a str,
-    command: String,
+    arguments: &'a [String],
     output: &'a str,
 }
 
@@ -81,6 +84,7 @@ mod tests {
                 arguments: vec![
                     "/usr/bin/g++".into(),
                     "-std=c++17".into(),
+                    r#"-DMSG="a \b""#.into(),
                     "-c".into(),
                     "/abs/src/main.cc".into(),
                     "-o".into(),
@@ -107,11 +111,19 @@ mod tests {
         assert_eq!(entry["directory"], "/abs/build");
         assert_eq!(entry["file"], "/abs/src/main.cc");
         assert_eq!(entry["output"], "/abs/build/main.o");
-        let command = entry["command"].as_str().unwrap();
-        assert!(command.contains("/usr/bin/g++"));
-        assert!(command.contains("-std=c++17"));
-        assert!(command.contains("/abs/src/main.cc"));
-        assert!(command.contains("/abs/build/main.o"));
+        assert_eq!(
+            entry["arguments"],
+            serde_json::json!([
+                "/usr/bin/g++",
+                "-std=c++17",
+                r#"-DMSG="a \b""#,
+                "-c",
+                "/abs/src/main.cc",
+                "-o",
+                "/abs/build/main.o",
+            ])
+        );
+        assert!(entry.get("command").is_none());
     }
 
     #[test]

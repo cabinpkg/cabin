@@ -69,7 +69,7 @@ fn a_mingw_build_takes_the_drivers_siblings_and_names_executables_exe() {
         .find(|entry| entry["file"].as_str().unwrap().ends_with("c_part.c"))
         .unwrap();
     assert!(
-        c_part["command"]
+        c_part["arguments"][0]
             .as_str()
             .unwrap()
             .contains("x86_64-w64-mingw32-gcc"),
@@ -142,7 +142,7 @@ fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
             &gcc
         };
         assert!(
-            entry["command"]
+            entry["arguments"][0]
                 .as_str()
                 .unwrap()
                 .contains(compiler.to_str().unwrap()),

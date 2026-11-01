@@ -37,9 +37,9 @@ pub enum NinjaError {
 
     /// A command argument could not be safely encoded as a POSIX
     /// shell token (for example, it contained a NUL byte).  The
-    /// generated `build.ninja` and `compile_commands.json` would
-    /// otherwise be ambiguous when re-parsed by `sh`, so we refuse
-    /// the whole render.  Carries the offending argument verbatim.
+    /// generated `build.ninja` would otherwise be ambiguous when
+    /// re-parsed by `sh`, so we refuse the whole render.  Carries the
+    /// offending argument verbatim.
     #[error("command argument cannot be shell-quoted: {0:?}")]
     UnquotableArgument(String),
 }

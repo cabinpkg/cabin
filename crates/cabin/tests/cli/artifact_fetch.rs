@@ -190,11 +190,7 @@ fn build_links_against_registry_package() {
         &fs::read_to_string(build_dir.join("dev/compile_commands.json")).unwrap(),
     )
     .unwrap();
-    // Each entry stores its shell-joined `command`; temp-dir paths
-    // carry no whitespace, so token scanning stays faithful.  The
-    // shell quoting wraps Windows paths in double quotes and escapes
-    // each `\` as `\\`, so strip the quotes and collapse the doubled
-    // separators after normalizing to `/`.
+    // Paths are normalized to `/` so one expectation covers Windows.
     let command_tokens_for = |suffix: &str| -> Vec<String> {
         ccdb.as_array()
             .unwrap()
@@ -204,11 +200,11 @@ fn build_links_against_registry_package() {
                     .as_str()
                     .is_some_and(|f| f.replace('\\', "/").ends_with(suffix))
             })
-            .unwrap_or_else(|| panic!("compile entry for {suffix} present"))["command"]
-            .as_str()
+            .unwrap_or_else(|| panic!("compile entry for {suffix} present"))["arguments"]
+            .as_array()
             .unwrap()
-            .split_whitespace()
-            .map(|t| t.trim_matches('"').replace('\\', "/").replace("//", "/"))
+            .iter()
+            .map(|t| t.as_str().unwrap().replace('\\', "/"))
             .collect()
     };
     let value_of = |tokens: &[String], flag: &str| -> Option<String> {

@@ -947,9 +947,13 @@ fn compile_commands_json_contains_expected_fields() {
             .unwrap()
             .ends_with(&host_path(&format!("src/main.cc.{}", host_obj_ext())))
     );
-    let command = entry["command"].as_str().unwrap();
-    assert!(command.contains(host_std_cxx_flag()));
-    assert!(command.contains("src/main.cc"));
+    let arguments = entry["arguments"].as_array().unwrap();
+    assert!(arguments.iter().any(|arg| arg == host_std_cxx_flag()));
+    assert!(
+        arguments
+            .iter()
+            .any(|arg| arg.as_str().unwrap().contains("src/main.cc"))
+    );
 }
 
 #[test]

@@ -98,7 +98,9 @@ driver:
 - the file is written to `build/<profile>/compile_commands.json` using Cabin's existing build
   directory and per-profile layout - the same path `cabin build` produces;
 - the database is generated *without* invoking Ninja: tidy is read-only analysis and a build is
-  unnecessary.
+  unnecessary;
+- each entry records its compile as an `arguments` array, one verbatim argument per element, so
+  Clang tooling reads the same arguments on every host.
 
 The build directory honors the same precedence chain as `cabin build`: `--build-dir` >
 `CABIN_BUILD_DIR` > `[paths] build-dir` config setting > built-in default `build`.
