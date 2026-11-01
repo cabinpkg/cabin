@@ -535,20 +535,32 @@ fn http_artifact_checksum_mismatch_fails() {
 
 #[test]
 fn relative_artifact_path_resolves_correctly() {
-    // A successful resolve confirms the HTTP loader resolves the
-    // scoped `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
-    // source path against the nested package metadata URL.
+    // The scoped `../../artifacts/<scope>/<name>/...zip` source path
+    // must resolve against the package metadata URL.  The index sits
+    // below `/registry/`, so the artifact exists only at
+    // `/registry/artifacts/...`; any other base (the origin root, or
+    // the metadata file treated as a directory) 404s and fails the
+    // fetch.
     let dir = TempDir::new().unwrap();
-    let registry = publish_scoped_fmt_to_registry(dir.path());
+    publish_scoped_fmt_to_registry(dir.path());
     write_app_using_scoped_fmt(dir.path(), None);
-    let server = TestServer::serve(registry);
+    let server = TestServer::serve(dir.path().to_path_buf());
+    let cache = dir.path().join("cache");
     cabin()
-        .args(["resolve", "--manifest-path"])
+        .args(["fetch", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--index-url")
-        .arg(server.url())
+        .arg(format!("{}/registry", server.url()))
+        .arg("--cache-dir")
+        .arg(&cache)
         .assert()
         .success();
+    assert!(
+        fs::read_dir(cache.join("sources/sha256"))
+            .unwrap()
+            .any(|entry| entry.unwrap().path().join("cabin.toml").is_file()),
+        "expected the fetched archive extracted in the cache"
+    );
 }
 
 #[test]

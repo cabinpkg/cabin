@@ -68,6 +68,17 @@ deps = ["fmt"]
 fn vendor_writes_deterministic_file_registry() {
     let dir = TempDir::new().unwrap();
     let index = stage_fmt_index(dir.path());
+    // A second, superseded revision the vendored index must drop.
+    let source_index = index.join("packages/fmt.json");
+    let mut source: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&source_index).unwrap()).unwrap();
+    let stale = "f".repeat(16);
+    source["versions"]["10.2.1"]["revisions"][&stale] = serde_json::json!({
+        "checksum": format!("sha256:{}", "f".repeat(64)),
+        "published-at": "2025-01-01T00:00:00Z",
+        "source": { "type": "archive", "path": "../artifacts/fmt/stale.zip", "format": "zip" },
+    });
+    fs::write(&source_index, source.to_string()).unwrap();
     stage_consumer_project(&dir.path().join("proj"));
     cabin()
         .args(["vendor", "--manifest-path"])
@@ -92,6 +103,14 @@ fn vendor_writes_deterministic_file_registry() {
     let body = fs::read_to_string(vendor.join("packages/fmt.json")).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
     let revision = parsed["versions"]["10.2.1"]["revision"].as_str().unwrap();
+    let revisions = parsed["versions"]["10.2.1"]["revisions"]
+        .as_object()
+        .unwrap();
+    assert_eq!(
+        revisions.keys().collect::<Vec<_>>(),
+        [revision],
+        "only the fetched revision is vendored: {body}"
+    );
     let path = parsed["versions"]["10.2.1"]["revisions"][revision]["source"]["path"]
         .as_str()
         .unwrap();

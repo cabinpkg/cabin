@@ -147,10 +147,10 @@ fn check_fails_on_semantic_error() {
         .assert()
         .failure();
 
-    // The failure must be the compiler's front-end diagnostic - proof
-    // that `-fsyntax-only` ran - not merely a non-zero exit
-    // from some unrelated error.  Ninja forwards the failed command's
-    // output on its stdout, so check both streams.
+    // The failure must be the compiler's diagnostic naming the
+    // identifier, not a non-zero exit from some unrelated error.
+    // Ninja forwards the failed command's output on its stdout, so
+    // check both streams.
     let out = assert.get_output();
     let combined = format!(
         "{}{}",
@@ -158,7 +158,7 @@ fn check_fails_on_semantic_error() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        combined.contains("undeclared"),
+        combined.contains("undeclared_symbol"),
         "expected the compiler's semantic diagnostic in the output, got:\n{combined}"
     );
 

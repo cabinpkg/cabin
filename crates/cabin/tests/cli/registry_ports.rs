@@ -46,8 +46,9 @@ const STB_MANIFEST: &str = "[package]\nname = \"cabin-ports/stb\"\nversion = \"2
 interface-c-standard = \"c89\"\n";
 // The fake stb archive carries one single-file header in the
 // upstream pattern (declaration-only unless the consumer TU defines
-// the implementation macro), so the consumer proves both the
-// header-only include propagation and the interface-standard floor.
+// the implementation macro), so the consumer proves the header-only
+// include propagation.  `c89` is the oldest C standard, so no consumer
+// falls below this interface floor; its enforcement is not exercised.
 const FAKE_STB_H: &str = "#ifndef FAKE_STB_ANSWER_H\n#define FAKE_STB_ANSWER_H\nint stb_answer(void);\n#ifdef STB_ANSWER_IMPLEMENTATION\nint stb_answer(void) { return 42; }\n#endif\n#endif\n";
 
 // Only the multi-library scenario has no committed port shaped for

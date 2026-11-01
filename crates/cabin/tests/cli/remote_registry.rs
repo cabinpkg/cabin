@@ -1052,11 +1052,10 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
 }
 
 /// A login-session token (`cabin_ses_<base64url>`, carrying `-` and `_`)
-/// is a first-class bearer at the CLI seam: a stored session survives
-/// the credentials round-trip with those bytes intact, and a later
-/// `resolve` loads it through `Token::parse`, which admits the
-/// base64url `cabin_ses_` payload, and authenticates with no env
-/// override.
+/// is a first-class bearer at the CLI seam: `resolve` loads a stored
+/// one through `Token::parse`, which admits the base64url `cabin_ses_`
+/// payload, and authenticates with no env override.  The write side
+/// is `login_stores_the_session_keyed_by_normalized_origin`.
 #[test]
 fn a_stored_session_token_authenticates_reads() {
     const SESSION_TOKEN: &str = "cabin_ses_abcdefghij-klmnopqrst_uvwxyzABCDEFGHIJKLMNO";
@@ -1068,15 +1067,7 @@ fn a_stored_session_token_authenticates_reads() {
 
     let home = dir.path().join("config-home");
     write_session_credentials(&home, server.url(), SESSION_TOKEN);
-    // Persisted with its `-`/`_` bytes intact through the credentials
-    // round-trip.
-    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
-    assert!(
-        body.contains(SESSION_TOKEN),
-        "the session token must be stored verbatim: {body}"
-    );
-
-    // Reusable: the stored credential alone authenticates the resolve.
+    // The stored credential alone authenticates the resolve.
     cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -1274,8 +1265,8 @@ fn yank_with_an_expired_session_fails_actionably() {
 
 /// A scoped package fetches end to end from an `auth-required`
 /// registry with no experimental flag: the credential rides the
-/// `config.json`, metadata, and artifact requests alike, and the
-/// verified archive lands extracted in the cache.
+/// metadata and artifact requests (`config.json` stays public), and
+/// the verified archive lands extracted in the cache.
 #[test]
 fn fetch_scoped_package_from_an_auth_required_registry() {
     let dir = TempDir::new().unwrap();

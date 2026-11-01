@@ -1063,15 +1063,17 @@ compiler-wrapper = "ccache"
 #[test]
 fn config_does_not_change_lockfile_layout() {
     // A `[registry]` config setting must not bleed into the
-    // lockfile shape: existing lockfiles continue to work and
-    // no config-derived fields appear in the produced
-    // `cabin.lock`.
+    // lockfile shape: resolving through the config yields the same
+    // `cabin.lock` as resolving the same index through the CLI.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
             r#"[package]
 name = "demo"
 version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
 "#,
         )
         .unwrap();
@@ -1081,6 +1083,12 @@ version = "0.1.0"
 index-path = "registry"
 "#,
     );
+    let index = dir.path().join(".cabin/registry");
+    dir.child(".cabin/registry/fmt.json")
+        .write_str(
+            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {} } } }"#,
+        )
+        .unwrap();
     let user_home = TempDir::new().unwrap();
     cabin_with_config()
         .args(["resolve", "--manifest-path"])
@@ -1088,6 +1096,17 @@ index-path = "registry"
         .env("CABIN_CONFIG_HOME", user_home.path())
         .assert()
         .success();
-    // No versioned deps → no lockfile is written.
-    assert!(!dir.path().join("cabin.lock").exists());
+    let lockfile = dir.path().join("cabin.lock");
+    let from_config = fs::read_to_string(&lockfile).unwrap();
+    assert!(from_config.contains("name = \"fmt\""), "{from_config}");
+
+    fs::remove_file(&lockfile).unwrap();
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-path")
+        .arg(&index)
+        .assert()
+        .success();
+    assert_eq!(fs::read_to_string(&lockfile).unwrap(), from_config);
 }

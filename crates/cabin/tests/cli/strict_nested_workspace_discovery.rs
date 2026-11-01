@@ -88,9 +88,8 @@ spdlog = "^1"
 }
 
 /// `cabin update --package <name>` only refreshes direct
-/// versioned deps.  Even if a transitive locked package would
-/// otherwise be reachable via the lockfile, the CLI rejects
-/// it explicitly.
+/// versioned deps.  Even though `spdlog` is locked as `fmt`'s
+/// transitive dependency, the CLI rejects it explicitly.
 #[test]
 fn update_package_rejects_transitive() {
     let dir = TempDir::new().unwrap();
@@ -111,11 +110,25 @@ fmt = ">=10.0.0 <11.0.0"
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
-                    "10.2.1": { "dependencies": {}, "yanked": false, "revision": "0000000000000000", "revisions": { "0000000000000000": { "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } }
+                    "10.2.1": { "dependencies": { "spdlog": "^1" }, "yanked": false, "revision": "0000000000000000", "revisions": { "0000000000000000": { "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } }
                 }
             }"#)
 
             .unwrap();
+    dir.child("index/spdlog.json")
+        .write_str(
+            r#"{ "schema": 1, "name": "spdlog", "versions": { "1.0.0": { "dependencies": {} } } }"#,
+        )
+        .unwrap();
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .assert()
+        .success();
+    dir.child("cabin.lock")
+        .assert(predicate::str::contains("name = \"spdlog\""));
     cabin()
         .args(["update", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))

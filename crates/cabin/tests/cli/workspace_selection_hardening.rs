@@ -279,9 +279,12 @@ version = "0.1.0"
         .arg("--registry-dir")
         .arg(&registry)
         .assert()
-        .failure();
-    // The cabin-package layer rejects the name before any
-    // registry write happens.
+        .failure()
+        .stderr(predicate::str::contains(
+            r#"package scope ".." in "../evil" is not valid"#,
+        ));
+    // Manifest validation rejects the name before any registry write.
+    assert!(!registry.exists(), "the registry must not be created");
 }
 
 /// `--exclude` requires `--workspace` or

@@ -4,9 +4,8 @@
 # control.  `[package.upstream]` is stamped on at build time by
 # `FakePortBuilder`, which owns the generated archive's checksum.
 #
-# The fake archive stubs every declared source except zutil.c, so the
-# source list must stay this 15-source set for
-# `stub_declared_sources_except` to generate the same tree.
+# The fake archive carries a working zutil.c and an empty stub for
+# every other source this list declares.
 [package]
 name = "cabin-ports/zlib"
 version = "1.3.1"
