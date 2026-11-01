@@ -7,7 +7,7 @@ use thiserror::Error;
 /// Errors produced by the file-registry layer.
 #[derive(Debug, Error)]
 pub enum RegistryError {
-    #[error("failed to read {}: {source}", path.display())]
+    #[error("failed to access {}: {source}", path.display())]
     Io {
         path: PathBuf,
         #[source]
