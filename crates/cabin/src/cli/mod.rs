@@ -130,8 +130,8 @@ fn cli_styles() -> clap::builder::Styles {
 /// `{options}` renders the options block body only.  The
 /// subcommand block is omitted because the default `[aliases:
 /// x]` rendering does not match cargo's `name, alias` style;
-/// the dispatcher in `lib.rs::run` rebuilds the subcommand
-/// rows manually and feeds them in via `after_help`.
+/// `help_rendering::prepare_top_level_command` rebuilds the
+/// subcommand rows and feeds them in via `after_help`.
 const HELP_TEMPLATE: &str = concat!(
     "{about-with-newline}\n",
     "{usage-heading} {usage}\n",
@@ -286,16 +286,16 @@ pub(crate) fn parse_package_name(raw: &str) -> Result<String, cabin_core::Valida
 // - hide pre-publish packaging (`package`) - `publish` is
 //   the user-facing entry;
 // - hide distribution helpers (`compgen`, `mangen`) - aimed
-//   at downstream packagers.
+//   at downstream packagers;
+// - hide registry account and maintenance commands (`login`,
+//   `logout`, `yank`), which `cargo --help` also omits.
 //
 // `version` stays visible because it is a direct user-facing
 // command; `cabin --version` and `cabin version`
 // agree on the concise wording.
-// Each subcommand's rustdoc has two paragraphs: the first is
-// the short summary clap renders in `cabin --help` / `cabin
-// --list`, and the rest becomes the long help shown by `cabin
-// <sub> --help`.  The split keeps the top-level surface
-// skimmable while preserving the existing detailed prose.
+// A subcommand's first doc paragraph is the summary `cabin
+// --help` and `cabin --list` show; `cabin <sub> --help` shows
+// the whole doc comment.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
     /// Create a new cabin package in an existing directory.
@@ -331,10 +331,8 @@ pub(crate) enum Command {
     /// Clang-compatible `compile_commands.json`, and invokes
     /// Ninja.
     //
-    // `visible_alias = "b"` matches cargo's `build, b`
-    // rendering: clap auto-renders the alias next to the
-    // canonical name in `cabin --help` / `cabin --list`, and
-    // `cabin b` is parsed identically to `cabin build`.
+    // `cabin b` parses as `cabin build`, and `cabin --help` /
+    // `cabin --list` render the row as cargo's `build, b`.
     #[command(visible_alias = "b")]
     Build(BuildArgs),
     /// Check a local package and its dependencies for errors.
@@ -1161,42 +1159,29 @@ pub(crate) enum ResolveFormat {
 const MANIFEST_FILENAME: &str = scaffold::MANIFEST_FILENAME;
 
 /// Dispatch a parsed CLI invocation.  Returns the exit code the
-/// process should propagate.  Most commands return
-/// `ExitCode::SUCCESS` on the happy path; `cabin run` forwards
-/// the spawned program's exit status so a non-zero exit from the
-/// program becomes Cabin's own exit status.
+/// process should propagate: `cabin run` forwards the spawned
+/// program's exit status, `cabin fmt` / `cabin tidy` return
+/// `ExitCode::FAILURE` for a failed `--check` or clang-tidy run, and
+/// every other command returns `ExitCode::SUCCESS` or an error.
 ///
-/// The `cli.color` field carries the user's `--color` choice;
-/// the resolved [`cabin_core::ColorChoice`] for top-level
-/// error rendering is computed in `main.rs` against the env
-/// and the user-level config.  Subcommands today produce
-/// uncolored status output and so do not consume the resolved
-/// color; when a subcommand learns to emit styled output, it
-/// should accept the resolved choice as an explicit argument
-/// rather than re-deriving it here.
+/// `color` is the [`cabin_core::ColorChoice`] [`crate::run`]
+/// resolved from `cli.color`, the env, and the user-level config;
+/// a command that styles its output takes it as an explicit
+/// argument rather than re-deriving it.
 pub(crate) fn run(
     cli: Cli,
     reporter: Reporter,
     color: cabin_core::ColorChoice,
 ) -> Result<std::process::ExitCode> {
     use std::process::ExitCode;
-    // `--version` (and the short `-V`) routes through the same
-    // formatter `cabin version` uses, so `cabin --version -v`
-    // produces the verbose key/value block instead of the
-    // concise single line clap's auto-flag would emit.  The
-    // flag wins over any subcommand and over `--list`, matching
-    // cargo's precedence.
+    // `--version` wins over any subcommand and over `--list`,
+    // matching cargo's precedence.
     if cli.version {
         crate::cli::version::version(crate::cli::version::VersionArgs {}, reporter.verbosity())?;
         return Ok(ExitCode::SUCCESS);
     }
-    // `--list` is mutually exclusive with every other input;
-    // clap rejects `cabin --list <subcommand>` for us.  Print
-    // the full subcommand list and exit successfully.  The
-    // listing is written through a `termcolor::StandardStream`
-    // tuned to the caller-resolved color choice so the
-    // cargo-style palette (green heading, cyan subcommand
-    // names) appears whenever `--color` says it should.
+    // `--list` wins over any subcommand, which it ignores (see
+    // `Cli::list`), and prints in the resolved `color`.
     if cli.list {
         let mut stdout =
             termcolor::StandardStream::stdout(crate::term_setup::termcolor_choice(color));
@@ -1274,8 +1259,8 @@ pub(crate) fn run(
 }
 
 /// Convert raw `--features` flag values into a `SelectionRequest`.
-/// Validation against package declarations happens later in
-/// `BuildConfiguration::resolve`.
+/// Validation against package declarations happens later, in feature
+/// resolution and `BuildConfiguration::resolve`.
 pub(crate) fn build_selection_request(
     feature_args: &[String],
     all_features: bool,
@@ -1326,8 +1311,7 @@ pub(crate) fn resolve_invocation_manifest(args_path: Option<&Path>) -> Result<Pa
 }
 
 /// Convert CLI workspace-selection flags into a
-/// `cabin_workspace::PackageSelection`.  The mode mirrors the order
-/// of `WorkspaceSelectionArgs`'s field comments.
+/// `cabin_workspace::PackageSelection`.
 pub(crate) fn build_workspace_selection(
     args: &WorkspaceSelectionArgs,
 ) -> cabin_workspace::PackageSelection {
@@ -1419,8 +1403,9 @@ struct SinglePackage {
 /// Pick the single package manifest path that `cabin add` /
 /// `remove` / `package` / `publish` should operate on.  When the
 /// invocation manifest is a workspace root, the user must supply
-/// exactly one explicit `--package <name>` selection.  Otherwise we
-/// honor the existing single-package contract.
+/// exactly one explicit `--package <name>` selection.  Otherwise the
+/// invocation manifest is the package, and workspace-selection flags
+/// are rejected.
 fn select_single_package_manifest(
     invocation: &Path,
     selection: &WorkspaceSelectionArgs,
@@ -1429,9 +1414,6 @@ fn select_single_package_manifest(
     let parsed = cabin_manifest::load_manifest(invocation)
         .with_context(|| format!("failed to load manifest at {}", invocation.display()))?;
     if parsed.workspace.is_none() {
-        // Single-package manifest: the existing behavior applies
-        // unchanged.  Reject workspace-selection flags so the user
-        // never gets the impression Cabin honored them silently.
         if selection.workspace
             || selection.default_members
             || !selection.package.is_empty()
@@ -1471,8 +1453,8 @@ fn select_single_package_manifest(
             "`--exclude` is not valid for `cabin {command}`; pass exactly one `--package <name>`"
         );
     }
-    // Package / publish only need to identify the selected
-    // workspace member.
+    // The callers only need to identify the selected workspace
+    // member.
     let graph = cabin_workspace::load_workspace(invocation)?;
     let name = &selection.package[0];
     let idx = graph

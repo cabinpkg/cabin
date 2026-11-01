@@ -1,15 +1,12 @@
 //! Backend-independent build planning for Cabin.
 //!
-//! This crate consumes a validated [`cabin_core::Package`] plus a
-//! resolved C/C++ toolchain (from `cabin-toolchain`) and produces a
-//! [`BuildGraph`] - a list of compile, archive, and link actions
-//! plus the metadata needed to write a Clang-style compilation
-//! database.
+//! This crate consumes a workspace package graph plus a resolved C/C++
+//! toolchain (from `cabin-toolchain`) and produces a [`BuildGraph`] - a
+//! list of compile, assemble, archive, and link actions plus the
+//! metadata needed to write a Clang-style compilation database.
 //!
-//! The graph is intentionally backend-agnostic. `cabin-ninja` knows how to
-//! serialize it as `build.ninja` + `compile_commands.json`; future backends
-//! (e.g. a Bazel exporter, or a direct in-process executor) could consume
-//! the same structure.
+//! The graph is backend-agnostic: `cabin-ninja` serializes it as
+//! `build.ninja` + `compile_commands.json`.
 
 #![allow(
     clippy::too_many_lines,

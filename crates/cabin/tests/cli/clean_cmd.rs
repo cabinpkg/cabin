@@ -1,9 +1,8 @@
 use super::*;
 
-/// Set up a single-package package at `dir` with a fully
-/// populated build directory layout that mirrors what `cabin
-/// build` would produce (`<build>/<profile>/{build.ninja,
-/// packages/<pkg>/..., cargo/<pkg>/...}`).
+/// Set up a single-package project at `dir` with a lockfile, a
+/// `vendor/` directory, and native `dev` and `release` outputs under
+/// `build/`.
 fn populate_project(dir: &Path) {
     write_hello_project(dir);
     assert_fs::fixture::ChildPath::new(dir.join("cabin.lock"))
@@ -474,12 +473,8 @@ fn capture_dry_run(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// `packages/<bare>` doubles as the scope directory of every
-/// `<bare>/<name>` package, and package-scoped clean removes
-/// recursively: a bare selection whose name is also a scope in the
-/// loaded workspace is refused instead of silently deleting scoped
-/// outputs that were never selected.  Cleaning the scoped package
-/// itself stays precise and allowed.
+/// A bare `-p` selection whose name is also a scope in the workspace
+/// is refused; cleaning the scoped package itself is allowed.
 #[test]
 fn clean_refuses_bare_package_named_like_a_workspace_scope() {
     let dir = TempDir::new().unwrap();

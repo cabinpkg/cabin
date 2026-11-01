@@ -1,6 +1,6 @@
 //! Shared build-configuration preamble for the commands that resolve
-//! a [`cabin_core::BuildConfiguration`] per package: `build`, `run`,
-//! `test`, and `cabin explain build-config`.
+//! a [`cabin_core::BuildConfiguration`] per package: `build`, `check`,
+//! `run`, `test`, and `cabin explain build-config`.
 //!
 //! Each of those commands derives, from an already-resolved toolchain
 //! and profile, the per-package build flags and the compiler
@@ -15,12 +15,12 @@
 //! caller has resolved (and, for the building commands, detected /
 //! validated) the toolchain and chosen the profile.
 //! [`prepare_workspace`] + [`plan_prepared`] extend the pipeline for
-//! the three building commands (`build` / `run` / `test`): they own
+//! the building commands (`build` / `check` / `run` / `test`): they own
 //! the whole shared preamble - workspace resolution, the artifact
 //! pipeline, toolchain, profile, features, planning, and the
-//! post-plan standards gates - parameterized only on
-//! [`DevActivation`]; command-specific target selection and
-//! execution stay at the call sites.  `cabin metadata` is
+//! post-plan standards gates - parameterized on [`DevActivation`] and
+//! whether the build context is prepared; command-specific target
+//! selection and execution stay at the call sites.  `cabin metadata` is
 //! intentionally not a caller of [`resolve_build_prep`]: it resolves
 //! the wrapper fail-*soft* and must keep it.  [`resolve_inspection_prep`]
 //! is the read-only commands' fail-soft profile / toolchain / detection
@@ -86,11 +86,9 @@ pub(crate) struct BuildPrep {
 /// Resolve per-package build flags and the compiler wrapper, and
 /// fold them into a [`cabin_core::ToolchainSummary`].
 ///
-/// Flag augmentation may emit reporter warnings; it runs at the same
-/// point the inlined preamble ran (before the caller's package
-/// selection / `resolve_build_configurations`), so the surfaced output
-/// is unchanged.  Wrapper resolution is silent on success and fatal on
-/// failure (a misbehaving wrapper never silently bypasses caching).
+/// Flag augmentation may emit reporter warnings.  Wrapper resolution
+/// is silent on success and fatal on failure (a misbehaving wrapper
+/// never silently bypasses caching).
 #[allow(clippy::needless_pass_by_value)] // consumed: `cli_compiler_wrapper` is moved into the wrapper resolver
 pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep> {
     let (build_flags, standard_flag_conflicts) = resolve_per_package_build_flags(
@@ -254,7 +252,7 @@ pub(crate) fn select_sysroot(
     apple_sdk: Option<cabin_core::Sysroot>,
 ) -> Result<Option<SysrootChoice>> {
     if let Some((path, source, written)) = explicit_sysroot(toolchain_args, effective_config) {
-        // Ninja runs from the build directory, and a relative
+        // Ninja runs from the profile directory, and a relative
         // `CABIN_CONFIG` leaves a config entry relative too.
         let path = super::absolutise(&path)
             .with_context(|| format!("failed to resolve sysroot {}", path.display()))?;
@@ -393,7 +391,8 @@ pub(crate) struct BuildContextPrep {
 /// resolution, and [`resolve_build_prep`] - everything up to (but
 /// not including) command-specific target selection and planning.
 ///
-/// The only per-command policy is [`DevActivation`]: with dev deps
+/// The per-command policy is [`DevActivation`] and
+/// [`WorkspacePipelineArgs::build_context`].  With dev deps
 /// activated the pipeline adds the two extra dev-aware loads
 /// `cabin test` needs (the pre-resolution probe graph and the
 /// strict-set skeleton); with them disabled those loads collapse to
@@ -427,10 +426,10 @@ pub(crate) fn prepare_workspace(
     super::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir = super::config::resolve_cache_dir(args.cache_dir, &effective_config);
 
-    // only the *selected closure* drives the index
-    // requirement.  An unrelated workspace member's versioned dep
-    // must not force the user to pass `--index-path` when
-    // `cabin build -p selected` is run on a C/C++-only selection.
+    // Only the *selected closure* drives the index requirement: an
+    // unrelated workspace member's versioned dep must not make
+    // `cabin build -p <selected>` need an index when the selection
+    // itself has no versioned deps.
     let initial_resolved_selection =
         cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
     let initial_request =
@@ -537,8 +536,7 @@ pub(crate) fn prepare_workspace(
     };
 
     // Re-load the workspace, this time stitching in the resolved
-    // registry packages plus active patches.  When both lists are
-    // empty this is identical to the first-pass load.
+    // registry packages plus active patches.
     //
     // `strict_packages` controls which packages require their
     // versioned deps to be satisfied.  The set is the
@@ -671,12 +669,12 @@ pub(crate) fn prepare_workspace(
         &effective_config,
         &platform,
     )?;
-    // Detect compiler / archiver identity and validate that the
-    // backend's required capabilities (GCC-style flags, depfile
-    // emission, `-std=c++17`, ar-compatible archiving) are
-    // available before any Ninja file is written.  Fail fast and
-    // clear here rather than letting Ninja produce a confusing
-    // error from a broken command line.
+    // Detect compiler / archiver identity and validate that the tools
+    // can run the backend's command shapes for their dialect (MSVC, or
+    // GCC-style flags with depfiles and an `ar`-compatible archiver)
+    // before any Ninja file is written.  Fail fast and clear here
+    // rather than letting Ninja produce a confusing error from a
+    // broken command line.
     let (detection_report, apple_sdk) =
         detect_toolchain(&toolchain, args.toolchain, &effective_config, &platform)?;
     let compiler_targets = cabin_toolchain::check_compiler_targets(
@@ -1109,17 +1107,11 @@ pub(crate) fn profile_descriptor(profile: &cabin_core::ResolvedProfile) -> Strin
     }
 }
 
-/// Translate `cabin build`'s `--profile` / `--release` flags into
-/// a typed [`cabin_core::ProfileSelection`].
-///
-/// `--release` is preserved as a compatibility alias for
-/// `--profile release`. clap's `conflicts_with` already rejects
-/// the both-set combination so this helper only sees one of the
-/// three possible inputs.
-/// Shared profile-selection precedence: explicit `--profile NAME`
-/// wins, then the legacy `--release` alias, then any config-
-/// supplied default, then the built-in `dev` profile.  Used by
-/// `cabin build` and `cabin test`.
+/// Translate `--profile` / `--release` into a typed
+/// [`cabin_core::ProfileSelection`].  Precedence: `--profile NAME`,
+/// then `--release` (a compatibility alias for `--profile release`;
+/// clap's `conflicts_with` rejects passing both), then the config's
+/// `build.profile`, then the built-in `dev` profile.
 pub(crate) fn profile_selection_from_flags(
     profile: Option<&str>,
     release: bool,

@@ -9,20 +9,19 @@
 //! ```
 //!
 //! The condition string between the parentheses is parsed into a
-//! [`Condition`] AST and evaluated against a [`TargetPlatform`]
-//! describing the current evaluation context (the host build
-//! platform in this step).  Parsing and evaluation are pure,
-//! deterministic, and side-effect-free.
+//! [`Condition`] AST and evaluated against the [`TargetPlatform`]
+//! being built for (the build machine, or a `--target` triple).
+//! Parsing and evaluation are pure, deterministic, and
+//! side-effect-free.
 //!
-//! Supported keys are intentionally narrow.  The platform keys -
-//! `os`, `arch`, `family`, `env`, `abi`, `target` - are listed by
-//! the [`ConditionKey`] enum. `feature = "..."` evaluates against
-//! the owning package's enabled-feature set, and the compiler
-//! keys - `cc`, `cxx`, `cc_version`, `cxx_version` - evaluate
-//! against the *detected* toolchain; both are accepted on profile
-//! flag tables only (the manifest layer rejects them elsewhere).
-//! Any other key is rejected at parse time so manifests do not
-//! silently rely on a future detection layer.
+//! The platform keys - `os`, `arch`, `family`, `env`, `abi`,
+//! `target` - are listed by the [`ConditionKey`] enum.
+//! `feature = "..."` evaluates against the owning package's
+//! enabled-feature set, and the compiler keys - `cc`, `cxx`,
+//! `cc_version`, `cxx_version` - evaluate against the *detected*
+//! toolchain; both are accepted on profile flag tables only (the
+//! manifest layer rejects them elsewhere).  Any other key is
+//! rejected at parse time.
 //!
 //! Public syntax is preserved as the canonical inner-expression
 //! string when round-tripped (see the `Display` impl on
@@ -65,8 +64,8 @@ pub enum Condition {
     /// not run (fail-soft commands) or the slot is unresolved, the
     /// detected family counts as `unknown`, which is matchable.
     /// Compiler conditions are accepted on profile flag tables
-    /// only; the manifest layer rejects them on dependency /
-    /// toolchain / cache tables, where detection is unavailable.
+    /// only; the manifest layer rejects them on dependency,
+    /// toolchain, and sources tables, which evaluate platform-only.
     CompilerFamily {
         slot: CompilerSlot,
         family: crate::compiler::CompilerKind,
@@ -130,7 +129,7 @@ impl Condition {
     }
 
     /// Evaluate this condition against the typed
-    /// [`ConditionContext`] - the host platform, the set of
+    /// [`ConditionContext`] - the platform, the set of
     /// features enabled on the owning package, and the detected
     /// compiler identities.  The result is fully determined by
     /// those inputs and the condition's AST - no global state, no
@@ -188,10 +187,10 @@ impl Condition {
     }
 
     /// Whether this condition references any compiler leaf
-    /// (`cc` / `cxx` / `cc_version` / `cxx_version`).  Used by the
-    /// manifest layer to reject compiler conditions on tables
-    /// evaluated before toolchain detection runs (dependencies,
-    /// toolchain or compiler-wrapper selection).
+    /// (`cc` / `cxx` / `cc_version` / `cxx_version`).  Used to reject
+    /// compiler conditions where no detected compiler is available:
+    /// dependency tables and index entries, toolchain selection, and
+    /// conditional sources.
     pub fn references_compiler(&self) -> bool {
         match self {
             Condition::CompilerFamily { .. } | Condition::CompilerVersionReq { .. } => true,
@@ -285,7 +284,8 @@ pub enum ConditionKey {
     Env,
     /// Application binary interface flavor (`eabi`, …).
     Abi,
-    /// Full normalized target triple, when available.
+    /// The triple [`TargetPlatform::from_triple`] was given, or
+    /// `<arch>-<family>-<os>` for [`TargetPlatform::current`].
     Target,
 }
 
@@ -482,7 +482,7 @@ impl TargetPlatform {
     }
 }
 
-/// A `--target` triple Cabin cannot classify.
+/// Why Cabin rejects a target triple.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TargetTripleError {
     #[error("malformed target triple {0:?}; expected `<arch>-<vendor>-<os>[-<env>]`")]
@@ -609,10 +609,10 @@ fn normalize_env(os: &str) -> String {
 }
 
 /// Evaluation context for [`Condition::evaluate`].  Bundles the
-/// host platform, the owning package's enabled-feature set, and
+/// platform, the owning package's enabled-feature set, and
 /// the detected compiler identities so each leaf kind reads the
 /// input it is defined over.  Platform-only call sites (dependency
-/// gating, toolchain / wrapper selection) use
+/// gating, toolchain selection, conditional sources) use
 /// [`ConditionContext::platform_only`]; compiler identities are
 /// attached only on the flag-resolution path, the only place
 /// compiler-referencing leaves are reachable (the manifest layer
@@ -632,9 +632,10 @@ static EMPTY_FEATURES: BTreeSet<String> = BTreeSet::new();
 
 impl<'a> ConditionContext<'a> {
     /// Platform-only evaluation: no features, no detected
-    /// compilers.  Correct for dependency gating and toolchain /
-    /// wrapper selection, where feature and compiler leaves are
-    /// rejected at manifest-load time.
+    /// compilers.  Correct for dependency gating, toolchain
+    /// selection, and conditional sources, where the manifest loader
+    /// rejects feature and compiler leaves (the index loader rejects
+    /// compiler leaves only).
     pub fn platform_only(platform: &'a TargetPlatform) -> Self {
         Self {
             platform,
@@ -867,16 +868,13 @@ impl<'a> Parser<'a> {
     /// platform keys - everything that is not an `all`/`any`/`not`
     /// combinator.
     fn parse_leaf(&mut self, key: &str) -> Result<Condition, ConditionParseError> {
-        // `feature` and the platform keys share the `ident =
-        // "value"` shape; parse the `= "value"` tail once, then
-        // dispatch on the identifier.
         self.skip_whitespace();
         if self.peek_char() != Some('=') {
             return Err(ConditionParseError::ExpectedEquals {
                 key: key.to_owned(),
             });
         }
-        self.pos += 1; // consume '='
+        self.pos += 1;
         self.skip_whitespace();
         let value = self.read_quoted_string(key)?;
         let family_slot = match key {
@@ -1546,7 +1544,6 @@ mod tests {
         let cond = Condition::parse_cfg(r#"cfg(all(feature = "simd", arch = "x86_64"))"#).unwrap();
         assert!(cond.references_feature());
         let enabled: BTreeSet<String> = BTreeSet::from(["simd".to_owned()]);
-        // Both the feature and the platform must hold.
         assert!(cond.evaluate(&ConditionContext::with_features(&linux, &enabled)));
         assert!(!cond.evaluate(&ConditionContext::with_features(&macos, &enabled))); // wrong arch
         assert!(!cond.evaluate(&ConditionContext::platform_only(&linux))); // feature off
@@ -1592,7 +1589,6 @@ mod tests {
     #[test]
     fn current_target_platform_is_internally_consistent() {
         let p = TargetPlatform::current();
-        // Each field is non-empty and lowercase ASCII.
         for v in [&p.os, &p.arch, &p.family, &p.env, &p.abi, &p.target] {
             assert!(!v.is_empty());
             assert!(v.chars().all(|c| !c.is_ascii_uppercase()));

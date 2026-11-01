@@ -144,9 +144,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     // Match `cabin build` / `cabin fmt`'s build-directory
     // resolution so the walker excludes whatever
-    // directory `cabin build` would have written into and so the
-    // compile database lands at the same path the user already
-    // sees in their tree.
+    // directory `cabin build` would have written into.
     let build_dir = super::config::resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
 
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
@@ -165,15 +163,10 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         TidyMode::Check
     };
 
-    // Resolve jobs through the same precedence chain `cabin
-    // build`/`run`/`tidy` honor: CLI wins over CABIN_BUILD_JOBS,
-    // then the [build] jobs config setting, then the backend's
-    // own default.  In `--fix` mode the effective value is
-    // clamped to 1: two clang-tidy instances applying overlapping
-    // rewrites can race, and the safest behavior is to serialize
-    // them.  When the user explicitly asked for a higher count we
-    // surface the override in verbose mode rather than silently
-    // dropping the request.
+    // In `--fix` mode the effective job count is clamped to 1: two
+    // clang-tidy instances applying overlapping rewrites can race, and
+    // the safest behavior is to serialize them.  A higher requested
+    // count is reported in verbose mode, not dropped silently.
     let requested_jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
     let effective_jobs = if matches!(mode, TidyMode::Fix) {
         if requested_jobs.is_some_and(|j| j.get() > 1) {
@@ -254,12 +247,10 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // dependency's system-dep flags propagate into the selected packages'
     // compile commands, so the closure is the set that can corrupt the
     // database, while an unrelated member's dependency never gates
-    // `cabin tidy -p other`.  The check fires on the same dialect tidy
-    // plans with, including the fail-soft host-default fallback above -
-    // if tidy commits to MSVC, MSVC's constraint applies to the database
-    // it is about to emit.
-    // Feature resolution's reach: the closure through edges active on
-    // this platform, now that the graph also holds every other platform's.
+    // `cabin tidy -p other`.  The check uses the dialect tidy plans with,
+    // including the fail-soft host-default fallback above.
+    // Feature resolution's `included` set is the closure through edges
+    // active on this platform; the graph also holds other platforms' edges.
     let selected_closure = &feature_resolution.included;
     crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
@@ -273,10 +264,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     // The planner's default selection only emits compile commands
     // for default-buildable kinds (library, header-only, executable),
-    // which silently excludes `*_test` / `*_example` sources.
-    // Tidy is asymmetric to fmt without those kinds, so enumerate
-    // every C/C++ kind explicitly here - both the `cpp_*` family
-    // and the `c_*` family.
+    // which excludes test and example sources that `cabin fmt` does
+    // cover, so enumerate every target kind explicitly.
     // Feature-gated targets are skipped like the default build
     // enumeration skips them: tidy analyzes what would build under
     // the default feature set.
@@ -358,10 +347,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // must never be dropped silently.
     cabin_build::validate_planned_standards(&plan_graph)?;
 
-    // Use the per-profile build root so the compile database
-    // lands at the same path `cabin build` produces.  This is
-    // what the user already sees in their tree and what
-    // `clang-tidy -p <dir>` expects.
+    // The compile database lands where a native `cabin build` of this
+    // profile writes its own, the directory `clang-tidy -p` reads.
     let profile_build_root = cabin_build::layout::profile_dir(&build_dir, &profile.name);
     std::fs::create_dir_all(&profile_build_root).with_context(|| {
         format!(
@@ -481,8 +468,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Ok(TidyReport::NoFiles) => {
-            // Pre-filtered above; the runner's empty-list
-            // short-circuit is the source of truth.
+            // Unreachable: `run_tidy` returns this only for an empty
+            // file list, which returned above.
             Ok(ExitCode::SUCCESS)
         }
         Ok(TidyReport::TidyFailed {
@@ -515,10 +502,8 @@ fn canonicalize_or_self(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// Whether the union of the selected packages contains at least
-/// one C/C++ target.  The planner's enumeration would otherwise
-/// fail with `EmptySelectedPackages` for workspaces that hold
-/// only Rust libraries or pure manifest entries.
+/// Whether any selected package declares a target (every
+/// [`TargetKind`] is a C/C++ kind).
 fn any_cpp_targets(graph: &PackageGraph, selected: &BTreeSet<usize>) -> bool {
     selected.iter().any(|&idx| {
         graph.packages[idx]
