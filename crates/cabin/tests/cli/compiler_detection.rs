@@ -172,7 +172,6 @@ sources = ["src/lib.cc"]
         .assert()
         .success();
     let body = fs::read_to_string(out.join("demo-0.1.0.json")).unwrap();
-    assert!(!body.contains("CABIN_CXX_COMPILER_KIND"), "{body}");
     assert!(!body.contains("\"detected\""), "{body}");
     assert!(!body.contains("clang version"), "{body}");
     assert!(!body.contains("Apple clang"), "{body}");

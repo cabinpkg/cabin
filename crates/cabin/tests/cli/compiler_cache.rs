@@ -87,9 +87,9 @@ version = "0.1.0"
 fn no_compiler_wrapper_overrides_manifest_selection() {
     let dir = TempDir::new().unwrap();
     // Manifest selects ccache, but `--no-compiler-wrapper`
-    // wins.  The wrapper executable is intentionally absent so
-    // a regression that ignored the override would surface as
-    // a NotFound error instead of a silent pass.
+    // wins.  The wrapper executable is intentionally absent, so
+    // a regression that ignored the override would fail wrapper
+    // resolution, which `metadata` reports as a warning.
     dir.child("cabin.toml")
         .write_str(
             r#"[package]
@@ -114,7 +114,8 @@ compiler-wrapper = "ccache"
         .env_remove("AR")
         .env_remove("CABIN_COMPILER_WRAPPER")
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains("compiler-wrapper resolution failed").not());
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
     let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert!(value["toolchain"]["compiler_wrapper"].is_null());
