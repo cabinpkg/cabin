@@ -58,8 +58,9 @@ jobs:
         # alone took ~10 minutes on this image. Pin ffmpeg to a BtbN
         # MONTH-END autobuild (kept two years); dailies prune after 14
         # days and would 404 here.
-        # Every download below verifies against a digest pinned in
-        # .github/dist-demo/ before anything is extracted or installed.
+        # Every release download below verifies against a digest
+        # pinned in .github/dist-demo/ before anything is extracted or
+        # installed.
         # The digests come from each release's published checksum file,
         # except bat (none published): its digest was computed from the
         # release asset once and trusted from then on.
@@ -192,9 +193,8 @@ jobs:
   # Branch protection pins this instead of `binaries`, whose skip on
   # a cancelled run or a failed gate would read green. `always()`,
   # never `!cancelled()`: a cancelled run must fail this check, not
-  # skip it to a green required check. Fails closed when the gate
-  # itself failed. Renaming this job requires updating the ruleset's
-  # required context in the same operation.
+  # skip it to a green required check. Renaming this job requires
+  # updating the ruleset's required context in the same operation.
   dist-required:
     needs: [changes, binaries]
     if: always()
