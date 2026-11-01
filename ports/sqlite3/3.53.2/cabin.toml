@@ -6,6 +6,10 @@ strip-prefix = "sqlite-autoconf-3530200"
 [package]
 name = "cabin-ports/sqlite3"
 version = "3.53.2"
+# Only the amalgamation: the include root is the upstream tree root,
+# whose `VERSION` file a case-insensitive file system would open for
+# every consumer's `#include <version>`.
+include = ["sqlite3.c", "sqlite3.h", "sqlite3ext.h"]
 
 # SQLite ships as a single-file "amalgamation": sqlite3.c plus the
 # sqlite3.h / sqlite3ext.h headers. The CLI shell (shell.c) is not
