@@ -237,13 +237,15 @@ minimum effect (5% for wall time and peak memory, 2% for instructions) and its a
 - `Invalid` when the candidate failed its check or lacks the scenario, or `NoBaseline` when only
   the baseline did.
 
-`--fail-on-regression` (on `run` or `compare`) exits 1 on any `Regressed` or `Invalid` row.
+`--fail-on-regression` (on `run` or `compare`) exits 1 on any `Regressed`, `Invalid`, or
+`Inconclusive` row: runs too few to tell either way must not pass a gate.  `run` accepts it only
+with exactly two binaries, the comparison it gates.
 
 With untied samples of equal size, the test needs at least 6 runs on each side before any difference
 can reach 1%.  With fewer, a row whose samples do not separate (tied ones still can) is
 `Inconclusive`, not `Unchanged`: too few runs to show a difference are no evidence that there is
 none.  `--smoke` runs, 5 of each quick scenario, check that each still does what it claims; to
-compare, run the default count or `--runs 6` or more.
+compare or gate, run the default count or `--runs 6` or more.
 
 The test also assumes both sides ran under the same conditions.  Binaries measured by one
 `cargo perf run` (`--base`, or several `--cabin`) come closest, since their runs interleave; a saved

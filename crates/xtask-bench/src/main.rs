@@ -16,7 +16,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 
-use crate::report::Verdict;
 use crate::scenario::{Mutation, Scenario};
 
 #[derive(Parser)]
@@ -41,8 +40,9 @@ enum Command {
         /// target/perf/runs/<unix time>].
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Exit with status 1 when any metric regressed or the candidate
-        /// failed or lacks a scenario.
+        /// Exit with status 1 when any metric regressed, the candidate
+        /// failed or lacks a scenario, or a metric had too few runs to
+        /// tell either way.
         #[arg(long)]
         fail_on_regression: bool,
     },
@@ -95,7 +95,9 @@ struct RunArgs {
     /// Also save each binary's results as a named baseline.
     #[arg(long, value_name = "NAME")]
     save_baseline: Option<String>,
-    /// Exit with status 1 when the comparison finds a regression.
+    /// Compare exactly two binaries and exit with status 1 when the
+    /// comparison finds a regression or has too few runs to tell
+    /// either way.
     #[arg(long)]
     fail_on_regression: bool,
 }
@@ -190,7 +192,7 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
                 .with_context(|| format!("--cabin {spec}: expected LABEL=PATH"))
         })
         .collect::<Result<Vec<_>>>()?;
-    check_labels(&specs, args.base.is_some())?;
+    check_labels(&specs, args.base.is_some(), args.fail_on_regression)?;
     // Before `--out` exists: inside the checkout it would count as a
     // change.
     let checkout = run::checkout(&repo);
@@ -277,9 +279,10 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
     Ok(code)
 }
 
-/// Each label names a results file beside `compare.json`; checked
-/// before anything is built.
-fn check_labels(specs: &[(&str, &str)], base: bool) -> Result<()> {
+/// Each label names a results file beside `compare.json`, and a gate
+/// needs the one comparison of two binaries; checked before anything is
+/// built.
+fn check_labels(specs: &[(&str, &str)], base: bool, gate: bool) -> Result<()> {
     for &(label, _) in specs {
         run::ensure_plain("binary label", label)?;
     }
@@ -296,6 +299,11 @@ fn check_labels(specs: &[(&str, &str)], base: bool) -> Result<()> {
         "binary labels must be distinct and not `compare`: {}",
         labels.join(", ")
     );
+    ensure!(
+        !gate || labels.len() == 2,
+        "--fail-on-regression gates a comparison of two binaries (`--base`, or two `--cabin`), not {}",
+        labels.len()
+    );
     Ok(())
 }
 
@@ -309,15 +317,15 @@ fn compare(
     std::fs::create_dir_all(out)?;
     report::write_compare(out, baseline, candidate, &rows)?;
     eprintln!("perf: comparison {}", out.join("compare.md").display());
-    let failing = rows
-        .iter()
-        .filter(|r| matches!(r.verdict, Verdict::Regressed | Verdict::Invalid))
-        .count();
+    let (failing, inconclusive) = report::gate_failures(&rows);
     if failing > 0 {
         eprintln!("perf: {failing} regressed or invalid metric(s)");
-        if fail_on_regression {
-            return Ok(ExitCode::FAILURE);
-        }
+    }
+    if inconclusive > 0 {
+        eprintln!("perf: {inconclusive} inconclusive metric(s): too few runs to tell either way");
+    }
+    if fail_on_regression && failing + inconclusive > 0 {
+        return Ok(ExitCode::FAILURE);
     }
     Ok(ExitCode::SUCCESS)
 }
