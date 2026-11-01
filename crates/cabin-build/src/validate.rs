@@ -19,7 +19,7 @@ use cabin_core::{
 };
 use cabin_workspace::PackageGraph;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8Path;
 
 use crate::error::BuildError;
 
@@ -339,23 +339,35 @@ pub(crate) fn validate_output_paths_folding(
     graph: &crate::BuildGraph,
     fold_case: bool,
 ) -> Result<(), BuildError> {
-    let mut outputs: Vec<(Utf8PathBuf, &Utf8Path)> = crate::gc::plan_products(graph)
+    let mut outputs: Vec<(Vec<u8>, &Utf8Path)> = crate::gc::plan_products(graph)
         .map(|path| {
-            let key = if fold_case {
+            let mut key = if fold_case {
                 path.as_str().to_lowercase()
             } else {
                 path.as_str().to_owned()
-            };
-            (Utf8PathBuf::from(key), path)
+            }
+            .into_bytes();
+            // A separator sorting below every other byte makes a path's
+            // descendants sort right after it.  Every product is the
+            // graph's one build-directory spelling followed by
+            // normalized components (no `.`, empty, or NUL ones), so
+            // these bytes compare as the components would, without
+            // parsing them on every comparison.
+            for byte in &mut key {
+                if std::path::is_separator(char::from(*byte)) {
+                    *byte = 0;
+                }
+            }
+            (key, path)
         })
         .collect();
-    // Paths compare by component, so a path's descendants sort right
-    // after it.
     outputs.sort_by(|a, b| a.0.cmp(&b.0));
-    let Some([(first_key, first), (second_key, second)]) = outputs
-        .windows(2)
-        .find(|pair| pair[1].0.starts_with(&pair[0].0))
-    else {
+    let Some([(first_key, first), (second_key, second)]) = outputs.windows(2).find(|pair| {
+        pair[1]
+            .0
+            .strip_prefix(pair[0].0.as_slice())
+            .is_some_and(|rest| matches!(rest.first(), None | Some(0)))
+    }) else {
         return Ok(());
     };
     let reason = if first_key != second_key {
