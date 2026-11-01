@@ -331,7 +331,7 @@ fn test_resolves_versioned_deps_of_dev_path_dependency() {
     // must resolve, fetch, link, and lock like any other - the
     // resolver input walks the dev-aware closure, not the
     // dev-blind initial graph.
-    let archive = dir.path().join("artifacts/depcheck-1.0.0.zip");
+    let archive = dir.path().join("index/artifacts/depcheck-1.0.0.zip");
     let hex = make_archive(
         &archive,
         &[
@@ -364,7 +364,7 @@ include-dirs = ["include"]
         "1.0.0",
         "{}",
         &hex,
-        "../artifacts/depcheck-1.0.0.zip",
+        "artifacts/depcheck-1.0.0.zip",
     );
     assert_fs::fixture::ChildPath::new(dir.path().join("harness/cabin.toml"))
         .write_str(
@@ -454,7 +454,7 @@ fn test_resolves_feature_gated_optional_dep_of_dev_path_dependency() {
     // Feature resolution must traverse the activated dev edge so
     // the optional dep reaches the resolver, fetches, links, and
     // locks.
-    let archive = dir.path().join("artifacts/optdep-1.0.0.zip");
+    let archive = dir.path().join("index/artifacts/optdep-1.0.0.zip");
     let hex = make_archive(
         &archive,
         &[
@@ -484,7 +484,7 @@ include-dirs = ["include"]
         "1.0.0",
         "{}",
         &hex,
-        "../artifacts/optdep-1.0.0.zip",
+        "artifacts/optdep-1.0.0.zip",
     );
     assert_fs::fixture::ChildPath::new(dir.path().join("harness/cabin.toml"))
         .write_str(
@@ -647,7 +647,7 @@ fn test_resolves_feature_entry_referencing_versioned_dev_dep() {
     // must treat the activated dev dep as declared even before
     // its registry edge is fetched - the pre-resolution probe
     // would otherwise fail with `UnknownDependency`.
-    let archive = dir.path().join("artifacts/devkit-1.0.0.zip");
+    let archive = dir.path().join("index/artifacts/devkit-1.0.0.zip");
     let hex = make_archive(
         &archive,
         &[
@@ -680,7 +680,7 @@ include-dirs = ["include"]
         "1.0.0",
         "{}",
         &hex,
-        "../artifacts/devkit-1.0.0.zip",
+        "artifacts/devkit-1.0.0.zip",
     );
     // The index records the archive's `[features]`, as publish does:
     // resolution only selects a version that declares `simd`.
@@ -755,7 +755,7 @@ deps = ["devkit"]
 fn test_resolves_versioned_dev_dependency_and_locks_it() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    let archive = dir.path().join("artifacts/devcheck-1.2.0.zip");
+    let archive = dir.path().join("index/artifacts/devcheck-1.2.0.zip");
     let hex = make_archive(
         &archive,
         &[
@@ -788,7 +788,7 @@ include-dirs = ["include"]
         "1.2.0",
         "{}",
         &hex,
-        "../artifacts/devcheck-1.2.0.zip",
+        "artifacts/devcheck-1.2.0.zip",
     );
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
         .write_str(

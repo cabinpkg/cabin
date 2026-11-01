@@ -57,7 +57,7 @@ version carries a `source` block alongside its `checksum`:
 | --- | --- | --- |
 | `type` | `"archive"` | Local source archive. |
 | `format` | `"zip"` | Zip archive. |
-| `path` | non-empty string | Absolute or relative filesystem path.  Relative paths resolve against the directory containing the `<package>.json` index file. |
+| `path` | non-empty string | Filesystem path to a file inside the index root.  Relative paths resolve against the directory containing the `<package>.json` index file. |
 
 `checksum` is the `sha256:<hex>` digest of that revision's archive bytes, and its leading 16 hex
 characters are the revision id.  A version `cabin fetch` or `cabin build` is asked to materialize
@@ -156,7 +156,8 @@ per resolved package in that run.
   file beside `<hex>.zip` while being hashed, and renamed into place only when the bytes match the
   expected digest.  The staging file belongs to that one run alone, so a concurrent run populating the
   same entry from a different source cannot alter the bytes that were verified.  On a mismatch the
-  staging file is discarded and the run fails with `checksum mismatch for ...: expected ..., got ...`.
+  staging file is discarded and the run fails with `checksum mismatch for ...: the archive does not
+  hash to sha256:...`.
 
 There is no way to skip checksum verification.
 

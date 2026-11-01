@@ -1,5 +1,6 @@
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
 
 use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
@@ -35,9 +36,11 @@ pub struct FetchEntry {
 /// resulting bytes via [`FetchSource::InMemoryArchive`].
 #[derive(Debug, Clone)]
 pub enum FetchSource {
-    /// Filesystem path that the caller (file index) already resolved
-    /// to a ready-to-open archive.
-    LocalArchive(PathBuf),
+    /// An archive a local file index names: `path` as the index
+    /// resolved it, and the `root` directory the index was opened at.
+    /// The path is read only when it names a regular file inside
+    /// `root`, reached without a symlink.
+    LocalArchive { root: PathBuf, path: PathBuf },
     /// Archive bytes already in memory (HTTP downloads, custom
     /// fetchers, tests).
     InMemoryArchive(Vec<u8>),
@@ -78,7 +81,8 @@ pub struct FetchedPackage {
 /// materialize: [`ArtifactError::FrozenCacheMiss`] when `options.frozen`
 /// is set and the archive or extracted tree is not already cached and
 /// valid; [`ArtifactError::MissingArchive`] when a
-/// [`FetchSource::LocalArchive`] path does not exist;
+/// [`FetchSource::LocalArchive`] path is not a regular file inside its
+/// root;
 /// [`ArtifactError::ChecksumMismatch`] when fetched bytes do not hash to
 /// the expected digest; [`ArtifactError::Io`] for filesystem failures;
 /// any extraction error from [`crate::safe_extract_zip`] (such as
@@ -158,15 +162,12 @@ fn ensure_archive(
         return Err(frozen_cache_miss(entry));
     }
 
-    if let FetchSource::LocalArchive(path) = &entry.source
-        && !path.is_file()
-    {
-        return Err(ArtifactError::MissingArchive {
-            name: entry.name.as_str().to_owned(),
-            version: entry.version.to_string(),
-            path: path.clone(),
-        });
-    }
+    let src: Box<dyn Read + '_> = match &entry.source {
+        FetchSource::LocalArchive { root, path } => {
+            Box::new(open_local_archive(entry, root, path)?)
+        }
+        FetchSource::InMemoryArchive(bytes) => Box::new(&bytes[..]),
+    };
 
     if let Some(parent) = archive_path.parent() {
         fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
@@ -176,7 +177,69 @@ fn ensure_archive(
     }
 
     tracing::Span::current().record("hit", 0);
-    populate_archive(entry, archive_path, expected_hex)
+    populate_archive(entry, src, archive_path, expected_hex)
+}
+
+/// Open the archive a local index names, refusing every path that does
+/// not lead, without a symlink, to a regular file inside the index's
+/// `root`.
+///
+/// The index is untrusted input: its `source.path` may be absolute,
+/// climb with `..`, or pass through a symlink.  The loader joins it onto
+/// a directory under `root`, so it is checked lexically first - `..`
+/// may climb only back to `root` - and only then are the components
+/// below `root` examined, each with `symlink_metadata`.  Resolving the
+/// path on disk instead would consult whatever it names outside the
+/// root on the way (macOS even resolves `file/..`), as would following
+/// a symlink, so either would let the outcome reveal whether an outside
+/// path exists.  Every refusal, a missing file included, is the same
+/// [`ArtifactError::MissingArchive`], and the metadata check precedes
+/// the open so a FIFO cannot block it.
+fn open_local_archive(entry: &FetchEntry, root: &Path, path: &Path) -> Result<File, ArtifactError> {
+    let missing = || ArtifactError::MissingArchive {
+        name: entry.name.as_str().to_owned(),
+        version: entry.version.to_string(),
+        path: path.to_path_buf(),
+    };
+    let mut names = Vec::new();
+    for component in path.strip_prefix(root).map_err(|_| missing())?.components() {
+        match component {
+            Component::Normal(name) => {
+                // Windows reads some names as something else: `C:x` as a
+                // drive-relative path that `push` would put in place of
+                // the whole path, `NUL.zip` as a device, and `pad ` as
+                // `pad` in a final component only.
+                if name
+                    .to_str()
+                    .is_none_or(|name| cabin_fs::path::component_portability(name).is_some())
+                {
+                    return Err(missing());
+                }
+                names.push(name);
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                names.pop().ok_or_else(missing)?;
+            }
+            _ => return Err(missing()),
+        }
+    }
+    let mut inside = root.to_path_buf();
+    let mut is_file = false;
+    for name in names {
+        inside.push(name);
+        let file_type = fs::symlink_metadata(&inside)
+            .map_err(|_| missing())?
+            .file_type();
+        if file_type.is_symlink() {
+            return Err(missing());
+        }
+        is_file = file_type.is_file();
+    }
+    if !is_file {
+        return Err(missing());
+    }
+    File::open(&inside).map_err(|_| missing())
 }
 
 /// Stream the entry's bytes into a staging file this call alone
@@ -189,6 +252,7 @@ fn ensure_archive(
 /// file.
 fn populate_archive(
     entry: &FetchEntry,
+    mut src: impl Read,
     final_target: &Path,
     expected_hex: &str,
 ) -> Result<(), ArtifactError> {
@@ -197,20 +261,10 @@ fn populate_archive(
         source,
     };
     let mut staged = AtomicWriteFile::open(final_target).map_err(io_error)?;
-    let actual = match &entry.source {
-        FetchSource::LocalArchive(path) => {
-            let mut src = File::open(path).map_err(|source| ArtifactError::Io {
-                path: path.clone(),
-                source,
-            })?;
-            // Errors mapped to the cache target: a mid-stream failure
-            // is far more likely to be a write there than the local
-            // source going unreadable after a successful open.
-            cabin_core::hash::hash_copy(&mut src, &mut staged)
-        }
-        FetchSource::InMemoryArchive(bytes) => cabin_core::hash::hash_copy(&bytes[..], &mut staged),
-    }
-    .map_err(io_error)?;
+    // Errors map to the cache target: a mid-stream failure is far more
+    // likely to be a write there than an opened local source going
+    // unreadable.
+    let actual = cabin_core::hash::hash_copy(&mut src, &mut staged).map_err(io_error)?;
 
     if actual != expected_hex {
         let _ = staged.discard();
@@ -218,7 +272,6 @@ fn populate_archive(
             name: entry.name.as_str().to_owned(),
             version: entry.version.to_string(),
             expected: expected_hex.to_owned(),
-            actual,
         });
     }
     staged.commit().map_err(io_error)
@@ -357,6 +410,14 @@ mod tests {
         ArtifactCache::new(dir.join("cache"))
     }
 
+    /// `archive` as a local index rooted at `dir` names it.
+    fn local(dir: &TempDir, archive: &ChildPath) -> FetchSource {
+        FetchSource::LocalArchive {
+            root: dir.path().to_path_buf(),
+            path: archive.to_path_buf(),
+        }
+    }
+
     #[test]
     fn fetch_copies_archive_into_cache_and_extracts_source() {
         let dir = TempDir::new().unwrap();
@@ -368,7 +429,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         let result = fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -411,7 +472,7 @@ mod tests {
             checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
             source,
         };
-        let honest = entry(FetchSource::LocalArchive(archive.to_path_buf()));
+        let honest = entry(local(&dir, &archive));
         let hostile = entry(FetchSource::InMemoryArchive(b"not the archive".to_vec()));
 
         let done = AtomicBool::new(false);
@@ -445,7 +506,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -468,7 +529,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&bogus).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
@@ -488,11 +549,138 @@ mod tests {
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{}", "a".repeat(64)))
                     .unwrap(),
-                source: FetchSource::LocalArchive(dir.child("nope.tar.gz").to_path_buf()),
+                source: local(&dir, &dir.child("nope.tar.gz")),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
         assert!(matches!(err, ArtifactError::MissingArchive { .. }));
+    }
+
+    /// A hostile local index can name any path in `source.path`; only a
+    /// regular file inside the index root, reached without a symlink, is
+    /// read.  Every refusal is the same error and names no digest, so the
+    /// index learns neither a file's existence nor its sha256 - not even
+    /// through a path that passes an outside file and returns to an
+    /// archive inside.
+    #[test]
+    fn archive_outside_the_index_root_is_refused_without_an_oracle() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.child("registry");
+        root.child("probe.zip").write_str("inside").unwrap();
+        let secret = dir.child("secret.txt");
+        secret.write_str("not for the index").unwrap();
+        let secret_hex = hash_file(secret.path()).unwrap();
+        let cache = cache_root(dir.path());
+        let fetch_path = |path: std::path::PathBuf| {
+            let plan = FetchPlan {
+                entries: vec![FetchEntry {
+                    name: pkg("evil"),
+                    version: ver("1.0.0"),
+                    checksum: cabin_core::Checksum::parse(&format!("sha256:{}", "a".repeat(64)))
+                        .unwrap(),
+                    source: FetchSource::LocalArchive {
+                        root: root.to_path_buf(),
+                        path,
+                    },
+                }],
+            };
+            fetch(&plan, &cache, FetchOptions::default()).unwrap_err()
+        };
+        // The probe itself is read, so the refusals below are not
+        // explained by the probe being unreadable.
+        assert!(matches!(
+            fetch_path(root.path().join("probe.zip")),
+            ArtifactError::ChecksumMismatch { .. }
+        ));
+        let mut escapes = vec![
+            secret.to_path_buf(),
+            root.path().join("packages/../../secret.txt"),
+            root.path().join("../missing.txt"),
+            root.path().join("../secret.txt/../registry/probe.zip"),
+            root.path().join("../registry/probe.zip"),
+            root.to_path_buf(),
+            root.path().join("probe.zip."),
+            root.path().join("probe.zip "),
+            root.path().join("NUL.zip"),
+        ];
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(secret.path(), root.child("link.zip").path()).unwrap();
+            std::os::unix::fs::symlink(
+                root.child("probe.zip").path(),
+                root.child("inner.zip").path(),
+            )
+            .unwrap();
+            escapes.extend([root.path().join("link.zip"), root.path().join("inner.zip")]);
+        }
+        for path in escapes {
+            let err = fetch_path(path.clone());
+            assert!(
+                matches!(err, ArtifactError::MissingArchive { .. }),
+                "{path:?}: {err:?}"
+            );
+            assert!(!err.to_string().contains(&secret_hex), "{err}");
+        }
+    }
+
+    /// On Windows a component such as `D:Cargo.toml` is a drive-relative
+    /// path of its own; joined onto the root it would name the file in
+    /// the current directory of that drive, outside the root.
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_relative_component_does_not_leave_the_index_root() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.child("registry");
+        root.child("pad").create_dir_all().unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        assert!(cwd.join("Cargo.toml").is_file());
+        let drive = match cwd.components().next() {
+            Some(Component::Prefix(prefix)) => prefix.as_os_str().to_str().unwrap().to_owned(),
+            other => panic!("{other:?}"),
+        };
+        let plan = FetchPlan {
+            entries: vec![FetchEntry {
+                name: pkg("evil"),
+                version: ver("1.0.0"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{}", "a".repeat(64)))
+                    .unwrap(),
+                source: FetchSource::LocalArchive {
+                    root: root.to_path_buf(),
+                    path: PathBuf::from(format!(
+                        "{}\\pad\\{drive}Cargo.toml",
+                        root.path().display()
+                    )),
+                },
+            }],
+        };
+        let err = fetch(&plan, &cache_root(dir.path()), FetchOptions::default()).unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::MissingArchive { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn archive_inside_the_index_root_may_climb_through_parent_components() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("artifacts/acme/fmt/fmt.zip");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
+        dir.child("packages/acme").create_dir_all().unwrap();
+        let plan = FetchPlan {
+            entries: vec![FetchEntry {
+                name: pkg("fmt"),
+                version: ver("10.2.1"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
+                // The scoped file-registry layout's relative path.
+                source: FetchSource::LocalArchive {
+                    root: dir.to_path_buf(),
+                    path: dir
+                        .path()
+                        .join("packages/acme/../../artifacts/acme/fmt/fmt.zip"),
+                },
+            }],
+        };
+        fetch(&plan, &cache_root(dir.path()), FetchOptions::default()).unwrap();
     }
 
     #[test]
@@ -506,7 +694,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -523,7 +711,7 @@ mod tests {
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{}", "b".repeat(64)))
                     .unwrap(),
-                source: FetchSource::LocalArchive(dir.child("ignored.tar.gz").to_path_buf()),
+                source: local(&dir, &dir.child("ignored.tar.gz")),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap_err();
@@ -541,7 +729,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -579,7 +767,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -619,7 +807,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap_err();
@@ -659,7 +847,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
@@ -690,7 +878,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
-                source: FetchSource::LocalArchive(archive.to_path_buf()),
+                source: local(&dir, &archive),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();

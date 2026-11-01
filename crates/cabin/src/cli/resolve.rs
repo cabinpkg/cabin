@@ -1196,7 +1196,10 @@ fn build_fetch_plan<'a>(
         };
         let fetch_source = match (source, access) {
             (cabin_index::SourceLocation::LocalPath(p), _) => {
-                cabin_artifact::FetchSource::LocalArchive(p.clone())
+                cabin_artifact::FetchSource::LocalArchive {
+                    root: index.root.clone(),
+                    path: p.clone(),
+                }
             }
             (cabin_index::SourceLocation::HttpUrl(url), IndexAccess::Http(client)) => {
                 let label = format!("{} {}", resolved.name.as_str(), resolved.version);

@@ -64,7 +64,7 @@ spdlog = "^1"
 "#,
         )
         .unwrap();
-    let archive_path = root.join("artifacts/fmt-10.2.1.zip");
+    let archive_path = root.join("index/artifacts/fmt-10.2.1.zip");
     let hex = make_archive(
         &archive_path,
         &[
@@ -87,7 +87,7 @@ spdlog = "^1"
         "{rev}": {{
           "checksum": "sha256:{hex}",
           "published-at": "2026-01-01T00:00:00Z",
-          "source": {{ "type": "archive", "path": "../artifacts/fmt-10.2.1.zip", "format": "zip" }}
+          "source": {{ "type": "archive", "path": "artifacts/fmt-10.2.1.zip", "format": "zip" }}
         }}
       }}
     }}
@@ -287,7 +287,7 @@ spdlog = "^1"
         )
         .unwrap();
     let hex = make_archive(
-        &root.join("artifacts/fmt-10.2.1.zip"),
+        &root.join("index/artifacts/fmt-10.2.1.zip"),
         &[
             ("cabin.toml", FMT_PKG_MANIFEST),
             ("include/fmt.h", FMT_HEADER),
@@ -300,7 +300,7 @@ spdlog = "^1"
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.zip",
+        "artifacts/fmt-10.2.1.zip",
     );
     write_index_entry_no_source(&root.join("index"), "spdlog", "1.13.0", &"1".repeat(64));
     cabin()
