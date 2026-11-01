@@ -139,13 +139,13 @@ impl fmt::Display for Token {
 }
 
 /// A stored login session: the minted token, the mint response's
-/// `expires_at` verbatim, and the API origin the token was minted
+/// expiry in Cabin's own rendering, and the API origin the token was minted
 /// for - the origin `cabin logout` revokes against, pinned at mint
 /// time so a later `config.json` change cannot re-route the token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     pub token: Token,
-    /// RFC 3339 expiry, exactly as the registry's mint answered it.
+    /// The mint's expiry, rendered by Cabin as millisecond `Z` RFC 3339.
     pub expires_at: String,
     /// The registry's `api` origin at mint time.
     pub api_url: String,

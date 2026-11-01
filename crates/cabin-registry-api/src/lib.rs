@@ -600,7 +600,8 @@ fn session_refused(origin: String) -> RegistryApiError {
 }
 
 /// A minted login session: the registry token plus the mint
-/// response's `expires_at`, verbatim (terminal-safe).  `Token`'s own
+/// response's expiry, rendered by Cabin as millisecond `Z` RFC 3339
+/// (terminal-safe).  `Token`'s own
 /// `Debug` redacts, so the derive cannot leak the secret.
 #[derive(Debug)]
 pub struct SessionGrant {
@@ -671,14 +672,14 @@ pub fn exchange_login_session(
         .map_err(|_| unparsable())?;
     let parsed: MintSuccessBody = serde_json::from_slice(&body).map_err(|_| unparsable())?;
     // `expires_at` gets stored on disk and echoed in the login
-    // confirmation, so it must actually be a timestamp - not an
-    // arbitrary registry-chosen string (which could even be the
-    // GitHub token, reflected).  The accepted shape is deliberately
-    // UTC-only RFC 3339 (`Z` or `+00:00`, `humantime`'s parse; the
-    // hosted registry mints the millisecond `Z` form) - a non-UTC
-    // offset refuses.  Validation subsumes control-char escaping: a
-    // stamp that parses is constrained ASCII.
-    match humantime::parse_rfc3339(&parsed.expires_at) {
+    // confirmation.  The accepted shape is deliberately UTC-only RFC
+    // 3339 (`Z` or `+00:00`, `humantime`'s parse; the hosted registry
+    // mints the millisecond `Z` form) - a non-UTC offset refuses.  The
+    // grant carries Cabin's rendering of the parsed instant, never the
+    // registry's bytes: those could be arbitrary text (even the GitHub
+    // token, reflected), and the parse leaves some bytes unchecked
+    // (`2999-01-01T00:00:00Z\x1b[2JZ` parses).
+    let expiry = match humantime::parse_rfc3339(&parsed.expires_at) {
         Err(_) => {
             return Err(RegistryApiError::ServerError {
                 status: 200,
@@ -697,8 +698,8 @@ pub fn exchange_login_session(
                 ),
             });
         }
-        Ok(_) => {}
-    }
+        Ok(expiry) => expiry,
+    };
     // The mint's grant is specifically a session token: any other
     // Cabin credential shape (`cabin_tp_...`) would carry the wrong
     // scopes, and the session revocation route deletes only
@@ -708,7 +709,7 @@ pub fn exchange_login_session(
     }
     Ok(SessionGrant {
         token: Token::parse(&parsed.token).map_err(|_| unparsable())?,
-        expires_at: parsed.expires_at,
+        expires_at: humantime::format_rfc3339_millis(expiry).to_string(),
     })
 }
 
@@ -2542,16 +2543,28 @@ mod tests {
         );
         let err = exchange_login_session(&mock.url, "gho_secret1").unwrap_err();
         assert!(err.to_string().contains("without a usable expiry"), "{err}");
-        let mock = MockApi::respond_with(
-            200,
-            format!(r#"{{"token":"{SESSION_TOKEN}","expires_at":"2999-01-01T08:00:00+00:00"}}"#),
-        );
-        assert_eq!(
-            exchange_login_session(&mock.url, "gho_secret1")
-                .unwrap()
-                .expires_at,
-            "2999-01-01T08:00:00+00:00"
-        );
+        // A stamp that parses is stored and printed as Cabin renders
+        // it: `humantime` leaves some bytes unchecked, so the ESC here
+        // parses but must never reach the credentials file or the
+        // terminal.
+        for stamp in [
+            r"2999-01-01T08:00:00+00:00",
+            r"2999-01-01T08:00:00Z\u001b[2JZ",
+            r"2999-01-01T08:00:00.5+\u001b[2JZ",
+        ] {
+            let mock = MockApi::respond_with(
+                200,
+                format!(r#"{{"token":"{SESSION_TOKEN}","expires_at":"{stamp}"}}"#),
+            );
+            let grant = exchange_login_session(&mock.url, "gho_secret1").unwrap();
+            assert!(
+                grant.expires_at.starts_with("2999-01-01T08:00:00.")
+                    && grant.expires_at.ends_with('Z')
+                    && grant.expires_at.bytes().all(|b| b.is_ascii_graphic()),
+                "{stamp}: {}",
+                grant.expires_at
+            );
+        }
     }
 
     /// Session self-revocation: `DELETE /api/v1/sessions/tokens`
