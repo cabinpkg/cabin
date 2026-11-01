@@ -7,6 +7,11 @@
 //! one's place; once the final graph's features are known,
 //! [`probe_provided`] probes the provided packages the build includes
 //! and returns the interfaces the planner gives their targets.
+//!
+//! The resolution walks are `cabin_resolver::ResolveOutput`'s; this
+//! module joins their results with the index, the loaded graph, feature
+//! resolution, and the pkg-config probe, as `system_deps` does for
+//! `system = true`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -56,44 +61,20 @@ pub(crate) fn split_resolution(
     if settings.is_empty() {
         return Ok(SystemSplit::default());
     }
-    let by_name: HashMap<&PackageName, _> = output.packages.iter().map(|p| (&p.name, p)).collect();
-    let mut fetched: BTreeSet<&PackageName> = BTreeSet::new();
-    let mut provided: BTreeSet<&PackageName> = BTreeSet::new();
-    let mut stack: Vec<&PackageName> = output
-        .packages
-        .iter()
-        .filter(|p| p.source == ResolvedSource::Root)
-        .flat_map(|p| &p.dependencies)
-        .collect();
-    while let Some(name) = stack.pop() {
-        if settings.entries.contains_key(name) {
-            provided.insert(name);
-        } else if fetched.insert(name)
-            && let Some(resolved) = by_name.get(name)
-        {
-            stack.extend(&resolved.dependencies);
-        }
-    }
+    let (fetched, provided) = output.reach_until(|name| settings.entries.contains_key(name));
 
     let mut stubs = Vec::new();
     let mut reaches = BTreeMap::new();
-    for name in provided {
-        let Some(resolved) = by_name
-            .get(name)
-            .filter(|resolved| resolved.source == ResolvedSource::Index)
-        else {
-            continue;
-        };
-        let mut closure = BTreeSet::new();
-        let mut stack: Vec<&PackageName> = resolved.dependencies.iter().collect();
-        while let Some(dep) = stack.pop() {
-            if closure.insert(dep.clone())
-                && let Some(next) = by_name.get(dep)
-            {
-                stack.extend(&next.dependencies);
-            }
-        }
-        reaches.insert(name.clone(), closure);
+    for resolved in output
+        .packages
+        .iter()
+        .filter(|p| p.source == ResolvedSource::Index && provided.contains(&p.name))
+    {
+        let name = &resolved.name;
+        reaches.insert(
+            name.clone(),
+            output.dependencies_of(name).into_iter().cloned().collect(),
+        );
         let meta = index
             .package(name)
             .and_then(|entry| entry.versions.get(&resolved.version))
