@@ -25,10 +25,11 @@
 //! collection only removes files (and directories left empty), and
 //! Ninja rebuilds a missing output.
 //!
-//! The catalog is one small file per output directory (the part of a
-//! product's path before its first `obj` component, else its parent),
-//! so recording a use reads and rewrites only the shards of the
-//! directories the plan writes, at most once per active day.  Shards and
+//! The catalog is one small file per output directory (normally the
+//! package directory [`crate::layout`] puts a product in; see
+//! `split` for the one ambiguous layout), so recording a use
+//! reads only the shards of the directories the plan writes, rewriting
+//! one only to raise a stamp to the current active day.  Shards and
 //! the clock are rewritten atomically; one that cannot be read, or was
 //! written by a newer format, authorizes no removal.  Commands record
 //! one at a time under the catalog's own lock, since two rewriting one
@@ -191,8 +192,9 @@ impl Shard {
     }
 }
 
-/// The plans whose products are all stamped with active day `index`, so
-/// recording one of them again on that day changes nothing.
+/// The plans recorded on active day `index`, whose products then held a
+/// stamp of at least `index` (higher after a lost clock), so recording
+/// one of them again on that day changes nothing.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Recorded {
@@ -263,10 +265,11 @@ pub fn today() -> u64 {
         .map_or(0, |since| since.as_secs() / 86_400)
 }
 
-/// Every file `graph`'s actions write: each action's product and
-/// depfile.  This is the complete ownership evidence collection
-/// accepts, so an action kind that writes another file must list it
-/// here.
+/// Every file `graph`'s actions write with Cabin's own flags: each
+/// action's product and depfile.  This is the complete ownership
+/// evidence collection accepts, so an action kind that writes another
+/// file must list it here.  Files user flags add, such as the `.pdb`
+/// and `.ilk` an MSVC link writes for `/DEBUG`, are never collected.
 pub fn plan_products(graph: &BuildGraph) -> impl Iterator<Item = &Utf8Path> {
     graph.actions.iter().flat_map(|action| {
         let (product, depfile) = match action {
@@ -635,8 +638,8 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
     } else {
         let mut dropped: BTreeSet<&str> = BTreeSet::new();
         // Every directory a removal may have emptied, up to and including
-        // its output directory, each tried once all removals are done: on
-        // APFS a failed `rmdir` costs more than removing a file.
+        // its output directory, each tried once after all removals,
+        // however many files were removed beneath it.
         let mut emptied: BTreeSet<PathBuf> = BTreeSet::new();
         let deadline = req.time_limit.map(|limit| Instant::now() + limit);
         for (n, (rel, reason)) in evict.into_iter().enumerate() {
@@ -803,20 +806,31 @@ fn is_valid_relative(rel: &str) -> bool {
     })
 }
 
-/// Split a product path into its output directory - everything before
-/// the first `obj` component, else the parent - and the rest.
+/// Split a product path into its output directory, the package
+/// directory [`crate::layout`] puts it in, and the rest: the cut is
+/// before the package's `obj` directory, else at the product's parent.
+/// A profile, package, scope, target, or source directory may be named
+/// `obj`, so the cut is at the first `obj` past the package name's first
+/// component with a target directory and a file below it.  That reads
+/// `packages/s/obj/obj/t/f.o` as package `s`'s, though the scoped
+/// package `s/obj` would write the same path.
 fn split(rel: &str) -> (&str, &str) {
-    let mut offset = 0;
-    let mut cut = None;
-    for component in rel.split('/') {
-        if component == "obj" {
-            cut = Some(offset);
-            break;
-        }
-        offset += component.len() + 1;
+    let names: Vec<&str> = rel.split('/').collect();
+    // `packages` follows the profile, and `build-machine` after it in
+    // the build context.
+    let mut packages = if names[0] == crate::layout::TARGETS_DIR {
+        3
+    } else {
+        1
+    };
+    if names.get(packages) == Some(&crate::layout::BUILD_CONTEXT_DIR) {
+        packages += 1;
     }
-    let cut = cut.unwrap_or_else(|| rel.rfind('/').map_or(0, |slash| slash + 1));
-    (rel[..cut].trim_end_matches('/'), &rel[cut..])
+    let cut = (packages + 2..names.len().saturating_sub(2))
+        .find(|&i| names[i] == "obj")
+        .unwrap_or(names.len() - 1);
+    let offset: usize = names[..cut].iter().map(|name| name.len() + 1).sum();
+    (rel[..offset].trim_end_matches('/'), &rel[offset..])
 }
 
 fn join(dir: &str, rest: &str) -> String {

@@ -84,9 +84,9 @@ impl BuildDirLock {
                 .map_err(io_err)?;
                 true
             }
-            // Like Cargo, build on a file system without file locks
-            // (some network and virtual-machine mounts) unlocked.
-            Err(TryLockError::Error(err)) if err.kind() == io::ErrorKind::Unsupported => false,
+            // Build on a file system without file locks (some network
+            // and virtual-machine mounts) unlocked.
+            Err(TryLockError::Error(err)) if locking_unsupported(&err) => false,
             Err(TryLockError::Error(source)) => return Err(io_err(source)),
         };
         Ok(Self { file, path, locked })
@@ -125,4 +125,16 @@ impl BuildDirLock {
         self.file.lock_shared().map_err(io_err)?;
         Ok(out)
     }
+}
+
+/// Whether a lock error means the file system has no file locks.  std
+/// maps `ENOSYS` and `EOPNOTSUPP` to [`io::ErrorKind::Unsupported`], but
+/// not `ENOTSUP`, a distinct errno on macOS, whose `flock` returns it
+/// for a file system without advisory locks.
+pub(super) fn locking_unsupported(err: &io::Error) -> bool {
+    #[cfg(unix)]
+    let enotsup = err.raw_os_error() == Some(libc::ENOTSUP);
+    #[cfg(not(unix))]
+    let enotsup = false;
+    enotsup || err.kind() == io::ErrorKind::Unsupported
 }

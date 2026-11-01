@@ -329,6 +329,7 @@ dependencies = [
  "cabinpkg-fs",
  "cabinpkg-workspace",
  "camino",
+ "libc",
  "predicates",
  "semver",
  "serde",
