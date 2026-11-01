@@ -23,7 +23,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -34,9 +34,10 @@ use crate::ConfigValueSource;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SourceLocator {
-    /// Local filesystem index.  Carries the path verbatim; the
-    /// orchestration layer absolutises against the declaring
-    /// file's directory before consulting the index loader.
+    /// Local filesystem index.  A `[source-replacement]` target
+    /// carries the path as written until
+    /// [`SourceReplacementSettings::resolve`] joins it onto its
+    /// declaring config file's directory.
     IndexPath { path: Utf8PathBuf },
     /// Sparse-HTTP index.  Carries the URL verbatim; `cabin-config`
     /// rejects credential-bearing URLs at parse time so credentials
@@ -79,6 +80,8 @@ pub struct SourceReplacementEntry {
     /// config-flavor variant - source replacements live in the
     /// config layer.
     pub provenance: ConfigValueSource,
+    /// Directory of the config file that declared this entry.
+    pub base: Utf8PathBuf,
 }
 
 /// Collection of source-replacement entries plus typed
@@ -104,7 +107,8 @@ impl SourceReplacementSettings {
 
     /// Resolve `initial` through the replacement chain.  Returns
     /// the terminal source plus every `original` walked through,
-    /// in walk order.
+    /// in walk order.  Hops match replacements as written; a
+    /// terminal `IndexPath` replacement then joins its entry's `base`.
     ///
     /// # Errors
     /// Returns [`SourceReplacementError::Cycle`] when the replacement chain
@@ -117,12 +121,16 @@ impl SourceReplacementSettings {
         let mut current = initial.clone();
         let mut visited: BTreeSet<SourceLocator> = BTreeSet::new();
         let mut hops: Vec<SourceLocator> = Vec::new();
+        let mut base: Option<&Utf8Path> = None;
         loop {
             if !visited.insert(current.clone()) {
                 hops.push(current);
                 return Err(SourceReplacementError::Cycle { hops });
             }
             let Some(entry) = self.entries.get(&current) else {
+                if let (Some(base), SourceLocator::IndexPath { path }) = (base, &mut current) {
+                    *path = base.join(&*path);
+                }
                 return Ok(SourceReplacementResolution {
                     resolved: current,
                     hops,
@@ -130,6 +138,7 @@ impl SourceReplacementSettings {
             };
             hops.push(entry.original.clone());
             current = entry.replacement.clone();
+            base = Some(entry.base.as_path());
         }
     }
 }
@@ -203,6 +212,7 @@ mod tests {
             original,
             replacement,
             provenance: ConfigValueSource::WorkspaceConfig,
+            base: Utf8PathBuf::from("/ws/.cabin"),
         }
     }
 
@@ -235,7 +245,7 @@ mod tests {
             entry(original.clone(), replacement.clone()),
         );
         let res = settings.resolve(&original).unwrap();
-        assert_eq!(res.resolved, replacement);
+        assert_eq!(res.resolved, path("/ws/.cabin/../mirror"));
         assert_eq!(res.hops, vec![original]);
     }
 
@@ -245,14 +255,18 @@ mod tests {
         let a = url("https://example.com/a");
         let b = url("https://example.com/b");
         let c = path("../local");
-        settings
-            .entries
-            .insert(a.clone(), entry(a.clone(), b.clone()));
+        // The first hop comes from another config file: only the
+        // terminal hop's directory anchors the path.
+        let first = SourceReplacementEntry {
+            base: Utf8PathBuf::from("/home/.config/cabin"),
+            ..entry(a.clone(), b.clone())
+        };
+        settings.entries.insert(a.clone(), first);
         settings
             .entries
             .insert(b.clone(), entry(b.clone(), c.clone()));
         let res = settings.resolve(&a).unwrap();
-        assert_eq!(res.resolved, c);
+        assert_eq!(res.resolved, path("/ws/.cabin/../local"));
         assert_eq!(res.hops, vec![a, b]);
     }
 

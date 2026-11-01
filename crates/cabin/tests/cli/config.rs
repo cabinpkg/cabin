@@ -764,32 +764,42 @@ compiler-wrapper = "ccache"
 
 #[test]
 fn cli_index_path_overrides_config_registry() {
-    // `cabin resolve` succeeds when there are no versioned
-    // dependencies regardless of index settings; this test
-    // verifies that *when both are present* the CLI flag is
-    // honored.  We point the CLI at a temp index and the
-    // config at a non-existent path; if the config layer were
-    // ever consulted we would see a different error.
-    let dir = project_dir(MINIMAL_PROJECT);
+    // Each index offers a different `fmt` version, so the resolved
+    // version names the index that was read.
+    let dir = project_dir(
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#,
+    );
+    // The CLI index holds the lower version, so reading both would pick
+    // the config index's.
+    for (index, version) in [("config-index", "10.2.1"), ("cli-index", "10.1.0")] {
+        dir.child(format!("{index}/fmt.json"))
+            .write_str(&format!(
+                r#"{{ "schema": 1, "name": "fmt", "versions": {{ "{version}": {{ "dependencies": {{}} }} }} }}"#
+            ))
+            .unwrap();
+    }
     write_workspace_config(
         dir.path(),
         r#"[registry]
-index-path = "/definitely/not/a/real/path"
+index-path = "../config-index"
 "#,
     );
     let user_home = TempDir::new().unwrap();
-    let cli_index = TempDir::new().unwrap();
-    // No versioned deps means resolve() short-circuits before
-    // touching the index, so success here confirms the
-    // CLI value is plumbed through.
     cabin_with_config()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .args(["--index-path"])
-        .arg(cli_index.path())
+        .arg(dir.path().join("cli-index"))
         .env("CABIN_CONFIG_HOME", user_home.path())
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("fmt 10.1.0"));
 }
 
 #[test]
@@ -871,6 +881,44 @@ fmt = ">=10.0.0 <11.0.0"
         .assert()
         .success()
         .stdout(predicate::str::contains("fmt 10.2.1"));
+}
+
+#[test]
+fn source_replacement_index_path_resolves_against_its_config_file() {
+    // Run from the project root, where `../mirror` names a different
+    // directory than it does from `.cabin/`.  The lockfile keeps the
+    // path as written so it carries no machine-local state.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#,
+        )
+        .unwrap();
+    dir.child("mirror/fmt.json")
+        .write_str(
+            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {} } } }"#,
+        )
+        .unwrap();
+    write_workspace_config(
+        dir.path(),
+        "[source-replacement]\n\"https://registry.cabinpkg.com\" = { index-path = \"../mirror\" }\n",
+    );
+    let user_home = TempDir::new().unwrap();
+    cabin_with_config()
+        .current_dir(dir.path())
+        .arg("resolve")
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fmt 10.2.1"));
+    let lock = fs::read_to_string(dir.path().join("cabin.lock")).unwrap();
+    assert!(lock.contains("replacement = \"../mirror\""), "{lock}");
 }
 
 #[cfg(unix)]
