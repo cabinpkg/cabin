@@ -1,22 +1,15 @@
 name: Registry Verify
 
-# The verification lifecycle's external verifier
-# (docs/remote-registry.md, "Verification lifecycle"): list pending
-# versions through the admin API, inspect each archive with
-# cabin-registry-verify, and PATCH the verdict back.  A failed run
-# leaves versions pending - fail-safe by design.  The registry's
-# stuck-pending webhook alert is the detection mechanism
-# (registry/docs/runbook.md, "Verification pipeline").
-#
-# Manual dispatch only while the registry is in private alpha; the
-# 5-minute cron returns at launch (runbook, "Launch checklist").
-# What a run verifies is whatever the registry reports as pending,
-# never this repository's files; the dispatch inputs below only
-# select among those pending versions.
+# The registry's external verifier (registry/docs/runbook.md,
+# "Verification pipeline"). Manual dispatch only while the registry is
+# in private alpha; the 5-minute cron returns at launch (runbook,
+# "Launch checklist"). What a run verifies is whatever the registry
+# reports as pending, never this repository's files; the dispatch
+# inputs below only select among those pending versions.
 on:
   workflow_dispatch:
-    # Operator resolution of ONE abstained version (runbook,
-    # "Verification pipeline"); all empty = a normal pass.
+    # Operator resolution of one abstained version (runbook,
+    # "Verification pipeline").
     inputs:
       resolve:
         description: "Abstained version to resolve, as <scope>/<name>@<version>[#<revision>]; empty runs a normal pass"

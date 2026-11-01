@@ -2,10 +2,8 @@ name: Proofs
 
 # Checks the Lean mechanization under proofs/standard-compatibility.
 
-# No job here backs a required check, so scoping happens at the
-# trigger: a filtered-out run blocks nothing. There is no merge_group
-# run; the filtered main push is the advisory final-state check after
-# relevant merges. Keep both lists equal.
+# Advisory, so path filters sit on the triggers; with no merge_group
+# run, the main push is the final-state check. Keep both lists equal.
 on:
   push:
     branches: [main]

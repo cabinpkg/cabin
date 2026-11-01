@@ -25,11 +25,8 @@ jobs:
   # are seconds of work, dominated by checkout and setup.
   commitlint:
     runs-on: ubuntu-slim
-    # Run steps work from .github/commitlint so commitlint picks up
-    # the committed config and locked node_modules; git discovery
-    # still resolves the repository from that subdirectory.  Only
-    # run: steps are affected; uses: steps (checkout, typos) keep
-    # scanning from the repository root.
+    # commitlint loads its config and locked node_modules from here; git
+    # still finds the repository, and uses: steps (typos) run at the root.
     defaults:
       run:
         working-directory: .github/commitlint
