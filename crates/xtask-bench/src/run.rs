@@ -1,6 +1,6 @@
 //! Drives the suite: builds or accepts the binaries under test,
 //! materializes fixtures, checks each scenario once, times it with
-//! hyperfine, and writes the results.
+//! hyperfine, and returns the results.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -165,10 +165,11 @@ pub fn prepare(
 }
 
 /// The Cabin command line every run uses: a private config and cache
-/// home and no other inherited `CABIN_*` variable, so the user's
-/// settings, build directory, and registry token neither change the
-/// result nor leak into it, and no flags from the shell's `CPPFLAGS`
-/// family, which would change every compile line.
+/// home, and no other inherited `CABIN_*` variable or Actions OIDC
+/// request token, so the user's settings, build directory, and registry
+/// credentials neither change the result nor leak into it, and no flags
+/// from the shell's `CPPFLAGS` family, which would change every compile
+/// line.
 pub fn cabin(ctx: &Harness, binary: &Binary, prepared: &Prepared, args: &[String]) -> Command {
     let mut cmd = Command::new(&binary.path);
     cmd.args(args).current_dir(&prepared.dir);

@@ -93,8 +93,9 @@ pub struct Host {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScenarioResult {
     pub name: String,
-    /// Whether the untimed check run behaved as the scenario expects;
-    /// an invalid scenario has no samples.
+    /// Whether the scenario was prepared, its untimed check run behaved
+    /// as the scenario expects, and every timed block succeeded; an
+    /// invalid scenario has no samples.
     pub valid: bool,
     pub detail: String,
     /// Raw per-run values; `instructions` is empty where the host
@@ -103,8 +104,8 @@ pub struct ScenarioResult {
     /// The check run's `CABIN_TRACE_DIR` timings summary phases.
     pub phases: serde_json::Value,
     /// The check run's `getrusage` block from the same summary, which
-    /// separates Cabin alone from its largest child; `Null` where the
-    /// summary has none.
+    /// separates Cabin alone from its largest child; `Null` when the
+    /// summary is missing, older than format 2, or has none.
     pub process: serde_json::Value,
 }
 
@@ -164,8 +165,7 @@ impl Stats {
         })
     }
 
-    /// Interquartile range relative to the median: the run-to-run
-    /// spread the comparison treats as noise.
+    /// Interquartile range relative to the median.
     pub fn relative_spread(&self) -> f64 {
         if self.median == 0.0 {
             0.0
@@ -289,7 +289,7 @@ pub enum Verdict {
     NoBaseline,
 }
 
-/// Classify every scenario both sides measured.  A difference is real
+/// Classify every scenario in either results file.  A difference is real
 /// when the samples' ranks separate (`rank_sum_z`) and the medians move
 /// further than the noise, and the policy counts a real one only past
 /// the metric's minimum effect and floor.  Sides measured in separate
