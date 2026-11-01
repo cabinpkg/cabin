@@ -361,14 +361,6 @@ fn safe_extract_zip_with_limits(
             path: archive.to_path_buf(),
             source,
         })?;
-    // Duplicate the handle before the parser consumes it, so the
-    // duplicate-name walk below reads the *same* open file the parser
-    // used (a `dup`, not a re-open): a concurrent replacement of the path
-    // cannot make the two disagree.
-    let scan_handle = f.try_clone().map_err(|source| ArtifactError::Io {
-        path: archive.to_path_buf(),
-        source,
-    })?;
     let extract_err = |source: zip::result::ZipError| ArtifactError::Extract {
         path: archive.to_path_buf(),
         detail: source.to_string(),
@@ -384,19 +376,12 @@ fn safe_extract_zip_with_limits(
         });
     }
 
-    // Reject duplicate raw names in the central directory, which the
-    // `zip` crate would otherwise collapse "last wins" (see the walk in
-    // `zip_duplicate_central_name`) before `TargetTree` below could see
-    // them.  Published registry package archives extract through this
-    // path.
-    if let Some(name) = zip_duplicate_central_name(
-        scan_handle,
-        archive,
-        zip.central_directory_start(),
-        limits.max_entries,
-        limits.max_path_bytes,
-    )? {
-        return Err(ArtifactError::ArchiveDuplicateNames { name });
+    // The `zip` crate keys entries by raw name, collapsing duplicate
+    // records "last wins" before `TargetTree` below could see them - the
+    // zip alias that lets one set of bytes be inspected while another is
+    // extracted.  Published registry package archives extract here.
+    if zip.has_duplicate_names() {
+        return Err(ArtifactError::ArchiveDuplicateNames);
     }
     let mut total_bytes: u64 = 0;
     let mut saw_prefix = false;
@@ -560,79 +545,6 @@ fn zip_eocd_entry_count(f: &mut File) -> Option<u64> {
         search_end = pos;
     }
     None
-}
-
-/// Return the first raw entry name that appears twice in the central
-/// directory, or `None`.  The `zip` crate keys entries by raw name in an
-/// `IndexMap`, so two records sharing a name collapse to one ("last
-/// wins") before [`TargetTree`] could see the duplicate - the classic
-/// zip alias that lets one set of bytes be inspected while another is
-/// extracted.
-///
-/// The walk reads `scan_handle` - a `dup` of the same open file the
-/// parser consumed, so a concurrent replacement of the path cannot make
-/// the check and the extraction disagree - starting at `cd_start`, which
-/// the caller reads from the `zip` crate's own
-/// [`ZipArchive::central_directory_start`].  It therefore inspects
-/// exactly the directory the crate parsed and will extract from, with no
-/// re-derivation of the EOCD location, so bytes appended after the EOCD
-/// cannot point this check at a different directory than the one that is
-/// extracted.  Records are read one at a time (never the whole directory
-/// at once); a name longer than `max_path_bytes` stops the walk (the
-/// per-entry check rejects that archive anyway) so retained names stay
-/// bounded, and the walk stops at the first non-central-header signature
-/// or after `max_records` records.  An archive exceeding `max_records`
-/// distinct entries is rejected separately by the parsed-directory
-/// length check.
-fn zip_duplicate_central_name(
-    scan_handle: File,
-    archive: &Path,
-    cd_start: u64,
-    max_records: usize,
-    max_path_bytes: usize,
-) -> Result<Option<String>, ArtifactError> {
-    const CENTRAL_SIG: [u8; 4] = [0x50, 0x4b, 0x01, 0x02];
-    const HEADER_LEN: usize = 46;
-    let io_err = |source| ArtifactError::Io {
-        path: archive.to_path_buf(),
-        source,
-    };
-    let mut reader = io::BufReader::new(scan_handle);
-    reader.seek(io::SeekFrom::Start(cd_start)).map_err(io_err)?;
-    let mut names: HashSet<Vec<u8>> = HashSet::new();
-    // One extra beyond the cap so that hitting the limit is unambiguous;
-    // an archive with more distinct entries is rejected by the caller's
-    // `zip.len() > max_entries` check regardless.
-    for _ in 0..=max_records {
-        let mut header = [0u8; HEADER_LEN];
-        // A short read at a record boundary means the directory ended
-        // (the EOCD or EOF follows); anything else is a read error.
-        match reader.read_exact(&mut header) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-            Err(e) => return Err(io_err(e)),
-        }
-        if header[..4] != CENTRAL_SIG {
-            return Ok(None);
-        }
-        let name_len = usize::from(u16::from_le_bytes([header[28], header[29]]));
-        let extra_len = u64::from(u16::from_le_bytes([header[30], header[31]]));
-        let comment_len = u64::from(u16::from_le_bytes([header[32], header[33]]));
-        // An over-long name means this archive fails the per-entry path
-        // cap regardless; stop rather than retain unbounded name bytes.
-        if name_len > max_path_bytes {
-            return Ok(None);
-        }
-        let mut name = vec![0u8; name_len];
-        reader.read_exact(&mut name).map_err(io_err)?;
-        if !names.insert(name.clone()) {
-            return Ok(Some(String::from_utf8_lossy(&name).into_owned()));
-        }
-        reader
-            .seek_relative(i64::try_from(extra_len + comment_len).unwrap_or(i64::MAX))
-            .map_err(io_err)?;
-    }
-    Ok(None)
 }
 
 /// Safely extract a `.zip` archive into `dest` with the default
@@ -2329,8 +2241,8 @@ mod tests {
     fn zip_rejects_duplicate_named_records() {
         // The `zip` writer refuses to emit two records with one name,
         // so hand-build the archive.  The parser deduplicates them into
-        // a single `IndexMap` entry ("last wins"); walking the central
-        // directory ourselves catches the second record it dropped.
+        // a single `IndexMap` entry ("last wins"); its duplicate-name
+        // flag still reports the second record it dropped.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("dup.zip");
         let bytes = raw_zip(&[
@@ -2351,16 +2263,15 @@ mod tests {
         let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
             .unwrap_err();
         assert!(
-            matches!(&err, ArtifactError::ArchiveDuplicateNames { name } if name == "cabin.toml"),
+            matches!(err, ArtifactError::ArchiveDuplicateNames),
             "{err:?}"
         );
         dest.child("cabin.toml").assert(predicate::path::missing());
 
         // The classic bypass: bytes appended after the EOCD defeat a
         // naive "comment reaches EOF" tail scan, yet the `zip` crate
-        // still finds the record and opens the archive.  Because the
-        // check walks from the crate's own `central_directory_start`, it
-        // inspects the same directory the crate extracts, so the
+        // still finds the record and opens the archive.  The check reads
+        // the crate's own parse of the directory it extracts, so the
         // duplicate is still caught for any tail the crate tolerates
         // (zip 9 refuses an EOCD more than 64 KiB from EOF outright).
         let mut appended = bytes.clone();
@@ -2372,7 +2283,7 @@ mod tests {
         let err = safe_extract_zip(archive2.path(), dest2.path(), SafeExtractOptions::default())
             .unwrap_err();
         assert!(
-            matches!(&err, ArtifactError::ArchiveDuplicateNames { name } if name == "cabin.toml"),
+            matches!(err, ArtifactError::ArchiveDuplicateNames),
             "appended-byte duplicate slipped through: {err:?}"
         );
         dest2.child("cabin.toml").assert(predicate::path::missing());
@@ -2475,7 +2386,7 @@ mod tests {
     /// The file-vs-parent-directory conflict, exercised through the
     /// same `TargetTree::claim` call the tar path uses.  (Two records
     /// with an *identical* name are caught earlier, by the
-    /// central-directory walk - see `zip_rejects_duplicate_named_records`.)
+    /// duplicate-name check - see `zip_rejects_duplicate_named_records`.)
     #[test]
     fn zip_rejects_a_file_used_as_a_parent_directory() {
         let dir = TempDir::new().unwrap();

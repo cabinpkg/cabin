@@ -113,7 +113,9 @@ etcetera = "0.11"
 find-msvc-tools = "0.1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
-zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "9.1", default-features = false, features = [
+  "deflate-flate2",
+] }
 
 cabin-artifact = { package = "cabinpkg-artifact", path = "crates/cabin-artifact", version = "0.17.0" }
 cabin-build = { package = "cabinpkg-build", path = "crates/cabin-build", version = "0.17.0" }

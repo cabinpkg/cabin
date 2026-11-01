@@ -87,10 +87,9 @@ pub enum ArtifactError {
     ArchiveFileTooLarge { size: u64, limit: u64 },
 
     #[error(
-        "refusing to extract archive: two central-directory entries share the name `{}` (a zip reader would keep only one, so which bytes land is ambiguous)",
-        escape(name)
+        "refusing to extract archive: two central-directory entries share a name (a zip reader would keep only one, so which bytes land is ambiguous)"
     )]
-    ArchiveDuplicateNames { name: String },
+    ArchiveDuplicateNames,
 
     #[error(
         "refusing to extract archive entry `{}`: decompressed size exceeds the {limit}-byte per-entry limit (potential decompression bomb)",
@@ -178,9 +177,6 @@ mod tests {
                 path: hostile.into(),
                 expected: 1,
                 actual: 0,
-            },
-            ArtifactError::ArchiveDuplicateNames {
-                name: hostile.into(),
             },
             ArtifactError::ArchiveEntryTooLarge {
                 path: hostile.into(),
