@@ -197,6 +197,9 @@ in the same change and follow the architecture document.
   PR is open, land review feedback, CI failures, test corrections, and small
   omissions as ordinary commits on top, within the PR's scope. Do not rewrite
   pushed commit history to prepare a PR for squash merge.
+- When rebasing a PR to resolve conflicts, force-push with
+  `--force-with-lease` without requesting approval, provided the branch
+  is owned by the current session and no other changes are overwritten.
 - After any content change, obtain a fresh review of the updated PR before
   merge.
 - If you have permission, squash merge once the latest review reports no
