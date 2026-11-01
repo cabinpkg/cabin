@@ -103,14 +103,10 @@ where
     if env_quiet || env_verbose {
         // Env vars are independent variables; an explicit truthy
         // value on either one wins over the config layer.  When
-        // both are set the typed combiner rejects the pair with
-        // the same wording the config layer uses.
+        // both are set the typed combiner rejects the pair.
         let combined =
             Verbosity::from_config_pair(env_verbose.then_some(true), env_quiet.then_some(true))
-                .map_err(|_| VerbosityEnvError {
-                    variable: cabin_env::CABIN_TERM_QUIET,
-                    value: "1".to_owned(),
-                })?;
+                .map_err(|_| VerbosityEnvError::Conflict)?;
         if let Some(level) = combined {
             return Ok((level, ConfigValueSource::Env));
         }
@@ -424,11 +420,9 @@ mod tests {
             &cfg(),
         )
         .unwrap_err();
-        // The error names one of the two variables; either is
-        // an actionable hint for the user to remove the conflict.
-        assert!(
-            err.variable == cabin_env::CABIN_TERM_QUIET
-                || err.variable == cabin_env::CABIN_TERM_VERBOSE
+        assert_eq!(
+            err.to_string(),
+            "CABIN_TERM_VERBOSE and CABIN_TERM_QUIET cannot both be true"
         );
     }
 
@@ -440,8 +434,13 @@ mod tests {
             &cfg(),
         )
         .unwrap_err();
-        assert_eq!(err.variable, cabin_env::CABIN_TERM_VERBOSE);
-        assert_eq!(err.value, "loud");
+        assert_eq!(
+            err,
+            VerbosityEnvError::Invalid {
+                variable: cabin_env::CABIN_TERM_VERBOSE,
+                value: "loud".to_owned(),
+            }
+        );
     }
 
     #[test]

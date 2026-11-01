@@ -113,7 +113,7 @@ impl Verbosity {
     /// Returns [`VerbosityEnvError`] when `raw` matches none of the
     /// documented truthy / falsy spellings.
     pub fn parse_bool_env(variable: &'static str, raw: &str) -> Result<bool, VerbosityEnvError> {
-        cabin_env::parse_bool(raw).map_err(|_| VerbosityEnvError {
+        cabin_env::parse_bool(raw).map_err(|_| VerbosityEnvError::Invalid {
             variable,
             value: raw.to_owned(),
         })
@@ -126,22 +126,34 @@ impl fmt::Display for Verbosity {
     }
 }
 
-/// Returned by [`Verbosity::parse_bool_env`] when a value such as
-/// `CABIN_TERM_VERBOSE=loud` does not match the documented
-/// truthy / falsy spellings.
+/// A `CABIN_TERM_VERBOSE` / `CABIN_TERM_QUIET` value Cabin rejects.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerbosityEnvError {
-    pub variable: &'static str,
-    pub value: String,
+pub enum VerbosityEnvError {
+    /// Returned by [`Verbosity::parse_bool_env`] when a value such as
+    /// `CABIN_TERM_VERBOSE=loud` does not match the documented
+    /// truthy / falsy spellings.
+    Invalid {
+        variable: &'static str,
+        value: String,
+    },
+    /// Both variables are truthy in one invocation.
+    Conflict,
 }
 
 impl fmt::Display for VerbosityEnvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "invalid {} value '{}'; expected one of: 1, 0, true, false, yes, no, on, off",
-            self.variable, self.value
-        )
+        match self {
+            Self::Invalid { variable, value } => write!(
+                f,
+                "invalid {variable} value '{value}'; expected one of: 1, 0, true, false, yes, no, on, off"
+            ),
+            Self::Conflict => write!(
+                f,
+                "{} and {} cannot both be true",
+                cabin_env::CABIN_TERM_VERBOSE,
+                cabin_env::CABIN_TERM_QUIET
+            ),
+        }
     }
 }
 
