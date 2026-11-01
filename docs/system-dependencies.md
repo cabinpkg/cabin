@@ -112,8 +112,13 @@ Cabin tries to convert each Cabin / npm-flavored SemVer requirement into a list 
 | `<=1.2`           | `< 1.3`                        |
 
 A partial version names its whole series, as in SemVer: `=1.2` accepts `1.2.12`, and `>1.2`
-does not.  A series boundary is written without trailing zeros because `pkg-config` sorts `2`
-below `2.0` below `2.0.0`: `< 2` rejects an installed `2.0`, which `< 2.0.0` would accept.
+does not.  Cabin reads an installed version with fewer segments as zero-padded (`1.2` is
+`1.2.0`).  `pkg-config` sorts `2` below `2.0` below `2.0.0`, so each `>=` and `<` bound is
+written without trailing zeros: `< 2` rejects an installed `2.0`, which `< 2.0.0` would accept,
+and `>= 1.2` admits an installed `1.2`, which `>= 1.2.0` would reject.  An exact `=1.2.0` stays
+`= 1.2.0`, so an installed `1.2` does not satisfy it: any range around both spellings would also
+admit `1.2rc1`, which `pkg-config` sorts between them.  A pre-release in a requirement is compared
+as written, because `pkg-config` has no SemVer pre-release ordering.
 
 Requirements that do not parse as SemVer are forwarded to `pkg-config` as one or more explicit
 `operator version` pairs, with the module name repeated before each pair (`>= 1.0.1f < 3.0.0z`

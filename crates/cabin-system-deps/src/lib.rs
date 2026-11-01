@@ -595,8 +595,12 @@ fn comparator_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> 
     // compare `1.2` as one version below `1.2.0`.  `>=` and `<` agree
     // either way.
     let partial = comp.patch.is_none();
+    let floor = lower_bound(comp);
     match comp.op {
         semver::Op::Exact if partial => wildcard_to_pkg_config(comp),
+        // Kept exact: `>= 1.2, <= 1.2.0` would also admit `1.2rc1`, which
+        // pkg-config sorts between them, so a module reporting `1.2` fails
+        // `=1.2.0`.
         semver::Op::Exact => vec![("=".to_owned(), base)],
         // The bound is only text, so a saturated major's successor is
         // still spelled exactly.
@@ -605,8 +609,8 @@ fn comparator_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> 
             wildcard_upper_bound(comp).unwrap_or_else(|| (u128::from(comp.major) + 1).to_string()),
         )],
         semver::Op::Greater => vec![(">".to_owned(), base)],
-        semver::Op::GreaterEq => vec![(">=".to_owned(), base)],
-        semver::Op::Less => vec![("<".to_owned(), base)],
+        semver::Op::GreaterEq => vec![(">=".to_owned(), floor)],
+        semver::Op::Less => vec![("<".to_owned(), floor)],
         semver::Op::LessEq if partial => wildcard_upper_bound(comp)
             .map(|next| ("<".to_owned(), next))
             .into_iter()
@@ -623,11 +627,24 @@ fn comparator_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> 
 /// pkg-config has no wildcard primitive; expand a series into a `>=` /
 /// `<` range with the next bumped segment.
 fn wildcard_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
-    let mut out = vec![(">=".to_owned(), render_version(comp))];
+    let mut out = vec![(">=".to_owned(), lower_bound(comp))];
     if let Some(upper) = wildcard_upper_bound(comp) {
         out.push(("<".to_owned(), upper));
     }
     out
+}
+
+/// The comparator's version as a `>=` or `<` bound: missing segments
+/// read as zero and trailing zeros dropped ([`series_start`]), so every
+/// spelling of that version an installed module may report (`1.2`,
+/// `1.2.0`) lands on the side `SemVer` puts it.  A pre-release is kept as
+/// written; pkg-config has no `SemVer` pre-release ordering.
+fn lower_bound(comp: &semver::Comparator) -> String {
+    if comp.pre.is_empty() {
+        series_start(comp.major, comp.minor.unwrap_or(0), comp.patch.unwrap_or(0))
+    } else {
+        render_version(comp)
+    }
 }
 
 fn render_version(comp: &semver::Comparator) -> String {
@@ -689,7 +706,7 @@ fn tilde_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
     // `~1.2.3` ≡ `>=1.2.3, <1.3.0`
     // `~1.2` ≡ `>=1.2.0, <1.3.0`
     // `~1` ≡ `>=1.0.0, <2.0.0`
-    let base = render_version(comp);
+    let base = lower_bound(comp);
     let upper = match (comp.minor, comp.patch) {
         (Some(minor), _) => next_minor_series(comp.major, minor),
         (None, _) => next_major_series(comp.major),
@@ -704,7 +721,7 @@ fn tilde_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
 fn caret_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
     // Cargo / npm caret rules: bump the leftmost non-zero
     // segment.
-    let lower = render_version(comp);
+    let lower = lower_bound(comp);
     let mut out = vec![(">=".to_owned(), lower)];
     if let Some(upper) = caret_upper_bound(comp) {
         out.push(("<".to_owned(), upper));
@@ -996,6 +1013,24 @@ mod tests {
     fn convert_exact_emits_pkg_config_equals() {
         let pairs = convert_requirement("=1.0.0").unwrap();
         assert_eq!(pairs, vec![("=".to_owned(), "1.0.0".to_owned())]);
+    }
+
+    /// pkg-config sorts `1.2` below `1.2.0`, so a bound written with
+    /// trailing zeros would put a module reporting `1.2` on the wrong side.
+    #[test]
+    fn convert_lower_bounds_admit_every_spelling_of_the_version() {
+        let pairs = |raw: &str| {
+            convert_requirement(raw)
+                .unwrap()
+                .into_iter()
+                .map(|(op, v)| format!("{op} {v}"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(pairs(">=1.2.0"), [">= 1.2"]);
+        assert_eq!(pairs("<1.2.0"), ["< 1.2"]);
+        assert_eq!(pairs("^0.0"), [">= 0", "< 0.1"]);
+        assert_eq!(pairs("~1.0.0"), [">= 1", "< 1.1"]);
+        assert_eq!(pairs(">=1.2.0-rc1"), [">= 1.2.0-rc1"]);
     }
 
     #[test]
