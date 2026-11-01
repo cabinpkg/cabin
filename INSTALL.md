@@ -7,12 +7,17 @@ source is supported for users who need an unreleased revision or want to verify 
 ## Prerequisites
 
 - A [Rust toolchain](https://www.rust-lang.org/tools/install) (1.95 or newer) on the stable channel.
+- A C compiler and archiver for the build scripts of two dependencies that compile bundled C
+  sources: `ring` (TLS, every platform) and, on Linux, `libdbus-sys` (the Secret Service credential
+  store, built from vendored sources, so no system D-Bus headers or `pkg-config` are needed).  GCC
+  or Clang with `ar` on Linux, the Xcode Command Line Tools on macOS, or the Visual Studio Build
+  Tools on Windows (plus Clang on Windows on Arm, which `ring` requires there) - mostly the tools
+  the Rust toolchain already needs for linking.
 - `git`.
 
-The Cabin binary itself has no C/C++ build-time dependency.  The C/C++ toolchains, Ninja, and the
-format / static-analysis helpers are runtime requirements for `cabin build` / `cabin fmt` / `cabin
-tidy` and are documented in
-[Installation: Runtime Requirements](https://cabinpkg.com/docs/installation/).
+These build Cabin itself.  The C/C++ toolchains, Ninja, and the format / static-analysis helpers
+that `cabin build` / `cabin fmt` / `cabin tidy` drive are separate runtime requirements, documented
+in [Installation: Runtime Requirements](https://cabinpkg.com/docs/installation/).
 
 ## Build
 
