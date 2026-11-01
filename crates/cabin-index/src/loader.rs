@@ -46,7 +46,28 @@ impl std::fmt::Debug for SourceContext<'_> {
 
 /// A file index opened for reading package documents by name, so a
 /// resolution reads the documents it needs rather than the whole
-/// registry.  [`load_index`] describes the layouts it accepts.
+/// registry.
+///
+/// Two on-disk shapes are accepted:
+///
+/// 1. **Registry-root layout**.  When `<root>/config.json` exists it
+///    must be a valid Cabin file-registry config; package documents
+///    are read from `<root>/<config.packages>/`.  Source paths
+///    recorded in those documents resolve relative to the document's
+///    parent directory, so the published
+///    `"../artifacts/<name>/<name>-<version>-<revision>.zip"` form
+///    lands at `<root>/artifacts/<name>/<name>-<version>-<revision>.zip`.
+///    The `config.artifacts` field is accepted for schema
+///    compatibility but is not consulted during resolution.
+/// 2. **Flat layout**.  Used by hand-written fixtures that drop
+///    `<name>.json` directly under `<root>` with no `config.json`.
+///    Source paths resolve relative to `<root>`.
+///
+/// In both shapes a scoped package `<scope>/<name>` nests exactly one
+/// level deeper as `<scope>/<name>.json`; its source paths resolve
+/// relative to the scope directory (matching the published
+/// `"../../<artifacts>/<scope>/<name>/..."` form), and the declared
+/// `name` must equal `<scope>/<name>`.
 #[derive(Debug, Clone)]
 pub struct FileIndex {
     root: PathBuf,
@@ -139,111 +160,6 @@ impl FileIndex {
             packages,
         })
     }
-}
-
-/// Load every `<package>.json` file under `path` into a [`PackageIndex`],
-/// validating each one.  Resolution reads only the documents it needs
-/// through [`FileIndex`] instead.
-///
-/// `path` must point at an existing directory.  Two on-disk shapes
-/// are accepted:
-///
-/// 1. **Registry-root layout**.  When `path/config.json`
-///    exists it must be a valid Cabin file-registry config; package
-///    index files are read from `path/<config.packages>/`.  Source
-///    paths recorded in those package files resolve relative to the
-///    package files' parent directory, so the published
-///    `"../artifacts/<name>/<name>-<version>-<revision>.zip"` form
-///    lands at `path/artifacts/<name>/<name>-<version>-<revision>.zip`.
-///    The `config.artifacts` field is accepted for schema
-///    compatibility but is not consulted during resolution.
-/// 2. **Flat layout**.  Used by hand-written
-///    fixtures that drop `<name>.json` directly under `path` with no
-///    `config.json`.  Source paths resolve relative to `path`.
-///
-/// In both shapes a scoped package `<scope>/<name>` nests exactly
-/// one level deeper as `<scope>/<name>.json`; its source paths
-/// resolve relative to the scope directory (matching the published
-/// `"../../<artifacts>/<scope>/<name>/..."` form), and the declared
-/// `name` must equal `<scope>/<name>`.
-///
-/// Files whose names do not end in `.json` are ignored, as is
-/// anything nested deeper than one scope directory.  The
-/// `config.json` file at the registry root is itself excluded from
-/// the package scan.
-///
-/// # Errors
-/// Returns [`IndexError::NotADirectory`] when `path` or the resolved
-/// packages directory is not a directory, and [`IndexError::Io`] when
-/// the directory cannot be read or an entry cannot be iterated.  When a
-/// registry-root `config.json` is present it propagates the config
-/// errors (`Io` / `Json` / [`IndexError::InvalidRegistryConfig`]), and
-/// it propagates any per-package parse error from `parse_package_entry`.
-pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
-    let path = path.as_ref();
-    let FileIndex { packages_dir, .. } = FileIndex::open(path)?;
-
-    let entries = std::fs::read_dir(&packages_dir).map_err(|source| IndexError::Io {
-        path: packages_dir.clone(),
-        source,
-    })?;
-    let mut packages: BTreeMap<PackageName, IndexEntry> = BTreeMap::new();
-    // (scope, file path) pairs: a bare package is a top-level
-    // `<name>.json`, a scoped one nests exactly one level as
-    // `<scope>/<name>.json`.  Anything deeper (or any non-`.json`
-    // file) is ignored, mirroring how stray files are skipped in
-    // the flat layout.
-    let mut files: Vec<(Option<String>, PathBuf)> = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|source| IndexError::Io {
-            path: packages_dir.clone(),
-            source,
-        })?;
-        let entry_path = entry.path();
-        if entry_path.is_file() && entry_path.extension().and_then(|e| e.to_str()) == Some("json") {
-            // `packages = "."` puts the registry's own `config.json`
-            // beside the package documents; it never names a package.
-            let stem = entry_path.file_stem().and_then(|s| s.to_str());
-            if stem == Some("config") && packages_dir == path {
-                continue;
-            }
-            files.push((None, entry_path));
-        } else if entry_path.is_dir() {
-            let Some(scope) = entry_path.file_name().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            let scope = scope.to_owned();
-            let nested = std::fs::read_dir(&entry_path).map_err(|source| IndexError::Io {
-                path: entry_path.clone(),
-                source,
-            })?;
-            for nested_entry in nested {
-                let nested_entry = nested_entry.map_err(|source| IndexError::Io {
-                    path: entry_path.clone(),
-                    source,
-                })?;
-                let nested_path = nested_entry.path();
-                if nested_path.is_file()
-                    && nested_path.extension().and_then(|e| e.to_str()) == Some("json")
-                {
-                    files.push((Some(scope.clone()), nested_path));
-                }
-            }
-        }
-    }
-    // Sort on (scope, path) so bare and scoped discoveries load in
-    // one deterministic order regardless of readdir order.
-    files.sort();
-
-    for (scope, entry_path) in files {
-        let pkg = load_package_file(&entry_path, scope.as_deref())?;
-        packages.insert(pkg.name.clone(), pkg);
-    }
-
-    Ok(PackageIndex {
-        root: path.to_path_buf(),
-        packages,
-    })
 }
 
 /// Read and validate `<root>/config.json` (file-registry
@@ -1011,6 +927,16 @@ mod tests {
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
 
+    /// Load `names`, and what they reach, the way resolution reads the
+    /// index.
+    fn load(dir: &Path, names: &[&str]) -> Result<PackageIndex, IndexError> {
+        let roots: Vec<_> = names
+            .iter()
+            .map(|name| PackageName::new(*name).unwrap())
+            .collect();
+        FileIndex::open(dir)?.load_package_index(&roots, &BTreeSet::new())
+    }
+
     /// A schema-2 revision's own `resolution` loads under the
     /// version-level rules, and selecting that revision gives the
     /// version its metadata; selecting the current revision does not.
@@ -1106,7 +1032,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         assert_eq!(index.packages.len(), 1);
         let entry = index
             .package(&PackageName::new("fmt").unwrap())
@@ -1160,7 +1086,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmtlib/fmt"]).unwrap();
         let entry = index
             .package(&PackageName::new("fmtlib/fmt").unwrap())
             .expect("scoped entry");
@@ -1185,7 +1111,7 @@ mod tests {
         dir.child("other/fmt.json")
             .write_str(r#"{"schema":1,"name":"fmtlib/fmt","versions":{}}"#)
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["other/fmt"]).unwrap_err();
         match err {
             IndexError::NameMismatch {
                 declared, expected, ..
@@ -1212,7 +1138,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         assert_eq!(entry.versions.len(), 2);
         let yanked = entry
@@ -1244,7 +1170,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["spdlog"]).unwrap();
         let entry = index.package(&PackageName::new("spdlog").unwrap()).unwrap();
         let meta = entry
             .versions
@@ -1288,7 +1214,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["demo"]).unwrap();
         let entry = index.package(&PackageName::new("demo").unwrap()).unwrap();
         let meta = entry
             .versions
@@ -1311,7 +1237,7 @@ mod tests {
                     r#"{{"schema": 1, "name": "demo", "versions": {{"0.1.0": {deps}}}}}"#
                 ))
                 .unwrap();
-            load_index(dir.path())
+            load(dir.path(), &["demo"])
         };
         let index = entry(
             r#"{"dependencies": {}, "system-dependencies": {"glib-2.0": {"version": ">=2"}, "SDL2": {"version": ">=2"}}}"#,
@@ -1362,7 +1288,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["spdlog"]).unwrap_err();
         match err {
             IndexError::CompilerConditionedDependency {
                 package,
@@ -1398,7 +1324,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["demo"]).unwrap_err();
         match err {
             IndexError::CompilerConditionedDependency { dep, condition, .. } => {
                 assert_eq!(dep, "openssl");
@@ -1414,7 +1340,7 @@ mod tests {
         dir.child("fmt.json")
             .write_str(r#"{ "schema": 1, "name": "different", "versions": {} }"#)
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         match err {
             IndexError::NameMismatch {
                 declared, expected, ..
@@ -1432,7 +1358,7 @@ mod tests {
         dir.child("fmt.json")
             .write_str(r#"{ "schema": 99, "name": "fmt", "versions": {} }"#)
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         assert!(matches!(
             err,
             IndexError::UnsupportedSchema { schema: 99, .. }
@@ -1451,7 +1377,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         match err {
             IndexError::InvalidVersion { package, value, .. } => {
                 assert_eq!(package, "fmt");
@@ -1475,7 +1401,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["spdlog"]).unwrap_err();
         match err {
             IndexError::InvalidRequirement {
                 package,
@@ -1506,26 +1432,15 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         assert!(matches!(err, IndexError::Json { .. }));
     }
 
     #[test]
     fn missing_directory_errors() {
         let dir = TempDir::new().unwrap();
-        let err = load_index(dir.path().join("does-not-exist")).unwrap_err();
+        let err = load(&dir.path().join("does-not-exist"), &[]).unwrap_err();
         assert!(matches!(err, IndexError::NotADirectory { .. }));
-    }
-
-    #[test]
-    fn ignores_non_json_files() {
-        let dir = TempDir::new().unwrap();
-        dir.child("README.md").write_str("ignored").unwrap();
-        dir.child("fmt.json")
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": {} }"#)
-            .unwrap();
-        let index = load_index(dir.path()).unwrap();
-        assert_eq!(index.packages.len(), 1);
     }
 
     // -------------------------------------------------------------------
@@ -1561,7 +1476,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let meta = entry
             .versions
@@ -1610,7 +1525,7 @@ mod tests {
             }}"#
         );
         dir.child("fmt.json").write_str(&body).unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let meta = entry
             .versions
@@ -1646,7 +1561,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         match err {
             IndexError::UnsupportedSourceType {
                 package,
@@ -1684,7 +1599,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         match err {
             IndexError::UnsupportedSourceFormat { value, .. } => assert_eq!(value, "tar.zst"),
             other => panic!("expected UnsupportedSourceFormat, got {other:?}"),
@@ -1714,7 +1629,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         assert!(matches!(err, IndexError::MissingSourcePath { .. }));
     }
 
@@ -1733,7 +1648,7 @@ mod tests {
             }}"#
             ))
             .unwrap();
-        load_index(dir.path())
+        load(dir.path(), &["fmt"])
     }
 
     /// Registry versions are plain upstream versions: a version key
@@ -1751,7 +1666,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         assert!(
             matches!(&err, IndexError::VersionBuildMetadata { value, .. } if value == "10.2.1+cabin.1"),
             "{err}"
@@ -1994,7 +1909,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let meta = entry
             .versions
@@ -2025,7 +1940,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &[]).unwrap_err();
         match err {
             IndexError::InvalidRegistryConfig { message, .. } => {
                 assert!(message.contains("http-registry"));
@@ -2047,7 +1962,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &[]).unwrap_err();
         assert!(matches!(err, IndexError::InvalidRegistryConfig { .. }));
     }
 
@@ -2075,8 +1990,9 @@ mod tests {
             .unwrap();
         // The registry's packages dir is empty.
         dir.child("packages").create_dir_all().unwrap();
-        let index = load_index(dir.path()).unwrap();
-        assert!(index.packages.is_empty());
+        let fmt = PackageName::new("fmt").unwrap();
+        let index = FileIndex::open(dir.path()).unwrap();
+        assert!(index.read_package(&fmt).unwrap().is_none());
     }
 
     // -------------------------------------------------------------------
@@ -2110,11 +2026,11 @@ mod tests {
             &dir,
             r#", "auth-required": true, "api": "https://registry.cabinpkg.com""#,
         );
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &[]).unwrap();
         assert!(index.packages.is_empty());
 
         write_registry_with_config_fields(&dir, r#", "auth-required": false"#);
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &[]).unwrap();
         assert!(index.packages.is_empty());
     }
 
@@ -2127,7 +2043,7 @@ mod tests {
             (r#""registry.example.com""#, "absolute"),
         ] {
             write_registry_with_config_fields(&dir, &format!(r#", "api": {api}"#));
-            let err = load_index(dir.path()).unwrap_err();
+            let err = load(dir.path(), &[]).unwrap_err();
             match err {
                 IndexError::InvalidRegistryConfig { message, .. } => {
                     assert!(message.contains(expected), "{api}: {message}");
@@ -2150,7 +2066,7 @@ mod tests {
         for extra in [r#", "auth-required": null"#, r#", "api": null"#] {
             write_registry_with_config_fields(&dir, extra);
             assert!(
-                matches!(load_index(dir.path()).unwrap_err(), IndexError::Json { .. }),
+                matches!(load(dir.path(), &[]).unwrap_err(), IndexError::Json { .. }),
                 "{extra}"
             );
         }
@@ -2163,7 +2079,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_registry_with_config_fields(&dir, r#", "auth": true"#);
         assert!(matches!(
-            load_index(dir.path()).unwrap_err(),
+            load(dir.path(), &[]).unwrap_err(),
             IndexError::Json { .. }
         ));
     }
@@ -2203,7 +2119,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index
             .package(&PackageName::new("fmt").unwrap())
             .expect("fmt entry");
@@ -2229,7 +2145,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index
             .package(&PackageName::new("fmt").unwrap())
             .expect("fmt entry");
@@ -2254,7 +2170,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         assert!(
             matches!(err, IndexError::InvalidFeatures { .. }),
             "unexpected error: {err}"
@@ -2276,7 +2192,7 @@ mod tests {
                 chain.join(", ")
             ))
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index
             .package(&PackageName::new("fmt").unwrap())
             .expect("fmt entry");
@@ -2304,7 +2220,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index
             .package(&PackageName::new("fmt").unwrap())
             .expect("fmt entry");
@@ -2353,7 +2269,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["mixed"]).unwrap();
         let entry = index.package(&PackageName::new("mixed").unwrap()).unwrap();
         let meta = entry
             .versions
@@ -2400,7 +2316,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["zlib"]).unwrap();
         let entry = index.package(&PackageName::new("zlib").unwrap()).unwrap();
         let meta = entry
             .versions
@@ -2463,7 +2379,7 @@ mod tests {
                 }}"#
                 ))
                 .unwrap();
-            let err = load_index(dir.path()).unwrap_err();
+            let err = load(dir.path(), &["zlib"]).unwrap_err();
             assert!(
                 matches!(&err, IndexError::InvalidLinks { package, version, .. }
                     if package == "zlib" && version == "1.3.1"),
@@ -2486,7 +2402,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let (_, meta) = entry.versions.iter().next().unwrap();
         assert!(meta.standards.is_empty());
@@ -2516,7 +2432,7 @@ mod tests {
             }}"#
             ))
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let (_, meta) = entry.versions.iter().next().unwrap();
         let upstream = meta.upstream.as_ref().expect("upstream loaded");
@@ -2543,7 +2459,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let (_, meta) = entry.versions.iter().next().unwrap();
         assert!(meta.upstream.is_none());
@@ -2572,7 +2488,7 @@ mod tests {
             }}"#
             ))
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         assert!(err.to_string().contains("https"), "unexpected error: {err}");
     }
 
@@ -2599,7 +2515,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let index = load_index(dir.path()).unwrap();
+        let index = load(dir.path(), &["fmt"]).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let (_, meta) = entry.versions.iter().next().unwrap();
         assert_eq!(
@@ -2630,7 +2546,7 @@ mod tests {
             }"#,
             )
             .unwrap();
-        let err = load_index(dir.path()).unwrap_err();
+        let err = load(dir.path(), &["fmt"]).unwrap_err();
         match err {
             IndexError::Json { error, .. } => {
                 assert!(
@@ -2663,7 +2579,7 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(
-            load_index(dir.path()).unwrap_err(),
+            load(dir.path(), &["fmt"]).unwrap_err(),
             IndexError::Json { .. }
         ));
     }
@@ -2723,8 +2639,8 @@ mod tests {
         );
     }
 
-    /// A document resolution needs is validated exactly as the whole
-    /// index loader validates it.
+    /// A document reached through a dependency edge is validated like
+    /// a root's.
     #[test]
     fn file_index_rejects_a_damaged_document_it_reads() {
         let dir = TempDir::new().unwrap();

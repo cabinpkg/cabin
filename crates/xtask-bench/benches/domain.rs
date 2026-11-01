@@ -45,7 +45,17 @@ fn workspace() -> &'static Path {
 
 fn index() -> &'static cabin_index::PackageIndex {
     static INDEX: OnceLock<cabin_index::PackageIndex> = OnceLock::new();
-    INDEX.get_or_init(|| cabin_index::load_index(registry().join("packages")).unwrap())
+    // The packages the resolver benchmarks' roots reach.
+    INDEX.get_or_init(|| {
+        let roots: Vec<_> = (0..fixture::WIDE.packages)
+            .map(|i| name(&fixture::WIDE.name(i)))
+            .chain([name(&fixture::DEEP.name(0))])
+            .collect();
+        cabin_index::FileIndex::open(registry())
+            .unwrap()
+            .load_package_index(&roots, &BTreeSet::new())
+            .unwrap()
+    })
 }
 
 fn name(s: &str) -> PackageName {
