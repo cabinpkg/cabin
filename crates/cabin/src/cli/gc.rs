@@ -57,7 +57,7 @@ fn wait_message(reporter: Reporter) -> impl FnOnce() {
 ///
 /// # Errors
 /// Refuses a build directory another workspace owns, or one holding
-/// files but no owner record.
+/// subdirectories but no owner record.
 pub(crate) fn lock_shared(
     build_root: &Path,
     workspace_root: &Path,
@@ -68,12 +68,6 @@ pub(crate) fn lock_shared(
     // held shared the record cannot change.
     match owner::owner(build_root, workspace_root)? {
         owner::Owner::This => return Ok(lock),
-        owner::Owner::Unrecorded => {
-            return Err(owner::OwnerError::Unrecorded {
-                build_dir: build_root.to_path_buf(),
-            }
-            .into());
-        }
         owner::Owner::Nobody => drop(lock),
     }
     // The same process cannot take the lock exclusively while it holds
@@ -91,7 +85,8 @@ pub(crate) fn lock_shared(
 /// # Errors
 /// Refuses, rather than wait forever, a build directory that a
 /// `cabin run` or `cabin test` this process runs under keeps in use
-/// until this process exits, and one another workspace owns.
+/// until this process exits, one another workspace owns, and one
+/// holding subdirectories but no owner record.
 pub(crate) fn lock_exclusive(
     build_root: &Path,
     workspace_root: &Path,
@@ -222,8 +217,10 @@ pub(crate) fn clean_gc(request: &CollectRequest<'_>, reporter: Reporter) -> Resu
         );
         return Ok(());
     }
-    // Refuse an unsafe directory before the lock file is created in it.
+    // Refuse an unsafe directory before the lock file is created in it,
+    // and, even for a dry run, one this workspace may not use.
     cabin_build::gc::validate_build_dir(request)?;
+    owner::owner(build_dir, request.workspace_root)?;
     // A dry run only reads, and writes nothing - not even the lock file.
     let _lock = if request.dry_run {
         None

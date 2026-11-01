@@ -342,10 +342,10 @@ something it would remove is a symlink, since a link could point the removal out
 directory.
 
 Cabin releases before `.targets` wrote `--target` builds to `<build-dir>/<triple>/<profile>/`.  Such
-a build directory also predates the [owner record](#build-directory-ownership), so builds refuse it
-until `cabin clean` with no `--profile`, `--package`, or `--target` empties it, old trees included.
-`cabin clean --profile` and `--package` refuse to remove one as the tree of a profile named like
-the triple.
+a build directory also predates the [owner record](#build-directory-ownership), so every command
+refuses it until you remove it.  Should a release that old write one into a recorded build directory,
+`cabin clean --profile` and `--package` refuse to remove it as the tree of a profile named like the
+triple, and `cabin clean` with no `--profile`, `--package`, or `--target` removes it.
 
 Two effects:
 
@@ -386,10 +386,14 @@ workspaces building into a new directory at once, one claims it and the other is
 The record names the workspace relative to the build directory when the build directory lies inside
 it, so moving the workspace with its build directory keeps it; a build directory outside a moved
 workspace still names where the workspace was.  `cabin clean` keeps the record, so a cleaned build
-directory stays its workspace's: to hand one to another workspace, remove it.  A build directory
-that holds subdirectories but no record, as one written by a Cabin release before the record does,
-is refused until `cabin clean` empties it, since nothing in it reliably names the workspace that
-wrote it.
+directory stays its workspace's: to hand one to another workspace, remove it.
+
+The record names an owner, not the files: Cabin writes its outputs below subdirectories, so
+`cabin clean` never removes a regular file directly in the build directory, such as a `.gitignore`
+it held before Cabin first built there.  A build directory that holds subdirectories but no record,
+as one written by a Cabin release before the record does, could as well be a directory that is no
+build directory at all, so every command, `cabin clean` included, refuses it and leaves its files
+alone.  If it holds only build outputs, remove it yourself; the next build starts it over.
 
 ## Unused build outputs
 
@@ -429,8 +433,8 @@ collected.  It never removes `build.ninja`, `compile_commands.json`, Ninja's log
 write beside outputs (such as the `.pdb` and `.ilk` an MSVC link writes for a user-supplied
 `/DEBUG`), outputs from before Cabin recorded usage, or anything outside the build directory: the
 source-archive cache, vendored sources, and compiler-cache data are not build outputs.
-`cabin clean` removes everything but the lock file and the
-[owner record](#build-directory-ownership).
+`cabin clean` removes everything but the regular files directly in the build directory, among
+them the lock file and the [owner record](#build-directory-ownership).
 
 **Concurrent commands.**  `build`, `check`, `run`, and `test` hold a shared lock on
 `<build-dir>/.cabin-build.lock` while they use outputs; `run` and `test` hold it until the program

@@ -5,6 +5,7 @@ use super::*;
 /// `build/`.
 fn populate_project(dir: &Path) {
     write_hello_project(dir);
+    claim_build_dir(&dir.join("build"), dir);
     assert_fs::fixture::ChildPath::new(dir.join("cabin.lock"))
         .write_str("# lock\n")
         .unwrap();
@@ -48,8 +49,8 @@ fn clean_removes_build_dir() {
 
     assert_eq!(
         dir_entries(&dir.path().join("build")),
-        [".cabin-build.lock"],
-        "everything but the lock file is gone"
+        [".cabin-build.lock", ".cabin-workspace"],
+        "everything but the lock file and the owner record is gone"
     );
     assert!(dir.path().join("cabin.toml").exists(), "manifest preserved");
     assert!(
@@ -261,6 +262,7 @@ fn clean_respects_custom_build_dir() {
     let dir = TempDir::new().unwrap();
     write_hello_project(dir.path());
     let custom = dir.path().join("custom-build-dir");
+    claim_build_dir(&custom, dir.path());
     assert_fs::fixture::ChildPath::new(custom.join("dev").join("build.ninja"))
         .write_str("x")
         .unwrap();
@@ -272,7 +274,10 @@ fn clean_respects_custom_build_dir() {
         .assert()
         .success();
 
-    assert_eq!(dir_entries(&custom), [".cabin-build.lock"]);
+    assert_eq!(
+        dir_entries(&custom),
+        [".cabin-build.lock", ".cabin-workspace"]
+    );
     // Default `build/` was never created and must remain absent.
     assert!(!dir.path().join("build").exists());
 }
@@ -347,6 +352,7 @@ fn populate_workspace(dir: &Path) {
     assert_fs::fixture::ChildPath::new(dir.join("util").join("src").join("util.cc"))
         .write_str("void util(){}\n")
         .unwrap();
+    claim_build_dir(&dir.join("build"), dir);
     for profile in ["dev", "release"] {
         for pkg in ["hello", "util"] {
             assert_fs::fixture::ChildPath::new(
@@ -415,7 +421,7 @@ fn clean_rejects_symlink_build_dir() {
     write_hello_project(dir.path());
     let real = dir.path().join("real-build");
     let link = dir.path().join("build");
-    fs::create_dir(&real).unwrap();
+    claim_build_dir(&real, dir.path());
     std::os::unix::fs::symlink(&real, &link).unwrap();
     assert_fs::fixture::ChildPath::new(real.join("dev").join("build.ninja"))
         .write_str("x")
@@ -430,6 +436,15 @@ fn clean_rejects_symlink_build_dir() {
 
     assert!(real.exists(), "real build dir untouched");
     assert!(link.exists(), "symlink itself untouched");
+    // Collection reaches only recorded outputs, so it works through a
+    // linked build directory.
+    for args in [&["clean", "--gc", "--dry-run"][..], &["clean", "--gc"]] {
+        cabin()
+            .current_dir(dir.path())
+            .args(args)
+            .assert()
+            .success();
+    }
 }
 
 #[test]
@@ -497,6 +512,7 @@ fn clean_refuses_bare_package_named_like_a_workspace_scope() {
     assert_fs::fixture::ChildPath::new(dir.path().join("fmt/src/fmt.cc"))
         .write_str("int f() { return 0; }\n")
         .unwrap();
+    claim_build_dir(&dir.path().join("build"), dir.path());
     // A scoped output that a recursive `packages/fmtlib` removal
     // would take with it.
     let scoped_output = dir.path().join("build/dev/packages/fmtlib/fmt/libfmt.a");
