@@ -168,7 +168,7 @@ declares:
 | Mode | Revision whose metadata resolution reads |
 | --- | --- |
 | first resolution, `cabin update` | the current revision |
-| plain resolution with a lockfile | the pinned revision, while the index lists it; otherwise the current revision, and the lockfile moves to it |
+| plain resolution with a lockfile | the pinned revision; a pin the index no longer lists is an error naming `cabin update` |
 | `cabin update --package <name>` | the current revision for `<name>`; the pinned revision for every other package |
 | `--locked`, `--frozen` | the pinned revision; a pin the index no longer lists is an error |
 

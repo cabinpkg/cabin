@@ -176,8 +176,12 @@ revision id is its digest's first 16 hex characters.
   else's respin therefore never churns your lockfile: re-resolving after one rewrites nothing.
 - `cabin update` (and `cabin update --package <name>`) is the deliberate move to the version's
   current revision, exactly as it is the deliberate move to a newer version.
-- A first resolution, or a package whose pinned revision the index no longer lists, locks the
-  version's current revision.
+- A first resolution locks the version's current revision.
+- Outside `cabin update`, a pinned revision or version the index no longer lists is an error naming
+  `cabin update`, never a re-pin: published revisions are never removed (a version is only ever
+  yanked), so a missing pin means the run is reading a different or tampered index, and adopting
+  its bytes takes the deliberate `cabin update`.  A pin the index still lists can move where
+  resolution moves it, as a yank does; `--locked` refuses every move.
 - `--locked`, `--frozen`, `--offline`, and a vendored index all reproduce the pinned revision
   exactly, including a revision that has since been superseded: published revisions stay fetchable.
   A pin no revision in the index carries is an error naming both the pinned and the current
@@ -208,7 +212,8 @@ the usual remedies.  A selection the resolver re-resolved past a stale pin carri
 ### `cabin resolve`
 
 Default mode.  Reads `cabin.lock` if it exists.  Resolves with the locked versions as preferences
-(newest compatible if the locked version no longer satisfies).  Writes the new lockfile if it
+(newest compatible if the locked version no longer satisfies or is yanked; a locked version the
+index no longer lists fails, see [packaging revisions](#packaging-revisions)).  Writes the new lockfile if it
 differs from the existing one.  In a workspace, a run that selects only some members rewrites the
 entries its closure resolves and keeps every other entry verbatim; only a selection covering every
 member (and the root package, when the root manifest is one) prunes entries nothing needs.  The
