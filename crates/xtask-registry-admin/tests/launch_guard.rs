@@ -106,29 +106,38 @@ impl Shim {
         fs::write(self.dir.path().join("response-list"), list).expect("rewrite list response");
     }
 
-    /// Runs the guard with the shim first on `PATH`; the rest of `PATH`
+    /// The guard with the shim first on `PATH`; the rest of `PATH`
     /// stays, so `bash` still resolves.
-    fn run(&self, args: &[&str]) -> Output {
+    fn command(&self, args: &[&str]) -> Command {
         let path = format!(
             "{}:{}",
             self.dir.path().display(),
             std::env::var("PATH").expect("PATH")
         );
-        Command::new(assert_cmd::cargo::cargo_bin("xtask-registry-admin"))
-            .arg("launch-guard")
-            .args(args)
-            .env("PATH", path)
-            .output()
-            .expect("run the guard")
+        let mut command = guard(args);
+        command.env("PATH", path);
+        command
+    }
+
+    fn run(&self, args: &[&str]) -> Output {
+        self.command(args).output().expect("run the guard")
     }
 
     /// One line per fake-`node` invocation, in order.
     fn log(&self) -> Vec<String> {
         match fs::read_to_string(self.dir.path().join("log")) {
             Ok(text) => text.lines().map(str::to_owned).collect(),
-            Err(_) => Vec::new(),
+            // No log means the shim never ran.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => panic!("read the shim log: {error}"),
         }
     }
+}
+
+fn guard(args: &[&str]) -> Command {
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin("xtask-registry-admin"));
+    command.arg("launch-guard").args(args);
+    command
 }
 
 fn meta_response(value: &str) -> String {
@@ -261,6 +270,50 @@ fn refuses_fail_safe_on_malformed_wrangler_output() {
         "stderr: {}",
         stderr(&output)
     );
+}
+
+/// A config the guard cannot read is refused naming the file and the
+/// OS error, not misreported as one that binds no database.
+#[test]
+fn refuses_naming_an_unreadable_config() {
+    let shim = Shim::new(FakeWrangler::Respond(&meta_response("false")));
+    let root = assert_fs::TempDir::new().expect("a registry root without wrangler.jsonc");
+    let output = shim
+        .command(&["--remote"])
+        .env(cabin_env::CABIN_REGISTRY_DIR, root.path())
+        .output()
+        .expect("run the guard");
+    assert!(!output.status.success());
+    let config = root.path().join("wrangler.jsonc");
+    let cause = fs::read_to_string(&config)
+        .expect_err("no config")
+        .to_string();
+    let message = stderr(&output);
+    assert!(
+        message.contains(&config.display().to_string()),
+        "stderr: {message}"
+    );
+    assert!(message.contains(&cause), "stderr: {message}");
+    assert!(message.contains("fail-safe"), "stderr: {message}");
+}
+
+/// A wrangler that cannot start is refused with the reason, not
+/// misreported as an account without the database.
+#[test]
+fn refuses_naming_why_wrangler_could_not_start() {
+    let empty = assert_fs::TempDir::new().expect("a PATH without node");
+    let output = guard(&["--remote"])
+        .env("PATH", empty.path())
+        .output()
+        .expect("run the guard");
+    assert!(!output.status.success());
+    let cause = Command::new(empty.path().join("node"))
+        .spawn()
+        .expect_err("no node")
+        .to_string();
+    let message = stderr(&output);
+    assert!(message.contains(&cause), "stderr: {message}");
+    assert!(message.contains("fail-safe"), "stderr: {message}");
 }
 
 #[test]
