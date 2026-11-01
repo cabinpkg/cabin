@@ -157,9 +157,9 @@ pub fn validate_toolchain_for_backend(
     report: &ToolchainDetectionReport,
 ) -> Result<(), BuildError> {
     let cxx_spec = toolchain.cxx.spec.display();
-    validate_cxx_for_backend(&cxx_spec, &report.cxx.identity, &report.cxx.capabilities)?;
+    validate_cxx_for_backend(&cxx_spec, report.cxx.identity.kind)?;
     let ar_spec = toolchain.ar.spec.display();
-    validate_ar_for_backend(&ar_spec, &report.ar.identity, &report.ar.capabilities)?;
+    validate_ar_for_backend(&ar_spec, report.ar.identity.kind)?;
 
     // Both tools individually run; now require them to share a
     // dialect.  The C++ compiler picks it (MSVC `cl` vs GCC/Clang)
@@ -215,7 +215,7 @@ pub fn validate_toolchain_standards(
         && let (Some(cc_tool), Some(cc_detection)) = (toolchain.cc.as_ref(), report.cc.as_ref())
     {
         let cc_spec = cc_tool.spec.display();
-        validate_cc_for_backend(&cc_spec, &cc_detection.identity, &cc_detection.capabilities)?;
+        validate_cc_for_backend(&cc_spec, cc_detection.identity.kind)?;
         let cxx_is_msvc = report.cxx.identity.kind.speaks_msvc_dialect();
         let cc_is_msvc = cc_detection.identity.kind.speaks_msvc_dialect();
         if cc_is_msvc != cxx_is_msvc {
