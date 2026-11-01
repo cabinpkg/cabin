@@ -1,6 +1,6 @@
 use crate::StandardViolation;
 use crate::error::BuildError;
-use cabin_core::{SourceLanguage, Target};
+use cabin_core::{SourceLanguage, Target, macro_name};
 use cabin_driver::Dialect;
 use cabin_workspace::PackageGraph;
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
@@ -362,12 +362,6 @@ pub(super) fn collect_interface(
         }
     }
     Ok(collected)
-}
-
-/// The macro a `-D` entry defines: everything before its `=`, or
-/// before the parameter list of a function-like `NAME(args)=body`.
-pub(super) fn macro_name(define: &str) -> &str {
-    define.split(['=', '(']).next().unwrap_or(define)
 }
 
 /// The value a `-D` entry gives its macro: a bare `NAME` means `1`.
