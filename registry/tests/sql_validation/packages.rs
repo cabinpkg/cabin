@@ -799,7 +799,10 @@ fn version_yank_state_serves_the_yanked_and_verified_columns() {
     let mut statement = conn
         .prepare(sql::VERSION_YANK_STATE)
         .expect("prepare yank state");
-    assert_eq!(statement.column_names(), ["yanked", "verified"]);
+    assert_eq!(
+        statement.column_names().collect::<Vec<_>>(),
+        ["yanked", "verified"]
+    );
     let (yanked, verified): (i64, i64) = statement
         .query_row(rusqlite::params!["alpha", "pkg", "1.0.0"], |row| {
             Ok((row.get("yanked")?, row.get("verified")?))

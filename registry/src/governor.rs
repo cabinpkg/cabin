@@ -1085,11 +1085,7 @@ mod tests {
             params: &[Value],
         ) -> Result<Vec<serde_json::Value>, String> {
             let mut statement = self.0.prepare(sql).map_err(|err| err.to_string())?;
-            let names: Vec<String> = statement
-                .column_names()
-                .into_iter()
-                .map(str::to_owned)
-                .collect();
+            let names: Vec<String> = statement.column_names().map(str::to_owned).collect();
             let mut rows = statement
                 .query(rusqlite::params_from_iter(bindings(params)))
                 .map_err(|err| err.to_string())?;
