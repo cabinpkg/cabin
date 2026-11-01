@@ -22,6 +22,7 @@ pub mod gc;
 pub mod graph;
 pub mod layout;
 pub mod link_diagnostics;
+pub mod owner;
 pub mod planner;
 pub mod standard_compat;
 pub mod validate;

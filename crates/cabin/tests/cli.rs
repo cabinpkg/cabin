@@ -2310,6 +2310,8 @@ mod cross_target;
 #[path = "cli/output_namespaces.rs"]
 mod output_namespaces;
 
+#[path = "cli/build_dir_owner.rs"]
+mod build_dir_owner;
 #[path = "cli/nested_cabin.rs"]
 mod nested_cabin;
 

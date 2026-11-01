@@ -576,7 +576,7 @@ impl Drop for Built {
 /// the Ninja files cannot be written, Ninja cannot be spawned, or Ninja
 /// exits non-zero.
 pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyhow::Result<Built> {
-    let lock = crate::cli::gc::lock_shared(req.build_root, req.reporter)?;
+    let lock = crate::cli::gc::lock_shared(req.build_root, &req.graph.root_dir, req.reporter)?;
     let profile_build_root = cabin_build::layout::profile_dir(req.build_dir, &req.profile.name);
     // Once locked, a new build directory holds the lock file, an entry
     // to tell its filesystem's case sensitivity by.

@@ -899,6 +899,8 @@ are spelled (`<build-dir>/<profile>/`, and `<build-dir>/.targets/<triple>/<profi
 `--target`, which no profile name can reach), `clean` plans and performs `cabin clean`, and `gc` records which outputs
 each plan uses, removes those unused for too long, and owns the build-directory lock that orders
 both against commands using the outputs (see [`profiles.md`](profiles.md#unused-build-outputs)).
+`owner` records the one workspace a build directory serves and refuses it to every other (see
+[`profiles.md`](profiles.md#build-directory-ownership)).
 The crate must:
 
 - not write Ninja syntax or any other backend's syntax;

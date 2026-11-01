@@ -6,6 +6,7 @@
 //! <build-dir>/.targets/<triple>/<profile>/   `--target <triple>` outputs
 //! <build-dir>/.cabin-gc/                     usage catalog (crate::gc)
 //! <build-dir>/.cabin-build.lock              lock (crate::gc::BuildDirLock)
+//! <build-dir>/.cabin-workspace               owner record (crate::owner)
 //!
 //! <profile-dir>/build.ninja, compile_commands.json, cabin-toolchain.json
 //! <profile-dir>/packages/<pkg>/              the target context's units

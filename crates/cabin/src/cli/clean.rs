@@ -14,6 +14,9 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
     let build_dir = super::config::resolve_build_dir(args.build_dir.as_deref(), &effective_config)?;
+    // Neither a clean nor a collection, even a dry run, touches another
+    // workspace's outputs.
+    cabin_build::owner::owner(&build_dir, &graph.root_dir)?;
 
     let package_roots: Vec<PathBuf> = graph
         .packages
@@ -115,7 +118,7 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     let _lock = if args.dry_run || plan.removals.is_empty() {
         None
     } else {
-        let lock = crate::cli::gc::lock_exclusive(&build_dir, reporter)?;
+        let lock = crate::cli::gc::lock_exclusive(&build_dir, &graph.root_dir, reporter)?;
         plan = plan_clean(&request).map_err(|err| anyhow::anyhow!(err.to_string()))?;
         Some(lock)
     };

@@ -325,19 +325,19 @@ Build outputs are profile-aware:
 <build-dir>/.targets/<triple>/<profile>/...
 <build-dir>/.cabin-gc/...
 <build-dir>/.cabin-build.lock
+<build-dir>/.cabin-workspace
 ```
 
 The `build-machine` tree holds [build dependencies](dependency-kinds.md#build-dependencies), built
 for the build machine.  A [`--target <triple>`](toolchains.md#building-for-another-platform) build
 writes the same profile trees under `.targets/<triple>/`; profile names cannot start with `.`, so a
 profile named like a triple keeps a tree of its own.  `.cabin-gc` and `.cabin-build.lock` serve
-[unused-output collection](#unused-build-outputs).
+[unused-output collection](#unused-build-outputs); `.cabin-workspace` names the
+[workspace the directory serves](#build-directory-ownership).
 
-Cabin releases before `.targets` wrote `--target` builds to `<build-dir>/<triple>/<profile>/`.
-Builds no longer use those trees, so [unused-output collection](#unused-build-outputs) removes the
-outputs it recorded there once they age out, as it does any unused output, and leaves the rest.
-`cabin clean` with no `--profile`, `--package`, or `--target` removes them with everything else; to
-keep the rest, delete `<build-dir>/<triple>/` yourself.
+Cabin releases before `.targets` wrote `--target` builds to `<build-dir>/<triple>/<profile>/`.  Such
+a build directory also predates the [owner record](#build-directory-ownership), so builds refuse it
+until `cabin clean` with no `--profile`, `--package`, or `--target` empties it, old trees included.
 `cabin clean --profile` and `--package` refuse to remove one as the tree of a profile named like
 the triple.
 
@@ -362,6 +362,28 @@ Mixed-case names and internal dots are fine (`RelWithDebInfo`, `ci.fast`).  Prof
 case-sensitive: `--profile Release` does not select `release`.  The letter-case rule covers the
 whole `[profile.*]` table, so every command that resolves a profile rejects such a manifest before
 it reads or removes build outputs.
+
+### Build directory ownership
+
+A build directory serves the one workspace that first builds into it: two workspaces would overwrite
+each other's outputs (both can have a package `app`), and one's `cabin clean` would remove the
+other's.  `build`, `check`, `run`, `test`, and `tidy` record their workspace in `.cabin-workspace`
+when the directory is missing or holds no subdirectory, only files such as a `.gitignore`, and every
+command that writes or removes outputs, `cabin clean` and `cabin clean --gc` included, refuses a
+build directory another workspace owns before doing so.  Symlinked and `..` spellings of either
+directory count as one.  The workspace is the directory of the root manifest the command loads, so
+a member loaded on its own with `--manifest-path member/cabin.toml` is another workspace, and an
+absolute `[paths] build-dir` in the user-level configuration serves only the first workspace that
+builds into it.  Recording the owner takes the build-directory lock exclusively, so of two
+workspaces building into a new directory at once, one claims it and the other is refused.
+
+The record names the workspace relative to the build directory when the build directory lies inside
+it, so moving the workspace with its build directory keeps it; a build directory outside a moved
+workspace still names where the workspace was.  `cabin clean` keeps the record, so a cleaned build
+directory stays its workspace's: to hand one to another workspace, remove it.  A build directory
+that holds subdirectories but no record, as one written by a Cabin release before the record does,
+is refused until `cabin clean` empties it, since nothing in it reliably names the workspace that
+wrote it.
 
 ## Unused build outputs
 
@@ -401,7 +423,8 @@ collected.  It never removes `build.ninja`, `compile_commands.json`, Ninja's log
 write beside outputs (such as the `.pdb` and `.ilk` an MSVC link writes for a user-supplied
 `/DEBUG`), outputs from before Cabin recorded usage, or anything outside the build directory: the
 source-archive cache, vendored sources, and compiler-cache data are not build outputs.
-`cabin clean` removes everything but the lock file.
+`cabin clean` removes everything but the lock file and the
+[owner record](#build-directory-ownership).
 
 **Concurrent commands.**  `build`, `check`, `run`, and `test` hold a shared lock on
 `<build-dir>/.cabin-build.lock` while they use outputs; `run` and `test` hold it until the program
@@ -409,9 +432,9 @@ or tests exit.  Collection and `cabin clean` take it exclusively, so a `cabin cl
 program runs against its own build directory fails instead of waiting for it forever (see
 [`CABIN_BUILD_DIRS_IN_USE`](environment-variables.md#variables-cabin-sets-for-cabin-run-and-cabin-test)).
 The lock is advisory, so it orders Cabin processes only; Cabin releases without it do not take it,
-and a file system without file locks orders nothing.  Commands record their use one at a time, under a second lock inside
-`.cabin-gc` with the same limits, so two builds at once keep both records.  An unreadable or
-newer-format usage record makes collection keep the outputs it lists.
+and a file system without file locks orders nothing.  Commands record their use one at a time, under
+a second lock inside `.cabin-gc` with the same limits, so two builds at once keep both records.  An
+unreadable or newer-format usage record makes collection keep the outputs it lists.
 
 ## Build configuration fingerprint
 

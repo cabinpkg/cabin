@@ -348,6 +348,9 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // must never be dropped silently.
     cabin_build::validate_planned_standards(&plan_graph)?;
 
+    // The compile database is an output of the build directory, so tidy
+    // claims the directory as a build does.
+    let _lock = crate::cli::gc::lock_shared(&build_dir, &graph.root_dir, reporter)?;
     // The compile database lands where a native `cabin build` of this
     // profile writes its own, the directory `clang-tidy -p` reads.
     let profile_build_root = cabin_build::layout::profile_dir(&build_dir, &profile.name);
