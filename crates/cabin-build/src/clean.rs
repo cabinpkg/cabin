@@ -1,7 +1,8 @@
 //! Plan and execute the deletion list for `cabin clean`.
 //!
 //! The on-disk layout this module operates against is
-//! [`crate::layout`]'s; the lock file is never removed.
+//! [`crate::layout`]'s; the build directory's lock file is never
+//! removed.
 //!
 //! Safety contract:
 //!
