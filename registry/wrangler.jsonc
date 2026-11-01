@@ -8,8 +8,11 @@
     "main": "build/index.js",
     "compatibility_date": "2026-07-09",
     "workers_dev": false,
+    // worker-build is a prerequisite on PATH, installed once at the
+    // version CI pins (README.md, "Development"); every wrangler dev
+    // and deploy runs this.
     "build": {
-        "command": "cargo install -q \"worker-build@=0.8.5\" --locked && worker-build --release"
+        "command": "worker-build --release"
     },
     "observability": {
         "enabled": true,

@@ -114,8 +114,10 @@ and the verification lifecycle (pending -> verify -> resolvable with a
 verify-scoped token, plus the reject -> reclaim -> refund -> republish
 flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
 and Node, then `npm ci --ignore-scripts` in this directory (again after
-`package-lock.json` changes) to install the wrangler `package.json` pins;
-`worker-build` installs itself on first build.
+`package-lock.json` changes) to install the wrangler `package.json` pins,
+and `cargo install worker-build@=0.8.5 --locked`, the version CI
+installs: every `wrangler dev` and `wrangler deploy` runs
+`worker-build --release` from `PATH`.
 
 Before its servers start, the smoke also restores its local D1 export into a
 scratch database and requires the same schema and rows: the backup cron leg

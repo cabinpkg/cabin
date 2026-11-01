@@ -4,7 +4,10 @@ All wrangler commands run with `registry/` as the working directory against
 the single top-level configuration in `wrangler.jsonc` (no wrangler
 environments, no `--env`), as `node_modules/.bin/wrangler`: the version
 `package.json` pins, installed by `npm ci --ignore-scripts` there (again
-after `package-lock.json` changes). Authentication: `CLOUDFLARE_API_TOKEN` in the
+after `package-lock.json` changes). Every `wrangler deploy`, including the
+one `cargo registry-wipe` runs after recreating the database, builds the
+Worker with `worker-build` from `PATH`: install the version CI pins first
+(`registry/README.md`, "Development"). Authentication: `CLOUDFLARE_API_TOKEN` in the
 environment (scopes: Workers Scripts Edit, D1 Edit, R2 Edit, and DNS Edit
 on the cabinpkg.com zone).
 
