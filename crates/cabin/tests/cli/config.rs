@@ -83,9 +83,8 @@ profile = "release"
         .expect("loaded_files array");
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0]["source"].as_str(), Some("package"));
-    // The synthetic single-package package's `.cabin` dir is
-    // labeled `package` rather than `workspace` because the
-    // root manifest does not declare `[workspace]`.
+    // The root manifest does not declare `[workspace]`, so its
+    // `.cabin` dir is labeled `package`.
     let profile = &value["config"]["build"]["profile"];
     assert_eq!(profile["name"].as_str(), Some("release"));
     assert_eq!(profile["value_source"].as_str(), Some("package-config"));
@@ -459,7 +458,6 @@ profile = "dev"
     let profile = &value["config"]["build"]["profile"];
     assert_eq!(profile["name"].as_str(), Some("release"));
     assert_eq!(profile["value_source"].as_str(), Some("package-config"));
-    // `profiles.selected.name` reflects the resolved selection.
     assert_eq!(
         value["profiles"]["selected"]["name"].as_str(),
         Some("release")
@@ -485,11 +483,8 @@ profile = "release"
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
     let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    // The CLI choice wins.
     assert_eq!(value["profiles"]["selected"]["name"].as_str(), Some("dev"));
-    // The config-recorded default still appears in the
-    // `config.build.profile` block (reporting layer remains
-    // unchanged).
+    // `config.build.profile` still reports the config default.
     assert_eq!(
         value["config"]["build"]["profile"]["name"].as_str(),
         Some("release")
@@ -751,13 +746,10 @@ compiler-wrapper = "ccache"
         .assert()
         .success();
     let body = fs::read_to_string(out.join("demo-0.1.0.json")).unwrap();
-    // None of the config keys should appear in published
-    // metadata - `cabin package` is supposed to drop local
-    // policy entirely.
+    // `cabin package` drops local config policy entirely.
     assert!(!body.contains("compiler-wrapper"), "{body}");
     assert!(!body.contains("\"build\""), "{body}");
     assert!(!body.contains("\"config\""), "{body}");
-    // The archive itself should not include `.cabin/config.toml`.
     let archive = out.join("demo-0.1.0.zip");
     let f = fs::File::open(&archive).unwrap();
     let mut zip = zip::ZipArchive::new(f).unwrap();
@@ -907,13 +899,9 @@ cxx = "{cxx}"
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
     let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    // The toolchain block reports the resolved spec with its
-    // source label.
     let cxx_view = &value["toolchain"]["tools"]["cxx"];
     assert_eq!(cxx_view["spec"].as_str(), Some(cxx.to_str().unwrap()));
     assert_eq!(cxx_view["source"].as_str(), Some("package-config"));
-    // The config block records the same value with its
-    // dedicated provenance label.
     assert_eq!(
         value["config"]["toolchain"]["cxx"]["value_source"].as_str(),
         Some("package-config")
@@ -1016,11 +1004,8 @@ compiler-wrapper = "ccache"
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
     let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    // CLI wins → no wrapper applies even though config asked
-    // for ccache.
     assert!(value["toolchain"]["compiler_wrapper"].is_null());
-    // The config block still records the default for
-    // visibility.
+    // The config block still records the default.
     assert_eq!(
         value["config"]["compiler_wrapper"]["request"].as_str(),
         Some("ccache")

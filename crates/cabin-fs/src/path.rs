@@ -4,10 +4,9 @@
 //! These helpers do not touch the filesystem and do not
 //! canonicalize.  They reason only about the lexical components of
 //! the input, so they are safe to call on paths that do not yet
-//! exist.  Callers that need archive- or context-specific behavior
-//! (skipping GNU/PAX metadata, matching a declared `strip_prefix`,
-//! enforcing byte caps) still own that policy themselves; archive
-//! extraction in particular continues to own its own rules.
+//! exist.  Archive- or context-specific policy (skipping GNU/PAX
+//! metadata, matching a declared `strip_prefix`, enforcing byte caps)
+//! stays with the caller.
 
 use std::path::{Component, Path};
 
@@ -174,9 +173,10 @@ pub fn component_portability(component: &str) -> Option<PortabilityViolation> {
 /// components of `path`, or `None` when every component is portable.
 ///
 /// A convenience over [`component_portability`] for callers holding a
-/// whole forward-slash relative path (an archive entry name).  Empty
-/// segments, `.`, and `..` are not judged here - absoluteness and
-/// traversal stay the caller's concern.
+/// whole forward-slash relative path (an archive entry name).
+/// Absoluteness and traversal stay the caller's concern: an empty
+/// segment passes, and `.` and `..` report
+/// [`PortabilityViolation::TrailingDot`].
 pub fn relative_path_portability(path: &str) -> Option<PortabilityViolation> {
     path.split('/').find_map(component_portability)
 }
@@ -202,10 +202,6 @@ mod tests {
 
     #[test]
     fn safe_relative_path_accepts_empty_path() {
-        // The empty path carries no escape risk on its own.  Archive
-        // extraction relies on the empty case being safe so that an
-        // entry that decays to nothing after `strip_prefix` can be
-        // skipped rather than rejected.
         assert!(is_safe_relative_path(Path::new("")));
     }
 

@@ -5,9 +5,10 @@
 //! pipeline → planner → Ninja).  After Ninja produces the
 //! linked executable, this module locates the file that the
 //! planner emitted for the selected target, populates a
-//! deterministic `CABIN_*` environment, and execs the binary
-//! with the user's stdio attached.  Arguments after `--` are
-//! forwarded verbatim.
+//! deterministic `CABIN_*` environment, and runs the binary as a
+//! child process (through the configured `[runner]`, if any) with
+//! the user's stdio attached.  Arguments after `--` are forwarded
+//! verbatim.
 //!
 //! The typed `CABIN_*` env overlay is built by
 //! `cabin_env::package_env`; this module only orchestrates.
@@ -158,11 +159,6 @@ pub(crate) fn run(
         reporter,
     )?;
 
-    // Pick the run target. `--bin` narrows the search to a
-    // named `executable`; otherwise we look for a single
-    // buildable `executable` in the selected closure
-    // (feature-gated executables are skipped, like the default
-    // build enumeration).
     let run_target = pick_run_target(
         &prepared.graph,
         &prepared.resolved_selection.packages,
@@ -231,10 +227,8 @@ pub(crate) fn run(
         );
     }
 
-    // Build the env.  We do not clear the user's environment -
-    // the spawned program inherits PATH, LANG, etc. - but we
-    // overlay the deterministic CABIN_* values so the program
-    // sees consistent package metadata.
+    // The program inherits Cabin's environment with the `CABIN_*`
+    // package overlay applied on top.
     let env_overlay = cabin_env::package_env(&cabin_env::PackageEnvInputs {
         manifest_dir: &run_target.manifest_dir,
         manifest_path: &run_target.manifest_path,
@@ -244,12 +238,6 @@ pub(crate) fn run(
         build_dir: &prepared.build_dir,
     });
 
-    // Cargo-style `Running` banner: the executable path shown
-    // relative to the invoked manifest's directory (project
-    // root) so the line reads like cargo's `Running
-    // \`target/debug/foo\``.  Falls back to the absolute path
-    // when `--build-dir` places the binary outside the project
-    // tree.
     let mut shown = prepared.runner.clone();
     shown.push(display_run_path(&executable, &prepared.manifest_path));
     reporter.status("Running", format_args!("`{}`", shown.join(" ")));
@@ -267,8 +255,9 @@ pub(crate) fn run(
         None => std::process::Command::new(&executable),
     };
     command.envs(env_overlay.iter().map(|(k, v)| (k.as_str(), v.as_os_str())));
-    // The registry credential is Cabin's input, not the program's:
-    // scrub it so arbitrary package code can never read the token.
+    // Registry credentials (the registry token and the GitHub Actions
+    // OIDC request token) are Cabin's inputs: scrub them so package code
+    // cannot read them.
     command.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     command.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
     command.args(args.args.iter());
@@ -328,11 +317,10 @@ fn pick_run_target(
         // targets: the planner reports the missing features.
         return find_target(graph, &pool, name, TargetKind::Executable, "--bin");
     }
-    // Default: pick a single executable in the selected
-    // packages.  Enumeration skips feature-gated executables
-    // (like the default build selection); ambiguous selections
-    // produce a diagnostic listing every candidate so users can
-    // decide.
+    // Without `--bin`, exactly one executable in the selected
+    // packages must be buildable.  Feature-gated executables are
+    // skipped, as in the default build selection; an ambiguous
+    // selection lists every candidate.
     let empty_features = BTreeSet::new();
     let mut candidates: Vec<RunTarget> = Vec::new();
     let mut gated: Vec<RunTarget> = Vec::new();
@@ -518,8 +506,6 @@ mod tests {
         assert_eq!(exit_code_byte(Some(0)), 0);
         assert_eq!(exit_code_byte(Some(3)), 3);
         assert_eq!(exit_code_byte(Some(255)), 255);
-        // Windows statuses exceed u8; masking with `& 0xff` would
-        // turn 256 into "success".
         assert_eq!(exit_code_byte(Some(256)), 1);
         assert_eq!(exit_code_byte(Some(-1)), 1);
         // Signal-terminated child: no code at all.
@@ -626,8 +612,6 @@ mod tests {
             locate_target_executable(&outputs, &scoped),
             Some(PathBuf::from("/b/dev/packages/fmtlib/fmt/demo"))
         );
-        // A bare package named like the scoped base must not match
-        // the scoped package's output across the scope boundary.
         let bare = RunTarget {
             package_name: PackageName::new("fmt").unwrap(),
             ..scoped

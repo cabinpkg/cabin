@@ -99,8 +99,6 @@ pub(crate) fn resolve_early_terminal_state(
     ) {
         Ok(choice) => choice,
         Err(env_err) => {
-            // Use `Auto` for the styling of the error itself -
-            // we cannot trust the value the user gave us.
             let mut stderr = StandardStream::stderr(termcolor_choice(ColorChoice::Auto));
             let _ = write_plain_error(&mut stderr, &env_err.to_string());
             return Err(ExitCode::FAILURE);

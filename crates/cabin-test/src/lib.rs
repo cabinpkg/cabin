@@ -1,24 +1,21 @@
 //! Test plan + test runner for Cabin's `test` targets.
 //!
-//! `cabin test` is intentionally a thin layer on top of the
-//! existing build pipeline:
+//! `cabin test` is a thin layer on top of the build pipeline:
 //!
 //! 1. The CLI builds the selected `test` targets through the
-//!    ordinary `cabin-build` planner - no test-specific build
-//!    machinery is invented here.
+//!    ordinary `cabin-build` planner.
 //! 2. This crate turns the resulting [`cabin_build::BuildGraph`]
 //!    into a deterministic [`TestPlan`].
 //! 3. [`run_tests`] executes the plan, running up to
-//!    [`TestRunOptions::jobs`] executables at once and passing the
-//!    user's arguments to each, captures stdout / stderr from each
-//!    one, and produces a [`TestSummary`] describing what passed and
-//!    what failed.
+//!    [`TestRunOptions::jobs`] executables at once with the user's
+//!    arguments, captures each one's stdout / stderr, and produces a
+//!    [`TestSummary`] describing what passed and what failed.
 //!
 //! Crate boundary: this crate does not parse manifests, build
 //! dependency graphs, generate Ninja, or know about config /
 //! patches.  The CLI orchestrates those layers and hands a
-//! finished `BuildGraph` plus the per-package CWD policy to
-//! [`plan_tests`] / [`run_tests`].
+//! finished `BuildGraph` and its `PackageGraph` to [`plan_tests`],
+//! then the plan to [`run_tests`].
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -55,9 +52,9 @@ pub struct TestExecutable {
     /// Deterministic env overlay applied on top of the
     /// inherited environment when the executable runs.  Intended
     /// for `CABIN_*` keys produced by the orchestration layer
-    /// via `cabin_env::package_env`.  Empty by default; callers
-    /// that do not populate the overlay see the inherited
-    /// environment unchanged.
+    /// via `cabin_env::package_env`.  Empty as built by
+    /// [`plan_tests`].  The runner removes the registry credentials
+    /// from the environment whatever the overlay holds.
     pub env: BTreeMap<String, OsString>,
 }
 
@@ -97,14 +94,11 @@ impl TestPlan {
 /// Build a [`TestPlan`] from a finished [`BuildGraph`] plus the
 /// originating [`PackageGraph`].
 ///
-/// The plan picks every `test` target whose linked
-/// executable appears in `graph.default_outputs` (i.e. every
-/// `test` the build was asked to produce). `test`
-/// targets that the planner did *not* build are absent from the
-/// plan - that is the contract: callers select which test targets
-/// to build (typically through the planner's manifest-target
-/// selector list), and `plan_tests` runs exactly the ones whose
-/// executable exists in the graph.
+/// The plan holds every `test` target whose linked executable
+/// appears in `build_graph.default_outputs`.  Callers select which
+/// test targets to build (typically through the planner's
+/// manifest-target selector list); a `test` target the planner did
+/// not build is absent from the plan.
 ///
 /// If `selected_packages` is `Some`, the plan is restricted to
 /// those package indices; passing `None` walks the graph's
@@ -119,8 +113,6 @@ pub fn plan_tests(
     build_graph: &BuildGraph,
     selected_packages: Option<&[usize]>,
 ) -> TestPlan {
-    // `default_outputs` are UTF-8 build-graph paths; borrow each as a
-    // native `&Path` for the filesystem comparison below.
     let outputs: BTreeSet<&Path> = build_graph
         .default_outputs
         .iter()
@@ -139,10 +131,6 @@ pub fn plan_tests(
             if target.kind != TargetKind::Test {
                 continue;
             }
-            // Skip tests the planner was not asked to build.
-            // Callers that pass a narrower manifest-target
-            // selector list rely on this to drop targets that did
-            // not make it into the graph.
             let Some(exe) =
                 expected_executable(package, target.name.as_str(), build_graph.dialect, &outputs)
             else {
@@ -179,12 +167,10 @@ fn expected_executable<'a>(
     // (one directory per `path_components` element, so a scoped
     // package nests under its scope dir) using the dialect's
     // executable spelling - bare on GNU/Clang, `<target>.exe`
-    // under MSVC.  Build the tail with that same spelling (the dialect is
-    // the planner's own, carried on the graph) and scan
-    // `default_outputs` for it, rather than re-deriving the full path
-    // here, so the planner stays the single source of truth for output
-    // paths - and so Windows `.exe` test binaries are matched, not
-    // silently skipped.
+    // under MSVC.  Only that tail is matched against
+    // `default_outputs`, spelled with the planner's own dialect from
+    // the graph, so the planner stays the single source of truth for
+    // the rest of the path.
     let exe_name = dialect.executable_name(target_name);
     let needle_tail: PathBuf = std::iter::once("packages")
         .chain(package.package.name.path_components())
@@ -259,7 +245,8 @@ impl TestSummary {
             .count()
     }
 
-    /// Number of executables that exited non-zero.
+    /// Number of executables that did not pass: failed, timed out, or
+    /// could not start.
     pub fn failed(&self) -> usize {
         self.results
             .iter()
@@ -532,23 +519,19 @@ impl<'a> RunningTest<'a> {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        // Tests inherit the user's PATH plus whatever Cabin's
-        // own caller has set, with the per-executable env
-        // overlay applied on top so the orchestration layer can
-        // surface deterministic CABIN_* values without forcing
-        // every test fixture to re-derive them.
         for (key, value) in &executable.env {
             command.env(key, value);
         }
-        // The registry credential is Cabin's input, not the test's:
-        // scrub it so arbitrary test code can never read the token.
+        // The registry credentials are Cabin's input, not the test's:
+        // scrub them so arbitrary test code can never read them from
+        // its environment.
         command.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
         command.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
-        // Retry on `ETXTBSY`: a sibling thread that forks while we
-        // are mid-`write`/`chmod` of another executable can leave a
-        // writable fd to this file briefly inherited in its
-        // not-yet-`execve`d child, which makes our own `execve`
-        // race-fail.  The window clears within milliseconds.
+        // Retry on `ETXTBSY`: when another thread of this process
+        // forks while this executable is still open for writing, the
+        // forked child inherits the writable fd until its own
+        // `execve`, and our `execve` of the file fails meanwhile.  The
+        // window clears within milliseconds.
         let child = retry_on_etxtbsy(SPAWN_RETRY_ATTEMPTS, SPAWN_RETRY_BASE_DELAY, || {
             SharedChild::spawn(&mut command)
         })
@@ -825,7 +808,7 @@ fn spawn_output_reader<R: Read + Send + 'static>(
 }
 
 /// Format the `cargo test`-shaped one-line summary:
-/// `test result: ok.  P passed; F failed; 0 ignored; 0 measured;
+/// `test result: ok. P passed; F failed; 0 ignored; 0 measured;
 /// FO filtered out; finished in T.TTs`.  Centralized here so the
 /// CLI does not invent its own format.
 ///

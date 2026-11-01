@@ -4,9 +4,8 @@ use crate::config::InvalidFeatureEntryKind;
 use crate::model::DependencyKind;
 
 /// Errors produced when validating values that compose the internal package
-/// model.  These are kept independent from manifest-parsing or CLI-specific
-/// errors so future producers (registry, lockfile, build graph) can reuse the
-/// same validation surface.
+/// model.  Independent of manifest-parsing and CLI errors, so the manifest,
+/// config, and lockfile layers share one validation surface.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ValidationError {
     #[error("package name must not be empty")]

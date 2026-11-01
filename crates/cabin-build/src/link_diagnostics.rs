@@ -1,21 +1,19 @@
 //! Post-link-failure diagnostics.
 //!
-//! When ninja fails because the linker couldn't resolve a symbol,
-//! cabin has structured information the raw linker output lacks:
-//! which target failed (from ninja's `FAILED:` line), which package
-//! owns it, what that package's `[dependencies]` declares, and what
-//! the target's own `deps =` list links.  The mismatch between
-//! "declared at the package level" and "linked at the target level"
-//! is the most common newcomer gotcha: `[dependencies]` makes a
-//! dep *available*; `[target.X.deps]` is what gets passed
-//! to the linker.  Cabin can spot the gap precisely.
+//! When a ninja link action fails, cabin has structured information
+//! the raw linker output lacks: which target failed (from ninja's
+//! `FAILED:` line), which package owns it, what that package's
+//! `[dependencies]` declares, and what the target's own `deps =`
+//! list links.  `[dependencies]` makes a dep *available*;
+//! `[target.X].deps` is what gets passed to the linker, so a name
+//! declared in the first but missing from the second is reported.
 //!
 //! The same gap surfaces one step earlier for header-only use: a
 //! compile that cannot find an included header, because a dep's
 //! include directories reach a target only through `deps`.
 //!
 //! This module is the parser + matcher.  The CLI calls
-//! [`diagnose`] with captured ninja stderr and a closure that
+//! [`diagnose`] with captured ninja output and a closure that
 //! resolves a `(package, target)` pair to its dependency picture;
 //! the resulting [`LinkDiagnostic`] is rendered into a hint.
 
@@ -42,7 +40,9 @@ pub struct LinkFailure {
 /// and passed to [`diagnose`] via the lookup closure.
 #[derive(Debug, Clone)]
 pub struct TargetDepInfo {
-    /// Names appearing in the package's `[dependencies]` table.
+    /// Names of the package's dependencies active in this build (the
+    /// caller applies the planner's platform, dev, and optional-feature
+    /// filters).
     pub package_deps: BTreeSet<String>,
     /// Names appearing in `[target.<name>].deps` for the failing
     /// target.
@@ -53,8 +53,7 @@ pub struct TargetDepInfo {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LinkDiagnostic {
     /// `[dependencies]` declares one or more names the failing
-    /// target's `deps =` doesn't link.  The #1 newcomer gotcha:
-    /// "I added it to `[dependencies]`, why isn't it linking?"
+    /// target's `deps =` doesn't link.
     DeclaredButUnlinked {
         package: String,
         target: String,
@@ -129,15 +128,14 @@ fn is_missing_header(line: &str) -> bool {
 
 /// Render a diagnostic as the multi-line text cabin emits to
 /// stderr.  The CLI's reporter prepends the styled `help:` lead-in
-/// and indents continuation lines, so this body is intentionally
-/// plain: one logical paragraph per blank-line-separated block,
-/// each line short enough to live under a six-column indent
-/// without re-wrapping on an 80-column terminal.
+/// and indents continuation lines, so this body is plain: one
+/// logical paragraph per blank-line-separated block, each line
+/// short enough to live under a six-column indent without
+/// re-wrapping on an 80-column terminal.
 ///
 /// Code blocks (TOML snippets) are indented four spaces inside
 /// the body; combined with the reporter's six-space indent that
-/// puts them at column ten, matching the Rust compiler's spacing
-/// for help-attached suggestions.
+/// puts them at column ten.
 pub fn render(diag: &LinkDiagnostic) -> String {
     use std::fmt::Write as _;
 
@@ -249,9 +247,9 @@ fn find_failed_target(stderr: &str, dialect: Dialect) -> Option<(Vec<Reading>, b
         };
         for token in rest.split_whitespace() {
             // Normalize Windows-style separators so one split on
-            // `/` anchors the parse on every platform.  Cabin's planner emits the same logical
-            // layout regardless of OS; only ninja's stderr
-            // separator differs.
+            // `/` anchors the parse on every platform.  Cabin's
+            // planner emits the same logical layout regardless of
+            // OS; only the separator differs.
             let normalized = token.replace('\\', "/");
             let parts: Vec<&str> = normalized.split('/').collect();
             // Read every `packages` component as an anchor, the last
@@ -355,11 +353,9 @@ mod tests {
         assert_eq!(failure.target, "mylib");
     }
 
-    /// Ninja on Windows emits backslash-separated paths.  The
-    /// parser must still find `\packages\<package>\<target>`
-    /// and recover the same identity it would on POSIX, so the
-    /// downstream "declared-but-unlinked" hint reaches the
-    /// Windows user too.
+    /// A Windows build reports backslash-separated paths; the parser
+    /// recovers the same identity from `\packages\<package>\<target>`
+    /// as it would on POSIX.
     #[test]
     fn parses_windows_failed_line_with_backslashes() {
         let stderr = "FAILED: build\\dev\\packages\\mytest\\mytest.exe\n\
@@ -373,11 +369,8 @@ mod tests {
     }
 
     /// `--build-dir` may itself contain a `packages` segment
-    /// (e.g. `/tmp/packages/out`).  The parser must anchor on the
-    /// planner-owned *trailing* `/packages/` segment, not the
-    /// first occurrence in the path - otherwise the recovered
-    /// `(package, target)` pair points at the wrong directory
-    /// and the link hint is silently lost.
+    /// (e.g. `/tmp/packages/out`).  The planner's anchor follows it,
+    /// and the parser tries the last anchor first.
     #[test]
     fn anchors_on_last_packages_segment() {
         let stderr = "FAILED: /tmp/packages/out/dev/packages/realpkg/realtarget\nld: ...\n";
@@ -389,11 +382,8 @@ mod tests {
         assert_eq!(failure.target, "realtarget");
     }
 
-    /// A target spelled with a literal dot (e.g. `tool.v2`) is
-    /// not an extension and must round-trip through the parser
-    /// unchanged; the parser only unwraps the dialect's own
-    /// artifact shapes, so anything else (including names that
-    /// happen to look like an extension) survives verbatim.
+    /// A dot in a target name (`tool.v2`) is not an extension: the
+    /// parser unwraps only the dialect's own artifact shapes.
     #[test]
     fn preserves_target_names_with_internal_dots() {
         let stderr = "FAILED: build/dev/packages/mypkg/tool.v2\nld: ...\n";
@@ -405,13 +395,10 @@ mod tests {
         assert_eq!(failure.target, "tool.v2");
     }
 
-    /// Target names ending in `.a`, `.exe`, `.so`, `.dylib`,
-    /// `.dll`, or `.lib` must round-trip unchanged on GCC/Clang.
-    /// That dialect only produces `lib<name>.a` (libraries) and
-    /// `<name>` (executables, no extension), so any dot in the
-    /// FAILED path is part of the user's declared target name -
-    /// stripping it would silently drop the link hint for
-    /// projects whose targets happen to be spelled that way.
+    /// GCC/Clang names outputs `lib<name>.a` (libraries) and `<name>`
+    /// (executables, no extension), so an output that is not
+    /// `lib<name>.a` is the declared target name verbatim, whatever
+    /// extension-like suffix it ends in.
     #[test]
     fn preserves_target_names_ending_in_non_emitted_extensions() {
         for name in [
@@ -535,10 +522,6 @@ mod tests {
 
     #[test]
     fn returns_none_when_target_already_links_dep() {
-        // `zlib` is both declared AND linked - the failure must
-        // be something else (a real bug in the user's code, a
-        // missing system lib, etc.).  Cabin has no useful hint;
-        // surface nothing.
         let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| {
             Some(deps(&["zlib"], &["zlib"]))
         });
@@ -547,8 +530,6 @@ mod tests {
 
     #[test]
     fn returns_none_when_nothing_is_declared() {
-        // No deps declared at the package level - the gap-based
-        // diagnostic has nothing to say.
         let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| {
             Some(deps(&[], &[]))
         });
@@ -557,8 +538,6 @@ mod tests {
 
     #[test]
     fn returns_none_when_package_lookup_fails() {
-        // Closure returns None - the failing target isn't in the
-        // graph.  Don't pretend to know anything.
         let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| None);
         assert!(diag.is_none());
     }
@@ -573,8 +552,6 @@ mod tests {
 
     #[test]
     fn lists_every_unlinked_dep_when_multiple_declared() {
-        // Package declares zlib + fmt + spdlog; target links
-        // none.  All three appear in `unlinked`.
         let diag = diagnose(ninja_link_failure(), Dialect::GnuLike, |_, _| {
             Some(deps(&["fmt", "spdlog", "zlib"], &[]))
         })

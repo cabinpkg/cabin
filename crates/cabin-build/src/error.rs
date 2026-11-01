@@ -148,15 +148,15 @@ pub enum BuildError {
     )]
     EmptySelectedPackages,
 
-    /// The detected toolchain cannot run the commands the C++
-    /// backend emits.  The wrapped error carries the specific
-    /// missing capability or unsupported compiler family.
+    /// The detected toolchain cannot run the commands the backend
+    /// emits.  The wrapped error carries the specific missing
+    /// capability or unsupported compiler or archiver family.
     #[error(transparent)]
     UnsupportedToolchain(#[from] cabin_core::ToolDetectionError),
 
     /// The selected tools individually run, but belong to
     /// different command-line dialects (MSVC `cl.exe` / `lib.exe`
-    /// vs.  GCC/Clang).  Cabin emits one dialect per build, so a
+    /// vs. GCC/Clang).  Cabin emits one dialect per build, so a
     /// mixed toolchain cannot be driven coherently.
     #[error(
         "selected toolchain mixes MSVC and GCC/Clang tools, which Cabin cannot drive together: {detail}"
@@ -194,8 +194,7 @@ pub enum BuildError {
     },
 
     /// A target carries `.c` source(s) but no C compiler is
-    /// available.  Set `CC`, pass `--cc`, or add `cc = ...` to
-    /// `[toolchain]` so Cabin can compile C translation units.
+    /// available.
     #[error(
         "target {target:?} has C source `{path}` but no C compiler is available; set the `CC` environment variable, pass `--cc <path>`, or add `cc = ...` under [toolchain]"
     )]
@@ -347,9 +346,6 @@ pub struct IncompatibleLanguageStandardError {
     pub requirement_source: &'static str,
 }
 
-/// The per-direction remedy of an interface incompatibility: raising
-/// helps only below a minimum, lowering only above a maximum, and a
-/// declared `"none"` has no standard-level remedy at all.
 fn interface_remedy(consumer: &str, language: &str, kind: crate::InterfaceViolationKind) -> String {
     match kind {
         crate::InterfaceViolationKind::BelowMinimum { min } => format!(

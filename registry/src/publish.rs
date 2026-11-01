@@ -124,13 +124,10 @@ pub struct VersionMetadata {
     /// canonical `<scope>/<name>` names ([`validate_metadata`]);
     /// values are stored verbatim.
     pub dependencies: serde_json::Map<String, serde_json::Value>,
-    /// Like `dependencies`: dev-dependency keys denote registry
-    /// packages too (they resolve when building the package's own
-    /// tests), so the same key grammar applies. Typed as a map for
-    /// exactly that check; values stay opaque. `default` (not
-    /// `Option`) on purpose: the canonical document omits the empty
-    /// map, but an explicit `null` must stay non-canonical rather
-    /// than alias the omission.
+    /// Like `dependencies`: keys must be canonical `<scope>/<name>`
+    /// names; values stay opaque. `default` (not `Option`): the
+    /// canonical document omits the empty map, but an explicit `null`
+    /// must stay non-canonical rather than alias the omission.
     #[serde(rename = "dev-dependencies", default)]
     pub dev_dependencies: serde_json::Map<String, serde_json::Value>,
     #[serde(rename = "system-dependencies")]
@@ -141,10 +138,10 @@ pub struct VersionMetadata {
     pub build: Option<serde_json::Value>,
     pub compiler_wrapper: Option<serde_json::Value>,
     pub language: Option<serde_json::Value>,
-    /// Stored and served back verbatim, but no longer fully opaque:
-    /// [`validate_metadata`] looks up each `links` target's row (and
-    /// its `header-only` flag) to mirror the client's library-only
-    /// rule.  Row values are otherwise uninterpreted.
+    /// Stored and served back verbatim; [`validate_metadata`] looks up
+    /// each `links` target's row (and its `header-only` flag) to mirror
+    /// the client's library-only rule.  Row values are otherwise
+    /// uninterpreted.
     pub standards: Option<serde_json::Value>,
     /// Per-target `links` native-library identity claims.  Typed as
     /// a map so [`validate_metadata`] can mirror the client's
@@ -384,10 +381,9 @@ pub fn source_path(scope: &str, name: &str, version: &str, revision: &str) -> St
 /// implies embeds the scope twice - directory and filename - plus the
 /// packaging revision), scope and
 /// name charsets, the reserved-name list (`crate::names`, package
-/// part only), `SemVer`, dependency keys (the `dependencies` and
-/// `dev-dependencies` maps key on canonical `<scope>/<name>` names -
-/// `system-dependencies` is exempt, its keys name system packages,
-/// not registry packages), the optional `upstream` block's lexical
+/// part only), `SemVer`, `dependencies` / `dev-dependencies` keys
+/// (`system-dependencies` is exempt), the `links` claims
+/// (`validate_links`), the optional `upstream` block's lexical
 /// provenance rules ([`validate_upstream`]), `yanked`. The
 /// checksum is checked separately by [`verify_checksum`] once the
 /// caller has digested the archive bytes.
@@ -434,9 +430,8 @@ pub fn validate_metadata(
     match semver::Version::parse(url_version) {
         Err(_) => return Err(INVALID_VERSION),
         // Registry versions are plain upstream versions: the
-        // packaging axis is the revision id, so the removed
-        // `+cabin.N` shape (and any other build metadata) fails
-        // through ordinary validation.
+        // packaging axis is the revision id, so any build metadata
+        // (including the retired `+cabin.N` shape) is rejected.
         Ok(parsed) if !parsed.build.is_empty() => return Err(VERSION_BUILD_METADATA),
         Ok(_) => {}
     }
@@ -558,9 +553,8 @@ fn validate_links(
         }
         previous = Some(target);
     }
-    // Cross-table pass last, so a table violating both reports
-    // the grammar/uniqueness error it always did - matching the
-    // client loader's ordering.
+    // Cross-table pass last, matching the client loader's ordering:
+    // a table violating both reports the grammar/uniqueness error.
     for target in links.keys() {
         let row = standards
             .and_then(|s| s.get("targets"))
@@ -754,12 +748,6 @@ mod tests {
         assert_eq!(parsed.links["fmt"], "fmt");
     }
 
-    /// The lexical `links` mirror: malformed target keys, malformed
-    /// or non-string identities, duplicate identities, an explicit
-    /// `null` (which can never be canonical), and claims naming a
-    /// target without a non-header-only `standards` row are all
-    /// `400`s, so a document that could only fail at verification
-    /// time never enters the pending queue.
     #[test]
     fn target_names_mirror_the_client_grammar() {
         for name in [

@@ -3,7 +3,7 @@
 //!
 //! Discovery rules:
 //!
-//! 1. If `CABIN_NO_CONFIG=1` is set, no config files load.
+//! 1. If `CABIN_NO_CONFIG` is truthy, no config files load.
 //! 2. If `CABIN_CONFIG=<path>` is set, exactly one explicit
 //!    config file is loaded; missing or unreadable files are a
 //!    hard error rather than a silent fallback.
@@ -12,9 +12,8 @@
 //!    whether the start path lives inside a `[workspace]` root).
 //!
 //! Returned [`crate::LoadedConfigFile`]s are ordered
-//! lowest-priority first (user, then workspace/package, then
-//! explicit when applicable) so the merger can apply them in a
-//! single forward pass.
+//! lowest-priority first (user, then workspace/package) so the
+//! merger can apply them in a single forward pass.
 
 use std::ffi::OsString;
 use std::fs;
@@ -55,19 +54,17 @@ pub type EnvLookup<'a> = Box<dyn Fn(&str) -> Option<OsString> + 'a>;
 pub struct ConfigDiscoveryInputs<'a> {
     pub workspace: Option<WorkspaceLayout<'a>>,
     pub env: EnvLookup<'a>,
-    /// Pre-resolved XDG user config home for Cabin (already
-    /// includes the `cabin` application prefix).  The XDG fallback
-    /// arm of [`discover_config_files`] reads `<this>/config.toml`.
+    /// Pre-resolved user config home for Cabin (already ending in
+    /// the `cabin` component).  The fallback arm of
+    /// [`discover_config_files`] reads `<this>/config.toml`.
     ///
     /// Production builds this via the `etcetera` crate (see
     /// [`ConfigDiscoveryInputs::from_process`]); tests pass an
     /// explicit path so they exercise the fallback chain without
     /// mutating the process environment.
     ///
-    /// Honored only when `CABIN_CONFIG`, `CABIN_NO_CONFIG`, and
-    /// `CABIN_CONFIG_HOME` do not short-circuit the lookup; those
-    /// Cabin-specific overrides keep their original semantics and
-    /// are not routed through XDG.
+    /// Ignored when `CABIN_NO_CONFIG`, `CABIN_CONFIG`, or
+    /// `CABIN_CONFIG_HOME` takes effect.
     pub xdg_user_config_home: Option<PathBuf>,
 }
 
@@ -97,11 +94,8 @@ fn user_config_home() -> Option<PathBuf> {
         .map(|dirs| dirs.config_dir().join("cabin"))
 }
 
-/// Discovery report.  Splits into the actual loaded files plus a
-/// flag the caller can show in `cabin metadata` to explain that
-/// `CABIN_NO_CONFIG=1` short-circuited the search.  The flag is
-/// useful for test harnesses that want to assert "no config was
-/// loaded" without re-deriving the env state.
+/// Discovery report: the loaded files, and whether a truthy
+/// `CABIN_NO_CONFIG` short-circuited the search.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigDiscovery {
     pub loaded_files: Vec<LoadedConfigFile>,
@@ -110,9 +104,9 @@ pub struct ConfigDiscovery {
 
 /// Discover and read every applicable config file.  Files are
 /// returned in lowest-priority-first order (user → workspace /
-/// package → explicit).  A missing discovered file is *not* an
-/// error; only files Cabin found and could not read or parse
-/// surface a [`ConfigError`].
+/// package); an explicit `CABIN_CONFIG` file is returned alone.
+/// A missing discovered file is *not* an error; only files Cabin
+/// found and could not read or parse surface a [`ConfigError`].
 ///
 /// # Errors
 /// Returns a [`ConfigError`] when a discovered file cannot be read
@@ -124,7 +118,7 @@ pub struct ConfigDiscovery {
 /// is not valid Cabin config TOML, [`ConfigError::NonUtf8Path`]
 /// when a discovered config file path is not valid UTF-8,
 /// [`ConfigError::TermOutsideUserConfig`] when a workspace or package
-/// file declares `[term]`, and
+/// file that is not also the user config file declares `[term]`, and
 /// [`ConfigError::InvalidBoolEnv`] when `CABIN_NO_CONFIG` is set
 /// to a value outside the documented truthy / falsy spellings.
 #[tracing::instrument(level = "debug", skip_all)]
@@ -181,11 +175,8 @@ pub fn discover_config_files(
 }
 
 /// Promote a discovered config-file path into Cabin's UTF-8 model
-/// path.  Config files are discovered from the filesystem, where a
-/// path is an `OsString`; Cabin assumes config paths are UTF-8, so
-/// a non-UTF-8 path surfaces as a typed [`ConfigError`] (routed
-/// through Cabin's diagnostics) rather than a silent lossy
-/// conversion or a panic.
+/// path.  A non-UTF-8 path is a [`ConfigError::NonUtf8Path`], never a
+/// lossy conversion or a panic.
 fn utf8_config_path(path: &Path) -> Result<Utf8PathBuf, ConfigError> {
     Utf8Path::from_path(path)
         .map(Utf8Path::to_path_buf)
@@ -457,7 +448,7 @@ mod tests {
 
     #[test]
     fn home_fallback_locates_dot_config_cabin() {
-        // When `XDG_CONFIG_HOME` is unset, `xdg` falls back to
+        // When `XDG_CONFIG_HOME` is unset, `etcetera` falls back to
         // `$HOME/.config`; the injected path simulates that.
         let home = TempDir::new().unwrap();
         write_user_config(
@@ -559,9 +550,8 @@ mod tests {
 
     #[test]
     fn user_then_workspace_order_is_deterministic() {
-        // User config sets profile = release; workspace config
-        // sets cache-dir.  The merger relies on the user config
-        // arriving *first* so workspace overrides win on overlap.
+        // The merger relies on the user config arriving *first* so
+        // workspace overrides win on overlap.
         let home = TempDir::new().unwrap();
         write_user_config(
             home.path(),
@@ -594,8 +584,6 @@ mod tests {
 
     #[test]
     fn missing_user_or_workspace_files_are_not_an_error() {
-        // No env, no workspace, no files anywhere - discovery
-        // returns an empty list rather than an error.
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
             env: env_with(&[]),

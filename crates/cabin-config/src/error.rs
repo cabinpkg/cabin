@@ -9,10 +9,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ConfigError {
     /// `CABIN_CONFIG` was set to a path Cabin could not read.  The
-    /// explicit-config path is treated as a hard requirement
-    /// because the user opted in by name; missing or unreadable
-    /// files there must surface clearly rather than silently
-    /// falling back to discovery.
+    /// user named the file, so a missing or unreadable one is an
+    /// error, never a fallback to discovery.
     #[error(
         "config file `{path}` was requested explicitly but could not be read: {source}",
         path = path.display(),
@@ -42,7 +40,8 @@ pub enum ConfigError {
         source: ConfigParseError,
     },
 
-    /// A workspace or package config file declared `[term]`.  Terminal
+    /// A workspace or package config file that is not also the user
+    /// config file declared `[term]`.  Terminal
     /// settings take effect before Cabin locates a workspace, so only
     /// the user config file and `CABIN_CONFIG` can set them; accepting
     /// the table here would ignore it silently.
@@ -157,9 +156,7 @@ pub enum ConfigParseError {
     InvalidCompilerWrapper(cabin_core::CompilerWrapperParseError),
 
     /// `build.jobs` was zero, negative, or otherwise outside
-    /// the supported range.  Carries the offending value
-    /// exactly as it appeared in the file so the diagnostic
-    /// quotes what the user wrote.
+    /// the supported range.
     #[error("config key `build.jobs` is invalid: got {value}, expected a positive integer")]
     InvalidBuildJobs {
         /// Stringified offending value.
@@ -176,10 +173,9 @@ pub enum ConfigParseError {
     )]
     TargetConditionedNotSupported { table: String },
 
-    /// One of the documented unsupported authentication /
-    /// credential keys appeared.  Cabin's config file is not a
-    /// secrets store - the rejection is structural so a typo never
-    /// silently smuggles a credential into a published archive.
+    /// A top-level authentication / credential table appeared.  Cabin
+    /// config does not store credentials, so these tables get this
+    /// error rather than [`ConfigParseError::UnknownTopLevelTable`].
     #[error(
         "config key `{key}` is not supported; Cabin config does not handle credentials, tokens, or registry authentication"
     )]

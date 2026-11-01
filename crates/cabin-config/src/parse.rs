@@ -443,7 +443,7 @@ fn parsed_source_replacements_from_raw(
 
 /// Distinguish a URL-shaped key from a path-shaped key.  URLs are
 /// identified by the presence of the `://` separator, which
-/// covers every supported scheme today (`http`, `https`).
+/// covers the supported schemes (`http`, `https`).
 fn locator_from_string(raw: &str) -> SourceLocator {
     if raw.contains("://") {
         SourceLocator::IndexUrl {
@@ -457,7 +457,7 @@ fn locator_from_string(raw: &str) -> SourceLocator {
 }
 
 /// Replace the `userinfo` component of a URL with `***` so error
-/// messages and lockfile output never echo `user:password`.  Inputs
+/// messages never echo `user:password`.  Inputs
 /// that are not URL-shaped, or that have no userinfo, are returned
 /// unchanged.  The replacement keeps scheme, host, port, path, query,
 /// and fragment intact so the user can still identify the offending
@@ -489,15 +489,12 @@ pub fn url_contains_credentials(raw: &str) -> bool {
     false
 }
 
-/// Reject URLs that carry `userinfo`.  Cabin's source-replacement
-/// model does not handle credentials; quietly accepting them
-/// would risk leaking secrets into log output, the lockfile, or
-/// the metadata view.  `entry` is the `[source-replacement]` table
-/// key so the error identifies the offending row by its key - the
-/// same identity every other error in
-/// `parsed_source_replacements_from_raw` uses - even when the
-/// credentials sit in the replacement URL value.  Both are
-/// redacted so `user:password` never reaches stderr or logs.
+/// Reject URLs that carry `userinfo`; Cabin's source-replacement
+/// model does not handle credentials.  `entry` is the
+/// `[source-replacement]` table key, which identifies the row in
+/// every error from `parsed_source_replacements_from_raw`, including
+/// when the credentials are in the replacement URL.  Both `raw` and
+/// `entry` are redacted in the error.
 fn reject_credentials_in_url(raw: &str, entry: &str) -> Result<(), ConfigParseError> {
     if url_contains_credentials(raw) {
         return Err(ConfigParseError::InvalidSourceReplacement {
@@ -510,10 +507,9 @@ fn reject_credentials_in_url(raw: &str, entry: &str) -> Result<(), ConfigParseEr
     Ok(())
 }
 
-/// Map a known unsupported top-level table to its dedicated error
-/// variant.  Auth / credential / token tables get a stable rejection
-/// message so a typo cannot smuggle a secret into a published
-/// archive.
+/// Map an authentication / credential top-level table to
+/// [`ConfigParseError::UnsupportedAuthKey`]; any other key is left to
+/// [`ConfigParseError::UnknownTopLevelTable`].
 fn unsupported_auth_table_key(key: &str) -> Option<ConfigParseError> {
     match key {
         "auth" => Some(ConfigParseError::UnsupportedAuthKey { key: "auth" }),

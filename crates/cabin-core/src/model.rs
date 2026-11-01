@@ -147,15 +147,16 @@ impl PackageName {
 
 /// Single-component path-safety predicate.
 ///
-/// A name passes when it is safe to use **simultaneously** as
+/// A name passes when it is safe to use, all at once, as
 /// (a) a single filesystem path component on every supported
-/// host OS, (b) a single sparse-HTTP URL path segment, and
-/// (c) a fragment of an artifact filename.  It guards
-/// [`TargetName`], system-dependency names (pkg-config module names
-/// such as `glib-2.0` or `SDL2`), and the path and URL sinks that
-/// re-vet each [`PackageName::path_components`] element.  Package
-/// names themselves use the stricter [`is_valid_package_base_name`]
-/// and [`is_valid_package_scope`] grammars, both subsets of this one.
+/// host OS (no separator, not `.` or `..`), (b) a single
+/// sparse-HTTP URL path segment, and (c) a fragment of an artifact
+/// filename.  It guards [`TargetName`], system-dependency names
+/// (pkg-config module names such as `glib-2.0` or `SDL2`), and the
+/// sparse-HTTP index client, which re-vets each `/`-separated part
+/// of a package name.  Package names themselves use the stricter
+/// [`is_valid_package_base_name`] and [`is_valid_package_scope`]
+/// grammars, both subsets of this one.
 ///
 /// A name is valid iff:
 ///
@@ -165,9 +166,9 @@ impl PackageName {
 /// - it is not equal to `.` or `..`;
 /// - it does not start with `.` or `-`.
 ///
-/// Consequences worth calling out:
+/// Consequences:
 ///
-/// - `foo..bar` is **accepted**: it's not a parent reference
+/// - `foo..bar` is accepted: it is not a parent reference
 ///   because the name is not equal to `..` and does not start
 ///   with a dot.  Path resolvers do not interpret the embedded
 ///   `..` substring as a navigation.
@@ -177,11 +178,12 @@ impl PackageName {
 ///   short-option block.  An embedded `-` (like `foo-bar`) is
 ///   still fine.
 /// - URL-reserved characters (`?`, `#`, `%`, `:`), Windows-
-///   reserved filename characters (`< > : " | ? *`), and path
-///   separators (`/`, `\`) are all outside the allowed alphabet,
-///   so they are rejected without needing a separate enumeration.
-/// - Control characters and non-ASCII characters are also outside
-///   the alphabet, so they fall under the same rule.
+///   reserved filename characters (`< > : " | ? *`), path
+///   separators (`/`, `\`), control characters, and non-ASCII
+///   characters are all outside the allowed alphabet.
+/// - A trailing `.` and a Windows device stem (`CON`, `NUL`, ...)
+///   pass; [`TargetName::new`] rejects them separately through
+///   [`cabin_fs::path::component_portability`].
 pub fn is_path_safe_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
@@ -227,9 +229,6 @@ pub fn is_valid_package_base_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
-/// Run the shared three-step validation behind [`TargetName`]: reject
-/// an empty value, reject any whitespace, then enforce
-/// [`is_path_safe_name`].
 fn validate_path_safe_name(
     value: String,
     empty: ValidationError,
@@ -364,8 +363,8 @@ impl TargetName {
     /// Construct a [`TargetName`] after running validation.
     ///
     /// Target names are joined into filesystem paths by the build
-    /// planner (object directories, executable paths, Cargo target
-    /// directories): a name like `[target."../escape"]` would
+    /// planner (object directories, executable and library paths):
+    /// a name like `[target."../escape"]` would
     /// otherwise let a malicious manifest write artifacts outside
     /// the selected `--build-dir`.  The grammar is enforced through
     /// [`is_path_safe_name`], which already covers path separators,
@@ -449,7 +448,8 @@ impl From<TargetName> for String {
 /// planner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TargetKind {
-    /// Static-archive library (`lib<name>.a`).
+    /// Static-archive library (`lib<name>.a`, or `<name>.lib` under
+    /// MSVC).
     #[serde(rename = "library")]
     Library,
     /// A header-only library.  Has no translation units of its own;
@@ -501,7 +501,7 @@ impl TargetKind {
         matches!(self, Self::Executable | Self::Test | Self::Example)
     }
 
-    /// Whether this kind produces a static-archive library (`lib<name>.a`).
+    /// Whether this kind produces a static-archive library.
     pub const fn produces_archive(self) -> bool {
         matches!(self, Self::Library)
     }
@@ -528,8 +528,7 @@ impl TargetKind {
     ///
     /// Header-only libraries are included so the dependency
     /// closure walk reaches them; the planner emits no compile or
-    /// archive actions for them, so saying "yes, this is part of
-    /// the default selection" is a no-op on Ninja's side.
+    /// archive actions for them.
     pub const fn is_default_buildable(self) -> bool {
         matches!(self, Self::Library | Self::HeaderOnly | Self::Executable)
     }
@@ -598,9 +597,9 @@ impl From<&str> for TargetDep {
 }
 
 // The serialized shape mirrors the manifest surface: a private
-// edge stays a bare string (so existing manifests and the
-// `cabin metadata` JSON view keep their previous shape), and a
-// public edge serializes as the `{ name, public }` table.
+// edge is a bare string and a public edge is the
+// `{ name, public }` table.  The `cabin metadata` JSON view emits
+// this shape too.
 impl Serialize for TargetDep {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -789,7 +788,7 @@ impl InstructionSet {
 }
 
 /// One `[target.'cfg(...)'.sources]` entry: sources a target compiles
-/// only on hosts where `condition` holds.  The condition is
+/// only on platforms where `condition` holds.  The condition is
 /// platform-only; the parser rejects feature and compiler leaves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConditionalSources {
@@ -840,8 +839,8 @@ fn default_true() -> bool {
     true
 }
 
-/// A package-level Cabin dependency declared in
-/// `[dependencies]` or `[dev-dependencies]`.
+/// A package-level Cabin dependency declared in `[dependencies]`,
+/// `[dev-dependencies]`, or `[build-dependencies]`.
 ///
 /// System dependencies (`system = true` entries) are *not*
 /// represented here - they live in [`SystemDependency`] because
@@ -853,10 +852,8 @@ pub struct Dependency {
     /// equal the depended-on package's `[package].name`.
     pub name: PackageName,
     pub source: DependencySource,
-    /// Which manifest section the dependency was declared in.
-    /// Defaults to [`DependencyKind::Normal`] so manifests that
-    /// only use `[dependencies]` keep their previous serialized
-    /// shape.
+    /// Which manifest section the dependency was declared in.  Defaults
+    /// to [`DependencyKind::Normal`].
     #[serde(default, skip_serializing_if = "DependencyKind::is_normal")]
     pub kind: DependencyKind,
     /// Whether the dependency is optional.  Optional dependencies
@@ -919,11 +916,9 @@ impl Dependency {
     pub fn matches_platform(&self, platform: &crate::TargetPlatform) -> bool {
         match &self.condition {
             None => true,
-            // Dependency gating is platform-only: a feature- or
-            // compiler-referencing `cfg` is rejected on dependency
-            // tables at manifest load, so the platform-only context is
-            // correct-by-construction here (any such leaf would
-            // already have been refused).
+            // Manifest load rejects a feature- or compiler-referencing
+            // `cfg` on dependency tables, so a platform-only context
+            // can evaluate every condition that reaches here.
             Some(cond) => cond.evaluate(&crate::ConditionContext::platform_only(platform)),
         }
     }
@@ -994,8 +989,8 @@ impl DependencyKind {
     }
 
     /// The manifest section name (`[dependencies]`,
-    /// `[dev-dependencies]`) corresponding to this kind.
-    /// Used in error messages.
+    /// `[dev-dependencies]`, `[build-dependencies]`) corresponding
+    /// to this kind.  Used in error messages.
     pub const fn manifest_section(self) -> &'static str {
         match self {
             DependencyKind::Normal => "[dependencies]",
@@ -1088,11 +1083,10 @@ pub struct SystemDependency {
 /// `cabin-workspace::load_workspace` rewrites it into the
 /// matching `Path` / `Version` source from
 /// `[workspace.dependencies]` before any consumer sees a
-/// [`crate::Package`] returned from the workspace loader.  If a
-/// `Workspace` source ever reaches a planner or resolver it
-/// indicates the package was loaded outside of
-/// `cabin-workspace`, which is a workspace invariant violation
-/// worth surfacing as a clear error in the caller.
+/// [`crate::Package`] returned from the workspace loader.  A
+/// `Workspace` source reaching a planner or resolver means the
+/// package was loaded outside `cabin-workspace`, a workspace
+/// invariant violation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DependencySource {
     /// Local path dependency.  The path is interpreted relative to the
@@ -1117,8 +1111,8 @@ pub struct Package {
     pub name: PackageName,
     pub version: semver::Version,
     pub targets: Vec<Target>,
-    /// Cabin package dependencies declared under
-    /// `[dependencies]` or `[dev-dependencies]`.  Each entry
+    /// Cabin package dependencies declared under `[dependencies]`,
+    /// `[dev-dependencies]`, or `[build-dependencies]`.  Each entry
     /// carries its [`DependencyKind`]; iteration order is sorted
     /// by `(kind, name)` so callers see deterministic output.
     #[serde(default)]
@@ -1199,15 +1193,8 @@ fn is_empty_features(f: &Features) -> bool {
 }
 
 impl Package {
-    /// Build a validated [`Package`].
-    ///
-    /// Validation:
-    /// - target names are unique
-    /// - dependency names are unique within each kind (the same
-    ///   name may legitimately appear under multiple kinds)
-    /// - system dependency names are unique within the
-    ///   collected `system = true` declarations
-    /// - feature declarations are well-formed
+    /// Build a validated [`Package`] with no system dependencies and
+    /// no `[features]` table.
     ///
     /// Target-dep references (same-package, cross-package, or
     /// qualified `package:target`) are resolved by `cabin-build`
@@ -1215,9 +1202,7 @@ impl Package {
     ///
     /// # Errors
     /// Returns a [`ValidationError`] when validation fails: see
-    /// [`Package::with_config`], which performs the checks
-    /// ([`ValidationError::DuplicateTargetName`],
-    /// [`ValidationError::DuplicateDependency`], and feature-table errors).
+    /// [`Package::with_config`], which performs the checks.
     pub fn new(
         name: PackageName,
         version: semver::Version,
@@ -1239,13 +1224,27 @@ impl Package {
     /// `[features]` table.
     ///
     /// # Errors
-    /// Returns [`ValidationError::DuplicateTargetName`] for repeated target
-    /// names, [`ValidationError::DuplicateDependency`] for a duplicate
-    /// dependency within a kind,
+    /// Returns the [`ValidationError`] of the first failing check:
+    /// [`ValidationError::DuplicateTargetName`] or
+    /// [`ValidationError::TargetNamesDifferOnlyInCase`] for target
+    /// names equal, or equal up to ASCII case;
+    /// [`ValidationError::TargetIncludeDirIsAbsolute`] or
+    /// [`ValidationError::TargetIncludeDirHasParent`] for a target
+    /// include directory that is absolute or rooted, or has a `..`
+    /// component;
+    /// [`ValidationError::InstructionSetsForUnknownSource`] for an
+    /// `instruction-sets` key that is not a declared C or C++ source;
+    /// [`ValidationError::InvalidLinksValue`],
+    /// [`ValidationError::LinksOnNonLibraryTarget`], or
+    /// [`ValidationError::DuplicateTargetLinks`] for an invalid,
+    /// non-`library`, or duplicate `links` claim;
+    /// [`ValidationError::DuplicateDependency`] for a duplicate
+    /// dependency within a kind;
     /// [`ValidationError::InvalidSystemDependencyName`] or
     /// [`ValidationError::DuplicateSystemDependency`] for an invalid or
-    /// duplicate system dependency, and propagates any
-    /// [`ValidationError`] from validating the `[features]` table.
+    /// duplicate system dependency; any error from validating the
+    /// `[features]` table; or [`ValidationError::UnknownRequiredFeature`]
+    /// for a target's `required-features`.
     pub fn with_config(input: PackageConfigInput) -> Result<Self, ValidationError> {
         let PackageConfigInput {
             name,
@@ -1303,9 +1302,10 @@ pub struct PackageConfigInput {
     pub version: semver::Version,
     /// Parsed `[target.*]` definitions.
     pub targets: Vec<Target>,
-    /// Parsed `[dependencies]` / `[dev-dependencies]`.
+    /// Parsed `[dependencies]` / `[dev-dependencies]` /
+    /// `[build-dependencies]`.
     pub dependencies: Vec<Dependency>,
-    /// Parsed `[system-dependencies]`.
+    /// Parsed `system = true` dependency entries.
     pub system_dependencies: Vec<SystemDependency>,
     /// Parsed `[features]`.
     pub features: Features,
@@ -1775,7 +1775,6 @@ mod tests {
                 "{raw:?} should be rejected: invalid scope"
             );
         }
-        // The 39-character maximum itself is accepted.
         assert!(PackageName::new(format!("{}/fmt", "a".repeat(39))).is_ok());
     }
 
@@ -1841,9 +1840,8 @@ mod tests {
     }
 
     /// A leading `-` is rejected so the name cannot be parsed as
-    /// a flag when it reaches an argv-driven tool (e.g.,
-    /// `pkg-config` for `system = true` deps, the linker, or
-    /// `clap` short-option splitting).
+    /// a flag when it reaches an argv-driven tool (e.g., the
+    /// linker, or `clap` short-option splitting).
     #[test]
     fn package_name_rejects_leading_dash() {
         for raw in ["-foo", "--list-all", "-Lfoo", "-"] {
@@ -1899,8 +1897,8 @@ mod tests {
 
     #[test]
     fn package_name_rejects_non_ascii() {
-        // A grammar limited to ASCII alphanumerics + `_-.` keeps
-        // the encoding in URLs and tar archives unambiguous.
+        // An ASCII-only grammar keeps the encoding in URLs and
+        // archive file names unambiguous.
         for raw in ["foo\u{00E9}bar", "\u{4E2D}\u{6587}", "emoji\u{1F600}"] {
             assert!(
                 matches!(
@@ -1956,11 +1954,9 @@ mod tests {
     }
 
     /// Symmetric with `package_name_rejects_leading_dash`.  Target
-    /// names eventually thread into argv (cargo flags, archiver
-    /// inputs); a leading `-` would be ambiguous with a flag.
-    /// Post-tightening this case is reported as `UnsafeTargetName`
-    /// because the path-safe predicate rejects leading dashes as
-    /// part of the same rule that excludes path separators.
+    /// names thread into argv (archiver inputs), where a leading `-`
+    /// would be ambiguous with a flag.  The path-safe predicate
+    /// rejects it, so the error is `UnsafeTargetName`.
     #[test]
     fn target_name_rejects_leading_dash() {
         for raw in ["-foo", "--release", "-"] {
@@ -1976,8 +1972,8 @@ mod tests {
         assert!(TargetName::new("foo-bar").is_ok());
     }
 
-    /// Target names are joined into object, executable, and Cargo
-    /// target directory paths by the build planner.  A manifest like
+    /// Target names are joined into object, executable, and library
+    /// paths by the build planner.  A manifest like
     /// `[target."/tmp/out"]` would otherwise let an attacker write
     /// build artifacts outside the selected `--build-dir`.  Reject
     /// the full path-component grammar: path separators, parent
@@ -2126,9 +2122,8 @@ mod tests {
 
     #[test]
     fn project_accepts_unknown_target_dep_for_planner_resolution() {
-        // target-dep existence is resolved by cabin-build against
-        // the full package graph, so cabin-core no longer rejects unknown
-        // names here.
+        // cabin-build resolves target-dep references against the full
+        // package graph, so cabin-core accepts unknown names.
         let package = Package::new(
             pkg("hello"),
             version(),
@@ -2141,9 +2136,6 @@ mod tests {
 
     #[test]
     fn target_dep_serde_round_trips_both_shapes() {
-        // A private edge keeps the bare-string shape (existing
-        // manifests and the `cabin metadata` JSON view are
-        // unchanged); a public edge serializes as the table form.
         let private = TargetDep::private("fmt");
         assert_eq!(serde_json::to_string(&private).unwrap(), "\"fmt\"");
         let public = TargetDep {
@@ -2314,9 +2306,6 @@ mod tests {
 
     #[test]
     fn header_only_is_default_buildable_but_produces_nothing() {
-        // Header-only is included in the default selection so the
-        // dep-closure walk reaches it, but the planner emits no
-        // compile / archive / link actions for it.
         assert!(TargetKind::HeaderOnly.is_default_buildable());
         assert!(TargetKind::HeaderOnly.is_header_only());
         assert!(!TargetKind::HeaderOnly.produces_archive());

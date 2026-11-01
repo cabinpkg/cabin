@@ -25,7 +25,7 @@ fn interface_req<S>(min: S) -> cabin_core::InterfaceRequirement<S> {
 /// Lower a semantic action to inspect the concrete argv / backend
 /// kind the Ninja writer will render.  Lowering is infallible because
 /// the semantic IR already carries UTF-8 paths.  These tests anchor
-/// on the GNU/Clang dialect, the historic default.
+/// on the GNU/Clang dialect.
 fn lowered(action: &BuildAction) -> LoweredAction {
     lower(Dialect::GnuLike, action)
 }
@@ -386,7 +386,7 @@ fn conditional_sources_compile_only_on_a_matching_host() {
 }
 
 /// An assembly source becomes an `Assemble` action on the assembler
-/// its syntax needs - the C driver for `.S`, the `ml64.exe` beside
+/// its syntax needs - the C++ driver for `.S`, the `ml64.exe` beside
 /// `cl.exe` for `.asm` - carries the target's defines, and joins the
 /// archive beside the C++ objects.
 #[test]
@@ -885,7 +885,7 @@ fn bare_dep_resolves_sole_header_only_target() {
 fn bare_dep_with_multiple_library_targets_is_ambiguous() {
     // Two library-like targets leave no principled pick for a bare
     // name - even when one of them is named after the package, the
-    // old basename rule must not tie-break.  The error lists the
+    // package name does not tie-break.  The error lists the
     // qualified candidates in the package's target order.
     let greet_proj = Package::new(
         pkg_name("greet"),
@@ -1074,9 +1074,8 @@ fn scoped_dependency_nests_build_dirs_and_links_sole_target() {
     );
     assert_eq!(link.output, app_exe);
 
-    // Every fmt output nests under the scope dir; no path embeds
-    // the literal `fmtlib/fmt` differently than the two-component
-    // form (normalize `\` for Windows object paths).
+    // fmt's object nests one directory per name component
+    // (normalize `\` for Windows object paths).
     let fmt_compile = compile_actions(&bg)
         .into_iter()
         .find(|c| c.object.as_str().replace('\\', "/").contains("/fmt/"))
@@ -1642,7 +1641,8 @@ fn conflicting_interface_defines_name_both_paths() {
     crate::validate_planned_standards(&bg).unwrap();
     let app = &compile_for(&bg, "main.c").arguments;
     assert_eq!(app.defines, ["MODE=1"]);
-    // Siblings keep the search order Cabin has always emitted.
+    // Siblings keep the walk's existing search order, last `deps`
+    // entry first.
     assert_eq!(
         app.include_dirs,
         [
@@ -2431,7 +2431,7 @@ fn msvc_with_external_support_keeps_system_includes() {
 fn msvc_without_external_support_collapses_system_includes() {
     // A `cl` older than VS2019 16.10 rejects `/external:I`, so the
     // planner falls back to spelling every dependency include dir as
-    // a plain `/I` - exactly the pre-system-include behavior.
+    // a plain `/I`.
     let graph = provenance_graph(PackageKind::Registry);
     let bg = plan_provenance_graph(&graph, Dialect::Msvc, false);
     let app_compile = compile_for(&bg, "/app/");
@@ -2495,7 +2495,7 @@ fn link_libs_propagate_to_consumer_link_after_archives() {
     // A library package declares `link-libs` (resolved into its
     // per-package build flags); an executable in another package
     // depends on it.  The library's system libraries must appear on
-    // the *executable's* link line, emitted as `-l<name>` AFTER the
+    // the *executable's* link line, emitted as `-l<name>` after the
     // library archive so GNU `ld`'s left-to-right resolution finds
     // them. macOS/libSystem resolves regardless of order, so this
     // plan-level assertion is what guards the ordering.
@@ -3069,10 +3069,8 @@ fn unrecognized_source_extension_yields_actionable_error() {
     );
 }
 
-// The standard-flag-per-language and profile-flag ordering is now
-// owned and tested by `cabin-driver`'s GNU/Clang lowering; the
-// planner tests below assert it end-to-end through the lowered
-// `compile_commands` argv instead.
+// Flag order within a compile argv is `cabin-driver`'s lowering's
+// to test; the tests below cover which flags reach which compile.
 
 /// Build a single-package graph with a `mixed` library
 /// target carrying one C source and one C++ source.  Used by
@@ -3102,9 +3100,7 @@ fn build_flags_map(flags: ResolvedProfileFlags) -> HashMap<usize, ResolvedProfil
 }
 
 /// Plan and return the compile actions for the mixed
-/// fixture under the supplied build flags.  Used by every
-/// per-language flag-routing test below to keep the
-/// boilerplate to one place.
+/// fixture under the supplied build flags.
 fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
     let graph = graph_with_mixed_sources();
     let tc = toolchain_with_cc();
@@ -3854,8 +3850,8 @@ fn pure_c_dependency_imposes_no_cxx_requirement() {
     )
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
-    // The undeclared C library's built-in c11 is irrelevant to the
-    // consumer's C++ side, and `app` compiles no C sources, so its
+    // The C library declares no interface, and its c11 is irrelevant
+    // to the consumer's C++ side; `app` compiles no C sources, so its
     // effective C standard never compares against the dependency.
     plan_with_standards(&graph, Dialect::GnuLike).unwrap();
 }
@@ -3865,7 +3861,7 @@ fn package_level_implementation_default_creates_no_relevance() {
     use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     // Dependency package declares a package-level cxx-standard, but
     // its library target carries only C sources: no C++ relevance,
-    // so the c++17-default consumer plans fine.
+    // so the c++17 consumer plans fine.
     let dep_proj = Package::new(
         pkg_name("greet"),
         version(),
@@ -4223,8 +4219,7 @@ fn standard_compat_violations(graph: &PackageGraph) -> Vec<StandardCompatViolati
 
 /// Opt-out no-op: with `standard_compat: false` (as `cabin tidy`
 /// sets it) a graph carrying a clear violation records no
-/// violations, so the planner's output is exactly what it was
-/// before the pass existed.
+/// violations.
 #[test]
 fn standard_compat_off_records_nothing() {
     let graph = app_dep_graph(

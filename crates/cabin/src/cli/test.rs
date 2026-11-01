@@ -2,16 +2,14 @@
 //!
 //! `cabin test` builds the selected `test` targets through
 //! the same pipeline as `cabin build` (workspace load → artifact
-//! pipeline → planner → Ninja → invoke ninja), then hands the
-//! resulting [`cabin_build::BuildGraph`] to
-//! [`cabin_test::run_tests`] which spawns the test executables
-//! and reports a deterministic summary.
+//! pipeline → planner → Ninja), pairs the targets with the
+//! executables in the resulting [`cabin_build::BuildGraph`] through
+//! [`cabin_test::plan_tests`], and runs them with
+//! [`cabin_test::run_tests`], which spawns the test executables and
+//! reports a deterministic summary.
 //!
-//! This module owns only the orchestration.  Test planning and
-//! test execution live in the dedicated `cabin-test` crate;
-//! workspace loading, dependency resolution, build planning, and
-//! Ninja generation live in their respective crates.  The CLI
-//! layer threads typed values between them.
+//! This module only orchestrates; test planning and execution live
+//! in `cabin-test`.
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -334,11 +332,9 @@ pub(crate) fn test(
             reporter,
         })?;
 
-    // Build → run hand-off.  The plan builder reads `test`
-    // targets out of the graph and aligns them with the
-    // `default_outputs` the planner emitted, so empty
-    // `default_outputs` produce a clear error rather than a
-    // silent no-op.
+    // `plan_tests` keeps only the `test` targets whose executable is
+    // in the planner's `default_outputs`; an empty plan is an error
+    // below unless `--allow-no-tests` is given.
     let mut test_plan = cabin_test::plan_tests(
         &prepared.graph,
         &plan_graph,
@@ -454,13 +450,10 @@ fn select_named_test_targets(
         .collect())
 }
 
-/// Walk every executable in `plan` and attach the typed
-/// `CABIN_*` package-execution overlay produced by
-/// [`cabin_env::package_env`].  The overlay is layered on top of
-/// the inherited environment at runtime; PATH and friends remain
-/// intact so test executables can still find shared system
-/// tools.  The only fallible step is mapping each executable back
-/// to its workspace package.
+/// Attach the `CABIN_*` overlay produced by
+/// [`cabin_env::package_env`] to every executable in `plan`.  The
+/// overlay is applied on top of the inherited environment at run
+/// time.  Fails when an executable's package is not in `graph`.
 fn populate_test_env_overlay(
     plan: &mut cabin_test::TestPlan,
     graph: &cabin_workspace::PackageGraph,
