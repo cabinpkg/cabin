@@ -10,11 +10,9 @@
 # Every alias names a ROOT-workspace package, so it resolves anywhere
 # inside the root workspace but not from `registry/`, which cargo
 # resolves against its own manifest. Run the aliases from the repository
-# root; the tools themselves locate what they operate on from their own
-# manifest directory, never from the working directory - except
-# `dist-package`, which resolves its paths against the working directory
-# (the run's repository root), and `dist-check`, which unpacks the
-# archive path it is given beside it.
+# root: `dist-package`, `registry-verify`, `workflow-superseded`,
+# `workflow-filter-coverage`, and `workflow-migrations-pending` resolve
+# repository paths against the working directory.
 #
 # Scalar (whitespace-split) alias values, not arrays: cargo JOINS array
 # config values across layers instead of overriding them, so a same-named

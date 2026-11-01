@@ -528,7 +528,7 @@ fn reconcile(api: &Api, keys: bool) -> Result<()> {
     }
     println!(
         "reconcile OK (operation windows, backup, and dump accounting are\n\
-         not touched; docs/runbook.md, \"Known ceilings\")"
+         not touched; registry/docs/runbook.md, \"Known ceilings\")"
     );
     Ok(())
 }
@@ -598,7 +598,7 @@ fn require_coordination(reverted: bool) -> Result<()> {
     }
     bail!(
         "service_mode is '{mode}'; block writes first, wait out the in-flight window, then \
-         release (docs/runbook.md, \"The cost governor\")"
+         release (registry/docs/runbook.md, \"The cost governor\")"
     );
 }
 
@@ -725,7 +725,7 @@ fn wipe(api: &Api) -> Result<()> {
         if !COORDINATED.contains(&mode.as_str()) {
             bail!(
                 "{publishers} publish-capable token(s) exist and service_mode is '{mode}'; \
-                 block writes first (docs/runbook.md, \"Budget breaker and service mode\")"
+                 block writes first (registry/docs/runbook.md, \"Budget breaker and service mode\")"
             );
         }
     }
@@ -745,7 +745,7 @@ fn reset(api: &Api, buckets: &Buckets, coordinate: bool) -> Result<()> {
     if let Some(left) = leftover(buckets)? {
         bail!(
             "{left}; the registry wipe empties both buckets - finish it, or remove what a \
-             writer added since, first (docs/runbook.md, \"Post-wipe re-provisioning\")"
+             writer added since, first (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
         );
     }
     if coordinate {
@@ -766,13 +766,13 @@ fn reset(api: &Api, buckets: &Buckets, coordinate: bool) -> Result<()> {
         eprintln!("WARNING: {left}, which appeared during the wipe window - the fresh ledger");
         eprintln!(
             "does not count it.  Stop the writer, delete the object, and re-run \
-             cargo registry-governor wipe (docs/runbook.md, \"Post-wipe re-provisioning\")"
+             cargo registry-governor wipe (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
         );
         bail!("the wipe window closed over an appearing object");
     }
     println!(
         "governor wipe OK (every storage pool and the daily fairness windows are reset;\n\
-         the monthly op windows survive on purpose; docs/runbook.md, \"The cost governor\")"
+         the monthly op windows survive on purpose; registry/docs/runbook.md, \"The cost governor\")"
     );
     Ok(())
 }

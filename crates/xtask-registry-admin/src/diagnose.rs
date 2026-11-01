@@ -73,7 +73,7 @@ pub fn run() -> Result<()> {
     }
     migrations_stamp();
 
-    step("service state (meta; docs/runbook.md \"Budget breaker and service mode\")");
+    step("service state (meta; registry/docs/runbook.md \"Budget breaker and service mode\")");
     let state = output(&mut wrangler(&[
         "d1",
         "execute",

@@ -180,7 +180,7 @@ fn remote() -> Result<()> {
     println!();
     println!("Follow-ups:");
     println!("  - commit the migrations-applied change; the CI deploy job stays blocked");
-    println!("    until it reaches main (docs/runbook.md, \"Integrated topology\")");
+    println!("    until it reaches main (registry/docs/runbook.md, \"Integrated topology\")");
     Ok(())
 }
 
