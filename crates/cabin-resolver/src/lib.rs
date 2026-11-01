@@ -42,7 +42,7 @@ use cabin_core::{
 };
 use cabin_index::PackageIndex;
 use pubgrub::{PubGrubError, Ranges};
-use semver::{Version, VersionReq};
+use semver::Version;
 
 pub use error::{ResolveError, ResolverConstraint};
 pub use input::{LinkDomain, LinksClaim, LockedVersion, ResolveInput, ResolveMode};
@@ -51,7 +51,7 @@ pub use output::{BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, R
 use crate::explanation::explain_no_solution;
 use crate::output::selected_dependencies_to_output;
 use crate::preflight::{effective_locked, preflight_root_dependencies};
-use crate::provider::{Node, Provider, version_metadata};
+use crate::provider::{Node, Provider, version_metadata, without_rejected_prereleases};
 use crate::range::req_to_range;
 
 /// Give every version `input`'s lockfile keeps under its mode the
@@ -174,7 +174,7 @@ fn resolve_once_unchecked(
     // `semver::Op` surfaces as `UnsupportedVersionRequirement`
     // before preflight collapses it into a less specific
     // `NoMatchingVersion`.
-    let root_dependencies = convert_root_dependencies(&input.root_dependencies)?;
+    let root_dependencies = convert_root_dependencies(input, index)?;
 
     // Preflight surfaces Cabin's targeted error variants for
     // root dependencies before `PubGrub` is invoked; the
@@ -562,6 +562,7 @@ fn admissible_under(
     if let Some(req) = input.root_dependencies.get(package)
         && let Ok(root_range) = req_to_range(req)
     {
+        let root_range = without_rejected_prereleases(input, index, package, req, root_range);
         range = range.intersection(&root_range);
     }
     // Features other packages request on `package` hold it to versions
@@ -588,6 +589,8 @@ fn admissible_under(
             continue;
         };
         if let Ok(dep_range) = req_to_range(&dep.req) {
+            let dep_range =
+                without_rejected_prereleases(input, index, package, &dep.req, dep_range);
             range = range.intersection(&dep_range);
         }
         requested.extend(dep.features.iter().cloned());
@@ -652,18 +655,24 @@ fn accepted_display<S: cabin_core::StandardLevel>(requirement: Requirement<S>) -
     }
 }
 
-/// Translate every root requirement to its `PubGrub` range,
-/// mapping the crate-internal [`range::RangeConversionError`] to
+/// Translate every root requirement to its `PubGrub` range, trimmed
+/// like an edge's ([`without_rejected_prereleases`]), mapping the
+/// crate-internal [`range::RangeConversionError`] to
 /// [`ResolveError::UnsupportedVersionRequirement`] with the
 /// package the requirement was attached to.
 fn convert_root_dependencies(
-    root_dependencies: &BTreeMap<PackageName, VersionReq>,
+    input: &ResolveInput,
+    index: &PackageIndex,
 ) -> Result<Vec<(PackageName, Ranges<Version>)>, ResolveError> {
-    root_dependencies
+    input
+        .root_dependencies
         .iter()
         .map(|(name, req)| {
             req_to_range(req)
-                .map(|range| (name.clone(), range))
+                .map(|range| {
+                    let range = without_rejected_prereleases(input, index, name, req, range);
+                    (name.clone(), range)
+                })
                 .map_err(|err| ResolveError::UnsupportedVersionRequirement {
                     package: name.as_str().to_owned(),
                     requirement: err.requirement,
@@ -1655,6 +1664,144 @@ mod tests {
         }
     }
 
+    /// Requirements opting in and out of `1.2.0-beta.3`, each pair in
+    /// both decision orders (see [`split_edges_index`]).
+    const SPLIT_REQUIREMENTS: [(&str, &str); 2] =
+        [("^1.0", "^1.2.0-beta.1"), ("^1.2.0-beta.1", "^1.0")];
+
+    /// `aaa` requires `fmt` at `direct` and `ccc` (under `bbb`) at
+    /// `nested`, one level deeper, so `PubGrub` decides `fmt` between
+    /// the two edges: swapping the requirements swaps which it sees
+    /// first.  The roots are `aaa` and `bbb`.
+    fn split_edges_index(direct: &str, nested: &str, fmt: &[&'static str]) -> PackageIndex {
+        build_index(vec![
+            entry("aaa", vec![("1.0.0", vec![("fmt", direct)], false)]),
+            entry("bbb", vec![("1.0.0", vec![("ccc", "*")], false)]),
+            entry("ccc", vec![("1.0.0", vec![("fmt", nested)], false)]),
+            entry("fmt", fmt.iter().map(|v| (*v, vec![], false)).collect()),
+        ])
+    }
+
+    /// A pre-release one requirement admits and another rejects is
+    /// never selected, whichever requirement `PubGrub` sees first -
+    /// with no release left (`1.0.0` misses `^1.2.0-beta.1`), nothing
+    /// satisfies both.
+    #[test]
+    fn prerelease_must_satisfy_every_requirement_in_either_order() {
+        for fmt in [&["1.2.0-beta.3"][..], &["1.0.0", "1.2.0-beta.3"]] {
+            for (direct, nested) in SPLIT_REQUIREMENTS {
+                let index = split_edges_index(direct, nested, fmt);
+                let result = resolve(&make_input(vec![("aaa", "*"), ("bbb", "*")]), &index);
+                assert!(
+                    matches!(result, Err(ResolveError::Conflict { .. })),
+                    "{fmt:?}, direct {direct}, nested {nested}: {result:?}"
+                );
+            }
+        }
+    }
+
+    /// Trimming the newer `1.3.0-beta.1`, which only the second
+    /// requirement admits, keeps the `1.2.0-beta.3` both admit.
+    #[test]
+    fn prerelease_every_requirement_admits_is_selected() {
+        let both = ("^1.2.0-beta.1", ">=1.2.0-beta.1, <=1.3.0-beta.1");
+        for (direct, nested) in [both, (both.1, both.0)] {
+            let index =
+                split_edges_index(direct, nested, &["1.0.0", "1.2.0-beta.3", "1.3.0-beta.1"]);
+            let out = resolve(&make_input(vec![("aaa", "*"), ("bbb", "*")]), &index).unwrap();
+            let fmt = out.packages.iter().find(|p| p.name.as_str() == "fmt");
+            assert_eq!(
+                fmt.unwrap().version,
+                version("1.2.0-beta.3"),
+                "{direct} / {nested}"
+            );
+        }
+    }
+
+    /// A root requirement's range is trimmed like an edge's: the root's
+    /// `^1.0` rejects the beta `aaa` opts into.
+    #[test]
+    fn root_requirement_rejects_a_prerelease_an_edge_opts_into() {
+        let index = build_index(vec![
+            entry(
+                "aaa",
+                vec![("1.0.0", vec![("fmt", "^1.2.0-beta.1")], false)],
+            ),
+            entry(
+                "fmt",
+                vec![("1.0.0", vec![], false), ("1.2.0-beta.3", vec![], false)],
+            ),
+        ]);
+        let result = resolve(&make_input(vec![("aaa", "*"), ("fmt", "^1.0")]), &index);
+        assert!(
+            matches!(result, Err(ResolveError::Conflict { .. })),
+            "{result:?}"
+        );
+    }
+
+    /// `--locked` accepts every selection the default mode makes.
+    #[test]
+    fn locked_mode_replays_every_default_resolution() {
+        let mut replayed = 0;
+        for fmt in [
+            &["1.2.0-beta.3"][..],
+            &["1.0.0", "1.2.0-beta.3"],
+            &["1.2.0-beta.3", "1.2.0"],
+        ] {
+            for (direct, nested) in SPLIT_REQUIREMENTS
+                .into_iter()
+                .chain([("^1.2.0-beta.1", "^1.2.0-beta.1")])
+            {
+                let index = split_edges_index(direct, nested, fmt);
+                let roots = vec![("aaa", "*"), ("bbb", "*")];
+                let Ok(out) = resolve(&make_input(roots.clone()), &index) else {
+                    continue;
+                };
+                let pins: Vec<(&str, String)> = out
+                    .packages
+                    .iter()
+                    .filter(|p| p.source == ResolvedSource::Index)
+                    .map(|p| (p.name.as_str(), p.version.to_string()))
+                    .collect();
+                let pins = pins.iter().map(|(n, v)| (*n, v.as_str())).collect();
+                let input = input_with_locked(roots, pins, ResolveMode::Locked);
+                let replay = resolve(&input, &index);
+                assert!(
+                    replay.as_ref().is_ok_and(|r| r.packages == out.packages),
+                    "{fmt:?}, direct {direct}, nested {nested}: {replay:?}"
+                );
+                replayed += 1;
+            }
+        }
+        // Both opt-in pairs resolve on each index, and `1.2.0` serves
+        // either mixed pair.
+        assert_eq!(replayed, 5);
+    }
+
+    /// `--locked` rejects a pre-release one dependent opts into and
+    /// another does not, whichever edge reaches the package first.
+    #[test]
+    fn locked_mode_checks_every_edge_against_a_locked_prerelease() {
+        for (direct, nested) in SPLIT_REQUIREMENTS {
+            let index = split_edges_index(direct, nested, &["1.2.0-beta.3"]);
+            let input = input_with_locked(
+                vec![("aaa", "*"), ("bbb", "*")],
+                vec![
+                    ("aaa", "1.0.0"),
+                    ("bbb", "1.0.0"),
+                    ("ccc", "1.0.0"),
+                    ("fmt", "1.2.0-beta.3"),
+                ],
+                ResolveMode::Locked,
+            );
+            let result = resolve(&input, &index);
+            let Err(ResolveError::LockedVersionViolatesConstraint { name, .. }) = &result else {
+                panic!("direct {direct}, nested {nested}: expected a violation, got {result:?}");
+            };
+            assert_eq!(name, "fmt");
+        }
+    }
+
     // -----------------------------------------------------------------
     // Conditional registry dependencies
     //
@@ -2427,6 +2574,48 @@ mod tests {
         assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
         assert_eq!(out.held_back[0].name.as_str(), "spdlog");
         assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
+    }
+
+    /// A newer pre-release the `Allow` solve picks is no hold-back when
+    /// an edge of the fallback solution rejects it: `p 1.0.0`'s `^1.0`
+    /// rejects `fmt 1.2.0-beta.3`, though the root's requirement opts in.
+    #[test]
+    fn held_back_skips_a_prerelease_a_fallback_edge_rejects() {
+        let mut index = build_index(vec![
+            entry(
+                "p",
+                vec![
+                    ("2.0.0", vec![], false),
+                    ("1.0.0", vec![("fmt", "^1.0")], false),
+                ],
+            ),
+            entry(
+                "fmt",
+                vec![("1.2.0-beta.3", vec![], false), ("1.1.0", vec![], false)],
+            ),
+        ]);
+        for (pkg, ver, level) in [
+            ("p", "2.0.0", CxxStandard::Cxx20),
+            ("p", "1.0.0", CxxStandard::Cxx17),
+            ("fmt", "1.2.0-beta.3", CxxStandard::Cxx20),
+            ("fmt", "1.1.0", CxxStandard::Cxx17),
+        ] {
+            set_standards(&mut index, pkg, ver, cxx_table(Requirement::Min(level)));
+        }
+        let out = resolve(
+            &cxx_consumer_input(
+                vec![("p", "*"), ("fmt", ">=1.1.0, <=1.2.0-beta.9")],
+                CxxStandard::Cxx17,
+            ),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.1.0"));
+        assert!(
+            out.held_back.iter().all(|row| row.name.as_str() != "fmt"),
+            "held_back: {:?}",
+            out.held_back
+        );
     }
 
     /// Sensitivity control for the pruning above: with `zlib` claiming
@@ -3560,6 +3749,43 @@ mod tests {
         let err = resolve(&input, &index).unwrap_err();
         assert!(
             matches!(err, ResolveError::LockedVersionLacksFeature { .. }),
+            "{err:?}"
+        );
+    }
+
+    /// `--locked` checks the edge a forwarded feature of a non-optional
+    /// dependency travels, and cites it in the violation.
+    #[test]
+    fn locked_mode_names_the_dependency_a_forwarded_feature_reaches() {
+        let x = featured_version(vec![], &[], &[("x", &[])]);
+        let index = build_index(vec![
+            featured(
+                "b",
+                vec![(
+                    "1.0.0",
+                    featured_version(vec![("fmt", edge("^1.0"))], &[], &[("f", &["fmt/x"])]),
+                )],
+            ),
+            featured("fmt", vec![("1.0.0", x.clone()), ("1.2.0-beta.3", x)]),
+        ]);
+        let mut input = input_with_locked(
+            vec![("b", "*")],
+            vec![("b", "1.0.0"), ("fmt", "1.2.0-beta.3")],
+            ResolveMode::Locked,
+        );
+        request(&mut input, "b", &["f"]);
+        let err = resolve(&input, &index).unwrap_err();
+        let ResolveError::LockedVersionViolatesConstraint {
+            name, constraints, ..
+        } = &err
+        else {
+            panic!("expected a violation, got {err:?}");
+        };
+        assert_eq!(name, "fmt");
+        assert!(
+            constraints
+                .iter()
+                .any(|c| c.origin.as_str() == "b" && c.requirement.to_string() == "^1.0"),
             "{err:?}"
         );
     }

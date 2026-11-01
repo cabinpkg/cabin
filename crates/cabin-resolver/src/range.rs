@@ -17,10 +17,11 @@
 //! unless one of the comparators carries the same
 //! `major.minor.patch` with a non-empty `pre` tag - a filter
 //! that does not map cleanly onto the [`Ranges`] interval
-//! algebra.  The resolver applies the equivalent exclusion at
-//! candidate-selection time (see `provider::candidate_admits_prerelease`),
-//! so the ranges produced here describe the *numeric* interval
-//! and the candidate filter handles the pre-release rule.
+//! algebra.  The ranges produced here describe the *numeric*
+//! interval; the provider applies the pre-release rule, dropping
+//! from each requirement's range the published pre-releases that
+//! requirement rejects (`provider::without_rejected_prereleases`)
+//! and filtering candidates (`provider::candidate_admits_prerelease`).
 //!
 //! ## Build-metadata boundary
 //!
@@ -44,8 +45,9 @@
 //! successor would instead admit pre-releases for every plain
 //! full-version `>` requirement, and would surface pre-release-
 //! carrying bounds in the complements `PubGrub` derives during
-//! conflict resolution - both far likelier surfaces than an
-//! explicit `-0` bound (see the
+//! conflict resolution - both reachable from requirements that name
+//! no pre-release, whereas the approximation needs a requirement
+//! that itself names the `-0` successor (see the
 //! `synthetic_bounds_do_not_admit_prereleases` /
 //! `explicit_successor_prerelease_bounds_stay_approximate` tests).
 
