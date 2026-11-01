@@ -3,8 +3,8 @@
 //! `origin/main`.
 //!
 //! The signal-safe process management underneath the gate -
-//! [`spawn_tracked`], [`reap`], [`kill_group`], [`arm_teardown`] and
-//! the teardown-time file restore - is also the shared child-process
+//! [`spawn_tracked`], [`reap`], [`terminate`], [`masked`],
+//! [`arm_teardown`] and the teardown-time file restore - is also the shared child-process
 //! layer for the other xtask crates that run long-lived children
 //! (the registry smoke test's dev servers and mocks).
 //!
@@ -25,6 +25,15 @@
 //!   `SIGTERM`/`SIGINT`/`SIGHUP` tears the groups down; on a non-Unix
 //!   host the children are ordinary processes and a cancelled gate
 //!   can orphan them;
+//! - a teardown reaches only the processes still in a phase's group:
+//!   one that moved to a group of its own (`setsid`, or a tool's
+//!   per-child groups) stops only if its parent stops it on SIGTERM,
+//!   before the SIGKILL;
+//! - the signal masks that keep the handler out of a spawn and its
+//!   table record, or a reap and its table removal, block only the
+//!   thread that spawns or reaps, so they hold while no other thread
+//!   can take a teardown signal then: spawn any other thread under
+//!   [`masked`];
 //! - a teardown signal arriving while a tracked child is being
 //!   spawned stays pending until the spawn returns, because the
 //!   spawn-and-record pair runs under a signal mask, so a stalled
@@ -268,20 +277,9 @@ impl Drop for Gate {
         // `cargo` tree, and killing only the direct child on an unwind
         // leaves its grandchildren running with PPID 1.  Every phase
         // still listed here is one `finish` never reached (it removes
-        // each entry before reaping it), so none has been reaped: its
-        // zombie still pins the pid and the group kill cannot hit a
-        // recycled one.  Every group is signaled BEFORE the first
-        // blocking reap, as the teardown handler orders it, so one
-        // stuck phase cannot delay the signal to the next; the reaps
-        // then clear the teardown table entries.  A child that ignores
-        // TERM hangs the reap - the exposure the teardown handler
-        // documents and accepts.
-        for phase in &mut self.phases {
-            kill_group(&mut phase.child);
-        }
-        for mut phase in self.phases.drain(..) {
-            let _ = reap(&mut phase.child);
-        }
+        // each entry before reaping it), so none has been reaped, as
+        // `terminate` requires.
+        terminate(self.phases.iter_mut().map(|phase| &mut phase.child));
     }
 }
 
@@ -335,21 +333,33 @@ pub fn spawn_tracked(command: &mut Command) -> std::io::Result<Child> {
     })
 }
 
-/// Sends SIGTERM to a tracked child's whole process group, falling
-/// back to the direct pid as the teardown handler does (off Unix,
-/// `Child::kill`).  The caller still [`reap`]s the child afterwards;
-/// the group table entry is dropped there, not here.
-pub fn kill_group(child: &mut Child) {
+/// Stops tracked children's whole process groups the way the teardown
+/// handler does - SIGTERM, then SIGKILL to what is left once every
+/// child has exited or the grace period has passed - and [`reap`]s each
+/// child that exited.  One the SIGKILL wait leaves running (stuck in an
+/// uninterruptible sleep) stays unreaped and in the teardown table,
+/// which then still names a pid this process holds.  Off Unix,
+/// `Child::kill` and [`reap`].
+///
+/// Every child must be one [`spawn_tracked`] started and nothing has
+/// reaped yet: an unreaped child keeps its pid, and so the id of the
+/// group it leads, from naming any other process.
+pub fn terminate<'a>(children: impl IntoIterator<Item = &'a mut Child>) {
     #[cfg(unix)]
     {
-        let pid = child.id();
-        if unsafe { libc::kill(-pid.cast_signed(), libc::SIGTERM) } != 0 {
-            unsafe { libc::kill(pid.cast_signed(), libc::SIGTERM) };
+        let children: Vec<&mut Child> = children.into_iter().collect();
+        let leaders: Vec<u32> = children.iter().map(|child| child.id()).collect();
+        teardown::stop(&leaders);
+        for child in children {
+            if teardown::exited(child.id()) {
+                let _ = reap(child);
+            }
         }
     }
     #[cfg(not(unix))]
-    {
+    for child in children {
         let _ = child.kill();
+        let _ = reap(child);
     }
 }
 
@@ -416,16 +426,8 @@ mod teardown {
     /// of atomics rather than a lock: the handler runs in signal
     /// context, where taking a mutex can deadlock against the very
     /// thread it interrupted.
-    static GROUPS: [AtomicU32; 8] = [
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-    ];
+    static GROUPS: [AtomicU32; SLOTS] = [const { AtomicU32::new(0) }; SLOTS];
+    const SLOTS: usize = 8;
 
     /// Whether a cancelled gate exits 0, as the hook adapter promises
     /// on every path ([`crate::hook`]).
@@ -491,43 +493,91 @@ mod teardown {
         RESTORE_FROM.store(std::ptr::null_mut(), Ordering::SeqCst);
     }
 
+    /// How long [`stop`] waits for the leaders after SIGTERM, and again
+    /// after SIGKILL, in seconds.  Leaders that all exit sooner end the
+    /// wait.
+    pub const GRACE: libc::time_t = 2;
+
+    /// Stops the process groups that `leaders`, unreaped children of
+    /// this process, lead: SIGTERM to every group, then, once every
+    /// leader has exited or [`GRACE`] has passed, SIGKILL to every
+    /// group - which reaches a member that ignores SIGTERM or outlives
+    /// its leader - and the same wait again.  The leaders stay
+    /// unreaped, so each pid, and the id of the group it leads, names
+    /// no other process however long the waits take.
+    ///
+    /// Async-signal-safe, as the handler needs: no allocation, no lock,
+    /// and only `kill`, `poll`, `clock_gettime`, `waitid`, and reads of
+    /// `errno`.  The first three are on POSIX's async-signal-safe list.
+    /// `waitid` is not, but the Linux and macOS C libraries wrap it no
+    /// differently from `waitpid`, which is, and it is the only wait
+    /// that sees an exit without reaping.
+    pub fn stop(leaders: &[u32]) {
+        for signal in [libc::SIGTERM, libc::SIGKILL] {
+            for &pid in leaders {
+                // The whole group; the direct pid as the fallback.
+                if unsafe { libc::kill(-pid.cast_signed(), signal) } != 0 {
+                    unsafe { libc::kill(pid.cast_signed(), signal) };
+                }
+            }
+            let (seconds, nanoseconds) = now();
+            let deadline = (seconds + GRACE, nanoseconds);
+            while leaders.iter().any(|&pid| !exited(pid)) && now() < deadline {
+                unsafe { libc::poll(std::ptr::null_mut(), 0, 10) };
+            }
+        }
+    }
+
+    /// Whether `pid`, a child of this process, has exited, without
+    /// reaping it.  One that cannot be waited for (`ECHILD`) counts as
+    /// exited, an interrupted look as not yet.
+    pub fn exited(pid: u32) -> bool {
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let found = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid,
+                &raw mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if found != 0 {
+            return std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted;
+        }
+        // With WNOHANG, a zero si_pid means still running.
+        (unsafe { info.si_pid() }) != 0
+    }
+
+    /// `CLOCK_MONOTONIC` as seconds and nanoseconds, which compare in
+    /// order.
+    fn now() -> (libc::time_t, libc::c_long) {
+        let mut now: libc::timespec = unsafe { std::mem::zeroed() };
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut now) };
+        (now.tv_sec, now.tv_nsec)
+    }
+
     /// A cancelled gate must not orphan its phases: without this, a
     /// process-directed signal leaves cargo and npm running.  The exit
     /// code is the conventional 128 + signal, or 0 under [`HOOKED`].
     extern "C" fn handle(signal: libc::c_int) {
         // `arm` masks the other teardown signals for the handler's
-        // whole run, so this never nests.  The ordering below - kill
-        // everything first, reap and clear after - is still the safe
-        // shape on its own: a slot leaves the table only once its
-        // child is signaled AND reaped, never while the pid could
-        // still name a live child.
+        // whole run, so this never nests.  A reap and its table
+        // removal run with these signals blocked, so every pid read
+        // here is an unreaped child's (see the crate's ceilings for
+        // other threads).
+        let mut leaders = [0; SLOTS];
+        let mut count = 0;
         for slot in &GROUPS {
             let pid = slot.load(Ordering::SeqCst);
             if pid != 0 {
-                // Negative pid: the whole process group; the direct
-                // pid as the fallback.
-                if unsafe { libc::kill(-pid.cast_signed(), libc::SIGTERM) } != 0 {
-                    unsafe { libc::kill(pid.cast_signed(), libc::SIGTERM) };
-                }
+                leaders[count] = pid;
+                count += 1;
             }
         }
-        // Every group is waited for, so a cancelled gate never exits
-        // while its children still run (`waitpid` is on the
-        // async-signal-safe list).  A child that ignores SIGTERM hangs
-        // this - an accepted exposure.
-        for slot in &GROUPS {
-            let pid = slot.load(Ordering::SeqCst);
-            if pid != 0 {
-                let mut status: libc::c_int = 0;
-                unsafe { libc::waitpid(pid.cast_signed(), &raw mut status, 0) };
-                // Reaped, so the pid is recyclable from here: drop it
-                // from the table at once, so no later pass over the
-                // slots can signal whatever the kernel hands it to.
-                let _ = slot.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst);
-            }
-        }
-        // The registered working-tree restore, after the children are
-        // gone (nothing rewrites the file once they are).  Only
+        // Nothing is reaped: the exit below leaves the zombies to init.
+        stop(&leaders[..count]);
+        // The registered working-tree restore, after the groups are
+        // stopped (nothing rewrites the file once they are).  Only
         // rename/unlink - both async-signal-safe.
         let to = RESTORE_TO.swap(std::ptr::null_mut(), Ordering::SeqCst);
         if !to.is_null() {
@@ -549,10 +599,9 @@ mod teardown {
     pub fn arm() {
         // `sigaction` with all three teardown signals in `sa_mask`,
         // not `signal()`: the handler must never nest.  A second
-        // teardown signal interrupting the first handler between a
-        // kill and its wait - or between a reap and its slot clear -
-        // would act on a table mid-update; blocked, it stays pending
-        // and the running handler's `_exit` makes it moot.
+        // teardown signal would start another `stop` inside the
+        // first; blocked, it stays pending and the running handler's
+        // `_exit` makes it moot.
         let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
         action.sa_sigaction = handle as *const () as libc::sighandler_t;
         unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
@@ -564,30 +613,49 @@ mod teardown {
         }
     }
 
-    /// Runs `action` with the teardown signals blocked, so a spawn
-    /// and its `record`, or a reap and its `forget`, are atomic
-    /// against the handler.  Blocked, not lost: a signal arriving
-    /// meanwhile stays pending and the handler runs on restore.
+    /// Runs `action` with the teardown signals blocked on this thread,
+    /// so a spawn and its `record`, or a reap and its `forget`, are
+    /// atomic against the handler.  Blocked, not lost: a signal arriving
+    /// meanwhile stays pending and the handler runs on restore.  A
+    /// thread spawned inside inherits the block, so it never runs the
+    /// handler.
+    ///
+    /// `pthread_sigmask`, not `sigprocmask`: macOS's `sigprocmask` sets
+    /// every thread's mask, so two threads masking at once could restore
+    /// each other's blocked set and leave the process deaf to teardown.
     pub fn masked<T>(action: impl FnOnce() -> T) -> T {
+        // Restores on unwind too, so a panicking `action` cannot leave
+        // this thread deaf to teardown.
+        struct Restore(libc::sigset_t);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::pthread_sigmask(
+                        libc::SIG_SETMASK,
+                        &raw const self.0,
+                        std::ptr::null_mut(),
+                    )
+                };
+            }
+        }
         let mut block: libc::sigset_t = unsafe { std::mem::zeroed() };
         unsafe { libc::sigemptyset(&raw mut block) };
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             unsafe { libc::sigaddset(&raw mut block, signal) };
         }
         let mut previous: libc::sigset_t = unsafe { std::mem::zeroed() };
-        unsafe { libc::sigprocmask(libc::SIG_BLOCK, &raw const block, &raw mut previous) };
-        let value = action();
-        unsafe { libc::sigprocmask(libc::SIG_SETMASK, &raw const previous, std::ptr::null_mut()) };
-        value
+        unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, &raw const block, &raw mut previous) };
+        let _restore = Restore(previous);
+        action()
     }
 }
 
 #[cfg(unix)]
-use teardown::{forget, masked, record};
+use teardown::{forget, record};
 
 #[cfg(unix)]
 pub use teardown::{
-    arm as arm_teardown, hooked as teardown_exits_zero, restore as restore_on_teardown,
+    arm as arm_teardown, hooked as teardown_exits_zero, masked, restore as restore_on_teardown,
     restore_done as teardown_restore_done,
 };
 
@@ -605,7 +673,7 @@ fn record(_pid: u32) {}
 fn forget(_pid: u32) {}
 
 #[cfg(not(unix))]
-fn masked<T>(action: impl FnOnce() -> T) -> T {
+pub fn masked<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
@@ -621,6 +689,7 @@ pub fn arm_teardown() {}
 mod tests {
     use super::*;
     use std::io::Read as _;
+    use std::time::{Duration, Instant};
 
     /// Fails the test after killing the phase group, so nothing is
     /// left running.  Called only right after a read found the write
@@ -642,6 +711,128 @@ mod tests {
         }
     }
 
+    /// A fifo in `dir`.
+    fn fifo(dir: &std::path::Path, name: &str) -> PathBuf {
+        use std::os::unix::ffi::OsStrExt as _;
+        let fifo = dir.join(name);
+        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).expect("the fifo path");
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        fifo
+    }
+
+    /// The fifo's read end, opened before the launch and without
+    /// blocking, so neither side ever waits on the other to open it.
+    fn read_end(fifo: &std::path::Path) -> std::fs::File {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(fifo)
+            .expect("the fifo's read end")
+    }
+
+    /// The phase's group, which a member announces on the fifo as `$$`
+    /// (the phase's pid) and a newline once it holds the write end.
+    fn announced(reader: &mut std::fs::File) -> libc::pid_t {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut announced = Vec::new();
+        // Until a member opens the write end, a read sees end-of-file.
+        while !announced.ends_with(b"\n") {
+            announced.extend(available(reader).unwrap_or_default());
+            assert!(
+                Instant::now() < deadline,
+                "the phase never started: it announced {announced:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        String::from_utf8_lossy(&announced)
+            .trim()
+            .parse()
+            .expect("the announced group")
+    }
+
+    /// What the group wrote to the fifo up to end-of-file, which comes
+    /// once every process holding the write end has died.  One still
+    /// holding it at `deadline` fails the test.
+    fn until_closed(reader: &mut std::fs::File, group: libc::pid_t, deadline: Instant) -> Vec<u8> {
+        let mut written = Vec::new();
+        loop {
+            match available(reader) {
+                Some(bytes) if bytes.is_empty() => return written,
+                Some(bytes) => written.extend(bytes),
+                None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+                None => fail(
+                    group,
+                    &format!("group {group} survived the teardown, having written {written:?}"),
+                ),
+            }
+        }
+    }
+
+    /// A gate running one phase: `script` under `sh`, with the fifo
+    /// `held` as `$1`.  The path travels as a shell ARGUMENT, never
+    /// interpolated into the script: a scratch directory with spaces or
+    /// metacharacters in it must not change what the redirects open.
+    fn launched(dir: &std::path::Path, script: &str, held: &std::path::Path) -> Gate {
+        let mut gate = Gate::new(dir.to_path_buf(), true, Box::new(std::io::sink()), false);
+        gate.launch(
+            "phase",
+            Command::new("sh").arg("-c").arg(script).arg("sh").arg(held),
+        )
+        .expect("launch the phase");
+        gate
+    }
+
+    /// Drops `gate` on another thread, so a teardown that hangs fails
+    /// the test instead of stalling it, and sends how long the drop
+    /// took.
+    fn dropped(gate: Gate) -> std::sync::mpsc::Receiver<Duration> {
+        let (took, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let start = Instant::now();
+            drop(gate);
+            let _ = took.send(start.elapsed());
+        });
+        receiver
+    }
+
+    fn grace() -> Duration {
+        Duration::from_secs(teardown::GRACE.try_into().expect("a positive grace period"))
+    }
+
+    /// A child killed and reaped on drop, so a failing test leaves none
+    /// of its own children running.
+    struct Reaped(Child);
+
+    impl Drop for Reaped {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// A phase whose leader and grandchild both ignore SIGTERM: the
+    /// leader `exec`s into `sleep`, which keeps the inherited disposition.
+    const IGNORES_SIGTERM: &str =
+        r#"exec 3>"$1"; trap '' TERM; (echo $$ >&3; exec sleep 60) & exec sleep 60"#;
+
+    #[test]
+    fn masked_unblocks_the_teardown_signals_when_its_action_panics() {
+        // On a thread of its own, so a broken restore cannot leave the
+        // signals blocked for whatever the test's thread runs next.
+        std::thread::spawn(|| {
+            let _ = std::panic::catch_unwind(|| masked(|| panic!("the masked action")));
+            let mut current: libc::sigset_t = unsafe { std::mem::zeroed() };
+            unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &raw mut current) };
+            assert_eq!(
+                unsafe { libc::sigismember(&raw const current, libc::SIGTERM) },
+                0
+            );
+        })
+        .join()
+        .expect("the mask was restored");
+    }
+
     /// Dropping a gate with a live phase terminates the phase's whole
     /// process group - the grandchild too, which killing the leader
     /// alone never reached.  Death is observed as EOF on a FIFO whose
@@ -651,38 +842,21 @@ mod tests {
     /// alive.
     #[test]
     fn a_dropped_gate_kills_the_whole_phase_group() {
-        use std::os::unix::ffi::OsStrExt as _;
-        use std::os::unix::fs::OpenOptionsExt as _;
-        use std::time::{Duration, Instant};
-
         let scratch = assert_fs::TempDir::new().expect("a scratch directory");
-        let [held, blocker] = ["held", "blocker"].map(|name| {
-            let fifo = scratch.path().join(name);
-            let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).expect("the fifo path");
-            assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
-            fifo
-        });
-        // Open before the launch and without blocking, so neither side
-        // ever waits on the other to open the fifo.
-        let mut reader = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open(&held)
-            .expect("the fifo's read end");
+        let held = fifo(scratch.path(), "held");
+        let blocker = fifo(scratch.path(), "blocker");
+        let mut reader = read_end(&held);
 
+        // The grandchild, a backgrounded subshell, announces the
+        // phase's group once it runs shell code, then blocks opening a
+        // fifo nobody writes: no `exec` is left for the teardown signal
+        // to land in.
         let mut gate = Gate::new(
             scratch.path().to_path_buf(),
             true,
             Box::new(std::io::sink()),
             false,
         );
-        // The grandchild, a backgrounded subshell, announces the
-        // phase's group (`$$` is the phase's pid) once it runs shell
-        // code, then blocks opening a fifo nobody writes: no `exec` is
-        // left for the teardown signal to land in.  The paths travel as
-        // shell ARGUMENTS, never interpolated into the script: a scratch
-        // directory with spaces or metacharacters in it must not change
-        // what the redirects open.
         gate.launch(
             "grandchild holder",
             Command::new("sh")
@@ -693,31 +867,9 @@ mod tests {
                 .arg(&blocker),
         )
         .expect("launch the phase");
+        let group = announced(&mut reader);
 
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let mut announced = Vec::new();
-        // Until the grandchild opens the write end, a read sees
-        // end-of-file.
-        while !announced.ends_with(b"\n") {
-            announced.extend(available(&mut reader).unwrap_or_default());
-            assert!(
-                Instant::now() < deadline,
-                "the grandchild never started: it announced {announced:?}"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let group: libc::pid_t = String::from_utf8_lossy(&announced)
-            .trim()
-            .parse()
-            .expect("the announced group");
-
-        // On another thread: a leader that outlived the signal would
-        // hang the drop's reap, which must fail this test, not stall it.
-        let (dropped, teardown) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            drop(gate);
-            let _ = dropped.send(());
-        });
+        let teardown = dropped(gate);
         let deadline = Instant::now() + Duration::from_secs(10);
         // The group's members at the deadline, reported only once another
         // read finds the write end still open, so that read, not the
@@ -763,5 +915,172 @@ mod tests {
         teardown
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("the gate's drop never returned");
+    }
+
+    /// The teardown's first signal is SIGTERM, which a phase can handle,
+    /// and a drop whose phases all exit on it returns without sitting
+    /// out the grace period.
+    #[test]
+    fn a_dropped_gate_lets_a_phase_handle_sigterm() {
+        let scratch = assert_fs::TempDir::new().expect("a scratch directory");
+        let held = fifo(scratch.path(), "held");
+        let mut reader = read_end(&held);
+        // `wait`, unlike a foreground `sleep`, never holds the trap off.
+        let gate = launched(
+            scratch.path(),
+            r#"exec 3>"$1"; trap 'echo term >&3; exit 0' TERM; echo $$ >&3; while :; do sleep 1 & wait; done"#,
+            &held,
+        );
+        let group = announced(&mut reader);
+
+        let took = dropped(gate);
+        let written = until_closed(&mut reader, group, Instant::now() + Duration::from_secs(10));
+        assert_eq!(written, b"term\n");
+        let took = took
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the gate's drop never returned");
+        assert!(took < grace(), "the drop took {took:?}");
+    }
+
+    /// A phase ignoring SIGTERM is killed once the grace period has
+    /// passed, in bounded time, and no other group is signaled: a
+    /// bystander in a group of its own outlives the teardown.
+    #[test]
+    fn a_dropped_gate_kills_a_phase_ignoring_sigterm_after_the_grace_period() {
+        use std::os::unix::process::CommandExt as _;
+        let scratch = assert_fs::TempDir::new().expect("a scratch directory");
+        let held = fifo(scratch.path(), "held");
+        let mut reader = read_end(&held);
+        let mut bystander = Reaped(
+            Command::new("sleep")
+                .arg("60")
+                .process_group(0)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn the bystander"),
+        );
+        let gate = launched(scratch.path(), IGNORES_SIGTERM, &held);
+        let group = announced(&mut reader);
+
+        let took = dropped(gate);
+        until_closed(
+            &mut reader,
+            group,
+            Instant::now() + grace() + Duration::from_secs(10),
+        );
+        let took = took
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the gate's drop never returned");
+        let untouched = bystander
+            .0
+            .try_wait()
+            .expect("poll the bystander")
+            .is_none();
+        assert!(
+            took >= grace(),
+            "killed after {took:?}, inside the grace period"
+        );
+        assert!(untouched, "the teardown signaled an unrelated group");
+    }
+
+    /// A grandchild ignoring SIGTERM is killed once its leader has
+    /// exited on it, without waiting out the grace period.
+    #[test]
+    fn a_dropped_gate_kills_a_grandchild_that_outlives_its_leader() {
+        let scratch = assert_fs::TempDir::new().expect("a scratch directory");
+        let held = fifo(scratch.path(), "held");
+        let mut reader = read_end(&held);
+        let gate = launched(
+            scratch.path(),
+            r#"exec 3>"$1"; (trap '' TERM; echo $$ >&3; exec sleep 60) & exec sleep 60"#,
+            &held,
+        );
+        let group = announced(&mut reader);
+
+        let took = dropped(gate);
+        until_closed(&mut reader, group, Instant::now() + Duration::from_secs(10));
+        let took = took
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the gate's drop never returned");
+        assert!(took < grace(), "the drop took {took:?}");
+    }
+
+    /// Names the scratch directory of the process that
+    /// [`a_teardown_signal_stops_the_phases_and_restores_the_file`] signals.
+    const SIGNALED: &str = "XTASK_CI_TEARDOWN_SIGNALED";
+
+    /// The process the test above runs and signals: an armed teardown
+    /// with a registered file restore and a phase ignoring SIGTERM.  It
+    /// marks itself `armed` once the phase is recorded, then waits a
+    /// minute for the signal, so it ends even if the test failed.
+    #[test]
+    #[ignore = "run and signaled by a_teardown_signal_stops_the_phases_and_restores_the_file"]
+    fn signaled_gate() {
+        let Some(scratch) = std::env::var_os(SIGNALED) else {
+            return;
+        };
+        let scratch = PathBuf::from(scratch);
+        arm_teardown();
+        restore_on_teardown(Some(&scratch.join("backup")), &scratch.join("file"));
+        let _gate = launched(&scratch, IGNORES_SIGTERM, &scratch.join("held"));
+        std::fs::write(scratch.join("armed"), "").expect("mark the gate armed");
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    /// A teardown signal stops every phase group, escalating to SIGKILL,
+    /// then restores the registered file and exits 128 + the signal.
+    #[test]
+    fn a_teardown_signal_stops_the_phases_and_restores_the_file() {
+        use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
+        let scratch = assert_fs::TempDir::new().expect("a scratch directory");
+        let held = fifo(scratch.path(), "held");
+        let mut reader = read_end(&held);
+        std::fs::write(scratch.path().join("backup"), "original").expect("write the backup");
+        std::fs::write(scratch.path().join("file"), "mutated").expect("write the file");
+        let mut signaled = Reaped(
+            Command::new(std::env::current_exe().expect("the test binary"))
+                .args(["--exact", "tests::signaled_gate", "--ignored"])
+                .env(SIGNALED, scratch.path())
+                .process_group(0)
+                .stdout(Stdio::null())
+                .spawn()
+                .expect("run the signaled gate"),
+        );
+        let group = announced(&mut reader);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !scratch.path().join("armed").exists() {
+            assert!(
+                Instant::now() < deadline,
+                "the signaled gate never finished launching"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        unsafe { libc::kill(signaled.0.id().cast_signed(), libc::SIGTERM) };
+        until_closed(
+            &mut reader,
+            group,
+            Instant::now() + grace() + Duration::from_secs(10),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = signaled.0.try_wait().expect("poll the signaled gate") {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "the signaled gate never exited");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(
+            status.code(),
+            Some(128 + libc::SIGTERM),
+            "{status:?} {:?}",
+            status.signal()
+        );
+        assert_eq!(
+            std::fs::read_to_string(scratch.path().join("file")).expect("read the file"),
+            "original"
+        );
+        assert!(!scratch.path().join("backup").exists());
     }
 }

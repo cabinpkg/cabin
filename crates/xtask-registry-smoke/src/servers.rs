@@ -507,15 +507,10 @@ impl DevServers {
     pub fn stop_dev_servers(&mut self) {
         let mut registry = self.registry.take();
         let mut web = self.web.take();
-        for child in [registry.as_mut(), web.as_mut()].into_iter().flatten() {
-            xtask_ci::kill_group(child);
-        }
         // Reaped before the port poll, and before the pid could be
         // recycled: a later teardown must not signal an unrelated
         // group.
-        for child in [registry.as_mut(), web.as_mut()].into_iter().flatten() {
-            let _ = xtask_ci::reap(child);
-        }
+        xtask_ci::terminate([registry.as_mut(), web.as_mut()].into_iter().flatten());
         let url = format!("{}/healthz", self.ports.base());
         for _ in 0..PORT_FREE_POLLS {
             if !alive(&url) {
@@ -687,17 +682,16 @@ impl Drop for DevServers {
         // The whole process group: killing the direct child alone
         // would orphan wrangler/workerd and leave the port bound.
         // The mocks are single-process groups, which kill identically.
-        for slot in [
-            &mut self.registry,
-            &mut self.web,
-            &mut self.mock,
-            &mut self.github,
-        ] {
-            if let Some(mut child) = slot.take() {
-                xtask_ci::kill_group(&mut child);
-                let _ = xtask_ci::reap(&mut child);
-            }
-        }
+        xtask_ci::terminate(
+            [
+                &mut self.registry,
+                &mut self.web,
+                &mut self.mock,
+                &mut self.github,
+            ]
+            .into_iter()
+            .filter_map(Option::as_mut),
+        );
         if self.dev_vars_created {
             let _ = fs::remove_file(&self.dev_vars);
         }
