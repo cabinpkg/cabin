@@ -589,27 +589,44 @@ fn comparator_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> 
     // (e.g. `>= 1`) drop the missing segments so the comparison
     // matches what `>= 1` means to pkg-config (any 1.x.y).
     let base = render_version(comp);
+    // A partial version names a whole series: `=1.2` is `1.2.*`, `>1.2`
+    // is `>=1.3`, and `<=1.2` is `<1.3`, whereas pkg-config would
+    // compare `1.2` as one version below `1.2.0`.  `>=` and `<` agree
+    // either way.
+    let partial = comp.patch.is_none();
     match comp.op {
+        semver::Op::Exact if partial => wildcard_to_pkg_config(comp),
         semver::Op::Exact => vec![("=".to_owned(), base)],
+        // The bound is only text, so a saturated major's successor is
+        // still spelled exactly.
+        semver::Op::Greater if partial => vec![(
+            ">=".to_owned(),
+            wildcard_upper_bound(comp).unwrap_or_else(|| (u128::from(comp.major) + 1).to_string()),
+        )],
         semver::Op::Greater => vec![(">".to_owned(), base)],
         semver::Op::GreaterEq => vec![(">=".to_owned(), base)],
         semver::Op::Less => vec![("<".to_owned(), base)],
+        semver::Op::LessEq if partial => wildcard_upper_bound(comp)
+            .map(|next| ("<".to_owned(), next))
+            .into_iter()
+            .collect(),
         semver::Op::LessEq => vec![("<=".to_owned(), base)],
         semver::Op::Tilde => tilde_to_pkg_config(comp),
         semver::Op::Caret => caret_to_pkg_config(comp),
-        semver::Op::Wildcard => {
-            // `1.*` parses as Wildcard with major=1, minor=None.
-            // pkg-config has no wildcard primitive; expand into a
-            // `>=` / `<` range with the next bumped segment.
-            let lower = render_version(comp);
-            let mut out = vec![(">=".to_owned(), lower)];
-            if let Some(upper) = wildcard_upper_bound(comp) {
-                out.push(("<".to_owned(), upper));
-            }
-            out
-        }
+        // `1.*` parses as Wildcard with major=1, minor=None.
+        semver::Op::Wildcard => wildcard_to_pkg_config(comp),
         _ => Vec::new(),
     }
+}
+
+/// pkg-config has no wildcard primitive; expand a series into a `>=` /
+/// `<` range with the next bumped segment.
+fn wildcard_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
+    let mut out = vec![(">=".to_owned(), render_version(comp))];
+    if let Some(upper) = wildcard_upper_bound(comp) {
+        out.push(("<".to_owned(), upper));
+    }
+    out
 }
 
 fn render_version(comp: &semver::Comparator) -> String {
@@ -629,29 +646,40 @@ fn render_version(comp: &semver::Comparator) -> String {
     out
 }
 
-/// Exclusive upper bound `(major+1).0.0` - the start of the next
-/// major series.  `None` when `major + 1` overflows `u64`; the caller
-/// then drops the `<` constraint.
-fn next_major_series(major: u64) -> Option<String> {
-    major.checked_add(1).map(|m| format!("{m}.0.0"))
+/// The version a series starts at, spelled with its trailing zero
+/// segments dropped.  pkg-config sorts `2` below `2.0` below `2.0.0`, so
+/// only the shortest spelling is at or below every version of the
+/// series, however many segments the installed module reports: `< 2`
+/// rejects `2`, `2.0`, and `2.0.0`, where `< 2.0.0` accepts `2.0`.
+fn series_start(major: u64, minor: u64, patch: u64) -> String {
+    match (minor, patch) {
+        (0, 0) => major.to_string(),
+        (_, 0) => format!("{major}.{minor}"),
+        _ => format!("{major}.{minor}.{patch}"),
+    }
 }
 
-/// Exclusive upper bound `major.(minor+1).0` - the start of the next
-/// minor series.  A minor at the `u64` ceiling carries into the next
-/// major (`~1.MAX` ⇒ `< 2.0.0`); `None` only when the major is also
-/// saturated.
+/// The start of the next major series.  `None` when `major + 1`
+/// overflows `u64`; the caller then drops the `<` constraint.
+fn next_major_series(major: u64) -> Option<String> {
+    major.checked_add(1).map(|m| series_start(m, 0, 0))
+}
+
+/// The start of the next minor series.  A minor at the `u64` ceiling
+/// carries into the next major (`~1.MAX` ⇒ `< 2`); `None` only when the
+/// major is also saturated.
 fn next_minor_series(major: u64, minor: u64) -> Option<String> {
     match minor.checked_add(1) {
-        Some(m) => Some(format!("{major}.{m}.0")),
+        Some(m) => Some(series_start(major, m, 0)),
         None => next_major_series(major),
     }
 }
 
-/// Exclusive upper bound `major.minor.(patch+1)` - the next patch.  A
-/// patch at the ceiling carries into the next minor (then major).
+/// The next patch.  A patch at the ceiling carries into the next minor
+/// (then major).
 fn next_patch_series(major: u64, minor: u64, patch: u64) -> Option<String> {
     match patch.checked_add(1) {
-        Some(p) => Some(format!("{major}.{minor}.{p}")),
+        Some(p) => Some(series_start(major, minor, p)),
         None => next_minor_series(major, minor),
     }
 }
@@ -692,12 +720,12 @@ fn caret_upper_bound(comp: &semver::Comparator) -> Option<String> {
     // kernel.
     let (major, minor, patch) = match (comp.minor, comp.patch) {
         (Some(minor), Some(patch)) => (comp.major, minor, patch),
-        (Some(0), None) if comp.major == 0 => return Some("0.1.0".to_owned()),
+        (Some(0), None) if comp.major == 0 => return Some(series_start(0, 1, 0)),
         (Some(minor), None) => (comp.major, minor, 0),
         (None, _) => return next_major_series(comp.major),
     };
     cabin_core::version_req::caret_upper_bound(major, minor, patch)
-        .map(|(major, minor, patch)| format!("{major}.{minor}.{patch}"))
+        .map(|(major, minor, patch)| series_start(major, minor, patch))
 }
 
 fn wildcard_upper_bound(comp: &semver::Comparator) -> Option<String> {
@@ -928,7 +956,7 @@ mod tests {
             pairs,
             vec![
                 (">=".to_owned(), "1.2".to_owned()),
-                ("<".to_owned(), "2.0.0".to_owned()),
+                ("<".to_owned(), "2".to_owned()),
             ]
         );
     }
@@ -940,7 +968,7 @@ mod tests {
             pairs,
             vec![
                 (">=".to_owned(), "0.2".to_owned()),
-                ("<".to_owned(), "0.3.0".to_owned()),
+                ("<".to_owned(), "0.3".to_owned()),
             ]
         );
     }
@@ -952,7 +980,7 @@ mod tests {
             pairs,
             vec![
                 (">=".to_owned(), "1.2.3".to_owned()),
-                ("<".to_owned(), "1.3.0".to_owned()),
+                ("<".to_owned(), "1.3".to_owned()),
             ]
         );
     }
@@ -967,6 +995,30 @@ mod tests {
     fn convert_exact_emits_pkg_config_equals() {
         let pairs = convert_requirement("=1.0.0").unwrap();
         assert_eq!(pairs, vec![("=".to_owned(), "1.0.0".to_owned())]);
+    }
+
+    #[test]
+    fn convert_partial_versions_name_a_series() {
+        let pairs = |raw: &str| {
+            convert_requirement(raw)
+                .unwrap()
+                .into_iter()
+                .map(|(op, v)| format!("{op} {v}"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(pairs("=1.2"), [">= 1.2", "< 1.3"]);
+        assert_eq!(pairs("=1"), [">= 1", "< 2"]);
+        assert_eq!(pairs(">1.2"), [">= 1.3"]);
+        assert_eq!(pairs(">1"), [">= 2"]);
+        assert_eq!(pairs("<=1.2"), ["< 1.3"]);
+        assert_eq!(pairs("<=1"), ["< 2"]);
+        let max = u64::MAX;
+        let past_max = "18446744073709551616";
+        assert_eq!(pairs(&format!(">{max}")), [format!(">= {past_max}")]);
+        assert_eq!(pairs(&format!(">{max}.{max}")), [format!(">= {past_max}")]);
+        assert!(pairs(&format!("<={max}")).is_empty());
+        assert_eq!(pairs("=1.2.3"), ["= 1.2.3"]);
+        assert_eq!(pairs("^1.2.3"), [">= 1.2.3", "< 2"]);
     }
 
     #[test]
@@ -995,17 +1047,15 @@ mod tests {
         let max = u64::MAX;
 
         // Minor at the ceiling ⇒ next major: `~1.MAX` / `1.MAX.*` mean
-        // `< 2.0.0`, still excluding 2.x as the SemVer range requires.
+        // `< 2`, still excluding 2.x as the SemVer range requires.
         let tilde_minor = convert_requirement(&format!("~1.{max}")).unwrap();
         assert!(
-            tilde_minor.iter().any(|(op, v)| op == "<" && v == "2.0.0"),
+            tilde_minor.iter().any(|(op, v)| op == "<" && v == "2"),
             "{tilde_minor:?}"
         );
         let wildcard_minor = convert_requirement(&format!("1.{max}.*")).unwrap();
         assert!(
-            wildcard_minor
-                .iter()
-                .any(|(op, v)| op == "<" && v == "2.0.0"),
+            wildcard_minor.iter().any(|(op, v)| op == "<" && v == "2"),
             "{wildcard_minor:?}"
         );
 
@@ -1025,7 +1075,7 @@ mod tests {
 
         // A representable tilde still emits its bounded `<` upper.
         let normal = convert_requirement("~1.2").unwrap();
-        assert!(normal.iter().any(|(op, v)| op == "<" && v == "1.3.0"));
+        assert!(normal.iter().any(|(op, v)| op == "<" && v == "1.3"));
     }
 
     #[test]
@@ -1036,17 +1086,17 @@ mod tests {
         // is omitted only when the major itself is saturated.
         let max = u64::MAX;
 
-        // Minor at the ceiling ⇒ next major: `^0.MAX` means `< 1.0.0`.
+        // Minor at the ceiling ⇒ next major: `^0.MAX` means `< 1`.
         let minor = convert_requirement(&format!("^0.{max}")).unwrap();
         assert!(
-            minor.iter().any(|(op, v)| op == "<" && v == "1.0.0"),
+            minor.iter().any(|(op, v)| op == "<" && v == "1"),
             "{minor:?}"
         );
 
-        // Patch at the ceiling ⇒ next minor: `^0.0.MAX` means `< 0.1.0`.
+        // Patch at the ceiling ⇒ next minor: `^0.0.MAX` means `< 0.1`.
         let patch = convert_requirement(&format!("^0.0.{max}")).unwrap();
         assert!(
-            patch.iter().any(|(op, v)| op == "<" && v == "0.1.0"),
+            patch.iter().any(|(op, v)| op == "<" && v == "0.1"),
             "{patch:?}"
         );
 
@@ -1084,7 +1134,7 @@ mod tests {
                 OsString::from("1.2"),
                 OsString::from("zlib"),
                 OsString::from("<"),
-                OsString::from("2.0.0"),
+                OsString::from("2"),
             ]
         );
     }

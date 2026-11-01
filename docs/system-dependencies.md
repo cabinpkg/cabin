@@ -103,10 +103,17 @@ Cabin tries to convert each Cabin / npm-flavored SemVer requirement into a list 
 
 | Cabin requirement | pkg-config form                |
 |-------------------|--------------------------------|
-| `^1.2`            | `>= 1.2`, `< 2.0.0`            |
-| `~1.2.3`          | `>= 1.2.3`, `< 1.3.0`          |
+| `^1.2`            | `>= 1.2`, `< 2`                |
+| `~1.2.3`          | `>= 1.2.3`, `< 1.3`            |
 | `>=1.2 <2`        | `>= 1.2`, `< 2`                |
 | `=1.0.0`          | `= 1.0.0`                      |
+| `=1.2`            | `>= 1.2`, `< 1.3`              |
+| `>1.2`            | `>= 1.3`                       |
+| `<=1.2`           | `< 1.3`                        |
+
+A partial version names its whole series, as in SemVer: `=1.2` accepts `1.2.12`, and `>1.2`
+does not.  A series boundary is written without trailing zeros because `pkg-config` sorts `2`
+below `2.0` below `2.0.0`: `< 2` rejects an installed `2.0`, which `< 2.0.0` would accept.
 
 Requirements that do not parse as SemVer are forwarded to `pkg-config` as one or more explicit
 `operator version` pairs, with the module name repeated before each pair (`>= 1.0.1f < 3.0.0z`
