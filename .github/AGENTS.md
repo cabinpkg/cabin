@@ -21,7 +21,8 @@ their cargo aliases or established external tools directly.
   validation; never add `push: main` to repeat validation it already
   performed. `push: main` is reserved for genuine post-merge semantics:
   production side effects (the registry deploy), GitHub features that
-  require a default-branch push analysis (currently CodeQL), and
+  require a default-branch push analysis (currently CodeQL, whose
+  merge-group run reports its required contexts without analyzing), and
   path-filtered final-state checks in advisory workflows with no
   `merge_group` run (proofs, zizmor).
 - Keep each job-level component dependency list only in
