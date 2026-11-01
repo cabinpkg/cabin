@@ -172,20 +172,31 @@ fn fake_tool_with_output(
     stderr: &str,
     status: i32,
 ) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
     let escaped_stdout = stdout.replace('\'', "'\\''");
     let escaped_stderr = stderr.replace('\'', "'\\''");
-    let script = format!(
-        "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
+    write_executable(
+        &path,
+        &format!(
+            "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
+        ),
     );
-    assert_fs::fixture::ChildPath::new(&path)
-        .write_str(&script)
-        .unwrap();
-    let mut perms = fs::metadata(&path).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&path, perms).unwrap();
     path
+}
+
+/// Write `body` to `path` as an executable script.  Only the `sh`
+/// child opens `path` for writing: a child that another test's thread
+/// forks while this process holds it open keeps the descriptor until
+/// its own exec, and Linux refuses to exec a file open for writing
+/// (ETXTBSY).
+#[cfg(unix)]
+fn write_executable(path: &Path, body: &str) {
+    Command::new("sh")
+        .args(["-c", r#"printf %s "$2" >"$1" && chmod 755 "$1""#, "sh"])
+        .arg(path)
+        .arg(body)
+        .assert()
+        .success();
 }
 
 /// Run `cmd`, assert it exits successfully, and parse its stdout as

@@ -4,17 +4,14 @@ use super::*;
 
 #[test]
 fn build_target_rejects_a_gcc_that_builds_for_another_machine() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = TempDir::new().unwrap();
     write_hello_project(dir.path());
     let bin = TempDir::new().unwrap();
     let gcc = bin.path().join("fake-g++");
-    fs::write(
+    write_executable(
         &gcc,
         "#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo x86_64-linux-gnu; else echo 'g++ (GCC) 13.2.0'; fi\n",
-    )
-    .unwrap();
-    fs::set_permissions(&gcc, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let ar = fake_tool_with_output(bin.path(), "ar", "GNU ar (GNU Binutils) 2.40\n", "", 0);
     cabin()
         .current_dir(dir.path())
@@ -35,18 +32,14 @@ fn build_target_rejects_a_gcc_that_builds_for_another_machine() {
 /// and archiver beside it, and its executables are `<name>.exe`.
 #[test]
 fn a_mingw_build_takes_the_drivers_siblings_and_names_executables_exe() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = TempDir::new().unwrap();
     crate::c_language::write_mixed_library(dir.path());
     let bin = TempDir::new().unwrap();
     for driver in ["g++", "gcc"] {
-        let path = bin.path().join(format!("x86_64-w64-mingw32-{driver}"));
-        fs::write(
-            &path,
+        write_executable(
+            &bin.path().join(format!("x86_64-w64-mingw32-{driver}")),
             "#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo x86_64-w64-mingw32; else echo 'g++ (GCC) 13.2.0'; fi\n",
-        )
-        .unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        );
     }
     fake_tool_with_output(
         bin.path(),
@@ -89,18 +82,17 @@ fn a_mingw_build_takes_the_drivers_siblings_and_names_executables_exe() {
 /// `HOST_AR`.  A build-machine compiler of another dialect is refused.
 #[test]
 fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = TempDir::new().unwrap();
     crate::build_dependencies::write_generator_project(dir.path());
     let bin = TempDir::new().unwrap();
     let fake_gcc = |name: &str, machine: &str| {
         let path = bin.path().join(name);
-        fs::write(
+        write_executable(
             &path,
-            format!("#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo {machine}; else echo 'g++ (GCC) 13.2.0'; fi\n"),
-        )
-        .unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            &format!(
+                "#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo {machine}; else echo 'g++ (GCC) 13.2.0'; fi\n"
+            ),
+        );
         path
     };
     let gcc = fake_gcc("fake-g++", "riscv64-linux-gnu");
@@ -433,8 +425,7 @@ cxxapp = ["src/aarch64.c"]
         let tools = dir.path().join("tools");
         fs::create_dir(&tools).unwrap();
         let runner = tools.join("runner.sh");
-        fs::write(&runner, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$0.log\"\n").unwrap();
-        fs::set_permissions(&runner, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        write_executable(&runner, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$0.log\"\n");
         fs::create_dir(dir.path().join(".cabin")).unwrap();
         fs::write(
             dir.path().join(".cabin/config.toml"),

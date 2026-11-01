@@ -527,11 +527,9 @@ impl<'a> RunningTest<'a> {
         // its environment.
         command.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
         command.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
-        // Retry on `ETXTBSY`: when another thread of this process
-        // forks while this executable is still open for writing, the
-        // forked child inherits the writable fd until its own
-        // `execve`, and our `execve` of the file fails meanwhile.  The
-        // window clears within milliseconds.
+        // Retry on `ETXTBSY`: Linux refuses to exec a file that any
+        // process still holds open for writing, such as the linker of a
+        // concurrent build that has not yet closed this executable.
         let child = retry_on_etxtbsy(SPAWN_RETRY_ATTEMPTS, SPAWN_RETRY_BASE_DELAY, || {
             SharedChild::spawn(&mut command)
         })
@@ -978,8 +976,6 @@ mod tests {
     // The prelude is only used by the Unix-only fixture tests below.
     #[cfg(unix)]
     use assert_fs::prelude::*;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
 
     // The fixture-based tests below run a fake test executable.  On Unix
     // that fixture is a `#!/bin/sh` script marked executable; Windows
@@ -988,12 +984,20 @@ mod tests {
     // tests are Unix-only.  The production `cabin test` path is covered
     // on Windows by the `library-with-tests` example end-to-end test,
     // which runs real compiled `.exe` test targets.
+    //
+    // Only the `sh` child opens the fixture for writing: a child that
+    // another test's thread forks while this process holds it open keeps
+    // the descriptor until its own exec, and Linux refuses to exec a file
+    // open for writing (ETXTBSY).
     #[cfg(unix)]
     fn write_executable(file: &assert_fs::fixture::ChildPath, body: &str) {
-        file.write_str(body).unwrap();
-        let mut perms = std::fs::metadata(file.path()).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(file.path(), perms).unwrap();
+        let status = std::process::Command::new("sh")
+            .args(["-c", r#"printf %s "$2" >"$1" && chmod 755 "$1""#, "sh"])
+            .arg(file.path())
+            .arg(body)
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 
     #[test]

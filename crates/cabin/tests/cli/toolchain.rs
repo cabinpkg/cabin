@@ -13,14 +13,8 @@ use std::path::PathBuf;
 /// compiler detection runs it, but nothing compiles with it.
 #[cfg(unix)]
 fn fake_tool(dir: &Path, name: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    assert_fs::fixture::ChildPath::new(&path)
-        .write_str("#!/bin/sh\nexit 0\n")
-        .unwrap();
-    let mut perms = fs::metadata(&path).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&path, perms).unwrap();
+    write_executable(&path, "#!/bin/sh\nexit 0\n");
     path
 }
 
@@ -385,7 +379,6 @@ cxx = "clang++"
 #[cfg(unix)]
 #[test]
 fn compilers_replaced_at_the_same_paths_rebuild() {
-    use std::os::unix::fs::PermissionsExt;
     require_c_and_cxx_build_tools();
     let find = |names: [&'static str; 3]| names.into_iter().find(|n| command_exists(n)).unwrap();
     let (real_cc, real_cxx) = (
@@ -422,14 +415,12 @@ sources = ["src/main.cc"]
     let (cc, cxx) = (bin.path().join("cc"), bin.path().join("cxx"));
     let install = |version: &str| {
         for (fake, real) in [(&cc, real_cc), (&cxx, real_cxx)] {
-            fs::write(
+            write_executable(
                 fake,
-                format!(
+                &format!(
                     "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'clang version {version}'; exit 0; fi\nexec {real} \"$@\"\n"
                 ),
-            )
-            .unwrap();
-            fs::set_permissions(fake, fs::Permissions::from_mode(0o755)).unwrap();
+            );
         }
     };
     let build = |cc: &Path| {
@@ -465,7 +456,7 @@ sources = ["src/main.cc"]
     );
 
     let moved = bin.path().join("cc-moved");
-    fs::copy(&cc, &moved).unwrap();
+    write_executable(&moved, &fs::read_to_string(&cc).unwrap());
     build(&moved);
     assert_eq!(
         modified()[1],
