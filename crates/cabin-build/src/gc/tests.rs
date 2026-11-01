@@ -252,15 +252,14 @@ fn a_plan_recorded_today_with_one_more_product_records_it() {
 fn a_recording_that_failed_is_retried_by_the_next_command() {
     let fx = Fixture::new();
     fx.build(DAY, &[OLD_OBJ, APP]);
-    // A directory where the shard belongs fails the read, after the
-    // clock has moved to the next active day.
-    let shard = shard_path(
-        &fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR),
-        "dev/packages/app",
-    );
-    let bytes = std::fs::read(&shard).unwrap();
-    std::fs::remove_file(&shard).unwrap();
-    std::fs::create_dir(&shard).unwrap();
+    // A directory where the catalog is staged fails its write, after
+    // the catalog was read on the next active day.
+    let staging = fx
+        .build_dir()
+        .join(CATALOG_DIR)
+        .join(CATALOG_FILE)
+        .with_extension(format!("{}.tmp", std::process::id()));
+    std::fs::create_dir(&staging).unwrap();
     let products =
         [OLD_OBJ, APP].map(|rel| Utf8PathBuf::from_path_buf(fx.file(rel).to_path_buf()).unwrap());
     record_use(
@@ -269,8 +268,7 @@ fn a_recording_that_failed_is_retried_by_the_next_command() {
         DAY + 1,
     )
     .unwrap_err();
-    std::fs::remove_dir(&shard).unwrap();
-    std::fs::write(&shard, bytes).unwrap();
+    std::fs::remove_dir(&staging).unwrap();
 
     fx.build(DAY + 1, &[OLD_OBJ, APP]);
     work_days(&fx, DAY + 1, 1, &[NEW_OBJ]);
@@ -300,46 +298,11 @@ fn a_plan_recorded_today_does_not_wait_for_another_recording() {
 }
 
 #[test]
-fn a_recording_that_replaced_a_shard_and_then_failed_forgets_the_plans_it_held() {
+fn a_plan_whose_catalog_another_replaced_records_again() {
     let fx = Fixture::new();
     fx.build(DAY, &[OLD_OBJ]);
-    let shards = fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR);
-    std::fs::write(shard_path(&shards, "dev/packages/app"), "{").unwrap();
-    // A later shard fails to read, after `app`'s was replaced.
-    let other = "dev/packages/zz/libzz.a";
-    std::fs::create_dir(shard_path(&shards, "dev/packages/zz")).unwrap();
-    let products = [APP, other].map(|rel| {
-        fx.file(rel).write_str("x").unwrap();
-        Utf8PathBuf::from_path_buf(fx.file(rel).to_path_buf()).unwrap()
-    });
-    record_use(
-        &fx.build_dir(),
-        products.iter().map(Utf8PathBuf::as_path),
-        DAY,
-    )
-    .unwrap_err();
-    std::fs::remove_dir(shard_path(&shards, "dev/packages/zz")).unwrap();
-
-    fx.build(DAY, &[OLD_OBJ]);
-    work_days(&fx, DAY, 2, &[NEW_OBJ]);
-    let mut collected = fx.collected(&fx.collect(max_age(1), false));
-    collected.sort();
-    assert_eq!(collected, [APP, OLD_OBJ]);
-}
-
-#[test]
-fn a_plan_whose_shard_another_replaced_records_again() {
-    let fx = Fixture::new();
-    fx.build(DAY, &[OLD_OBJ]);
-    std::fs::write(
-        shard_path(
-            &fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR),
-            "dev/packages/app",
-        ),
-        "{",
-    )
-    .unwrap();
-    // Another plan replaces the unreadable shard, forgetting `old.cc.o`.
+    std::fs::write(fx.build_dir().join(CATALOG_DIR).join(CATALOG_FILE), "{").unwrap();
+    // Another plan replaces the unreadable catalog, forgetting `old.cc.o`.
     fx.build(DAY, &[APP]);
     fx.build(DAY, &[OLD_OBJ]);
     work_days(&fx, DAY, 2, &[NEW_OBJ]);
@@ -348,7 +311,7 @@ fn a_plan_whose_shard_another_replaced_records_again() {
     assert_eq!(collected, [APP, OLD_OBJ]);
 }
 
-/// A command reads a shard, another rewrites it, and the first writes
+/// A command reads the catalog, another rewrites it, and the first writes
 /// back its own snapshot: without one-at-a-time recording the second's
 /// update is lost.
 #[test]
@@ -384,15 +347,15 @@ fn a_recording_waits_for_another_and_keeps_its_update() {
             day: DAY + 1,
             index: 2,
             collected: 1,
+            plans: Vec::new(),
         },
     )
     .unwrap();
     store(
-        &shard_path(&catalog.join(SHARDS_DIR), "dev/packages/app"),
-        &Shard {
+        &catalog.join(CATALOG_FILE),
+        &Catalog {
             version: FORMAT_VERSION,
-            dir: "dev/packages/app".to_owned(),
-            entries: BTreeMap::from([("obj/app/src/old.cc.o".to_owned(), 2)]),
+            entries: BTreeMap::from([(OLD_OBJ.to_owned(), 2)]),
         },
     )
     .unwrap();
@@ -410,7 +373,7 @@ fn a_recording_waits_for_another_and_keeps_its_update() {
 }
 
 #[test]
-fn concurrent_recordings_into_one_shard_keep_every_product() {
+fn concurrent_recordings_keep_every_product() {
     let fx = Fixture::new();
     let products: Vec<Utf8PathBuf> = (0..8)
         .map(|n| {
@@ -479,7 +442,7 @@ fn dry_run_reports_what_a_collection_removes_and_changes_nothing() {
 }
 
 #[test]
-fn collection_removes_emptied_directories_up_to_the_output_directory() {
+fn collection_removes_emptied_directories() {
     let fx = Fixture::new();
     let gone_obj = "dev/packages/gone/obj/gone/src/a.c.o";
     let gone_lib = "dev/packages/gone/libgone.a";
@@ -492,10 +455,6 @@ fn collection_removes_emptied_directories_up_to_the_output_directory() {
     // `src/` still holds the new object.
     fx.file("dev/packages/app/obj/app/src")
         .assert(predicate::path::is_dir());
-    let shards = std::fs::read_dir(fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR))
-        .unwrap()
-        .count();
-    assert_eq!(shards, 1, "the emptied shard is removed");
 }
 
 #[test]
@@ -533,30 +492,6 @@ fn collection_removes_an_output_directory_whichever_spelling_held_it() {
     fx.collect(max_age(1), false);
     fx.file("bench/packages/acme")
         .assert(predicate::path::missing());
-}
-
-#[test]
-fn a_products_output_directory_is_its_package_directory_whatever_is_named_obj() {
-    for (rel, dir) in [
-        ("dev/packages/app/obj/app/src/a.c.o", "dev/packages/app"),
-        ("dev/packages/app/app", "dev/packages/app"),
-        // A profile, package, scope, target, or source directory `obj`.
-        ("obj/packages/app/obj/app/src/a.c.o", "obj/packages/app"),
-        ("dev/packages/obj/obj/app/a.cc.o", "dev/packages/obj"),
-        ("dev/packages/obj/app/obj/app/a.c.o", "dev/packages/obj/app"),
-        ("dev/packages/app/obj/obj/obj/a.cc.o", "dev/packages/app"),
-        ("dev/packages/acme/obj/libobj.a", "dev/packages/acme/obj"),
-        (
-            "dev/build-machine/packages/obj/obj/gen/main.c.o",
-            "dev/build-machine/packages/obj",
-        ),
-        (
-            ".targets/x86_64-unknown-linux-gnu/obj/packages/obj/obj",
-            ".targets/x86_64-unknown-linux-gnu/obj/packages/obj",
-        ),
-    ] {
-        assert_eq!(split(rel), (dir, &rel[dir.len() + 1..]), "{rel}");
-    }
 }
 
 #[test]
@@ -650,17 +585,19 @@ fn a_build_directory_that_is_a_link_is_collected() {
 }
 
 #[test]
-fn a_link_in_place_of_the_remembered_plans_redirects_nothing() {
-    let fx = Fixture::new();
-    let outside = fx.tmp.child("outside.json");
-    outside.write_str("keep").unwrap();
-    let catalog = fx.build_dir().join(CATALOG_DIR);
-    std::fs::create_dir_all(&catalog).unwrap();
-    if !symlink_file(&outside, &catalog.join(RECORDED_FILE)) {
-        return;
+fn a_link_in_place_of_a_catalog_file_redirects_nothing() {
+    for file in [STATE_FILE, CATALOG_FILE] {
+        let fx = Fixture::new();
+        let outside = fx.tmp.child("outside.json");
+        outside.write_str("keep").unwrap();
+        let catalog = fx.build_dir().join(CATALOG_DIR);
+        std::fs::create_dir_all(&catalog).unwrap();
+        if !symlink_file(&outside, &catalog.join(file)) {
+            return;
+        }
+        fx.build(DAY, &[OLD_OBJ]);
+        outside.assert("keep");
     }
-    fx.build(DAY, &[OLD_OBJ]);
-    outside.assert("keep");
 }
 
 #[cfg(unix)]
@@ -687,38 +624,34 @@ fn symlink_file(target: &Path, link: &Path) -> bool {
 }
 
 #[test]
-fn malformed_shards_authorize_nothing() {
+fn a_malformed_catalog_authorizes_nothing() {
     let fx = Fixture::new();
     fx.build(DAY, &[OLD_OBJ]);
     work_days(&fx, DAY, 2, &[APP]);
-    let shards = fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR);
+    let path = fx.build_dir().join(CATALOG_DIR).join(CATALOG_FILE);
     let victim = fx.tmp.child("victim");
     victim.write_str("keep").unwrap();
-    for (name, body) in [
-        (
-            "escape.json",
-            r#"{"version":1,"dir":"..","entries":{"victim":1}}"#.to_owned(),
+    for body in [
+        format!(r#"{{"version":{FORMAT_VERSION},"entries":{{"../victim":1}}}}"#),
+        format!(
+            r#"{{"version":{FORMAT_VERSION},"entries":{{{:?}:1}}}}"#,
+            victim.path().to_str().unwrap()
         ),
-        (
-            "absolute.json",
-            format!(
-                r#"{{"version":1,"dir":"","entries":{{{:?}:1}}}}"#,
-                victim.path().to_str().unwrap()
-            ),
-        ),
-        (
-            "unknown.json",
-            r#"{"version":1,"dir":"dev","entries":{},"extra":1}"#.to_owned(),
-        ),
-        ("garbage.json", "not json".to_owned()),
+        format!(r#"{{"version":{FORMAT_VERSION},"entries":{{}},"extra":1}}"#),
+        "not json".to_owned(),
     ] {
-        std::fs::write(shards.join(name), body).unwrap();
+        std::fs::write(&path, &body).unwrap();
+        let report = fx.collect(max_age(1), false);
+        assert_eq!(report.unreadable, 1, "{body}");
+        assert!(report.collected.is_empty(), "{body}");
+        victim.assert(predicate::path::exists());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            body,
+            "kept for inspection"
+        );
     }
-    let report = fx.collect(max_age(1), false);
-    assert_eq!(report.unreadable, 4);
-    assert_eq!(fx.collected(&report), [OLD_OBJ], "valid shards still work");
-    victim.assert(predicate::path::exists());
-    assert!(shards.join("escape.json").exists(), "kept for inspection");
+    fx.file(OLD_OBJ).assert(predicate::path::exists());
 }
 
 #[test]
@@ -726,16 +659,14 @@ fn a_newer_catalog_is_neither_recorded_into_nor_collected() {
     let fx = Fixture::new();
     fx.build(DAY, &[OLD_OBJ]);
     let state = fx.build_dir().join(CATALOG_DIR).join(STATE_FILE);
-    std::fs::write(&state, r#"{"version":2,"anything":true}"#).unwrap();
+    let newer = format!(r#"{{"version":{},"anything":true}}"#, FORMAT_VERSION + 1);
+    std::fs::write(&state, &newer).unwrap();
     let product = Utf8PathBuf::from_path_buf(fx.file(APP).to_path_buf()).unwrap();
     assert!(!record_use(&fx.build_dir(), [product.as_path()], DAY + 9).unwrap());
-    assert_eq!(
-        std::fs::read_to_string(&state).unwrap(),
-        r#"{"version":2,"anything":true}"#
-    );
+    assert_eq!(std::fs::read_to_string(&state).unwrap(), newer);
     let err = fx.try_collect(max_age(1), false, None).unwrap_err();
     assert!(
-        matches!(err, GcError::UnsupportedVersion { found: 2, .. }),
+        matches!(err, GcError::UnsupportedVersion { found, .. } if found == FORMAT_VERSION + 1),
         "{err}"
     );
 }
