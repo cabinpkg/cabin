@@ -23,30 +23,55 @@ fn tool() -> Command {
     Command::new(env!("CARGO_BIN_EXE_xtask-port-publish"))
 }
 
-/// The `cabin` binary from the same target directory, built on
-/// demand: a package-scoped `cargo test -p xtask-port-publish`
-/// does not build the sibling `cabinpkg` executable, so relying on
-/// the full-workspace run having built it would make these tests
-/// order-dependent.  Cargo releases the target-directory lock before
-/// running tests, so the nested build is safe; when the binary is
-/// already present (the CI gate builds `--all-targets` first) the
-/// nested invocation is a fast no-op.
-fn cabin_binary() -> PathBuf {
-    let path = Path::new(env!("CARGO_BIN_EXE_xtask-port-publish"))
+/// The `cabin` binary, built on demand: a package-scoped
+/// `cargo test -p xtask-port-publish` does not build the sibling
+/// `cabinpkg` executable, so relying on the full-workspace run having
+/// built it would make these tests order-dependent.  The nested build
+/// shares this run's build directory, so it compiles only what is
+/// stale, but places the executable under `dir`: Cargo replaces an
+/// uplifted binary by deleting and re-creating it (on macOS on every
+/// build, even a fresh one), so a sibling test's build into the shared
+/// target directory would delete the `cabin` that this test's
+/// preflight (and the Ninja rules it generates) is still executing.
+fn cabin_binary(dir: &TempDir) -> PathBuf {
+    // `CARGO_TARGET_TMPDIR` is `tmp` in the test build's build directory,
+    // or in its target-triple subdirectory under `--target`, which then
+    // costs one cold build.
+    let build_dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .parent()
-        .expect("tool binary has a parent directory")
-        .join(format!("cabin{}", std::env::consts::EXE_SUFFIX));
-    let status = Command::new(env!("CARGO"))
+        .expect("the test tmpdir has a parent directory");
+    let mut cargo = Command::new(env!("CARGO"));
+    // Cargo describes this test's package in `CARGO_MANIFEST_*` and
+    // `CARGO_PKG_*`.  ring's build script tracks them, so passing them on
+    // would rebuild ring and its dependents at every switch between this
+    // build and an ordinary one of the same build directory.
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_str()
+            .is_some_and(|key| key.starts_with("CARGO_MANIFEST_") || key.starts_with("CARGO_PKG_"))
+        {
+            cargo.env_remove(key);
+        }
+    }
+    let output = cargo
         .args(["build", "-p", "cabinpkg", "--bin", "cabin"])
-        .status()
+        .arg("--message-format=json-render-diagnostics")
+        .env("CARGO_BUILD_BUILD_DIR", build_dir)
+        .env("CARGO_TARGET_DIR", dir.path().join("cabin-target"))
+        .stderr(std::process::Stdio::inherit())
+        .output()
         .expect("cargo is runnable from a test");
-    assert!(status.success(), "building the cabin binary failed");
-    assert!(
-        path.is_file(),
-        "cabin binary not found at {} after `cargo build -p cabinpkg`",
-        path.display()
-    );
-    path
+    assert!(output.status.success(), "building the cabin binary failed");
+    // Cargo's own report, since a configured target triple adds a
+    // directory to the executable's path.
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find_map(|message| match message["executable"].as_str() {
+            Some(path) if message["target"]["name"] == "cabin" => Some(PathBuf::from(path)),
+            _ => None,
+        })
+        .expect("cargo reports the cabin executable")
 }
 
 /// Preflight builds compile real C/C++ sources through `cabin`,
@@ -383,7 +408,7 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
             .arg("--work-dir")
             .arg(&work)
             .arg("--cabin")
-            .arg(cabin_binary())
+            .arg(cabin_binary(&dir))
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -429,7 +454,7 @@ fn consumer_tests_run_in_the_dry_run_and_never_in_the_publish_run() {
             .arg("--work-dir")
             .arg(dir.child(work).path())
             .arg("--cabin")
-            .arg(cabin_binary());
+            .arg(cabin_binary(&dir));
         if let Some(url) = index_url {
             command
                 .arg("--index-url")
@@ -504,7 +529,7 @@ fn the_earliest_failing_port_is_reported_when_a_later_one_fails_first() {
         .arg("--work-dir")
         .arg(dir.child("work").path())
         .arg("--cabin")
-        .arg(cabin_binary())
+        .arg(cabin_binary(&dir))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -515,7 +540,7 @@ fn the_earliest_failing_port_is_reported_when_a_later_one_fails_first() {
         .unwrap_or_else(|| panic!("no error line: {stderr}"));
     assert!(
         error.contains("preflight probe `port-probe` of cabin-ports/zlib 1.3.1"),
-        "{error}"
+        "{stderr}"
     );
 }
 
@@ -686,7 +711,7 @@ fn publish_uploads_every_package_in_dependency_order() {
         .arg("--work-dir")
         .arg(&work)
         .arg("--cabin")
-        .arg(cabin_binary())
+        .arg(cabin_binary(&dir))
         .env("CABIN_REGISTRY_TOKEN", "cabin_testtoken1234")
         .output()
         .unwrap();
@@ -832,7 +857,7 @@ fn publish_retries_a_rate_limited_package() {
         .arg("--work-dir")
         .arg(&work)
         .arg("--cabin")
-        .arg(cabin_binary())
+        .arg(cabin_binary(&dir))
         .env("CABIN_REGISTRY_TOKEN", "cabin_testtoken1234")
         .output()
         .unwrap();
@@ -921,7 +946,7 @@ fn a_failed_preflight_makes_no_remote_mutation() {
         .arg("--work-dir")
         .arg(dir.child("work").path())
         .arg("--cabin")
-        .arg(cabin_binary())
+        .arg(cabin_binary(&dir))
         .env("CABIN_REGISTRY_TOKEN", "cabin_testtoken1234")
         .output()
         .unwrap();
@@ -949,4 +974,21 @@ fn requires_a_mode() {
     assert!(!contradictory.status.success());
     let stderr = String::from_utf8_lossy(&contradictory.stderr);
     assert!(stderr.contains("--dry-run"), "{stderr}");
+}
+
+/// A sibling test's `cabin` build must leave the binary this test runs
+/// in place: a re-created file left a window in which a preflight's
+/// Ninja rule failed to execute `cabin` (exit 127, no such file).  On
+/// macOS Cargo always copies the binary rather than hard-linking it, so
+/// it re-creates even an up-to-date one and this test fails without the
+/// separate target directories.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_sibling_cabin_build_leaves_a_running_tests_binary_in_place() {
+    use std::os::unix::fs::MetadataExt as _;
+    let dir = TempDir::new().unwrap();
+    let cabin = cabin_binary(&dir);
+    let inode = fs::metadata(&cabin).unwrap().ino();
+    cabin_binary(&TempDir::new().unwrap());
+    assert_eq!(fs::metadata(&cabin).unwrap().ino(), inode);
 }
