@@ -527,6 +527,7 @@ mod tests {
                 &WorkspaceLoadOptions {
                     registry: &[],
                     patches: &patched_sources,
+                    system: &[],
                     registry_policy: RegistryPolicy::StrictFor(&BTreeSet::new()),
                     include_dev_for: &BTreeSet::new(),
                 },

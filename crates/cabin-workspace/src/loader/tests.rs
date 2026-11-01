@@ -464,6 +464,7 @@ version = "10.2.1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -482,6 +483,85 @@ version = "10.2.1"
         .map(|e| (e.index, e.kind))
         .collect();
     assert_eq!(edges, vec![(0, DependencyKind::Normal)]);
+}
+
+#[test]
+fn system_package_links_like_a_registry_package() {
+    let dir = TempDir::new().unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = "10"
+zlib = "1"
+"#,
+        )
+        .unwrap();
+    dir.child("registry/fmt/cabin.toml")
+        .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+        .unwrap();
+    let registry = vec![RegistryPackageSource {
+        name: pkg("fmt"),
+        version: ver("10.2.1"),
+        manifest_path: dir.path().join("registry/fmt/cabin.toml"),
+    }];
+    let versioned = |name: &str| cabin_core::Dependency {
+        name: pkg(name),
+        source: DependencySource::Version(semver::VersionReq::STAR),
+        kind: DependencyKind::Normal,
+        optional: false,
+        features: Vec::new(),
+        default_features: true,
+        condition: None,
+        ignore_interface_standard: false,
+    };
+    let zlib_with = |deps: &[&str]| {
+        cabin_core::Package::new(
+            pkg("zlib"),
+            ver("1.3.1"),
+            Vec::new(),
+            deps.iter().map(|name| versioned(name)).collect(),
+        )
+        .unwrap()
+    };
+    let load = |zlib: &cabin_core::Package| {
+        load_workspace_with_options(
+            dir.path().join("app/cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &registry,
+                patches: &[],
+                system: std::slice::from_ref(zlib),
+                registry_policy: RegistryPolicy::Strict,
+                include_dev_for: &BTreeSet::new(),
+            },
+        )
+    };
+    let graph = load(&zlib_with(&["fmt"])).unwrap();
+    let index_of = |name: &str| {
+        graph
+            .packages
+            .iter()
+            .position(|p| p.package.name.as_str() == name)
+            .unwrap()
+    };
+    let (app, fmt, zlib) = (index_of("app"), index_of("fmt"), index_of("zlib"));
+    assert_eq!(graph.packages.len(), 3);
+    assert_eq!(graph.packages[zlib].kind, PackageKind::Registry);
+    let targets_of = |idx: usize| -> BTreeSet<usize> {
+        graph.packages[idx].deps.iter().map(|e| e.index).collect()
+    };
+    assert_eq!(targets_of(app), BTreeSet::from([fmt, zlib]));
+    assert_eq!(targets_of(zlib), BTreeSet::from([fmt]));
+
+    // Its own dependencies go through the registry policy.
+    let err = load(&zlib_with(&["extra"])).unwrap_err();
+    assert!(
+        matches!(&err, WorkspaceError::UnresolvedRegistryDependency { parent, .. } if parent == "zlib"),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -534,6 +614,7 @@ cxxflags = ["-fplugin=evil.so"]
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -584,6 +665,7 @@ version = "10.2.1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -649,6 +731,7 @@ version = "10.2.1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -697,6 +780,7 @@ version = "10.1.0"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -748,6 +832,7 @@ version = "10.2.1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &patches,
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -1524,6 +1609,7 @@ cxx-standard = { workspace = true }
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -1583,6 +1669,7 @@ fmt = { workspace = true }
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
         },
@@ -1818,6 +1905,7 @@ spdlog = "^1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::StrictFor(&strict),
             include_dev_for: &BTreeSet::new(),
         },
@@ -1876,6 +1964,7 @@ fmt = ">=10 <11"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
+            system: &[],
             registry_policy: RegistryPolicy::StrictFor(&strict),
             include_dev_for: &BTreeSet::new(),
         },
