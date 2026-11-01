@@ -524,7 +524,10 @@ fn assembly_syntax_must_match_the_toolchain_dialect() {
         let bg = plan(&request).unwrap();
         let err = crate::validate_planned_standards(&bg).unwrap_err();
         assert!(
-            matches!(err, BuildError::AssemblyNeedsToolchain { .. }),
+            matches!(
+                err,
+                BuildError::PlannedStandard(PlannedStandardError::AssemblyNeedsToolchain { .. })
+            ),
             "{source}: {err}"
         );
         // `cabin check` assembles nothing, so the source does not gate
@@ -910,7 +913,7 @@ fn system_provided_target_supplies_its_interface_and_link_arguments() {
     req.system_targets = &system_targets;
     let err = crate::validate_planned_standards(&plan(&req).unwrap()).unwrap_err();
     assert!(
-        matches!(&err, BuildError::ConflictingInterfaceDefines { name, .. } if name == "ZLIB_CONST"),
+        matches!(&err, BuildError::PlannedStandard(PlannedStandardError::ConflictingInterfaceDefines { name, .. }) if name == "ZLIB_CONST"),
         "{err}"
     );
 }
@@ -1750,12 +1753,12 @@ fn conflicting_interface_defines_name_both_paths() {
     let graph = diamond_with_defines(&["MODE=1"], &["MODE=2"], &[]);
     let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
     let err = crate::validate_planned_standards(&bg).unwrap_err();
-    let BuildError::ConflictingInterfaceDefines {
+    let BuildError::PlannedStandard(PlannedStandardError::ConflictingInterfaceDefines {
         target,
         name,
         first,
         second,
-    } = err
+    }) = err
     else {
         panic!("expected a definition conflict, got {err:?}");
     };
@@ -1844,7 +1847,7 @@ fn check_prunes_a_dependency_definition_conflict() {
     let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     assert!(
-        matches!(&err, BuildError::ConflictingInterfaceDefines { target, .. } if target == "mid:mid"),
+        matches!(&err, BuildError::PlannedStandard(PlannedStandardError::ConflictingInterfaceDefines { target, .. }) if target == "mid:mid"),
         "{err}"
     );
     let checked = crate::into_check_graph(bg, &[PathBuf::from("/abs/build/dev/packages/top")]);
@@ -3748,8 +3751,8 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
     let bg = plan_with_standards(&graph, Dialect::Msvc).unwrap();
     assert_eq!(bg.standard_violations.len(), 1);
     assert!(matches!(
-        &bg.standard_violations[0],
-        crate::StandardViolation::MsvcSpelling {
+        bg.standard_violations[0].error,
+        PlannedStandardError::StandardUnsupportedOnMsvcDialect {
             standard: "c++23",
             ..
         }
@@ -3760,7 +3763,10 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
     );
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
-        BuildError::StandardUnsupportedOnMsvcDialect { standard, .. } => {
+        BuildError::PlannedStandard(PlannedStandardError::StandardUnsupportedOnMsvcDialect {
+            standard,
+            ..
+        }) => {
             assert_eq!(standard, "c++23");
         }
         other => panic!("expected StandardUnsupportedOnMsvcDialect, got {other}"),
@@ -3857,8 +3863,8 @@ fn msvc_dialect_rejects_gnu_extensions_at_planning_time() {
     let bg = plan_with_standards(&graph, Dialect::Msvc).unwrap();
     assert_eq!(bg.standard_violations.len(), 1);
     assert!(matches!(
-        &bg.standard_violations[0],
-        crate::StandardViolation::MsvcGnuExtensions { .. }
+        bg.standard_violations[0].error,
+        PlannedStandardError::GnuExtensionsUnsupportedOnMsvcDialect { .. }
     ));
     assert!(
         bg.compile_commands.is_empty(),
@@ -3866,7 +3872,9 @@ fn msvc_dialect_rejects_gnu_extensions_at_planning_time() {
     );
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     match &err {
-        BuildError::GnuExtensionsUnsupportedOnMsvcDialect { target } => {
+        BuildError::PlannedStandard(
+            PlannedStandardError::GnuExtensionsUnsupportedOnMsvcDialect { target },
+        ) => {
             assert_eq!(target, "demo:app");
             let message = err.to_string();
             assert!(
@@ -3930,7 +3938,9 @@ fn interface_requirement_blocks_lower_consumer() {
     assert_eq!(bg.standard_violations.len(), 1);
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
-        BuildError::IncompatibleLanguageStandard(payload) => {
+        BuildError::PlannedStandard(PlannedStandardError::IncompatibleLanguageStandard(
+            payload,
+        )) => {
             assert_eq!(payload.consumer, "demo:app");
             assert_eq!(payload.dependency, "demo:core");
             assert_eq!(payload.required, "c++20 or newer");
@@ -3992,10 +4002,10 @@ fn interface_maximum_blocks_newer_consumer() {
     let graph = single_package_graph(package, "/abs/proj");
     let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
     assert_eq!(bg.standard_violations.len(), 1);
-    match &bg.standard_violations[0] {
-        crate::StandardViolation::InterfaceIncompatibility { kind, .. } => {
+    match &bg.standard_violations[0].error {
+        PlannedStandardError::IncompatibleLanguageStandard(payload) => {
             assert_eq!(
-                *kind,
+                payload.kind,
                 crate::InterfaceViolationKind::AboveMaximum { max: "c++14" }
             );
         }
@@ -4003,7 +4013,9 @@ fn interface_maximum_blocks_newer_consumer() {
     }
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
-        BuildError::IncompatibleLanguageStandard(payload) => {
+        BuildError::PlannedStandard(PlannedStandardError::IncompatibleLanguageStandard(
+            payload,
+        )) => {
             assert_eq!(payload.required, "c++11..c++14");
             let message = payload.to_string();
             assert!(
@@ -4101,10 +4113,10 @@ fn package_level_interface_range_binds_compiled_targets_without_that_language() 
     let graph = single_package_graph(package, "/abs/proj");
     let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
     assert_eq!(bg.standard_violations.len(), 1);
-    match &bg.standard_violations[0] {
-        crate::StandardViolation::InterfaceIncompatibility { kind, .. } => {
+    match &bg.standard_violations[0].error {
+        PlannedStandardError::IncompatibleLanguageStandard(payload) => {
             assert_eq!(
-                *kind,
+                payload.kind,
                 crate::InterfaceViolationKind::AboveMaximum { max: "c++14" }
             );
         }
@@ -4264,7 +4276,9 @@ fn header_only_package_interface_standard_binds_consumers() {
     assert_eq!(bg.standard_violations.len(), 1);
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
-        BuildError::IncompatibleLanguageStandard(payload) => {
+        BuildError::PlannedStandard(PlannedStandardError::IncompatibleLanguageStandard(
+            payload,
+        )) => {
             assert_eq!(payload.dependency, "hdrs:hdrs");
             assert_eq!(payload.required, "c++20 or newer");
             assert!(
@@ -4340,15 +4354,11 @@ fn dependency_internal_interface_violation_is_pruned_by_check() {
     let graph = graph_with(vec![leaf_pkg, mid_pkg, app_pkg], vec![2], Some(2));
     let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
     assert_eq!(bg.standard_violations.len(), 1);
-    match &bg.standard_violations[0] {
-        crate::StandardViolation::InterfaceIncompatibility {
-            consumer,
-            dependency,
-            object,
-            ..
-        } => {
-            assert_eq!(consumer, "liba:liba");
-            assert_eq!(dependency, "libb:libb");
+    let object = &bg.standard_violations[0].object;
+    match &bg.standard_violations[0].error {
+        PlannedStandardError::IncompatibleLanguageStandard(payload) => {
+            assert_eq!(payload.consumer, "liba:liba");
+            assert_eq!(payload.dependency, "libb:libb");
             assert!(
                 object.starts_with("/abs/build/dev/packages/liba"),
                 "violation must sit on the consumer's own compile, got {object}"
@@ -4477,8 +4487,8 @@ fn flag_conflicts_scope_to_planned_compiles() {
     // Default selection plans `exotic` too: the conflict surfaces.
     let full = plan_for(None);
     assert!(matches!(
-        full.standard_violations.first(),
-        Some(crate::StandardViolation::FlagConflict { .. })
+        full.standard_violations.first().map(|v| &v.error),
+        Some(PlannedStandardError::StandardFlagConflict(_))
     ));
     let err = crate::validate_planned_standards(&full).unwrap_err();
     assert!(
@@ -4814,8 +4824,8 @@ fn standard_compat_imposes_nothing_for_compiled_without_declaration() {
     // implementation-standard fallback - the two layers differ here,
     // as `docs/language-standards.md` documents.
     assert!(matches!(
-        bg.standard_violations.first(),
-        Some(crate::StandardViolation::InterfaceIncompatibility { .. })
+        bg.standard_violations.first().map(|v| &v.error),
+        Some(PlannedStandardError::IncompatibleLanguageStandard(_))
     ));
 }
 
@@ -4922,12 +4932,12 @@ fn standard_compat_does_not_propagate_through_private_edges() {
     let seen_by_app: Vec<&str> = bg
         .standard_violations
         .iter()
-        .filter_map(|v| match v {
-            crate::StandardViolation::InterfaceIncompatibility {
-                consumer,
-                dependency,
-                ..
-            } if consumer == "app:app" => Some(dependency.as_str()),
+        .filter_map(|v| match &v.error {
+            PlannedStandardError::IncompatibleLanguageStandard(payload)
+                if payload.consumer == "app:app" =>
+            {
+                Some(payload.dependency.as_str())
+            }
             _ => None,
         })
         .collect();

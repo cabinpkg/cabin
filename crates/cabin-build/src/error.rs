@@ -180,35 +180,12 @@ pub enum BuildError {
     )]
     MixedToolchainDialects { detail: String },
 
-    /// Two dependencies a target compiles against define one macro
-    /// with different values through their `interface-defines`.
-    /// `first` and `second` each read `` `NAME=value` from a -> b ``.
-    #[error("target {target:?} receives conflicting definitions of `{name}`: {first} and {second}")]
-    ConflictingInterfaceDefines {
-        target: String,
-        name: String,
-        first: String,
-        second: String,
-    },
-
     /// A target carries a source whose extension does not match
     /// any of Cabin's recognized C/C++ extensions.
     #[error(
         "target {target:?} has source `{path}` with an unrecognized extension; supported extensions are .c (C), .cc / .cpp / .cxx / .c++ / .C (C++), .S (GNU assembly), and .asm (MASM)"
     )]
     UnrecognizedSourceExtension { target: String, path: Utf8PathBuf },
-
-    /// An assembly source whose syntax the active toolchain cannot
-    /// assemble: GNU `.S` needs GCC/Clang, MASM `.asm` needs MSVC.
-    #[error(
-        "target {target:?} has {syntax} assembly source `{path}`, which needs {needs}; list it in a `[target.'cfg(...)'.sources]` table for the platforms whose toolchain assembles it"
-    )]
-    AssemblyNeedsToolchain {
-        target: String,
-        path: Utf8PathBuf,
-        syntax: &'static str,
-        needs: &'static str,
-    },
 
     /// A target carries `.c` source(s) but no C compiler is
     /// available.
@@ -232,22 +209,55 @@ pub enum BuildError {
         field: &'static str,
     },
 
+    /// A planned compile violates a standards rule; see
+    /// [`PlannedStandardError`].
+    #[error(transparent)]
+    PlannedStandard(#[from] PlannedStandardError),
+}
+
+/// A problem the planner records against one planned compile
+/// ([`crate::StandardViolation`]) instead of failing at once, so the
+/// `cabin check` rewrite can drop those of pruned compiles.
+/// `validate_planned_standards` surfaces the first survivor as
+/// [`BuildError::PlannedStandard`].
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum PlannedStandardError {
+    /// Two dependencies a target compiles against define one macro
+    /// with different values through their `interface-defines`.
+    /// `first` and `second` each read `` `NAME=value` from a -> b ``.
+    #[error("target {target:?} receives conflicting definitions of `{name}`: {first} and {second}")]
+    ConflictingInterfaceDefines {
+        target: String,
+        name: String,
+        first: String,
+        second: String,
+    },
+
+    /// An assembly source whose syntax the active toolchain cannot
+    /// assemble: GNU `.S` needs GCC/Clang, MASM `.asm` needs MSVC.
+    #[error(
+        "target {target:?} has {syntax} assembly source `{path}`, which needs {needs}; list it in a `[target.'cfg(...)'.sources]` table for the platforms whose toolchain assembles it"
+    )]
+    AssemblyNeedsToolchain {
+        target: String,
+        path: Utf8PathBuf,
+        syntax: &'static str,
+        needs: &'static str,
+    },
+
     /// A consuming target's effective implementation standard falls
     /// outside a reachable library-like dependency's interface
-    /// requirement for the same language.  The planner records the
-    /// incompatibility on the consumer's compile;
-    /// `validate_planned_standards` surfaces the first survivor
-    /// after the `cabin check` rewrite has pruned dependency
-    /// compiles.  Boxed: the payload dwarfs the other variants
-    /// (`clippy::result_large_err`).
+    /// requirement for the same language - below its minimum or
+    /// above its maximum.  Recorded against the *consumer's* compile,
+    /// so a dependency-internal incompatibility never gates a
+    /// `cabin check` that only compiles the selected packages' own
+    /// translation units.  Boxed: the payload dwarfs the other
+    /// variants (`clippy::result_large_err`).
     #[error(transparent)]
     IncompatibleLanguageStandard(Box<IncompatibleLanguageStandardError>),
 
-    /// A compile that survived into the final build graph requests a
-    /// standard `cl.exe` has no stable `/std:` flag for.  The planner
-    /// records such compiles as violations (it cannot lower them);
-    /// `validate_planned_standards` surfaces the first survivor after
-    /// the `cabin check` rewrite has pruned dependency compiles.
+    /// An MSVC-dialect compile requests a standard `cl.exe` has no
+    /// stable `/std:` flag for, so the planner cannot lower it.
     #[error(
         "target `{target}` requests {language} standard `{standard}`, which has no stable MSVC `/std:` flag; use a standard cl.exe supports (c11, c17, c++14, c++17, c++20) or build with a GCC/Clang toolchain"
     )]
@@ -257,8 +267,8 @@ pub enum BuildError {
         standard: &'static str,
     },
 
-    /// A compile that survived into the final build graph belongs to
-    /// a target that enables `gnu-extensions` on the MSVC dialect.
+    /// An MSVC-dialect compile belongs to a target that enables
+    /// `gnu-extensions`.
     /// `cl.exe` has no GNU dialect mode, so the flag cannot be
     /// honored and is never silently ignored.
     #[error(
@@ -346,7 +356,7 @@ fn format_gated_targets(gated: &[(String, Vec<String>)]) -> String {
         .join(", ")
 }
 
-/// Payload of [`BuildError::IncompatibleLanguageStandard`].
+/// Payload of [`PlannedStandardError::IncompatibleLanguageStandard`].
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 #[error(
     "target `{consumer}` compiles {language} as `{consumer_standard}`, but its dependency `{dependency}` accepts {language} consumers at `{required}` for its public interface (from {requirement_source}); {}",
