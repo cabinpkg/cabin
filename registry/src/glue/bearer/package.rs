@@ -47,7 +47,8 @@ struct YankBody {
 /// `PUT /api/v1/packages/<scope>/<name>/<version>`: the publish route
 /// (`docs/remote-registry.md`, "Publish"). Validation order and status
 /// mapping follow `crate::publish`, preceded by the budget gate (`503`),
-/// the publish rate limit (`429`), and the scope-membership gate (the
+/// the token's `publish` scope (`403`), the publish rate limit (`429`),
+/// and the scope-membership gate (the
 /// uniform `403` - publishing under a scope creates the package row, so
 /// membership alone decides, and a scope that does not exist answers
 /// exactly like one the user is not a member of), and followed - for
