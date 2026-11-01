@@ -190,7 +190,7 @@ jobs:
       - name: Exchange and immediately revoke a trusted-publishing token
         # Explicit bash for pipefail, so a failed fetch cannot feed an
         # empty value downstream; `jq -e` fails on a missing field for
-        # the same reason. The DELETE fails the job on an HTTP error:
+        # the same reason. The DELETE must answer the revocation's 204:
         # unlike the publish path's best-effort revocation, proving
         # revocation works is half of what this probe is for.
         shell: bash
@@ -199,4 +199,6 @@ jobs:
           echo "::add-mask::$jwt"
           token="$(curl -sSf -X PUT https://cabinpkg.com/api/v1/trusted_publishing/tokens -H "Content-Type: application/json" -d "{\"jwt\":\"$jwt\"}" | jq -er .token)"
           echo "::add-mask::$token"
-          curl -sSf -o /dev/null -X DELETE https://cabinpkg.com/api/v1/trusted_publishing/tokens -H "Authorization: Bearer $token"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE https://cabinpkg.com/api/v1/trusted_publishing/tokens -H "Authorization: Bearer $token")"
+          echo "revocation answered $status"
+          test "$status" = 204

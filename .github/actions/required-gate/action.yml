@@ -15,7 +15,7 @@ inputs:
       The gate outputs the guarded job is conditioned on, joined with
       commas; a skip only passes when every one is "false". The
       full-string match keeps every bad shape failing closed: a
-      mis-wired output name expands to the empty string, and a stray
+      miswired output name expands to the empty string, and a stray
       comma or "true" anywhere fails the same way.
     required: true
 runs:
