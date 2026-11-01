@@ -302,14 +302,8 @@ fn detect_cxx(
     // Parse the captured banner regardless of exit status: MSVC
     // `cl.exe` prints its `Microsoft (R) ... Compiler Version ...`
     // banner to stderr, then fails for want of a source file
-    // (`D8003`).  Only an unrecognizable banner with a non-zero exit
-    // (a broken or silent tool) takes the status-based unknown.
+    // (`D8003`).  An unrecognizable banner is `Unknown` either way.
     let mut identity = parse_cxx_version_output(&combined);
-    if matches!(identity.kind, cabin_core::CompilerKind::Unknown) && output.status != 0 {
-        // Keep the captured first line so metadata and errors can
-        // still tell the user *what* misbehaved.
-        identity = CompilerIdentity::unknown(first_non_empty_line(&combined));
-    }
     // `clang-cl` prints a `clang version …` banner, so the banner
     // parser classifies it as plain Clang.  Reclassify it by the
     // invoked name: it is Clang under the hood but speaks the MSVC
@@ -675,12 +669,15 @@ mod tests {
     fn nonzero_compiler_exit_yields_unknown() {
         let cxx = tool(ToolKind::CxxCompiler, "/bin/funky-cxx", "funky-cxx");
         let ar = tool(ToolKind::Archiver, "/bin/ar", "ar");
+        let banner = "boom ".repeat(100);
         let runner = FakeRunner::new()
-            .with("/bin/funky-cxx", &["--version"], "", "boom\n", 1)
+            .with("/bin/funky-cxx", &["--version"], "", &banner, 1)
             .with("/bin/ar", &["--version"], "GNU ar 2.40\n", "", 0);
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
         assert_eq!(report.cxx.identity.kind, CompilerKind::Unknown);
         assert!(!report.cxx.capabilities.gcc_style_flags.supported);
+        // The reported line is kept, and bounded like every banner's.
+        assert_eq!(report.cxx.identity.raw_version_line, banner[..256]);
     }
 
     #[test]

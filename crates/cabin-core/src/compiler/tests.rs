@@ -127,7 +127,7 @@ fn an_llvm_ar_without_a_readable_version_is_assumed_to_quote_like_windows() {
 }
 
 #[test]
-fn detects_lib_exe_as_unsupported() {
+fn detects_lib_exe() {
     let id = parse_ar_version_output(
         "Microsoft (R) Library Manager Version 14.39.33523.0\nCopyright (C) Microsoft Corporation.\n",
     );
@@ -534,7 +534,7 @@ fn validate_standards_rejects_msvc_too_old_for_std_flags() {
 }
 
 #[test]
-fn clang_cl_has_msvc_dialect_with_clang_diagnostics() {
+fn clang_cl_speaks_msvc_dialect_with_version_gated_standards() {
     let id = CompilerIdentity {
         kind: CompilerKind::ClangCl,
         version: CompilerVersion::parse("17.0.6"),
