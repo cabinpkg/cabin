@@ -67,8 +67,14 @@ pub struct CompileAction {
     /// Header-dependency tracking file.  `Some` requests dependency
     /// discovery for this compile: the GNU/Clang lowering writes a
     /// Makefile depfile here (`-MD -MF <depfile>`); the MSVC lowering
-    /// ignores the path and emits `/showIncludes`.
+    /// emits `/showIncludes` instead, unless [`Self::clang_depfile`].
     pub depfile: Option<Utf8PathBuf>,
+    /// On the MSVC dialect, whether `clang-cl` writes [`Self::depfile`]
+    /// (`/clang:-MD`) in place of `/showIncludes`, whose headers Ninja's
+    /// `deps = msvc` drops when their path names `Program Files` or
+    /// `Microsoft Visual Studio`, as the Windows SDK's and MSVC's do.
+    /// Ignored by the GNU/Clang dialect, which always writes one.
+    pub clang_depfile: bool,
     /// Compiler driver executable.
     pub compiler: Utf8PathBuf,
     /// Platform triple a Clang-family driver builds for, spelled

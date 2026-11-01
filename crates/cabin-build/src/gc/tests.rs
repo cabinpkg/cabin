@@ -785,6 +785,7 @@ fn plan_products_lists_every_product_and_depfile() {
             object: object.into(),
             mode,
             depfile: Some(format!("{object}.d").into()),
+            clang_depfile: false,
             compiler: "cc".into(),
             target: None,
             sysroot: None,

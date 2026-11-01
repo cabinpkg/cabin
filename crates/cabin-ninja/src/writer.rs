@@ -4,8 +4,8 @@ use std::path::Path;
 
 use cabin_build::BuildGraph;
 use cabin_driver::{
-    BuildAction, CompileMode, Dialect, LoweredAction, LoweredActionKind, NinjaDeps, lower,
-    windows_quote_arg,
+    BuildAction, CompileAction, CompileMode, Dialect, LoweredAction, LoweredActionKind, NinjaDeps,
+    lower, windows_quote_arg,
 };
 use cabin_fs::write_atomic;
 
@@ -220,8 +220,23 @@ fn render_with_inline_limit(
     out.push_str("  description = $description\n\n");
 
     for action in &graph.actions {
+        let translate = depfile_needs_translation(action);
+        // Through `cabin depfile`, a `clang-cl` compile that includes a
+        // Windows SDK header would rerun on every build; `/showIncludes`
+        // keeps it incremental, though blind to that header.
+        let show_includes;
+        let action = match action {
+            BuildAction::Compile(compile) if compile.clang_depfile && translate => {
+                show_includes = BuildAction::Compile(CompileAction {
+                    clang_depfile: false,
+                    ..compile.clone()
+                });
+                &show_includes
+            }
+            _ => action,
+        };
         let lowered = lower(graph.dialect, action);
-        let depfile_runner = depfile_needs_translation(action).then_some(check_stamp_runner);
+        let depfile_runner = translate.then_some(check_stamp_runner);
         write_edge(
             &mut out,
             action,
@@ -460,6 +475,9 @@ fn write_edge(
     if translated_depfile.is_some() {
         write_var(out, "deps", "msvc")?;
         write_var(out, "msvc_deps_prefix", DEPFILE_DEPS_PREFIX)?;
+    } else if action.depfile.is_some() && dialect == Dialect::Msvc {
+        // `clang-cl` writes a depfile under a rule reading `/showIncludes`.
+        write_var(out, "deps", "gcc")?;
     }
     for (key, value) in &response_file {
         write_var(out, key, value)?;
@@ -643,6 +661,7 @@ mod tests {
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode: CompileMode::Object,
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
+            clang_depfile: false,
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             target: None,
             sysroot: None,
@@ -705,6 +724,7 @@ mod tests {
                 stamp: Utf8PathBuf::from("/abs/build/main.o.check"),
             },
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
+            clang_depfile: false,
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             target: None,
             sysroot: None,
@@ -832,6 +852,30 @@ mod tests {
         assert!(!body.contains("deps = gcc"));
         assert!(!body.contains("depfile ="));
         assert!(body.contains("/showIncludes"));
+    }
+
+    #[test]
+    fn clang_cl_edge_reads_its_own_depfile_under_the_msvc_rules() {
+        let clang_cl = compile_with(|c| c.clang_depfile = true);
+        let body = render(&msvc_graph_with(vec![clang_cl])).unwrap();
+        let edge = body.split("build ").nth(1).expect("the compile edge");
+        assert!(
+            edge.contains("  depfile = /abs/build/main.o.d\n  deps = gcc\n"),
+            "{edge}"
+        );
+        assert!(edge.contains("/clang:-MD"), "{edge}");
+        assert!(!body.contains("/showIncludes"), "{body}");
+        // The rules keep `deps = msvc` for any `/showIncludes` compile.
+        assert!(body.contains("deps = msvc"));
+        // A depfile Ninja cannot read keeps `/showIncludes` instead.
+        let unreadable = compile_with(|c| {
+            c.clang_depfile = true;
+            c.source = Utf8PathBuf::from("/abs/it's/main.cc");
+        });
+        let body = render(&msvc_graph_with(vec![unreadable])).unwrap();
+        let edge = body.split("build ").nth(1).expect("the compile edge");
+        assert!(edge.contains("/showIncludes"), "{edge}");
+        assert!(!edge.contains("depfile"), "{edge}");
     }
 
     /// The host-independent check command the rule must carry: the

@@ -185,8 +185,9 @@ pub struct PlanRequest<'a> {
     /// The languages whose MSVC-dialect compiler is `clang-cl`
     /// ([`crate::clang_cl_languages`]), which needs a `-m<name>` flag
     /// for an intrinsic past the x86 baseline; `cl.exe` exposes every
-    /// intrinsic without one.  Ignored by the GCC/Clang dialect,
-    /// which always takes the flag.
+    /// intrinsic without one.  Their compiles also write a depfile
+    /// ([`cabin_driver::CompileAction::clang_depfile`]).  Ignored by the
+    /// GCC/Clang dialect, which always takes the flag.
     pub clang_cl: Vec<SourceLanguage>,
     /// Per-package enabled feature names from the cross-package
     /// feature resolver, keyed by `graph.packages` index.  Gates
@@ -695,13 +696,14 @@ fn emit_actions(
                     }
                 }
             }
-            let compile = CompileAction {
+            let mut compile = CompileAction {
                 standard,
                 gnu_extensions,
                 source: ps.abs_source.clone(),
                 object: ps.object.clone(),
                 mode: CompileMode::Object,
                 depfile: Some(depfile),
+                clang_depfile: false,
                 compiler: dispatch.driver.to_path_buf(),
                 target: req.clang_target.clone(),
                 sysroot: req.sysroot.clone(),
@@ -733,6 +735,14 @@ fn emit_actions(
                     output: ps.object.clone(),
                 });
             }
+            // Only after the database entry, which keeps `/showIncludes`:
+            // clang-tidy drops that from a database command but not
+            // `/clang:-MD`, whose depfile it would write.  A compiler
+            // wrapper keeps `/showIncludes` too, which its cache hit
+            // replays: a hit need not write the depfile, and Ninja reads
+            // a missing depfile as no dependencies.
+            compile.clang_depfile =
+                req.clang_cl.contains(&ps.language) && req.compiler_wrapper.is_none();
             objects.push(ps.object.clone());
             actions.push(BuildAction::Compile(compile));
         }

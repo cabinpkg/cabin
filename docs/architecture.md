@@ -911,7 +911,7 @@ Owns compiler-dialect lowering: the single boundary where `cabin-build`'s toolch
 `BuildAction` IR becomes concrete command lines.  A `Dialect` names a command-line family -
 `GnuLike` (the GCC / Clang driver: `-std=c++17`, `-D` / `-I` / `-isystem`, `-MD -MF` depfiles) or
 `Msvc` (the `cl.exe` / `lib.exe` driver: `/std:c++17`, `/D` / `/I` / `/external:I`,
-`/showIncludes`) - and owns every platform- and toolchain-specific spelling: artifact naming, Ninja
+`/showIncludes`, or a `/clang:-MD` depfile from `clang-cl`) - and owns every platform- and toolchain-specific spelling: artifact naming, Ninja
 header-dependency discovery, the assembler for each assembly syntax (the GCC/Clang driver for `.S`,
 `ml64.exe` for `.asm`), the syntax of the response files its tools read, and how each action is
 lowered.  The planner and the Ninja writer stay

@@ -28,8 +28,9 @@ pub struct LoweredAction {
     pub inputs: Vec<Utf8PathBuf>,
     /// Files this action produces.
     pub outputs: Vec<Utf8PathBuf>,
-    /// Optional Makefile-style depfile path.  Only the GNU/Clang
-    /// dialect populates this; the MSVC dialect tracks dependencies
+    /// Optional Makefile-style depfile path.  The GNU/Clang dialect
+    /// and a `clang-cl` compile with [`CompileAction::clang_depfile`]
+    /// populate this; the MSVC dialect otherwise tracks dependencies
     /// through Ninja's `deps = msvc` and leaves it `None`.
     pub depfile: Option<Utf8PathBuf>,
     /// Argv-style command, ready to be shell-quoted by the backend.
@@ -117,7 +118,7 @@ fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
     };
     let depfile = match dialect {
         Dialect::GnuLike => compile.depfile.clone(),
-        Dialect::Msvc => None,
+        Dialect::Msvc => compile.depfile.clone().filter(|_| compile.clang_depfile),
     };
     LoweredAction {
         kind,
@@ -369,9 +370,18 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     }
     // `/showIncludes` drives Ninja's `deps = msvc`.  Emitted whenever
     // the planner asked for dependency tracking, matching the GNU
-    // dialect's `-MD -MF` condition.
-    if compile.depfile.is_some() {
-        out.push("/showIncludes".to_owned());
+    // dialect's `-MD -MF` condition, unless `clang-cl` writes the
+    // depfile itself, with the GNU dialect's `-MT` for a check.
+    if let Some(depfile) = &compile.depfile {
+        if compile.clang_depfile {
+            out.push("/clang:-MD".to_owned());
+            out.push(format!("/clang:-MF{depfile}"));
+            if let CompileMode::SyntaxOnly { stamp } = &compile.mode {
+                out.push(format!("/clang:-MT{stamp}"));
+            }
+        } else {
+            out.push("/showIncludes".to_owned());
+        }
     }
     for define in &args.defines {
         out.push(format!("/D{define}"));
@@ -544,6 +554,7 @@ mod tests {
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode,
             depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
+            clang_depfile: false,
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             target: None,
             sysroot: None,
@@ -944,6 +955,7 @@ mod tests {
             object: Utf8PathBuf::from("C:/build/main.obj"),
             mode,
             depfile: Some(Utf8PathBuf::from("C:/build/main.obj.d")),
+            clang_depfile: false,
             compiler: Utf8PathBuf::from("cl.exe"),
             target: None,
             sysroot: None,
@@ -1041,6 +1053,33 @@ mod tests {
         let tail = &lowered.command[lowered.command.len() - 2..];
         assert_eq!(tail, &strs(&["/TpC:/src/main.cc", "/Zs"])[..]);
         assert!(!lowered.command.iter().any(|a| a.starts_with("/Fo")));
+    }
+
+    #[test]
+    fn clang_cl_writes_its_own_depfile_in_place_of_show_includes() {
+        let mut compile = msvc_cxx_compile(CompileMode::Object);
+        compile.clang_depfile = true;
+        let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile.clone()));
+        assert_eq!(lowered.depfile, compile.depfile);
+        assert!(!lowered.command.iter().any(|a| a == "/showIncludes"));
+        let depfile = &lowered.command[8..10];
+        assert_eq!(
+            depfile,
+            &strs(&["/clang:-MD", "/clang:-MFC:/build/main.obj.d"])[..]
+        );
+
+        // A check's depfile names the stamp it writes, as on the GNU
+        // dialect.
+        compile.mode = CompileMode::SyntaxOnly {
+            stamp: Utf8PathBuf::from("C:/build/main.obj.check"),
+        };
+        let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
+        assert!(
+            lowered
+                .command
+                .iter()
+                .any(|a| a == "/clang:-MTC:/build/main.obj.check")
+        );
     }
 
     #[test]

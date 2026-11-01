@@ -2888,6 +2888,51 @@ fn instruction_sets_reach_their_source_only() {
     assert_eq!(sets(&bg, "sum_avx2.cc"), [Avx2]);
 }
 
+/// A `clang-cl` compile writes its own depfile, unless a compiler
+/// wrapper runs it; a `cl.exe` compile never does.
+#[test]
+fn clang_cl_compiles_write_a_depfile_unless_wrapped() {
+    let package = Package::new(
+        pkg_name("hello"),
+        version(),
+        vec![target(
+            "hello",
+            TargetKind::Library,
+            &["src/a.c", "src/b.cc"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    req.dialect = Dialect::Msvc;
+    req.clang_cl = vec![SourceLanguage::Cxx];
+    let bg = plan(&req).unwrap();
+    assert!(compile_for(&bg, "b.cc").clang_depfile);
+    assert!(!compile_for(&bg, "a.c").clang_depfile);
+    // The database keeps `/showIncludes`, which clang-tidy drops.
+    let entry = bg
+        .compile_commands
+        .iter()
+        .find(|cc| cc.file.as_str().ends_with("b.cc"))
+        .unwrap();
+    assert!(entry.arguments.iter().any(|a| a == "/showIncludes"));
+    assert!(!entry.arguments.iter().any(|a| a.starts_with("/clang:")));
+
+    let wrapper = ResolvedCompilerWrapper {
+        kind: cabin_core::CompilerWrapperKind::from_spec(&cabin_core::ToolSpec::parse("sccache")),
+        path: Utf8PathBuf::from("/usr/local/bin/sccache"),
+        spec: "sccache".into(),
+        source: cabin_core::CompilerWrapperSource::Cli,
+        identity: None,
+    };
+    req.compiler_wrapper = Some(&wrapper);
+    let bg = plan(&req).unwrap();
+    assert!(!compile_for(&bg, "b.cc").clang_depfile);
+}
+
 #[test]
 fn qualified_target_selector_picks_specific_target() {
     let greet_proj = Package::new(
