@@ -704,9 +704,9 @@ it does not block the stop, so a red workspace is the one state where the gate m
 hand.
 
 The crate is also the shared child-process layer for the other xtask crates that run long-lived
-children: the signal-safe teardown (`spawn_tracked`/`reap`/`kill_group`, the teardown-time file
-restore) is public API consumed by `xtask-registry-smoke`, and a change to its process semantics
-is a change to every consumer's cancellation story.
+children: the signal-safe teardown (`spawn_tracked`/`reap`/`terminate`/`masked`, the teardown-time
+file restore) is public API consumed by `xtask-registry-smoke`, and a change to its process
+semantics is a change to every consumer's cancellation story.
 
 ### `xtask-registry-smoke`
 

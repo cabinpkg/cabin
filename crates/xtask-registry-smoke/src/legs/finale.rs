@@ -923,23 +923,28 @@ impl Wave {
         let width = artifacts.len() * attempts as usize;
         let barrier = Arc::new(Barrier::new(width));
         let mut threads = Vec::with_capacity(width);
-        for (version, zip) in artifacts {
-            for attempt in 1..=attempts {
-                let barrier = Arc::clone(&barrier);
-                let zip = Arc::clone(zip);
-                let request = Request {
-                    base: self.base.clone(),
-                    token: self.token.clone(),
-                    prefix: self.prefix.clone(),
-                    version: (*version).to_owned(),
-                    label: format!("status-{wave}-{version}-{attempt}"),
-                };
-                threads.push(std::thread::spawn(move || {
-                    barrier.wait();
-                    request.send(&zip)
-                }));
+        // Spawned with the teardown signals blocked, which every thread
+        // inherits: one that took a teardown signal while `DevServers`
+        // reaps its children could signal a recycled pid.
+        xtask_ci::masked(|| {
+            for (version, zip) in artifacts {
+                for attempt in 1..=attempts {
+                    let barrier = Arc::clone(&barrier);
+                    let zip = Arc::clone(zip);
+                    let request = Request {
+                        base: self.base.clone(),
+                        token: self.token.clone(),
+                        prefix: self.prefix.clone(),
+                        version: (*version).to_owned(),
+                        label: format!("status-{wave}-{version}-{attempt}"),
+                    };
+                    threads.push(std::thread::spawn(move || {
+                        barrier.wait();
+                        request.send(&zip)
+                    }));
+                }
             }
-        }
+        });
         threads
             .into_iter()
             .map(|thread| match thread.join() {
