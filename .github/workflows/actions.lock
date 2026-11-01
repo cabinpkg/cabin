@@ -10,6 +10,7 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'crate-ci/typos@v1.51.1'
+    '.github/workflows/codeql-skip-probe.yml': []
     '.github/workflows/codeql.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'
