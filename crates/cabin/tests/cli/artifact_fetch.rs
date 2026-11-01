@@ -382,7 +382,8 @@ fn fetch_refuses_a_source_path_outside_the_index_root() {
         .unwrap();
     let secret = dir.child("secret.txt");
     secret.write_str("private").unwrap();
-    let secret_hex = sha256_hex(secret.path());
+    let secret_hex =
+        cabin_core::hash::hash_reader(std::fs::File::open(secret.path()).unwrap()).unwrap();
     let absolute = secret.path().to_str().unwrap().to_owned();
     for source_path in [absolute.as_str(), "../secret.txt", "../missing.txt"] {
         write_index_entry(&index, "fmt", "10.2.1", "{}", &"0".repeat(64), source_path);
