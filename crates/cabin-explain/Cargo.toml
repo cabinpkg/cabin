@@ -15,12 +15,12 @@ cabin-core = { workspace = true }
 cabin-lockfile = { workspace = true }
 cabin-workspace = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 camino = { workspace = true }
 semver = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
