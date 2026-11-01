@@ -13,7 +13,7 @@ workflows:
     '.github/workflows/codeql.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'
-        - 'github/codeql-action@v4.39.0'
+        - 'github/codeql-action@v4.39.1'
     '.github/workflows/conventional-release-labels.yml':
         - 'bcoe/conventional-release-labels@v1.3.1'
     '.github/workflows/dist.yml':
@@ -172,9 +172,9 @@ dependencies:
         commit: 'sha1-ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d'
         owner_id: 1588572
         repo_id: 265601040
-    'github/codeql-action@v4.39.0':
-        ref: 'v4.39.0'
-        commit: 'sha1-6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee'
+    'github/codeql-action@v4.39.1':
+        ref: 'v4.39.1'
+        commit: 'sha1-9b3254085494b55a0f7c4c2b3d2d52cc712ce370'
         owner_id: 9919
         repo_id: 259445878
     'github/gh-aw-actions@de9d416cac8ccea1a2d582cb07c4b7db96946792':
