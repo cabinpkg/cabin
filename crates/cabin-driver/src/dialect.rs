@@ -1,6 +1,6 @@
 //! Compiler command-line dialects and their artifact conventions.
 
-use cabin_core::{AssemblySyntax, CompilerKind};
+use cabin_core::{AssemblySyntax, CompilerKind, TargetPlatform};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::BuildAction;
@@ -66,12 +66,15 @@ impl Dialect {
         }
     }
 
-    /// File name of the executable built from target `stem`.
+    /// File name of the executable built from target `stem` for
+    /// `platform`: `<stem>.exe` for Windows, which GCC and Clang
+    /// (MinGW) write there too.
     #[must_use]
-    pub fn executable_name(self, stem: &str) -> String {
-        match self {
-            Dialect::GnuLike => stem.to_owned(),
-            Dialect::Msvc => format!("{stem}.exe"),
+    pub fn executable_name(self, stem: &str, platform: &TargetPlatform) -> String {
+        if self == Dialect::Msvc || platform.os == "windows" {
+            format!("{stem}.exe")
+        } else {
+            stem.to_owned()
         }
     }
 
@@ -359,8 +362,12 @@ mod tests {
         assert_eq!(Dialect::GnuLike.static_library_name("greet"), "libgreet.a");
         assert_eq!(Dialect::Msvc.static_library_name("greet"), "greet.lib");
 
-        assert_eq!(Dialect::GnuLike.executable_name("app"), "app");
-        assert_eq!(Dialect::Msvc.executable_name("app"), "app.exe");
+        let linux = TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap();
+        let mingw = TargetPlatform::from_triple("x86_64-w64-mingw32").unwrap();
+        assert_eq!(Dialect::GnuLike.executable_name("app", &linux), "app");
+        assert_eq!(Dialect::GnuLike.executable_name("app", &mingw), "app.exe");
+        let msvc = TargetPlatform::from_triple("x86_64-pc-windows-msvc").unwrap();
+        assert_eq!(Dialect::Msvc.executable_name("app", &msvc), "app.exe");
     }
 
     #[test]

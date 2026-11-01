@@ -357,7 +357,8 @@ Stages 05 and 04; used by 06-14.
 - Detection runs `--version`, and GCC's `-dumpmachine` under `--target`.  The fingerprint hashes
   tool specs and the `--target` triple, not resolved paths or versions; the toolchain stamp beside
   `build.ninja` records versions, so a compiler whose version changes rebuilds at the same path.
-  MinGW is best-effort.  A sysroot is explicit (`--sysroot`, `[sysroot]`) or, for Apple Clang
+  A slot left to the defaults takes the tool beside the compiler chosen for the other language, and
+  executables for a Windows triple are `<name>.exe`.  MinGW is best-effort.  A sysroot is explicit (`--sysroot`, `[sysroot]`) or, for Apple Clang
   only, the SDK `SDKROOT` or `xcrun` names; metadata reports which (`toolchain.sysroot.source`).
 
 **Blocked workflow.**  Generating a configuration header from a compile check; a supported MinGW
@@ -626,6 +627,15 @@ dependencies, since both contexts would link against the one `LIB` environment a
 `cabin explain` report no build-context configuration, so neither the build machine's toolchain nor
 the build context's features and flags reach a `BuildConfiguration` fingerprint.
 
+Stage 05, fourth change: a compiler chosen for one language (the C++ one if both are) leads the
+slots left to the defaults, which first take the tool beside it: same directory, target prefix, and
+version suffix, the other language's driver, and the family's archiver (`<prefix>-ar`, `llvm-ar`
+beside Clang, `ar` beside GCC, `lib` / `llvm-lib` beside `cl` / `clang-cl`); the fallback lists
+then skip `cl`, `lib`, and `llvm-lib` beside a GCC-style compiler.  A Windows triple's executables
+are `<name>.exe` in either dialect, which MinGW GCC and Clang write; probe programs are always
+`probe.exe`.  MinGW stays best-effort: without `--target`, the build machine's `env` is still
+`msvc` on Windows, and no CI job builds with MinGW yet.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -785,6 +795,17 @@ succeeds with a `HOST_CXX` that does not exist (fails when check resolves the bu
 toolchain).  Run on macOS; nothing covers a real cross toolchain
 or an in-place upgrade of the build machine's compiler.
 
+Stage 05, fourth change: resolver unit tests take a MinGW-prefixed `g++`'s `gcc` and `ar`, a
+`clang-18` path's `clang++-18` and `llvm-ar-18`, `CL.EXE`'s `lib.exe`, and `clang-cl-18`'s
+`llvm-lib-18`, and give `afl-clang-fast++` no C sibling (each fails without its rule); a
+Windows-only one skips `cl` and `lib` beside `clang++`; a target-check test pins the existing
+refusal of MinGW GCC for an MSVC triple and of MSVC for a MinGW one; a Unix CLI test builds the
+mixed C/C++ fixture for `x86_64-w64-mingw32` with only a fake `--cxx` and reads `app.exe` and the
+sibling `gcc` and `ar` from the plan (fails without the `.exe` rule); unit tests find a GNU
+`demo_test.exe` for `cabin test`, make `cabin run` take the target's `gen.exe` over a
+build-machine `gen`, and read a GNU `app.exe` link failure as target `app` (fails without the
+second reading).  Run on macOS; no real MinGW toolchain ran.
+
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
 reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
@@ -808,8 +829,7 @@ CI job uses `clang-cl`.
 
 Follow-ups found in stage 04: `cabin tree` and `cabin tidy` take no `--target` and follow the build
 machine's edges; the build machine's own `env`, `abi`, and `target` values are still derived from
-the OS rather than detected; GNU-dialect executables keep a bare name for a Windows target,
-though MinGW GCC and Clang write `<name>.exe` (stage 05's MinGW work).  From the fourth change:
+the OS rather than detected.  From the fourth change:
 environment flags do not reach the build context under `--target`, and since stage 05 its
 toolchain must take the target's dialect (`render_build_ninja` needs rules per dialect for an
 MSVC build machine with a GCC-style target, or the reverse); the build context gets no

@@ -338,6 +338,7 @@ pub(crate) fn test(
     let mut test_plan = cabin_test::plan_tests(
         &prepared.graph,
         &plan_graph,
+        &prepared.platform,
         Some(&prepared.resolved_selection.packages),
     );
     populate_test_env_overlay(
@@ -729,6 +730,24 @@ mod tests {
         assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
+    /// GCC and Clang name a Windows test executable `<name>.exe`.
+    #[test]
+    fn plan_tests_finds_a_gnu_windows_test_executable() {
+        let graph = test_graph();
+        let build_graph = BuildGraph {
+            actions: Vec::new(),
+            dialect: cabin_build::Dialect::GnuLike,
+            default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test.exe")],
+            compile_commands: Vec::new(),
+            standard_violations: Vec::new(),
+            standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
+        };
+        let mingw = cabin_core::TargetPlatform::from_triple("x86_64-w64-mingw32").unwrap();
+        let plan = cabin_test::plan_tests(&graph, &build_graph, &mingw, Some(&[0]));
+        assert_eq!(plan.len(), 1);
+    }
+
     #[test]
     fn populate_test_env_overlay_errors_when_package_missing_from_graph() {
         let graph = test_graph();
@@ -741,7 +760,12 @@ mod tests {
             standard_compat_violations: Vec::new(),
             planned_packages: BTreeSet::default(),
         };
-        let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));
+        let mut plan = cabin_test::plan_tests(
+            &graph,
+            &build_graph,
+            &cabin_core::TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap(),
+            Some(&[0]),
+        );
         assert_eq!(plan.len(), 1);
         // Detach the executable from any workspace package so the
         // only remaining fallible step (graph lookup) trips.

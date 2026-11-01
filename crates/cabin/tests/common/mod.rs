@@ -30,7 +30,7 @@ pub use ports_registry::{RegistryConsumer, committed_ports_registry, stage_ports
 /// File name of the executable built from `stem` in the host's
 /// build dialect (`app` on Unix, `app.exe` on Windows).
 pub fn host_exe(stem: &str) -> String {
-    Dialect::host_default().executable_name(stem)
+    Dialect::host_default().executable_name(stem, &cabin_core::TargetPlatform::current())
 }
 
 /// File name of the static library built from `stem` in the

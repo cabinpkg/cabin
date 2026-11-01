@@ -217,7 +217,8 @@ fn toolchain_with_cc() -> ResolvedToolchain {
 /// A [`PlanRequest`] carrying the constant defaults nearly every
 /// planner test uses: empty build flags, no language standards, no
 /// flag conflicts, the dev profile, the default selection, and the
-/// GNU dialect.  Tests override only the fields they exercise.
+/// GNU dialect building for Linux, whatever the host.  Tests override
+/// only the fields they exercise.
 fn plan_request<'a>(
     graph: &'a PackageGraph,
     tc: &'a ResolvedToolchain,
@@ -237,7 +238,7 @@ fn plan_request<'a>(
         language_standards: &NO_LANGUAGE_STANDARDS,
         standard_flag_conflicts: &NO_FLAG_CONFLICTS,
         build_dir: PathBuf::from(build_dir),
-        platform: cabin_core::TargetPlatform::current(),
+        platform: cabin_core::TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap(),
         clang_target: None,
         sysroot: None,
         build_context: false,
@@ -4427,7 +4428,7 @@ fn standard_compat_names_the_conditional_table_for_cfg_edges() {
         "lib",
     );
     // The edge is active on the platform the plan builds for.
-    let os = cabin_core::TargetPlatform::current().os;
+    let os = "linux";
     graph.packages[0].deps[0].condition =
         Some(cabin_core::Condition::parse_cfg(&format!("cfg(os = \"{os}\")")).unwrap());
     let violations = standard_compat_violations(&graph);

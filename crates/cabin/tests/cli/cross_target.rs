@@ -31,6 +31,59 @@ fn build_target_rejects_a_gcc_that_builds_for_another_machine() {
         ));
 }
 
+/// A MinGW GCC chosen by its C++ driver alone brings the C compiler
+/// and archiver beside it, and its executables are `<name>.exe`.
+#[test]
+fn a_mingw_build_takes_the_drivers_siblings_and_names_executables_exe() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new().unwrap();
+    crate::c_language::write_mixed_library(dir.path());
+    let bin = TempDir::new().unwrap();
+    for driver in ["g++", "gcc"] {
+        let path = bin.path().join(format!("x86_64-w64-mingw32-{driver}"));
+        fs::write(
+            &path,
+            "#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo x86_64-w64-mingw32; else echo 'g++ (GCC) 13.2.0'; fi\n",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    fake_tool_with_output(
+        bin.path(),
+        "x86_64-w64-mingw32-ar",
+        "GNU ar (GNU Binutils) 2.40\n",
+        "",
+        0,
+    );
+    // The fakes compile nothing, so only the plan is checked.
+    cabin()
+        .current_dir(dir.path())
+        .args(["build", "--target", "x86_64-w64-mingw32", "--cxx"])
+        .arg(bin.path().join("x86_64-w64-mingw32-g++"))
+        .output()
+        .unwrap();
+    let out = dir.path().join("build/.targets/x86_64-w64-mingw32/dev");
+    let ninja = fs::read_to_string(out.join("build.ninja")).unwrap();
+    assert!(ninja.contains("packages/mixed/app.exe"), "{ninja}");
+    assert!(ninja.contains("x86_64-w64-mingw32-ar"), "{ninja}");
+    let database: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("compile_commands.json")).unwrap())
+            .unwrap();
+    let c_part = database
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["file"].as_str().unwrap().ends_with("c_part.c"))
+        .unwrap();
+    assert!(
+        c_part["command"]
+            .as_str()
+            .unwrap()
+            .contains("x86_64-w64-mingw32-gcc"),
+        "{c_part}"
+    );
+}
+
 /// A GCC builds only its own target, so build dependencies build with
 /// the build machine's compilers, chosen by `HOST_CC`, `HOST_CXX`, and
 /// `HOST_AR`.  A build-machine compiler of another dialect is refused.
