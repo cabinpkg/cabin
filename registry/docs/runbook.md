@@ -143,17 +143,33 @@ green, and that commit's run owns the deploy. Or it is **blocked**:
 (or the gate cannot compare them), so the job fails red, deploying
 nothing, with a `Registry deploy blocked` error annotation naming the
 recovery; nothing in CI applies a migration. A blocked run never
-deploys. `cargo registry-migrate --remote`, run
-from the repository root, is the one honest way to move both: it
-applies pending migration files, verifies D1 reports nothing left
-pending, and only then refreshes the stamp (land the change like any
-other: its main push deploys, and rerunning a blocked run afterwards
-finds it superseded and turns it green). It refuses the state where
+deploys. The same gate runs before the merge: the `merge-readiness`
+job, behind the required `registry-build` check, runs it over every
+pull request's and merge group's whole tree, so a change that edits
+`migrations/` cannot merge without its stamp, and while main itself is
+out of step no pull request merges but the one that repairs the stamp. `cargo registry-migrate
+--remote`, run from the repository root of the change's branch before
+it merges, is the one honest way to move both: it applies pending
+migration files, verifies D1 reports nothing left pending, and only
+then refreshes the stamp, which you commit to that same pull request.
+Wait for in-flight `deploy-registry` runs to finish before the apply,
+and merge the pull request right after it: until it merges, any main
+deploy ships a Worker built for the schema the database just left. A
+pull request abandoned after its apply leaves production ahead of
+main; pre-launch, wipe again from main's tree with the branch's
+`wrangler.jsonc` (the wipe refuses a binding that names a database it
+no longer finds) and land the resulting id and stamp through a pull
+request, and post-launch land the
+migration file on main, since `registry-migrate` refuses an applied
+migration whose file is gone. `registry-migrate` refuses the
+state where
 nothing is pending yet the files differ from the stamp - that means an
 already-applied file was edited in place, which D1 (tracking applied
 migrations by filename) would never replay; pre-launch that edit ships
-through `cargo registry-wipe` (which reapplies from zero and refreshes
-the stamp itself), post-launch it must become a new migration file.
+through `cargo registry-wipe`, run from the change's branch in the
+same window (it reapplies from zero, refreshes the stamp and the
+database id, and redeploys that branch's Worker; commit both files to
+the pull request), and post-launch it must become a new migration file.
 Hand-refreshing the stamp bypasses those checks; don't.
 
 A Deploy step that exits 0 without its tagged version then serving
@@ -369,8 +385,8 @@ in-flight ports-publish run: publish runs exist only from a manual
 dispatch, but one mid-ceremony would mint its own publish token
 through the trusted-publishing exchange - the governor wipe in step 4
 refuses while any live publish token exists - and a run left polling
-in its deploy wait would publish the moment step 1's push unfreezes
-the deploy, before the governor gate has run. Re-enable it in step 5.
+in its deploy wait would publish the moment step 1's merge deploys,
+before the governor gate has run. Re-enable it in step 5.
 The backup bucket has writers no disabled workflow or blocked write
 stops, so quiesce them too: dispatch no `registry-verify` run and let an
 in-flight one finish (a verdict queues a backup copy), confirm the queue
@@ -383,7 +399,10 @@ wipe's sweeps and its database drop, while the old Worker still
 serves - makes step 4 refuse rather than undercount.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
-   `migrations-applied` stamp; the deploy gate opens on that push.
+   `migrations-applied` stamp to the pull request that changes the
+   migrations (or to one of their own when main already carries them)
+   and merge it; its main push deploys the Worker bound to the new
+   database ("Deploy skew").
 2. Sign in and re-claim scopes (`/claim/<scope>`). Type or paste the URL
    rather than following a link from another site: initiation refuses a
    cross-site navigation, and does it with the same uniform

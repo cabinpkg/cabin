@@ -330,6 +330,34 @@ fn migrations_pending_blocks_the_deploy_until_the_stamp_matches() {
     );
 }
 
+/// The two ways a schema change reaches main without its apply - an
+/// already-applied file edited in place (#2256, #2260) and a new file -
+/// each fail a tree whose stamp matched before the change.
+#[test]
+fn a_migration_change_without_its_stamp_blocks_the_merge() {
+    let edited = assert_fs::TempDir::new().unwrap();
+    stamp_corpus(edited.path(), &format!("{}\n", stamp()));
+    fs::write(
+        edited.path().join("registry/migrations/0001_init.sql"),
+        format!("{SQL}create table added (y);\n"),
+    )
+    .unwrap();
+    let (run, _) = migrations_gate(edited.path());
+    assert!(!run.status.success(), "{run:?}");
+    assert!(blocked_annotation(&run).is_some(), "{run:?}");
+
+    let added = assert_fs::TempDir::new().unwrap();
+    stamp_corpus(added.path(), &format!("{}\n", stamp()));
+    fs::write(
+        added.path().join("registry/migrations/0002_next.sql"),
+        "create table next (z);\n",
+    )
+    .unwrap();
+    let (run, _) = migrations_gate(added.path());
+    assert!(!run.status.success(), "{run:?}");
+    assert!(blocked_annotation(&run).is_some(), "{run:?}");
+}
+
 /// A stamp file that cannot be read blocks the deploy too, naming the
 /// read failure and a repair rather than a migrate run that would
 /// refuse the same state.

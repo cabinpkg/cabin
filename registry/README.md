@@ -136,7 +136,9 @@ workspace: `cargo build`/`cargo test` at the repository root never touch it.
 CI gates `.github/workflows/registry.yml`'s jobs on registry-relevant
 changes (the `registry` filter in `.github/path-filters.yml`; the build
 and Kani jobs on the narrower `registry-build` filter, the TLC jobs on
-the narrower `tlc` filter); a run on
+the narrower `tlc` filter), except `merge-readiness`, which runs the
+deploy's migrations gate on every pull request and merge group, so a
+stale `migrations-applied` stamp blocks unrelated merges too; a run on
 `main` also deploys the Worker (its `deploy-registry` job), unless a
 newer registry-relevant commit superseded it (green, Deploy step
 skipped, the newer run deploys) or unapplied D1 migrations block it

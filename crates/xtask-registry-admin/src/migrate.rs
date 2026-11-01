@@ -179,8 +179,9 @@ fn remote() -> Result<()> {
     println!("remote migrate OK (stamp {stamp})");
     println!();
     println!("Follow-ups:");
-    println!("  - commit the migrations-applied change; the CI deploy job stays blocked");
-    println!("    until it reaches main (registry/docs/runbook.md, \"Integrated topology\")");
+    println!("  - commit the migrations-applied change to the pull request that changes the");
+    println!("    migrations, or to one of its own when main already carries them, and merge");
+    println!("    it now (registry/docs/runbook.md, \"Integrated topology\")");
     Ok(())
 }
 

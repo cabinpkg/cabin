@@ -122,15 +122,41 @@ jobs:
         env:
           CABIN_REGISTRY_SMOKE_TOKEN: cabin_smoke
 
+  # The deploy job's migrations gate, run before the merge over the
+  # candidate's whole tree. Ungated: a main whose stamp no longer
+  # matches blocks every merge, not only registry ones, until the
+  # stamp is repaired (registry/docs/runbook.md, "Deploy skew").
+  merge-readiness:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # No caches, like conformance below.
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Require the D1 migrations to match their applied stamp
+        run: cargo workflow-migrations-pending
+
   # Branch protection pins this, not the work jobs: `always()`, never
   # `!cancelled()`, fails it closed on a failed or cancelled gate.
   # Every validation job feeds it: a conformance or proof failure must
   # block the merge, and with it the deploy the merged push performs.
   registry-build:
-    needs: [changes, registry-build-work, conformance, kani, tlc-respins, tlc-shared, tlc-scan]
+    needs: [changes, merge-readiness, registry-build-work, conformance, kani, tlc-respins, tlc-shared, tlc-scan]
     if: always() && github.event_name != 'push'
     runs-on: ubuntu-slim
     steps:
+      # Ungated, so a skip is never a pass.
+      - name: Fail unless merge-readiness succeeded
+        env:
+          RESULT: ${{ needs.merge-readiness.result }}
+        run: test "$RESULT" = success
       # The gate logic is a local action; the sparse checkout keeps
       # this fetch small.
       - uses: actions/checkout@v7.0.1

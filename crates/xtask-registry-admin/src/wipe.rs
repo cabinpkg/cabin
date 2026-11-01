@@ -296,7 +296,9 @@ fn remote(old: &str, new: i64) -> Result<()> {
 
 Follow-ups, IN THIS ORDER (registry/docs/runbook.md, \"Post-wipe re-provisioning\"):
   1. commit the wrangler.jsonc database-id change and the refreshed
-     migrations-applied stamp
+     migrations-applied stamp to the pull request that changes the
+     migrations (to one of their own when main already carries them)
+     and merge it now: main still names the deleted database
   2. sign in again and re-claim scopes (/claim/<scope>; a GitHub org's
      OAuth app grant survives the wipe, so re-claims grant immediately);
      the cabin-ports claim is what re-arms ports publishing - the
