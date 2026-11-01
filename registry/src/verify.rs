@@ -48,7 +48,7 @@ impl Status {
     }
 }
 
-/// A verifier's verdict on a pending version.
+/// A verifier's verdict on a pending revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     Verified,
@@ -151,17 +151,17 @@ pub fn parse_verdict(body: &[u8]) -> Result<ParsedVerdict, &'static str> {
     })
 }
 
-/// What a verdict on a version in `current` status does.
+/// What a verdict on a revision in `current` status does.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Transition {
-    /// Apply it: the version is pending and the verdict decides it.
+    /// Apply it: the revision is pending and the verdict decides it.
     Apply,
     /// Idempotent repeat of the verdict already applied: `200`, no
     /// change.
     NoOp,
     /// `409` with this detail: a conflicting verdict on a verified
-    /// version (immutability), or a verifying verdict on a rejected
-    /// version (republish is the recovery path). A repeat of the
+    /// revision (immutability), or a verifying verdict on a rejected
+    /// revision (republish is the recovery path). A repeat of the
     /// applied verdict is a [`Transition::NoOp`] for both terminal
     /// states: the caller checks the generation binding before
     /// consulting the transition, so a matching repeat is the same
@@ -185,10 +185,10 @@ pub fn transition(current: Status, verdict: Verdict) -> Transition {
     }
 }
 
-/// Whether the artifact route serves a version to this request:
-/// verified versions to everyone (reads are public), pending versions
+/// Whether the artifact route serves a revision to this request:
+/// verified revisions to everyone (reads are public), pending revisions
 /// only to the `verify` scope (the verifier downloads the bytes it
-/// inspects), and rejected versions to no one - their blob is
+/// inspects), and rejected revisions to no one - their blob is
 /// reclaimed.
 pub fn artifact_readable(status: Status, has_verify_scope: bool) -> bool {
     match status {
@@ -228,14 +228,14 @@ pub fn packages_json(packages: &[CorpusPackage]) -> String {
 }
 
 /// The stuck-verifier alert for the breaker cron's webhook payload:
-/// versions pending for over an hour mean the verifier is not keeping
+/// revisions pending for over an hour mean the verifier is not keeping
 /// up (or not running), and an unreadable count must alert rather than
 /// pass as healthy.
 pub fn stale_pending_alert(stale_pending: Option<u64>) -> Option<String> {
     match stale_pending {
         Some(0) => None,
         Some(count) => Some(format!(
-            "{count} version(s) have been pending verification for over an hour"
+            "{count} revision(s) have been pending verification for over an hour"
         )),
         None => Some("the stale-pending count could not be read from d1".to_owned()),
     }
@@ -381,18 +381,18 @@ mod tests {
             transition(Status::Pending, Verdict::Rejected),
             Transition::Apply
         );
-        // Repeating the applied verdict on a verified version is the
+        // Repeating the applied verdict on a verified revision is the
         // idempotent 200.
         assert_eq!(
             transition(Status::Verified, Verdict::Verified),
             Transition::NoOp
         );
-        // Rejecting a verified version hits the immutability wall.
+        // Rejecting a verified revision hits the immutability wall.
         assert_eq!(
             transition(Status::Verified, Verdict::Rejected),
             Transition::Conflict(error::VERSION_IMMUTABLE)
         );
-        // Verifying a rejected version conflicts: republish is the
+        // Verifying a rejected revision conflicts: republish is the
         // recovery path.
         assert_eq!(
             transition(Status::Rejected, Verdict::Verified),
@@ -442,7 +442,7 @@ mod tests {
         assert_eq!(stale_pending_alert(Some(0)), None);
         assert_eq!(
             stale_pending_alert(Some(3)),
-            Some("3 version(s) have been pending verification for over an hour".to_owned())
+            Some("3 revision(s) have been pending verification for over an hour".to_owned())
         );
         assert!(stale_pending_alert(None).is_some());
     }

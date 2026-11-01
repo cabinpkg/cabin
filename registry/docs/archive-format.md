@@ -71,8 +71,8 @@ pack time (`cabin-package`) and at verify time through one shared predicate in
 component:
 
 - contains a `:` (drive or NTFS alternate-data-stream separator);
-- contains a control character (`U+0000`-`U+001F`, NUL included) or one of the
-  Win32-forbidden characters `< > " | ? *`;
+- contains a control character (`U+0000`-`U+001F`, NUL included, or `U+007F`)
+  or one of the Win32-forbidden characters `< > " | ? *`;
 - ends in a `.` or a space, or begins with a space (Windows silently strips
   trailing dots and spaces, and a leading space aliases the same way);
 - is a reserved Windows device stem - `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,

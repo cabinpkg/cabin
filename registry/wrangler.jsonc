@@ -22,8 +22,8 @@
     // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account
     // Analytics Read; the budget cron degrades gracefully without it),
     // D1_EXPORT_API_TOKEN (D1 only; the nightly dump job), and optionally
-    // NOTIFY_WEBHOOK_URL (POSTed a JSON summary on service-mode changes
-    // and backup-freshness alerts).
+    // NOTIFY_WEBHOOK_URL (POSTed a JSON summary on service-mode changes,
+    // backup-freshness alerts, and stuck-verifier alerts).
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
     // The breaker budgets BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
