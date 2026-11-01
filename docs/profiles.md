@@ -335,6 +335,10 @@ profile named like a triple keeps a tree of its own.  `.cabin-gc` and `.cabin-bu
 [unused-output collection](#unused-build-outputs); `.cabin-workspace` names the
 [workspace the directory serves](#build-directory-ownership).
 
+`cabin clean` refuses, even with `--dry-run`, when the build directory or a directory between it and
+something it would remove is a symlink, since a link could point the removal outside the build
+directory.
+
 Cabin releases before `.targets` wrote `--target` builds to `<build-dir>/<triple>/<profile>/`.  Such
 a build directory also predates the [owner record](#build-directory-ownership), so builds refuse it
 until `cabin clean` with no `--profile`, `--package`, or `--target` empties it, old trees included.
