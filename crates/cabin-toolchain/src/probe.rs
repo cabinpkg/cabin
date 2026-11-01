@@ -14,7 +14,6 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
 
 use cabin_core::{LanguageStandard, SourceLanguage, Sysroot};
 use cabin_driver::{
@@ -193,12 +192,6 @@ pub trait ProbeRunner {
     ) -> Result<RunOutput, RunError>;
 }
 
-impl ProcessRunner {
-    /// Deadline for one probe step: a cold compile, link, or emulated
-    /// run is slower than `--version`.
-    pub const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
-}
-
 impl ProbeRunner for ProcessRunner {
     fn run_in(
         &self,
@@ -212,7 +205,7 @@ impl ProbeRunner for ProcessRunner {
             .args(rest)
             .envs(env.iter().cloned())
             .current_dir(dir);
-        run_command_with_timeout(command, Path::new(program), Self::PROBE_TIMEOUT)
+        run_command_with_timeout(command, Path::new(program), Self::DEFAULT_TIMEOUT)
     }
 }
 

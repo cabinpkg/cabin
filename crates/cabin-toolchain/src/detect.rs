@@ -100,8 +100,12 @@ pub enum RunError {
 pub struct ProcessRunner;
 
 impl ProcessRunner {
-    /// Default deadline for one `tool --version` probe.
-    pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+    /// Deadline for one tool run, version probe and probe step alike,
+    /// there to stop a tool that never exits.  Under an `SDKROOT` its
+    /// lookup cache has not seen, an `xcrun` shim such as `/usr/bin/c++`
+    /// runs `xcodebuild` twice before the tool, and `--version` took up
+    /// to 12.5 s on a loaded Mac.
+    pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 }
 
 impl ToolRunner for ProcessRunner {

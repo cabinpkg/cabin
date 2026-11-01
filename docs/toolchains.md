@@ -359,8 +359,10 @@ compiler / archiver Cabin picked can run the commands the C++ backend emits befo
 written.  `cabin metadata` surfaces the same report under `toolchain.detected` so users can audit
 detection without re-running anything.
 
-Each `--version` subprocess has a bounded deadline.  A compiler, archiver, or wrapper that never
-exits is treated as a detection failure instead of hanging Cabin indefinitely.
+Each `--version` subprocess has a 60-second deadline.  A compiler, archiver, or wrapper that never
+exits is treated as a detection failure instead of hanging Cabin indefinitely.  The deadline allows
+for a slow first run: under an `SDKROOT` its lookup cache has not seen, an `xcrun` shim such as
+`/usr/bin/c++` runs `xcodebuild` twice before the tool.
 
 ### Recognized compiler families
 
