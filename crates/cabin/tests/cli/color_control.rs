@@ -61,6 +61,62 @@ fn top_level_help_advertises_color_option() {
 }
 
 #[test]
+fn help_honors_the_color_flag() {
+    // `CLICOLOR_FORCE` makes clap's automatic detection color a pipe.
+    for args in [
+        &["--color", "never", "--help"][..],
+        &["--help", "--color", "never"],
+        &["...", "--help", "--color", "never"],
+    ] {
+        let assertion = cabin()
+            .env_remove("CABIN_TERM_COLOR")
+            .env("CLICOLOR_FORCE", "1")
+            .args(args)
+            .assert()
+            .success();
+        let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+        assert!(!stdout.contains(ESC), "{args:?} styled help: {stdout:?}");
+    }
+    let assertion = cabin()
+        .args(["--color", "always", "--help"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(stdout.contains(ESC), "expected styled help: {stdout:?}");
+}
+
+#[test]
+fn bare_cabin_help_honors_the_color_flag() {
+    let assertion = cabin().args(["--color", "always"]).assert().success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(stdout.contains(ESC), "expected styled help: {stdout:?}");
+    // `CLICOLOR_FORCE` makes clap's automatic detection color a pipe.
+    let assertion = cabin()
+        .env("CLICOLOR_FORCE", "1")
+        .args(["--color", "never"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(!stdout.contains(ESC), "styled help: {stdout:?}");
+}
+
+#[test]
+fn automatic_color_keeps_piped_diagnostics_plain() {
+    let dir = TempDir::new().unwrap();
+    let assertion = missing_manifest_command(&dir)
+        .env_remove("CABIN_TERM_COLOR")
+        .env("TERM", "xterm-256color")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        !stderr.contains(ESC),
+        "expected plain diagnostic: {stderr:?}"
+    );
+    assert!(stderr.contains("cabin::workspace::manifest_not_found"));
+}
+
+#[test]
 fn color_always_styles_diagnostics() {
     let stderr = stderr_with_color("always");
     assert!(

@@ -138,6 +138,15 @@ enum Stream {
     Stderr,
 }
 
+/// Whether raw ANSI escapes written to `stream` render as styling.
+/// A synchronous writer is a Windows console without virtual
+/// terminal processing, which colors through the console API and
+/// prints raw escapes as text.
+fn emits_ansi(stream: &termcolor::StandardStream) -> bool {
+    use termcolor::WriteColor as _;
+    stream.supports_color() && !stream.is_synchronous()
+}
+
 /// Column the banner verb (`Compiling`, `Finished`, `Created`,
 /// …) is right-aligned to inside [`Reporter::status`].  Matches
 /// cargo's own banner layout.
@@ -152,27 +161,22 @@ const COLUMN_WIDTH: usize = 12;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Reporter {
     verbosity: Verbosity,
-    /// Resolved at construction time. `true` means every
-    /// styled write may emit ANSI escape sequences; `false`
-    /// guarantees plain-text output.  The flag captures the
-    /// `--color` / `CABIN_TERM_COLOR` / config / tty resolution,
-    /// so emit sites do not probe the environment.
-    styled: bool,
+    /// Whether styled writes to each stream may emit ANSI escape
+    /// sequences; `false` guarantees plain text.  Either stream can
+    /// be redirected without the other, so each is decided alone.
+    stdout_styled: bool,
+    stderr_styled: bool,
 }
 
 impl Reporter {
-    /// Build a reporter that emits styled status lines when the
-    /// resolved [`cabin_core::ColorChoice`] says it should.  `Auto` is
-    /// honored by probing whether the current stdout handle is
-    /// a terminal - matching what the rest of Cabin's
-    /// diagnostic renderer does for stderr.
+    /// Build a reporter that styles each stream as the diagnostic
+    /// renderer would for the resolved [`cabin_core::ColorChoice`].
     pub(crate) fn with_color(verbosity: Verbosity, color: cabin_core::ColorChoice) -> Self {
-        let styled = match color {
-            cabin_core::ColorChoice::Always => true,
-            cabin_core::ColorChoice::Never => false,
-            cabin_core::ColorChoice::Auto => std::io::IsTerminal::is_terminal(&std::io::stdout()),
-        };
-        Self { verbosity, styled }
+        Self {
+            verbosity,
+            stdout_styled: emits_ansi(&crate::term_setup::stdout_stream(color)),
+            stderr_styled: emits_ansi(&crate::term_setup::stderr_stream(color)),
+        }
     }
 
     /// The resolved verbosity.
@@ -195,7 +199,7 @@ impl Reporter {
         let padding = COLUMN_WIDTH.saturating_sub(verb.len());
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        let _ = if self.styled {
+        let _ = if self.stdout_styled {
             // SGR 1 (bold) + 32 (green foreground), reset
             // afterwards so the rest of the line stays plain.
             writeln!(
@@ -274,7 +278,7 @@ impl Reporter {
         let Some(first) = lines.next() else {
             return;
         };
-        if self.styled {
+        if self.stderr_styled {
             // SGR 1 (bold) + 36 (cyan foreground), reset
             // afterwards so the body stays plain.
             let _ = writeln!(handle, "\x1b[1;36mhelp:\x1b[0m {first}");

@@ -76,7 +76,7 @@ chain as every other read-side variable:
 
 | Value | Meaning |
 |---|---|
-| `auto` | Emit color only when stderr is a terminal and the environment does not opt out (e.g.  `NO_COLOR`). |
+| `auto` | Emit color only when the output stream is a terminal, `NO_COLOR` is unset, and `TERM` is not `dumb`.  Help and usage errors follow clap's detection instead, which also honors `CLICOLOR` and lets a non-empty `CLICOLOR_FORCE` color redirected output. |
 | `always` | Always emit color, even when output is redirected. |
 | `never` | Never emit color, regardless of terminal detection. |
 

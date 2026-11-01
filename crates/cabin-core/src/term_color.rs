@@ -20,8 +20,9 @@ use std::fmt;
 /// User-selected terminal-color mode.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorChoice {
-    /// Emit colors only when stderr is connected to a terminal
-    /// and the environment does not opt out (e.g.  `NO_COLOR`).
+    /// Emit colors only when the output stream is connected to a
+    /// terminal and the environment does not opt out (e.g.
+    /// `NO_COLOR`).
     /// This is Cabin's default and Cargo's default.
     #[default]
     Auto,
