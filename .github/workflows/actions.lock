@@ -36,7 +36,7 @@ workflows:
         - 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3'
         - 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1'
         - 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9'
-        - 'github/gh-aw-actions@ebb97091a4afcc9bf2d594071dbabe861e9a34fc'
+        - 'github/gh-aw-actions@de9d416cac8ccea1a2d582cb07c4b7db96946792'
     '.github/workflows/oss-fuzz.yml':
         - 'actions/checkout@v7.0.1'
     '.github/workflows/perf.yml':
@@ -177,9 +177,9 @@ dependencies:
         commit: 'sha1-6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee'
         owner_id: 9919
         repo_id: 259445878
-    'github/gh-aw-actions@ebb97091a4afcc9bf2d594071dbabe861e9a34fc':
-        ref: 'v0.92.5'
-        commit: 'sha1-ebb97091a4afcc9bf2d594071dbabe861e9a34fc'
+    'github/gh-aw-actions@de9d416cac8ccea1a2d582cb07c4b7db96946792':
+        ref: 'v0.93.5'
+        commit: 'sha1-de9d416cac8ccea1a2d582cb07c4b7db96946792'
         owner_id: 9919
         repo_id: 1156386970
     'ilammy/msvc-dev-cmd@v1.13.0':
