@@ -445,9 +445,7 @@ sources = ["src/main.cc", "src/helper.c"]
     let mut c_seen = false;
     for entry in entries {
         let file = entry["file"].as_str().unwrap();
-        // Cabin writes each entry's `command` string, never the
-        // alternate `arguments` array form.
-        let command = entry["command"].as_str().unwrap();
+        let command = entry["arguments"].to_string();
         if file.ends_with("main.cc") {
             cxx_seen = true;
             assert!(

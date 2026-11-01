@@ -221,7 +221,7 @@ impl Dialect {
 }
 
 /// Ninja's header-dependency discovery mode for a dialect's compile
-/// rules.
+/// and assemble rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NinjaDeps {
     /// `deps = gcc`, paired with a Makefile `depfile`.

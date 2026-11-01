@@ -427,8 +427,7 @@ fn write_edge(
     };
     // Ninja launches each edge's command itself, so the argv is quoted
     // for the platform that will run it (POSIX shell vs.  Windows
-    // `CreateProcess`) - distinct from `compile_commands.json`, whose
-    // `command` field is always Bash-quoted per the Clang spec.
+    // `CreateProcess`).
     let mut command_value = command_line(argv)?;
     // Archive and link commands grow with the number of objects; past the
     // inline limit the arguments move into a response file that Ninja
@@ -582,10 +581,6 @@ pub(crate) fn escape_value(s: &str) -> Result<String, NinjaError> {
 /// the `CommandLineToArgvW` convention `CreateProcess` uses to split
 /// them back apart.  A MinGW (GCC-dialect) build on Windows still goes
 /// through the same `CreateProcess`, so the axis is the host OS.
-///
-/// This is deliberately separate from [`shell_join`]: the
-/// `compile_commands.json` `command` field is specified to use Bash
-/// quoting on every platform, so it stays on [`shell_join`].
 fn command_line(args: &[String]) -> Result<String, NinjaError> {
     if cfg!(windows) {
         windows_join(args)
@@ -594,17 +589,14 @@ fn command_line(args: &[String]) -> Result<String, NinjaError> {
     }
 }
 
-/// Join an argv into a single POSIX-shell command line (also the Bash
-/// quoting the Clang compilation-database `command` field requires on
-/// every platform).
+/// Join an argv into a single POSIX-shell command line.
 ///
 /// Each argument is quoted via [`shlex::try_join`] so a value
 /// containing spaces, quotes, dollar signs, backslashes, or other shell
-/// metacharacters round-trips back through `sh` (or Clang's Bash-rules
-/// unescaper) to the same argv.  Returns
+/// metacharacters round-trips back through `sh` to the same argv.  Returns
 /// [`NinjaError::UnquotableArgument`] when `shlex` refuses an argument
 /// (in practice, a NUL byte).
-pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
+fn shell_join(args: &[String]) -> Result<String, NinjaError> {
     shlex::try_join(args.iter().map(String::as_str)).map_err(|_| {
         let bad = args
             .iter()
