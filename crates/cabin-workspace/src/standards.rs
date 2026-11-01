@@ -4,11 +4,15 @@
 //! Implements the recursion `R_L` of D10 (the Lean model in
 //! `proofs/standard-compatibility`) on top of the per-target `ReqOf`
 //! values of `cabin_core::standard_compatibility`: for each language,
-//! `R_L(t) = ReqOf(t, L) ⊔ ⨆ { R_L(d) : (t, d) ∈ E_pub }`, computed
+//! `R_L(t) = own(t, L) ⊔ ⨆ { R_L(d) : (t, d) ∈ E_pub }`, computed
 //! for every target in one topological pass - `O(|V| + |E|)` per
-//! language.  T1 proves the recursion has exactly one solution on
-//! the finite DAG and that every topological order computes it
-//! (confluence); the tests exercise that lemma directly.
+//! language.  `own(t, L)` is `ReqOf(t, L)` for a target with an
+//! interface and the join's identity (unconstrained) for one without
+//! ([`TargetNode::has_interface`]).  The Lean `Rfun` is generic in
+//! its per-target term, so T1 covers `own` as it does `ReqOf`: the
+//! recursion has exactly one solution on the finite DAG and every
+//! topological order computes it (confluence); the tests exercise
+//! that lemma directly.
 //!
 //! Alongside each value the pass records *provenance* per bound:
 //! which declaration (or header-only inference, or cross-language
