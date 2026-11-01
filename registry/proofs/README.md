@@ -315,7 +315,7 @@ printed traces:
 `LiveBlobPresent` (a live row with no in-flight delete always has its
 blob) is **expected to fail**: the trace is the window the code documents
 (`verifier.rs` `delete_blob_if_unreferenced`, `package.rs`
-`revive_rejected_revision`, runbook "Orphaned R2 blobs"). A rejection
+`revive_rejected_revision`). A rejection
 reads a zero refcount and decides a delete; a revival (or a deduplicating
 publish of the same bytes) puts the blob, commits, and heals while the
 delete is still in flight; the delete then lands. The row is live, its

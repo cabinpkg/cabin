@@ -182,8 +182,8 @@ async fn stats_summary(env: &Env) -> worker::Result<Response> {
     let mut response = json_response(&stats::summary_json(&totals))?;
     if ttl_secs > 0 {
         // Public and cacheable, overriding the browser plane's blanket
-        // no-store; the Cache API only stores responses that carry a
-        // max-age.
+        // no-store (which the Cache API refuses to store); the max-age
+        // sets the cached copy's TTL.
         response
             .headers_mut()
             .set("cache-control", &format!("public, max-age={ttl_secs}"))?;

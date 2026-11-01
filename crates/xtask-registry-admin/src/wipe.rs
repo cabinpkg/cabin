@@ -21,7 +21,8 @@
 //! anything destructive, so a flag flipped while the prompt sat waiting
 //! still refuses.  On remote it also proves the `DB` binding and the
 //! account's database named `cabin-registry` are the same database, so
-//! the reads here and the `d1 delete` below cannot diverge.
+//! the `d1 create` and `d1 list` below act on the database the guard
+//! read and the `d1 delete` removes.
 //!
 //! **The guard is a function call.**  Spawning it through the
 //! `registry-launch-guard` alias or `cargo run` would let the

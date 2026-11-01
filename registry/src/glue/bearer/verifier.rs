@@ -494,7 +494,9 @@ async fn apply_rejection(
 /// batch commits and re-uploading if this delete beat them to it; a
 /// delete that lands even later is loud (the artifact route's
 /// missing-blob 500) and recoverable from the append-only BACKUP
-/// replica. A reclaim queue with a grace period is the upgrade if
+/// replica when a verified blob's copy completed, otherwise by the
+/// publisher's byte-identical re-publish (`heal_blobs_on_retry`).
+/// A reclaim queue with a grace period is the upgrade if
 /// reclaim/publish races ever become a real operational pattern.
 async fn delete_blob_if_unreferenced(
     env: &Env,

@@ -173,7 +173,8 @@ PubStart(p) ==
     /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, deletes, ver, gen, decided, basis>>
 
 \* Answered from the preflight: the byte-identical 200 no-op (which heals
-\* its blob) or the 409 new-revision-required refusal.  Nothing is written.
+\* its blob) or the 409 new-revision-required refusal.  No D1 row or
+\* counter is written.
 PubAnswer(p) ==
     /\ pub[p].phase = "disposed"
     /\ pub[p].disp \in {"noop", "refuse"}
@@ -460,9 +461,9 @@ PendingUndecided ==
         status[v][c] = "pending" => decided[v][c] = 0 /\ basis[v][c] = "none"
 
 \* A verified row was rendered by the inspector, and never on bytes the
-\* scan rejects: no operator resolution, abstain, failed download,
-\* mismatched digest, or inspector failure produces `verified` (each
-\* leaves the row pending).
+\* scan rejects: no reject resolution produces `verified` (it rejects),
+\* and no abstain, failed artifact download, mismatched digest, or inspector
+\* failure renders any verdict (each leaves the row pending).
 VerifiedByInspection ==
     \A v \in Versions, c \in Checksums :
         status[v][c] = "verified" => basis[v][c] = "inspected" /\ c \notin Malicious
@@ -562,7 +563,7 @@ NoManualRejection ==
         ~(status[v][c] = "rejected" /\ basis[v][c] = "manual" /\ c \notin Malicious)
 \* the documented reclaim/revival window: a live row whose blob a late
 \* delete removed after its publish healed, with nothing in flight for it
-\* (runbook, "Orphaned R2 blobs"; verifier.rs delete_blob_if_unreferenced)
+\* (verifier.rs delete_blob_if_unreferenced; package.rs revive_rejected_revision)
 LiveBlobPresent ==
     \A v \in Versions, c \in Checksums :
         /\ IsLive(v, c)

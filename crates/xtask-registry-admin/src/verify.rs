@@ -63,10 +63,13 @@
 //! - `entry.json` and the PATCH body are `serde_json`'s compact
 //!   rendering, which may respell an exponent-form float or an integer
 //!   outside `i64`/`u64`.  Both are re-parsed by their only consumer,
-//!   and every field this loop reads (`name`, `version`, `revision`,
-//!   `checksum`, `published_at`) the production listing types as a
-//!   string (`registry/src/glue/bearer/verifier.rs`, `AdminVersionRecord`);
-//!   `published_by` is its one integer, and nothing here reads it;
+//!   and every listing field this loop reads (`name`, `version`,
+//!   `revision`, `checksum`, `published_at`) the production listing
+//!   types as a string (`registry/src/glue/bearer/verifier.rs`,
+//!   `AdminVersionRecord`); `published_by` is its one integer, and
+//!   nothing here reads it; `metadata.upstream.url`, read from the
+//!   embedded document, is typed as a string by publish validation
+//!   (`registry/src/publish.rs`, `UpstreamMetadata`);
 //! - every parse here carries `serde_json`'s 128-level recursion cap.
 //!   The registry parses each metadata document with the same cap at
 //!   publish and again when the listing embeds it
