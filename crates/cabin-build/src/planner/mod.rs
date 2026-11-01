@@ -419,10 +419,12 @@ fn emit_actions(
         standard_compat_violations,
     } = resolved;
 
-    // The build directory prefixes every object, archive, and
-    // executable path in the IR, so a non-UTF-8 one is rejected here
-    // instead of lossily converted.
-    let build_dir = promote_dir(&req.build_dir)?;
+    // Ninja runs every command from the profile directory, which
+    // prefixes every object, archive, and executable path in the IR,
+    // so a non-UTF-8 build directory is rejected here instead of
+    // lossily converted.
+    let profile_dir = crate::layout::profile_dir(&req.build_dir, &req.profile.name);
+    let profile_dir = promote_dir(&profile_dir)?;
 
     let mut actions: Vec<BuildAction> = Vec::new();
     let mut compile_commands: Vec<CompileCommand> = Vec::new();
@@ -438,7 +440,7 @@ fn emit_actions(
 
         let pkg = &req.graph.packages[tid.0];
         let pkg_build_dir = promote_dir(&crate::layout::package_dir(
-            &crate::layout::profile_dir(&req.build_dir, &req.profile.name),
+            profile_dir.as_std_path(),
             req.build_context,
             &pkg.package.name,
         ))?
@@ -725,7 +727,7 @@ fn emit_actions(
             // silent.
             if !msvc_spelling_missing && !msvc_gnu_extensions {
                 compile_commands.push(CompileCommand {
-                    directory: build_dir.to_path_buf(),
+                    directory: profile_dir.to_path_buf(),
                     file: ps.abs_source.clone(),
                     arguments: compile_argv(req.dialect, &compile),
                     output: ps.object.clone(),
