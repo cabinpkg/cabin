@@ -85,8 +85,8 @@ struct RunArgs {
     #[arg(long, default_value = "release")]
     profile: String,
     /// Exact run count per binary; by default each scenario runs at
-    /// least 10 times, and for at least 3 seconds at its check run's
-    /// pace.
+    /// least 10 times, and for at least 3 seconds at the pace of a run
+    /// after its check made as the timed runs are.
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
     runs: Option<u32>,
     /// Results directory [default: target/perf/runs/<unix time>].

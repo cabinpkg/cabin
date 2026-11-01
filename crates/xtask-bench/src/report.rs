@@ -94,8 +94,9 @@ pub struct Host {
 pub struct ScenarioResult {
     pub name: String,
     /// Whether the scenario was prepared, its untimed check run behaved
-    /// as the scenario expects, and every timed block succeeded; an
-    /// invalid scenario has no samples.
+    /// as the scenario expects, the run that sizes its timed runs
+    /// succeeded, and every timed block succeeded; an invalid scenario
+    /// has no samples.
     pub valid: bool,
     pub detail: String,
     /// Raw per-run values; `instructions` is empty where the host

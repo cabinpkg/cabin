@@ -205,7 +205,8 @@ Every scenario and binary works on a private copy.
   place further on every scenario.  Load that comes and goes, or drifts, during a scenario therefore
   reaches every binary alike instead of one binary's runs.  Only each binary's first block takes the
   warmup runs.  `--runs` counts each binary's runs; without it, a scenario runs at least 10 times,
-  and for at least 3 seconds at the pace of its slowest check run.
+  and for at least 3 seconds at the pace of the slowest binary's run after its check, made as the
+  timed runs are.
 - **Your machine stays as it is.**  The harness changes no system setting.  Close heavy
   applications and keep a laptop on power; retired instructions move far less than wall time and
   are the metric to trust first on a noisy host.  On macOS they cover Cabin's own process only, so
