@@ -18,13 +18,15 @@ statements! {
     /// apply and no live row references the checksum yet. The statement
     /// runs *before* the insert (mirroring
     /// [`COUNT_STORED_BYTES_ON_REVIVAL`]'s decide-then-flip shape) and
-    /// repeats the insert's guards one-for-one - the same-key conjunct
-    /// included - so a suppressed insert (a twin, a racing byte-identical
-    /// publish, an unflagged respin) can never count bytes, and a blob
-    /// some other live row already references is never counted twice. A
-    /// post-insert row-exists test could not tell this batch's row from a
-    /// racing byte-identical winner's, which is why the guards read the
-    /// pre-insert state instead. The CASTs here and below keep the
+    /// repeats the insert's guards one-for-one - the same-key and quota
+    /// conjuncts included (`?8` the publisher, `?9`..`?11` the insert's
+    /// `?11`..`?13`) - so a suppressed insert (a twin, a racing
+    /// byte-identical publish, an unflagged respin, a quota refusal)
+    /// can never count bytes, and a blob some other live row already
+    /// references is never counted twice. A post-insert row-exists test
+    /// could not tell this batch's row from a racing byte-identical
+    /// winner's, which is why the guards read the pre-insert state
+    /// instead. The CASTs here and below keep the
     /// TEXT-affinity meta value integer-shaped: D1 binds numbers as
     /// floats, and INTEGER + REAL would otherwise store "254.0", which
     /// the breaker's strict u64 parse rejects.
@@ -41,6 +43,10 @@ statements! {
                    (SELECT 1 FROM revisions \
                     WHERE scope = ?3 AND name = ?4 AND version = ?5 \
                     AND verification IN ('pending', 'verified') AND checksum <> ?1)) \
+              AND (SELECT stored_bytes FROM users WHERE id = ?8) + ?2 <= ?9 \
+              AND (SELECT COUNT(*) FROM revisions \
+                   WHERE scope = ?3 AND name = ?4 AND published_at >= ?10 \
+                         AND published_at < substr(?10, 1, 10) || 'U') < ?11 \
               THEN CAST(?2 AS INTEGER) ELSE 0 END) \
          ON CONFLICT (key) DO UPDATE SET \
          value = CAST(value AS INTEGER) + \
@@ -55,6 +61,10 @@ statements! {
                    (SELECT 1 FROM revisions \
                     WHERE scope = ?3 AND name = ?4 AND version = ?5 \
                     AND verification IN ('pending', 'verified') AND checksum <> ?1)) \
+              AND (SELECT stored_bytes FROM users WHERE id = ?8) + ?2 <= ?9 \
+              AND (SELECT COUNT(*) FROM revisions \
+                   WHERE scope = ?3 AND name = ?4 AND published_at >= ?10 \
+                         AND published_at < substr(?10, 1, 10) || 'U') < ?11 \
               THEN CAST(?2 AS INTEGER) ELSE 0 END";
 
     /// Refunds a rejected archive's bytes exactly when the row - still
@@ -82,9 +92,10 @@ statements! {
     /// are byte-identical, so the checksum is the row's own). The
     /// conditions mirror
     /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)'s
-    /// guards one-for-one - the opt-in (`?8`) and advancing-stamp (`?9`)
-    /// conjuncts included - so the counter can never gain bytes for a
-    /// flip the guards refused.
+    /// guards one-for-one - the opt-in (`?8`), advancing-stamp (`?9`),
+    /// and quota (`?10` the reviver, `?11`..`?13` as there) conjuncts
+    /// included - so the counter can never gain bytes for a flip the
+    /// guards refused.
     COUNT_STORED_BYTES_ON_REVIVAL =
         "UPDATE meta SET value = CAST(value AS INTEGER) + \
          CASE WHEN (SELECT verification FROM revisions \
@@ -99,6 +110,10 @@ statements! {
               AND (?8 OR NOT EXISTS \
                    (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
                     AND verification IN ('pending', 'verified') AND checksum <> ?4)) \
+              AND (SELECT stored_bytes FROM users WHERE id = ?10) + ?6 <= ?11 \
+              AND (SELECT COUNT(*) FROM revisions \
+                   WHERE scope = ?1 AND name = ?2 AND published_at >= ?12 \
+                         AND published_at < substr(?12, 1, 10) || 'U') < ?13 \
               THEN CAST(?6 AS INTEGER) ELSE 0 END \
          WHERE key = 'total_stored_bytes'";
 }

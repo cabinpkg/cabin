@@ -54,7 +54,7 @@ struct YankBody {
 /// genuinely new versions and replacements of rejected ones only - by
 /// the archive-size cap (`413`), the `-`/`_` twin-name reject for new
 /// packages (`400`, before the quotas), and the per-user quota checks
-/// (`403`);
+/// (`403`, a preflight the write batches re-enforce in-transaction);
 /// on success the archive lands in R2 first (an orphaned blob from a
 /// crash between the two writes stays conservatively represented by
 /// its governor reservation - see `docs/runbook.md`), then one atomic
@@ -161,7 +161,7 @@ pub(super) async fn publish_response(
                 return Ok(response);
             }
             RevisionDisposition::Revive => true,
-            RevisionDisposition::New { .. } => false,
+            RevisionDisposition::New => false,
         };
 
     // The archive-size cap and the per-user quotas gate genuinely new
@@ -174,28 +174,21 @@ pub(super) async fn publish_response(
     if let Err(denial) = quota::check_archive_size(archive_bytes, &quotas) {
         return denial_response(env, &denial, None);
     }
-    // ponytail: the quota counts below are a preflight, not a serialized
-    // transaction - concurrent publishes can each pass the same
-    // near-limit check and overshoot a quota by up to the in-flight
-    // request count. The CAS'd rate limit bounds that per user at the
-    // bucket burst, however many tokens the user holds; the budget
-    // headroom and the breaker absorb the transient. Move the checks
-    // into conditional inserts if that ever stops holding.
     let now = now_iso8601();
     let Some(day_prefix) = quota::utc_day_prefix(&now).map(str::to_owned) else {
         console_error!("clock produced a non-ISO timestamp: {now}");
         return error_response(500, error::INTERNAL);
     };
-    let (counts, twin_exists) = publish_counts(db, auth.user_id, scope, name, &day_prefix).await?;
-    // The deterministic `-`/`_` twin reject (`docs/architecture.md`,
-    // "Name fidelity") gates new packages only, and answers before the
-    // quota 403s: whether a name can exist does not depend on the
-    // publisher's quota state.
-    if !counts.package_exists && twin_exists {
-        return error_response(400, publish::NAME_TWIN_CONFLICT);
-    }
-    if let Err(denial) = quota::check_publish(archive_bytes, &counts, &quotas) {
-        return denial_response(env, &denial, None);
+    let preflight = Preflight {
+        user_id: auth.user_id,
+        scope,
+        name,
+        archive_bytes,
+        day_prefix: &day_prefix,
+        quotas: &quotas,
+    };
+    if let Some(refused) = preflight.refusal(env, db).await? {
+        return Ok(refused);
     }
 
     let new = NewRevision {
@@ -209,6 +202,8 @@ pub(super) async fn publish_response(
         archive: frame.archive,
         user_id: auth.user_id,
         opt_in: new_revision,
+        day_prefix: &day_prefix,
+        quotas: &quotas,
     };
     let persisted = if revive {
         revive_rejected_revision(env, db, &new).await?
@@ -220,11 +215,13 @@ pub(super) async fn publish_response(
         Persist::Refused(response) => return Ok(response),
         Persist::Lost => {
             // The batch's own guards suppressed the write: a twin
-            // publish, a concurrent revision, or a verdict moved
-            // first. Re-read and answer exactly as if this request
-            // had arrived after the winner; a vanished version row
-            // (the twin case) answers the twin `400` the preflight
-            // would have.
+            // publish, a concurrent revision, a verdict, or a racing
+            // publish that spent the quota headroom moved first.
+            // Re-read and answer exactly as if this request had
+            // arrived after the winner: the disposition first (a
+            // byte-identical winner is this request's no-op, whatever
+            // quota it spent), then the preflight's twin `400` and
+            // quota `403`s.
             return match revision_disposition(
                 db,
                 scope,
@@ -242,25 +239,19 @@ pub(super) async fn publish_response(
                     }
                     Ok(response)
                 }
-                RevisionDisposition::Revive => {
-                    // Rejected again (a third racer), or this request's
-                    // stamp did not advance the row's: the conservative
-                    // refusal; a retry resolves it (for the stamp, once
-                    // its sample is later than the row's).
-                    error_response(409, error::VERSION_IMMUTABLE)
+                // Otherwise the losing guard's cause has already moved
+                // on - rejected again by a third racer, a stamp that
+                // did not advance the row's, a concurrent revision or
+                // verdict, or quota a refund freed since: a transient
+                // the conservative refusal covers, and a retry
+                // resolves cleanly (for the stamp, once its sample is
+                // later than the row's).
+                RevisionDisposition::Revive | RevisionDisposition::New => {
+                    match preflight.refusal(env, db).await? {
+                        Some(refused) => Ok(refused),
+                        None => error_response(409, error::VERSION_IMMUTABLE),
+                    }
                 }
-                // No revision rows at all means the twin guard
-                // suppressed the package; rows without a blocking
-                // sibling mean the losing guard's cause (a concurrent
-                // revision or verdict) has already moved on - a
-                // transient the conservative refusal covers, and a
-                // retry resolves cleanly.
-                RevisionDisposition::New {
-                    version_has_revisions: false,
-                } => error_response(400, publish::NAME_TWIN_CONFLICT),
-                RevisionDisposition::New {
-                    version_has_revisions: true,
-                } => error_response(409, error::VERSION_IMMUTABLE),
             };
         }
     }
@@ -409,6 +400,10 @@ struct NewRevision<'a> {
     user_id: i64,
     /// The `new-revision` opt-in, re-enforced inside the batch guards.
     opt_in: bool,
+    /// The preflight's window and limits, re-enforced inside the batch
+    /// guards.
+    day_prefix: &'a str,
+    quotas: &'a quota::ClassQuotas,
 }
 
 /// The write phase's outcome: persisted, lost its guarded race, or
@@ -450,13 +445,16 @@ enum Persist {
 /// durable backup queue ([`sql::ENQUEUE_VERIFIED_BACKUP`]).
 ///
 /// [`Persist::Lost`] means the batch's guards suppressed the revision
-/// insert - a twin publish, a byte-identical publish, or (without the
-/// opt-in) a different-bytes sibling committed after this request's
-/// preflight - and nothing was persisted.  Unless the winner references
+/// insert - a twin publish, a byte-identical publish, (without the
+/// opt-in) a different-bytes sibling, or a publish spending the quota
+/// headroom committed after this request's preflight - and nothing was
+/// persisted.  Unless the winner references
 /// the same blob, the upload stays behind exactly like a crash between
 /// the two writes: an orphan the ledger keeps conservatively
 /// represented.  The caller re-reads and answers as if it had arrived
 /// after the winner.
+// The six statements' bind lists are most of the length.
+#[allow(clippy::too_many_lines)]
 async fn persist_new_revision(
     env: &Env,
     db: &D1Database,
@@ -502,6 +500,10 @@ async fn persist_new_revision(
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
     let opt_in = js_int(i64::from(new.opt_in));
+    let max_bytes = js_limit(new.quotas.max_total_bytes_per_user);
+    let max_versions = js_limit(new.quotas.max_versions_per_package_per_day);
+    let max_new_packages = js_limit(new.quotas.max_new_packages_per_day);
+    let max_packages = js_limit(new.quotas.max_packages_total);
     let results = db
         .batch(vec![
             db.prepare(sql::INSERT_PACKAGE).bind(&[
@@ -509,6 +511,11 @@ async fn persist_new_revision(
                 new.name.into(),
                 new.published_at.into(),
                 js_int(new.user_id),
+                archive_size.clone(),
+                max_bytes.clone(),
+                new.day_prefix.into(),
+                max_new_packages,
+                max_packages,
             ])?,
             db.prepare(sql::COUNT_USER_PACKAGE)
                 .bind(&[js_int(new.user_id)])?,
@@ -516,6 +523,11 @@ async fn persist_new_revision(
                 new.scope.into(),
                 new.name.into(),
                 new.version.into(),
+                js_int(new.user_id),
+                archive_size.clone(),
+                max_bytes.clone(),
+                new.day_prefix.into(),
+                max_versions.clone(),
             ])?,
             db.prepare(sql::COUNT_STORED_BYTES_ON_PUBLISH).bind(&[
                 new.checksum.into(),
@@ -525,6 +537,10 @@ async fn persist_new_revision(
                 new.version.into(),
                 new.revision.into(),
                 opt_in.clone(),
+                js_int(new.user_id),
+                max_bytes.clone(),
+                new.day_prefix.into(),
+                max_versions.clone(),
             ])?,
             db.prepare(sql::INSERT_REVISION).bind(&[
                 new.scope.into(),
@@ -537,20 +553,23 @@ async fn persist_new_revision(
                 archive_size.clone(),
                 js_int(new.user_id),
                 opt_in,
+                max_bytes,
+                new.day_prefix.into(),
+                max_versions,
             ])?,
             db.prepare(sql::COUNT_USER_STORED_BYTES)
                 .bind(&[js_int(new.user_id), archive_size])?,
         ])
         .await?;
     // The revision insert changes zero rows under the in-batch guards
-    // - the twin guard suppressed the package (and so the version
-    // row), a racing byte-identical publish committed the same
-    // revision key first, or the opt-in guard refused an unflagged
-    // respin racing a live sibling; the accounting statement ran
-    // just before it against the same pre-insert state under the
-    // same guards, so it added nothing then either, and the per-user
-    // tally after it reads the insert's own `changes()`.  The caller
-    // re-reads to tell the cases apart.
+    // - the twin or a quota guard suppressed the package (and so the
+    // version row), a racing byte-identical publish committed the same
+    // revision key first, the opt-in guard refused an unflagged
+    // respin racing a live sibling, or the quota guard refused; the
+    // accounting statement ran just before it against the same
+    // pre-insert state under the same guards, so it added nothing then
+    // either, and the per-user tally after it reads the insert's own
+    // `changes()`.  The caller re-reads to tell the cases apart.
     let revision_insert = results
         .get(4)
         .ok_or_else(|| worker::Error::RustError("missing batch result 4".to_owned()))?;
@@ -628,11 +647,11 @@ async fn heal_blob_if_reclaimed(
 /// fresh metadata, publisher, and timestamp, verification back to
 /// `pending` with the old verdict cleared. R2 first, like
 /// [`persist_new_revision`]. Both statements are guarded on the row
-/// still being rejected (plus the in-batch `new-revision` opt-in
-/// guard) and on this request's stamp
-/// exceeding the row's - `false` means a concurrent revival or verdict
-/// moved it first, or the clock did not advance past the rejected
-/// generation, and nothing was changed (a stale revival must never
+/// still being rejected (plus the in-batch `new-revision` opt-in and
+/// quota guards) and on this request's stamp
+/// exceeding the row's - `false` means a concurrent revival, verdict,
+/// or quota-spending publish moved first, or the clock did not advance
+/// past the rejected generation, and nothing was changed (a stale revival must never
 /// rewrite a live row, least of all drag a verified one back to
 /// pending; a repeated stamp would let a verdict listed against the
 /// rejected generation land on the revival). The accounting is decided **before**
@@ -690,6 +709,8 @@ async fn revive_rejected_revision(
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
     let opt_in = js_int(i64::from(new.opt_in));
+    let max_bytes = js_limit(new.quotas.max_total_bytes_per_user);
+    let max_versions = js_limit(new.quotas.max_versions_per_package_per_day);
     let results = db
         .batch(vec![
             db.prepare(sql::COUNT_STORED_BYTES_ON_REVIVAL).bind(&[
@@ -702,6 +723,10 @@ async fn revive_rejected_revision(
                 new.revision.into(),
                 opt_in.clone(),
                 new.published_at.into(),
+                js_int(new.user_id),
+                max_bytes.clone(),
+                new.day_prefix.into(),
+                max_versions.clone(),
             ])?,
             db.prepare(sql::REVIVE_REJECTED_REVISION).bind(&[
                 new.metadata_text.into(),
@@ -713,6 +738,10 @@ async fn revive_rejected_revision(
                 new.version.into(),
                 new.revision.into(),
                 new.checksum.into(),
+                archive_size.clone(),
+                max_bytes,
+                new.day_prefix.into(),
+                max_versions,
             ])?,
             db.prepare(sql::COUNT_USER_STORED_BYTES)
                 .bind(&[js_int(new.user_id), archive_size])?,
@@ -768,12 +797,8 @@ enum RevisionDisposition {
     /// re-checks the rejected state inside the batch.
     Revive,
     /// No revision with these bytes exists and the rules allow a new
-    /// one: insert it ([`persist_new_revision`]).  Whether the
-    /// version already carries revision rows disambiguates a lost
-    /// in-batch race afterwards: with none, the loss was the twin
-    /// guard; with some, it was a concurrent revision or verdict
-    /// (transient - a retry resolves it).
-    New { version_has_revisions: bool },
+    /// one: insert it ([`persist_new_revision`]).
+    New,
 }
 
 /// Idempotency, immutability, the `new-revision` opt-in, and the
@@ -851,9 +876,7 @@ async fn revision_disposition(
         return error_response(409, error::NEW_REVISION_REQUIRED)
             .map(RevisionDisposition::Answered);
     }
-    Ok(RevisionDisposition::New {
-        version_has_revisions: !existing.is_empty(),
-    })
+    Ok(RevisionDisposition::New)
 }
 
 /// The publish token bucket (`429`), charged per publish attempt - valid
@@ -945,6 +968,37 @@ async fn cas_bucket(
     Ok(changed_rows(result.meta()?) > 0)
 }
 
+/// The quota preflight of one prospective publish: what
+/// [`Preflight::refusal`] reads and checks, and what the write batches
+/// re-enforce inside their guards.
+struct Preflight<'a> {
+    user_id: i64,
+    scope: &'a str,
+    name: &'a str,
+    archive_bytes: u64,
+    day_prefix: &'a str,
+    quotas: &'a quota::ClassQuotas,
+}
+
+impl Preflight<'_> {
+    /// The twin `400` or the first quota `403` this publish draws from
+    /// the current rows, if any. The deterministic `-`/`_` twin reject
+    /// (`docs/architecture.md`, "Name fidelity") gates new packages
+    /// only, and answers before the quota 403s: whether a name can
+    /// exist does not depend on the publisher's quota state.
+    async fn refusal(&self, env: &Env, db: &D1Database) -> worker::Result<Option<Response>> {
+        let (counts, twin_exists) =
+            publish_counts(db, self.user_id, self.scope, self.name, self.day_prefix).await?;
+        if !counts.package_exists && twin_exists {
+            return error_response(400, publish::NAME_TWIN_CONFLICT).map(Some);
+        }
+        if let Err(denial) = quota::check_publish(self.archive_bytes, &counts, self.quotas) {
+            return denial_response(env, &denial, None).map(Some);
+        }
+        Ok(None)
+    }
+}
+
 /// Gathers the [`quota::PublishCounts`] for one prospective publish in a
 /// single D1 batch - point lookups and index ranges over one package or
 /// today's rows, never a scan of the account's or the scope's history
@@ -974,7 +1028,7 @@ async fn publish_counts(
                 scope.into(),
                 name.into(),
             ])?,
-            db.prepare(sql::COUNT_PACKAGE_VERSIONS_SINCE).bind(&[
+            db.prepare(sql::COUNT_PACKAGE_VERSIONS_ON_DAY).bind(&[
                 scope.into(),
                 name.into(),
                 day_prefix.into(),
@@ -998,6 +1052,11 @@ async fn publish_counts(
         package_exists: package_rows.n > 0,
     };
     Ok((counts, twin_rows.n > 0))
+}
+
+/// A class limit as a D1 bind.
+fn js_limit(limit: u64) -> worker::wasm_bindgen::JsValue {
+    js_int(i64::try_from(limit).unwrap_or(i64::MAX))
 }
 
 /// The single row of one statement in a batch result.

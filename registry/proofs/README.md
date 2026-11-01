@@ -171,10 +171,14 @@ their outcomes as given.
 - One package: `INSERT_PACKAGE`, `INSERT_VERSION_ROW`, and the `-`/`_`
   twin guard always succeed; the twin `400` is unreachable.
 - The per-user quota tallies (`COUNT_USER_PACKAGE`,
-  `COUNT_USER_STORED_BYTES`, `REFUND_USER_STORED_BYTES`) are not
-  modeled: they write only `users` columns no guard reads, and only the
-  quota preflight reads them (`tests/sql_validation/quota.rs` checks
-  them against the rows they count).
+  `COUNT_USER_STORED_BYTES`, `REFUND_USER_STORED_BYTES`) and the
+  publish quotas are not modeled: the tallies write only `users`
+  columns, which only the quota preflight and the publish batches'
+  quota conjuncts read (`tests/sql_validation/quota.rs` checks both).
+  Each write statement of a batch carries the conjuncts that apply to
+  it, over state the batch has not yet changed, and the tallies follow
+  by `changes()`, so a quota refusal commits nothing - `PubBatch`'s
+  failed-batch arm.
 - Governor refusals, the breaker's write gate, scope membership, rate
   limiting, and the quota preflight are not distinguished: each ends a
   publish before any revision or stored-bytes write (the preflight's own

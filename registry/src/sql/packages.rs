@@ -101,39 +101,68 @@ statements! {
     /// package ([`TWIN_PACKAGE_EXISTS`](super::quota::TWIN_PACKAGE_EXISTS)
     /// is the preflight that renders the `400`; this in-batch guard
     /// closes the race between two concurrent twin publishes, whose
-    /// preflights both saw neither).
+    /// preflights both saw neither) - or that would exceed the
+    /// creator's quotas: the storage half of the [`INSERT_REVISION`]
+    /// quota guard (`?5` the archive size, `?6` the limit; a new
+    /// package has no versions today), then the daily (`?7` the UTC
+    /// day prefix, `?8` the limit) and total (`?9`) new-package quotas
+    /// over the exact tallies. The exact-key `NOT EXISTS` only
+    /// keeps a publish into an existing package, which `OR IGNORE`
+    /// would drop anyway, from paying for the day count.
     INSERT_PACKAGE =
         "INSERT OR IGNORE INTO packages (scope, name, created_at, created_by) \
          SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS \
          (SELECT 1 FROM packages WHERE scope = ?1 AND name != ?2 \
-          AND REPLACE(name, '_', '-') = REPLACE(?2, '_', '-'))";
+          AND REPLACE(name, '_', '-') = REPLACE(?2, '_', '-')) \
+         AND NOT EXISTS (SELECT 1 FROM packages WHERE scope = ?1 AND name = ?2) \
+         AND (SELECT stored_bytes FROM users WHERE id = ?4) + ?5 <= ?6 \
+         AND (SELECT COUNT(*) FROM packages WHERE created_by = ?4 \
+              AND created_at >= ?7 AND created_at < substr(?7, 1, 10) || 'U') < ?8 \
+         AND (SELECT package_count FROM users WHERE id = ?4) < ?9";
 
     /// Creates the version row on its first published revision,
     /// guarded on its own package row existing (the batch runs
     /// [`INSERT_PACKAGE`] first, so the package is absent exactly when
-    /// the twin guard suppressed it).  `INSERT OR IGNORE`: an existing
-    /// version row is the respin case, not an error.
+    /// the twin or a quota guard suppressed it) and on the
+    /// [`INSERT_REVISION`] quota guard (`?4` the publisher, `?5`..`?8`
+    /// as there), so a quota-refused version leaves no empty row.
+    /// `INSERT OR IGNORE`: an existing version row is the respin case,
+    /// not an error.
     INSERT_VERSION_ROW =
         "INSERT OR IGNORE INTO versions (scope, name, version, yanked, downloads) \
          SELECT ?1, ?2, ?3, 0, 0 WHERE EXISTS \
-         (SELECT 1 FROM packages WHERE scope = ?1 AND name = ?2)";
+         (SELECT 1 FROM packages WHERE scope = ?1 AND name = ?2) \
+         AND (SELECT stored_bytes FROM users WHERE id = ?4) + ?5 <= ?6 \
+         AND (SELECT COUNT(*) FROM revisions \
+              WHERE scope = ?1 AND name = ?2 AND published_at >= ?7 \
+                    AND published_at < substr(?7, 1, 10) || 'U') < ?8";
 
     /// Inserts a genuinely new revision row, starting `pending`.
-    /// Three guards are enforced *inside* the transaction, so
+    /// Four guards are enforced *inside* the transaction, so
     /// concurrent publishes cannot race past the preflight reads:
     /// the version row must exist (it is absent after
-    /// [`INSERT_VERSION_ROW`] exactly when the twin guard suppressed the
-    /// package, and then nothing is persisted); no row may already hold
-    /// this revision id (a racing byte-identical publish whose twin
-    /// committed first must lose to the re-read, not fail the
-    /// primary key and abort the whole batch); and unless `?10`
+    /// [`INSERT_VERSION_ROW`] exactly when the twin or a quota guard
+    /// suppressed it, and then nothing is persisted); no row may
+    /// already hold this revision id (a racing byte-identical publish
+    /// whose twin committed first must lose to the re-read, not fail
+    /// the primary key and abort the whole batch); unless `?10`
     /// carries the `new-revision` opt-in, no live (pending or
-    /// verified) revision with different bytes may exist.  A respin
-    /// may change what resolution reads: each revision keeps its own
-    /// stored document, which the read plane serves as that
+    /// verified) revision with different bytes may exist; and the
+    /// publisher's quotas (`crate::quota::check_publish`'s storage and
+    /// daily per-package version checks: `?11` the storage limit,
+    /// `?12` the UTC day prefix, whose one calendar day is the window
+    /// (`crate::quota::utc_day_prefix`), `?13` the version limit) must still
+    /// hold over the exact tallies, so concurrent publishes - from one
+    /// token or many - cannot all land on one preflight's headroom.
+    /// The quota guard reads nothing this batch writes before
+    /// [`COUNT_USER_STORED_BYTES`](super::quota::COUNT_USER_STORED_BYTES),
+    /// so its repeats on the earlier statements agree with it.  A
+    /// respin may change what resolution reads: each revision keeps
+    /// its own stored document, which the read plane serves as that
     /// revision's `resolution`.  Zero changed rows sends the glue back
-    /// to [`EXISTING_REVISIONS`] to answer no-op, opt-in conflict, or
-    /// twin `400` from what it re-reads.
+    /// to [`EXISTING_REVISIONS`] and the quota preflight to answer
+    /// no-op, conflict, twin `400`, or quota `403` from what it
+    /// re-reads.
     INSERT_REVISION =
         "INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json, \
          published_at, archive_size, published_by, verification) \
@@ -144,7 +173,11 @@ statements! {
               AND revision = ?4) \
          AND (?10 OR NOT EXISTS \
               (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-               AND verification IN ('pending', 'verified') AND checksum <> ?5))";
+               AND verification IN ('pending', 'verified') AND checksum <> ?5)) \
+         AND (SELECT stored_bytes FROM users WHERE id = ?9) + ?8 <= ?11 \
+         AND (SELECT COUNT(*) FROM revisions \
+              WHERE scope = ?1 AND name = ?2 AND published_at >= ?12 \
+                    AND published_at < substr(?12, 1, 10) || 'U') < ?13";
 
     /// Revives a rejected revision in place (back to `pending`),
     /// guarded on the row still being rejected (any rejected generation
@@ -158,7 +191,9 @@ statements! {
     /// what was rejected - `checksum` never changes - and the opt-in
     /// guard (`?6`, like [`INSERT_REVISION`]'s) keeps an unflagged
     /// revival from slipping a different-bytes revision back beside a
-    /// live one.
+    /// live one. The quota guard is [`INSERT_REVISION`]'s, charged to
+    /// the reviver (`?3`; `?10` the archive size, `?11`..`?13` as
+    /// there): the rejection refunded the row's bytes.
     REVIVE_REJECTED_REVISION =
         "UPDATE revisions SET metadata_json = ?1, published_at = ?2, published_by = ?3, \
          verification = 'pending', verification_reason = NULL, verified_at = NULL \
@@ -166,7 +201,11 @@ statements! {
          AND verification = 'rejected' AND checksum = ?9 AND published_at < ?2 \
          AND (?6 OR NOT EXISTS \
               (SELECT 1 FROM revisions WHERE scope = ?4 AND name = ?5 AND version = ?7 \
-               AND verification IN ('pending', 'verified') AND checksum <> ?9))";
+               AND verification IN ('pending', 'verified') AND checksum <> ?9)) \
+         AND (SELECT stored_bytes FROM users WHERE id = ?3) + ?10 <= ?11 \
+         AND (SELECT COUNT(*) FROM revisions \
+              WHERE scope = ?4 AND name = ?5 AND published_at >= ?12 \
+                    AND published_at < substr(?12, 1, 10) || 'U') < ?13";
 
     /// How many revisions have sat `pending` for over an hour (the
     /// stuck-verifier alert).

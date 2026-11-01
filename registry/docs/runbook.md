@@ -1230,12 +1230,13 @@ follow-up before the registry carries data that cannot be re-published.
 ## Orphaned R2 blobs
 
 Publish writes the R2 blob before the D1 rows, so a crash between the two
-writes can leave a blob no `versions` row references. It is unreachable
-through the API (artifact lookups go through D1), and a retried publish
-reuses it instead of re-uploading (and counts it into
-`meta.total_stored_bytes` at that point). Under the governor an orphan
-is never invisible spend: the crashed publish's reservation keeps
-representing the bytes, reconciliation reports the entry as
+writes, or a batch whose guards refuse it (a lost race, or a quota a
+concurrent publish spent first), can leave a blob no `versions` row
+references. It is unreachable through the API (artifact lookups go
+through D1), and a retried publish reuses it instead of re-uploading
+(and counts it into `meta.total_stored_bytes` at that point). Under the
+governor an orphan is never invisible spend: the publish's reservation
+keeps representing the bytes, reconciliation reports the entry as
 `unreferenced` on every pass, and the cleanup is the operator pairing -
 delete the object (dashboard or `node_modules/.bin/wrangler r2 object
 delete`), then `cargo registry-governor release primary <key>` from the
@@ -1271,15 +1272,23 @@ after a `SELECT ... FROM` as a join constraint and rejects the upsert.)
 ## Quota tallies
 
 `users.package_count` and `users.stored_bytes` are what the publish
-preflight reads for the per-user package and storage quotas. They are
-exact by construction, not caches: each is the count of the user's
+preflight and the publish batches' in-transaction quota guards read for
+the per-user package and storage quotas. They are exact by
+construction, not caches: each is the count of the user's
 `created_by` packages or the `archive_size` sum of the user's
 `published_by` revisions that are not rejected, and every batch that
 writes such a row adjusts the tally in the same transaction - the
 publish and revival batches add, the rejection batch refunds the row's
 publisher, and a write the batch's guards suppress counts nothing. A
 fresh schema starts both at zero over empty tables, so a wipe needs no
-backfill. Nothing should ever make them drift; this check, which reads
+backfill. The daily quotas have no tally: each count is an index range
+over one UTC day's rows (`packages_created_by`,
+`revisions_published_at`), which the daily quota itself bounds. A
+publish runs the version count five times (the preflight, the version
+row and revision inserts, and both arms of the stored-bytes upsert; a
+revival three) and, for a new package, the package count twice, so its reads never grow
+with the account's or the package's history. Nothing should ever make
+the tallies drift; this check, which reads
 every package and revision once, must return no rows:
 
 ```sh
