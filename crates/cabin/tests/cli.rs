@@ -43,9 +43,7 @@ fn all_subcommand_names() -> Vec<String> {
 
 /// Names of subcommands hidden from `cabin --help` but still
 /// reachable through `cabin --list`, shell completions, and
-/// per-subcommand man pages. (The `cabin stamp` witness writer
-/// is dispatched before clap, outside the clap tree, so it is
-/// never part of this curated hidden surface.)
+/// per-subcommand man pages.
 fn hidden_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
@@ -264,7 +262,7 @@ fn write_index_entry(
 }
 
 /// Write an `app/` package whose root manifest depends on
-/// `fmt = ">=10 <11"`.  With `app_main` set, the manifest also
+/// `fmt = ">=10.0.0 <11.0.0"`.  With `app_main` set, the manifest also
 /// declares a `[target.app]` executable linking against `fmt` and
 /// `app/src/main.cc` is written with the given body; with `None`
 /// the package has no targets (resolver / registry-only tests).
@@ -487,9 +485,8 @@ fn recreate_propagates_a_failed_archiver_without_the_old_archive() {
 #[test]
 fn stamp_command_is_absent_from_the_clap_tree_and_completions() {
     // `cabin stamp` is dispatched before clap, so it must never leak into
-    // the user-facing surface: not as a subcommand, not in `--list`, not
-    // in generated shell completions (Codex flagged the old `__check-stamp`
-    // subcommand leaking into `clap_complete` output).  Guard all three.
+    // the user-facing surface: not as a subcommand (and so not in
+    // `--list`), and not in generated shell completions.
     for name in all_subcommand_names() {
         assert!(
             name != "stamp" && !name.starts_with("__"),
@@ -874,8 +871,8 @@ mod remove_cmd;
 // single-package builds
 // ---------------------------------------------------------------------------
 
-/// Set up a hello-world C++ package in `dir` and run a default build.
-/// Returns `dir/build/packages/hello/` for output assertions.
+/// Set up a hello-world C++ package in `dir` and build it into
+/// `dir/build` with `extra_args`.
 fn build_simple_executable(dir: &Path, extra_args: &[&str]) {
     write_hello_project(dir);
 
@@ -1153,7 +1150,6 @@ fn metadata_includes_local_path_dependency() {
     write_path_dep_project(dir.path());
 
     let value = run_metadata(&dir.path().join("app/cabin.toml"));
-    // No [workspace] -> workspace is null.
     assert!(value["workspace"].is_null());
     let app = package_in(&value, "app");
     let greet = package_in(&value, "greet");
@@ -1577,7 +1573,7 @@ fn resolve_frozen_without_index_source_refuses_the_default_registry() {
 
 /// The default registry only materializes when versioned deps force
 /// an index: a dep-less project keeps working offline (and frozen)
-/// with nothing configured, exactly as before.
+/// with nothing configured.
 #[test]
 fn offline_and_frozen_stay_usable_without_versioned_deps() {
     let dir = TempDir::new().unwrap();
@@ -2246,7 +2242,7 @@ mod workspace_language_standards;
 mod workspace_dependency_normalization;
 
 // ---------------------------------------------------------------------------
-// post-merge regressions on the advanced-workspace-semantics surface.
+// advanced-workspace-semantics regressions
 // ---------------------------------------------------------------------------
 
 #[path = "cli/workspace_review.rs"]
@@ -2355,11 +2351,7 @@ mod metadata_tree_explain;
 mod cargo_interface;
 
 // ---------------------------------------------------------------------------
-// post-Cargo-inspired-foundation help / env-var review tests
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Diagnostic / error-rendering refactor
+// diagnostic / error rendering
 // ---------------------------------------------------------------------------
 
 #[path = "cli/diagnostics.rs"]

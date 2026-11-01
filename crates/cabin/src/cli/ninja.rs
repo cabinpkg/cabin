@@ -10,10 +10,10 @@
 //! streams and prints a one-shot link-failure hint when the
 //! recognizable shape is present.
 //!
-//! Shared by `cabin build` / `cabin clean` (in
-//! [`crate::cli`]), `cabin run` (in [`crate::cli::run`]), and
-//! `cabin test` (in [`crate::cli::test`]) so each command renders
-//! Ninja output the same way.
+//! Shared by `cabin build` / `cabin check` (in `crate::cli::build`),
+//! `cabin run` (in [`crate::cli::run`]), and `cabin test` (in
+//! [`crate::cli::test`]) so each command renders Ninja output the same
+//! way.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -21,28 +21,26 @@ use anyhow::Context as _;
 
 use crate::cli::term_verbosity::Reporter;
 
-/// Outcome of one [`run_ninja`] invocation.  Both `stdout` and
-/// `stderr` are captured-and-teed: every line the child wrote
-/// was streamed to the user's terminal in real time AND
-/// accumulated here, so post-failure diagnostics (e.g.
+/// Outcome of one [`run_ninja`] invocation.  `stdout` and `stderr`
+/// hold every line the child wrote, including the lines the verbosity
+/// filter kept off the terminal, so post-failure diagnostics (e.g.
 /// [`cabin_build::link_diagnostics::diagnose`]) have something
 /// to parse.
 ///
 /// Ninja sends *all* of a failed action's output - the
 /// `FAILED:` banner, the recreated command line, and the
 /// compiler/linker diagnostics - to stdout, not stderr.
-/// Diagnostics that care about link failures therefore need
-/// the captured stdout and stderr.
+/// Link diagnostics therefore parse stdout, not only stderr.
 pub(crate) struct NinjaRun {
     pub status: std::process::ExitStatus,
     pub stdout: String,
     pub stderr: String,
 }
 
-/// Path to the running `cabin` executable, used as the `cabin stamp`
-/// runner the syntax-check Ninja rule invokes to run the compiler and
-/// stamp its output without a shell, and as the `cabin recreate` runner
-/// of the GNU-dialect archive rule (see [`crate::stamp`]).  Falls back to
+/// Path to the running `cabin` executable, which the generated Ninja
+/// rules invoke as `cabin stamp` (syntax check), `cabin recreate`
+/// (GNU-dialect archive), and `cabin depfile` (a compile whose depfile
+/// Ninja would misread); see [`crate::stamp`].  Falls back to
 /// the bare name `cabin` (resolved via `PATH`) only if the current-exe
 /// lookup fails, which should not happen in practice.
 pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
@@ -56,15 +54,11 @@ pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
 /// - `clang-cl` ships no CRT/SDK headers of its own, so it *always*
 ///   borrows an installed MSVC toolset's `INCLUDE` / `LIB` / `PATH`,
 ///   however it was spelled - apply the discovered overlay unconditionally
-///   for it.  This is the same environment a bare-name `clang-cl` already
-///   receives via the arm below; without it, an explicitly-*pinned*
-///   `clang-cl` path silently falls through to the `Path` arm (a
-///   `clang-cl.exe` can never equal the discovered `cl.exe`) and loses the
-///   overlay, so the same compiler builds or fails based only on whether
-///   it was named or pathed.  Applying it also means `clang-cl` uses
-///   Cabin's discovered toolset rather than its own auto-probe - the
-///   intended unification with the other two cases, and safe because the
-///   overlay only fires when no MSVC environment was supplied at all.
+///   for it.  Otherwise a pinned `clang-cl` path would reach the `Path`
+///   arm, which never matches it (a `clang-cl.exe` is never the
+///   discovered `cl.exe`), and the same compiler would build or fail
+///   depending on whether it was named or pathed.  `clang-cl` therefore
+///   uses Cabin's discovered toolset rather than its own auto-probe.
 /// - A bare-name / auto-discovered compiler *is* the discovered install,
 ///   so its overlay is the right environment - apply it.
 /// - An explicitly pinned `cl` path takes the overlay only when it is the
@@ -103,8 +97,8 @@ pub(crate) fn discovered_msvc_install_applies(
 /// the toolchain pass through unchanged on stdout (Ninja funnels
 /// each action's own stdout/stderr onto its stdout stream).
 ///
-/// Verbose mode (`-v`) restores the full Ninja output so users
-/// who want to inspect the backend's progress have a knob.
+/// Verbose mode (`-v` / `-vv`) keeps every line; the `Compiling`
+/// banners still print, interleaved with Ninja's output.
 #[tracing::instrument(level = "info", skip_all)]
 pub(crate) fn run_ninja(
     cmd: &mut std::process::Command,
@@ -132,25 +126,13 @@ pub(crate) fn run_ninja(
         }
     }
 
-    // Verbose modes (`-v` / `-vv`) keep every line Ninja
-    // emits - the `[N/M] …` progress prefix, the `Entering
-    // directory` banner, the `no work to do.` reassurance - so
-    // raising verbosity never makes the surface smaller.  The
-    // `Compiling` banner is still printed in those modes from
-    // the same per-package detection used at the default
-    // verbosity; users opting into `-v` see the cargo-style
-    // headers interleaved with the raw Ninja output.
     let keep_ninja_chatter = reporter.verbosity().shows_verbose();
 
-    // Lookup table from package name to the workspace `WorkspacePackage`
-    // entry.  We resolve each `[N/M] …` progress line back to its
-    // owning package by the `/packages/<name>/` segment the
-    // planner embeds in every output path, then announce the
-    // `Compiling` banner the first time a given package shows
-    // up.  Tying announcements to Ninja's own progress keeps the
-    // banner temporally accurate - header-only libraries that
-    // contribute no actions never get a `Compiling` line because
-    // they never appear in Ninja's output.
+    // Each `[N/M] …` progress line is attributed to its package by
+    // the `packages/` segment of its output path (see
+    // `package_segment_candidates`), and the `Compiling` banner
+    // prints the first time a package shows up.  A package with no
+    // actions (e.g. header-only) therefore never gets a banner.
     // Restricted to the packages this plan actually builds: an
     // unplanned workspace member whose bare name equals a planned
     // package's scope must never win the path-candidate match.
@@ -171,13 +153,7 @@ pub(crate) fn run_ninja(
 
     let mut child = cmd
         .stdout(Stdio::piped())
-        // `stderr` is piped so cabin can tee it: every line
-        // streams to the user's terminal in real time AND is
-        // accumulated in a buffer so post-failure diagnostics
-        // can parse it.  The cost (one extra read per stderr
-        // line) is invisible at typical build scale; the win
-        // is that the linker output the diagnostic layer needs
-        // is sitting in memory the moment ninja exits.
+        // Streamed to the terminal and captured (see `NinjaRun`).
         .stderr(Stdio::piped())
         .spawn()?;
 
@@ -200,12 +176,6 @@ pub(crate) fn run_ninja(
         let stdout_handle = std::io::stdout();
         let mut sink = stdout_handle.lock();
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            // Every line is captured regardless of the
-            // verbose/progress filtering below, so
-            // post-failure diagnostics see what ninja
-            // emitted - including the `FAILED:`
-            // banner and the linker's "undefined symbol"
-            // block that ninja sends to stdout.
             captured_stdout.push_str(&line);
             captured_stdout.push('\n');
             if let Some(path) = ninja_progress_path(&line) {
@@ -245,9 +215,9 @@ pub(crate) fn run_ninja(
     })
 }
 
-/// Inspect Ninja's captured stderr after a non-zero exit and, if
-/// it looks like a recognizable link failure, print a one-shot
-/// `hint:` block to stderr pointing the user at the missing
+/// Inspect Ninja's captured output after a non-zero exit and, if
+/// it looks like a recognizable link failure or missing header, print
+/// a one-shot `help:` block to stderr pointing the user at the missing
 /// `deps =` entry.
 ///
 /// Quiet on inputs that don't look like link failures - the
@@ -263,11 +233,8 @@ pub(crate) fn emit_link_diagnostic_if_applicable(run: &NinjaRun, req: &NinjaInvo
     let planned_packages = &req.plan_graph.planned_packages;
     let include_dev_for = req.dev_for;
 
-    // Ninja sends the `FAILED:` banner and the failing action's
-    // stdout/stderr to *its* stdout, then any wrapper diagnostics
-    // (e.g. `ninja: build stopped`) also to stdout.  Concatenate
-    // both captured streams so the parser sees whichever stream
-    // the platform's linker used.
+    // The failing action's output is on stdout (see `NinjaRun`);
+    // parse both captured streams.
     let combined = if run.stderr.is_empty() {
         run.stdout.clone()
     } else if run.stdout.is_empty() {
@@ -447,12 +414,8 @@ fn announce_compiling(reporter: Reporter, pkg: &cabin_workspace::WorkspacePackag
 }
 
 /// Return true for lines that are pure Ninja housekeeping:
-/// `Entering directory` and `no work to do.`.  Any other line
-/// (including compiler-emitted diagnostics, blank lines, and
-/// Ninja error reports) returns `false` so it passes through
-/// unchanged.  Progress lines (`[N/M] …`) are handled separately
-/// - `run_ninja` extracts the package name from them before
-///   dropping the line.
+/// `Entering directory` and `no work to do.`.  Progress lines
+/// (`[N/M] …`) are recognized separately by [`ninja_progress_path`].
 fn is_ninja_chatter(line: &str) -> bool {
     line == "ninja: no work to do." || line.starts_with("ninja: Entering directory")
 }
@@ -460,8 +423,7 @@ fn is_ninja_chatter(line: &str) -> bool {
 /// Parse a Ninja `[<finished>/<total>] <action> <path>` progress
 /// line.  Returns the trailing `<path>` slice on a successful
 /// match, or `None` for any other input.  Both progress numbers
-/// must be non-empty decimal integers; both are decimal positive
-/// integers in practice.
+/// must be non-empty decimal integers.
 fn ninja_progress_path(line: &str) -> Option<&str> {
     let rest = line.strip_prefix('[')?;
     let (finished, rest) = rest.split_once('/')?;
@@ -482,10 +444,12 @@ fn ninja_progress_path(line: &str) -> Option<&str> {
 
 /// Extract the owning package's name candidates from a
 /// planner-emitted build path.  Every per-package artifact lives
-/// under `<build_dir>/<profile>/packages/<name>/…` for a bare
-/// package and `…/packages/<scope>/<name>/…` for a scoped one, so
-/// locating the first `/packages/` segment after the profile build
-/// root yields the candidates.  The parse alone cannot tell a scope
+/// under `<profile-dir>/packages/<name>/…` (target context) or
+/// `<profile-dir>/build-machine/packages/<name>/…` (build context),
+/// with a scoped package nested as `packages/<scope>/<name>/…` (see
+/// [`cabin_build::layout::package_dir`]), so locating the first
+/// `/packages/` segment after the profile build root yields the
+/// candidates.  The parse alone cannot tell a scope
 /// directory from a bare package directory, so both readings are
 /// returned - bare (one component) first, scoped (two components
 /// re-joined with `/`) second - and the caller picks whichever
@@ -494,8 +458,7 @@ fn ninja_progress_path(line: &str) -> Option<&str> {
 /// directory in the user's own build path - e.g. a project checked
 /// out under `~/packages/` - cannot shadow the planner's
 /// per-package segment.  Both candidates are `None` when the path
-/// lacks the segment (a custom-command output the planner did not
-/// route through the per-package tree).
+/// lacks the segment.
 fn package_segment_candidates<'a>(
     path: &'a str,
     profile_root: Option<&str>,
@@ -521,9 +484,7 @@ fn package_segment_candidates<'a>(
 }
 
 /// Render the optional `-jN` token plus a trailing space for
-/// the status line.  Empty when jobs is unset so the message
-/// `cabin: invoking ninja -C <dir>` stays byte-identical to
-/// the pre-jobs default.
+/// the status line; empty when `jobs` is `None`.
 pub(crate) fn ninja_jobs_echo(jobs: Option<cabin_core::BuildJobs>) -> String {
     match jobs {
         Some(j) => format!("-j{j} "),
@@ -535,19 +496,16 @@ fn ninja_verbose_echo(verbose: bool) -> &'static str {
     if verbose { "-v " } else { "" }
 }
 
-/// Ninja argv fragment: a single `-jN` token.  Producing a single
-/// fused argument (rather than `-j` + `N`) matches every Ninja
-/// `--help` example and supports Ninja versions that historically
-/// parsed only the fused form.  Backend-specific conversion lives
-/// here, at the call site that spawns Ninja, rather than in
-/// `cabin-core`'s [`cabin_core::BuildJobs`] model.
+/// Ninja argv fragment: a single `-jN` token.  Backend-specific
+/// conversion lives here, at the call site that spawns Ninja, rather
+/// than in `cabin-core`'s [`cabin_core::BuildJobs`] model.
 pub(crate) fn ninja_jobs_arg(jobs: cabin_core::BuildJobs) -> std::ffi::OsString {
     std::ffi::OsString::from(format!("-j{}", jobs.get()))
 }
 
 /// Inputs for [`invoke_ninja_and_report`]: everything needed to write
 /// the Ninja files for a planned graph and drive Ninja to completion.
-/// Shared by `cabin build` / `cabin run` / `cabin test`, each of which
+/// Shared by `cabin build` / `check` / `run` / `test`, each of which
 /// does its own command-specific work once the build phase is done.
 pub(crate) struct NinjaInvocationRequest<'a> {
     /// Resolved, absolute [`cabin_build::layout::platform_dir`] - the
@@ -556,8 +514,9 @@ pub(crate) struct NinjaInvocationRequest<'a> {
     /// The build directory itself, which holds the build-directory lock
     /// and the usage catalog.
     pub build_root: &'a std::path::Path,
-    /// Active build profile; its name selects the `build/<profile>`
-    /// root and labels the `Finished` banner the caller prints.
+    /// Active build profile; its name selects the profile directory
+    /// under `build_dir` and labels the `Finished` banner the caller
+    /// prints.
     pub profile: &'a cabin_core::ResolvedProfile,
     /// Planned build graph to lower into `build.ninja` and
     /// `compile_commands.json`.
@@ -618,9 +577,9 @@ impl Drop for Built {
 }
 
 /// Write `build.ninja` + `compile_commands.json` for the planned graph
-/// under `build/<profile>/`, invoke Ninja there, and surface a
-/// link-failure hint before bailing on a non-zero exit.  The build
-/// directory is locked shared and the plan's products recorded as used
+/// in the profile directory under `build_dir`, invoke Ninja there, and
+/// surface a link-failure hint before bailing on a non-zero exit.  The
+/// build directory is locked shared and the plan's products recorded as used
 /// before Ninja runs; after a successful build that starts a new active
 /// day, unused outputs are collected when the returned [`Built`] is
 /// dropped (see [`crate::cli::gc`]).  Returns the wall-clock time the
@@ -707,9 +666,10 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     ));
 
     let mut ninja_cmd = std::process::Command::new(req.ninja);
-    // The registry credential is Cabin's input, not the build
-    // backend's: scrub it so Ninja and every compile / wrapper
-    // command it spawns can never read the token.
+    // Registry credentials (the registry token and the GitHub
+    // Actions OIDC request token) are Cabin's input, not the build
+    // backend's: scrub them so Ninja and every compile / wrapper
+    // command it spawns can never read them.
     ninja_cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     ninja_cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
     if let Some(jobs) = req.jobs {
@@ -777,13 +737,11 @@ mod tests {
 
     #[test]
     fn explicit_clang_cl_path_takes_the_discovered_overlay() {
-        // An explicitly-pinned `clang-cl` path is MSVC-dialect but is never
-        // the discovered `cl.exe`, yet it still needs the discovered
-        // INCLUDE/LIB/PATH because `clang-cl` ships no CRT/SDK headers.  The
-        // `ClangCl` early return short-circuits before
-        // `path_is_discovered_msvc_cl`, so this holds with no Windows host
-        // or real install - locking the regression at the only seam that
-        // distinguishes `clang-cl` from a foreign-toolset `cl.exe`.
+        // A pinned `clang-cl` path is never the discovered `cl.exe`, yet
+        // still needs the discovered INCLUDE/LIB/PATH because `clang-cl`
+        // ships no CRT/SDK headers.  The `ClangCl` early return precedes
+        // `path_is_discovered_msvc_cl`, so this holds without a Windows
+        // host or a real install.
         let toolchain = toolchain_with_pinned_cxx("/llvm/bin/clang-cl.exe");
         assert!(discovered_msvc_install_applies(
             &toolchain,
@@ -794,10 +752,9 @@ mod tests {
     #[test]
     fn explicit_non_clang_cl_path_still_defers_to_install_match() {
         // A pinned `cl.exe` from a *different* toolset detects as
-        // `CompilerKind::Msvc`, not `ClangCl`, so it skips the early return
-        // and falls through to the path comparison, which is false off a
-        // matching Windows install - the eo1 "don't mix SDKs" safety stays
-        // intact.
+        // `CompilerKind::Msvc`, not `ClangCl`, so it reaches the path
+        // comparison, which is false without a matching discovered
+        // install: two toolsets' SDKs are never mixed.
         let toolchain = toolchain_with_pinned_cxx("/some/other/vs/cl.exe");
         assert!(!discovered_msvc_install_applies(
             &toolchain,

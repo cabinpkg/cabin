@@ -193,11 +193,6 @@ pub(super) fn clean_protected_source_paths(graph: &cabin_workspace::PackageGraph
 }
 
 pub(super) fn print_plan_paths(plan: &cabin_build::clean::CleanPlan, reporter: Reporter) {
-    // Dry-run plan enumeration is the user-requested payload of
-    // `cabin clean --dry-run`.  Routed through `Reporter::note`
-    // so it stays visible at default verbosity, paired with the
-    // `Removed … (dry-run)` banner above, and disappears
-    // alongside the banner under `--quiet`.
     for path in &plan.removals {
         reporter.note(format_args!("  {}", path.display()));
     }

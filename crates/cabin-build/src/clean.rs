@@ -5,9 +5,8 @@
 //!
 //! Safety contract:
 //!
-//! - every safety check runs before the deletion plan is even
-//!   computed, so an unsafe build directory never reaches the
-//!   filesystem step;
+//! - every safety check runs in [`plan_clean`], so an unsafe build
+//!   directory never reaches [`execute_clean`];
 //! - the plan only contains paths inside the resolved
 //!   `build_dir`;
 //! - paths are sorted so dry-run output is deterministic;
@@ -26,11 +25,11 @@ use cabin_core::{PackageName, ProfileName};
 #[derive(Debug, Clone)]
 pub enum CleanScope {
     /// Remove everything in the build directory except its lock file
-    /// (see [`crate::gc::BuildDirLock`]).  Used by the no-flag
-    /// invocation `cabin clean`.
+    /// (see [`crate::gc::BuildDirLock`]); with a `--target`, remove
+    /// that platform's [`crate::layout::platform_dir`] instead.  Used
+    /// when `cabin clean` selects no profile or package.
     Whole,
-    /// Remove a single profile sub-tree
-    /// (`<build_dir>/<profile>/`).
+    /// Remove a single profile's [`crate::layout::profile_dir`].
     Profile(ProfileName),
     /// Remove the per-package output for one or more packages
     /// across one or more profiles.
@@ -144,9 +143,8 @@ pub enum CleanError {
 /// deduplicated deletion plan.
 ///
 /// Every path in the returned plan is an existing entry inside
-/// `req.build_dir`.  The function never touches the filesystem
-/// beyond `symlink_metadata` (safety check) and `Path::exists`
-/// (filtering candidates to those that live on disk).
+/// `req.build_dir`.  The function reads the filesystem (metadata,
+/// directory listings, canonicalization) but never modifies it.
 ///
 /// # Errors
 /// Returns a [`CleanError`] safety-guard variant when `build_dir`
@@ -157,9 +155,10 @@ pub enum CleanError {
 /// [`CleanError::SourcePathBuildDir`], or
 /// [`CleanError::SymlinkBuildDir`].  Also returns
 /// [`CleanError::PreviousTargetLayout`] when a profile directory in
-/// scope holds a `--target` build from before `.targets`, and
+/// scope holds a `--target` build from before `.targets`,
 /// [`CleanError::PathEscapesBuildDir`] if a computed deletion
-/// candidate would fall outside `build_dir`.
+/// candidate would fall outside `build_dir`, and [`CleanError::Io`]
+/// if listing the build directory fails.
 pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
     validate_safe_build_dir(
         req.build_dir,
@@ -648,13 +647,9 @@ mod tests {
 
     #[test]
     fn rejects_build_dir_overlapping_source_by_divergent_spelling() {
-        // A build dir whose *spelling* differs from the canonical source
-        // path - here through a `..` segment, standing in for the 8.3
-        // short-name vs long-name divergence seen on Windows (and the
-        // `/tmp` vs `/private/tmp` one on macOS) - must still be
-        // rejected.  The literal `starts_with` check misses it; the
-        // canonicalized fallback catches it, so `cabin clean` cannot
-        // delete a build dir that holds source files.
+        // The `..` segment stands in for the Windows 8.3 short-name and
+        // macOS `/private/tmp` spellings that only the canonicalized
+        // check in `overlaps_source_path` catches.
         let tmp = TempDir::new().unwrap();
         let source = tmp.child("pkg/src/main.cc");
         source.write_str("int main(){return 0;}").unwrap();
