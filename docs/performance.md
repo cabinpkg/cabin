@@ -231,6 +231,7 @@ minimum effect (5% for wall time and peak memory, 2% for instructions) and its a
 - `Increased` or `Decreased`: a difference smaller than the policy counts, shown so that small
   steps stay visible;
 - `Unchanged`: no difference the samples show;
+- `Inconclusive`: no difference shown, from too few runs to show one (see below);
 - `Incomparable`: only one side recorded the metric, as when its platform or revision does not
   measure it;
 - `Invalid` when the candidate failed its check or lacks the scenario, or `NoBaseline` when only
@@ -238,9 +239,11 @@ minimum effect (5% for wall time and peak memory, 2% for instructions) and its a
 
 `--fail-on-regression` (on `run` or `compare`) exits 1 on any `Regressed` or `Invalid` row.
 
-With untied samples of equal size, the test needs at least 6 runs on each side before any
-difference can reach 1%, so comparing `--smoke` runs, 5 each, can report a real change in wall
-time or instructions as `Unchanged`.
+With untied samples of equal size, the test needs at least 6 runs on each side before any difference
+can reach 1%.  With fewer, a row whose samples do not separate (tied ones still can) is
+`Inconclusive`, not `Unchanged`: too few runs to show a difference are no evidence that there is
+none.  `--smoke` runs, 5 of each quick scenario, check that each still does what it claims; to
+compare, run the default count or `--runs 6` or more.
 
 The test also assumes both sides ran under the same conditions.  Binaries measured by one
 `cargo perf run` (`--base`, or several `--cabin`) come closest, since their runs interleave; a saved

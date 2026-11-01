@@ -242,6 +242,15 @@ fn rank_sum_z(baseline: &[f64], candidate: &[f64]) -> f64 {
     ((u - n1 * n2 / 2.0).abs() - 0.5).max(0.0) / sigma
 }
 
+/// Whether `n1` and `n2` runs without ties can pass the rank test at
+/// all, which they do only when fully separated.
+#[allow(clippy::cast_precision_loss)]
+fn can_separate(n1: usize, n2: usize) -> bool {
+    let low: Vec<f64> = (0..n1).map(|i| i as f64).collect();
+    let high: Vec<f64> = (n1..n1 + n2).map(|i| i as f64).collect();
+    rank_sum_z(&low, &high) > Z_CRITICAL
+}
+
 fn metric<'a>(samples: &'a Samples, name: &str) -> &'a [f64] {
     match name {
         "wall" => &samples.wall_s,
@@ -271,6 +280,10 @@ pub enum Verdict {
     Improved,
     /// No difference beyond run-to-run noise.
     Unchanged,
+    /// No difference shown, from too few runs to show one: even fully
+    /// separated untied runs of these counts would not pass the rank
+    /// test.
+    Inconclusive,
     /// A real increase past the policy's minimum effect and floor.
     Regressed,
     /// A real increase the policy does not count: smaller than the
@@ -347,7 +360,10 @@ pub fn compare(baseline: &Results, candidate: &Results) -> Vec<Comparison> {
             // The spread in the metric's own units, so which side is the
             // baseline cannot decide whether a difference is real.
             let noise = (b.q3 - b.q1).max(c.q3 - c.q1) / b.median;
-            let verdict = if rank_sum_z(bs, cs) <= Z_CRITICAL || change.abs() <= noise {
+            let separated = rank_sum_z(bs, cs) > Z_CRITICAL;
+            let verdict = if !separated && !can_separate(bs.len(), cs.len()) {
+                Verdict::Inconclusive
+            } else if !separated || change.abs() <= noise {
                 Verdict::Unchanged
             } else if change.abs() < min_effect || shift.abs() < floor {
                 if shift > 0.0 {
@@ -417,6 +433,7 @@ pub fn write_compare(
         Verdict::Improved,
         Verdict::Increased,
         Verdict::Decreased,
+        Verdict::Inconclusive,
         Verdict::Incomparable,
         Verdict::Invalid,
         Verdict::NoBaseline,
@@ -705,9 +722,12 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let shifted = |n| base(n).into_iter().map(|v| v * 1.2).collect::<Vec<_>>();
-        // Fully separated, yet five runs a side cannot reach 1%.
-        assert_eq!(verdict(base(5), shifted(5)), Verdict::Unchanged);
+        // Fully separated, yet five runs a side cannot reach 1%: no
+        // claim either way.
+        assert_eq!(verdict(base(5), shifted(5)), Verdict::Inconclusive);
+        assert_eq!(verdict(base(5), base(5)), Verdict::Inconclusive);
         assert_eq!(verdict(base(6), shifted(6)), Verdict::Regressed);
+        assert_eq!(verdict(base(6), base(6)), Verdict::Unchanged);
         // Ties narrow the variance, so five identical runs a side can.
         assert_eq!(verdict(vec![0.05; 5], vec![0.06; 5]), Verdict::Regressed);
     }
