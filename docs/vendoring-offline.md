@@ -46,9 +46,8 @@ entry therefore lists only the fetched revision, as its current one, with `sourc
 the vendored artifact; the superseded siblings' archives are not in the directory, so nothing there
 can silently resolve to different bytes.
 
-Every archive is re-verified against the checksum recorded in the source index before the byte
-stream is written; a checksum mismatch surfaces as an explicit error and never overwrites the
-destination.
+Every archive is re-verified against the checksum recorded in the source index; a checksum mismatch
+surfaces as an explicit error and never overwrites the destination.
 
 ## Selection
 
