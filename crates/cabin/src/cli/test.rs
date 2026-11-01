@@ -43,7 +43,9 @@ pub(crate) struct TestArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Directory for build outputs (build.ninja, object files,
-    /// linked test executables).  Defaults to `build`.
+    /// linked test executables).  Precedence: `--build-dir` >
+    /// `CABIN_BUILD_DIR` > `[paths] build-dir` config setting >
+    /// built-in default `build`.
     #[arg(long, value_name = "PATH")]
     pub build_dir: Option<PathBuf>,
 
@@ -55,9 +57,9 @@ pub(crate) struct TestArgs {
     pub release: bool,
 
     /// Build profile (`dev`, `release`, or any custom profile
-    /// declared in `[profile.<name>]`).  Defaults to `dev` -
-    /// the same default as `cabin build` so test runs match the
-    /// developer's working profile.
+    /// declared in `[profile.<name>]`).  Defaults to the config
+    /// `build.profile`, else `dev` - the same default as `cabin
+    /// build` so test runs match the developer's working profile.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 

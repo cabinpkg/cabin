@@ -32,7 +32,8 @@ pub(crate) struct ExplainArgs {
     pub format: ResolveFormat,
 
     /// Profile to evaluate, when the explanation depends on the
-    /// build configuration (`build-config`).  Defaults to `dev`.
+    /// build configuration (`build-config`).  Defaults to the
+    /// config `build.profile`, else `dev`.
     #[arg(long, value_name = "NAME", global = true)]
     pub profile: Option<String>,
 
@@ -85,9 +86,9 @@ pub(crate) enum ExplainCommand {
         /// Query in the form `package/feature`.
         query: String,
     },
-    /// Explain the resolved [`cabin_core::BuildConfiguration`]
-    /// for a package (profile, toolchain, flags, options,
-    /// variants, condition trace, fingerprint).
+    /// Explain the resolved build configuration for a package
+    /// (profile, toolchain, flags, options, variants, condition
+    /// trace, fingerprint).
     BuildConfig {
         /// Package name to explain.
         #[arg(value_parser = crate::cli::parse_package_name)]

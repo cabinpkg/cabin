@@ -64,12 +64,7 @@ fn hidden_subcommands_still_get_man_pages() {
 
 #[test]
 fn no_arguments_prints_curated_help() {
-    let output = run_ok(&[]);
-    assert!(output.contains("Usage: cabin"));
-    let listed = parse_help_commands_block(&output);
-    for subcommand in hidden_subcommand_names() {
-        assert!(!listed.contains(&subcommand));
-    }
+    assert_eq!(run_ok(&[]), run_ok(&["--help"]));
 }
 
 #[test]
