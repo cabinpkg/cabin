@@ -444,9 +444,9 @@ Each compiler detection records a typed [`CompilerCapabilities`] with these fiel
 
 | Field                       | Used by the planner | Notes |
 | --------------------------- | ------------------- | ----- |
-| `gcc_style_flags`           | Yes (GCC/Clang dialect) | Required for `-O…`, `-DNAME`, `-Idir`, `-c`, `-o`.  Missing on a GCC/Clang compiler → unsupported. |
-| `msvc_style_flags`          | Yes (MSVC dialect)  | Required for `/O…`, `/D`, `/I`, `/c`, `/Fo`, `/Tp`/`/Tc`.  Missing on `cl` → unsupported. |
-| `depfile_mmd_mf`            | Yes                       | Required for the make-style `-MD -MF <file>` depfile block.  Missing → unsupported. |
+| `gcc_style_flags`           | No (follows the kind)     | Supported exactly for GCC, Clang, and Apple Clang, the compilers driven with `-O…`, `-DNAME`, `-Idir`, `-c`, `-o`. |
+| `msvc_style_flags`          | No (follows the kind)     | Supported exactly for `cl` and `clang-cl`, the compilers driven with `/O…`, `/D`, `/I`, `/c`, `/Fo`, `/Tp`/`/Tc`. |
+| `depfile_mmd_mf`            | No (follows the kind)     | Supported exactly for the GCC/Clang dialect, which writes the make-style `-MD -MF <file>` depfile. |
 | `external_include_dirs`     | Yes (MSVC dialect)        | Whether dependency include dirs can be marked as *system* search paths (see [System include directories](#system-include-directories)). `-isystem` is part of the base GCC/Clang dialect; `cl /external:W0 /external:I` is version-gated - `cl` ≥ 19.29 (VS2019 16.10), `clang-cl` ≥ 13.  Never rejects a toolchain: an older `cl` falls back to plain `/I`. |
 
 Each capability records both `supported: bool` and a `source: "version" | "assumed-default" |
@@ -463,23 +463,22 @@ Archiver detection records a smaller [`ArchiverCapabilities`] set:
 
 | Field                    | Used by the planner today | Notes |
 | ------------------------ | ------------------------- | ----- |
-| `ar_crs`                 | Yes (GCC/Clang dialect)   | Required for the GNU `ar crs <lib> <objs>` archive command.  MSVC `lib /OUT:` does not need it. |
-| `static_library_output`  | Yes                       | Required to produce a static library.  Reported `supported` for `ar` / `llvm-ar` (`ar crs`) and `lib.exe` (`lib /OUT:`) alike, so `cabin metadata` is honest about the MSVC archiver. |
+| `ar_crs`                 | No (follows the kind)     | Supported exactly for `ar` and `llvm-ar`, which run the GNU `ar crs <lib> <objs>` archive command.  MSVC `lib /OUT:` does not need it. |
+| `static_library_output`  | No                        | Required to produce a static library.  Reported `supported` for `ar` / `llvm-ar` (`ar crs`) and `lib.exe` (`lib /OUT:`) alike, so `cabin metadata` is honest about the MSVC archiver. |
 
 ### Validation against the C++ backend
 
 Before any Ninja file is written, `cabin build` runs the detection report through
 `cabin_build::validate_toolchain_for_backend`.  The validator surfaces clear errors when:
 
-- the C++ compiler is `unknown`, or lacks the capabilities its dialect needs (GCC/Clang:
-  `gcc_style_flags`, `depfile_mmd_mf`; MSVC: `msvc_style_flags`).  The C compiler, when a C compile
-  is planned, must likewise satisfy its dialect's contract;
+- the C++ compiler is `unknown`; every recognized compiler fits the GCC/Clang or the MSVC dialect.
+  The C compiler, when a C compile is planned, must likewise be recognized;
 - a compiler does not accept the flag spelling for one of the *requested* language standards (the
   effective standards of the planned compiles), so e.g. a too-old `cl` or GCC is rejected up front
   with the offending standard named.  See the threshold tables in
   [Language standards](language-standards.md);
-- the archiver is `unknown`, or cannot produce a static library in its dialect (GNU `ar crs`, or
-  MSVC `lib /OUT:`);
+- the archiver is `unknown`; every recognized archiver produces a static library in its dialect (GNU
+  `ar crs`, or MSVC `lib /OUT:`);
 - the resolved tools span **both** dialects - an MSVC `cl` paired with a GNU `ar`, or a GCC/Clang
   `c++` paired with `lib` (`MixedToolchainDialects`).
 

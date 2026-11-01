@@ -332,7 +332,6 @@ fn validate_accepts_msvc_cxx() {
     };
     let caps = derive_cxx_capabilities(&id);
     assert!(caps.msvc_style_flags.supported);
-    assert!(validate_cxx_for_backend("cl.exe", &id, &caps).is_ok());
 }
 
 fn msvc_identity(version: &str) -> CompilerIdentity {
@@ -560,48 +559,15 @@ fn clang_cl_speaks_msvc_dialect_with_version_gated_standards() {
     };
     assert!(!c_standard_capability(&old, CStandard::C11).supported);
     assert!(!cxx_standard_capability(&old, CxxStandard::Cxx20).supported);
-
-    assert!(validate_cxx_for_backend("clang-cl", &id, &caps).is_ok());
-    assert!(validate_cc_for_backend("clang-cl", &id, &caps).is_ok());
-}
-
-#[test]
-fn validate_accepts_modern_and_unversioned_msvc_c() {
-    for id in [
-        msvc_identity("19.39.33523"),
-        CompilerIdentity {
-            kind: CompilerKind::Msvc,
-            version: None,
-            target: None,
-            raw_version_line: "MSVC".into(),
-        },
-    ] {
-        let caps = derive_cxx_capabilities(&id);
-        assert!(validate_cc_for_backend("cl.exe", &id, &caps).is_ok());
-    }
 }
 
 #[test]
 fn validate_rejects_unknown_cxx() {
-    let id = CompilerIdentity::unknown("???");
-    let caps = derive_cxx_capabilities(&id);
-    let err = validate_cxx_for_backend("custom-cxx", &id, &caps).unwrap_err();
+    let err = validate_cxx_for_backend("custom-cxx", CompilerKind::Unknown).unwrap_err();
     assert!(matches!(
         err,
         ToolDetectionError::UnknownCxxRequiresGccStyle { .. }
     ));
-}
-
-#[test]
-fn validate_accepts_clang() {
-    let id = CompilerIdentity {
-        kind: CompilerKind::Clang,
-        version: CompilerVersion::parse("17.0.6"),
-        target: None,
-        raw_version_line: "clang version 17.0.6".into(),
-    };
-    let caps = derive_cxx_capabilities(&id);
-    assert!(validate_cxx_for_backend("clang++", &id, &caps).is_ok());
 }
 
 #[test]
@@ -630,82 +596,12 @@ fn validate_standards_rejects_gcc_too_old_for_cxx17() {
 }
 
 #[test]
-fn backend_validation_is_standard_agnostic() {
-    // The backend validators check command-shape capabilities only
-    // (dialect flags, depfile); language-standard support is
-    // validated separately against the *requested* standards, so a
-    // pure-C driver is acceptable for the C backend regardless of
-    // its C++ story.
-    let id = CompilerIdentity {
-        kind: CompilerKind::Clang,
-        version: CompilerVersion::parse("17.0.6"),
-        target: None,
-        raw_version_line: "clang version 17.0.6".into(),
-    };
-    let caps = derive_cxx_capabilities(&id);
-    assert!(validate_cc_for_backend("cc", &id, &caps).is_ok());
-    assert!(validate_cxx_for_backend("cc", &id, &caps).is_ok());
-    // An empty requested set (no sources of that language)
-    // validates trivially.
-    assert!(validate_cxx_standards("cc", &id, &std::collections::BTreeSet::new()).is_ok());
-    assert!(validate_c_standards("cc", &id, &std::collections::BTreeSet::new()).is_ok());
-}
-
-#[test]
-fn validate_cc_accepts_msvc() {
-    let id = CompilerIdentity {
-        kind: CompilerKind::Msvc,
-        version: None,
-        target: None,
-        raw_version_line: "MSVC".into(),
-    };
-    let caps = derive_cxx_capabilities(&id);
-    assert!(validate_cc_for_backend("cl.exe", &id, &caps).is_ok());
-}
-
-#[test]
 fn validate_cc_rejects_unknown_compiler_without_gcc_style() {
-    // Unknown identity + missing `gcc_style_flags` capability
-    // is the unrecoverable case: the planner cannot tell
-    // whether the compiler accepts `-c -o` etc.
-    let id = CompilerIdentity::unknown("???");
-    let caps = derive_cxx_capabilities(&id);
-    let err = validate_cc_for_backend("custom-cc", &id, &caps).unwrap_err();
+    let err = validate_cc_for_backend("custom-cc", CompilerKind::Unknown).unwrap_err();
     assert!(matches!(
         err,
         ToolDetectionError::UnknownCRequiresGccStyle { .. }
     ));
-}
-
-#[test]
-fn validate_cc_rejects_gcc_without_depfile_support() {
-    // GCC identity but without `-MD -MF` support - Cabin
-    // emits a depfile flag for every compile so the C
-    // contract requires it.
-    let id = CompilerIdentity {
-        kind: CompilerKind::Gcc,
-        version: CompilerVersion::parse("9.4.0"),
-        target: None,
-        raw_version_line: "gcc 9.4".into(),
-    };
-    let mut caps = derive_cxx_capabilities(&id);
-    caps.depfile_mmd_mf = Capability {
-        supported: false,
-        source: CapabilitySource::Unsupported,
-    };
-    let err = validate_cc_for_backend("cc", &id, &caps).unwrap_err();
-    assert!(matches!(err, ToolDetectionError::CLacksDepfile { .. }));
-}
-
-#[test]
-fn validate_accepts_msvc_archiver() {
-    let id = ArchiverIdentity {
-        kind: ArchiverKind::Lib,
-        version: None,
-        raw_version_line: "Microsoft Library Manager".into(),
-    };
-    let caps = derive_ar_capabilities(&id);
-    assert!(validate_ar_for_backend("lib.exe", &id, &caps).is_ok());
 }
 
 #[test]

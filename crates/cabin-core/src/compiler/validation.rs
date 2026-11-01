@@ -5,19 +5,15 @@ use std::collections::BTreeSet;
 use thiserror::Error;
 
 use super::capabilities::{
-    ArchiverCapabilities, CompilerCapabilities, c_standard_capability, cxx_standard_capability,
-    standard_support_detail,
+    c_standard_capability, cxx_standard_capability, standard_support_detail,
 };
-use super::identity::{ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind};
+use super::identity::{ArchiverKind, CompilerIdentity, CompilerKind};
 use crate::language_standard::{CStandard, CxxStandard};
 
 /// Errors produced while validating detected tools against a
 /// backend's required capabilities and the requested standards.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ToolDetectionError {
-    #[error("selected C++ compiler `{spec}` cannot be matched to a supported C++ backend")]
-    UnsupportedCxxBackend { spec: String },
-
     #[error(
         "selected C++ compiler `{spec}` could not be identified and the current backend requires GCC-style flags"
     )]
@@ -34,22 +30,9 @@ pub enum ToolDetectionError {
     },
 
     #[error(
-        "selected C++ compiler `{spec}` ({kind}) does not support the depfile flags required by the Ninja backend"
-    )]
-    CxxLacksDepfile { spec: String, kind: CompilerKind },
-
-    #[error("selected C compiler `{spec}` cannot be matched to a supported C backend")]
-    UnsupportedCBackend { spec: String },
-
-    #[error(
         "selected C compiler `{spec}` could not be identified and the current backend requires GCC-style flags"
     )]
     UnknownCRequiresGccStyle { spec: String },
-
-    #[error(
-        "selected C compiler `{spec}` ({kind}) does not support the depfile flags required by the Ninja backend"
-    )]
-    CLacksDepfile { spec: String, kind: CompilerKind },
 
     #[error(
         "selected C compiler `{spec}` ({kind}) does not support the requested C standard `{standard}`: {detail}"
@@ -61,9 +44,6 @@ pub enum ToolDetectionError {
         detail: String,
     },
 
-    #[error("selected archiver `{spec}` is not supported by the static-library backend")]
-    UnsupportedArchiver { spec: String },
-
     #[error(
         "selected archiver `{spec}` could not be identified and the current backend requires `ar crs`-compatible behavior"
     )]
@@ -74,46 +54,23 @@ pub enum ToolDetectionError {
 /// Cabin's two C++ backends.
 ///
 /// An MSVC-dialect compiler (`cl`, `clang-cl`) drives the `cl.exe`
-/// backend, which speaks the MSVC command-line dialect (`/std:`,
-/// `/showIncludes`, `/D` / `/I` / `/c` / `/Fo`).  Every other
-/// recognized compiler drives the GCC/Clang backend, which requires
-/// `-MD -MF` and GCC-style `-D` / `-I` / `-c` / `-o`.  A compiler
-/// that fits neither contract is a hard error.  Support for the
-/// *requested* language standards is validated separately by
+/// backend; every other recognized compiler drives the GCC/Clang
+/// backend.  Detection derives the backend capabilities from the
+/// kind alone, so every recognized kind fits one backend and only an
+/// unidentified compiler is rejected.  Support for the *requested*
+/// language standards is validated separately by
 /// [`validate_cxx_standards`] / [`validate_c_standards`].
 ///
 /// # Errors
-/// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler fits
-/// no backend, [`ToolDetectionError::UnknownCxxRequiresGccStyle`] when an
-/// unidentified compiler lacks GCC-style flags, and
-/// [`ToolDetectionError::CxxLacksDepfile`] when `-MD -MF` is unsupported.
+/// Returns [`ToolDetectionError::UnknownCxxRequiresGccStyle`] for
+/// [`CompilerKind::Unknown`].
 pub fn validate_cxx_for_backend(
     spec_display: &str,
-    identity: &CompilerIdentity,
-    capabilities: &CompilerCapabilities,
+    kind: CompilerKind,
 ) -> Result<(), ToolDetectionError> {
-    if identity.kind.speaks_msvc_dialect() {
-        if !capabilities.msvc_style_flags.supported {
-            return Err(ToolDetectionError::UnsupportedCxxBackend {
-                spec: spec_display.to_owned(),
-            });
-        }
-        return Ok(());
-    }
-    if !capabilities.gcc_style_flags.supported {
-        if identity.kind == CompilerKind::Unknown {
-            return Err(ToolDetectionError::UnknownCxxRequiresGccStyle {
-                spec: spec_display.to_owned(),
-            });
-        }
-        return Err(ToolDetectionError::UnsupportedCxxBackend {
+    if kind == CompilerKind::Unknown {
+        return Err(ToolDetectionError::UnknownCxxRequiresGccStyle {
             spec: spec_display.to_owned(),
-        });
-    }
-    if !capabilities.depfile_mmd_mf.supported {
-        return Err(ToolDetectionError::CxxLacksDepfile {
-            spec: spec_display.to_owned(),
-            kind: identity.kind,
         });
     }
     Ok(())
@@ -170,46 +127,18 @@ pub fn validate_c_standards(
     Ok(())
 }
 
-/// Validate that the resolved C compiler supports the C-side
-/// command shape the active backend emits.  An MSVC-dialect compiler
-/// (`cl`, `clang-cl`) drives the `cl.exe` backend; every other
-/// recognized compiler drives the GCC/Clang backend, which needs
-/// GCC-style flags plus `-MD -MF` depfile generation.  Support for
-/// the requested C standards is validated separately by
-/// [`validate_c_standards`].
+/// C-side twin of [`validate_cxx_for_backend`].
 ///
 /// # Errors
-/// Returns [`ToolDetectionError::UnsupportedCBackend`] when the compiler fits
-/// no backend, [`ToolDetectionError::UnknownCRequiresGccStyle`] when an
-/// unidentified compiler lacks GCC-style flags, and
-/// [`ToolDetectionError::CLacksDepfile`] when `-MD -MF` is unsupported.
+/// Returns [`ToolDetectionError::UnknownCRequiresGccStyle`] for
+/// [`CompilerKind::Unknown`].
 pub fn validate_cc_for_backend(
     spec_display: &str,
-    identity: &CompilerIdentity,
-    capabilities: &CompilerCapabilities,
+    kind: CompilerKind,
 ) -> Result<(), ToolDetectionError> {
-    if identity.kind.speaks_msvc_dialect() {
-        if !capabilities.msvc_style_flags.supported {
-            return Err(ToolDetectionError::UnsupportedCBackend {
-                spec: spec_display.to_owned(),
-            });
-        }
-        return Ok(());
-    }
-    if !capabilities.gcc_style_flags.supported {
-        if identity.kind == CompilerKind::Unknown {
-            return Err(ToolDetectionError::UnknownCRequiresGccStyle {
-                spec: spec_display.to_owned(),
-            });
-        }
-        return Err(ToolDetectionError::UnsupportedCBackend {
+    if kind == CompilerKind::Unknown {
+        return Err(ToolDetectionError::UnknownCRequiresGccStyle {
             spec: spec_display.to_owned(),
-        });
-    }
-    if !capabilities.depfile_mmd_mf.supported {
-        return Err(ToolDetectionError::CLacksDepfile {
-            spec: spec_display.to_owned(),
-            kind: identity.kind,
         });
     }
     Ok(())
@@ -218,28 +147,18 @@ pub fn validate_cc_for_backend(
 /// Validate that the resolved archiver can drive one of Cabin's
 /// two static-library backends: `lib.exe` for MSVC
 /// (`lib /OUT:<lib> <objs>`), or an `ar`-compatible archiver for
-/// GCC/Clang (`ar crs <lib> <objs>`).
+/// GCC/Clang (`ar crs <lib> <objs>`).  Every recognized kind fits
+/// one of them.
 ///
 /// # Errors
-/// Returns [`ToolDetectionError::UnsupportedArchiver`] when a known archiver
-/// lacks `ar crs` support, and
-/// [`ToolDetectionError::UnknownArchiverRequiresArCompatible`] when an
-/// unidentified archiver lacks `ar crs` support.
+/// Returns [`ToolDetectionError::UnknownArchiverRequiresArCompatible`]
+/// for [`ArchiverKind::Unknown`].
 pub fn validate_ar_for_backend(
     spec_display: &str,
-    identity: &ArchiverIdentity,
-    capabilities: &ArchiverCapabilities,
+    kind: ArchiverKind,
 ) -> Result<(), ToolDetectionError> {
-    if identity.kind == ArchiverKind::Lib {
-        return Ok(());
-    }
-    if !capabilities.ar_crs.supported {
-        if identity.kind == ArchiverKind::Unknown {
-            return Err(ToolDetectionError::UnknownArchiverRequiresArCompatible {
-                spec: spec_display.to_owned(),
-            });
-        }
-        return Err(ToolDetectionError::UnsupportedArchiver {
+    if kind == ArchiverKind::Unknown {
+        return Err(ToolDetectionError::UnknownArchiverRequiresArCompatible {
             spec: spec_display.to_owned(),
         });
     }
