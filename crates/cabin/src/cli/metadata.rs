@@ -220,11 +220,12 @@ enum DependencySourceView<'a> {
     Version {
         requirement: String,
     },
-    /// An unresolved `{ workspace = true }` opt-in.  The
-    /// workspace loader normally rewrites these into `Path` /
-    /// `Version` before metadata is serialized, so this variant
-    /// only surfaces when the user inspects a member manifest in
-    /// isolation.
+    /// An unresolved `{ workspace = true }` opt-in.  Unreachable in
+    /// practice: the workspace loader rewrites every marker into
+    /// `Path` / `Version` or fails (`UnresolvedWorkspaceDependency`,
+    /// or `ExternalPackageDeclaresWorkspaceDependency` for a
+    /// non-local package), including for a member manifest inspected
+    /// in isolation.
     Workspace,
 }
 
