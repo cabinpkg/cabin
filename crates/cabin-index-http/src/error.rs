@@ -37,6 +37,14 @@ pub enum IndexHttpError {
     TokenRejected { origin: String },
 
     #[error(
+        "registry `{origin}` refused access: the hosted Cabin registry is in private alpha and is \
+         currently restricted to its maintainer, so foundation ports are not available to the \
+         public through it yet; local builds and local file registries (`--index-path`) keep \
+         working"
+    )]
+    PrivateAlpha { origin: String },
+
+    #[error(
         "registry `{origin}` refused the request: the stored token does not have the required \
          scope"
     )]

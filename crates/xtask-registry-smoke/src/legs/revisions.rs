@@ -338,12 +338,13 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     smoke.verdict_patch(&unknown, inputs.verdict_verified, &[404])?;
     smoke.as_publisher();
     // The trusted-publishing exchange gates only its config arm, and
-    // only after the JWT verifies: an unverifiable JWT stays the
-    // uniform 401 (the gate speaks only to callers presenting a
-    // verifiable credential, here as everywhere), a verified config-arm
-    // JWT is the gate's 503 before any config is consulted, and the
-    // verifier arm mints straight through - the verification pipeline's
-    // bootstrap is exempt like the verdicts above.
+    // only past the backing owner's private-alpha admission: an
+    // unverifiable JWT, and a configured one whose scope owner is not
+    // admitted (user 3), stay the uniform 401 (the gate
+    // speaks only to admitted callers, here as everywhere); an admitted
+    // scope's run is the gate's 503; and the verifier arm mints
+    // straight through - the verification pipeline's bootstrap is
+    // exempt like the verdicts above.
     let exchange = smoke.url(Base::Web, TRUSTPUB_TOKENS_PATH);
     uniform_401_with(
         smoke,
@@ -357,7 +358,23 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
         r#"{"aud":"cabinpkg.com","workflow_ref":"cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main"}"#,
     )?;
     let body = format!(r#"{{"jwt":"{jwt}"}}"#);
+    // The migration-seeded cabin-ports config matches this JWT; back
+    // it with an owner for the duration.
+    d1_quiet(
+        "INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+           VALUES ('cabin-ports', 'github', '2', '1970-01-01T00:00:00.000Z');
+         INSERT INTO scope_members (scope_name, user_id, role) VALUES ('cabin-ports', 3, 'owner');",
+    )?;
     let got = smoke.http("PUT", &exchange, &[], Some(body.as_bytes()))?;
+    if got != 401 {
+        bail!("the config arm for an unadmitted owner answered {got}, expected the uniform 401");
+    }
+    d1_quiet("UPDATE scope_members SET user_id = 2 WHERE scope_name = 'cabin-ports'")?;
+    let got = smoke.http("PUT", &exchange, &[], Some(body.as_bytes()))?;
+    d1_quiet(
+        "DELETE FROM scope_members WHERE scope_name = 'cabin-ports';
+         DELETE FROM scopes WHERE name = 'cabin-ports';",
+    )?;
     if got != 503 {
         bail!("the config arm under writes_blocked answered {got}, expected the gate's 503");
     }
@@ -406,11 +423,15 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     {
         bail!("the trustpub DELETE 401 must not carry the generation header");
     }
-    // The session mint gates identically, and before the GitHub round
-    // trip: a credential GitHub would refuse still answers the gate's
-    // 503, never the outbound-refusal's 401.
+    // The session mint gates identically, but past admission: a
+    // credential GitHub refuses learns nothing of the mode, and only
+    // an admitted identity sees the gate's 503.
     let mint = smoke.url(Base::Web, SESSION_TOKENS_PATH);
     let got = smoke.http("PUT", &mint, &[], Some(br#"{"github_token":"gho_wrong"}"#))?;
+    if got != 401 {
+        bail!("a refused session mint under writes_blocked answered {got}, expected 401");
+    }
+    let got = smoke.http("PUT", &mint, &[], Some(br#"{"github_token":"gho_smoke"}"#))?;
     if got != 503 {
         bail!("the session mint under writes_blocked answered {got}, expected the gate's 503");
     }
@@ -436,24 +457,19 @@ fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
         bail!("a read under reads_blocked answered {got}");
     }
     over_budget(smoke, "the read 503 must carry Retry-After: 900")?;
-    // The artifact and config routes are the verify scope's exemption,
-    // which the session-shaped publisher token rides - the gated
-    // answer needs the no-verify credential.
+    // The artifact route is the verify scope's exemption, which the
+    // session-shaped publisher token rides - the gated answer needs the
+    // no-verify credential.  The static config.json is never gated.
     smoke.as_ci_publisher();
     smoke.check(inputs.artifact_path, &[503])?;
-    smoke.check("/config.json", &[503])?;
+    smoke.check("/config.json", &[200])?;
     smoke.as_publisher();
     smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[503])?;
-    // Anonymous readers receive the same refusal - status, envelope,
-    // and Retry-After.  A public over-budget answer reveals service
-    // state; that is inherent to public reads.  /healthz stays up.
-    let anonymous = smoke.http("GET", &package_url, &[], None)?;
-    if anonymous != 503 {
-        bail!("an anonymous read under reads_blocked answered {anonymous}");
-    }
-    over_budget(smoke, "the anonymous read 503 must carry Retry-After: 900")?;
+    // Anonymous readers get the private-alpha 401 before the gate, so
+    // the service state never reaches them.  /healthz stays up.
+    uniform_401_with(smoke, Base::Registry, "GET", inputs.package_path, &[], None)?;
     smoke.check("/healthz", &[200])?;
-    // The exempt planes: the session plane and the public stats (where
+    // The exempt planes: the session plane and the stats (where
     // operators and users see what is happening), the admin plane, and
     // the verifier's config and artifact fetches - but not package
     // documents, which the verifier never reads.

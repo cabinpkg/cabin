@@ -1,4 +1,4 @@
-// Fills the homepage's registry stats band from the public stats
+// Fills the homepage's registry stats band from the registry's stats
 // endpoint. Every figure in the band is registry data, so the band
 // ships hidden and is revealed only after a successful fetch; a
 // script-less or offline view omits it.

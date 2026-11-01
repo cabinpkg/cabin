@@ -158,17 +158,17 @@ fn reject_shared(
     smoke.expect_body(r#""changed":true"#)?;
     smoke.check(inputs.artifact2_path, &[404])?;
 
-    // Rejected content is invisible to anonymous readers too, and its
+    // Rejected content is invisible to no-verify readers too, and its
     // refusal is byte-identical to an unknown one: a rejected revision
     // must never be distinguishable from a version that never existed.
-    smoke.anonymous();
+    smoke.as_ci_publisher();
     smoke.check(inputs.artifact2_path, &[404])?;
     let rejected_404 = smoke.body.clone();
     let unknown = artifact_path(inputs, "9.9.9", inputs.rev);
     smoke.check(&unknown, &[404])?;
     if smoke.body != rejected_404 {
         bail!(
-            "an anonymous rejected 404 differs from an unknown one: {}",
+            "a no-verify rejected 404 differs from an unknown one: {}",
             capture(&smoke.body)
         );
     }

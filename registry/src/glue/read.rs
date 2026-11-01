@@ -1,5 +1,5 @@
-//! The registry domain's machine read plane: the public read routes,
-//! the edge blob cache, and download counting.
+//! The registry domain's machine read plane: the read routes, the edge
+//! blob cache, and download counting.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -17,9 +17,9 @@ use crate::routes::{Route, match_route};
 use crate::{breaker, quota, sql, telemetry, verify};
 
 use super::{
-    authenticate, error_response, error_response_with_code, governor_refusal_response,
-    has_verify_scope, js_int, json_response, now_epoch_ms, service_mode, stamp_generation,
-    unauthorized, web_origin,
+    Authn, authenticate, error_response, error_response_with_code, governor_refusal_response,
+    has_verify_scope, js_int, json_response, now_epoch_ms, private_alpha_response,
+    registry_unauthorized, service_mode, stamp_generation, web_origin,
 };
 
 #[derive(Deserialize)]
@@ -45,12 +45,14 @@ struct ArtifactRecord {
     verification: String,
 }
 
-/// The registry custom domain: only the machine read plane exists here,
-/// and it is public - unauthenticated GETs read verified content.
-/// Every other path - including all of `/api/*` - answers the uniform
-/// 401 without consulting the `Authorization` header at all, so a
-/// misdirected credential or a probe of the mutation routes is
-/// indistinguishable from any unknown path.
+/// The registry custom domain: only the machine read plane exists here.
+/// During the private alpha it is closed to everyone the allowlist does
+/// not admit: only `/healthz` and `/config.json` (the discovery
+/// `cabin login` bootstraps from) answer without a credential. Every
+/// other path - including all of `/api/*` - answers the uniform
+/// private-alpha 401 without consulting the `Authorization` header at
+/// all, so a misdirected credential or a probe of the mutation routes
+/// is indistinguishable from any unknown path.
 pub(super) async fn handle_registry(
     req: &Request,
     env: &Env,
@@ -62,50 +64,47 @@ pub(super) async fn handle_registry(
         return Ok((Response::empty()?, None));
     }
     let Some(route) = match_route(path) else {
-        return Ok((unauthorized(env)?, None));
+        return Ok((registry_unauthorized(env)?, None));
     };
 
     let db = env.d1("DB")?;
-    // The read plane is public, so its method discipline is public
-    // too: a non-`GET` answers 405 whatever credential rides along,
-    // before the header is read at all. Deciding it on the presented
-    // credential instead would make the refusal a token-validity
-    // oracle on a route that exists for everyone.
+    // Private alpha (`docs/remote-registry.md`, "Read routes"): beyond
+    // an anonymous `GET /config.json`, every request needs a live token
+    // whose account the allowlist admits, checked before the method,
+    // data, cache, or service state is consulted. `config.json` is
+    // answered the same way to a caller that presents a token, so the
+    // verifier's fetches fail loudly on a rotated token instead of
+    // reading as missing rows.
+    let anonymous_config = matches!(route, Route::Config)
+        && req.method() == Method::Get
+        && req.headers().get("authorization")?.is_none();
+    let auth = if anonymous_config {
+        None
+    } else {
+        match authenticate(req, env, &db, ctx).await? {
+            Authn::Admitted(auth) => Some(auth),
+            Authn::NotAdmitted => return Ok((private_alpha_response(403)?, None)),
+            Authn::Invalid => return Ok((registry_unauthorized(env)?, None)),
+        }
+    };
     if req.method() != Method::Get {
         let mut response = error_response(405, error::METHOD_NOT_ALLOWED)?;
         stamp_generation(&db, &mut response).await?;
-        return Ok((response, None));
+        return Ok((response, auth.map(|auth| auth.token_id)));
     }
 
-    // Public verified reads (`docs/remote-registry.md`, "Read routes"):
-    // a request with no `Authorization` header is an anonymous reader.
-    // A presented credential is still a claim - one that fails to
-    // validate answers the uniform 401 rather than silently degrading
-    // to anonymous, so the verifier's pending fetches fail loudly on a
-    // rotated token instead of reading as missing rows.
-    let auth = if req.headers().get("authorization")?.is_some() {
-        match authenticate(req, &db, ctx).await? {
-            Some(auth) => Some(auth),
-            None => return Ok((unauthorized(env)?, None)),
-        }
-    } else {
-        None
-    };
-
-    // The read-side budget gate. Anonymous readers receive the same
-    // refusal as authenticated ones - a public over-budget answer
-    // necessarily reveals service state, which is inherent to public
-    // reads. Fail-open on the mode lookup (`.ok()`): only an
-    // affirmatively read `reads_blocked` refuses, so downloads keep
+    // The read-side budget gate, past authentication, so this plane
+    // tells the service mode only to admitted callers: the public
+    // `config.json` is static and exempt. Fail-open on the mode lookup
+    // (`.ok()`): only an affirmatively read `reads_blocked` refuses, so downloads keep
     // working through an outage of the breaker itself. The verifier's
-    // fetches - the config it discovers the api origin from and the
-    // artifacts it inspects, never the package documents - are exempt:
+    // artifact fetches - never the package documents - are exempt too:
     // it must be able to drain the pending queue while reads are
     // blocked, and its spend is negligible.
-    let verify_exempt = auth.as_ref().is_some_and(has_verify_scope)
-        && matches!(route, Route::Config | Route::Artifact { .. });
+    let exempt = matches!(route, Route::Config)
+        || (auth.as_ref().is_some_and(has_verify_scope) && matches!(route, Route::Artifact { .. }));
     let mode = service_mode(env, &db).await.ok();
-    let mut response = if breaker::read_gate_refuses(mode, verify_exempt) {
+    let mut response = if breaker::read_gate_refuses(mode, exempt) {
         error_response_with_code(
             breaker::OVER_BUDGET_STATUS,
             breaker::OVER_BUDGET_READS_DETAIL,
@@ -156,8 +155,8 @@ pub(super) async fn handle_registry(
 }
 
 /// [`package_response`] through the edge cache. No caller input
-/// reaches the composition, so one entry serves anonymous and
-/// credentialed readers alike (a credential is still validated first),
+/// reaches the composition, so one entry serves every admitted reader
+/// (the caller calls this only past the admission check),
 /// and a hit reads no package rows: its generation stamp is the fill's,
 /// up to one TTL old. Fills are not coalesced, so concurrent misses each
 /// read the package. Cache errors read as misses, as for archives.

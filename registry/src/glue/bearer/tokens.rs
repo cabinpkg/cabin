@@ -11,7 +11,7 @@ use crate::auth::{self, AuthContext};
 use crate::error;
 use crate::glue::{
     MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response, github_id_allowed, js_int,
-    json_response, now_epoch_ms, unauthorized, write_gate,
+    json_response, now_epoch_ms, private_alpha_response, unauthorized, write_gate,
 };
 use crate::{session_tokens, sql, trustpub, web_glue};
 
@@ -20,6 +20,17 @@ use super::{oidc_admission, verifier_pins};
 #[derive(Deserialize)]
 struct OwnerRecord {
     user_id: i64,
+}
+
+/// [`sql::TRUSTPUB_BACKING_OWNER`]'s row: the backing owner plus its
+/// GitHub identity. Issuance mirrors use (`glue::authenticate`): a token
+/// backed by an account the private-alpha allowlist does not admit could
+/// never authenticate, so none is minted - before the jti consume, so
+/// the JWT is not burned.
+#[derive(Deserialize)]
+struct BackingOwnerRecord {
+    user_id: i64,
+    github_id: Option<String>,
 }
 
 /// The trusted-publishing exchange body, exactly `{"jwt": "<token>"}`.
@@ -47,15 +58,16 @@ const MAX_EXCHANGE_BODY_BYTES: usize = 16 * 1024;
 /// gate - like the verdict route and the read plane's verify
 /// exemption, the verification pipeline must be able to drain the
 /// pending queue whatever the service mode. Everything else is the
-/// config arm: the write gate (`503`, like every write; it runs after
-/// JWT verification, so it answers only callers presenting a
-/// verifiable JWT, as elsewhere it answers only authenticated ones),
-/// then config match and backing owner. Both arms end in
+/// config arm: config match, then the backing owner and its
+/// private-alpha admission, then the write gate (`503`, like every
+/// write; past admission, so it answers only an admitted scope's runs,
+/// as elsewhere it answers only admitted callers). Both arms end in
 /// [`exchange_mint`]'s one transaction. Every refusal other than the
 /// admission `429` and the gate's `503` answers the byte-identical
 /// uniform 401 - no config/signature/replay oracle - with the real
 /// reason logged for the operator. Returns the minted token row id so
 /// the request log ties to the row.
+#[allow(clippy::too_many_lines)] // two arms, each a straight line of refusals
 pub(super) async fn trustpub_exchange_response(
     req: &mut Request,
     env: &Env,
@@ -111,6 +123,13 @@ pub(super) async fn trustpub_exchange_response(
         if account.is_empty() {
             return refused("the VERIFIER_BACKING_ACCOUNT_ID var is unset".to_owned());
         }
+        // Issuance mirrors use: an unadmitted account's token could never
+        // authenticate.
+        if !crate::allowlist::admits(&crate::glue::allowed_ids(env)?, Some(&account)) {
+            return refused(format!(
+                "the verifier backing account {account} is not admitted"
+            ));
+        }
         let backing: Option<OwnerRecord> = db
             .prepare(sql::VERIFIER_BACKING_USER)
             .bind(&[account.as_str().into()])?
@@ -133,9 +152,6 @@ pub(super) async fn trustpub_exchange_response(
         .await;
     }
 
-    if let Some(blocked) = write_gate(env, db).await? {
-        return Ok((blocked, None));
-    }
     let configs: Vec<trustpub::TrustpubConfig> = db
         .prepare(sql::TRUSTPUB_CONFIGS_BY_REPOSITORY)
         .bind(&[
@@ -153,7 +169,7 @@ pub(super) async fn trustpub_exchange_response(
     // Before the jti consume on purpose: an unclaimed scope must not
     // burn the JWT, so claiming it and retrying the same run stays
     // possible while the token is still fresh.
-    let owner: Option<OwnerRecord> = db
+    let owner: Option<BackingOwnerRecord> = db
         .prepare(sql::TRUSTPUB_BACKING_OWNER)
         .bind(&[config.scope.as_str().into()])?
         .first(None)
@@ -164,6 +180,13 @@ pub(super) async fn trustpub_exchange_response(
             config.scope
         ));
     };
+    if !crate::allowlist::admits(&crate::glue::allowed_ids(env)?, owner.github_id.as_deref()) {
+        return refused("the scope's backing owner is not admitted".to_owned());
+    }
+    // Past admission, so only an admitted scope's run learns the mode.
+    if let Some(blocked) = write_gate(env, db).await? {
+        return Ok((blocked, None));
+    }
 
     exchange_mint(
         env,
@@ -336,18 +359,17 @@ impl session_tokens::GithubUserProvider for GithubUserApi<'_> {
 /// `PUT /api/v1/sessions/tokens` (`docs/remote-registry.md`, "Login
 /// sessions"): trades a GitHub access token
 /// for a 12-hour `session` bearer token. [`oidc_admission`] answers
-/// first, then the write gate, both before the credential is even
-/// read: the mint is a write that spends an outbound GitHub call, and
-/// a doomed request must not buy one - the pre-auth 503 deliberately
-/// tells an anonymous caller the breaker state, like the read plane's
-/// public over-budget answer. Then the
-/// GitHub check-token proof, the allowlist, and the identity lookup - the
+/// first, before the credential is even read. Then the GitHub
+/// check-token proof, the allowlist, and the identity lookup - the
 /// exact resolution the web OAuth login uses, minus its account
 /// creation: `cabin login` is for accounts that exist, so an unknown
-/// or unallowlisted id is a refusal, never a signup. Every refusal
-/// past the gate answers the byte-identical uniform 401 with the real
-/// reason logged. Returns the minted row id so the request log ties to
-/// the row.
+/// or unallowlisted id is a refusal, never a signup. A proven but
+/// unallowlisted identity gets the `403` private-alpha refusal, so
+/// `cabin login` can say why; every other refusal answers the
+/// byte-identical uniform 401 with the real reason logged. The write
+/// gate comes last, so only an admitted account learns the breaker
+/// state, at the price of a GitHub call on an over-budget mint.
+/// Returns the minted row id so the request log ties to the row.
 pub(super) async fn session_mint_response(
     req: &mut Request,
     env: &Env,
@@ -355,9 +377,6 @@ pub(super) async fn session_mint_response(
 ) -> worker::Result<(Response, Option<String>)> {
     if let Some(refusal) = oidc_admission(req, env).await? {
         return Ok((refusal, None));
-    }
-    if let Some(blocked) = write_gate(env, db).await? {
-        return Ok((blocked, None));
     }
     let refused = |reason: String| -> worker::Result<(Response, Option<String>)> {
         console_log!("session mint refused: {reason}");
@@ -373,11 +392,16 @@ pub(super) async fn session_mint_response(
         Err(reason) => return refused(reason),
     };
     if !github_id_allowed(env, github_id)? {
-        return refused(format!("github id {github_id} is not allowlisted"));
+        console_log!("session mint refused: github id {github_id} is not allowlisted");
+        return Ok((private_alpha_response(403)?, None));
     }
     let Some(user) = web_glue::user_record(db, github_id).await? else {
         return refused(format!("github id {github_id} has never signed in"));
     };
+    // Past admission, so only an admitted account learns the mode.
+    if let Some(blocked) = write_gate(env, db).await? {
+        return Ok((blocked, None));
+    }
 
     let id = auth::hex(&web_glue::random_bytes::<16>()?);
     let token = auth::format_session_token(&web_glue::random_bytes()?);

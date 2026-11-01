@@ -16,8 +16,11 @@ statements! {
     /// unclaimed scope - no owner row - refuses the exchange before
     /// the jti is consumed.
     TRUSTPUB_BACKING_OWNER =
-        "SELECT user_id FROM scope_members \
-         WHERE scope_name = ?1 AND role = 'owner' ORDER BY user_id LIMIT 1";
+        "SELECT m.user_id, \
+                (SELECT i.provider_account_id FROM identities i \
+                 WHERE i.user_id = m.user_id AND i.provider = 'github') AS github_id \
+         FROM scope_members m \
+         WHERE m.scope_name = ?1 AND m.role = 'owner' ORDER BY m.user_id LIMIT 1";
 
     /// Consumes a JWT's jti exactly once (`?2` is the end of the
     /// verifier's acceptance window, Unix seconds), shared by the

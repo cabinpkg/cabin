@@ -51,11 +51,11 @@ impl Mode {
 /// serves, and so does every lesser mode (a corrupt or missing stored
 /// value parses to [`Mode::WritesBlocked`] upstream, which also serves),
 /// so downloads keep working through an outage of the breaker itself.
-/// `verify_exempt` (the verifier's data-plane fetches) wins over the mode:
-/// verification must be able to drain the pending queue while reads are
-/// blocked, and its spend is negligible.
-pub fn read_gate_refuses(mode: Option<Mode>, verify_exempt: bool) -> bool {
-    mode == Some(Mode::ReadsBlocked) && !verify_exempt
+/// `exempt` (the static `config.json` and the verifier's artifact
+/// fetches) wins over the mode: verification must be able to drain the
+/// pending queue while reads are blocked, and its spend is negligible.
+pub fn read_gate_refuses(mode: Option<Mode>, exempt: bool) -> bool {
+    mode == Some(Mode::ReadsBlocked) && !exempt
 }
 
 /// The envelope `code` and fixed details for refused writes and reads,

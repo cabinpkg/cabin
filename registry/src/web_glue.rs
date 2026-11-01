@@ -3,7 +3,7 @@
 //! dedicated OAuth roundtrip (`/claim/<scope>`, `/callback/claim`), and
 //! the session-cookie user API (`/api/v1/user/*`) - JSON except the
 //! source viewer's ranged byte reads ([`package_source`]) - and the
-//! public stats plane (`/api/v1/stats`). The bearer-token planes live
+//! stats plane (`/api/v1/stats`, behind bearer admission). The bearer-token planes live
 //! in [`crate::glue`]; no plane accepts another's credential. Sessions
 //! and GitHub access tokens are never logged.
 
@@ -120,10 +120,9 @@ pub async fn respond_session(
     }
 }
 
-/// The public stats plane: the one credential-free JSON subtree on the
-/// website origin. Exactly `GET /api/v1/stats` exists; unknown paths
-/// under the subtree are public 404s (never the bearer plane's 401),
-/// and non-GET is 405.
+/// The stats plane, reached only by an admitted bearer caller during
+/// the private alpha (`glue::bearer`). Exactly `GET /api/v1/stats`
+/// exists; unknown paths under the subtree are 404s, and non-GET is 405.
 pub async fn respond_stats(req: &Request, env: &Env, path: &str) -> worker::Result<Response> {
     if path != STATS_PATH {
         return json_error(404, error::NOT_FOUND);
@@ -147,22 +146,24 @@ struct StatsRecord {
 const STATS_CACHE_TTL_SECS: u64 = 300;
 
 /// `GET /api/v1/stats`: the registry-wide totals, served through the
-/// Cache API under one fixed, query-less key - the canonical stats URL
-/// on the website origin - so a request's own query string can never
-/// bust the edge cache.
+/// Cache API under one fixed, query-less key - a synthetic `/__cache`
+/// URL that is no route, like the package documents' - so a request's
+/// own query string can never bust the edge cache.
 async fn stats_summary(env: &Env) -> worker::Result<Response> {
     let ttl_secs = env
         .var("STATS_CACHE_TTL_SECS")
         .ok()
         .and_then(|var| var.to_string().parse::<u64>().ok())
         .unwrap_or(STATS_CACHE_TTL_SECS);
-    let origin = env.var("WEB_ORIGIN")?.to_string();
-    let cache_url = format!("{}{}", origin.trim_end_matches('/'), STATS_PATH);
+    let cache_url = "https://registry.cabinpkg.com/__cache/stats";
     let cache = worker::Cache::default();
     if ttl_secs > 0
-        && let Some(cached) = cache.get(cache_url.as_str(), false).await?
+        && let Some(mut cached) = cache.get(cache_url, false).await?
     {
-        return Ok(cached);
+        // Rebuilt so the outward answer is `no-store`, never the stored
+        // copy's `public` freshness: a shared cache must not re-serve
+        // authenticated data to anyone else.
+        return json_response(&cached.text().await?);
     }
 
     let db = env.d1("DB")?;
@@ -181,13 +182,13 @@ async fn stats_summary(env: &Env) -> worker::Result<Response> {
     );
     let mut response = json_response(&stats::summary_json(&totals))?;
     if ttl_secs > 0 {
-        // Public and cacheable, overriding the browser plane's blanket
-        // no-store (which the Cache API refuses to store); the max-age
-        // sets the cached copy's TTL.
-        response
+        // The stored copy alone overrides the blanket no-store (which
+        // the Cache API refuses to store); its max-age sets the TTL.
+        let mut for_cache = response.cloned()?;
+        for_cache
             .headers_mut()
             .set("cache-control", &format!("public, max-age={ttl_secs}"))?;
-        cache.put(cache_url.as_str(), response.cloned()?).await?;
+        cache.put(cache_url, for_cache).await?;
     }
     Ok(response)
 }
@@ -1389,8 +1390,8 @@ fn csrf_ok(req: &Request) -> worker::Result<bool> {
 }
 
 /// Security headers on every browser-plane response: scripts and external
-/// resources are locked out wholesale, and `no-store` is the default (only
-/// the public stats summary overrides it).
+/// resources are locked out wholesale, and every outward answer is
+/// `no-store` (the stats summary's Cache API copy alone is not).
 fn web_headers(headers: &mut Headers) -> worker::Result<()> {
     headers.set(
         "content-security-policy",

@@ -44,6 +44,7 @@ struct TokenRecord {
     user_quota_class: String,
     rl_tokens: Option<f64>,
     rl_updated_at: Option<String>,
+    github_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -164,7 +165,17 @@ fn web_host(env: &Env) -> String {
 /// reason (missing token, invalid token, unknown path), so
 /// unauthenticated responses stay indistinguishable.
 fn unauthorized(env: &Env) -> worker::Result<Response> {
-    let mut response = error_response(401, error::AUTH_REQUIRED)?;
+    challenged(env, error_response(401, error::AUTH_REQUIRED)?)
+}
+
+/// The registry host's uniform 401: [`unauthorized`] with the
+/// private-alpha envelope, on every path and failure reason there, so
+/// an anonymous reader learns the service's status and nothing else.
+fn registry_unauthorized(env: &Env) -> worker::Result<Response> {
+    challenged(env, private_alpha_response(401)?)
+}
+
+fn challenged(env: &Env, mut response: Response) -> worker::Result<Response> {
     response.headers_mut().set(
         "www-authenticate",
         &error::www_authenticate(&web_origin(env)?),
@@ -172,19 +183,43 @@ fn unauthorized(env: &Env) -> worker::Result<Response> {
     Ok(response)
 }
 
-/// Looks up the presented bearer token. `None` is the uniform "no valid
-/// token" answer regardless of what failed; only infrastructure errors
-/// surface as `Err`.
+fn private_alpha_response(status: u16) -> worker::Result<Response> {
+    error_response_with_code(
+        status,
+        error::PRIVATE_ALPHA,
+        error::PRIVATE_ALPHA_CODE,
+        None,
+    )
+}
+
+/// What a request's bearer credential amounts to.
+enum Authn {
+    /// A live token whose account the private-alpha allowlist admits.
+    Admitted(AuthContext),
+    /// A live token whose account is not admitted: the `403`
+    /// private-alpha refusal, whatever the route.
+    NotAdmitted,
+    /// No token, or one that does not validate: the plane's uniform
+    /// `401`.
+    Invalid,
+}
+
+/// Looks up the presented bearer token and applies the private-alpha
+/// admission rule ([`allowlist::admits`]) to its account. Only
+/// infrastructure errors surface as `Err`. The check fails closed: a
+/// missing `ALLOWED_GITHUB_IDS` is such an error, and a malformed one
+/// panics (`allowlist::parse_allowed_ids`).
 async fn authenticate(
     req: &Request,
+    env: &Env,
     db: &D1Database,
     ctx: &Context,
-) -> worker::Result<Option<AuthContext>> {
+) -> worker::Result<Authn> {
     let Some(header) = req.headers().get("authorization")? else {
-        return Ok(None);
+        return Ok(Authn::Invalid);
     };
     let Some(token) = auth::bearer_token(&header) else {
-        return Ok(None);
+        return Ok(Authn::Invalid);
     };
     let hash = auth::token_hash(token);
     let record: Option<TokenRecord> = db
@@ -193,8 +228,11 @@ async fn authenticate(
         .first(None)
         .await?;
     let Some(record) = record else {
-        return Ok(None);
+        return Ok(Authn::Invalid);
     };
+    if !allowlist::admits(&allowed_ids(env)?, record.github_id.as_deref()) {
+        return Ok(Authn::NotAdmitted);
+    }
 
     // Best-effort bookkeeping: never fail or delay the request over it.
     if let Ok(update) = db
@@ -207,7 +245,7 @@ async fn authenticate(
     }
 
     let bucket = bucket_from_columns(record.rl_tokens, record.rl_updated_at.as_deref());
-    Ok(Some(AuthContext {
+    Ok(Authn::Admitted(AuthContext {
         token_id: record.id,
         user_id: record.user_id,
         scopes: auth::parse_scopes(&record.scopes),
@@ -253,9 +291,17 @@ async fn stamp_generation(db: &D1Database, response: &mut Response) -> worker::R
     Ok(())
 }
 
-/// Whether `id` is on the `ALLOWED_GITHUB_IDS` sign-in allowlist.
+/// The `ALLOWED_GITHUB_IDS` allowlist: who may sign in and, during the
+/// private alpha, use the registry at all.
+pub(crate) fn allowed_ids(env: &Env) -> worker::Result<Vec<i64>> {
+    Ok(allowlist::parse_allowed_ids(
+        &env.var("ALLOWED_GITHUB_IDS")?.to_string(),
+    ))
+}
+
+/// Whether `id` is on the `ALLOWED_GITHUB_IDS` allowlist.
 pub(crate) fn github_id_allowed(env: &Env, id: i64) -> worker::Result<bool> {
-    Ok(allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string()).contains(&id))
+    Ok(allowed_ids(env)?.contains(&id))
 }
 
 #[derive(Deserialize)]

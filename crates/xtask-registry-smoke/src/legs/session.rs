@@ -176,8 +176,7 @@ pub fn run_verifier(verifier_bin: &Path, archive: &Path, entry: &Path, out: &Pat
     );
 }
 
-/// A token buys nothing the anonymous run did not already have, and
-/// nothing off the read plane.
+/// An admitted token opens the read plane, and nothing off it.
 ///
 /// # Errors
 ///
@@ -186,7 +185,7 @@ pub fn read_plane(smoke: &mut Smoke, setup: &Setup) -> Result<()> {
     smoke.as_publisher();
     step("read routes serve tokened callers identically");
     smoke.check("/config.json", &[200])?;
-    if !contains(&smoke.body, br#""auth-required":false"#) {
+    if !contains(&smoke.body, br#""auth-required":true"#) {
         bail!("config.json missing auth-required: {}", body(smoke));
     }
     // The api field names the website origin, crates.io-style.

@@ -209,6 +209,15 @@ pub(super) async fn verdict_authn(
     if let Some(pin) = pins.refuses(&claims) {
         return refused(&format!("the claims fail the {pin} pin"));
     }
+    // The verifier acts for its backing account, so it needs the same
+    // private-alpha admission as that account's tokens.
+    let account = env
+        .var("VERIFIER_BACKING_ACCOUNT_ID")
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    if !crate::allowlist::admits(&crate::glue::allowed_ids(env)?, Some(&account)) {
+        return refused("the verifier backing account is not admitted");
+    }
     let results = db
         .batch(vec![
             db.prepare(sql::CONSUME_OIDC_JTI)

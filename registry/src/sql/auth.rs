@@ -13,10 +13,15 @@ statements! {
     /// trustpub lifetime ceiling anchors on `created_at`, so a minting
     /// bug forging a far-future anchor must yield a row that cannot
     /// authenticate before its anchor, not one that outruns the cap.
+    /// `github_id` is the owning account's GitHub identity (NULL when it
+    /// has none), which the glue re-checks against the private-alpha
+    /// allowlist on every use (`crate::allowlist::admits`).
     AUTH_TOKEN_LOOKUP =
         "SELECT t.id, t.user_id, t.scopes, \
                 COALESCE(t.quota_class, u.quota_class) AS quota_class, t.scope_limit, \
-                u.quota_class AS user_quota_class, u.rl_tokens, u.rl_updated_at \
+                u.quota_class AS user_quota_class, u.rl_tokens, u.rl_updated_at, \
+                (SELECT i.provider_account_id FROM identities i \
+                 WHERE i.user_id = u.id AND i.provider = 'github') AS github_id \
          FROM tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = ?1 AND t.revoked_at IS NULL \
          AND t.created_at <= ?2 AND t.expires_at > ?2";

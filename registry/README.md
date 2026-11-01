@@ -5,8 +5,9 @@ The hosted side of Cabin's experimental remote registry: a Cloudflare Worker
 sparse HTTP file-registry contract in
 [`../docs/remote-registry.md`](../docs/remote-registry.md) - the authoritative
 protocol document - with D1 as the canonical store and R2 for immutable
-archive blobs: the public read routes (verified
-content) plus the authenticated `publish` and `yank`
+archive blobs: the read routes (verified
+content; during the private alpha, closed to every account
+`ALLOWED_GITHUB_IDS` does not admit) plus the authenticated `publish` and `yank`
 API routes and the verifier's `verify`-scoped admin routes (publish
 validation, the immutability rule, and the verification lifecycle are part
 of that protocol document), and the browser
@@ -100,8 +101,8 @@ and checks
 `/healthz`, the mutation surface's uniform `401` with its byte-identical
 `WWW-Authenticate` challenge, the hostname dispatch (no read plane on the
 website origin, no API surface on the registry domain), the OAuth and
-session planes' refusals and cookie attributes, the three public read
-routes,
+session planes' refusals and cookie attributes, the read plane's
+private-alpha refusals (anonymous and unadmitted callers alike),
 claim -> publish -> fetch end to end - the scope-claim flow against a
 local GitHub mock (self-claim, org claim, refusals) and membership
 management through the session API, then the full publish / yank flow

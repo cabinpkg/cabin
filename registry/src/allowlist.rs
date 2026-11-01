@@ -26,9 +26,36 @@ pub fn parse_allowed_ids(raw: &str) -> Vec<i64> {
         .collect()
 }
 
+/// The private-alpha admission rule for an authenticated caller: the
+/// registry account behind the credential must hold a GitHub identity
+/// (`identities.provider_account_id`, stored as decimal text) on the
+/// allowlist. Checked on every use, not only at sign-in or mint, so a
+/// credential issued to an account the allowlist no longer names stops
+/// working at once. No identity, or one that does not parse, is refused.
+#[must_use]
+pub fn admits(allowed: &[i64], github_id: Option<&str>) -> bool {
+    github_id
+        .and_then(|id| id.parse::<i64>().ok())
+        .is_some_and(|id| allowed.contains(&id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn admits_only_an_allowlisted_github_identity() {
+        let allowed = parse_allowed_ids("26405363");
+        assert!(admits(&allowed, Some("26405363")));
+        // A valid account that is not on the list, an account with no
+        // GitHub identity, and an unparsable stored id are all refused.
+        assert!(!admits(&allowed, Some("583231")));
+        assert!(!admits(&allowed, None));
+        assert!(!admits(&allowed, Some("26405363.0")));
+        assert!(!admits(&allowed, Some("")));
+        // An empty allowlist admits nobody.
+        assert!(!admits(&[], Some("26405363")));
+    }
 
     #[test]
     fn parses_ids_and_tolerates_whitespace_and_empty_entries() {

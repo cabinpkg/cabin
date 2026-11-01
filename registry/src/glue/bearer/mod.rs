@@ -18,8 +18,8 @@ use crate::web_glue;
 use crate::{quota, sql, trustpub};
 
 use super::{
-    authenticate, error_response, error_response_with_code, stamp_generation, unauthorized,
-    web_origin,
+    Authn, authenticate, error_response, error_response_with_code, private_alpha_response,
+    stamp_generation, unauthorized, web_origin,
 };
 
 use governor::{admin_governor_mutation_response, admin_governor_usage_response};
@@ -53,12 +53,6 @@ pub(super) async fn handle_website(
         let response = web_glue::respond_session(req, env, session_route).await?;
         return Ok((response, None));
     }
-    // The public stats subtree: the one unauthenticated JSON plane on
-    // this origin.
-    if crate::routes::is_stats_path(path) {
-        return Ok((web_glue::respond_stats(req, env, path).await?, None));
-    }
-
     // Everything else is the Bearer plane: deny by default, the uniform
     // 401 before any route matching or data lookup.
     let db = env.d1("DB")?;
@@ -66,8 +60,8 @@ pub(super) async fn handle_website(
     // travels in its body (the exchange's OIDC JWT, the session mint's
     // GitHub access token), so both dispatch before the token check.
     // Admission control and the breaker's write gate run inside each
-    // handler: the gate on the exchange's config arm only, and right
-    // after admission for the session mint.
+    // handler: the gate on the exchange's config arm only, each past
+    // the private-alpha admission of the account the token would back.
     if req.method() == Method::Put
         && (path == crate::routes::TRUSTPUB_TOKENS_PATH
             || path == crate::routes::SESSION_TOKENS_PATH)
@@ -107,9 +101,19 @@ pub(super) async fn handle_website(
         stamp_generation(&db, &mut response).await?;
         return Ok((response, None));
     }
-    let Some(auth) = authenticate(req, &db, ctx).await? else {
-        return Ok((unauthorized(env)?, None));
+    let auth = match authenticate(req, env, &db, ctx).await? {
+        Authn::Admitted(auth) => auth,
+        Authn::NotAdmitted => return Ok((private_alpha_response(403)?, None)),
+        Authn::Invalid => return Ok((unauthorized(env)?, None)),
     };
+    // The stats subtree answers as its own plane - unknown paths under
+    // it are 404s, never the API's - but only to an admitted caller:
+    // registry-wide totals are registry data, closed during the private
+    // alpha like the read plane.
+    if crate::routes::is_stats_path(path) {
+        let response = web_glue::respond_stats(req, env, path).await?;
+        return Ok((response, Some(auth.token_id)));
+    }
 
     let mut response = match req.method() {
         // The admin listings and the governor snapshot are the only API
