@@ -24,7 +24,9 @@ This uses Cabin's GitHub release archives when a matching binary is available.  
 command is `cabin`.  The release archives ship no checksum files; each carries a GitHub artifact
 attestation instead, which `gh attestation verify <archive> --repo cabinpkg/cabin` checks.
 - **From crates.io source build.** Cabin is published as the `cabinpkg` package on crates.io.  With
-  a Rust toolchain (1.95 or newer) on `$PATH`, run:
+  a Rust toolchain (1.95 or newer) and a C compiler and archiver (see the
+  [INSTALL.md](https://github.com/cabinpkg/cabin/blob/main/INSTALL.md#prerequisites) prerequisites)
+  on `$PATH`, run:
 
     ```sh
     cargo install cabinpkg
