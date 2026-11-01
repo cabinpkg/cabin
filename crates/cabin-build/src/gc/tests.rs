@@ -231,6 +231,213 @@ fn collection_is_due_once_per_active_day_until_it_completes() {
 }
 
 #[test]
+fn a_plan_recorded_on_an_earlier_active_day_is_recorded_again() {
+    let fx = Fixture::new();
+    fx.build(DAY, &[OLD_OBJ, APP]);
+    let day = work_days(&fx, DAY, 2, &[NEW_OBJ]);
+    fx.build(day, &[OLD_OBJ, APP]);
+    assert!(fx.collect(max_age(1), false).collected.is_empty());
+}
+
+#[test]
+fn a_plan_recorded_today_with_one_more_product_records_it() {
+    let fx = Fixture::new();
+    fx.build(DAY, &[APP]);
+    fx.build(DAY, &[OLD_OBJ, APP]);
+    work_days(&fx, DAY, 2, &[APP]);
+    assert_eq!(fx.collected(&fx.collect(max_age(1), false)), [OLD_OBJ]);
+}
+
+#[test]
+fn a_recording_that_failed_is_retried_by_the_next_command() {
+    let fx = Fixture::new();
+    fx.build(DAY, &[OLD_OBJ, APP]);
+    // A directory where the shard belongs fails the read, after the
+    // clock has moved to the next active day.
+    let shard = shard_path(
+        &fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR),
+        "dev/packages/app",
+    );
+    let bytes = std::fs::read(&shard).unwrap();
+    std::fs::remove_file(&shard).unwrap();
+    std::fs::create_dir(&shard).unwrap();
+    let products =
+        [OLD_OBJ, APP].map(|rel| Utf8PathBuf::from_path_buf(fx.file(rel).to_path_buf()).unwrap());
+    record_use(
+        &fx.build_dir(),
+        products.iter().map(Utf8PathBuf::as_path),
+        DAY + 1,
+    )
+    .unwrap_err();
+    std::fs::remove_dir(&shard).unwrap();
+    std::fs::write(&shard, bytes).unwrap();
+
+    fx.build(DAY + 1, &[OLD_OBJ, APP]);
+    work_days(&fx, DAY + 1, 1, &[NEW_OBJ]);
+    assert!(
+        fx.collect(max_age(1), false).collected.is_empty(),
+        "used on the previous active day"
+    );
+}
+
+#[test]
+fn a_plan_recorded_today_does_not_wait_for_another_recording() {
+    let fx = Fixture::new();
+    fx.build(DAY, &[OLD_OBJ, APP]);
+    let _other = BuildDirLock::exclusive(&fx.build_dir().join(CATALOG_DIR), || {}).unwrap();
+    let products =
+        [OLD_OBJ, APP].map(|rel| Utf8PathBuf::from_path_buf(fx.file(rel).to_path_buf()).unwrap());
+    let build_dir = fx.build_dir();
+    let (sender, recorded) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = record_use(&build_dir, products.iter().map(Utf8PathBuf::as_path), DAY);
+        sender.send(result.map_err(|err| err.to_string())).unwrap();
+    });
+    recorded
+        .recv_timeout(Duration::from_secs(10))
+        .expect("recorded again")
+        .unwrap();
+}
+
+#[test]
+fn a_recording_that_replaced_a_shard_and_then_failed_forgets_the_plans_it_held() {
+    let fx = Fixture::new();
+    fx.build(DAY, &[OLD_OBJ]);
+    let shards = fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR);
+    std::fs::write(shard_path(&shards, "dev/packages/app"), "{").unwrap();
+    // A later shard fails to read, after `app`'s was replaced.
+    let other = "dev/packages/zz/libzz.a";
+    std::fs::create_dir(shard_path(&shards, "dev/packages/zz")).unwrap();
+    let products = [APP, other].map(|rel| {
+        fx.file(rel).write_str("x").unwrap();
+        Utf8PathBuf::from_path_buf(fx.file(rel).to_path_buf()).unwrap()
+    });
+    record_use(
+        &fx.build_dir(),
+        products.iter().map(Utf8PathBuf::as_path),
+        DAY,
+    )
+    .unwrap_err();
+    std::fs::remove_dir(shard_path(&shards, "dev/packages/zz")).unwrap();
+
+    fx.build(DAY, &[OLD_OBJ]);
+    work_days(&fx, DAY, 2, &[NEW_OBJ]);
+    let mut collected = fx.collected(&fx.collect(max_age(1), false));
+    collected.sort();
+    assert_eq!(collected, [APP, OLD_OBJ]);
+}
+
+#[test]
+fn a_plan_whose_shard_another_replaced_records_again() {
+    let fx = Fixture::new();
+    fx.build(DAY, &[OLD_OBJ]);
+    std::fs::write(
+        shard_path(
+            &fx.build_dir().join(CATALOG_DIR).join(SHARDS_DIR),
+            "dev/packages/app",
+        ),
+        "{",
+    )
+    .unwrap();
+    // Another plan replaces the unreadable shard, forgetting `old.cc.o`.
+    fx.build(DAY, &[APP]);
+    fx.build(DAY, &[OLD_OBJ]);
+    work_days(&fx, DAY, 2, &[NEW_OBJ]);
+    let mut collected = fx.collected(&fx.collect(max_age(1), false));
+    collected.sort();
+    assert_eq!(collected, [APP, OLD_OBJ]);
+}
+
+/// A command reads a shard, another rewrites it, and the first writes
+/// back its own snapshot: without one-at-a-time recording the second's
+/// update is lost.
+#[test]
+fn a_recording_waits_for_another_and_keeps_its_update() {
+    let fx = Fixture::new();
+    fx.build(DAY, &[OLD_OBJ]);
+    let catalog = fx.build_dir().join(CATALOG_DIR);
+    let other = BuildDirLock::exclusive(&catalog, || {}).unwrap();
+
+    fx.file(APP).write_str("app").unwrap();
+    let app = Utf8PathBuf::from_path_buf(fx.file(APP).to_path_buf()).unwrap();
+    let build_dir = fx.build_dir();
+    let (sender, recorded) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        sender.send(None).unwrap();
+        let result = record_use(&build_dir, [app.as_path()], DAY + 1);
+        sender
+            .send(Some(result.map_err(|err| err.to_string())))
+            .unwrap();
+    });
+    // Timed from the thread's start, which a loaded machine can delay.
+    assert!(recorded.recv().unwrap().is_none());
+    assert!(
+        recorded.recv_timeout(Duration::from_millis(200)).is_err(),
+        "recorded while another command was recording"
+    );
+    // The other command, from the snapshot it read: `old.cc.o` stamped
+    // with the new day, and no `app`.
+    store(
+        &catalog.join(STATE_FILE),
+        &State {
+            version: FORMAT_VERSION,
+            day: DAY + 1,
+            index: 2,
+            collected: 1,
+        },
+    )
+    .unwrap();
+    store(
+        &shard_path(&catalog.join(SHARDS_DIR), "dev/packages/app"),
+        &Shard {
+            version: FORMAT_VERSION,
+            dir: "dev/packages/app".to_owned(),
+            entries: BTreeMap::from([("obj/app/src/old.cc.o".to_owned(), 2)]),
+        },
+    )
+    .unwrap();
+    drop(other);
+    recorded.recv().unwrap().unwrap().unwrap();
+
+    // Both were used on the second active day, so neither ages past one
+    // more.
+    work_days(&fx, DAY + 1, 1, &[NEW_OBJ]);
+    assert!(fx.collect(max_age(1), false).collected.is_empty());
+    work_days(&fx, DAY + 2, 1, &[NEW_OBJ]);
+    let mut collected = fx.collected(&fx.collect(max_age(1), false));
+    collected.sort();
+    assert_eq!(collected, [APP, OLD_OBJ]);
+}
+
+#[test]
+fn concurrent_recordings_into_one_shard_keep_every_product() {
+    let fx = Fixture::new();
+    let products: Vec<Utf8PathBuf> = (0..8)
+        .map(|n| {
+            let rel = format!("dev/packages/app/obj/app/src/{n}.cc.o");
+            fx.file(&rel).write_str("o").unwrap();
+            Utf8PathBuf::from_path_buf(fx.file(&rel).to_path_buf()).unwrap()
+        })
+        .collect();
+    let build_dir = fx.build_dir();
+    let start = std::sync::Barrier::new(products.len());
+    std::thread::scope(|scope| {
+        for product in &products {
+            scope.spawn(|| {
+                start.wait();
+                record_use(&build_dir, [product.as_path()], DAY).unwrap()
+            });
+        }
+    });
+    work_days(&fx, DAY, 2, &[APP]);
+    assert_eq!(
+        fx.collect(max_age(1), false).collected.len(),
+        products.len(),
+        "every product is tracked"
+    );
+}
+
+#[test]
 fn a_time_limit_stops_removal_after_the_first_file_and_keeps_the_rest_tracked() {
     let fx = Fixture::new();
     let gone = "dev/packages/gone/libgone.a";
@@ -418,6 +625,20 @@ fn a_build_directory_that_is_a_link_is_collected() {
     disk.child(APP).assert(predicate::path::exists());
 }
 
+#[test]
+fn a_link_in_place_of_the_remembered_plans_redirects_nothing() {
+    let fx = Fixture::new();
+    let outside = fx.tmp.child("outside.json");
+    outside.write_str("keep").unwrap();
+    let catalog = fx.build_dir().join(CATALOG_DIR);
+    std::fs::create_dir_all(&catalog).unwrap();
+    if !symlink_file(&outside, &catalog.join(RECORDED_FILE)) {
+        return;
+    }
+    fx.build(DAY, &[OLD_OBJ]);
+    outside.assert("keep");
+}
+
 #[cfg(unix)]
 fn symlink_dir(target: &Path, link: &Path) -> bool {
     std::os::unix::fs::symlink(target, link).unwrap();
@@ -428,6 +649,17 @@ fn symlink_dir(target: &Path, link: &Path) -> bool {
 fn symlink_dir(target: &Path, link: &Path) -> bool {
     // Creating a symlink needs Developer Mode or elevation.
     std::os::windows::fs::symlink_dir(target, link).is_ok()
+}
+
+#[cfg(unix)]
+fn symlink_file(target: &Path, link: &Path) -> bool {
+    std::os::unix::fs::symlink(target, link).unwrap();
+    true
+}
+
+#[cfg(windows)]
+fn symlink_file(target: &Path, link: &Path) -> bool {
+    std::os::windows::fs::symlink_file(target, link).is_ok()
 }
 
 #[test]

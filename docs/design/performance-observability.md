@@ -620,6 +620,55 @@ still differed by 0.1% in median.  The instructions of `gc/clean-10k` therefore 
 metric; the modes widen its interquartile range, to 10.9% in this run, so a smaller change there
 reads as `Unchanged` rather than as a false verdict.
 
+## Investigation: recording build-output use
+
+Same machine, release builds of `main` (2e8ea483b) and the change, under heavy other load (load
+average 40-127).  The load made wall times unusable: an interleaved rerun of `workspace/build-noop`
+put the two binaries' medians 5% apart with quartiles 70 ms wide.  The figures below are the
+`record_use` span, medians of 30 runs, and instruction counts from `cargo perf run --runs 30`.
+
+**Question.**  Every build records which outputs its plan used, for the collection of unused build
+outputs (`profiles.md`, "Unused build outputs").  On a workspace of 200 packages with 19 C sources
+each (4,000 products in 200 shards), a no-op build spent 13 ms there and wrote nothing, since every
+stamp already held the day.  What was the time spent on?
+
+**Profile.**  Spans inside `record_use` on that workspace: turning 4,000 absolute paths into
+build-directory-relative ones and grouping them by output directory took 5 ms, reading the 200
+shards 4 ms, parsing them 0.8 ms, comparing stamps 1.1 ms, and naming the shard files 0.5 ms.
+
+**Fix.**  A plan recorded on the current active day is remembered in `.cabin-gc/recorded.json` by a
+digest of its products (up to 16 plans a day), and recording it again that day reads the clock and
+that file and stops.  Collection spares products used on the current active day, `cabin clean`
+removes the file with the catalog, and replacing an unreadable shard forgets every remembered plan.
+So the shards already hold what the skipped recording would write.  A plan with another product,
+another package selection, or a new active day misses and records in full.  The file is replaced
+without a sync, since losing it only costs a recording, so rotating through more plans a day than
+it holds stays cheap: 17 plans of 20 products took 0.3 ms a call against `main`'s 0.07 ms, and
+16.9 ms when the file was synced.
+
+| `record_use` | `main` | Change |
+| --- | ---: | ---: |
+| 200-package no-op build | 12.98 ms | 1.05 ms |
+| 200-package build, one source touched | 18.49 ms | 1.17 ms |
+| `build/noop-cxx` | 0.18 ms | 0.12 ms |
+| 200-package build, first of a new active day | 1.66 s | 1.67 s |
+
+Instructions fell 5.7% for `workspace/build-noop`, 1.0-2.1% for `build/noop-c` and `-cxx`, and 2.8%
+for `build/touch-source-cxx`.  They rose 4.8% for `gc/new-day-c` and `-cxx`, whose first build of
+a day also writes `recorded.json`.
+
+**Concurrency.**  Recording was a read-modify-write of each shard under the build directory's
+shared lock, so two commands sharing a build directory (`cabin build` beside `cabin test`, or two
+`-p` builds) could each read a shard and write it back, and the later write dropped the other's
+stamps: a product used that day could then be collected as old.  Recording now holds an exclusive
+lock on `.cabin-gc` for the read-modify-write alone, taken after the check that skips it, so builds
+still run side by side and wait on each other only while one records.
+
+**Not changed.**  The first build of each active day still rewrites every shard its plan touches,
+each through an atomic write that syncs: 1.66 s for 200 shards here, under macOS's `F_FULLFSYNC`.
+A shard lost or torn by a crash authorizes no removal, so shards may not need that durability;
+whether their sync can go is left to a separate change.
+
 ## Platform verification
 
 | Capability | macOS (arm64) | Linux (x86-64) | Windows (MSVC) |
