@@ -578,3 +578,128 @@ sources = ["src/main.cc", "src/value.c"]
     cabin_with("two", &other_lib, &["-v", "build"])
         .stdout(predicate::str::contains("ninja: no work to do.").not());
 }
+
+/// A fake tool that records each run beside itself (`<path>.ran`), so
+/// a test can tell whether Cabin executed it.
+#[cfg(unix)]
+fn recording_tool(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    // A redirection, not `touch`: the tests run with `PATH` narrowed.
+    write_executable(&path, "#!/bin/sh\n: >\"$0.ran\"\nexit 0\n");
+    path
+}
+
+/// A project's own config or manifest cannot run an executable it
+/// names by path - typically one shipped in the checkout - even from
+/// `cabin metadata`, which an editor runs on opening a folder.  The
+/// user's own choice still works, and so does the project's once the
+/// user's config trusts it.
+#[cfg(unix)]
+#[test]
+fn an_untrusted_project_cannot_run_a_tool_it_names_by_path() {
+    let bin = TempDir::new().unwrap();
+    let user_cxx = fake_tool(bin.path(), "c++");
+    let _ar = fake_tool(bin.path(), "ar");
+    for wrapper in [false, true] {
+        let project = TempDir::new().unwrap();
+        let shim = recording_tool(project.path(), "shim");
+        let ran = project.path().join("shim.ran");
+        let build_table = if wrapper {
+            format!("\n[build]\ncompiler-wrapper = {shim:?}\n")
+        } else {
+            project
+                .child(".cabin/config.toml")
+                .write_str(&format!("[toolchain]\ncxx = {shim:?}\n"))
+                .unwrap();
+            String::new()
+        };
+        project
+            .child("cabin.toml")
+            .write_str(&format!(
+                "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n{build_table}"
+            ))
+            .unwrap();
+        let home = TempDir::new().unwrap();
+        let metadata = || {
+            let mut cmd = cabin_with_config();
+            cmd.args(["metadata", "--manifest-path"])
+                .arg(project.path().join("cabin.toml"))
+                .env("CABIN_CONFIG_HOME", home.path())
+                .env("PATH", bin.path())
+                .env_remove("CXX")
+                .env_remove("CC")
+                .env_remove("AR");
+            cmd
+        };
+        // `cabin metadata` reports a wrapper it cannot resolve as a
+        // warning and carries on; a compiler it cannot resolve fails it.
+        let refused = metadata().assert();
+        let refused = if wrapper {
+            refused.success()
+        } else {
+            refused.failure()
+        };
+        refused.stderr(predicate::str::contains(
+            "which Cabin runs only for a project you trust",
+        ));
+        assert!(!ran.exists());
+
+        let mut overridden = metadata();
+        if wrapper {
+            overridden.arg("--no-compiler-wrapper");
+        } else {
+            overridden.arg("--cxx").arg(&user_cxx);
+        }
+        overridden
+            .assert()
+            .success()
+            .stderr(predicate::str::contains("trust").not());
+        assert!(!ran.exists());
+
+        home.child("config.toml")
+            .write_str(&format!("[trust]\nprojects = [{:?}]\n", project.path()))
+            .unwrap();
+        metadata().assert().success();
+        assert!(ran.exists(), "the trusted project's tool runs");
+    }
+}
+
+/// A relative tool path resolves against the working directory, so a
+/// symlinked manifest cannot borrow a trusted project's trust to run
+/// the executable beside the symlink.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_manifest_does_not_extend_trust_to_its_own_directory() {
+    let bin = TempDir::new().unwrap();
+    let _cxx = fake_tool(bin.path(), "c++");
+    let _ar = fake_tool(bin.path(), "ar");
+    let safe = TempDir::new().unwrap();
+    safe.child("cabin.toml")
+        .write_str(
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[toolchain]\ncxx = \"./shim\"\n",
+        )
+        .unwrap();
+    let evil = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(
+        safe.path().join("cabin.toml"),
+        evil.path().join("cabin.toml"),
+    )
+    .unwrap();
+    recording_tool(evil.path(), "shim");
+    let home = TempDir::new().unwrap();
+    home.child("config.toml")
+        .write_str(&format!("[trust]\nprojects = [{:?}]\n", safe.path()))
+        .unwrap();
+    cabin_with_config()
+        .current_dir(evil.path())
+        .arg("metadata")
+        .env("CABIN_CONFIG_HOME", home.path())
+        .env("PATH", bin.path())
+        .env_remove("CXX")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "which Cabin runs only for a project you trust",
+        ));
+    assert!(!evil.path().join("shim.ran").exists());
+}

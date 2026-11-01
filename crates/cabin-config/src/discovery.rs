@@ -117,8 +117,10 @@ pub struct ConfigDiscovery {
 /// than not-found), [`ConfigError::Parse`] when any read file
 /// is not valid Cabin config TOML, [`ConfigError::NonUtf8Path`]
 /// when a discovered config file path is not valid UTF-8,
-/// [`ConfigError::TermOutsideUserConfig`] when a workspace or package
-/// file that is not also the user config file declares `[term]`, and
+/// [`ConfigError::TermOutsideUserConfig`] or
+/// [`ConfigError::TrustOutsideUserConfig`] when a workspace or package
+/// file that is not also the user config file declares `[term]` or
+/// `[trust]`, and
 /// [`ConfigError::InvalidBoolEnv`] when `CABIN_NO_CONFIG` is set
 /// to a value outside the documented truthy / falsy spellings.
 #[tracing::instrument(level = "debug", skip_all)]
@@ -160,10 +162,13 @@ pub fn discover_config_files(
         if let Some(file) = read_optional(&path, source)? {
             // `CABIN_CONFIG_HOME` may name this project's `.cabin`, making
             // the file the user config too, whose `[term]` applies.
-            if file.parsed.term.is_some()
-                && !user.as_deref().is_some_and(|user| same_file(user, &path))
-            {
-                return Err(ConfigError::TermOutsideUserConfig { path });
+            if !user.as_deref().is_some_and(|user| same_file(user, &path)) {
+                if file.parsed.term.is_some() {
+                    return Err(ConfigError::TermOutsideUserConfig { path });
+                }
+                if file.parsed.trusted_projects.is_some() {
+                    return Err(ConfigError::TrustOutsideUserConfig { path });
+                }
             }
             files.push(file);
         }
@@ -660,6 +665,33 @@ mod tests {
             message.contains("target-conditioned config tables are not supported"),
             "expected target-conditioned rejection, got: {message}"
         );
+    }
+
+    /// A project cannot trust itself, even with an empty list.
+    #[test]
+    fn trust_is_rejected_outside_the_user_config() {
+        for populated in [true, false] {
+            let project = TempDir::new().unwrap();
+            let body = if populated {
+                format!("[trust]\nprojects = [{:?}]\n", project.path())
+            } else {
+                "[trust]\n".to_owned()
+            };
+            let path = write_config(project.path(), &body);
+            let inputs = ConfigDiscoveryInputs {
+                workspace: Some(WorkspaceLayout {
+                    root_dir: project.path(),
+                    is_workspace_root: true,
+                }),
+                env: env_with(&[]),
+                xdg_user_config_home: None,
+            };
+            let err = discover_config_files(&inputs).unwrap_err();
+            assert!(
+                matches!(&err, ConfigError::TrustOutsideUserConfig { path: p } if *p == path),
+                "{err}"
+            );
+        }
     }
 
     #[test]

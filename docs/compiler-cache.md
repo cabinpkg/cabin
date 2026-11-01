@@ -30,7 +30,9 @@ compiler-wrapper = "/opt/tools/sccache"
 
 The value is one executable, not a shell command. Cabin trims surrounding
 whitespace, rejects empty or whitespace-only values, and does not shell-split
-the string. A bare name is searched on `PATH`; a path is probed directly.
+the string. A bare name is searched on `PATH`; a path is probed directly, and
+from the manifest or a project's `.cabin/config.toml` only when the user
+[trusts the project](config.md#trust).
 
 `[build] compiler-wrapper` is workspace-root-only. Member and path-dependency
 manifests cannot choose a different wrapper for the same build invocation.

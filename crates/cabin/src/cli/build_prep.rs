@@ -109,6 +109,7 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         inputs.cli_compiler_wrapper,
         inputs.manifest_compiler_wrapper,
         inputs.effective_config,
+        &inputs.graph.root_dir,
     )?;
     let mut toolchain_summary = cabin_core::ToolchainSummary::from_resolved_parts(
         inputs.toolchain,
@@ -778,7 +779,13 @@ pub(crate) fn prepare_workspace(
     } else {
         let cross = args.toolchain.target.is_some();
         let (context_toolchain, context_detection) = if cross {
-            build_machine_toolchain(&graph, &build_machine, &platform, &detection_report)?
+            build_machine_toolchain(
+                &graph,
+                &effective_config,
+                &build_machine,
+                &platform,
+                &detection_report,
+            )?
         } else {
             (toolchain.clone(), detection_report.clone())
         };
@@ -917,6 +924,7 @@ fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep
 /// environment's `CC`, `CXX`, and `AR`, and config describe the target.
 fn build_machine_toolchain(
     graph: &PackageGraph,
+    effective_config: &cabin_config::EffectiveConfig,
     build_machine: &cabin_core::TargetPlatform,
     platform: &cabin_core::TargetPlatform,
     target: &cabin_core::ToolchainDetectionReport,
@@ -940,6 +948,7 @@ fn build_machine_toolchain(
     let toolchain = cabin_toolchain::resolve_toolchain(&inputs).context(
         "failed to resolve the build machine's toolchain for `[build-dependencies]` (set HOST_CC, HOST_CXX, and HOST_AR to choose it)",
     )?;
+    ensure_toolchain_may_run(graph, effective_config, &toolchain, true)?;
     let report = cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)
         .context("failed to detect the build machine's toolchain for `[build-dependencies]`")?;
     cabin_toolchain::check_build_machine_compilers(
@@ -1210,7 +1219,105 @@ pub(crate) fn resolve_toolchain_layered(
     if let Some(layer) = config_toolchain_layer.as_ref() {
         toolchain_inputs = toolchain_inputs.with_config(layer);
     }
-    Ok(cabin_toolchain::resolve_toolchain(&toolchain_inputs)?)
+    let toolchain = cabin_toolchain::resolve_toolchain(&toolchain_inputs)?;
+    ensure_toolchain_may_run(graph, effective_config, &toolchain, false)?;
+    Ok(toolchain)
+}
+
+/// [`ensure_project_may_run`] for each tool of a resolved `toolchain`,
+/// the build machine's for a `--target` build when `host` is set.
+/// Resolution only locates the tools; detection runs them.
+fn ensure_toolchain_may_run(
+    graph: &PackageGraph,
+    effective_config: &cabin_config::EffectiveConfig,
+    toolchain: &cabin_core::ResolvedToolchain,
+    host: bool,
+) -> Result<()> {
+    use cabin_core::{ToolKind, ToolSource};
+    for tool in [
+        Some(&toolchain.cxx),
+        Some(&toolchain.ar),
+        toolchain.cc.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let from = match tool.source {
+            ToolSource::Manifest => "the root manifest's `[toolchain]` table",
+            ToolSource::ManifestConditional => {
+                "a root manifest `[target.'cfg(...)'.toolchain]` table"
+            }
+            ToolSource::WorkspaceConfig | ToolSource::PackageConfig => {
+                "the project's `.cabin/config.toml` `[toolchain]` table"
+            }
+            ToolSource::Cli
+            | ToolSource::Env
+            | ToolSource::UserConfig
+            | ToolSource::ExplicitConfig
+            | ToolSource::Default => continue,
+        };
+        let (key, overrides) = match (tool.kind, host) {
+            (ToolKind::CCompiler, false) => ("cc", "`--cc` or `CC`"),
+            (ToolKind::CxxCompiler, false) => ("cxx", "`--cxx` or `CXX`"),
+            (ToolKind::Archiver, false) => ("ar", "`--ar` or `AR`"),
+            (ToolKind::CCompiler, true) => ("cc", "`HOST_CC`"),
+            (ToolKind::CxxCompiler, true) => ("cxx", "`HOST_CXX`"),
+            (ToolKind::Archiver, true) => ("ar", "`HOST_AR`"),
+        };
+        ensure_project_may_run(
+            &graph.root_dir,
+            effective_config,
+            &format!("{from} sets `{key} = \"{}\"`", tool.spec.display()),
+            &tool.spec.display(),
+            overrides,
+        )?;
+    }
+    Ok(())
+}
+
+/// Refuse an executable a project names by path (`from` says where)
+/// unless the user trusts the project.  The checkout itself can ship
+/// that executable, and the read-only commands an editor runs on
+/// opening a folder (`cabin metadata`) execute the chosen tools to
+/// detect them.  A bare name is looked up on `PATH`, which the user
+/// controls, so it needs no trust.  The resolver reads any separator
+/// as a path, and Windows reads `C:x` as a drive-relative one, so a
+/// bare name is a single plain component with neither.  A relative
+/// path resolves against the working directory, which a symlinked
+/// manifest can put outside `root`, so that directory needs trust too.
+fn ensure_project_may_run(
+    root: &Path,
+    effective_config: &cabin_config::EffectiveConfig,
+    from: &str,
+    spec: &str,
+    overrides: &str,
+) -> Result<()> {
+    let mut components = Path::new(spec).components();
+    let bare = !spec.contains(['/', '\\'])
+        && matches!(
+            (components.next(), components.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        );
+    if bare {
+        return Ok(());
+    }
+    let cwd = std::env::current_dir()?;
+    let dirs = if Path::new(spec).is_relative() {
+        vec![root, cwd.as_path()]
+    } else {
+        vec![root]
+    };
+    for dir in dirs {
+        if !crate::cli::config::project_trusted(effective_config, dir) {
+            bail!(
+                "{from}, an executable named by path, which Cabin runs only for a project you \
+                 trust; add {dir:?} to `projects` in the `[trust]` table of your user config \
+                 file, or choose the tool yourself with {overrides}",
+                dir = dir.display().to_string(),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Translate the `--compiler-wrapper` / `--no-compiler-wrapper`
@@ -1243,11 +1350,39 @@ pub(crate) fn resolve_compiler_wrapper_layered(
     cli_override: Option<cabin_core::CompilerWrapperRequest>,
     manifest_request: Option<&cabin_core::CompilerWrapperRequest>,
     effective_config: &cabin_config::EffectiveConfig,
+    root: &Path,
 ) -> Result<Option<cabin_core::ResolvedCompilerWrapper>> {
     let mut wrapper_inputs =
         cabin_toolchain::WrapperInputs::from_process(cli_override, manifest_request);
     if let Some(layer) = crate::cli::config::wrapper_layer(effective_config) {
         wrapper_inputs = wrapper_inputs.with_config(layer);
+    }
+    // Locate the choice without running it, so a project's own wrapper
+    // is refused before its `--version` probe could execute it.
+    let located = cabin_toolchain::resolve_compiler_wrapper(&wrapper_inputs, None)
+        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let Some(located) = located else {
+        return Ok(None);
+    };
+    let from = match located.source {
+        cabin_core::CompilerWrapperSource::Manifest => Some("the root manifest's `[build]` table"),
+        cabin_core::CompilerWrapperSource::WorkspaceConfig
+        | cabin_core::CompilerWrapperSource::PackageConfig => {
+            Some("the project's `.cabin/config.toml` `[build]` table")
+        }
+        cabin_core::CompilerWrapperSource::Cli
+        | cabin_core::CompilerWrapperSource::Env
+        | cabin_core::CompilerWrapperSource::UserConfig
+        | cabin_core::CompilerWrapperSource::ExplicitConfig => None,
+    };
+    if let Some(from) = from {
+        ensure_project_may_run(
+            root,
+            effective_config,
+            &format!("{from} sets `compiler-wrapper = \"{}\"`", located.spec),
+            &located.spec,
+            "`--compiler-wrapper` or `CABIN_COMPILER_WRAPPER`",
+        )?;
     }
     cabin_toolchain::resolve_compiler_wrapper(
         &wrapper_inputs,

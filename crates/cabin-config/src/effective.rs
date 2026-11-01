@@ -35,6 +35,9 @@ pub struct EffectiveConfig {
     pub toolchain: EffectiveToolchain,
     pub compiler_wrapper: Option<EffectiveCompilerWrapper>,
     pub term: EffectiveTerm,
+    /// `[trust] projects` from every loaded file; discovery admits
+    /// the table only in the user config file and `CABIN_CONFIG`.
+    pub trusted_projects: Vec<Utf8PathBuf>,
     /// Active config-derived patches keyed by package name.
     /// Higher-priority files override lower files on overlap.
     pub patches: BTreeMap<PackageName, EffectivePatch>,
@@ -290,6 +293,9 @@ fn apply_parsed(
             source,
         });
     }
+    effective
+        .trusted_projects
+        .extend(parsed.trusted_projects.iter().flatten().cloned());
     if let Some(term) = &parsed.term {
         if let Some(choice) = term.color {
             effective.term.color = Some(EffectiveColor { choice, source });

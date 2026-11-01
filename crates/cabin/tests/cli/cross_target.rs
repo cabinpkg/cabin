@@ -210,6 +210,54 @@ fn build_dependencies_under_a_cross_gcc_build_with_the_host_compilers() {
         .stderr(predicate::str::contains("the one `LIB` environment"));
 }
 
+/// The build machine's toolchain for a `--target` build is a project
+/// choice too: a root manifest cannot run an executable it names by
+/// path through it, and `HOST_CXX`, not `--cxx`, overrides it.
+#[test]
+fn an_untrusted_project_cannot_run_a_build_machine_tool_it_names_by_path() {
+    let dir = TempDir::new().unwrap();
+    crate::build_dependencies::write_generator_project(dir.path());
+    let shim = dir.path().join("app/shim");
+    write_executable(&shim, "#!/bin/sh\n: >\"$0.ran\"\n");
+    let manifest = dir.path().join("app/cabin.toml");
+    let text = fs::read_to_string(&manifest).unwrap();
+    fs::write(&manifest, format!("{text}\n[toolchain]\ncxx = {shim:?}\n")).unwrap();
+    let bin = TempDir::new().unwrap();
+    let fake_gcc = |name: &str, machine: &str| {
+        let path = bin.path().join(name);
+        write_executable(
+            &path,
+            &format!(
+                "#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo {machine}; else echo 'g++ (GCC) 13.2.0'; fi\n"
+            ),
+        );
+        path
+    };
+    let gcc = fake_gcc("fake-g++", "riscv64-linux-gnu");
+    let ar = fake_tool_with_output(bin.path(), "ar", "GNU ar (GNU Binutils) 2.40\n", "", 0);
+    let mut command = cabin();
+    command
+        .current_dir(dir.path().join("app"))
+        .env("CABIN_CONFIG_HOME", bin.path())
+        .args(["build", "--target", "riscv64-unknown-linux-gnu", "--cc"])
+        .arg(&gcc)
+        .arg("--cxx")
+        .arg(&gcc)
+        .arg("--ar")
+        .arg(&ar)
+        .env_remove("HOST_CC")
+        .env_remove("HOST_CXX")
+        .env_remove("HOST_AR");
+    command
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "which Cabin runs only for a project you trust",
+        ))
+        .stderr(predicate::str::contains("`HOST_CXX`"));
+    assert!(!dir.path().join("app/shim.ran").exists());
+}
+
 /// Apple Clang builds either macOS architecture on any Mac, so these
 /// tests cross-build for the architecture the build machine is not.
 #[cfg(target_os = "macos")]

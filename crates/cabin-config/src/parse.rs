@@ -19,7 +19,7 @@ use cabin_core::{
 use crate::error::ConfigParseError;
 use crate::raw::{
     RawBuild, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawGc, RawPaths, RawRegistry,
-    RawResolver, RawTerm, RawToolchain,
+    RawResolver, RawTerm, RawToolchain, RawTrust,
 };
 
 /// Validated, typed contents of one config file.  The raw
@@ -35,6 +35,10 @@ pub struct ParsedConfig {
     pub toolchain: ParsedToolchain,
     /// `None` when the file has no `[term]` table.
     pub term: Option<ParsedTerm>,
+    /// `[trust] projects`: absolute directories whose projects may
+    /// choose executables by path.  `None` when the file has no
+    /// `[trust]` table.
+    pub trusted_projects: Option<Vec<Utf8PathBuf>>,
     pub patches: BTreeMap<PackageName, PatchSource>,
     /// Keyed by the original locator; each value is its replacement.
     pub source_replacements: BTreeMap<SourceLocator, SourceLocator>,
@@ -160,6 +164,7 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         None => ParsedToolchain::default(),
     };
     let term = raw.term.map(parsed_term_from_raw).transpose()?;
+    let trusted_projects = raw.trust.map(parsed_trust_from_raw).transpose()?;
     let patches = match raw.patch {
         Some(rows) => parsed_patches_from_raw(rows)?,
         None => BTreeMap::new(),
@@ -194,6 +199,7 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         gc,
         toolchain,
         term,
+        trusted_projects,
         patches,
         source_replacements,
         runners,
@@ -342,6 +348,15 @@ fn parsed_compiler_wrapper_from_raw(
     CompilerWrapperRequest::parse(&value)
         .map(Some)
         .map_err(ConfigParseError::InvalidCompilerWrapper)
+}
+
+fn parsed_trust_from_raw(raw: RawTrust) -> Result<Vec<Utf8PathBuf>, ConfigParseError> {
+    // No base directory makes a relative entry mean the same thing
+    // wherever Cabin runs from.
+    if let Some(path) = raw.projects.iter().find(|path| !path.is_absolute()) {
+        return Err(ConfigParseError::RelativeTrustedProject { path: path.clone() });
+    }
+    Ok(raw.projects)
 }
 
 fn parsed_term_from_raw(raw: RawTerm) -> Result<ParsedTerm, ConfigParseError> {
@@ -1123,6 +1138,18 @@ mod tests {
             }
             other => panic!("expected InvalidTermColor, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn trusted_projects_must_be_absolute() {
+        let root = if cfg!(windows) { r"C:\src" } else { "/src" };
+        let parsed = parse_config_str(&format!("[trust]\nprojects = ['{root}']\n")).unwrap();
+        assert_eq!(parsed.trusted_projects, Some(vec![Utf8PathBuf::from(root)]));
+        let err = parse_config_str("[trust]\nprojects = ['src']\n").unwrap_err();
+        assert!(
+            matches!(&err, ConfigParseError::RelativeTrustedProject { path } if path == "src"),
+            "{err}"
+        );
     }
 
     #[test]

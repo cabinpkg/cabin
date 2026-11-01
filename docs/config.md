@@ -99,6 +99,9 @@ color = "auto"
 verbose = false
 quiet = false
 
+[trust]
+projects = ["/home/me/src/app"]
+
 [patch]
 fmt = { path = "../forks/fmt" }
 
@@ -160,7 +163,7 @@ Persistent defaults for build-time selectors that Cabin already exposes as CLI f
 | ------------------ | ------- | --------------------------------------------------------------------- |
 | `profile`          | string  | Default profile. Overridden by `--profile <name>` and `--release`. Must reference a built-in (`dev`, `release`) or a custom profile declared in the workspace root manifest. |
 | `jobs`             | integer | Default number of parallel jobs for the build backend. Must be a positive integer; `0` and negative values are rejected at parse time. |
-| `compiler-wrapper` | string  | Executable name or path that prefixes C and C++ compile commands. Empty and whitespace-only values are rejected. |
+| `compiler-wrapper` | string  | Executable name or path that prefixes C and C++ compile commands. Empty and whitespace-only values are rejected.  A path from a project's own config needs [`[trust]`](#trust). |
 
 `cabin build`'s profile precedence is `--profile` - > `--release` - > `build.profile` config - >
 built-in `dev`.
@@ -279,13 +282,37 @@ from.  Like `-j`, those flags belong to one invocation and never appear there.  
 }
 ```
 
+### `[trust]`
+
+Projects whose own configuration may choose an executable by path.
+
+| Key        | Type             | Notes                                                    |
+| ---------- | ---------------- | -------------------------------------------------------- |
+| `projects` | array of strings | Absolute directories.  A workspace whose root is one of them, or below one, is trusted.  Relative entries are rejected at parse time. |
+
+A project's `.cabin/config.toml` and its root manifest may set `cc`, `cxx`, `ar`, and
+`compiler-wrapper` to a bare command name, which Cabin looks up on `PATH`.  Naming an executable by
+path - typically one shipped in the checkout - fails with an error that names the setting and this
+table, unless the project is trusted: Cabin runs the chosen tools even for `cabin metadata`, which an
+editor may run on opening a folder.  A choice on the command line or in the environment needs no
+trust and outranks the project's (for a `--target` build's build-machine tools, `HOST_CC`,
+`HOST_CXX`, and `HOST_AR`); one in the user config needs no trust either, but a project's
+`.cabin/config.toml` outranks it.  Trust governs only which executables Cabin starts by name: a bare
+name runs whatever `PATH` finds, including a launcher such as a rustup proxy that honors the
+checkout's own toolchain files, and a project's own build flags can still make the compiler load
+code (`-fplugin`, `-B`), so building an untrusted project is no safer than running its makefile.
+
+Only the user config, or the `CABIN_CONFIG` file when that is set, can hold `[trust]`, since a
+project cannot trust itself; a workspace or package `.cabin/config.toml` with the table fails every
+command that reads it.  Entries and the workspace root are compared after resolving symlinks.
+
 ### `[toolchain]`
 
 Persistent defaults for the C/C++ tool selection from [`toolchains.md`](toolchains.md).
 
 | Key   | Type   | Notes                                                              |
 | ----- | ------ | ------------------------------------------------------------------ |
-| `cc`  | string | Bare command name searched on `PATH`, or an explicit filesystem path, relative to the current directory. |
+| `cc`  | string | Bare command name searched on `PATH`, or an explicit filesystem path, relative to the current directory.  A path from a project's own config needs [`[trust]`](#trust). |
 | `cxx` | string | Same shape as `cc`, for the C++ compiler driver.                   |
 | `ar`  | string | Same shape as `cc`, for the static-library archiver.               |
 

@@ -140,6 +140,21 @@ pub(crate) const fn config_is_user_chosen(source: ConfigSource) -> bool {
     matches!(source, ConfigSource::User | ConfigSource::Explicit)
 }
 
+/// Whether the user trusts the project rooted at `root`: it is at or
+/// below a `[trust] projects` directory.  Both sides are canonicalized,
+/// so another spelling of the same directory (a symlink, or a case
+/// difference on a case-insensitive file system) matches, and an entry
+/// that does not exist trusts nothing.
+pub(crate) fn project_trusted(config: &EffectiveConfig, root: &Path) -> bool {
+    let Ok(root) = std::fs::canonicalize(root) else {
+        return false;
+    };
+    config
+        .trusted_projects
+        .iter()
+        .any(|dir| std::fs::canonicalize(dir).is_ok_and(|dir| root.starts_with(dir)))
+}
+
 /// Whether the origin an index is finally reached through was chosen
 /// by the user.
 ///
