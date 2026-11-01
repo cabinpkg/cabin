@@ -579,12 +579,24 @@ What remains:
   dependency as depending on a file that never exists instead: it reruns on every build rather
   than going stale or failing.  On Windows, Ninja resolves that file's name against the
   directory it runs in (`build/dev`) within 260 characters, so a path to that directory of 233
-  characters or more still fails such a build.
+  characters or more still fails such a build.  `cabin depfile` checks the absolute paths the
+  compiler writes, not the relative ones Ninja checks on Windows (see below), so it also reruns
+  such a compile in a workspace below `Program Files`.  A GNU-driver Clang targeting MSVC takes
+  the standard headers from MSVC and the Windows SDK, below `Program Files` where they install by
+  default, so there a compile that goes through `cabin depfile` and includes any of them reruns on
+  every build.
 - A `cl` or `clang-cl` compile's own `/showIncludes` output goes through the same filter, so its
   object does not depend on a header whose path contains either string, which the Windows SDK's and
-  MSVC's headers do where they install by default.  Editing or updating such a header rebuilds
-  nothing unless `cabin-toolchain.json` changes too, as it does when a compiler or the archiver
-  reports a new version, and that rebuilds everything.
+  MSVC's headers do where they install by default.  Ninja first makes each path relative to the
+  directory it runs in, unless the header is on another drive, so only the part below the deepest
+  directory the two share counts: a workspace inside `Program Files` with the default build
+  directory is tracked, but a header below a directory named `Microsoft Visual Studio` inside the
+  workspace is not.  Ninja compares the paths as spelled, and Cabin spells the build directory from
+  the working directory but the headers from the workspace's canonical path, so a working directory
+  spelled differently, such as with an 8.3 short name, shares only the part before the first
+  difference.  Editing or updating
+  such a header rebuilds nothing unless `cabin-toolchain.json` changes too, as it does when a
+  compiler or the archiver reports a new version, and that rebuilds everything.
 
 ### Long command lines
 
@@ -646,7 +658,9 @@ the example packages that need no outbound network on a `windows-2025-vs2026` ru
   applies to every executable in the package.
   `/utf-8` pins the source and execution character sets to UTF-8, matching the GCC/Clang default -
   without it `cl` interprets sources in the machine's active code page, and UTF-8-requiring headers
-  (such as {fmt}'s) fail to compile.  `cabin check`
+  (such as {fmt}'s) fail to compile.  With it `/showIncludes` names headers in UTF-8 too, which
+  Ninja's Windows release binaries from 1.11 on read as UTF-8 on Windows 10 version 1903 or later,
+  so a header path outside the active code page is tracked.  `cabin check`
   runs its syntax-only compile through a shell-free `cabin stamp` witness writer that stamps the
   output on a zero exit, so the rule is identical on every host and build paths containing shell
   metacharacters (`&`, `|`, `(`, `)`) never need escaping.
