@@ -4,9 +4,9 @@
 //! directory, published verbatim apart from its consumer `tests/`.
 //!
 //! The tool has exactly two modes, both of which run the complete
-//! local preflight (materialize every port, publish it into a
-//! temporary file registry, and build every port against the
-//! generated packages in publication order):
+//! local preflight (materialize every port and publish it into a
+//! temporary file registry in publication order, building every
+//! port against the generated packages as soon as it is staged):
 //!
 //! - `--dry-run` stops after the preflight;
 //! - `--publish` additionally uploads every package through the

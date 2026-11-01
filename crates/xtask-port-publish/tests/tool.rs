@@ -459,6 +459,67 @@ fn consumer_tests_run_in_the_dry_run_and_never_in_the_publish_run() {
     );
 }
 
+/// Probes run in parallel, yet the reported failure is the earliest
+/// port's in publication order, as in a sequential run: `zlib`'s probe
+/// fails a second after the later `zmini` probe has (or after 30 s),
+/// so with two or more probe workers an implementation reporting the
+/// first failure *seen* names the wrong port.
+#[test]
+fn the_earliest_failing_port_is_reported_when_a_later_one_fails_first() {
+    require_build_tools();
+    let dir = TempDir::new().unwrap();
+    let (ports, cache) = zlib_only(&dir);
+    let ports_child = dir.child("ports");
+    let (bytes, hex) = make_tar_gz(&[("zmini-1.0.0/zmini.c", "int zmini(void) { return 0; }\n")]);
+    seed_port_cache(&cache, &bytes, &hex);
+    write_port_package(
+        &ports_child,
+        "zmini",
+        "1.0.0",
+        &hex,
+        &[],
+        "[target.zmini]\ntype = \"library\"\nsources = [\"zmini.c\"]\nc-standard = \"c11\"\n",
+    );
+    let sentinel = dir.child("zmini-failed");
+    let sentinel = sentinel.path().display();
+    dir.child("ports/zlib/1.3.1/tests/main.cc")
+        .write_str(&format!(
+            "#include <chrono>\n#include <filesystem>\n#include <thread>\nint main() {{\n    \
+             for (int i = 0; i < 300 && !std::filesystem::exists(R\"({sentinel})\"); ++i) {{\n        \
+             std::this_thread::sleep_for(std::chrono::milliseconds(100));\n    }}\n    \
+             std::this_thread::sleep_for(std::chrono::seconds(1));\n    return 3;\n}}\n"
+        ))
+        .unwrap();
+    dir.child("ports/zmini/1.0.0/tests/main.cc")
+        .write_str(&format!(
+            "#include <fstream>\nint main() {{\n    std::ofstream(R\"({sentinel})\");\n    return 4;\n}}\n"
+        ))
+        .unwrap();
+
+    let output = scrubbed(tool())
+        .arg("--dry-run")
+        .arg("--ports-dir")
+        .arg(&ports)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .arg("--work-dir")
+        .arg(dir.child("work").path())
+        .arg("--cabin")
+        .arg(cabin_binary())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    let error = stderr
+        .lines()
+        .find(|line| line.starts_with("error: "))
+        .unwrap_or_else(|| panic!("no error line: {stderr}"));
+    assert!(
+        error.contains("preflight probe `port-probe` of cabin-ports/zlib 1.3.1"),
+        "{error}"
+    );
+}
+
 /// Fake remote registry: `config.json` + empty package reads on the
 /// sparse index, and a publish API recording every PUT.
 struct FakeRegistry {
