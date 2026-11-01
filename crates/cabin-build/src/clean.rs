@@ -12,9 +12,13 @@
 //!   `build_dir`;
 //! - paths are sorted so dry-run output is deterministic;
 //! - `remove_dir_all` does not follow symlinks for entries
-//!   inside the tree - it removes the link, not the target - and
-//!   the build directory itself is rejected up-front when it is a
-//!   symlink, so this module never traverses through a symlink.
+//!   inside the tree - it removes the link, not the target;
+//! - containment is lexical, so the build directory and every
+//!   directory between it and a removal must not be a symlink;
+//!   [`plan_clean`] refuses such a link.  A process that swaps a
+//!   directory for a link between that check and the removal can
+//!   still redirect it, which needs write access to the build
+//!   directory or the directory holding it.
 
 use std::path::{Path, PathBuf};
 
@@ -155,7 +159,8 @@ pub enum CleanError {
 /// [`CleanError::WorkspaceRootBuildDir`],
 /// [`CleanError::PackageRootBuildDir`],
 /// [`CleanError::SourcePathBuildDir`], or
-/// [`CleanError::SymlinkBuildDir`].  Also returns
+/// [`CleanError::SymlinkBuildDir`] (also for a symlinked directory
+/// between `build_dir` and a removal).  Also returns
 /// [`CleanError::PreviousTargetLayout`] when a profile directory in
 /// scope holds a `--target` build from before `.targets`,
 /// [`CleanError::PathEscapesBuildDir`] if a computed deletion
@@ -170,13 +175,7 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
     )?;
 
     let root = crate::layout::platform_dir(req.build_dir, req.target);
-    // Containment below is lexical, so every directory between the build
-    // directory and the platform's tree must be real too.
-    for dir in root.ancestors().take_while(|dir| *dir != req.build_dir) {
-        if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
-            return Err(CleanError::SymlinkBuildDir(dir.to_path_buf()));
-        }
-    }
+    reject_linked_dirs(req.build_dir, &root)?;
     // A profile named like a triple shares its directory name with the
     // tree a `--target` build wrote before `.targets`; never remove that
     // tree as the profile's.
@@ -239,6 +238,7 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
                 build_dir: req.build_dir.to_path_buf(),
             });
         }
+        reject_linked_parents(req.build_dir, candidate)?;
     }
 
     // `symlink_metadata`, not `exists`: a dangling link is still removed.
@@ -358,6 +358,28 @@ fn same_path(a: &Path, b: &Path) -> bool {
         (Ok(ca), Ok(cb)) => ca == cb,
         _ => false,
     }
+}
+
+/// Refuse `dir`, or a directory between `build_dir` and `dir`, that is
+/// a symlink: a path [`is_within`] a build directory that is not a link
+/// (see [`validate_safe_build_dir`]) is guaranteed to lie inside it on
+/// disk only when none of them is one.
+fn reject_linked_dirs(build_dir: &Path, dir: &Path) -> Result<(), CleanError> {
+    match dir
+        .ancestors()
+        .take_while(|dir| *dir != build_dir)
+        .find(|dir| std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()))
+    {
+        Some(link) => Err(CleanError::SymlinkBuildDir(link.to_path_buf())),
+        None => Ok(()),
+    }
+}
+
+/// [`reject_linked_dirs`] for the directories above `path`; `path` itself
+/// may be a link, which removal deletes without following.
+fn reject_linked_parents(build_dir: &Path, path: &Path) -> Result<(), CleanError> {
+    path.parent()
+        .map_or(Ok(()), |parent| reject_linked_dirs(build_dir, parent))
 }
 
 /// Whether `candidate` is `base` itself or lives underneath
@@ -842,5 +864,44 @@ mod tests {
         narrowed.target = Some(&x86);
         let err = plan_clean(&narrowed).unwrap_err();
         assert!(matches!(&err, CleanError::SymlinkBuildDir(dir) if dir.ends_with(".targets")));
+    }
+
+    /// An outside tree shaped like the one a package-scoped clean of
+    /// `hello` removes, so a removal that escapes lands on `keep`.
+    #[cfg(unix)]
+    fn outside_package_tree(tmp: &TempDir) -> assert_fs::fixture::ChildPath {
+        let outside = tmp.child("outside");
+        outside.child("packages/hello/keep").write_str("x").unwrap();
+        outside
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_clean_refuses_a_linked_directory_above_the_package() {
+        let dev_hello = || CleanScope::Packages {
+            profiles: vec![profile("dev")],
+            packages: vec![package("hello")],
+        };
+        for (link, target) in [
+            ("dev", ""),
+            ("dev/packages", "packages"),
+            ("dev/build-machine", ""),
+        ] {
+            let tmp = TempDir::new().unwrap();
+            let outside = outside_package_tree(&tmp);
+            let build = tmp.child("build");
+            populate_layout(&build);
+            std::fs::remove_dir_all(build.child(link).path()).unwrap();
+            std::os::unix::fs::symlink(outside.child(target).path(), build.child(link).path())
+                .unwrap();
+            let err = plan_clean(&req(build.path(), tmp.path(), dev_hello())).unwrap_err();
+            assert!(
+                matches!(&err, CleanError::SymlinkBuildDir(dir) if dir.ends_with(link)),
+                "{link}: {err:?}"
+            );
+            outside
+                .child("packages/hello/keep")
+                .assert(predicate::path::exists());
+        }
     }
 }
