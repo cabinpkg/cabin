@@ -292,13 +292,15 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         if !target.is_empty() {
             return Err(ManifestError::EmptyManifest);
         }
-        // Without a [package], conditional and plain dependency tables
-        // are silently ignored - a pure workspace root has nothing to
-        // apply them to.  Profile / toolchain / build tables have no
-        // package to apply against locally either; the workspace loader
-        // passes them down to members or, for toolchain settings,
-        // applies them workspace-wide.  The [workspace.*] tables below
-        // still flow through.
+        reject_package_tables_without_package(
+            &build_decl,
+            &conditional_targets,
+            [&dependencies, &dev_dependencies, &build_dependencies],
+            &features,
+        )?;
+        // Named profiles, toolchain, and build tables flow through
+        // `root_settings` as root policy, and the [workspace.*] tables
+        // below still flow through.
         None
     };
 
@@ -309,6 +311,54 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         workspace,
         root_settings,
     })
+}
+
+/// Reject package-level tables on a manifest without `[package]`:
+/// they apply only to the manifest's own package, so on a pure
+/// workspace root they would silently do nothing.  `dependency_tables`
+/// are `[dependencies]`, `[dev-dependencies]`, and
+/// `[build-dependencies]`, in that order.
+fn reject_package_tables_without_package(
+    profile_flags: &cabin_core::ProfileFlags,
+    conditional_targets: &[RawConditionalTarget],
+    dependency_tables: [&BTreeMap<String, RawDependency>; 3],
+    features: &BTreeMap<String, Vec<String>>,
+) -> Result<(), ManifestError> {
+    if !profile_flags.is_empty() {
+        return Err(ManifestError::ProfileFlagsWithoutPackage {
+            table: "[profile]".to_owned(),
+        });
+    }
+    for cond_target in conditional_targets {
+        let table = |kind: &str| format!("[target.'cfg({})'.{kind}]", cond_target.condition);
+        if cond_target.profile.is_some() || !cond_target.named_profiles.is_empty() {
+            return Err(ManifestError::ProfileFlagsWithoutPackage {
+                table: table("profile"),
+            });
+        }
+        for (kind, empty) in [
+            ("dependencies", cond_target.deps.is_empty()),
+            ("dev-dependencies", cond_target.dev_deps.is_empty()),
+            ("build-dependencies", cond_target.build_deps.is_empty()),
+            ("sources", cond_target.sources.is_empty()),
+        ] {
+            if !empty {
+                return Err(ManifestError::PackageTableWithoutPackage { table: table(kind) });
+            }
+        }
+    }
+    let plain_tables = [
+        ("[dependencies]", dependency_tables[0].is_empty()),
+        ("[dev-dependencies]", dependency_tables[1].is_empty()),
+        ("[build-dependencies]", dependency_tables[2].is_empty()),
+        ("[features]", features.is_empty()),
+    ];
+    if let Some((table, _)) = plain_tables.into_iter().find(|(_, empty)| !empty) {
+        return Err(ManifestError::PackageTableWithoutPackage {
+            table: table.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 /// Reject `cfg(feature = ...)` and compiler conditions on conditional

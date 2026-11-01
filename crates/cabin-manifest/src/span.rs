@@ -11,12 +11,9 @@
 //!
 //! Lookups are best-effort: any parse failure or missing key yields
 //! `None`, and the caller renders its diagnostic without a source
-//! snippet.  A field inside an inline table (`core = { ... }` under
-//! `[target]`) also misses, because `toml_edit::Item::as_table`
-//! matches only standard tables.  Otherwise, since the text already
-//! parsed once to produce the typed model, a miss means the file
-//! changed on disk in between - a race not worth an error path in a
-//! diagnostic renderer.
+//! snippet.  Since the text already parsed once to produce the
+//! typed model, a miss means the file changed on disk in between -
+//! a race not worth an error path in a diagnostic renderer.
 
 use std::ops::Range;
 
@@ -42,9 +39,13 @@ pub fn standard_field_span(
 ) -> Option<Range<usize>> {
     let doc: toml_edit::Document<&str> = toml_edit::Document::parse(text).ok()?;
     let table = match scope {
-        StandardFieldScope::Package => doc.get("package")?.as_table()?,
-        StandardFieldScope::Workspace => doc.get("workspace")?.as_table()?,
-        StandardFieldScope::Target(name) => doc.get("target")?.as_table()?.get(name)?.as_table()?,
+        StandardFieldScope::Package => doc.get("package")?.as_table_like()?,
+        StandardFieldScope::Workspace => doc.get("workspace")?.as_table_like()?,
+        StandardFieldScope::Target(name) => doc
+            .get("target")?
+            .as_table_like()?
+            .get(name)?
+            .as_table_like()?,
     };
     let key_span = table.key(field).and_then(toml_edit::Key::span);
     let value_span = table.get(field).and_then(toml_edit::Item::span);
@@ -69,7 +70,7 @@ cxx-standard = "c++17"
 c-standard = "c11"
 
 [target.core]
-kind = "library"
+type = "library"
 sources = ["src/core.cc"]
 interface-cxx-standard = "c++20"
 "#;
@@ -101,6 +102,16 @@ interface-cxx-standard = "c++20"
             spanned(StandardFieldScope::Target("core"), "interface-cxx-standard"),
             r#"interface-cxx-standard = "c++20""#
         );
+    }
+
+    #[test]
+    fn locates_field_in_inline_target_table() {
+        let text = r#"[target]
+core = { type = "library", sources = ["src/core.cc"], cxx-standard = "c++20" }
+"#;
+        let range = standard_field_span(text, StandardFieldScope::Target("core"), "cxx-standard")
+            .expect("field present");
+        assert_eq!(&text[range], r#"cxx-standard = "c++20""#);
     }
 
     #[test]
