@@ -53,13 +53,18 @@ const MAX_PATH_BYTES: usize = 256;
 /// must never reject an archive the verifier accepted.
 const MAX_DECOMPRESSION_RATIO: u64 = 32;
 
-/// The ratio cap only engages above this floor.  Tar framing
-/// (headers, padding, the EOF marker) is mostly zeros and compresses
-/// at far better than any sane content ratio, so tiny legitimate
-/// archives routinely "expand" 15-30x on framing alone; the floor
-/// keeps them clear of the ratio cap while still bounding what a
-/// small hostile download can write.  Covers the verifier's floor
-/// (4 MiB + 2 KiB per permitted entry = 24 MiB) with room to spare.
+/// The ratio cap only engages above this floor, because small
+/// legitimate archives can exceed it.  In either format, sources can
+/// compress far past the ratio: deflate at level 6 shrinks 1 MiB of a
+/// repeated generated-table line to about 2.5 KiB, a ratio near 400.
+/// A tar.gz also counts its framing (headers, padding, the EOF
+/// marker) in the decompressed stream, and that framing is mostly
+/// zeros, so a small tar.gz of tiny files can exceed the ratio on
+/// framing alone; zip framing is stored uncompressed and only adds to
+/// the compressed size.  The floor keeps such archives clear of the
+/// ratio cap while still bounding what a small hostile download can
+/// write.  Covers the verifier's floor (4 MiB + 2 KiB per permitted
+/// entry, about 23.5 MiB by default) with room to spare.
 const RATIO_FLOOR_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Decompressed bytes of tar framing and metadata allowed per

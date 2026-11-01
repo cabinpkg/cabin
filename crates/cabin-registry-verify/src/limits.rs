@@ -20,11 +20,9 @@ const VERIFY_MAX_PATH_LEN: &str = "VERIFY_MAX_PATH_LEN";
 
 /// Inspection caps.  The decompressed-total cap for one archive is
 /// `min(max(ratio_cap x compressed_size, floor), abs_cap_bytes)`,
-/// where the floor covers the zip framing the entry cap permits
-/// (`crate::scan`): zip framing (local and central headers, the
-/// EOCD) is fixed overhead that does not compress, so without the
-/// floor a small legitimate archive of many tiny files would trip
-/// the ratio cap.
+/// where the floor (`crate::scan`) admits a small archive whose
+/// sources legitimately compress past `ratio_cap`, such as a
+/// repetitive generated table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub ratio_cap: u64,

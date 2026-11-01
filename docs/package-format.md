@@ -61,7 +61,7 @@ Every extraction is bounded by these named limits:
 | entry count | 10 000 | inodes materialized from cheap-to-ship headers |
 | per-entry decompressed bytes | 256 MiB | one bomb entry |
 | aggregate decompressed bytes | 1 GiB | total disk written |
-| whole decompressed stream | `min(max(32 x compressed size, 64 MiB), 1 GiB + framing)` | amplification: a small download cannot inflate toward the absolute cap.  The 64 MiB floor exists because tar framing is mostly zeros and compresses far better than any content ratio, so small legitimate archives "expand" 15-30x on framing alone |
+| whole decompressed stream | `min(max(32 x compressed size, 64 MiB), 1 GiB + framing)` (a zip omits `+ framing`) | amplification: a small download cannot inflate toward the absolute cap.  The 64 MiB floor exists because small legitimate archives can exceed the ratio: in either format, repetitive sources such as a generated table compress hundreds of times over, and a tar.gz also counts its mostly-zero framing in the decompressed stream, so a small tar.gz of tiny files can exceed the ratio on framing alone |
 | tar framing and metadata records | 4 KiB x the entry count (40 MiB) | **memory**.  The tar reader buffers a GNU long-name or PAX record in full before the entry it decorates, and therefore before any type or path check can reject it |
 
 One duplicate shape is deliberately *not* caught: two entries whose paths differ only by case

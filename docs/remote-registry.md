@@ -616,9 +616,9 @@ checks, in order:
 
 1. **Size discipline**: the sum of the entries' declared uncompressed sizes is a cheap up-front
    cap, and the running decompressed total is capped again as each entry is inflated, at
-   `min(max(ratio x compressed size, floor), absolute cap)` - the floor covers the container
-   framing the entry cap permits, since framing alone "expands" small archives beyond any sane
-   ratio.  The entry count and per-entry path length are capped too, and crossing any cap aborts
+   `min(max(ratio x compressed size, floor), absolute cap)` - the floor admits small archives
+   whose sources legitimately compress past the ratio, such as a repetitive generated table.
+   The entry count and per-entry path length are capped too, and crossing any cap aborts
    the inspection: a decompression bomb is rejected, never inflated.
 2. **Structure**: the container must be a well-formed zip in the strict profile - the
    end-of-central-directory record at the fixed `len - 22` offset (single disk, zero comment, no
