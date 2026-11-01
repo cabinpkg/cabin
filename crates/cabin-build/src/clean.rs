@@ -670,6 +670,44 @@ mod tests {
         assert!(matches!(err, CleanError::SourcePathBuildDir { .. }));
     }
 
+    /// `cabin clean --target <triple> -p <pkg>` removes the package
+    /// from both contexts of that triple's tree and nothing native.
+    #[test]
+    fn plan_packages_under_a_target_stays_in_its_tree() {
+        let tmp = TempDir::new().unwrap();
+        let build = tmp.child("build");
+        populate_layout(&build);
+        let triple = "riscv64-unknown-linux-gnu";
+        for path in [
+            "dev/packages/hello/hello",
+            "dev/build-machine/packages/hello/hello",
+            "dev/packages/util/libutil.a",
+        ] {
+            build
+                .child(format!(".targets/{triple}/{path}"))
+                .write_str("x")
+                .unwrap();
+        }
+        let platform = cabin_core::TargetPlatform::from_triple(triple).unwrap();
+        let mut request = req(
+            build.path(),
+            tmp.path(),
+            CleanScope::Packages {
+                profiles: vec![profile("dev")],
+                packages: vec![package("hello")],
+            },
+        );
+        request.target = Some(&platform);
+        let targets = build.child(format!(".targets/{triple}/dev"));
+        assert_eq!(
+            plan_clean(&request).unwrap().removals,
+            vec![
+                targets.child("build-machine/packages/hello").to_path_buf(),
+                targets.child("packages/hello").to_path_buf(),
+            ]
+        );
+    }
+
     #[test]
     fn a_profile_named_like_a_triple_and_that_triple_clean_apart() {
         let tmp = TempDir::new().unwrap();
