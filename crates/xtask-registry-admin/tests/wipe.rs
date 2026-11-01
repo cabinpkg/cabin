@@ -156,7 +156,9 @@ impl World {
     fn log(&self) -> Vec<String> {
         match fs::read_to_string(self.dir.path().join("log")) {
             Ok(text) => text.lines().map(str::to_owned).collect(),
-            Err(_) => Vec::new(),
+            // No log means the shim never ran.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => panic!("read the shim log: {error}"),
         }
     }
 

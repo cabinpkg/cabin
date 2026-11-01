@@ -38,7 +38,7 @@
 //!   `cargo registry-smoke` matches a refused wipe's error against one
 //!   of these messages.
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::{declared_database_id, display, output, registry_root, results, wrangler};
@@ -113,8 +113,8 @@ pub fn run(mode: Mode) -> Result<()> {
         ])
         .current_dir(registry_root()),
     )
-    .map_err(|_| refusal("could not read meta.launched"))?;
-    let rows = results(&answer).map_err(|_| refusal("unexpected wrangler output"))?;
+    .with_context(|| refusal("could not read meta.launched"))?;
+    let rows = results(&answer).with_context(|| refusal("unexpected wrangler output"))?;
 
     match launched(&rows).as_str() {
         "false" => Ok(()),
@@ -159,8 +159,9 @@ fn launched(rows: &[serde_json::Map<String, serde_json::Value>]) -> String {
 /// binds, so a read here and a `d1 delete` by name cannot diverge.
 fn same_database() -> Result<()> {
     let answer = output(wrangler(&["d1", "list", "--json"]).current_dir(registry_root()))
-        .map_err(|_| missing_database())?;
-    let databases: Vec<Database> = serde_json::from_str(&answer).map_err(|_| missing_database())?;
+        .with_context(|| refusal("could not list the account's databases"))?;
+    let databases: Vec<Database> =
+        serde_json::from_str(&answer).with_context(|| refusal("unexpected wrangler output"))?;
     // `list.find(...)`: the FIRST entry of that name wins. Two
     // databases sharing it would leave the check proving the config
     // matches whichever wrangler listed first.
@@ -171,10 +172,10 @@ fn same_database() -> Result<()> {
         .ok_or_else(missing_database)?;
 
     let path = registry_root().join("wrangler.jsonc");
-    let text = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| declared_database_id(&text))
-        .ok_or_else(|| refusal("no database_id in wrangler.jsonc"))?;
+    let config = std::fs::read_to_string(&path)
+        .with_context(|| refusal(&format!("could not read {}", path.display())))?;
+    let text =
+        declared_database_id(&config).ok_or_else(|| refusal("no database_id in wrangler.jsonc"))?;
 
     if account != text {
         bail!(
@@ -190,7 +191,8 @@ fn missing_database() -> anyhow::Error {
 }
 
 /// One `launch guard:` line, with the trailing `(fail-safe)` every
-/// branch but the launched one carries.
+/// branch but the launched one carries.  As the context of an error,
+/// it prints that error after a colon.
 fn refusal(message: &str) -> anyhow::Error {
     anyhow::anyhow!("launch guard: {message}; refusing (fail-safe)")
 }
