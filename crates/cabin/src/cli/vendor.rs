@@ -234,6 +234,7 @@ pub(crate) fn vendor(
         )?,
         no_patches: args.no_patches,
         dev_for: &dev_for,
+        system_provided: &cabin_core::SystemProvidedSettings::default(),
     })?;
 
     // `resolve_pipeline_inputs` already rejected a URL left by

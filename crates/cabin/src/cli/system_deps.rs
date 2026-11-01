@@ -48,25 +48,7 @@ pub(crate) fn augment_build_flags_with_system_deps(
         return Ok(build_flags);
     }
 
-    let tool = PkgConfigTool::from_env(|key| std::env::var_os(key));
-    // A plain pkg-config reports the build machine's libraries, which
-    // must not link into a build for another machine.  A triple's `env`
-    // counts (a glibc host's `.pc` files do not fit a musl build), and
-    // the build machine's `env` is guessed as `gnu` on Linux, so on a
-    // musl host an explicit musl `--target` needs one of the overrides.
-    if !platform.same_machine(&TargetPlatform::current())
-        && std::env::var_os(cabin_env::CABIN_PKG_CONFIG).is_none_or(|value| value.is_empty())
-        && std::env::var_os("PKG_CONFIG_LIBDIR").is_none()
-    {
-        bail!(
-            "system dependencies of a build for {} need a pkg-config for that platform, not \
-             the build machine's: set PKG_CONFIG_LIBDIR (and PKG_CONFIG_SYSROOT_DIR) to the \
-             target sysroot's pkg-config directories, or CABIN_PKG_CONFIG to a pkg-config \
-             for {}",
-            platform.target,
-            platform.target,
-        );
-    }
+    let tool = pkg_config_for(platform)?;
     let count = total_count(&active);
     let noun = if count == 1 {
         "dependency"
@@ -80,16 +62,6 @@ pub(crate) fn augment_build_flags_with_system_deps(
         tool.executable().to_string_lossy(),
     ));
 
-    // Check availability up-front so the user gets a single
-    // actionable diagnostic when pkg-config is missing,
-    // regardless of which package declares the first system
-    // dependency.  Keep the typed error as the anyhow source so
-    // the diagnostic registry can render its code and help text,
-    // exactly as the probe path below does.
-    if let Err(err) = tool.check_available() {
-        return Err(err.into());
-    }
-
     for (pkg_idx, deps) in active {
         let pkg_name = graph.packages[pkg_idx].package.name.as_str();
         let entry = build_flags.entry(pkg_idx).or_default();
@@ -99,6 +71,36 @@ pub(crate) fn augment_build_flags_with_system_deps(
         }
     }
     Ok(build_flags)
+}
+
+/// The pkg-config that probes libraries for `platform`, checked to run.
+pub(crate) fn pkg_config_for(platform: &TargetPlatform) -> Result<PkgConfigTool> {
+    let tool = PkgConfigTool::from_env(|key| std::env::var_os(key));
+    // A plain pkg-config reports the build machine's libraries, which
+    // must not link into a build for another machine.  A triple's `env`
+    // counts (a glibc host's `.pc` files do not fit a musl build), and
+    // the build machine's `env` is guessed as `gnu` on Linux, so on a
+    // musl host an explicit musl `--target` needs one of the overrides.
+    if !platform.same_machine(&TargetPlatform::current())
+        && std::env::var_os(cabin_env::CABIN_PKG_CONFIG).is_none_or(|value| value.is_empty())
+        && std::env::var_os("PKG_CONFIG_LIBDIR").is_none()
+    {
+        bail!(
+            "system libraries of a build for {} need a pkg-config for that platform, not \
+             the build machine's: set PKG_CONFIG_LIBDIR (and PKG_CONFIG_SYSROOT_DIR) to the \
+             target sysroot's pkg-config directories, or CABIN_PKG_CONFIG to a pkg-config \
+             for {}",
+            platform.target,
+            platform.target,
+        );
+    }
+    // Check availability up-front so the user gets a single
+    // actionable diagnostic when pkg-config is missing, regardless of
+    // which library is probed first.  Keep the typed error as the
+    // anyhow source so the diagnostic registry can render its code and
+    // help text, exactly as the probe paths do.
+    tool.check_available()?;
+    Ok(tool)
 }
 
 /// Whether any active `system = true` dependency is declared by a

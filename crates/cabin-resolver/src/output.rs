@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use cabin_core::{DEFAULT_FEATURE_KEY, FeatureEntry, PackageName, SourceLanguage};
 use cabin_index::{PackageIndex, VersionMetadata};
@@ -20,6 +20,59 @@ pub struct ResolveOutput {
     /// the three shapes.  Empty under `Allow`; ordinary semver
     /// hold-backs are never reported.  Sorted by package name.
     pub held_back: Vec<HeldBack>,
+}
+
+impl ResolveOutput {
+    /// Walk dependency edges from the root without entering a package
+    /// `stop` accepts.  Returns the packages the walk reaches and, apart,
+    /// the ones `stop` accepted.
+    pub fn reach_until(
+        &self,
+        stop: impl Fn(&PackageName) -> bool,
+    ) -> (BTreeSet<&PackageName>, BTreeSet<&PackageName>) {
+        let by_name = self.by_name();
+        let mut reached = BTreeSet::new();
+        let mut stopped = BTreeSet::new();
+        let mut stack: Vec<&PackageName> = self
+            .packages
+            .iter()
+            .filter(|p| p.source == ResolvedSource::Root)
+            .flat_map(|p| &p.dependencies)
+            .collect();
+        while let Some(name) = stack.pop() {
+            if stop(name) {
+                stopped.insert(name);
+            } else if reached.insert(name)
+                && let Some(package) = by_name.get(name)
+            {
+                stack.extend(&package.dependencies);
+            }
+        }
+        (reached, stopped)
+    }
+
+    /// Every package `name` reaches through dependency edges.
+    #[must_use]
+    pub fn dependencies_of(&self, name: &PackageName) -> BTreeSet<&PackageName> {
+        let by_name = self.by_name();
+        let mut reached = BTreeSet::new();
+        let mut stack: Vec<&PackageName> = by_name
+            .get(name)
+            .map(|p| p.dependencies.iter().collect())
+            .unwrap_or_default();
+        while let Some(name) = stack.pop() {
+            if reached.insert(name)
+                && let Some(package) = by_name.get(name)
+            {
+                stack.extend(&package.dependencies);
+            }
+        }
+        reached
+    }
+
+    fn by_name(&self) -> HashMap<&PackageName, &ResolvedPackage> {
+        self.packages.iter().map(|p| (&p.name, p)).collect()
+    }
 }
 
 /// A standard-compatibility note about a resolved package.  Three
@@ -243,4 +296,46 @@ fn active_dependencies(
         .filter(|(name, dep)| !dep.optional || enabled.contains(name.as_str()))
         .map(|(name, _)| name.clone())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn package(name: &str, source: ResolvedSource, deps: &[&str]) -> ResolvedPackage {
+        ResolvedPackage {
+            name: PackageName::new(name).unwrap(),
+            version: Version::new(1, 0, 0),
+            source,
+            features: BTreeSet::new(),
+            dependencies: deps.iter().map(|d| PackageName::new(*d).unwrap()).collect(),
+        }
+    }
+
+    fn names<'a>(set: impl IntoIterator<Item = &'a PackageName>) -> Vec<&'a str> {
+        set.into_iter().map(PackageName::as_str).collect()
+    }
+
+    /// `app -> {a, p}`, `a -> c`, `p -> b -> c`: stopping at `p` still
+    /// reaches `c` through `a`, but not `b`, which only `p` reaches.
+    #[test]
+    fn reach_until_stops_at_accepted_packages_but_not_at_shared_ones() {
+        let output = ResolveOutput {
+            packages: vec![
+                package("app", ResolvedSource::Root, &["acme/a", "acme/p"]),
+                package("acme/a", ResolvedSource::Index, &["acme/c"]),
+                package("acme/b", ResolvedSource::Index, &["acme/c"]),
+                package("acme/c", ResolvedSource::Index, &[]),
+                package("acme/p", ResolvedSource::Index, &["acme/b"]),
+            ],
+            held_back: Vec::new(),
+        };
+        let (reached, stopped) = output.reach_until(|name| name.as_str() == "acme/p");
+        assert_eq!(names(reached), ["acme/a", "acme/c"]);
+        assert_eq!(names(stopped), ["acme/p"]);
+        assert_eq!(
+            names(output.dependencies_of(&PackageName::new("acme/p").unwrap())),
+            ["acme/b", "acme/c"]
+        );
+    }
 }

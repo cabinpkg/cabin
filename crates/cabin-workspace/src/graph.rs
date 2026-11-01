@@ -16,6 +16,7 @@ pub struct RootSettings {
     pub toolchain: ToolchainSettings,
     pub compiler_wrapper: Option<CompilerWrapperRequest>,
     pub patches: PatchManifestSettings,
+    pub system_provided: cabin_core::SystemProvidedSettings,
 }
 
 impl From<cabin_manifest::RootSettings> for RootSettings {
@@ -25,6 +26,7 @@ impl From<cabin_manifest::RootSettings> for RootSettings {
             toolchain: value.toolchain,
             compiler_wrapper: value.compiler_wrapper,
             patches: value.patches,
+            system_provided: value.system_provided,
         }
     }
 }

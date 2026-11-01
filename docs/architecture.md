@@ -75,7 +75,7 @@ crates/
   cabin-source-discovery/ shared C/C++ source walker for fmt / tidy
   cabin-fmt/         clang-format runner used by `cabin fmt`
   cabin-tidy/        run-clang-tidy runner used by `cabin tidy`
-  cabin-system-deps/ pkg-config runner used by `system = true` deps
+  cabin-system-deps/ pkg-config runner used by `system = true` deps and system-provided packages
   cabin/             `cabin` binary, command dispatch
 fuzz/                cargo-fuzz targets for the hostile-input parsers (own workspace)
 ports/               curated foundation ports
@@ -1050,13 +1050,15 @@ The crate must:
 
 ### `cabin-system-deps`
 
-`pkg-config` runner consumed when a workspace declares `system = true` deps.  Owns executable
+`pkg-config` runner consumed when a workspace declares `system = true` deps or
+[system-provided packages](system-dependencies.md#system-provided-packages).  Owns executable
 resolution (`CABIN_PKG_CONFIG`), `pkg-config` command-line construction, and the typed
 `SystemDependencyProbeRequest` / `SystemDependencyProbeReport` boundary.  Probes only fire when at
 least one selected primary package declares an active system dependency; dependency manifests
 outside that primary set preserve declarations but do not spawn `pkg-config`.  The orchestration
 layer merges the resolved cflags / libs into `ResolvedProfileFlags` so they reach `build.ninja` and
-`compile_commands.json` in deterministic order.
+`compile_commands.json` in deterministic order.  A system-provided package the build includes is
+probed too, and its flags become its target's interface (`PlanRequest::system_targets`) instead.
 
 The crate must:
 
@@ -2129,10 +2131,11 @@ documented in `registry/docs/architecture.md`:
 - **No C++ modules or generated sources yet** (planned: roadmap stages 10 and 07). There is no
   module build flow and no build action that generates files.  Rust-interop binding generators
   (`cxx`, `autocxx`, `bindgen`) get no dedicated integration.
-- **No system providers or installation yet** (planned: roadmap stages 06 and 09). A dependency on
-  a Cabin package is always fetched and built (`system = true` names pkg-config modules of
-  libraries that have no Cabin package), and there is no install command and no CMake /
-  pkg-config export.
+- **System providers are partial; no installation yet** (planned: roadmap stages 06 and 09). The
+  root's `[system-provided]` table takes a registry package with one library target from one
+  pkg-config module ([`system-dependencies.md`](system-dependencies.md#system-provided-packages));
+  config layers, several targets, static linking, MSVC, and build-context providers are planned.
+  There is no install command and no CMake / pkg-config export.
 
 Per-feature limitations live with each feature page (for example [`targets.md`](targets.md),
 [`profiles.md`](profiles.md)).

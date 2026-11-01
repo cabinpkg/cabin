@@ -470,12 +470,25 @@ fn dependency_attributes(
     pkg_settings: &LanguageStandardSettings,
     req: &PlanRequest<'_>,
 ) -> (DependencyAttributes, NodeSites) {
-    let attributes = cabin_core::standard_compatibility::dependency_attributes(
+    let mut attributes = cabin_core::standard_compatibility::dependency_attributes(
         target,
         &pkg_standards,
         pkg_settings,
     );
-    let header_only = target.kind.is_header_only();
+    // A system-provided target's standards are the system library's,
+    // which Cabin does not know: it counts as a compiled library that
+    // declares no interface (spec D9 row 4), constraining no consumer.
+    if req.system_targets.contains_key(tid) {
+        attributes = DependencyAttributes {
+            kind: cabin_core::standard_compatibility::DependencyKind::Compiled,
+            impl_c: Some(cabin_core::CStandard::C89),
+            impl_cxx: Some(cabin_core::CxxStandard::Cxx98),
+            decl_c: None,
+            decl_cxx: None,
+        };
+    }
+    let header_only =
+        attributes.kind == cabin_core::standard_compatibility::DependencyKind::HeaderOnly;
 
     let pkg = &req.graph.packages[tid.0];
     let target_name = target.name.as_str();

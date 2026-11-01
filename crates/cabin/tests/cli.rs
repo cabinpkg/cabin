@@ -2415,6 +2415,9 @@ mod tidy_command;
 #[path = "cli/system_deps_pkg_config.rs"]
 mod system_deps_pkg_config;
 
+#[path = "cli/system_provided.rs"]
+mod system_provided;
+
 /// Integration tests for the conventional C/C++ build-flag
 /// environment variables: `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and
 /// `LDFLAGS`.  These cover the parsing, ordering, fingerprint,

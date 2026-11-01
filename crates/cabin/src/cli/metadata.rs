@@ -54,6 +54,10 @@ pub(crate) struct MetadataView<'a> {
     /// Active source-replacement entries from the merged
     /// effective config.  Empty array when none apply.
     source_replacements: serde_json::Value,
+    /// The root's `[system-provided]` table as declared, keyed by
+    /// package name.  What a build's probe finds is not shown.
+    system_provided:
+        &'a std::collections::BTreeMap<cabin_core::PackageName, cabin_core::SystemProvider>,
 }
 
 #[derive(Serialize)]
@@ -526,6 +530,7 @@ impl<'a> MetadataView<'a> {
             config: config_view,
             patches: patches_view,
             source_replacements: source_replacements_view,
+            system_provided: &graph.root_settings.system_provided.entries,
         }
     }
 }

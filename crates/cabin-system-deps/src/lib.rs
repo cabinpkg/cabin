@@ -265,7 +265,7 @@ pub enum PkgConfigError {
     #[diagnostic(
         code(cabin::system_deps::version_mismatch),
         help(
-            "install a version that satisfies the requirement, or relax the `system = true` dependency's version constraint"
+            "install a version that satisfies the requirement, or relax the cabin.toml version requirements it comes from"
         )
     )]
     VersionMismatch {

@@ -128,6 +128,31 @@ pub(super) fn patch_settings_from_raw(
     Ok(cabin_core::PatchManifestSettings { entries })
 }
 
+/// Convert a raw `[system-provided]` table into typed
+/// [`cabin_core::SystemProvidedSettings`], validating each pkg-config
+/// module name.
+pub(super) fn system_provided_from_raw(
+    raw: BTreeMap<String, crate::raw::RawSystemProvider>,
+) -> Result<cabin_core::SystemProvidedSettings, ManifestError> {
+    let mut entries = BTreeMap::new();
+    for (name, row) in raw {
+        let package = PackageName::new(name).map_err(ManifestError::Validation)?;
+        cabin_core::validate_system_dependency_name(&row.pkg_config).map_err(|source| {
+            ManifestError::InvalidSystemProvider {
+                package: package.as_str().to_owned(),
+                source,
+            }
+        })?;
+        entries.insert(
+            package,
+            cabin_core::SystemProvider {
+                pkg_config: row.pkg_config,
+            },
+        );
+    }
+    Ok(cabin_core::SystemProvidedSettings { entries })
+}
+
 pub(super) fn features_from_raw(mut raw: BTreeMap<String, Vec<String>>) -> Features {
     let default = raw
         .remove(cabin_core::DEFAULT_FEATURE_KEY)
