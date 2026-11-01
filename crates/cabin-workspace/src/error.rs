@@ -245,7 +245,7 @@ pub enum WorkspaceError {
     #[diagnostic(
         code(cabin::workspace::untrusted_root),
         help(
-            "a discovered workspace root is only honored when it has the same owner as the package (or directory) it was found above, its directory and `.cabin/config.toml` (when present) share that owner, and none of them is world-writable or a symlink; pass `--manifest-path` to select a manifest explicitly"
+            "a discovered workspace root is only honored when it has the same owner as the package (or directory) it was found above, its directory and `.cabin/config.toml` (when present) share that owner, and none of them is a symlink or, on Unix, world-writable; pass `--manifest-path` to select a manifest explicitly"
         )
     )]
     UntrustedWorkspaceRoot { path: PathBuf, root: PathBuf },

@@ -44,13 +44,12 @@ pub struct DiscoveredManifest {
 /// A root found above `start` is the trust boundary for every setting
 /// discovery applies on the user's behalf (`[toolchain]`, `[patch]`,
 /// the root's `.cabin/config.toml`).  Unless `start` is the root's own
-/// directory, the root is honored only when, on Unix, it passes
+/// directory, the root is honored only when it passes
 /// `root_trusted` against the nearest package manifest (or `start` when
 /// no package manifest lies between them) and, when such a package
 /// exists, lists it as a member (`root_claims_package`).  Otherwise an
 /// ancestor another user can write to - `/tmp`, a shared mount - could
 /// plant a root whose toolchain runs for every package below it.
-/// Windows skips the ownership checks.
 ///
 /// Discovery stays a pure filesystem walk: no network, no
 /// symlink follow beyond what the OS already does for
@@ -234,10 +233,116 @@ fn root_trusted(root_manifest: &Path, anchor: &Path) -> Result<bool, WorkspaceEr
     Ok(trusted)
 }
 
-/// Windows has no uid or mode bits to compare; the root is trusted.
-#[cfg(not(unix))]
-fn root_trusted(_root_manifest: &Path, _anchor: &Path) -> Result<bool, WorkspaceError> {
-    Ok(true)
+/// The Windows form of the Unix check, the comparison Git's
+/// `safe.directory` makes: the root manifest, its directory, and the
+/// root's `.cabin/` and `.cabin/config.toml` when present must have the
+/// anchor's owner SID and must not be symlinks or junctions.  A non-admin
+/// can only make itself the owner of what it creates, so this refuses a
+/// root another user planted in a directory everyone can create files in.
+/// There is no mode-bit or link-count analogue: a file the anchor's owner
+/// owns but whose DACL lets other users write it is still trusted.
+#[cfg(windows)]
+fn root_trusted(root_manifest: &Path, anchor: &Path) -> Result<bool, WorkspaceError> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{ERROR_SUCCESS, LocalFree};
+    use windows_sys::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{GetLengthSid, OWNER_SECURITY_INFORMATION};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, READ_CONTROL,
+    };
+    // Whether `path` itself (never a reparse target) is a symlink or
+    // junction, and its owner SID's bytes, empty when it has none.
+    // One handle answers both, so the entry cannot be swapped in between.
+    let lstat = |path: &Path| {
+        let io = |source| WorkspaceError::Io {
+            path: path.to_path_buf(),
+            source,
+        };
+        let file = match std::fs::OpenOptions::new()
+            .access_mode(READ_CONTROL)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+        {
+            Ok(file) => file,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(io(source)),
+        };
+        let symlink = file.metadata().map_err(io)?.file_type().is_symlink();
+        let mut owner = null_mut();
+        let mut descriptor = null_mut();
+        // SAFETY: the handle is open with READ_CONTROL, which reading the
+        // owner needs.  On success `owner` (when non-null) points into
+        // `descriptor`, which the call allocated; the SID is copied out
+        // before `LocalFree` releases it.
+        let sid = unsafe {
+            let status = GetSecurityInfo(
+                file.as_raw_handle(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION,
+                &raw mut owner,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                &raw mut descriptor,
+            );
+            if status != ERROR_SUCCESS {
+                return Err(io(std::io::Error::from_raw_os_error(status.cast_signed())));
+            }
+            let sid = if owner.is_null() {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(owner.cast::<u8>(), GetLengthSid(owner) as usize)
+                    .to_vec()
+            };
+            LocalFree(descriptor);
+            sid
+        };
+        Ok(Some((symlink, sid)))
+    };
+    let Some((_, anchor_owner)) = lstat(anchor)? else {
+        return Ok(false);
+    };
+    let root_dir = root_manifest.parent().unwrap_or(root_manifest);
+    let config_dir = root_dir.join(".cabin");
+    let config = config_dir.join("config.toml");
+    // As on Unix, the manifest and its directory are required; the
+    // config file and its directory are optional.
+    let mut entries = Vec::new();
+    for (path, required) in [
+        (root_manifest, true),
+        (root_dir, true),
+        (config_dir.as_path(), false),
+        (config.as_path(), false),
+    ] {
+        entries.push((lstat(path)?, required));
+    }
+    Ok(owners_trusted(&anchor_owner, &entries))
+}
+
+/// The Everyone SID, S-1-1-0: revision 1, one subauthority, the world
+/// authority (big-endian 1), subauthority 0.
+#[cfg(any(windows, test))]
+const EVERYONE_SID: [u8; 12] = [1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+
+/// `(is_symlink, owner SID bytes)` of an entry, `None` when it is missing.
+#[cfg(any(windows, test))]
+type OwnerEntry = Option<(bool, Vec<u8>)>;
+
+/// The decision behind the Windows `root_trusted`: every present entry
+/// is no symlink and has the anchor's owner, and every missing entry is
+/// optional.  An empty or Everyone anchor owner never matches: FAT and
+/// exFAT volumes report every file as owned by Everyone, so equal owners
+/// there say nothing about who created the file.
+#[cfg(any(windows, test))]
+fn owners_trusted(anchor_owner: &[u8], entries: &[(OwnerEntry, bool)]) -> bool {
+    !anchor_owner.is_empty()
+        && anchor_owner != EVERYONE_SID
+        && entries.iter().all(|(entry, required)| match entry {
+            Some((symlink, owner)) => !symlink && owner == anchor_owner,
+            None => !required,
+        })
 }
 
 fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {
@@ -475,10 +580,105 @@ members = ["app"]
         ));
     }
 
+    /// A root and `.cabin/config.toml` the current user created are
+    /// honored from a member package and from a directory without a
+    /// package, so the owner-SID check does not refuse every workspace;
+    /// a symlinked config is refused where the host lets us create one.
+    /// Refusing another user's root needs a second account.
+    #[cfg(windows)]
+    #[test]
+    fn root_owned_by_the_current_user_is_trusted() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
+members = ["app"]
+"#,
+            )
+            .unwrap();
+        dir.child("app/cabin.toml")
+            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        dir.child("docs").create_dir_all().unwrap();
+        dir.child(".cabin/config.toml").write_str("").unwrap();
+        for below in ["app", "docs"] {
+            assert!(
+                discover_workspace_root(&dir.path().join(below))
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        let elsewhere = TempDir::new().unwrap();
+        elsewhere.child("config.toml").write_str("").unwrap();
+        let config = dir.path().join(".cabin/config.toml");
+        std::fs::remove_file(&config).unwrap();
+        // Creating a symlink needs Developer Mode or elevation.
+        if std::os::windows::fs::symlink_file(elsewhere.path().join("config.toml"), &config).is_ok()
+        {
+            assert!(matches!(
+                discover_workspace_root(&dir.path().join("app")),
+                Err(WorkspaceError::UntrustedWorkspaceRoot { .. })
+            ));
+        }
+    }
+
+    /// The Windows owner decision: equal owners pass; another owner on
+    /// any present entry, a symlink, a missing required entry, or an
+    /// Everyone (FAT/exFAT) owner refuses; a missing optional entry is
+    /// skipped.
+    #[test]
+    fn owners_trusted_requires_the_anchor_owner() {
+        let user = vec![1, 5, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0, 7, 0, 0, 0];
+        let other = vec![1, 5, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0, 8, 0, 0, 0];
+        let owned = |owner: &Vec<u8>| Some((false, owner.clone()));
+        let entries = |manifest, dir, config_dir, config| {
+            vec![
+                (manifest, true),
+                (dir, true),
+                (config_dir, false),
+                (config, false),
+            ]
+        };
+        let all_user = entries(owned(&user), owned(&user), owned(&user), owned(&user));
+        assert!(owners_trusted(&user, &all_user));
+        for i in 0..4 {
+            let mut mismatched = all_user.clone();
+            mismatched[i].0 = owned(&other);
+            assert!(
+                !owners_trusted(&user, &mismatched),
+                "entry {i} owned by another user"
+            );
+            let mut linked = all_user.clone();
+            linked[i].0 = Some((true, user.clone()));
+            assert!(!owners_trusted(&user, &linked), "entry {i} a symlink");
+        }
+        assert!(owners_trusted(
+            &user,
+            &entries(owned(&user), owned(&user), None, None)
+        ));
+        assert!(!owners_trusted(
+            &user,
+            &entries(None, owned(&user), None, None)
+        ));
+        assert!(!owners_trusted(
+            &user,
+            &entries(owned(&user), None, None, None)
+        ));
+        let everyone = EVERYONE_SID.to_vec();
+        let fat = entries(owned(&everyone), owned(&everyone), None, None);
+        assert!(!owners_trusted(&everyone, &fat));
+        let ownerless = entries(
+            Some((false, Vec::new())),
+            Some((false, Vec::new())),
+            None,
+            None,
+        );
+        assert!(!owners_trusted(&[], &ownerless));
+    }
+
     /// A root manifest that vanished between parsing and the trust
     /// check is refused instead of being treated like an absent
     /// optional file.
-    #[cfg(unix)]
     #[test]
     fn root_trusted_refuses_a_missing_manifest() {
         let dir = TempDir::new().unwrap();

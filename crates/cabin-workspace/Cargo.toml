@@ -20,6 +20,13 @@ semver = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+] }
+
 [dev-dependencies]
 assert_fs = { workspace = true }
 
