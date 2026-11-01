@@ -10,7 +10,7 @@ cache per build configuration, and every `rust.yml` job restores it read-only.
 
 | Shared key | Producer (`main` only) | Restore-only consumers |
 | --- | --- | --- |
-| `debug-<image>`, one per `build-and-test` image | `rust-cache.yml` `debug` | `rust.yml` `build-and-test` on that image; on `ubuntu-24.04` also `lint-work` and `compiler-detection`; on `windows-2025-vs2026` also `windows-msvc-autodiscovery` |
+| `debug-<image>`, one per `build-and-test` image | `rust-cache.yml` `debug` | `rust.yml` `build-and-test` on that image; on `ubuntu-24.04` also `lint-work` and `compiler-detection`; on `windows-2025-vs2026` also `windows-msvc-autodiscovery` and `windows-mingw` |
 | `fuzz-ubuntu-24.04` | `rust-cache.yml` `fuzz` | `rust.yml` `fuzz` |
 
 `registry-cache.yml` seeds `registry.yml`'s `registry-build-work` separately and the older way: it
@@ -20,9 +20,10 @@ Each `rust.yml` consumer sets `cache-shared-key`, `cache-bin: false` and `cache-
 Each `rust-cache.yml` job repeats its consumers' toolchain setup and builds what they build.  The
 `debug` job runs no tests; the `fuzz` job runs its consumer's `cargo fuzz-check` whole, tests and
 seed replays included, so a check that fails on `main` leaves that key unseeded.
-`ring`'s build script tracks the C compiler's environment, so two consumers still rebuild `ring`
-and the crates that depend on it: `compiler-detection`, which builds under `CC=gcc-14`, and
-`windows-msvc-autodiscovery`, which runs without the MSVC environment the seed is built in.
+`ring`'s build script tracks the C compiler's environment, so three consumers still rebuild
+`ring` and the crates that depend on it: `compiler-detection`, which builds under `CC=gcc-14`, and
+`windows-msvc-autodiscovery` and `windows-mingw`, which run without the MSVC environment the seed
+is built in.
 
 ## Keys and invalidation
 
