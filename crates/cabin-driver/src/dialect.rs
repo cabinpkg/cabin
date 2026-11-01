@@ -25,8 +25,7 @@ impl Dialect {
     /// Pick the dialect a compiler family speaks.  MSVC-dialect
     /// compilers (`cl.exe` and Clang's `clang-cl` driver) drive the
     /// MSVC dialect; every other recognized (or unrecognized)
-    /// compiler drives the GCC/Clang dialect, which is also the
-    /// safe default for hosts where detection has not run.
+    /// compiler drives the GCC/Clang dialect.
     #[must_use]
     pub fn from_compiler_kind(kind: CompilerKind) -> Self {
         if kind.speaks_msvc_dialect() {
@@ -36,11 +35,10 @@ impl Dialect {
         }
     }
 
-    /// The dialect to assume for the host when no compiler detection
-    /// has run.  Used by tooling paths (e.g. `cabin tidy`) that resolve
-    /// but do not probe the toolchain: Windows defaults to MSVC, every
-    /// other host to GCC/Clang, matching the default toolchain each
-    /// host resolves.
+    /// The dialect to assume for the host when compiler detection has
+    /// not run or failed, as in `cabin tidy`: Windows defaults to MSVC,
+    /// every other host to GCC/Clang, matching the default toolchain
+    /// each host resolves.
     #[must_use]
     pub fn host_default() -> Self {
         if cfg!(windows) {
@@ -126,11 +124,11 @@ impl Dialect {
         match self {
             Dialect::GnuLike => NinjaDeps::Gcc,
             // cl.exe prints each included header to stdout prefixed by
-            // this string under `/showIncludes`.  The prefix is
-            // localized by the compiler UI language; the value below
-            // matches an English `cl`, which is what Cabin's CI uses.
-            // A mismatch only degrades incremental rebuild precision,
-            // never correctness of a clean build.
+            // this string under `/showIncludes`, in the compiler UI
+            // language; the Ninja run sets `VSLANG=1033` to get English.
+            // On a mismatch Ninja records no header dependencies, so an
+            // incremental build misses header edits; a clean build is
+            // unaffected.
             Dialect::Msvc => NinjaDeps::Msvc {
                 prefix: "Note: including file:",
             },
@@ -239,8 +237,8 @@ pub enum NinjaDeps {
 /// `/FoC:\build\main.obj` pass through untouched, while
 /// `C:\Program Files\…\cl.exe` is wrapped in double quotes.  Inside a
 /// quoted argument, a run of N backslashes is doubled to 2N when it
-/// precedes the closing quote, and emitted as 2N+1 (then `\"`) when it
-/// precedes an embedded double-quote; elsewhere backslashes are
+/// precedes the closing quote, and becomes 2N+1 followed by the quote
+/// when it precedes an embedded double-quote; elsewhere backslashes are
 /// literal.
 pub fn windows_quote_arg(arg: &str, out: &mut String) {
     if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
@@ -387,8 +385,8 @@ mod tests {
 
     #[test]
     fn windows_quote_escapes_embedded_quote_and_its_backslashes() {
-        // An embedded `"` is escaped as `\"`, and a run of N backslashes
-        // immediately before it becomes 2N+1 backslashes.
+        // An embedded `"` and the run of N backslashes before it become
+        // 2N+1 backslashes and the quote.
         let mut zero = String::new();
         windows_quote_arg(r#"a "b"#, &mut zero); // no backslash before the quote
         assert_eq!(zero, "\"a \\\"b\"");
