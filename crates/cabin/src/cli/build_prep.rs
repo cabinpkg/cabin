@@ -1279,12 +1279,9 @@ fn ensure_toolchain_may_run(
 /// unless the user trusts the project.  The checkout itself can ship
 /// that executable, and the read-only commands an editor runs on
 /// opening a folder (`cabin metadata`) execute the chosen tools to
-/// detect them.  A bare name is looked up on `PATH`, which the user
-/// controls, so it needs no trust.  The resolver reads any separator
-/// as a path, and Windows reads `C:x` as a drive-relative one, so a
-/// bare name is a single plain component with neither.  A relative
-/// path resolves against the working directory, which a symlinked
-/// manifest can put outside `root`, so that directory needs trust too.
+/// detect them.  A relative path resolves against the working
+/// directory, which a symlinked manifest can put outside `root`, so
+/// that directory needs trust too.
 fn ensure_project_may_run(
     root: &Path,
     effective_config: &cabin_config::EffectiveConfig,
@@ -1292,13 +1289,7 @@ fn ensure_project_may_run(
     spec: &str,
     overrides: &str,
 ) -> Result<()> {
-    let mut components = Path::new(spec).components();
-    let bare = !spec.contains(['/', '\\'])
-        && matches!(
-            (components.next(), components.next()),
-            (Some(std::path::Component::Normal(_)), None)
-        );
-    if bare {
+    if cabin_toolchain::is_path_lookup_name(spec) {
         return Ok(());
     }
     let cwd = std::env::current_dir()?;
@@ -1308,7 +1299,7 @@ fn ensure_project_may_run(
         vec![root]
     };
     for dir in dirs {
-        if !crate::cli::config::project_trusted(effective_config, dir) {
+        if !effective_config.trusts_project(dir) {
             bail!(
                 "{from}, an executable named by path, which Cabin runs only for a project you \
                  trust; add {dir:?} to `projects` in the `[trust]` table of your user config \

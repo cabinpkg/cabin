@@ -53,6 +53,22 @@ pub struct EffectiveConfig {
     pub loaded_files: Vec<LoadedConfigFile>,
 }
 
+impl EffectiveConfig {
+    /// Whether the user trusts the project rooted at `root`: it is at or
+    /// below a `[trust] projects` directory.  Both sides are
+    /// canonicalized, so another spelling of the same directory (a
+    /// symlink, or a case difference on a case-insensitive file system)
+    /// matches, and an entry that does not exist trusts nothing.
+    pub fn trusts_project(&self, root: &std::path::Path) -> bool {
+        let Ok(root) = std::fs::canonicalize(root) else {
+            return false;
+        };
+        self.trusted_projects
+            .iter()
+            .any(|dir| std::fs::canonicalize(dir).is_ok_and(|dir| root.starts_with(dir)))
+    }
+}
+
 /// `[term]` view, after merging.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EffectiveTerm {

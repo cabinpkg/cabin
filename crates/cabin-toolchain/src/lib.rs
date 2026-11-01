@@ -24,6 +24,7 @@ pub use detect::{
 pub use error::ToolchainError;
 pub use msvc::{msvc_environment, msvc_tool_path, path_is_discovered_msvc_cl};
 pub use ninja::locate_ninja;
+pub use path_search::is_path_lookup_name;
 pub use probe::{
     Answer, Check, Execution, ProbeError, ProbeRequest, ProbeRunner, ProbeToolchain, Step, probe,
 };
