@@ -229,13 +229,15 @@ fn load_workspace_inner(
             continue;
         }
         let parsed = parse_manifest(&manifest_path)?;
-        let package = parsed.package.ok_or_else(|| {
-            // A path dependency that resolves to a workspace-only manifest.
-            WorkspaceError::LocalDependencyIsWorkspace {
-                dep_name: project_alias_for(&loader, &manifest_path),
+        // Members and path dependencies are checked for a [package]
+        // before they are queued, so only a registry or patch
+        // manifest can lack one here (`verify_dep_path_names` reports
+        // the same error when another source reaches it first).
+        let package = parsed
+            .package
+            .ok_or_else(|| WorkspaceError::PackageSourceIsWorkspace {
                 path: manifest_path.clone(),
-            }
-        })?;
+            })?;
 
         reject_member_manifest_overrides(&package, &manifest_path, &root_manifest_path)?;
         validate_registry_pin(&package, &manifest_path, &registry_lookup)?;
@@ -817,9 +819,15 @@ fn verify_dep_path_names(
         }
         let dep_parsed = parse_manifest(dep_manifest_path)?;
         let actual = dep_parsed.package.as_ref().ok_or_else(|| {
-            WorkspaceError::LocalDependencyIsWorkspace {
-                dep_name: dep_name.clone(),
-                path: dep_manifest_path.clone(),
+            if registry.entries.contains_key(dep_manifest_path) {
+                WorkspaceError::PackageSourceIsWorkspace {
+                    path: dep_manifest_path.clone(),
+                }
+            } else {
+                WorkspaceError::LocalDependencyIsWorkspace {
+                    dep_name: dep_name.clone(),
+                    path: dep_manifest_path.clone(),
+                }
             }
         })?;
         if actual.name.as_str() != dep_name {
@@ -990,21 +998,6 @@ struct DepPath {
     /// carried onto the graph edge for the standard-compatibility
     /// check.
     ignore_interface_standard: bool,
-}
-
-/// Best-effort recovery of a friendly name to mention in the error when a
-/// path dependency turns out to point at a workspace-only manifest.  We
-/// don't always know what dep we were following, so this falls back to the
-/// path itself.
-fn project_alias_for(loader: &Loader, manifest_path: &Path) -> String {
-    for pkg in &loader.packages {
-        for dep in &pkg.dep_paths {
-            if dep.path == manifest_path {
-                return dep.name.clone();
-            }
-        }
-    }
-    manifest_path.display().to_string()
 }
 
 fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {

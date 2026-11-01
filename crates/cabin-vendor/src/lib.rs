@@ -394,7 +394,7 @@ pub enum VendorError {
     /// An archive destination contained a `..` component.  Vendor
     /// refuses to write archives whose destination could escape the
     /// vendor directory.
-    #[error("unsafe artifact destination `{}`: paths must be relative and must not contain `..`", path.display())]
+    #[error("unsafe artifact destination `{}`: the path must not contain `..`", path.display())]
     UnsafeArtifactPath { path: PathBuf },
 
     /// The source index's per-version JSON entry is not shaped the

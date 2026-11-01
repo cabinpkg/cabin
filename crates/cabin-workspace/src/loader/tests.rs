@@ -846,6 +846,63 @@ version = "10.2.1"
     }
 }
 
+#[test]
+fn registry_source_without_a_package_is_rejected_as_a_source() {
+    let dir = TempDir::new().unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+    dir.child("registry/fmt/cabin.toml")
+        .write_str("[workspace]\nmembers = []\n")
+        .unwrap();
+    dir.child("registry/spdlog/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "spdlog"
+version = "1.14.0"
+
+[dependencies]
+fmt = ">=10"
+"#,
+        )
+        .unwrap();
+    let fmt = RegistryPackageSource {
+        name: pkg("fmt"),
+        version: ver("10.2.1"),
+        manifest_path: dir.path().join("registry/fmt/cabin.toml"),
+    };
+    let spdlog = RegistryPackageSource {
+        name: pkg("spdlog"),
+        version: ver("1.14.0"),
+        manifest_path: dir.path().join("registry/spdlog/cabin.toml"),
+    };
+    // Alone, fmt is caught when it is loaded; with spdlog loaded
+    // first, it is caught as spdlog's dependency.
+    for registry in [vec![fmt.clone()], vec![fmt, spdlog]] {
+        let err = load_workspace_with_options(
+            dir.path().join("app/cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &registry,
+                patches: &[],
+                system: &[],
+                registry_policy: RegistryPolicy::Strict,
+                include_dev_for: &BTreeSet::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, WorkspaceError::PackageSourceIsWorkspace { .. }),
+            "registry of {}: got: {err:?}",
+            registry.len()
+        );
+    }
+}
+
 // -----------------------------------------------------------------
 // workspace.exclude / default-members / dependency
 // inheritance / nested workspaces.

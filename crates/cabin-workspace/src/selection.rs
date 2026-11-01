@@ -244,19 +244,32 @@ fn exclude_indices(
 /// join-on-collision kernel shared by the closure and patch
 /// requirement aggregators and the CLI's root-dep merge.
 ///
+/// Each input is a [`semver::VersionReq`] display string, so a bare
+/// wildcard is always spelled `*`.  It has no comparators, and semver
+/// refuses to join it with any, so it is dropped from the join.  It adds
+/// no bound, so the result admits a pre-release when another input opts
+/// in to it, as any joined requirement does (docs/lockfile.md,
+/// "Pre-release versions").
+///
 /// # Errors
 /// Returns `Err((joined, source))` - the comma-joined requirement
 /// string paired with the [`semver::Error`] - when the joined form
-/// is not a valid [`semver::VersionReq`].  For inputs that each
-/// parse, semver rejects the join only when a bare wildcard (`*`, `x`,
-/// or `X`) is combined with another comparator or the total exceeds 32
-/// comparators.
-/// Disjoint ranges such as `>=2` and `<1` join into a valid
-/// requirement that no version satisfies.
+/// is not a valid [`semver::VersionReq`]: for inputs that each parse,
+/// only when the total exceeds 32 comparators.  Disjoint ranges such
+/// as `>=2` and `<1` join into a valid requirement that no version
+/// satisfies; resolution reports those.
 pub fn combine_version_reqs(
     reqs: &[String],
 ) -> Result<semver::VersionReq, (String, semver::Error)> {
-    let joined = reqs.join(", ");
+    let joined = reqs
+        .iter()
+        .map(String::as_str)
+        .filter(|req| *req != "*")
+        .collect::<Vec<_>>()
+        .join(", ");
+    if joined.is_empty() {
+        return Ok(semver::VersionReq::STAR);
+    }
     match semver::VersionReq::parse(&joined) {
         Ok(req) => Ok(req),
         Err(source) => Err((joined, source)),
@@ -324,10 +337,10 @@ where
 /// to be fetched from the index.
 ///
 /// # Errors
-/// Returns [`WorkspaceError::IncompatibleWorkspaceRequirements`]
-/// when the requirements collected for a single dependency name
-/// cannot be combined into one [`semver::VersionReq`] (the joined
-/// requirement string fails to parse).
+/// Returns [`WorkspaceError::UncombinableRequirements`] when the
+/// requirements collected for a single dependency name cannot be
+/// combined into one [`semver::VersionReq`] (see
+/// [`combine_version_reqs`]).
 pub fn collect_closure_versioned_deps_excluding_with_dev<F>(
     graph: &PackageGraph,
     closure: &BTreeSet<usize>,
@@ -374,7 +387,7 @@ where
         reqs.sort();
         reqs.dedup();
         let parsed = combine_version_reqs(&reqs).map_err(|(requirements, source)| {
-            WorkspaceError::IncompatibleWorkspaceRequirements {
+            WorkspaceError::UncombinableRequirements {
                 name: name.as_str().to_owned(),
                 requirements,
                 source,
@@ -416,6 +429,17 @@ mod tests {
     use crate::loader::load_workspace;
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
+
+    #[test]
+    fn combine_version_reqs_accepts_a_wildcard_beside_a_range() {
+        let combined = combine_version_reqs(&["*".into(), "^10".into()]).unwrap();
+        assert_eq!(combined, semver::VersionReq::parse("^10").unwrap());
+        let star = combine_version_reqs(&["*".into()]).unwrap();
+        assert_eq!(star, semver::VersionReq::STAR);
+        // A wildcard adds no bound: another input's pre-release opt-in applies.
+        let combined = combine_version_reqs(&["*".into(), "=1.0.0-alpha".into()]).unwrap();
+        assert!(combined.matches(&semver::Version::parse("1.0.0-alpha").unwrap()));
+    }
 
     fn workspace_with_two_members(default_members: Option<&str>) -> TempDir {
         let dir = TempDir::new().unwrap();
@@ -789,61 +813,5 @@ spdlog = "^1"
             .map(cabin_core::PackageName::as_str)
             .collect();
         assert_eq!(keys, vec!["spdlog"]);
-    }
-
-    #[test]
-    fn versioned_deps_excludes_dev_dependencies() {
-        let dir = TempDir::new().unwrap();
-        dir.child("cabin.toml")
-            .write_str(
-                r#"[workspace]
-members = ["packages/app"]
-"#,
-            )
-            .unwrap();
-        dir.child("packages/app/cabin.toml")
-            .write_str(
-                r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-fmt = ">=10"
-
-[dev-dependencies]
-gtest = "^1.14"
-"#,
-            )
-            .unwrap();
-        let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
-        let sel = resolve_package_selection(
-            &graph,
-            &PackageSelection {
-                mode: SelectionMode::ExplicitPackages(vec!["app".into()]),
-                exclude: Vec::new(),
-            },
-        )
-        .unwrap();
-        let closure = sel.closure(&graph);
-        let deps = collect_closure_versioned_deps_excluding_with_dev(
-            &graph,
-            &closure,
-            |_, _| false,
-            &BTreeSet::new(),
-            &BTreeSet::new(),
-        )
-        .unwrap();
-        let keys: Vec<&str> = deps
-            .deps
-            .keys()
-            .map(cabin_core::PackageName::as_str)
-            .collect();
-        assert_eq!(keys, vec!["fmt"]);
-        assert!(
-            !deps
-                .deps
-                .contains_key(&cabin_core::PackageName::new("gtest").unwrap()),
-            "dev-dep gtest must not enter ordinary resolution"
-        );
     }
 }

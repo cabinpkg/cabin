@@ -161,10 +161,10 @@ fn active_versioned_req(dep: &cabin_core::Dependency) -> Option<&semver::Version
 /// (chains resolve to a fixed point).
 ///
 /// # Errors
-/// Returns [`crate::WorkspaceError::IncompatibleWorkspaceRequirements`]
-/// when the requirements collected for a single dependency name
-/// cannot be combined into one [`semver::VersionReq`] (the joined
-/// requirement string fails to parse).
+/// Returns [`crate::WorkspaceError::UncombinableRequirements`] when
+/// the requirements collected for a single dependency name cannot be
+/// combined into one [`semver::VersionReq`] (see
+/// [`crate::selection::combine_version_reqs`]).
 pub fn collect_patched_versioned_deps(
     active_patches: &ActivePatchSet,
     excluded_names: &BTreeSet<String>,
@@ -217,7 +217,7 @@ fn combine_folded_reqs(
         reqs.dedup();
         let parsed =
             crate::selection::combine_version_reqs(&reqs).map_err(|(requirements, source)| {
-                crate::WorkspaceError::IncompatibleWorkspaceRequirements {
+                crate::WorkspaceError::UncombinableRequirements {
                     name: name.as_str().to_owned(),
                     requirements,
                     source,

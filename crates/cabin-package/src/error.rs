@@ -134,7 +134,7 @@ pub enum PackageError {
     InterfaceStandardContradiction(#[from] cabin_core::InterfaceStandardContradiction),
 
     #[error(
-        "failed to normalize `{{ workspace = true }}` standard fields in the archived manifest at {}: {source}",
+        "failed to normalize `{{ workspace = true }}` markers in the archived manifest at {}: {source}",
         path.display()
     )]
     ManifestNormalization {
@@ -147,7 +147,7 @@ pub enum PackageError {
     /// marker, but the archive normalizer found nothing to rewrite.
     /// Archiving the raw bytes would publish a live marker.
     #[error(
-        "internal error: the manifest at {} carries a `{{ workspace = true }}` standard marker the archive normalizer did not rewrite",
+        "internal error: the manifest at {} carries a `{{ workspace = true }}` marker the archive normalizer did not rewrite",
         path.display()
     )]
     ManifestNormalizationIncomplete { path: PathBuf },
