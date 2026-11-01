@@ -186,7 +186,8 @@ jobs:
       - name: Generate fixtures with the in-tree cabin
         run: cargo gen-fixtures "$RUNNER_TEMP/fixtures"
 
-      # Here too for a registry/Cargo.toml change.
+      # rust.yml's run is gated on filters that match nothing under
+      # registry/, so a registry/Cargo.toml change is checked here.
       - name: Filter coverage guard
         run: cargo workflow-filter-coverage
 
@@ -288,8 +289,7 @@ jobs:
   # Ships the Worker on a registry-relevant main push. Validation ran
   # pre-merge (Merge Queue), so only the change gate runs here. No
   # Worker build step of its own: `wrangler deploy` runs wrangler.jsonc's
-  # build.command. D1 migrations stay manual - the deploy token cannot
-  # apply them (registry/docs/runbook.md, "Deploy skew").
+  # build.command.
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true'
     needs: changes
