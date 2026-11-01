@@ -3130,7 +3130,7 @@ fn link_driver_is_c_when_target_has_only_c_sources() {
     let tc = toolchain_with_cc();
     let bg = plan(&plan_request(&graph, &tc, "/abs/cdemo/build")).unwrap();
     let link = link_command(&bg);
-    assert_eq!(link[0], "/usr/bin/cc");
+    assert_eq!(link[0], "/usr/bin/cc", "{link:?}");
 }
 
 #[test]
@@ -3209,7 +3209,78 @@ fn link_driver_stays_c_when_dependency_is_also_pure_c() {
     req.selected = Some(vec![ManifestTargetSelector::parse("c_runner")]);
     let bg = plan(&req).unwrap();
     let link = link_command(&bg);
-    assert_eq!(link[0], "/usr/bin/cc");
+    assert_eq!(link[0], "/usr/bin/cc", "{link:?}");
+}
+
+#[test]
+fn link_driver_follows_libraries_linked_through_a_header_only_target() {
+    // The link reaches `core`'s archive through `hdr`, so `core`'s
+    // language picks the driver even though `hdr` compiles nothing.
+    for (source, driver) in [
+        ("src/core.cc", "/usr/bin/g++"),
+        ("src/core.c", "/usr/bin/cc"),
+    ] {
+        let package = Package::new(
+            pkg_name("via_hdr"),
+            version(),
+            vec![
+                target("core", TargetKind::Library, &[source], &[]),
+                target("hdr", TargetKind::HeaderOnly, &[], &["core"]),
+                target(
+                    "c_runner",
+                    TargetKind::Executable,
+                    &["src/main.c"],
+                    &["hdr"],
+                ),
+            ],
+            Vec::new(),
+        )
+        .unwrap();
+        let graph = single_package_graph(package, "/abs/via_hdr");
+        let tc = toolchain_with_cc();
+        let mut req = plan_request(&graph, &tc, "/abs/via_hdr/build");
+        req.selected = Some(vec![ManifestTargetSelector::parse("c_runner")]);
+        let link = link_command(&plan(&req).unwrap());
+        assert_eq!(link[0], driver, "core source {source}");
+    }
+}
+
+#[test]
+fn link_driver_ignores_the_own_objects_of_an_executable_dependency() {
+    // `c_runner` links `ccore`'s archive through `tool`, never `tool`'s
+    // own C++ objects, so the C compiler drives the link.
+    let package = Package::new(
+        pkg_name("via_exe"),
+        version(),
+        vec![
+            target("ccore", TargetKind::Library, &["src/ccore.c"], &[]),
+            target("tool", TargetKind::Executable, &["src/tool.cc"], &["ccore"]),
+            target(
+                "c_runner",
+                TargetKind::Executable,
+                &["src/main.c"],
+                &["tool"],
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/via_exe");
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/via_exe/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("c_runner")]);
+    let graph = plan(&req).unwrap();
+    let link = graph
+        .actions
+        .iter()
+        .find(|a| matches!(a, BuildAction::Link(l) if l.output.ends_with("c_runner")))
+        .map(|a| lowered(a).command)
+        .expect("c_runner link");
+    assert_eq!(link[0], "/usr/bin/cc", "{link:?}");
+    assert!(
+        link.iter().any(|arg| arg.ends_with("libccore.a")),
+        "{link:?}"
+    );
 }
 
 #[test]
