@@ -35,13 +35,15 @@ cabin fmt --check
 if any file would be reformatted, and never modifies files on disk:
 
 ```text
-src/main.cc:5:1: warning: code should be clang-formatted [-Wclang-format-violations]
+src/main.cc:5:1: error: code should be clang-formatted [-Wclang-format-violations]
    Failed `cabin fmt --check`: 2 files would be reformatted (re-run without --check to apply)
 ```
 
-`clang-format`'s per-file warnings are forwarded on stderr (the same shape `cargo fmt --check` uses
+`clang-format`'s per-file errors are forwarded on stderr (the same shape `cargo fmt --check` uses
 to forward rustfmt's diff) and the Cabin-owned summary banner reports the file count on stdout.  Use
-this in CI to enforce a clean tree.
+this in CI to enforce a clean tree.  When `clang-format` fails without reporting a formatting
+violation, for example on an unreadable file or an invalid `.clang-format`, the command reports an
+error with `clang-format`'s output instead.
 
 ### Excluding paths
 
@@ -122,7 +124,8 @@ CABIN_FMT=/opt/llvm/bin/clang-format cabin fmt --check
 ```
 
 `CABIN_FMT` is taken verbatim - typically an absolute path, but a bare command name works too (it is
-then resolved against `PATH`).  When the executable cannot be found Cabin emits an actionable error:
+then resolved against `PATH`).  A wrapper script must forward `clang-format`'s exit status and
+stderr.  When the executable cannot be found Cabin emits an actionable error:
 
 ```text
 error: clang-format was not found on PATH.

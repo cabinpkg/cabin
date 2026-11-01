@@ -199,15 +199,9 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
             files_inspected,
             stderr,
         }) => {
-            // Forward clang-format's `--dry-run -Werror` stderr
-            // verbatim, as `cargo fmt --check` forwards rustfmt's
-            // diff.  An empty stderr (a `CABIN_FMT` wrapper that
-            // reports failure only through its exit code) is
-            // skipped; the `Failed` status below is printed
-            // regardless.
-            if !stderr.is_empty() {
-                reporter.tool_stderr(&stderr);
-            }
+            // Forward clang-format's `--dry-run -Werror` diagnostics
+            // verbatim, as `cargo fmt --check` forwards rustfmt's diff.
+            reporter.tool_stderr(&stderr);
             reporter.status(
                 "Failed",
                 format_args!(

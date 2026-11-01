@@ -69,8 +69,7 @@ fn check_mode_fails_when_files_would_be_reformatted() {
 
     // At default verbosity a failing `--check` reports both the
     // formatter's per-file diagnostic on stderr and a Cabin-owned
-    // banner on stdout; the banner appears even when a custom
-    // `CABIN_FMT` wrapper writes nothing to stderr.
+    // banner on stdout.
     let assertion = cabin_with_fake_formatter()
         .current_dir(dir.path())
         .args(["fmt", "--check"])
@@ -79,7 +78,7 @@ fn check_mode_fails_when_files_would_be_reformatted() {
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
-        stderr.contains("would be reformatted"),
+        stderr.contains("[-Wclang-format-violations]"),
         "expected formatter diagnostic on stderr, got: {stderr}"
     );
     assert!(

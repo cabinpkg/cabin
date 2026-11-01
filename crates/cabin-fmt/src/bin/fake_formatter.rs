@@ -7,13 +7,15 @@
 //!   marker* `/* FORMATTED */`, append the marker.  The
 //!   process exits with status 0.
 //! - **Check mode** (`--dry-run` and `-Werror` are present): for
-//!   every file argument, exit with status 1 if at least one
-//!   file lacks the sentinel marker; otherwise exit 0.  No
-//!   files are written in this mode.
+//!   every file argument that lacks the sentinel marker, print
+//!   clang-format's `[-Wclang-format-violations]` error on stderr,
+//!   and exit with status 1 if there was any; otherwise exit 0.  A
+//!   file containing `SILENT_FAILURE` makes the process exit 1
+//!   with nothing on stderr, like a `CABIN_FMT` wrapper that drops
+//!   clang-format's output.  No files are written in this mode.
 //!
-//! A file that cannot be read or written causes exit status 2 and
-//! a single-line error on stderr.  (Real `clang-format` exits 1 for
-//! a missing file.)
+//! As in real `clang-format`, a file that cannot be read or written
+//! causes exit status 1 and a single-line error on stderr.
 //!
 //! `--style=file` (or any other `--style=` value) is required:
 //! if absent, the fake exits with status 3, so every test that
@@ -24,6 +26,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const MARKER: &str = "/* FORMATTED */";
+const SILENT_FAILURE: &str = "/* FAIL SILENTLY */";
 
 fn main() -> ExitCode {
     // `cabin fmt` scrubs the registry credential before spawning the
@@ -68,7 +71,7 @@ fn main() -> ExitCode {
                 Ok(b) => b,
                 Err(err) => {
                     eprintln!("cabin-fmt-fake-formatter: {}: {}", path.display(), err);
-                    return ExitCode::from(2);
+                    return ExitCode::FAILURE;
                 }
             };
             if !body.trim_end().ends_with(MARKER) {
@@ -80,7 +83,7 @@ fn main() -> ExitCode {
                 updated.push('\n');
                 if let Err(err) = fs::write(path, updated) {
                     eprintln!("cabin-fmt-fake-formatter: {}: {}", path.display(), err);
-                    return ExitCode::from(2);
+                    return ExitCode::FAILURE;
                 }
             }
         }
@@ -94,12 +97,18 @@ fn main() -> ExitCode {
                 Ok(b) => b,
                 Err(err) => {
                     eprintln!("cabin-fmt-fake-formatter: {}: {}", path.display(), err);
-                    return ExitCode::from(2);
+                    return ExitCode::FAILURE;
                 }
             };
+            if body.contains(SILENT_FAILURE) {
+                return ExitCode::FAILURE;
+            }
             if !body.trim_end().ends_with(MARKER) {
                 needs_format = true;
-                eprintln!("{}: would be reformatted", path.display());
+                eprintln!(
+                    "{}:1:1: error: code should be clang-formatted [-Wclang-format-violations]",
+                    path.display()
+                );
             }
         }
         if needs_format {

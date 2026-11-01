@@ -86,11 +86,10 @@ pub enum FormatReport {
         files_inspected: usize,
         /// Formatter stderr, trimmed of trailing whitespace.
         /// Carries clang-format's `--dry-run -Werror` diagnostics,
-        /// normally one `code should be clang-formatted` error per
-        /// violation, for the orchestration layer to pass through
-        /// to the user.  Any check-mode exit status 1 lands here,
-        /// so it can also hold an unrelated error such as a missing
-        /// input file.
+        /// one `code should be clang-formatted` error per violation,
+        /// for the orchestration layer to pass through to the user.
+        /// It can also hold an error clang-format hit on another
+        /// input, such as a missing file, in the same run.
         stderr: String,
     },
 }
@@ -182,8 +181,8 @@ where
 /// Returns [`FormatError::InvocationFailed`] when the formatter
 /// exits unsuccessfully: in [`FormatMode::Write`] on any
 /// non-success status, and in [`FormatMode::Check`] on any exit
-/// status that is neither success (clean) nor code `1` (needs
-/// formatting).
+/// status that is neither success (clean) nor code `1` with a
+/// `[-Wclang-format-violations]` diagnostic (needs formatting).
 pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatError> {
     if request.files.is_empty() {
         return Ok(match request.mode {
@@ -260,10 +259,14 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
                     files_inspected: files.len(),
                 });
             }
-            // `clang-format --dry-run -Werror` exits with code 1
-            // when any input would be reformatted; any other
-            // unsuccessful status is an error.
-            if status.code() == Some(1) {
+            // `clang-format --dry-run -Werror` exits with code 1 both
+            // when an input would be reformatted and on a real error
+            // (an unreadable file, an invalid `.clang-format`); only a
+            // violation prints `[-Wclang-format-violations]`, spelled
+            // so since `--dry-run` appeared in clang-format 10.  Any
+            // other failure, including a `CABIN_FMT` wrapper that exits
+            // 1 without forwarding stderr, is an error.
+            if status.code() == Some(1) && stderr.contains("[-Wclang-format-violations]") {
                 return Ok(FormatReport::NeedsFormatting {
                     files_inspected: files.len(),
                     stderr,
