@@ -28,7 +28,7 @@ design-only work (stage 00): its documents are on `main`, and it implements noth
 | 02 | Interface definitions, visibility-driven propagation, final-link closure, per-source options | 2 | `cabin-core`, `cabin-manifest`, `cabin-build`, `cabin-driver`, `cabin-package` | 00; integrates 01 | implemented |
 | 03 | Per-revision resolution metadata; old pins keep their meaning | 1 (metadata) | `cabin-index`, `cabin-index-http`, `cabin-resolver`, `cabin-lockfile`, `cabin-registry-file`, `cabin-publish`, `cabin-registry-verify`, `registry/` | 00, 01; 02's metadata | implemented |
 | 04 | Build and target contexts, tool dependencies, `--target <triple>` | 5, 4 (tool foundation), 9 (platform), 1 (contexts) | `cabin-core`, `cabin-manifest`, `cabin-workspace`, `cabin-feature`, `cabin-resolver`, `cabin-lockfile`, `cabin-build`, `cabin-toolchain`, `cabin` | 00-03 | implemented |
-| 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | in progress |
+| 05 | Compile/link probes, sysroots and SDKs, MinGW on evidence | 9, 5 | `cabin-toolchain`, `cabin-core::compiler`, `cabin-driver` | 02, 04 | implemented |
 | 06 | Root-selected system providers | 3 | `cabin-system-deps`, `cabin-workspace`, `cabin-manifest`, `cabin-config`, `cabin-build` | 01-05 | not started |
 | 07 | Generated actions and build-machine tools | 4 | `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin-manifest`, `cabin-core` | 02, 04-06; 03's metadata | not started |
 | 08 | Static, shared, and loadable artifacts; PIC, DLLs, runtime lookup | 6 | `cabin-core`, `cabin-build`, `cabin-driver`, `cabin-ninja`, `cabin` | 02, 04-07 | not started |
@@ -358,7 +358,9 @@ Stages 05 and 04; used by 06-14.
   tool specs and the `--target` triple, not resolved paths or versions; the toolchain stamp beside
   `build.ninja` records versions, so a compiler whose version changes rebuilds at the same path.
   A slot left to the defaults takes the tool beside the compiler chosen for the other language, and
-  executables for a Windows triple are `<name>.exe`.  MinGW is best-effort.  A sysroot is explicit (`--sysroot`, `[sysroot]`) or, for Apple Clang
+  executables for a Windows triple are `<name>.exe`.  CI builds, runs, and tests MinGW-w64 GCC
+  through `--target x86_64-w64-mingw32`; other GCC/Clang-style toolchains on Windows are
+  best-effort.  A sysroot is explicit (`--sysroot`, `[sysroot]`) or, for Apple Clang
   only, the SDK `SDKROOT` or `xcrun` names; metadata reports which (`toolchain.sysroot.source`).
 
 **Blocked workflow.**  Generating a configuration header from a compile check; a supported MinGW
@@ -633,8 +635,12 @@ version suffix, the other language's driver, and the family's archiver (`<prefix
 beside Clang, `ar` beside GCC, `lib` / `llvm-lib` beside `cl` / `clang-cl`); the fallback lists
 then skip `cl`, `lib`, and `llvm-lib` beside a GCC-style compiler.  A Windows triple's executables
 are `<name>.exe` in either dialect, which MinGW GCC and Clang write; probe programs are always
-`probe.exe`.  MinGW stays best-effort: without `--target`, the build machine's `env` is still
-`msvc` on Windows, and no CI job builds with MinGW yet.
+`probe.exe`.  Without `--target`, the build machine's `env` is still `msvc` on Windows.
+
+Stage 05, fifth change: the `windows-mingw` CI job builds and runs the `hello-c`, `hello-cpp`, and
+mixed C/C++ `platform-cfg` examples with `cabin run --target x86_64-w64-mingw32 --cxx g++`, and
+tests `library-with-tests` the same way, using the MinGW-w64 GCC the `windows-2025-vs2026` image
+puts first on `PATH`.  Like `windows-msvc-autodiscovery`, it is not a required check.
 
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
@@ -806,12 +812,18 @@ sibling `gcc` and `ar` from the plan (fails without the `.exe` rule); unit tests
 build-machine `gen`, and read a GNU `app.exe` link failure as target `app` (fails without the
 second reading).  Run on macOS; no real MinGW toolchain ran.
 
+Stage 05, fifth change: the job passed on its pull request with MinGW-Builds GCC 15.2.0 and
+binutils 2.46 from `C:\mingw64\bin`; each example printed its message, `platform-cfg` its
+Windows C source, and both tests passed.  Without the sibling rule, `hello-c`
+would get `cl` beside `g++`, which the dialect check refuses.  Not run: Clang targeting MinGW,
+MSYS2's other environments, and build or system dependencies under MinGW.
+
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to
 reach the report unreplaced without the fix); the CLI concurrency test checks the report it writes
 despite its timed-out test.
 
-**Unfinished.**  Stage 05's remaining changes and stages 06-14.  Follow-ups found in stage 01, outside its scope:
+**Unfinished.**  Stages 06-14.  Follow-ups found in stage 01, outside its scope:
 `xtask-port-publish` still orders publication by each port's own default feature closure (area 1,
 "Blocked workflow"); a transitively requested unknown feature is reported as a resolution conflict
 naming `<package>[<feature>]` rather than with the direct-request diagnostic; `metadata` and
@@ -844,6 +856,15 @@ check is exact; `compile_commands.json` lists a source built in both contexts tw
 and `cabin explain` walk build edges with one platform.  Found alongside, in both contexts: a target's `deps` entry naming a disabled optional
 dependency still builds and links it (`cabin-build/src/planner/lowering.rs`, `resolve_target_dep`),
 though [features](features.md) says a disabled optional dependency never links.
+
+Follow-ups found in stage 05: sysroot discovery beyond Apple SDKs, and a sysroot for the build
+context; resource compilers (`rc`, `windres`) are not resolved, and MSVC `.asm` sources assemble
+only on x64 (`ml64`; arm64 needs `armasm64`); probe results are not reused, so nothing keys them
+yet (stage 07's configuration checks); `cabin metadata` and `cabin explain` do not report the
+build context's toolchain; a Windows Clang build for another machine needs `HOST_*` tools, since
+the build machine's default is `cl`; a native Windows build reads `env` as `msvc` whatever the
+compiler, so MinGW conditions need `--target x86_64-w64-mingw32`; no test runs a real cross
+toolchain, a non-Apple sysroot, or an iOS SDK.
 
 ## Handoff to stages 05 and 07
 

@@ -2051,7 +2051,7 @@ documented in `registry/docs/architecture.md`:
   of scope.
 - **No administrative policy surfaces.**
 - **No remote / binary build cache.** The artifact cache stores source archives only.
-- **Cross-compilation is partial** (planned: roadmap stage 05). `--target <triple>` selects the
+- **Cross-compilation is partial** (running build-machine tools is planned: roadmap stage 07). `--target <triple>` selects the
   platform `[target.'cfg(...)']` predicates evaluate for and passes Clang `--target=`; GCC, MSVC,
   and clang-cl must already build that platform, and Cabin runs what it built for another machine
   only through a configured `[runner]` (see
@@ -2061,7 +2061,8 @@ documented in `registry/docs/architecture.md`:
   discovery is not implemented yet. (Windows / MSVC
   itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the `cabin-driver` crate
   lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the detection and dialect
-  sections above.)
+  sections above.  CI also builds, runs, and tests examples with MinGW-w64 GCC through `--target
+  x86_64-w64-mingw32`.)
 - **No hard resolver-side language-standard filtering.** First-class C/C++ language standards are
   implemented locally (required manifest fields with no built-in default, `[workspace]` defaults,
   the per-target `gnu-extensions` boolean, dialect lowering, pre-build validation, interface
