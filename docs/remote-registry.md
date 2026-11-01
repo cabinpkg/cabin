@@ -515,6 +515,9 @@ Client-side behavior:
 - When the response's optional `"verification"` field says `"pending"`, the report adds that the
   version was accepted and becomes resolvable after verification (typically within a few
   minutes).  The field is read tolerantly: a registry that omits it changes nothing.
+- Under [offline mode](environment-variables.md) (`CABIN_NET_OFFLINE`), a remote publish fails
+  before any request - credential exchange and login included; `--dry-run` and `--registry-dir`
+  still work.
 - `--dry-run` stays entirely local: it stages into `--output-dir` (default `dist/`) and never
   opens a connection.  In a batch, every dry-run mode rehearses each member against the
   registry as it stands - members of one invocation are invisible to each other (a dry run
@@ -805,7 +808,8 @@ version, no ranges - and resolves the registry exactly like remote publish: `--i
 `[registry] index-url` setting in [`config.md`](config.md#registry) - never the
 [default registry](#the-default-registry); a mutation must not target a registry the user did not
 name.  A local `index-path` is rejected, since yanked state lives in the remote registry's index.  The registry's `config.json`
-must declare the [`api`](#registry-configuration) origin the request is sent to.
+must declare the [`api`](#registry-configuration) origin the request is sent to.  Like remote
+publish, it fails under offline mode before any request.
 
 ```console
 $ cabin -Z remote-registry yank fmtlib/fmt@10.2.1 --index-url https://registry.cabinpkg.com
