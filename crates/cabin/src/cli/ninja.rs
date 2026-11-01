@@ -614,8 +614,7 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
             .map(|(_, value)| value.clone())
             .or_else(|| std::env::var_os(key));
         if let Some(value) = value {
-            // Probe: the test must fail without the recorded paths.
-            let _ = value;
+            identity[key] = value.to_string_lossy().into();
         }
     }
     // A run that plans no build context (`cabin check`, a narrower
