@@ -66,9 +66,10 @@ version.
 Entries are immutable.  Two producer runs that compute the same key build the same lockfile, and
 GitHub refuses the second save with a warning.  GitHub evicts the least recently used entries
 once a repository exceeds its cache limit, and pull-request caches from other workflows keep this
-one over it: when this design landed, the oldest entry in the repository was half an hour old.
-An entry that consumers keep restoring stays recent; one evicted anyway comes back at the next
-scheduled run.
+one over it: while this design was tested, the oldest entry in the repository was ten minutes
+old, and an entry nothing restored was gone within ten minutes.  A restore and a lookup both
+count as an access, so an entry that consumers keep restoring stays recent; one evicted anyway
+comes back at the next scheduled run.
 
 The schedule, not a `push: main` trigger, keeps `.github/AGENTS.md`'s `push: main` rule intact.
 Dependency and toolchain inputs changed in 40 of the 252 commits to `main` in the 30 days before
@@ -102,9 +103,11 @@ No cached path holds a credential: `rust-cache` deletes `~/.cargo/credentials.to
 `persist-credentials: false`.
 
 What remains trusted is every run that can write `main`'s scope, not only `rust-cache.yml`'s.
-Anyone who can land a commit on `main`, or a locked dependency compiled there, can shape an entry;
-a consumer runs that same locked dependency's code in the same build anyway, and only unprivileged
-test and lint jobs restore the result.
+Each builds only code from `main`'s history; `perf.yml` refuses a dispatched comparison `base`
+outside the run's own history for that reason.  Anyone who can land a commit on `main`, or a
+locked dependency compiled there, can shape an entry; a consumer runs that same locked
+dependency's code in the same build anyway, and only unprivileged test and lint jobs restore the
+result.
 
 ## Diagnosing a miss
 
@@ -130,10 +133,11 @@ Before this design, every pull-request run of `rust.yml` saved nine entries of a
 to a scope no other run reads, and the repository held 12 to 15 GB of caches against its 10 GB
 limit.  `main` now holds six entries of about 1.6 GB in all, and `rust.yml` saves nothing.
 
-A warm restore saved about 270 runner-seconds per `rust.yml` run and about 50 seconds on its
-slowest job, `build-and-test` on `windows-11-vs2026-arm`; skipping the saves removes another 5 to
-20 seconds per job.  A scheduled run that finds every key costs about six runner-minutes, and a
-run that rebuilds every entry about 25.
+On the commit that introduced this design, one `rust.yml` run took 1,479 runner-seconds across
+its eight Linux and Windows jobs without the seeded entries and 1,138 with them, 23% less, and its
+slowest job, `build-and-test` on `windows-11-vs2026-arm`, went from 479 to 397 seconds.  Consumers
+also no longer spend 5 to 20 seconds per job saving.  A producer run that rebuilds every entry
+took 18 runner-minutes; one that finds its keys stops after the toolchain setup and the lookup.
 
 ## Not seeded
 
