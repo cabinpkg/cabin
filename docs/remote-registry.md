@@ -194,7 +194,7 @@ tests and sandboxed runs off the real one.
 ```toml
 [registries."https://registry.cabinpkg.com"]
 token = "cabin_ses_..."
-expires-at = "<RFC 3339, as the mint answered>"
+expires-at = "<the mint's expiry, RFC 3339 UTC with milliseconds>"
 api-url = "https://cabinpkg.com"
 ```
 
@@ -919,8 +919,8 @@ Success is `200`:
 ```
 
 `expires_at` is UTC RFC 3339 (the hosted registry mints the millisecond `Z` form); the client
-refuses a non-UTC stamp - or any non-timestamp - before storing or printing it, so a registry
-cannot smuggle arbitrary text through the field.  The plaintext is rendered exactly once, in
+refuses a value it cannot parse as a UTC time, and stores and prints its own millisecond `Z`
+rendering of the parsed time, so a registry cannot smuggle text through the field.  The plaintext is rendered exactly once, in
 this response.  The minted token is a bearer token
 like any other, multi-use within its 12-hour lifetime, carrying `publish` and `yank` - plus
 `verify` when the account is the operator's own - at the account's own quota class.  Every mint failure - a
