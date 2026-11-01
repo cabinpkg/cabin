@@ -318,6 +318,14 @@ pub enum ManifestError {
         #[source]
         source: cabin_core::PatchValidationError,
     },
+
+    /// A `[system-provided]` entry names an invalid pkg-config module.
+    #[error("invalid `[system-provided]` entry for `{package}`: {source}")]
+    InvalidSystemProvider {
+        package: String,
+        #[source]
+        source: cabin_core::ValidationError,
+    },
 }
 
 /// Source-annotated form of a TOML parse failure.  Carries the

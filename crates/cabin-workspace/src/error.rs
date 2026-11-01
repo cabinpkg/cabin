@@ -269,6 +269,12 @@ pub enum WorkspaceError {
     MemberDeclaresPatches { package: String, path: PathBuf },
 
     #[error(
+        "package `{package}` at {path} declares a `[system-provided]` table, but it may only appear in the workspace root manifest",
+        path = path.display()
+    )]
+    MemberDeclaresSystemProvided { package: String, path: PathBuf },
+
+    #[error(
         "registry package `{package}` at {path} declares a `path` dependency on `{dep_name}`, but a downloaded registry package may only depend on other packages by version",
         path = path.display()
     )]

@@ -3499,6 +3499,27 @@ fn patch_table_accepts_scoped_package_key() {
     assert!(package.patches.entries.contains_key(&key));
 }
 
+/// The module reaches pkg-config's argv, so one spelled like an option
+/// is refused.
+#[test]
+fn system_provided_table_rejects_an_option_shaped_module() {
+    let err = parse_manifest_str(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [system-provided."acme/zlib"]
+            pkg-config = "--define-variable=prefix=/tmp"
+        "#,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, ManifestError::InvalidSystemProvider { package, .. } if package == "acme/zlib"),
+        "{err:?}"
+    );
+}
+
 #[test]
 fn unknown_package_field_is_rejected() {
     // Generic coverage that any unrecognized field on

@@ -63,6 +63,10 @@ declares an entry.  Higher layers fully replace lower layers on overlap.
 The resolved provenance label appears verbatim under `patches[].provenance` in `cabin metadata` so
 the chosen layer is auditable.
 
+A package cannot be both patched and
+[system-provided](system-dependencies.md#system-provided-packages); naming one in both tables is an
+error.
+
 ## Patch validation
 
 Before any consumer sees a resolved patch, Cabin validates each entry:

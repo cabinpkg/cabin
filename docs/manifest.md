@@ -28,11 +28,13 @@ A manifest may contain these top-level sections:
 - at most one `[profile]` table plus `[profile.<name>]` tables
 - at most one `[toolchain]` table
 - at most one `[patch]` table
+- at most one `[system-provided]` table (see
+  [System dependencies](system-dependencies.md#system-provided-packages))
 
 A manifest must contain at least one of `[package]` and `[workspace]`.  Package-specific tables such
 as targets, dependencies, and features require `[package]`.  Workspace policy tables such as
-`[workspace]`, `[profile]`, `[toolchain]`, and `[patch]` may appear on a workspace root without
-`[package]`.
+`[workspace]`, `[profile]`, `[toolchain]`, `[patch]`, and `[system-provided]` may appear on a
+workspace root without `[package]`.
 
 Naming convention: manifest field names and value strings are kebab-case (`include-dirs`,
 `header-only`, `opt-level`, `dev-dependencies`).  The single exception is `cfg(...)` predicate keys

@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
 
 use cabin_build::{PlanRequest, plan};
 use cabin_package::scaffold;
-use cabin_workspace::{PackageGraph, RegistryPackageSource};
+use cabin_workspace::PackageGraph;
 
 use crate::completions::CompgenArgs;
 use crate::manpages::MangenArgs;
@@ -29,6 +29,7 @@ pub(crate) mod seed;
 pub(crate) mod source_tooling;
 pub(crate) mod standard_compat;
 pub(crate) mod system_deps;
+mod system_provided;
 pub(crate) mod term_color;
 pub(crate) mod term_verbosity;
 pub(crate) mod test;

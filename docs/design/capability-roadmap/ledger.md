@@ -170,8 +170,11 @@ Stage 06; validated in 12-14.
   `collect_active_system_deps`); results merge into the declaring package's own flags, and `--libs`
   lands in that package's `ldflags`, which reaches only its own executable links.
 - Probing is refused on MSVC (`ensure_dialect_supports_system_deps`).
-- `[patch]` accepts only a path source (`cabin-core/src/patch.rs`, `PatchSource`); nothing lets a
-  consumer swap a Cabin package for an installed copy.
+- `[patch]` accepts only a path source (`cabin-core/src/patch.rs`, `PatchSource`).  Since stage 06,
+  the root manifest's `[system-provided]` table takes a registry package with one library target
+  from a pkg-config module (`cabin/src/cli/system_provided.rs`): resolution and `cabin.lock` are
+  unchanged, fetching stops at the package, and its target takes the module's interface
+  (`cabin-build`, `PlanRequest::system_targets`).
 - Ports may not declare `system = true` (`xtask-port-publish`, enforced and documented in
   [foundation ports](foundation-ports.md#anatomy-of-a-foundation-port)); no port has a
   system/vendored feature.
@@ -662,6 +665,23 @@ no manifest can share, and versioned dependencies of its name link to it.  Its o
 through the registry policy like a registry package's, so a caller declares only those it supplies.
 No command passes any yet.
 
+Stage 06, third change: the workspace root manifest's `[system-provided."<package>"] pkg-config =
+"<module>"` table, refused in member and dependency manifests and by `cabin package`.  Resolution
+and `cabin.lock` ignore it.  After resolution, the walk from the root's dependencies stops at a
+provided package: `build`, `run`, `test`, and `fetch` fetch neither it nor what only it reaches,
+and `vendor` ignores the table.  Each provided package becomes a synthesized package (locked
+version, the index's sole library target as a header-only target, the index's feature names
+enabling nothing, no dependencies).  The walk refuses an index entry without exactly one library
+target; every command that loads the patches refuses a package both patched and provided; the
+build refuses a provided name that is a local package.  After feature resolution, every provided
+package the target context includes is probed with the comparators of the active edges onto it
+(from included packages, on the target platform, optional ones only when enabled).  The build is
+refused under MSVC, when a build dependency reaches a provided package, and when a provided package
+reaches, transitively, a package the target context also builds from source.  The flags fill
+`PlanRequest::system_targets`, `--cflags` other than `-I` verbatim.  The
+standard-compatibility check treats a provided target as a compiled library without an interface
+declaration (spec D9 row 4).  `cabin metadata` reports the table under `system_provided`.
+
 Stage 11, first change (independent CLI work, ahead of stages 04-10): `cabin test -- <args>` passes
 the arguments after `--` to every selected test executable as an `OsString` list, without a shell;
 a bare argument without `--` is rejected rather than read as a filter.
@@ -850,6 +870,21 @@ or reordering any one hook fails a test.
 Stage 06, second change: a loader unit test links an application to a system `zlib` and to `fmt`,
 and the system `zlib` to `fmt`, and refuses a system `zlib` whose dependency nothing fetched under
 the strict registry policy; dropping the manifest-name skip or the registry kind fails it.
+
+Stage 06, third change: CLI tests over a file index with the fake pkg-config build one unchanged
+consumer (a C library and a C++ executable over a registry `png` that depends on `zlib`, a diamond)
+first against a system `zlib` whose header defines its marker only under the module's `-D`, with
+`zlib`'s archives removed, then from source; each run prints its origin through every consumer, and
+`cabin.lock` is byte-identical.  Others refuse an absent module and a version outside `png`'s
+`>=1.2`, where the root's `*` and a disabled optional `^9` edge add nothing; fetch a provided `png`
+with neither archive present; refuse a provided package that reaches a source-built `zlib` through
+`png`, and build once the only edge onto `zlib` is inactive on the platform; build with a patched
+`zlib` fork that only the provided `png` reaches, whose own registry dependency has no archive;
+refuse a package both patched and provided even when the patch leaves nothing to resolve, and a
+provided path dependency; report the table in `cabin
+metadata`; and refuse it in a member manifest and in `cabin package`.  A manifest
+unit test refuses an option-shaped module.  Without the standard-compatibility special case the
+build test fails on the C consumers.  Run on macOS; the Windows legs assert the MSVC refusal.
 
 Stage 11, third change: a unit test reads back a serialized report of two packages covering every
 outcome, with markup, a non-UTF-8 byte, and U+FFFE and U+FFFF in the output (the last two shown to

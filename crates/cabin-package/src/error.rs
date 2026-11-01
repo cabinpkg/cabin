@@ -162,6 +162,11 @@ pub enum PackageError {
     PatchTableNotPublishable { name: String },
 
     #[error(
+        "package `{name}` declares a `[system-provided]` table; which packages come from the system is the consuming workspace's choice and not publishable. Remove the table from this manifest before packaging."
+    )]
+    SystemProvidedTableNotPublishable { name: String },
+
+    #[error(
         "package version `{version}` carries build metadata; registry versions are plain upstream versions - drop the `+...` suffix (packaging corrections are published as revisions of the same version)"
     )]
     VersionBuildMetadataNotPublishable { version: String },

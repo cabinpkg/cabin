@@ -3041,6 +3041,7 @@ fn target_dep_cycle_within_package_is_reported() {
         language: Default::default(),
         compiler_wrapper: Default::default(),
         patches: Default::default(),
+        system_provided: Default::default(),
         upstream: None,
         include: Vec::new(),
     };

@@ -573,6 +573,12 @@ fn reject_member_manifest_overrides(
             path: manifest_path.to_path_buf(),
         });
     }
+    if !package.system_provided.is_empty() {
+        return Err(WorkspaceError::MemberDeclaresSystemProvided {
+            package: package.name.as_str().to_owned(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
     Ok(())
 }
 

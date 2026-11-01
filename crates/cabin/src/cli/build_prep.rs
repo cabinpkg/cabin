@@ -352,6 +352,9 @@ pub(crate) struct PreparedWorkspace {
     /// The build context, when the target context's packages declare
     /// build dependencies.
     pub build_context: Option<BuildContextPrep>,
+    /// The interfaces of the system-provided targets the target
+    /// context uses.
+    pub system_targets: HashMap<(usize, String), cabin_build::SystemTargetInterface>,
 }
 
 impl PreparedWorkspace {
@@ -483,11 +486,7 @@ pub(crate) fn prepare_workspace(
     })?;
     let has_versioned = seed.has_versioned_deps();
 
-    let (registry, lockfile_pinned, activated_patches): (
-        Vec<super::RegistryPackageSource>,
-        BTreeSet<(String, String)>,
-        BTreeSet<String>,
-    ) = if has_versioned {
+    let (registry, lockfile_pinned, activated_patches, system) = if has_versioned {
         let inputs = super::config::resolve_pipeline_inputs(
             resolved_index_source.as_ref(),
             &effective_config,
@@ -515,11 +514,13 @@ pub(crate) fn prepare_workspace(
             )?,
             no_patches: args.no_patches,
             dev_for: &dev_for,
+            system_provided: &initial_graph.root_settings.system_provided,
         })?;
         (
             pipeline.registry_sources(),
             pipeline.lockfile_pinned,
             pipeline.activated_patches,
+            pipeline.system,
         )
     } else {
         super::enforce_locked_patch_state(
@@ -533,6 +534,7 @@ pub(crate) fn prepare_workspace(
             Vec::new(),
             BTreeSet::new(),
             seed.patched_deps.activated.clone(),
+            super::system_provided::SystemSplit::default(),
         )
     };
 
@@ -598,7 +600,7 @@ pub(crate) fn prepare_workspace(
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
-            system: &[],
+            system: &system.stubs,
             registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
             include_dev_for: &dev_for,
         },
@@ -746,6 +748,15 @@ pub(crate) fn prepare_workspace(
         cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         selected_closure,
     )?;
+    let system_targets = super::system_provided::probe_provided(
+        &graph,
+        &feature_resolution,
+        &build_features.included,
+        &system.reaches,
+        &platform,
+        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+        reporter,
+    )?;
     let prep = resolve_build_prep(BuildConfigInputs {
         graph: &graph,
         platform: &platform,
@@ -830,6 +841,7 @@ pub(crate) fn prepare_workspace(
         configured_sysroot,
         runner,
         build_context,
+        system_targets,
     })
 }
 
@@ -959,7 +971,7 @@ pub(crate) fn plan_prepared(
         build_flags: &prepared.prep.build_flags,
         language_standards: &prepared.language_standards,
         standard_flag_conflicts: &prepared.prep.standard_flag_conflicts,
-        system_targets: &HashMap::new(),
+        system_targets: &prepared.system_targets,
         build_dir: prepared.build_dir.clone(),
         platform: prepared.platform.clone(),
         profile: prepared.profile.clone(),

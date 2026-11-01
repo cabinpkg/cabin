@@ -334,6 +334,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         )?,
         no_patches: args.no_patches,
         dev_for: &dev_for,
+        system_provided: &initial_graph.root_settings.system_provided,
     })?;
 
     // Every fetched archive was hashed this run, cache hits included.
@@ -831,6 +832,10 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     /// pipeline's resolution so `build` / `run` / `test` / `fetch`
     /// select the same versions `cabin resolve` / `cabin update` would.
     pub(crate) incompatible_standards: cabin_core::IncompatibleStandards,
+    /// The packages to take from the system rather than fetch: the
+    /// root's `[system-provided]` table, or empty for `cabin vendor`,
+    /// whose tree must build where the system lacks them.
+    pub(crate) system_provided: &'a cabin_core::SystemProvidedSettings,
 }
 
 pub(crate) struct ArtifactPipeline {
@@ -848,6 +853,8 @@ pub(crate) struct ArtifactPipeline {
     /// their versioned deps were deliberately never resolved, so
     /// the strict workspace reload must not require them.
     pub(crate) activated_patches: BTreeSet<String>,
+    /// What resolution left to the system.
+    pub(crate) system: crate::cli::system_provided::SystemSplit,
 }
 
 impl ArtifactPipeline {
@@ -896,6 +903,7 @@ pub(crate) fn run_artifact_pipeline(
             fetched: Vec::new(),
             lockfile_pinned: BTreeSet::new(),
             activated_patches: seed.patched_deps.activated.clone(),
+            system: crate::cli::system_provided::SystemSplit::default(),
         });
     }
     let lockfile_path = lockfile_path_for(manifest_path);
@@ -962,7 +970,7 @@ pub(crate) fn run_artifact_pipeline(
     // that skips the second `Allow`-mode solve behind the report.
     let (output, index) = resolve_with_lazy_index(&input, &source, true)?;
     ensure_registry_edges_link(&output, &input, request.patched_names)?;
-    let activated_patches = activated_patches(seed, &output, request.patched_names);
+    let mut activated_patches = activated_patches(seed, &output, request.patched_names);
 
     let mut new_lockfile = lockfile_from_resolution(
         &output,
@@ -993,7 +1001,20 @@ pub(crate) fn run_artifact_pipeline(
         }
     }
 
-    let plan = build_fetch_plan(&output, &index, &access, &new_lockfile)?;
+    let system =
+        crate::cli::system_provided::split_resolution(&output, &index, request.system_provided)?;
+    // A fork only provided packages reach is dormant like an unused
+    // patch: nothing builds it, and its dependencies are not fetched.
+    activated_patches.retain(|name| !system.unfetched.iter().any(|p| p.as_str() == name));
+    let plan = build_fetch_plan(
+        output
+            .packages
+            .iter()
+            .filter(|p| !system.unfetched.contains(&p.name)),
+        &index,
+        &access,
+        &new_lockfile,
+    )?;
     let cache = ArtifactCache::new(request.cache_dir);
     let result = cabin_artifact::fetch(
         &plan,
@@ -1005,6 +1026,7 @@ pub(crate) fn run_artifact_pipeline(
     Ok(ArtifactPipeline {
         fetched: result.packages,
         activated_patches,
+        system,
         // `PreferLocked` falls back to a fresh selection when a pin
         // no longer satisfies its constraint, so membership is
         // checked selection by selection - a re-resolved package
@@ -1093,8 +1115,8 @@ fn open_http_index(
     Ok((http_index, client))
 }
 
-/// Build a [`FetchPlan`] from a resolver output, the index it ran
-/// against, and the lockfile the run just settled on.  Each resolved
+/// Build a [`FetchPlan`] from resolved packages, the index they were
+/// resolved against, and the lockfile the run just settled on.  Each
 /// registry package contributes exactly one fetch entry.
 ///
 /// The lockfile is the revision authority: its checksum names the
@@ -1109,14 +1131,14 @@ fn open_http_index(
 /// here (so `cabin-artifact` stays HTTP-free) or whether the source
 /// path is handed straight through as a local file.
 #[tracing::instrument(level = "info", skip_all)]
-fn build_fetch_plan(
-    output: &ResolveOutput,
+fn build_fetch_plan<'a>(
+    packages: impl Iterator<Item = &'a ResolvedPackage>,
     index: &PackageIndex,
     access: &IndexAccess,
     lockfile: &Lockfile,
 ) -> Result<FetchPlan> {
     let mut entries = Vec::new();
-    for resolved in &output.packages {
+    for resolved in packages {
         // Local selections (a `[patch]` fork reached through a
         // registry edge, say) build from their working copy.
         if resolved.source != ResolvedSource::Index {

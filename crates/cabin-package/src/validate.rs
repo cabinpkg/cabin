@@ -143,6 +143,13 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
             name: package.name.as_str().to_owned(),
         });
     }
+    // Which packages come from the system is the final consumer's
+    // choice, never a dependency's.
+    if !package.system_provided.is_empty() {
+        return Err(PackageError::SystemProvidedTableNotPublishable {
+            name: package.name.as_str().to_owned(),
+        });
+    }
 
     for dep in &package.dependencies {
         if dep.kind == cabin_core::DependencyKind::Build {

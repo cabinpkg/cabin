@@ -72,6 +72,10 @@ pub(crate) struct RawManifest {
     /// development policy and never enter published metadata.
     #[serde(default)]
     pub(crate) patch: BTreeMap<String, RawPatch>,
+    /// `[system-provided]` - packages the build takes from the system.
+    /// Workspace-root only, like `[patch]`.
+    #[serde(default, rename = "system-provided")]
+    pub(crate) system_provided: BTreeMap<String, RawSystemProvider>,
 }
 
 /// `[toolchain]` table.  Adding new fields here requires a matching
@@ -158,6 +162,14 @@ pub(crate) struct RawProfileFlags {
 pub(crate) struct RawPatch {
     #[serde(default)]
     pub(crate) path: Option<String>,
+}
+
+/// One row in the `[system-provided]` table.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawSystemProvider {
+    #[serde(rename = "pkg-config")]
+    pub(crate) pkg_config: String,
 }
 
 /// One `[profile.<name>]` table.

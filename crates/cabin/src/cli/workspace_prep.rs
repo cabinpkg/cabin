@@ -65,6 +65,10 @@ pub(crate) fn load_workspace_and_patches(
     // contribute version requirements the first pass could not see.
     let active_patches =
         crate::cli::patch::load_active_patches(&graph, &effective_config, no_patches)?;
+    crate::cli::system_provided::reject_patched(
+        &graph.root_settings.system_provided,
+        &active_patches.owned_patched_names(),
+    )?;
     Ok(WorkspacePrep {
         effective_config,
         active_patches,
