@@ -3551,6 +3551,50 @@ fn system_provided_table_rejects_an_option_shaped_module() {
     );
 }
 
+/// An entry names one module or a module per target, never both or
+/// neither; a target's module and name are validated like the sole one.
+#[test]
+fn system_provided_entry_takes_one_module_or_one_per_target() {
+    let parse = |entry: &str| {
+        parse_manifest_str(&format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[system-provided.\"acme/tls\"]\n{entry}"
+        ))
+    };
+    let package = parse(
+        "targets.ssl = { pkg-config = \"libssl\" }\ntargets.crypto = { pkg-config = \"libcrypto\" }\n",
+    )
+    .unwrap()
+    .package
+    .unwrap();
+    let provider =
+        &package.system_provided.entries[&cabin_core::PackageName::new("acme/tls").unwrap()];
+    assert_eq!(provider.module_for("crypto"), Some("libcrypto"));
+    assert_eq!(provider.module_for("ssl"), Some("libssl"));
+
+    for entry in [
+        "pkg-config = \"tls\"\ntargets.ssl = { pkg-config = \"libssl\" }\n",
+        "targets = {}\n",
+        "pkg-config = \"tls\"\ntargets = {}\n",
+        "",
+    ] {
+        let err = parse(entry).unwrap_err();
+        assert!(
+            matches!(&err, ManifestError::SystemProviderShape { package } if package == "acme/tls"),
+            "{entry}: {err:?}"
+        );
+    }
+    for entry in [
+        "targets.ssl = { pkg-config = \"--libs\" }\n",
+        "targets.\"../ssl\" = { pkg-config = \"libssl\" }\n",
+    ] {
+        let err = parse(entry).unwrap_err();
+        assert!(
+            matches!(&err, ManifestError::InvalidSystemProvider { package, .. } if package == "acme/tls"),
+            "{entry}: {err:?}"
+        );
+    }
+}
+
 #[test]
 fn unknown_package_field_is_rejected() {
     // Generic coverage that any unrecognized field on

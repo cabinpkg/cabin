@@ -130,25 +130,43 @@ pub(super) fn patch_settings_from_raw(
 
 /// Convert a raw `[system-provided]` table into typed
 /// [`cabin_core::SystemProvidedSettings`], validating each pkg-config
-/// module name.
+/// module name and target name.
 pub(super) fn system_provided_from_raw(
     raw: BTreeMap<String, crate::raw::RawSystemProvider>,
 ) -> Result<cabin_core::SystemProvidedSettings, ManifestError> {
     let mut entries = BTreeMap::new();
     for (name, row) in raw {
         let package = PackageName::new(name).map_err(ManifestError::Validation)?;
-        cabin_core::validate_system_dependency_name(&row.pkg_config).map_err(|source| {
-            ManifestError::InvalidSystemProvider {
-                package: package.as_str().to_owned(),
-                source,
+        let invalid = |source| ManifestError::InvalidSystemProvider {
+            package: package.as_str().to_owned(),
+            source,
+        };
+        let provider = match (row.pkg_config, row.targets) {
+            (Some(pkg_config), None) => {
+                cabin_core::validate_system_dependency_name(&pkg_config).map_err(invalid)?;
+                cabin_core::SystemProvider::Module { pkg_config }
             }
-        })?;
-        entries.insert(
-            package,
-            cabin_core::SystemProvider {
-                pkg_config: row.pkg_config,
-            },
-        );
+            (None, Some(rows)) if !rows.is_empty() => {
+                let mut targets = BTreeMap::new();
+                for (target, row) in rows {
+                    cabin_core::validate_system_dependency_name(&row.pkg_config)
+                        .map_err(invalid)?;
+                    targets.insert(
+                        cabin_core::TargetName::new(target).map_err(invalid)?,
+                        cabin_core::SystemTargetProvider {
+                            pkg_config: row.pkg_config,
+                        },
+                    );
+                }
+                cabin_core::SystemProvider::Targets { targets }
+            }
+            _ => {
+                return Err(ManifestError::SystemProviderShape {
+                    package: package.as_str().to_owned(),
+                });
+            }
+        };
+        entries.insert(package, provider);
     }
     Ok(cabin_core::SystemProvidedSettings { entries })
 }

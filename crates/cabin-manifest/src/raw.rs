@@ -164,10 +164,21 @@ pub(crate) struct RawPatch {
     pub(crate) path: Option<String>,
 }
 
-/// One row in the `[system-provided]` table.
+/// One row in the `[system-provided]` table: `pkg-config` for a sole
+/// library target, or `targets` with one module per library target.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawSystemProvider {
+    #[serde(default, rename = "pkg-config")]
+    pub(crate) pkg_config: Option<String>,
+    #[serde(default)]
+    pub(crate) targets: Option<BTreeMap<String, RawSystemTargetProvider>>,
+}
+
+/// One `targets.<name>` row of a `[system-provided]` entry.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawSystemTargetProvider {
     #[serde(rename = "pkg-config")]
     pub(crate) pkg_config: String,
 }

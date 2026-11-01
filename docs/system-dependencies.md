@@ -199,6 +199,14 @@ table with the pkg-config module that supplies it:
 pkg-config = "zlib"
 ```
 
+A package with several library targets names a module for each of them under `targets`:
+
+```toml
+[system-provided."acme/tls"]
+targets.ssl = { pkg-config = "libssl" }
+targets.crypto = { pkg-config = "libcrypto" }
+```
+
 The manifests that depend on the package keep their `"cabin-ports/zlib" = "^1.3"` edges and
 `deps = ["cabin-ports/zlib"]` references unchanged.  Like `[patch]`, the table is the root's
 policy: a member or dependency manifest that declares it is an error, and `cabin package` refuses a
@@ -215,12 +223,14 @@ manifest that carries it.
   checked against the comparators of every edge onto the package that the build uses: from an
   included package, active on the target platform, and, when optional, enabled by a feature.  `*`
   adds none; the rest are joined as in [Version requirements](#version-requirements).  A missing
-  module or a version outside them stops
-  the build; it never falls back to the source build.  Unselected members, disabled features, and
-  dev dependencies the command does not build need no installed library.  A `--target` build for
-  another machine needs the target's pkg-config, as [above](#manifest-declaration).
-- **Interface.**  The index must list exactly one library target for the package, and that target
-  takes the module's interface: `-I` directories as include dirs (system search paths, except
+  module or a version outside them stops the build; it never falls back to the source build.  With
+  `targets`, every module must be installed and is checked against the same comparators, including
+  the modules of targets nothing uses.  Unselected members, disabled features, and dev dependencies
+  the command does not build need no installed library.  A `--target` build for another machine
+  needs the target's pkg-config, as [above](#manifest-declaration).
+- **Interface.**  `pkg-config` needs the index to list exactly one library target for the package;
+  `targets` must name every library target the index lists, no more and no fewer.  Each target
+  takes its module's interface: `-I` directories as include dirs (system search paths, except
   compiler default dirs such as `/usr/include`), the other `--cflags` tokens verbatim and in order
   ahead of each consumer compile's standard and profile flags, and the `--libs` tokens, in order,
   after the archives of every link that reaches the target.  The language-standard check does not
@@ -237,8 +247,8 @@ manifest that carries it.
 
 `cabin metadata` reports the table as declared under the top-level `system_provided` object;
 `cabin -v` prints each probed module's version.  Not yet supported: the table in config files,
-packages with several library targets, static linking (`--static`), cross-sysroot defaults, a
-provider for MSVC, and provided packages a build dependency reaches.
+static linking (`--static`), cross-sysroot defaults, a provider for MSVC, and provided packages a
+build dependency reaches.
 
 ## What Cabin does not do
 

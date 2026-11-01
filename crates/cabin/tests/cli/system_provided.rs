@@ -559,10 +559,130 @@ fn a_local_package_cannot_be_provided() {
     );
 }
 
+/// A package with several library targets takes one module per target:
+/// every target must be named, every module meets the edges'
+/// requirement, and each target takes its own module's interface.
+#[test]
+fn each_library_target_comes_from_its_own_module() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    publish(
+        root,
+        "src-tls",
+        &[
+            (
+                "cabin.toml",
+                "[package]\nname = \"acme/tls\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
+                 [target.ssl]\ntype = \"library\"\nsources = [\"src/ssl.c\"]\ninclude-dirs = [\"include\"]\n\n\
+                 [target.crypto]\ntype = \"library\"\nsources = [\"src/crypto.c\"]\ninclude-dirs = [\"include\"]\n",
+            ),
+            ("include/tls.h", "#define TLS_ORIGIN \"source\"\n"),
+            ("src/ssl.c", "int ssl(void) { return 0; }\n"),
+            ("src/crypto.c", "int crypto(void) { return 0; }\n"),
+        ],
+    );
+    hide_archives(root, "acme/tls");
+    let system_include = root.join("sys/include");
+    assert_fs::fixture::ChildPath::new(system_include.join("tls.h"))
+        .write_str(
+            "#if defined(SSL_SYSTEM) && defined(CRYPTO_SYSTEM)\n#define TLS_ORIGIN \"system\"\n#endif\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("app/src/main.c"))
+        .write_str(
+            "#include <stdio.h>\n#include \"tls.h\"\n\
+             int main(void) { printf(\"%s\\n\", TLS_ORIGIN); return 0; }\n",
+        )
+        .unwrap();
+    let fixtures = Fixtures::new();
+    // The fake pkg-config reads one key per line.
+    let module = |name: &str, version: &str, cflags: String| {
+        fixtures.write(
+            name,
+            &serde_json::to_string_pretty(&serde_json::json!({
+                "version": version,
+                "cflags": cflags,
+                "libs": "",
+            }))
+            .unwrap(),
+        );
+    };
+    module(
+        "libssl",
+        "1.0.0",
+        format!("-I{} -DSSL_SYSTEM", system_include.display()),
+    );
+    module("libcrypto", "0.9.0", "-DCRYPTO_SYSTEM".to_owned());
+    let deps = "\"acme/tls\" = \"^1.0\"\n\n\
+                [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n\
+                deps = [\"acme/tls:ssl\", \"acme/tls:crypto\"]\n";
+    let build = || {
+        let mut cmd = cabin_with_fake_pkg_config(&fixtures);
+        cmd.args(["build", "--manifest-path"])
+            .arg(root.join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(root.join("registry"))
+            .arg("--cache-dir")
+            .arg(root.join("cache"))
+            .arg("--build-dir")
+            .arg(root.join("build"));
+        cmd.assert()
+    };
+    let failure = || {
+        let stderr = build().failure().get_output().stderr.clone();
+        String::from_utf8_lossy(&stderr).into_owned()
+    };
+
+    write_app(
+        root,
+        deps,
+        "\n[system-provided.\"acme/tls\"]\ntargets.ssl = { pkg-config = \"libssl\" }\n",
+    );
+    let stderr = failure();
+    assert!(
+        flat_contains(&stderr, "names targets {\"ssl\"} for `acme/tls 1.0.0`"),
+        "{stderr}"
+    );
+
+    // The default Windows toolchain is MSVC, which refuses the provider.
+    if cfg!(windows) {
+        return;
+    }
+    write_app(
+        root,
+        deps,
+        "\n[system-provided.\"acme/tls\"]\ntargets.ssl = { pkg-config = \"libssl\" }\n\
+         targets.crypto = { pkg-config = \"libcrypto\" }\n",
+    );
+    let stderr = failure();
+    assert!(
+        flat_contains(
+            &stderr,
+            "\"libcrypto\" does not satisfy version requirement \"^1.0\""
+        ),
+        "{stderr}"
+    );
+
+    module("libcrypto", "1.0.2", "-DCRYPTO_SYSTEM".to_owned());
+    build().success();
+    let output =
+        std::process::Command::new(root.join("build/dev/packages/app").join(host_exe("app")))
+            .output()
+            .unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "system\n");
+}
+
 #[test]
 fn metadata_reports_the_declared_policy() {
     let dir = TempDir::new().unwrap();
-    let manifest = write_app(dir.path(), "", POLICY);
+    let manifest = write_app(
+        dir.path(),
+        "",
+        &format!(
+            "{POLICY}\n[system-provided.\"acme/tls\"]\ntargets.ssl = {{ pkg-config = \"libssl\" }}\n"
+        ),
+    );
     let value = run_json(
         cabin()
             .args(["metadata", "--format", "json", "--manifest-path"])
@@ -570,7 +690,10 @@ fn metadata_reports_the_declared_policy() {
     );
     assert_eq!(
         value["system_provided"],
-        serde_json::json!({ "acme/zlib": { "pkg-config": "zsys" } })
+        serde_json::json!({
+            "acme/tls": { "targets": { "ssl": { "pkg-config": "libssl" } } },
+            "acme/zlib": { "pkg-config": "zsys" },
+        })
     );
 }
 
