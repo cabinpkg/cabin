@@ -75,13 +75,16 @@ fn special_character_paths_rebuild_only_what_changed() {
     let tmp = TempDir::new().unwrap();
     // `;` and the others Ninja's depfile parser splits on, `|` that ends a
     // manifest path, and what both escape.  Windows file names cannot
-    // hold `|`, `"`, `:`, `*`, `?`, `<`, or `>`, and `cl /showIncludes`
-    // reports paths in the ANSI code page.
+    // hold `|`, `"`, `:`, `*`, `?`, `<`, or `>`.  There, characters outside
+    // the active code page reach Ninja through `/showIncludes` as UTF-8,
+    // and `Program Files` above the build directory does not get the
+    // headers dropped as system headers.
     let names: &[&str] = if cfg!(windows) {
         &[
             "semi;colon",
             "single'quote",
             "sp ace$dollar#hash&amp^caret`tick",
+            "Program Files ✓é日本語",
         ]
     } else {
         &[
@@ -254,8 +257,7 @@ fn cabin_depfile_reads_what_ninja_reads() {
 
 /// Ninja's `deps = msvc` drops every dependency under a `program files`
 /// path, so a project there reruns the compiles `cabin depfile` reports
-/// instead of going stale.  MSVC's own `/showIncludes` dependencies there
-/// are dropped the same way.
+/// instead of going stale.
 #[cfg(unix)]
 #[test]
 fn compiles_whose_dependencies_ninja_drops_rerun() {
