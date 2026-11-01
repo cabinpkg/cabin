@@ -430,6 +430,7 @@ sources = ["tests/env_test.cc"]
             r#"#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 static int status = 0;
 
@@ -456,6 +457,18 @@ void keep_present(const char* name) {
     std::printf("KEEP %s\n", name);
 }
 
+void holds_outputs(const char* name) {
+    const char* v = std::getenv(name);
+    std::string ninja = std::string(v != nullptr ? v : "") + "/build.ninja";
+    if (std::FILE* file = std::fopen(ninja.c_str(), "r")) {
+        std::fclose(file);
+        std::printf("OUTPUTS %s\n", name);
+    } else {
+        std::printf("NO OUTPUTS %s\n", name);
+        status |= 8;
+    }
+}
+
 void must_be_absent(const char* name) {
     if (std::getenv(name) != nullptr) {
         std::printf("LEAK %s\n", name);
@@ -472,6 +485,7 @@ int main() {
     keep_present("CABIN_MANIFEST_DIR");
     keep_present("CABIN_MANIFEST_PATH");
     keep_present("CABIN_BUILD_DIR");
+    holds_outputs("CABIN_PROFILE_DIR");
     must_be_absent("CABIN_REGISTRY_TOKEN");
     must_be_absent("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
     return status;
@@ -499,6 +513,7 @@ int main() {
         "KEEP CABIN_MANIFEST_DIR",
         "KEEP CABIN_MANIFEST_PATH",
         "KEEP CABIN_BUILD_DIR",
+        "OUTPUTS CABIN_PROFILE_DIR",
         "ABSENT CABIN_REGISTRY_TOKEN",
         "ABSENT ACTIONS_ID_TOKEN_REQUEST_TOKEN",
         "test env_demo:env_test ... ok",

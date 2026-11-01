@@ -8,7 +8,7 @@ use super::*;
 /// build accepts without a cross toolchain: the banner's target, as
 /// `cabin metadata` reports it, or GCC's `-dumpmachine`.  On a Windows
 /// ARM runner that is x64, the architecture its MSVC targets.
-fn build_machine_triple() -> String {
+pub(super) fn build_machine_triple() -> String {
     let tmp = TempDir::new().unwrap();
     tmp.child("cabin.toml")
         .write_str("[package]\nname = \"probe\"\nversion = \"0.1.0\"\n")

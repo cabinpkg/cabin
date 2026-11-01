@@ -2310,6 +2310,9 @@ mod cross_target;
 #[path = "cli/output_namespaces.rs"]
 mod output_namespaces;
 
+#[path = "cli/nested_cabin.rs"]
+mod nested_cabin;
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[path = "cli/sysroot.rs"]
 mod sysroot;

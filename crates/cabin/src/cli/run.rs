@@ -232,13 +232,16 @@ pub(crate) fn run(
 
     // The program inherits Cabin's environment with the `CABIN_*`
     // package overlay applied on top.
+    let in_use = std::env::var_os(cabin_env::CABIN_BUILD_DIRS_IN_USE);
     let env_overlay = cabin_env::package_env(&cabin_env::PackageEnvInputs {
         manifest_dir: &run_target.manifest_dir,
         manifest_path: &run_target.manifest_path,
         package_name: run_target.package_name.as_str(),
         package_version: &run_target.package_version,
         profile: prepared.profile.name.as_str(),
-        build_dir: &prepared.build_dir,
+        build_root: &prepared.build_root,
+        profile_dir: &cabin_build::layout::profile_dir(&prepared.build_dir, &prepared.profile.name),
+        inherited_build_dirs_in_use: in_use.as_deref(),
     });
 
     let mut shown = prepared.runner.clone();

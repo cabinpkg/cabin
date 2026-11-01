@@ -56,7 +56,25 @@ pub(crate) fn lock_shared(build_root: &Path, reporter: Reporter) -> Result<Build
 }
 
 /// Lock `build_root` for removing outputs.
+///
+/// # Errors
+/// Refuses, rather than wait forever, a build directory that a
+/// `cabin run` or `cabin test` this process runs under keeps in use
+/// until this process exits.
 pub(crate) fn lock_exclusive(build_root: &Path, reporter: Reporter) -> Result<BuildDirLock> {
+    if let Some(dirs) = std::env::var_os(cabin_env::CABIN_BUILD_DIRS_IN_USE) {
+        let root = cabin_fs::canonicalize_or_input(build_root);
+        if dirs
+            .to_string_lossy()
+            .lines()
+            .any(|dir| cabin_fs::canonicalize_or_input(dir) == root)
+        {
+            anyhow::bail!(
+                "refusing to remove outputs under {}: the `cabin run` or `cabin test` this command runs under keeps them in use until this command exits; remove them after that command finishes, or use another build directory",
+                build_root.display()
+            );
+        }
+    }
     Ok(BuildDirLock::exclusive(build_root, wait_message(reporter))?)
 }
 

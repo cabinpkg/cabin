@@ -405,9 +405,11 @@ source-archive cache, vendored sources, and compiler-cache data are not build ou
 
 **Concurrent commands.**  `build`, `check`, `run`, and `test` hold a shared lock on
 `<build-dir>/.cabin-build.lock` while they use outputs; `run` and `test` hold it until the program
-or tests exit.  Collection and `cabin clean` take it exclusively.  The lock is advisory, so it orders
-Cabin processes only; Cabin releases without it do not take it, and a file system without file
-locks orders nothing.  Commands record their use one at a time, under a second lock inside
+or tests exit.  Collection and `cabin clean` take it exclusively, so a `cabin clean` that such a
+program runs against its own build directory fails instead of waiting for it forever (see
+[`CABIN_BUILD_DIRS_IN_USE`](environment-variables.md#variables-cabin-sets-for-cabin-run-and-cabin-test)).
+The lock is advisory, so it orders Cabin processes only; Cabin releases without it do not take it,
+and a file system without file locks orders nothing.  Commands record their use one at a time, under a second lock inside
 `.cabin-gc` with the same limits, so two builds at once keep both records.  An unreadable or
 newer-format usage record makes collection keep the outputs it lists.
 
