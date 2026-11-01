@@ -4,11 +4,12 @@
 
 - Linux (GCC / Clang)
 - macOS (Clang / Apple Clang)
-- Windows (MSVC - `cl.exe` / `lib.exe`)
+- Windows (MSVC - `cl.exe` / `lib.exe`; MinGW-w64 GCC with `--target x86_64-w64-mingw32`)
 
-On Windows the default toolchain is MSVC; a GCC/Clang-style toolchain (MinGW, clang) is **not** a
-supported configuration there (see [toolchains.md](toolchains.md#windows--msvc) for the dialect
-model, what is supported, and the known limitations).
+On Windows the default toolchain is MSVC.  MinGW-w64 GCC is tested through `--target
+x86_64-w64-mingw32`; other GCC/Clang-style toolchains there are best-effort (see
+[toolchains.md](toolchains.md#windows--msvc) for the dialect model, what is supported, and the
+known limitations).
 
 ## Install Methods
 

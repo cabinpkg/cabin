@@ -246,6 +246,43 @@ jobs:
             if ($code -ne 0) { exit $code }
           }
 
+  # Builds, links, and runs C, C++, and mixed examples with the image's
+  # MinGW-w64 GCC. Only `--cxx` is given: the C compiler and archiver
+  # beside it are found by Cabin itself.
+  windows-mingw:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache-on-failure: false
+          cache-save-if: ${{ github.event_name != 'merge_group' }}
+          rustflags: ""
+
+      - name: Build cabin
+        run: cargo build --locked --bin cabin
+
+      - name: Run hello-c
+        working-directory: examples/hello-c
+        run: ..\..\target\debug\cabin run --target x86_64-w64-mingw32 --cxx g++
+
+      - name: Run hello-cpp
+        working-directory: examples/hello-cpp
+        run: ..\..\target\debug\cabin run --target x86_64-w64-mingw32 --cxx g++
+
+      - name: Run platform-cfg (C and C++)
+        working-directory: examples/platform-cfg
+        run: ..\..\target\debug\cabin run --target x86_64-w64-mingw32 --cxx g++
+
+      - name: Test library-with-tests
+        working-directory: examples/library-with-tests
+        run: ..\..\target\debug\cabin test --target x86_64-w64-mingw32 --cxx g++
+
   # Checks `--version` detection and compiler cfg conditions against
   # the real pinned gcc and clang; unit tests on canned banners cover
   # the parser, and `build-and-test` covers AppleClang and MSVC. Both

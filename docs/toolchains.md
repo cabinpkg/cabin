@@ -145,7 +145,7 @@ cabin build --target aarch64-unknown-linux-gnu \
   name one): GCC's `-dumpmachine`, the MSVC banner's architecture.  Select the cross compiler with
   `--cc` / `--cxx` (or `CC` / `CXX`); the C and C++ compilers must both be Clang-family or both
   not.  A compiler Cabin cannot classify fails the build rather than guessing.  A Windows GNU
-  triple (`x86_64-w64-mingw32`) is best-effort, as MinGW is (see
+  triple (`x86_64-w64-mingw32`) builds with MinGW-w64 GCC (see
   [Known limitations](#known-limitations)); a MinGW compiler does not build an MSVC triple, nor
   MSVC a GNU one.  Executables for any Windows triple are named `<name>.exe`.
 - **Output.**  The build writes under `<build-dir>/.targets/<triple>/<profile>/`, apart from the
@@ -693,17 +693,18 @@ explicitly selected toolset is honored.
 
 ### Known limitations
 
-- **A GCC/Clang-style toolchain on Windows (MinGW, clang) is best-effort, not a CI-tested
-  configuration.** The names resolve, a GCC-style `CXX` (or `CC`) brings the C compiler and
-  archiver beside it rather than `cl` and `lib` (see [Tool kinds](#tool-kinds)), executables are
-  named `<name>.exe`, and `cabin tidy` spells its compile database in the *resolved* compiler's
-  dialect, not the host default.  Tools chosen explicitly from two dialects are still rejected by
-  the [single-dialect validation](#validation-against-the-c-backend).  Without `--target`,
-  `cfg(target_env)` evaluates `msvc` on Windows whatever the compiler; `--target
-  x86_64-w64-mingw32` evaluates conditions for MinGW, and its build dependencies then need
-  `HOST_CC`, `HOST_CXX`, and `HOST_AR`, since the build machine's default is `cl`.  MSVC is the only
-  Windows dialect CI exercises, so a GNU toolchain on Windows is unsupported in the sense that it is
-  untested.
+- **Of the GCC/Clang-style toolchains on Windows, CI tests only MinGW-w64 GCC, under `--target
+  x86_64-w64-mingw32`.** On the `windows-2025-vs2026` image, `cabin run --target
+  x86_64-w64-mingw32 --cxx g++` builds, links, and runs C, C++, and mixed C/C++ examples, and
+  `cabin test` runs a package's tests the same way.  A GCC-style `CXX` (or `CC`) brings the C
+  compiler and archiver beside it rather than `cl` and `lib` (see [Tool kinds](#tool-kinds)),
+  executables are named `<name>.exe`, and `cabin tidy` spells its compile database in the
+  *resolved* compiler's dialect, not the host default.  Tools chosen explicitly from two dialects
+  are still rejected by the [single-dialect validation](#validation-against-the-c-backend).
+  Without `--target`, `cfg(target_env)` evaluates `msvc` on Windows whatever the compiler; with it,
+  conditions evaluate for MinGW, and build dependencies then need `HOST_CC`, `HOST_CXX`, and
+  `HOST_AR`, since the build machine's default is `cl`.  Clang targeting MinGW, MSYS2's other
+  environments, and build or `system = true` dependencies under MinGW are untested.
 - **`system = true` dependencies are not supported under MSVC.** They are resolved with pkg-config,
   whose GNU-style `-L` / `-lfoo` / `-pthread` output the MSVC `cl` / `link` command line cannot
   consume; on Windows the `.pc` files also come from MinGW/msys2 and reference the MinGW ABI, so
@@ -722,10 +723,7 @@ Items marked *planned* belong to the capability roadmap
 
 - Probe checks a manifest declares, such as those behind a generated configuration header
   (planned: stage 07).
-- Sysroot discovery beyond Apple SDKs, and a sysroot for the build-machine context (planned:
-  stage 05).
-- A fully supported GCC/Clang-style toolchain on Windows (MinGW / clang).  MSVC is the supported
-  Windows dialect; stage 05 promotes MinGW only with real build-and-run CI evidence.
+- Sysroot discovery beyond Apple SDKs, and a sysroot for the build-machine context.
 - A diagnostics abstraction (SARIF / JSON output formats).  Cabin neither detects nor emits either
   format.
 - Per-package profile overrides for `[toolchain]`.
