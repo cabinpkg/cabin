@@ -94,8 +94,13 @@ fn special_character_paths_rebuild_only_what_changed() {
             "sp ace$dollar:colon#hash\"dq&amp?q*star<lt>gt^caret`tick✓",
         ]
     };
+    // Canonical: Cabin spells the build directory from the working
+    // directory and the headers from the canonical workspace, and below a
+    // temporary directory named with an 8.3 short name the two share too
+    // little for Ninja to make `Program Files` relative away.
+    let base = cabin_fs::canonicalize(tmp.path()).unwrap();
     for name in names {
-        let dir = tmp.path().join(name);
+        let dir = base.join(name);
         write_project(&dir);
         cabin().arg("build").current_dir(&dir).assert().success();
         let root = dir.canonicalize().unwrap().join("build").join("dev");

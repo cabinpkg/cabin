@@ -580,7 +580,10 @@ What remains:
   directory it runs in, unless the header is on another drive, so only the part below the deepest
   directory the two share counts: a workspace inside `Program Files` with the default build
   directory is tracked, but a header below a directory named `Microsoft Visual Studio` inside the
-  workspace is not.  Editing or updating
+  workspace is not.  Ninja compares the paths as spelled, and Cabin spells the build directory from
+  the working directory but the headers from the workspace's canonical path, so a working directory
+  spelled differently, such as with an 8.3 short name, shares only the part before the first
+  difference.  Editing or updating
   such a header rebuilds nothing unless `cabin-toolchain.json` changes too, as it does when a
   compiler or the archiver reports a new version, and that rebuilds everything.
 
