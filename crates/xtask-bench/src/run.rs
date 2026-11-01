@@ -211,7 +211,8 @@ pub struct Schedule {
 pub enum Runs {
     Exact(u32),
     /// At least this many, and enough to fill [`MIN_TIME`] at the
-    /// check run's pace, as hyperfine's own default does.
+    /// pace of a run made as the timed runs are, as hyperfine's own
+    /// default does.
     AtLeast(u32),
 }
 
@@ -223,7 +224,7 @@ const MAX_BLOCKS: u32 = 20;
 
 impl Schedule {
     /// The run count of each block, in order.  `pace` is the slowest
-    /// binary's check run.
+    /// binary's [`paced`] run.
     fn blocks(&self, pace: Duration) -> Vec<u32> {
         let runs = match self.runs {
             Runs::Exact(runs) => runs,
@@ -256,6 +257,7 @@ fn checked(
     ctx: &Harness,
     scenario: &Scenario,
     binary: &Binary,
+    schedule: &Schedule,
 ) -> (ScenarioResult, Option<(Prepared, Duration)>) {
     let work = ctx
         .out
@@ -278,22 +280,49 @@ fn checked(
             return (result, None);
         }
     };
-    let started = Instant::now();
-    match check(ctx, scenario, binary, &prepared) {
-        Ok(timings) => {
+    let checked = check(ctx, scenario, binary, &prepared).and_then(|timings| {
+        // An exact run count needs no pace.
+        let pace = match schedule.runs {
+            Runs::Exact(_) => Duration::ZERO,
+            Runs::AtLeast(_) => paced(ctx, scenario, binary, &prepared)?,
+        };
+        Ok((timings, pace))
+    });
+    match checked {
+        Ok((timings, pace)) => {
             result.valid = true;
             result.phases = timings["phases"].clone();
             // Before format 2, Linux's own peak could be the harness's.
             if timings["format_version"].as_u64() >= Some(2) {
                 result.process = timings["process"].clone();
             }
-            (result, Some((prepared, started.elapsed())))
+            (result, Some((prepared, pace)))
         }
         Err(err) => {
             result.detail = format!("{err:#}");
             (result, None)
         }
     }
+}
+
+/// Run the scenario once more as a timed run would, and return how
+/// long it took: the pace the timed runs are sized from.  The check
+/// run is no measure of it, since it always records a trace.
+fn paced(
+    ctx: &Harness,
+    scenario: &Scenario,
+    binary: &Binary,
+    prepared: &Prepared,
+) -> Result<Duration> {
+    if let Some(mutation) = &scenario.prepare {
+        mutation.apply(&prepared.dir)?;
+    }
+    let started = Instant::now();
+    let output = cabin(ctx, binary, prepared, &prepared.args).output()?;
+    let pace = started.elapsed();
+    ensure_success(&output, &prepared.args)
+        .context("running the scenario again after its check")?;
+    Ok(pace)
 }
 
 /// Time one block of `runs` runs with hyperfine, exporting to `json`.
@@ -783,7 +812,7 @@ pub fn suite(
         let mut results = Vec::new();
         let mut ready = Vec::new();
         for binary in binaries {
-            let (result, prepared) = checked(ctx, scenario, binary);
+            let (result, prepared) = checked(ctx, scenario, binary, schedule);
             if !result.valid {
                 eprintln!(
                     "perf: {} [{}] FAILED its check: {}",

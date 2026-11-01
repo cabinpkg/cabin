@@ -251,9 +251,9 @@ million) were `Regressed` in 23-26 of 27 in every run and both directions; the m
 above the change.  The 3 ms sleep passes the wall-time policy only below 60 ms, and those rows were
 `Regressed` in 5 and 2 of 12 and 11 in run 1, 12 and 8 of 15 and 16 in run 4, and 2-6 of 11-13 in
 the interleaved runs, which took fewer runs and, in run 3, ran under the heaviest load.  The
-interleaved harness sizes a scenario from its check run, which is cold and traced, so it takes fewer
-runs than `hyperfine`'s own sizing did; `--runs` buys power where wall time matters.  Each block
-costs a `hyperfine` start, about 17 ms.
+interleaved harness sized a scenario from its check run, which is cold and traced, so it took fewer
+runs than `hyperfine`'s own sizing did ("Run sizing" below); `--runs` buys power where wall time
+matters.  Each block costs a `hyperfine` start, about 17 ms.
 
 **Blocks as the unit.**  The interleaved harness still tested the pooled runs as if each were
 independent.  Runs within a block share that moment's load: in runs 2 and 3, the medians of one
@@ -306,6 +306,21 @@ Without a guard, run 2's A/A comparison reported one `Increased` and one `Decrea
 output of a timed run to say why, so that scenario was `Invalid`.  A 3 ms change to wall time
 remains hard to show in 10-17 rounds of a loaded machine; `--runs` buys rounds, at about 17 ms of
 `hyperfine` start per block.
+
+**Run sizing.**  Without `--runs`, each binary runs a scenario at least 10 times and for at least 3
+seconds at a measured pace, the slowest binary's.  That pace was the check run's, which always
+records a trace.  In one run (load average 144 -> 124), one binary under two labels, every scenario
+but the ports ones, check runs took a median 1.42 times their scenario's timed median (0.66-7.86
+times), so `startup/version` would have taken 117 runs where 3 seconds at its timed pace gives 368,
+and `gc/new-day-c` 10 where it gives 30.  The pace is now one more run after the check, made as the
+timed runs are, which took a median 1.16 times the timed median (0.65-4.15 times): `startup/version`
+took 154 runs and `gc/new-day-c` 46.  At the slower binary's medians the timed runs come to 272
+seconds per binary, where the check runs' sizing comes to 259 (their samples sum to 268); the extra
+runs took 21-26 seconds per binary more, most of it in scenarios that stay at 10 runs either way,
+and a ports scenario pays one more build.  No warmup run precedes the extra run, as one precedes the
+timed runs: `trace/noop-cxx-debug`'s took 1.7 and 2.6 times its median, slower than any of that
+binary's timed runs, and gave it 23 runs, where its check run would have given 54.  `--runs` and
+`--smoke` fix the count and skip the extra run.
 
 ## Investigation: no-op build latency
 
