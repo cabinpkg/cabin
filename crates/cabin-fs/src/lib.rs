@@ -126,11 +126,120 @@ pub fn resolve_dot_dots(path: &Path) -> io::Result<PathBuf> {
     Ok(resolved)
 }
 
+/// Whether names in `dir` match ignoring ASCII letter case, as on
+/// Windows and macOS by default, without creating anything: whether an
+/// entry whose name holds a letter is found under that name with each
+/// letter's case swapped.  While `dir` is missing, its nearest existing
+/// ancestor answers, since a directory created there inherits that
+/// one's setting.  `None` when that directory holds no such entry or
+/// the lookup fails.
+///
+/// Case sensitivity can be a directory's own setting (Linux casefold,
+/// Windows per-directory) or another volume's behind a symlink, so an
+/// existing directory never takes its parent's answer.  A
+/// case-sensitive directory holding exactly the swapped name too reads
+/// as ignoring case.
+pub fn ignores_case(dir: &Path) -> Option<bool> {
+    let dir = dir.ancestors().find(|dir| dir.exists())?;
+    let name = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .find(|name| name.bytes().any(|byte| byte.is_ascii_alphabetic()))?;
+    let swapped: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_lowercase() {
+                c.to_ascii_uppercase()
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect();
+    match std::fs::symlink_metadata(dir.join(swapped)) {
+        Ok(_) => Some(true),
+        // A miss means case matters only while the entry still exists.
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            std::fs::symlink_metadata(dir.join(&name))
+                .is_ok()
+                .then_some(false)
+        }
+        Err(_) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use assert_fs::TempDir;
+
+    fn mkdir(path: PathBuf) -> PathBuf {
+        std::fs::create_dir(&path).unwrap();
+        path
+    }
+
+    /// Whether creating `probe`'s case-swapped spelling in `dir` finds
+    /// the file already there: how the file system really treats case.
+    /// Leaves `dir` as it found it.
+    fn creating_ignores_case(dir: &Path) -> bool {
+        std::fs::write(dir.join("probe"), "").unwrap();
+        let ignores = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dir.join("PROBE"))
+        {
+            Ok(file) => {
+                drop(file);
+                std::fs::remove_file(dir.join("PROBE")).unwrap();
+                false
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => true,
+            Err(err) => panic!("{err}"),
+        };
+        std::fs::remove_file(dir.join("probe")).unwrap();
+        ignores
+    }
+
+    #[test]
+    fn ignores_case_answers_as_creating_files_does() {
+        let tmp = TempDir::new().unwrap();
+        let dir = mkdir(tmp.path().join("dir"));
+        let truth = creating_ignores_case(&dir);
+        std::fs::write(dir.join("build.ninja"), "").unwrap();
+        assert_eq!(ignores_case(&dir), Some(truth));
+        // A directory not created yet takes the answer of the nearest
+        // one that exists, but an existing one never does.
+        assert_eq!(ignores_case(&dir.join("dev/packages")), Some(truth));
+        let empty = mkdir(dir.join("empty"));
+        std::fs::write(empty.join("123"), "").unwrap();
+        assert_eq!(ignores_case(&empty), None);
+        assert_eq!(ignores_case(&empty.join("dev")), None);
+    }
+
+    /// Windows can make one directory case-sensitive; only where that
+    /// is available (it needs the Windows Subsystem for Linux feature).
+    #[cfg(windows)]
+    #[test]
+    fn ignores_case_reads_a_windows_case_sensitive_directory() {
+        let tmp = TempDir::new().unwrap();
+        let dir = mkdir(tmp.path().join("sensitive"));
+        let enabled = std::process::Command::new("fsutil.exe")
+            .args(["file", "setCaseSensitiveInfo"])
+            .arg(&dir)
+            .arg("enable")
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !enabled {
+            eprintln!("skipped: this machine cannot make a directory case-sensitive");
+            return;
+        }
+        assert!(!creating_ignores_case(&dir));
+        std::fs::write(dir.join("build.ninja"), "").unwrap();
+        assert_eq!(ignores_case(&dir), Some(false));
+        let parent = creating_ignores_case(tmp.path());
+        assert_eq!(ignores_case(tmp.path()), Some(parent));
+    }
 
     #[cfg(unix)]
     #[test]

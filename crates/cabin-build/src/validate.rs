@@ -317,24 +317,35 @@ pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), Build
 
 /// Refuse `graph` when two of its actions would write one path, or one
 /// would write a file where another's output needs a directory, as the
-/// build machine's filesystem compares paths by default: a target named
-/// `libfoo.a` beside a library `foo`, an executable named `obj`, or one
-/// source listed twice.  Sharing an input is fine; every output has
-/// exactly one writer.  Runs on the final graph before anything is
-/// written, so a collision fails the command instead of letting one
-/// output overwrite another.
+/// filesystem holding `profile_dir`, where the outputs go, compares
+/// paths: a target named `libfoo.a` beside a library `foo`, an
+/// executable named `obj`, or one source listed twice.  Sharing an
+/// input is fine; every output has exactly one writer.  Runs on the
+/// final graph before any output or Ninja file is written, so a
+/// collision fails the command instead of letting one output overwrite
+/// another.
 ///
 /// # Errors
 /// [`BuildError::OutputPathConflict`] naming the first such pair.
-pub fn validate_output_paths(graph: &crate::BuildGraph) -> Result<(), BuildError> {
-    validate_output_paths_folding(graph, cfg!(any(windows, target_os = "macos")))
+pub fn validate_output_paths(
+    graph: &crate::BuildGraph,
+    profile_dir: &std::path::Path,
+) -> Result<(), BuildError> {
+    // Folding when unsure can only refuse more.  The whole output tree
+    // is taken to share the profile directory's setting: a directory in
+    // it given another by hand, or a symlink to another volume, is not
+    // looked up.
+    let fold_case = cabin_fs::ignores_case(profile_dir).unwrap_or(true);
+    validate_output_paths_folding(graph, fold_case)
 }
 
 /// [`validate_output_paths`], comparing paths ignoring letter case when
-/// `fold_case`, as Windows' and macOS's default filesystems do.  On
-/// Linux, outputs one letter case apart are distinct files, and only
-/// sources one letter case apart (`foo.c` and the C++ `foo.C`) produce
-/// them; on Windows and macOS those sources are one file anyway.
+/// `fold_case`.  Outputs one letter case apart come only from sources
+/// one letter case apart (`foo.c` and the C++ `foo.C`), which a
+/// case-sensitive filesystem keeps apart.  Folding uses Unicode's
+/// default lowercase mapping, exact for ASCII; a filesystem's own
+/// folding or normalization (APFS takes NFC and NFD spellings for one
+/// name) can alias non-ASCII names this does not.
 pub(crate) fn validate_output_paths_folding(
     graph: &crate::BuildGraph,
     fold_case: bool,

@@ -593,8 +593,11 @@ impl Drop for Built {
 /// exits non-zero.
 pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyhow::Result<Built> {
     let lock = crate::cli::gc::lock_shared(req.build_root, req.reporter)?;
-    let collection_due = crate::cli::gc::record_use(req.build_root, req.plan_graph)?;
     let profile_build_root = cabin_build::layout::profile_dir(req.build_dir, &req.profile.name);
+    // Once locked, a new build directory holds the lock file, an entry
+    // to tell its filesystem's case sensitivity by.
+    cabin_build::validate_output_paths(req.plan_graph, &profile_build_root)?;
+    let collection_due = crate::cli::gc::record_use(req.build_root, req.plan_graph)?;
     std::fs::create_dir_all(&profile_build_root).with_context(|| {
         format!(
             "failed to create build directory {}",

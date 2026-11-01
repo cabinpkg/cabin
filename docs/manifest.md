@@ -129,12 +129,20 @@ and object directory, so on every platform it must not:
 - differ from another target name in the manifest only in letter case: a case-insensitive filesystem
   (the Windows and macOS default) would give `Tool` and `tool` the same files.
 
-Mixed-case names and internal dots are fine (`MyTool`, `tool.v2`).  Before writing anything, a build
-also refuses two outputs that would land on one path, or one output's file where another needs a
-directory: an executable named `libfoo.a` beside a library `foo` (GCC/Clang names the archive
-`libfoo.a`), an executable named `obj` (the object directory), or one source listed twice.  On
-Windows and macOS, whose filesystems ignore letter case by default, paths one letter case apart
-count as one; on Linux, sources such as C `foo.c` and C++ `foo.C` stay apart.
+Mixed-case names and internal dots are fine (`MyTool`, `tool.v2`).  Before writing any output, a
+build also refuses two outputs that would land on one path, or one output's file where another needs
+a directory: an executable named `libfoo.a` beside a library `foo` (GCC/Clang names the archive
+`libfoo.a`), an executable named `obj` (the object directory), or one source listed twice.  Paths
+one letter case apart count as one where the build directory's filesystem ignores letter case, as
+Windows' and macOS's do by default, and stay apart where it does not, as on Linux or a
+case-sensitive macOS volume, so C `foo.c` and C++ `foo.C` both build there.  Cabin tells by looking
+up an entry of the profile's output directory under its name with letter case swapped, or, before
+that directory exists, an entry of its nearest existing parent, whose setting a new directory
+inherits (Linux casefold and Windows per-directory case sensitivity included); the build directory
+holds Cabin's lock file by then.  A directory holding nothing to look up, a failed lookup, or an
+entry whose swapped name is a second entry counts as ignoring letter case.  The answer covers the
+whole output tree: a directory in it given another setting by hand, or a symlink in it to another
+volume, is not looked up on its own.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
