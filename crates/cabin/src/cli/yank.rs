@@ -63,6 +63,12 @@ pub(crate) fn yank(
         false,
     )?;
     let index_url = index.url;
+    if crate::cli::config::effective_offline(false)? {
+        bail!(
+            "`CABIN_NET_OFFLINE` forbids network access, but `cabin yank` needs it to reach the \
+             registry `{index_url}`"
+        );
+    }
 
     // Mirror the remote publish flow: one credential lookup serves
     // the config.json read and the API call alike.  Not the

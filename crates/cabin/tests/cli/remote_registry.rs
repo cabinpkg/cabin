@@ -645,6 +645,118 @@ fn login_refuses_to_run_offline() {
     let _ = thread.join();
 }
 
+/// `CABIN_NET_OFFLINE` forbids the remote mutations too: `publish`
+/// and `yank` refuse before `config.json` discovery, the inline
+/// login, the Actions OIDC exchange, or the mutation request, for
+/// every credential source - and neither the registry nor the OIDC
+/// endpoint (both this one counting server) receives a request.  An
+/// invalid spelling fails the same way; a falsy one still publishes
+/// and yanks.
+#[test]
+fn remote_publish_and_yank_refuse_to_run_offline() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+    let server = std::sync::Arc::new(
+        tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+    );
+    let addr = server.server_addr().to_ip().expect("loopback addr");
+    let url = format!("http://{addr}");
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let server_for_thread = std::sync::Arc::clone(&server);
+    let hits_for_thread = std::sync::Arc::clone(&hits);
+    let thread = std::thread::spawn(move || {
+        while let Ok(req) = server_for_thread.recv() {
+            hits_for_thread.fetch_add(1, Ordering::SeqCst);
+            let _ = req.respond(tiny_http::Response::empty(404));
+        }
+    });
+    let empty_home = dir.path().join("empty-home");
+    let session_home = dir.path().join("session-home");
+    write_session_credentials(&session_home, &url, TEST_TOKEN);
+
+    for (offline, expected) in [
+        ("1", "`CABIN_NET_OFFLINE` forbids network access"),
+        ("maybe", "invalid CABIN_NET_OFFLINE"),
+    ] {
+        for (home, env_token, actions) in [
+            (&empty_home, true, false),
+            (&session_home, false, false),
+            (&empty_home, false, false),
+            (&empty_home, false, true),
+        ] {
+            let mut publish = cabin();
+            publish
+                .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--index-url", &url]);
+            let mut yank = cabin();
+            yank.args([
+                "-Z",
+                "remote-registry",
+                "yank",
+                "acme/demo@0.1.0",
+                "--index-url",
+                &url,
+            ]);
+            for cmd in [&mut publish, &mut yank] {
+                cmd.env("CABIN_CONFIG_HOME", home)
+                    .env("CABIN_NET_OFFLINE", offline);
+                if env_token {
+                    cmd.env("CABIN_REGISTRY_TOKEN", TEST_TOKEN);
+                }
+                if actions {
+                    cmd.env("GITHUB_ACTIONS", "true")
+                        .env("ACTIONS_ID_TOKEN_REQUEST_URL", format!("{url}/token"))
+                        .env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-request-token");
+                }
+                cmd.assert()
+                    .failure()
+                    .stderr(predicate::str::contains(expected));
+            }
+        }
+    }
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "offline publish and yank must not touch the network"
+    );
+    server.unblock();
+    let _ = thread.join();
+
+    let registry = RemoteRegistryServer::start(true, true, &[201, 200]);
+    cabin()
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .env("CABIN_NET_OFFLINE", "0")
+        .assert()
+        .success();
+    cabin()
+        .args([
+            "-Z",
+            "remote-registry",
+            "yank",
+            "acme/demo@0.1.0",
+            "--index-url",
+        ])
+        .arg(&registry.url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .env("CABIN_NET_OFFLINE", "false")
+        .assert()
+        .success();
+    let methods: Vec<String> = registry
+        .puts
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|put| put.method.clone())
+        .collect();
+    assert_eq!(methods, ["PUT", "PATCH"]);
+}
+
 /// A checked-out project's `.cabin/config.toml` cannot steer where a
 /// minted credential is stored: the credential commands resolve their
 /// registry from user-level config only, so a project-declared

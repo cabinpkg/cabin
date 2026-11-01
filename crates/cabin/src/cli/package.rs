@@ -171,6 +171,13 @@ pub(super) fn publish(
                     "cabin publish --index-url"
                 ));
             }
+            if crate::cli::config::effective_offline(false)? {
+                bail!(
+                    "`CABIN_NET_OFFLINE` forbids network access, but publishing to the remote \
+                     registry `{}` needs it",
+                    index.url
+                );
+            }
             publish_batch_to_remote_registry(
                 &index,
                 selections,
