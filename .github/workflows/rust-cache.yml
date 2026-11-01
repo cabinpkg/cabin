@@ -16,7 +16,8 @@ permissions: {}
 
 jobs:
   # build-and-test's legs; lint-work and compiler-detection restore the
-  # ubuntu-24.04 key, windows-msvc-autodiscovery the windows-2025-vs2026 one.
+  # ubuntu-24.04 key, windows-msvc-autodiscovery and windows-mingw the
+  # windows-2025-vs2026 one.
   debug:
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.os }}

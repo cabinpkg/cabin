@@ -265,8 +265,9 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
-          cache-on-failure: false
-          cache-save-if: ${{ github.event_name != 'merge_group' }}
+          cache-shared-key: debug-windows-2025-vs2026
+          cache-bin: false
+          cache-save-if: false
           rustflags: ""
 
       - name: Build cabin
