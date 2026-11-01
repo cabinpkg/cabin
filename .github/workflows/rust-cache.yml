@@ -65,6 +65,7 @@ jobs:
           cargo doc --workspace --all-features --no-deps --locked
           cargo test -p cabinpkg --test cli --locked --no-run
           cargo build --locked --bin cabin
+          cargo build --locked -p xtask-workflow-guard
 
       - if: steps.cache.outputs.cache-hit != 'true' && matrix.os == 'windows-2025-vs2026'
         run: cargo build --locked --bin cabin
