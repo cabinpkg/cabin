@@ -209,9 +209,10 @@ verifier (mechanism is contract, values are configuration):
 
 The decompressed-total cap for one archive is
 `min(max(ratio_cap x compressed_size, floor), abs_cap_bytes)`, where the floor
-(`4 MiB` base plus `2048` bytes per permitted entry) covers the container
-framing the entry cap permits, so a legitimate archive of many tiny files does
-not trip the ratio cap before the entry cap.
+is `4 MiB` plus `2048` bytes per permitted entry (about 23.5 MiB at the
+default entry cap). Legitimate sources can compress far past the ratio cap - at the pinned
+deflate level, 1 MiB of a repeated generated-table line shrinks to about
+2.5 KiB, a ratio near 400 - so the ratio cap engages only above the floor.
 
 Size discipline runs in two places:
 

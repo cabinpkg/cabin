@@ -37,21 +37,20 @@ use crate::{Limits, Reason};
 const ROOT_MANIFEST: &str = "cabin.toml";
 
 /// The ratio cap only engages above a floor of this base plus
-/// [`FRAMING_BYTES_PER_ENTRY`] per permitted entry.  Zip framing
-/// (local and central headers, the EOCD) is fixed overhead that does
-/// not compress, so a small legitimate archive of many tiny files
-/// still "expands" past any sane ratio; the floor must cover the
-/// framing the entry cap permits, or such an archive would trip the
-/// ratio cap before the entry cap.  The resulting default floor
-/// (4 MiB + 10000 x 2 KiB = 24 MiB) is far below anything that could
-/// distress the runner.
+/// [`FLOOR_BYTES_PER_ENTRY`] per permitted entry (by default
+/// 4 MiB + 10000 x 2 KiB, about 23.5 MiB, far below anything that
+/// could distress the runner).  Legitimate sources can compress far past
+/// the ratio cap: at the packager's deflate level, 1 MiB of a
+/// repeated generated-table line shrinks to about 2.5 KiB, a ratio
+/// near 400, so without the floor such a small archive would be
+/// rejected.  Zip framing plays no part: headers are stored
+/// uncompressed and never counted in the decompressed total.
 const RATIO_FLOOR_BASE_BYTES: u64 = 4 * 1024 * 1024;
 
-/// Worst-case framing per permitted entry, covering a local header
-/// (30 bytes + name) and a central header (46 bytes + name); 2 KiB
-/// comfortably bounds zip's ~600-byte per-entry framing at the
-/// default path-length cap.
-const FRAMING_BYTES_PER_ENTRY: u64 = 2048;
+/// Floor growth per permitted entry (see [`RATIO_FLOOR_BASE_BYTES`]).
+/// Nothing per entry is counted against the floor, so this term only
+/// scales the floor with the entry cap.
+const FLOOR_BYTES_PER_ENTRY: u64 = 2048;
 
 // Zip record signatures (little-endian on disk).
 const LOCAL_SIG: u32 = 0x0403_4b50;
@@ -117,7 +116,7 @@ pub(crate) fn scan_archive(
 ) -> ScanOutcome {
     let compressed_size = bytes.len() as u64;
     let floor = RATIO_FLOOR_BASE_BYTES
-        .saturating_add((limits.max_entries as u64).saturating_mul(FRAMING_BYTES_PER_ENTRY));
+        .saturating_add((limits.max_entries as u64).saturating_mul(FLOOR_BYTES_PER_ENTRY));
     let cap = limits
         .ratio_cap
         .saturating_mul(compressed_size)

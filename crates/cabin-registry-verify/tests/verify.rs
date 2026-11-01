@@ -463,13 +463,16 @@ fn non_ascii_name_with_the_utf8_bit_verifies() {
 }
 
 #[test]
-fn many_tiny_entries_stay_within_the_ratio_floor() {
-    // Zip framing for an entry-cap-sized archive of tiny files vastly
-    // outweighs its compressed size; the floor derived from the entry
-    // cap must keep it verifiable.
+fn small_compressible_archive_stays_within_the_ratio_floor() {
+    // A repeated generated-table line deflates hundreds of times over,
+    // so this 1.5 MiB source ships in a few KiB - far past the ratio
+    // cap; only the floor keeps the archive verifiable.
     let dir = TempDir::new().unwrap();
-    let mut entries = vec![Entry::deflated("cabin.toml", MINIMAL_MANIFEST.as_bytes())];
-    entries.extend((0..9000).map(|i| Entry::deflated(&format!("src/f{i}.h"), b"")));
+    let table = b"0, 0, 0, 0, 0, 0, 0, 0,\n".repeat(1 << 16);
+    let entries = [
+        Entry::deflated("cabin.toml", MINIMAL_MANIFEST.as_bytes()),
+        Entry::deflated("src/table.h", &table),
+    ];
     let (archive, pending) = hand_pending(&dir, &entries, MINIMAL_MANIFEST);
     let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
