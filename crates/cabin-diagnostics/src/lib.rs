@@ -41,8 +41,6 @@ pub use miette;
 /// `#[diagnostic(code(...))]`, which takes a bareword path
 /// token and cannot reference a constant, so a code used both
 /// ways (`cabin::resolver::error`) is written in both places.
-/// Every code's wording, when it fires, and the user action
-/// belong in the diagnostics docs.
 pub mod code {
     /// Fallback for config discovery, read, parse, and validation
     /// failures.
