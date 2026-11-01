@@ -93,7 +93,9 @@ pub enum PortabilityViolation {
     TrailingDot,
     /// Ends with a space, which Win32 strips (so `a ` and `a` collide).
     TrailingSpace,
-    /// Begins with a space, refused for the same aliasing reason.
+    /// Begins with a space.  Win32 keeps a leading space (it strips
+    /// only trailing dots and spaces), so this does not alias; the
+    /// portability set refuses it anyway.
     LeadingSpace,
     /// Stem matches a reserved DOS device name (`CON`, `NUL`, `COM1`, …).
     WindowsDeviceName,

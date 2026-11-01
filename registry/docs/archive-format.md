@@ -74,7 +74,7 @@ component:
 - contains a control character (`U+0000`-`U+001F`, NUL included) or one of the
   Win32-forbidden characters `< > " | ? *`;
 - ends in a `.` or a space, or begins with a space (Windows silently strips
-  trailing dots and spaces, and a leading space aliases the same way);
+  trailing dots and spaces);
 - is a reserved Windows device stem - `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
   `LPT1`-`LPT9`, and the superscript `COM¹` / `LPT²` forms - with or without an
   extension.

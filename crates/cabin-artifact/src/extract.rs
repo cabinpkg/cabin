@@ -1073,8 +1073,8 @@ fn write_entry<R: Read>(
         tar::EntryType::Regular => {
             // `Entry::size` is the *effective* size: it honors a PAX
             // `size` record, which `header().size()` does not.  Using
-            // the raw header field here would reject every legitimate
-            // PAX-decorated entry as truncated.
+            // the raw header field here would reject as truncated any
+            // entry whose PAX `size` disagrees with that field.
             let expected = entry.size();
             // Only the file's own bytes stream straight to disk;
             // everything else the tar reader pulls is metadata it

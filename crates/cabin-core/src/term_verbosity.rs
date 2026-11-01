@@ -39,10 +39,9 @@ pub enum Verbosity {
     /// Adds Cabin-owned context lines such as the resolved
     /// build profile, build directory, and toolchain summary.
     Verbose,
-    /// Adds further detail intended for diagnosing local builds.
-    /// Output stays deterministic and never includes secrets,
-    /// tokens, or environment-dependent values that Normal /
-    /// Verbose would not already print.
+    /// Adds further detail intended for diagnosing local builds,
+    /// including environment-derived values such as `CFLAGS`, which
+    /// can carry local paths or tokens.  Output stays deterministic.
     VeryVerbose,
 }
 

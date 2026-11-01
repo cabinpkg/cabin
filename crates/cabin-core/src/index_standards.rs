@@ -64,8 +64,8 @@ impl StandardsMetadata {
     /// (the version-wide fallback described in section 1 of
     /// `docs/design/standard-compatibility/preference-mode.md`).  It can
     /// only over-constrain (a stricter `extras` target the consumer
-    /// never links still counts), which is a preference-only lossiness
-    /// the post-resolution validation corrects.
+    /// never links still counts), which is a preference-only lossiness:
+    /// a spurious hold-back or an older selection.
     #[must_use]
     pub fn version_wide_join(&self) -> EffectiveRequirements {
         EffectiveRequirements {
