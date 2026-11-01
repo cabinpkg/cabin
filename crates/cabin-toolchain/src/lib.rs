@@ -1,8 +1,10 @@
 //! Toolchain detection helpers used by the Cabin build pipeline.
 //!
 //! This crate owns toolchain resolution, subprocess-based tool detection,
-//! sysroot selection, compile/link/run probes, compiler-wrapper resolution,
-//! and Ninja lookup. It does not parse manifests or write build plans;
+//! sysroot selection, MSVC environment discovery, checks that the detected
+//! compilers build for the requested platform, compile/link/run probes,
+//! compiler-wrapper resolution, and Ninja lookup. It does not parse
+//! manifests or write build plans;
 //! downstream crates consume the typed resolved values and detection reports
 //! exposed here.
 
