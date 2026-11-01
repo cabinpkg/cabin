@@ -1,13 +1,13 @@
-//! Published-index standard-compatibility metadata (the `standards`
-//! table of `docs/design/standard-compatibility/registry-index.md`).
+//! Published-index standard-compatibility metadata: the `standards`
+//! table of a package-index version entry (`docs/package-index.md`).
 //!
 //! `cabin publish` derives the **declared** per-target requirement
 //! table from the manifest and stores it in each version's index
 //! entry, so index consumers - preference mode and publish lints - can
 //! read a candidate version's per-target interface requirements without
 //! downloading its source archive.  The stored cells are the declared
-//! per-target `ReqOf` of spec D9 (header-only inference applied); the
-//! transitive composition `R_L` (spec D10) depends on which dependency
+//! per-target `ReqOf` of D9 (header-only inference applied); the
+//! transitive composition `R_L` (D10) depends on which dependency
 //! version a resolution picks, so consumers compose - the publisher
 //! stores declarations, not effective requirements.
 //!
@@ -55,17 +55,16 @@ impl StandardsMetadata {
     }
 
     /// The version-wide effective requirement: per language, the join
-    /// (spec D4) over every published target row's declared interface
+    /// (D4) over every published target row's declared interface
     /// requirement.  An absent or all-unconstrained table joins to
     /// `unconstrained`.
     ///
     /// This is the candidate-version requirement that preference mode
-    /// checks a consumer against when it lacks per-edge target scoping
-    /// (the version-wide fallback described in section 1 of
-    /// `docs/design/standard-compatibility/preference-mode.md`).  It can
-    /// only over-constrain (a stricter `extras` target the consumer
-    /// never links still counts), which is a preference-only lossiness:
-    /// a spurious hold-back or an older selection.
+    /// checks a consumer against when it lacks per-edge target
+    /// scoping.  It can only over-constrain (a stricter `extras` target
+    /// the consumer never links still counts), which is a
+    /// preference-only lossiness: a spurious hold-back or an older
+    /// selection.
     #[must_use]
     pub fn version_wide_join(&self) -> EffectiveRequirements {
         EffectiveRequirements {
@@ -80,7 +79,7 @@ impl StandardsMetadata {
     /// requirements are all unconstrained and whose flags are false
     /// (the target existing and imposing nothing is itself
     /// information).  Each cell is the target's declared `ReqOf`
-    /// (spec D9) for that language, computed through the shared
+    /// (D9) for that language, computed through the shared
     /// [`dependency_attributes`] mapping so the stored table matches
     /// what the resolver-graph pass evaluates.
     #[must_use]
@@ -106,24 +105,24 @@ impl StandardsMetadata {
 }
 
 /// One target's row: the declared interface requirement for each
-/// language (spec D9's `ReqOf`, header-only inference applied) plus
+/// language (D9's `ReqOf`, header-only inference applied) plus
 /// the two per-target flags.  A row whose requirements are all
 /// unconstrained and whose flags are false serializes as `{}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetStandards {
-    /// Spec D6 `kind`: whether the target is header-only.  Never
+    /// D6 `kind`: whether the target is header-only.  Never
     /// enters the satisfaction predicate (D11 consumes only the
     /// requirement); carried so index consumers know it without an
     /// archive download.
     pub header_only: bool,
-    /// The target's lowering-time GNU-dialect flag (spec D8,
-    /// invariant I1).  Never participates in compatibility; carried
-    /// so toolchain-aware tooling can surface per-target buildability.
+    /// The target's lowering-time GNU-dialect flag.  Never
+    /// participates in compatibility; carried so toolchain-aware
+    /// tooling can surface per-target buildability.
     pub gnu_extensions: bool,
-    /// Declared C interface requirement `ReqOf(t, C)` (spec D9).
+    /// Declared C interface requirement `ReqOf(t, C)` (D9).
     /// `Unconstrained` is serialized as an omitted language key.
     pub interface_c: Requirement<CStandard>,
-    /// Declared C++ interface requirement `ReqOf(t, C++)` (spec D9).
+    /// Declared C++ interface requirement `ReqOf(t, C++)` (D9).
     pub interface_cxx: Requirement<CxxStandard>,
 }
 
@@ -565,7 +564,7 @@ mod tests {
     }
 
     /// `version_wide_join` folds every row's declared requirement per
-    /// language (spec D4): the strictest `c++` minimum and the `"none"`
+    /// language (D4): the strictest `c++` minimum and the `"none"`
     /// forbidden C cell both surface; an all-unconstrained table joins
     /// to unconstrained.
     #[test]

@@ -83,8 +83,7 @@ impl ResolveOutput {
 ///   and preference ranks a declared-compatible version above it
 ///   (`newest` = `Some`, `blocked_by` empty);
 /// - the selected version is **itself incompatible** because nothing in
-///   range satisfies the consumer (`newest` = `None`, the rule-2 case of
-///   `preference-mode.md` section 1).
+///   range satisfies the consumer (`newest` = `None`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeldBack {
     pub name: PackageName,
@@ -95,7 +94,7 @@ pub struct HeldBack {
     pub newest: Option<Version>,
     /// The blocking interface requirement(s), in a fixed C-before-C++
     /// order for deterministic output - of `newest` when it is
-    /// incompatible, of `selected` in the rule-2 case, and empty when
+    /// incompatible, of `selected` when `newest` is `None`, and empty when
     /// the newer version was passed over only for being undeclared.
     pub blocked_by: Vec<BlockedRequirement>,
 }

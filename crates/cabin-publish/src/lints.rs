@@ -1,13 +1,13 @@
-//! Standard-compatibility publish-time lints
-//! (`docs/design/standard-compatibility/publish-lints.md`).
+//! Standard-compatibility publish-time lints (the user-facing
+//! contract is "Publish checks" in `docs/language-standards.md`).
 //!
 //! Every lint is a pure function over its inputs - the resolved
-//! manifest being published (spec D6 attributes) and, for PL3, the
+//! manifest being published (D6 attributes) and, for PL3, the
 //! already-published versions read from the registry index.  No I/O,
 //! no registry access: the caller loads the inputs and feeds them in,
 //! so the file-registry and remote publish paths run the identical
-//! checks.  Spec identifiers (D1-D14, ...) refer to
-//! `docs/design/standard-compatibility/spec.md`.
+//! checks.  D/L identifiers name the Lean model in
+//! `proofs/standard-compatibility`.
 //!
 //! Three lints:
 //! - **PL1** (error): a target's declared implementation standard
@@ -17,9 +17,9 @@
 //!   design - defense in depth at the publish boundary - and also
 //!   covers the header-only direct pair the load-time check never sees.
 //! - **PL2** (warning): a header-only target leaves an implemented
-//!   language's interface requirement to inference (spec D9 row 3).
+//!   language's interface requirement to inference (D9 row 3).
 //! - **PL3** (warning): a patch release narrows a declared
-//!   requirement's accepted set (spec D12) versus the immediately
+//!   requirement's accepted set (D12) versus the immediately
 //!   previous version (see [`patch_release_findings`]).
 
 use cabin_core::standard_compatibility::{DependencyKind, dependency_attributes};
@@ -111,11 +111,11 @@ const CXX: Language = Language {
 
 /// PL1 and PL2: pure over the resolved manifest being published.
 ///
-/// Walks every library-like target (spec's library / header-only
+/// Walks every library-like target (library / header-only
 /// kinds - the only ones that constrain consumers) in deterministic
 /// order (by target name, then `c` before `c++`) and applies the two
 /// manifest-only lints to each `(target, language)` cell via the
-/// shared spec-D6 attribute mapping, so the values linted are exactly
+/// shared D6 attribute mapping, so the values linted are exactly
 /// what the published `standards` table would carry.
 #[must_use]
 pub fn manifest_findings(package: &Package) -> Vec<LintFinding> {
@@ -198,7 +198,7 @@ fn cell_findings<S: Copy + Ord + std::fmt::Display>(
 
     // PL2 (warning): a header-only target that implements the language
     // but declares no interface for it - the published requirement is
-    // inferred from the implementation standard (spec D9 row 3), which
+    // inferred from the implementation standard (D9 row 3), which
     // is only an upper bound on what the headers actually need.
     if kind == DependencyKind::HeaderOnly
         && declaration.is_none()
@@ -221,24 +221,26 @@ fn cell_findings<S: Copy + Ord + std::fmt::Display>(
 /// Warns when this is a patch release whose declared requirement for
 /// some `(target, language)` present in both versions accepts fewer
 /// consumer standards than the baseline's - its satisfaction set
-/// (spec D12) drops a level the baseline accepted: a raised minimum,
+/// (D12) drops a level the baseline accepted: a raised minimum,
 /// an added or lowered maximum, a sideways shift, or a flip to
 /// `"none"` (forbidden).  The check is semantic rather than a `⊑`
-/// comparison because `⊑` is only partial (spec L1): incomparable
+/// comparison because `⊑` is only partial (L1): incomparable
 /// shifts still lose consumers.  A target present only in the new
 /// version is an addition, not a narrowing.
 ///
 /// The baseline is the greatest already-published, non-pre-release
 /// version strictly below `new_version` that shares its `major.minor`
-/// (the release this one patches, per the design doc's PL3 "Baseline").  When
+/// (the release this one patches).  When
 /// none exists (an `x.y.0`, the first publish of a line, or a
 /// pre-release new version), this is not a patch release and PL3 does
 /// not fire.  This is the precise reading of "the immediately previous
 /// version" for out-of-order publishes.
 ///
 /// This declared-cell comparison cannot see effective-requirement
-/// raises caused solely by a public dependency's version-requirement
-/// change; see the "Limitation" section of the design doc.
+/// narrowings caused by public dependency edges (an added edge, or a
+/// changed version requirement on one): the index stores no edge
+/// structure, and the composed requirement depends on what a future
+/// resolution picks.
 #[must_use]
 pub fn patch_release_findings(
     new_version: &semver::Version,
@@ -257,8 +259,7 @@ pub fn patch_release_findings(
     // published before the field existed, or one with no library-like
     // targets) therefore yields no comparison: reading it as
     // unconstrained-everywhere would flag a package's first library
-    // target added in a patch as a false raise.  See the "baselines
-    // with no recorded table" limitation in publish-lints.md.
+    // target added in a patch as a false raise.
     let mut findings = Vec::new();
     for (target, new_row) in &new_table.targets {
         let Some(old_row) = baseline.targets.get(target) else {

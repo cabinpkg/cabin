@@ -1,21 +1,20 @@
 //! Effective-requirement composition over the target dependency
 //! graph.
 //!
-//! Implements the recursion `R_L` of
-//! `docs/design/standard-compatibility/spec.md` D10 on top of the
-//! per-target `ReqOf` values of
-//! `cabin_core::standard_compatibility`: for each language,
+//! Implements the recursion `R_L` of D10 (the Lean model in
+//! `proofs/standard-compatibility`) on top of the per-target `ReqOf`
+//! values of `cabin_core::standard_compatibility`: for each language,
 //! `R_L(t) = ReqOf(t, L) ⊔ ⨆ { R_L(d) : (t, d) ∈ E_pub }`, computed
 //! for every target in one topological pass - `O(|V| + |E|)` per
-//! language (spec T3(2)).  Spec T1 proves the recursion has exactly
-//! one solution on the finite DAG and that every topological order
-//! computes it (confluence); the tests exercise that lemma directly.
+//! language.  T1 proves the recursion has exactly one solution on
+//! the finite DAG and that every topological order computes it
+//! (confluence); the tests exercise that lemma directly.
 //!
 //! Alongside each value the pass records *provenance* per bound:
 //! which declaration (or header-only inference, or cross-language
 //! default) attains the composed lower bound, and which the upper
 //! bound - the two may come from different targets, because the
-//! join intersects ranges (spec D4) and no single source has to
+//! join intersects ranges (D4) and no single source has to
 //! determine a composed requirement.  Each bound stores only a
 //! parent pointer, keeping the pass linear;
 //! [`provenance_c`] / [`provenance_cxx`] materialize full chains on
@@ -47,7 +46,7 @@ pub struct TargetNode {
     /// Manifest that declares this target - the provenance site for
     /// requirements with no declaration to point at (D9 rows 4-6).
     pub manifest_path: PathBuf,
-    /// Spec D6 resolved attributes, the inputs to `ReqOf`.
+    /// D6 resolved attributes, the inputs to `ReqOf`.
     pub attributes: DependencyAttributes,
     /// Where the populated fields of `attributes` were declared.
     pub sites: DeclarationSites,
@@ -57,7 +56,7 @@ pub struct TargetNode {
     /// requirements still pass through it.
     pub has_interface: bool,
     /// Dependency edges in declaration order.  Only public edges
-    /// propagate requirements (spec D10); private edges may be
+    /// propagate requirements (D10); private edges may be
     /// passed along unfiltered and are ignored here.
     pub deps: Vec<TargetEdge>,
 }
@@ -67,7 +66,7 @@ pub struct TargetNode {
 pub struct TargetEdge {
     /// Index of the depended-on target in the node slice.
     pub to: usize,
-    /// Spec D5: whether the edge is in `E_pub`.
+    /// D5: whether the edge is in `E_pub`.
     pub public: bool,
 }
 
@@ -103,14 +102,14 @@ pub struct DeclarationSites {
 /// `R_L` for one target across both languages, with provenance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectiveTarget {
-    /// Spec D10: `R_C(t)`.
+    /// D10: `R_C(t)`.
     pub c: Effective<CStandard>,
-    /// Spec D10: `R_C++(t)`.
+    /// D10: `R_C++(t)`.
     pub cxx: Effective<CxxStandard>,
 }
 
 impl EffectiveTarget {
-    /// The bare requirement pair for spec D13 edge-compatibility
+    /// The bare requirement pair for D13 edge-compatibility
     /// checks (`cabin_core::standard_compatibility::edge_compatible`).
     #[must_use]
     pub fn requirements(&self) -> EffectiveRequirements {
@@ -137,7 +136,7 @@ impl EffectiveTarget {
 ///   contributions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Effective<S> {
-    /// Spec D10: the effective requirement `R_L(t)`.
+    /// D10: the effective requirement `R_L(t)`.
     pub requirement: Requirement<S>,
     /// How the composed lower bound (or the forbidden verdict) is
     /// attained at this target.
@@ -146,7 +145,7 @@ pub struct Effective<S> {
     pub max_attained: Option<Attained>,
 }
 
-/// Parent pointer of one bound's provenance chain.  Spec T1 makes
+/// Parent pointer of one bound's provenance chain.  T1 makes
 /// the *value* of `R_L` unique, but several sources may attain the
 /// same bound; keeping any one chain is acceptable.  For
 /// deterministic diagnostics the pass keeps the target's own
@@ -154,7 +153,7 @@ pub struct Effective<S> {
 /// attaining public dependency in declaration order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Attained {
-    /// The target's own `ReqOf` (spec D9) attains the bound; the
+    /// The target's own `ReqOf` (D9) attains the bound; the
     /// chain ends here.
     Own(Origin),
     /// The bound of the public dependency at this node index
@@ -176,17 +175,16 @@ pub struct Origin {
     pub site: DeclarationSite,
 }
 
-/// Compute `R_L` for every target and both languages (spec D10) in
+/// Compute `R_L` for every target and both languages (D10) in
 /// one topological pass over the public-edge subgraph - `O(|V| +
-/// |E|)` per language, spec T3(2).  The returned vector is parallel
-/// to `targets`.
+/// |E|)` per language.  The returned vector is parallel to
+/// `targets`.
 ///
 /// # Panics
 /// Panics on a public dependency cycle or an out-of-bounds edge
-/// index.  Spec D5 guarantees the graph handed to this model is a
-/// finite DAG (a dependency cycle is an error upstream of
-/// compatibility filtering), so either is a caller bug, not a
-/// user-facing error.
+/// index.  The graph handed to this model is a finite DAG (a
+/// dependency cycle is an error upstream of compatibility
+/// filtering), so either is a caller bug, not a user-facing error.
 #[must_use]
 pub fn effective_requirements(targets: &[TargetNode]) -> Vec<EffectiveTarget> {
     let mut results: Vec<Option<EffectiveTarget>> = vec![None; targets.len()];
@@ -392,7 +390,7 @@ struct Contribution<S> {
 }
 
 /// Fold one target's own `ReqOf` with `R_L` of its public
-/// dependencies (the join of spec D10), recording a parent pointer
+/// dependencies (the join of D10), recording a parent pointer
 /// per bound.  The join intersects ranges, so the lower and upper
 /// bound may be attained by different contributions; a
 /// strictly-better comparison keeps the target's own declaration on
@@ -448,7 +446,7 @@ fn compose<S: Copy + Ord>(
         }
     }
 
-    // A forbidden contribution absorbs (spec L2): its single origin
+    // A forbidden contribution absorbs (L2): its single origin
     // chain explains the result regardless of any accumulated
     // bounds.
     if let Some(attained) = forbidden {
@@ -527,7 +525,7 @@ fn topo_order(targets: &[TargetNode]) -> Vec<usize> {
         match state[node] {
             Some(Color::Done) => return,
             Some(Color::Visiting) => panic!(
-                "public dependency cycle through `{}`: the target graph must be a DAG (spec D5)",
+                "public dependency cycle through `{}`: the target graph must be a DAG (D5)",
                 targets[node].name
             ),
             None => {}

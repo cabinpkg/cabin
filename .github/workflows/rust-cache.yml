@@ -1,7 +1,8 @@
 name: Rust Cache
 
 # Not a required check. Seeds on main the dependency caches rust.yml
-# restores read-only (docs/design/ci-rust-caches.md).
+# restores read-only. Only unprivileged jobs may restore these keys:
+# never a release, publish, or deploy job.
 on:
   schedule:
     - cron: "23 */6 * * *"

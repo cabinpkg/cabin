@@ -1,5 +1,4 @@
-//! Regression cases for the SQL consolidation guard (see
-//! `registry/docs/architecture.md`, "Why no ORM"): the guard runs
+//! Regression cases for the SQL consolidation guard: the guard runs
 //! against a scratch tree whose `src/` holds one synthetic call site, so
 //! every way executed SQL could grow outside `src/sql/` - a literal, a
 //! `format!`, a dynamic argument, the multi-line spelling, the

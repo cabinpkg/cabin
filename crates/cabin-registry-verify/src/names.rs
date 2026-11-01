@@ -3,8 +3,8 @@
 //! (`GET /api/v1/admin/packages`), run by the workflow **before**
 //! the artifact download - none of them need the archive bytes.
 //!
-//! Advisory doctrine (`registry/docs/architecture.md`, "Name
-//! fidelity"): a finding never rejects.  The workflow abstains -
+//! Advisory doctrine (`docs/remote-registry.md`, "The verifier's
+//! checks"): a finding never rejects.  The workflow abstains -
 //! renders no verdict at all - so the version stays `pending`, the
 //! stuck-pending alert summons the operator, and a false positive
 //! costs a delay, never a rejection.  Only a version that would

@@ -240,8 +240,7 @@ any Ninja file is written:
   participates in this comparison.
 - An explicit `"none"` requirement is deliberately **not** enforced by this build-time layer:
   the post-resolution compatibility check owns it (see
-  [Post-resolution compatibility errors](#post-resolution-compatibility-errors) and
-  [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md)), together
+  [Post-resolution compatibility errors](#post-resolution-compatibility-errors)), together
   with the per-edge
   `ignore-interface-standard = true` override that can unblock exactly that class.  Range
   violations are enforced at both layers and cannot be overridden.
@@ -336,12 +335,33 @@ candidate versions (see [Version selection](#version-selection)).
 
 ## Post-resolution compatibility errors
 
-`cabin build` / `check` / `run` / `test` always run a check that evaluates the edge-compatibility model of
-[`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md) over the resolved
-target graph - after resolution, whether fresh or lockfile-seeded - and reports every violated
-dependency edge as an error, one per violated language.  Any violation fails the command with exit
-code 1 after all diagnostics have rendered.  Each error renders the provenance chain with manifest
-`path:line` references - for example:
+`cabin build` / `check` / `run` / `test` always run a check over every edge of the resolved target
+graph - after resolution, whether fresh or lockfile-seeded - and report every violated dependency
+edge as an error, one per violated language.  Each dependency target imposes, per language, the
+first matching requirement:
+
+| The target's interface declaration for the language | Requirement on consumers |
+| --- | --- |
+| `"none"` | no consumer standard is accepted |
+| a minimum or `{ min, max }` range | the declared range |
+| none, and a header-only target implements the language | its implementation standard or newer |
+| none, and a compiled target implements the language | nothing |
+| none, and the target implements no C++ (C++ consumers) | nothing |
+| none, and the target implements no C (C consumers) | no consumer standard is accepted |
+
+The last row is not reported where it originates at an `executable` / `test` / `example` target,
+which exposes no headers; requirements reaching it from the libraries behind it still apply.
+
+The interface declaration follows [Precedence](#precedence) without its fallback to the
+implementation standard.  A compiled target implements a language when it has sources of that
+language; a header-only target, only when it sets that language's `c-standard` / `cxx-standard` at
+target level.  A target's effective requirement intersects its own requirement with the effective
+requirements of the targets it depends on over public edges; private edges do not propagate.  Each
+edge is checked for every language the consuming target compiles, at that target's effective
+implementation standard, so a header-only consumer's own edges are never checked.
+
+Any violation fails the command with exit code 1 after all diagnostics have rendered.  Each error
+renders the provenance chain with manifest `path:line` references - for example:
 
 ```text
 `app:app` (c++17, app/cabin.toml:12) -> `foo:bar` requires C++ consumers at `c++20`
@@ -410,22 +430,50 @@ variable.  The value vocabulary is Cargo's `resolver.incompatible-rust-versions`
   strict / deterministic mode, not a legacy one.
 
 The workspace consumer standard used for the check is the Cargo-style approximation: per language,
-the minimum effective implementation standard declared across workspace member targets.
+the minimum effective implementation standard declared across workspace member targets.  A
+candidate version's requirement is the intersection of every row of its index
+[`standards`](package-index.md#standard-metadata) table, so a stricter target the workspace never
+links can still hold a version back.  A locked version that still satisfies the version requirement
+and is not yanked is kept regardless of standards.  When no version in range is compatible, the
+newest is selected and the report names its unmet requirement.
 Preference is an ordering heuristic, never a hard constraint - it never introduces a resolution
 failure `allow` would not also produce, and the always-on build-time enforcement (and the
-post-resolution check above) remain the correctness authority.  The full policy is
-recorded in
-[`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md).
-Its defaults deliberately differ from the build-time enforcement above, which still runs after
+post-resolution check above) remain the correctness authority.
+Preference uses the requirement rules of the post-resolution check above, so its defaults
+deliberately differ from the build-time enforcement above, which still runs after
 resolution: at resolve time a compiled library with no declared interface field
 imposes no constraint (no implementation-standard fallback), while an explicit `"none"` makes the
 dependency unsatisfiable from that language instead of imposing nothing.
 
+## Publish checks
+
+`cabin publish`, including `--dry-run`, checks the standards of every library-like target before
+anything is written, reporting findings by target name, C before C++:
+
+- **Error:** the target's declared interface range excludes its own implementation standard (a
+  minimum newer than it, or a maximum older than it).  This repeats the load-time contradiction
+  check of [Precedence](#precedence) and also covers a header-only target's target-level
+  `c-standard` / `cxx-standard`.  The publish fails before any registry write.
+- **Warning:** a header-only target sets a language's implementation standard at target level
+  but declares no interface standard for it at either level, so the published requirement is
+  that standard or newer, inferred rather than declared.
+- **Warning:** a patch release narrows a target's declared interface requirement: some consumer
+  standard the patched version accepted is no longer accepted (a raised minimum, a new or lowered
+  maximum, a shifted range, or `"none"`).  The patched version is the newest published
+  non-pre-release version below the new one with the same `major.minor`; an `x.y.0` release, a
+  pre-release, a target absent from the patched version, and a patched version published without
+  a `standards` table are not compared.  Only each target's own declaration is compared, so a
+  stricter requirement that arrives through a public dependency is not reported.
+
+Warnings print to stderr (with `--format json`, in the output's `warnings` array) and the publish
+proceeds.  The patch-release check reads the registry's
+published versions, so it runs with `--registry-dir` and against a remote registry; a dry-run
+without `--registry-dir` skips it and says so.
+
 ## Deferred
 
-- Hard in-resolver standard filtering is permanently out of scope (see
-  [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md)
-  section 4); only the soft preference above and the post-resolution checks refuse a resolution.
+- Hard in-resolver standard filtering is permanently out of scope; only the soft preference above
+  and the post-resolution checks refuse a resolution.
 - `cfg(...)`-conditional or per-profile standards; per-command CLI overrides of the preference
   mode.
 - Duplicate build variants (one library compiled once per consumer standard).

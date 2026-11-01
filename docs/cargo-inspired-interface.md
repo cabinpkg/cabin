@@ -161,8 +161,7 @@ These are Cargo / Rust concepts that do not (yet) translate to Cabin's C/C++ sco
 
 - `cargo doc` - Cabin has no doc generator yet; rustdoc has no C/C++ equivalent that would justify
   the surface.
-- `cargo install` - install / prefix semantics are not designed yet (planned: capability roadmap
-  stage 09, see the [ledger](design/capability-roadmap/ledger.md)).
+- `cargo install` - install / prefix semantics are not designed yet.
 - `cargo search` / `cargo owner` - registry-server search / ownership surfaces are not
   implemented.  (`cabin login` / `cabin logout` are stable; `cabin yank` exists behind the
   experimental `-Z remote-registry` flag; see [`remote-registry.md`](remote-registry.md).)

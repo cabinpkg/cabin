@@ -1,8 +1,7 @@
 //! GitHub Actions OIDC token verification, consumed by two endpoints in
 //! `crate::glue`: the trusted-publishing exchange trades a verified
 //! Actions token for a short-lived `trustpub` token - bound to a
-//! `trustpub_configs` row (`registry/docs/architecture.md`, "D1 is
-//! canonical"), or verify-scoped when the claims match the
+//! `trustpub_configs` row, or verify-scoped when the claims match the
 //! [`VerifierPins`] deployment vars - and the verifier callback
 //! authenticates each verdict against those same pins. The config
 //! matching ([`select_config`]) and the pin checks live here; the
@@ -35,8 +34,7 @@ pub const GITHUB_JWKS_URL: &str = "https://token.actions.githubusercontent.com/.
 /// under an out-of-zone URL, which would turn every `put` into a no-op
 /// and every verification into an origin fetch. Same
 /// pattern as the artifact cache's `__cache` identity
-/// (`registry/docs/architecture.md`, "The read plane and the edge
-/// cache").
+/// (`glue::read::blob_cache_url`).
 #[cfg(target_arch = "wasm32")]
 const JWKS_CACHE_KEY: &str = "https://registry.cabinpkg.com/__cache/github-jwks";
 

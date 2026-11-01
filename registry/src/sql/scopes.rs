@@ -64,10 +64,10 @@ statements! {
                    '1', 'l'), 'i', 'l'), '0', 'o') = ?5)";
 
     /// Every claimed scope name, for the claim callback's preflight
-    /// skeleton confusability refusal (`docs/architecture.md`, "Name
-    /// fidelity"; the in-batch guard in [`CLAIM_SCOPE`] is what closes
-    /// the race). Scopes are few; the breaker's `d1_rows_read_day`
-    /// budget is the tripwire if that stops holding.
+    /// skeleton confusability refusal (the in-batch guard in
+    /// [`CLAIM_SCOPE`] is what closes the race). Scopes are few; the
+    /// breaker's `d1_rows_read_day` budget is the tripwire if that
+    /// stops holding.
     LIST_SCOPE_NAMES = "SELECT name FROM scopes ORDER BY name";
 
     /// Whether the user holds the `owner` role in the scope: the gate on

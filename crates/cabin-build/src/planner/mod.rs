@@ -389,7 +389,7 @@ fn resolve_dependencies(
 
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
 
-    // Post-resolution standard-compatibility check (spec D13 over
+    // Post-resolution standard-compatibility check (D13 over
     // every resolved edge).
     let standard_compat_violations = if req.standard_compat {
         crate::standard_compat::edge_violations(&topo, &resolved_deps, req)?
@@ -951,7 +951,7 @@ pub(crate) type TargetId = (usize, String);
 /// carries the visibility declared on the manifest entry.  The
 /// `public` classification feeds the standard-compatibility
 /// pass, which propagates interface requirements along public edges
-/// (`docs/design/standard-compatibility/spec.md`, D5).
+/// (D5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TargetDepEdge {
     pub(crate) to: TargetId,
@@ -1116,7 +1116,7 @@ fn enforce_interface_standards(
 /// or `None` when the consumer's level satisfies it.
 ///
 /// A declared `"none"` is deliberately not enforced here: the
-/// post-resolution compatibility pass owns it (spec D9 row 1)
+/// post-resolution compatibility pass owns it (D9 row 1)
 /// together with the per-edge `ignore-interface-standard`
 /// override, which must be able to unblock exactly that class -
 /// this always-on layer enforces the range bounds, which the

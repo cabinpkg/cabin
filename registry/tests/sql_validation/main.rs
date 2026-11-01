@@ -6,7 +6,7 @@
 //! executing and accepts D1's `?N` placeholders, so a typo, a wrong
 //! column name, or schema drift fails here instead of in production -
 //! the assurance an ORM's typed columns would give at compile time,
-//! without one (`docs/architecture.md`, "Why no ORM").
+//! without one.
 //!
 //! Semantics `prepare` cannot check - in-statement guards, the
 //! `changes()` and `last_insert_rowid()` couplings - are executed by the

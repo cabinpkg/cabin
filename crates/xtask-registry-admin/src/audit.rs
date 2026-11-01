@@ -17,8 +17,8 @@
 //! ledger; without it the ledger sections are skipped.
 //!
 //! This is where the crate departs from the disclosure rule
-//! `cargo registry-diagnose` keeps (`docs/architecture.md`,
-//! "`xtask-registry-admin`"): an operator cannot act on a divergence
+//! `cargo registry-diagnose` keeps (`registry/docs/runbook.md`,
+//! "Logs"): an operator cannot act on a divergence
 //! without the keys naming it, and those keys are content checksums.
 //! `--keys` prints them on request; a listing that cannot be paginated
 //! carries the page body into its error either way, because a page

@@ -337,8 +337,7 @@ pub fn resolve_fork_island_features(
 
 /// Feature resolution for the build context: the packages that
 /// `target`'s `[build-dependencies]` edges reach, unified among
-/// themselves and never with the target context (contracts
-/// section 1, rule 2).
+/// themselves and never with the target context.
 ///
 /// Each edge is seeded from a package `target` includes, with its
 /// `cfg(...)` condition evaluated against `target_platform` - the

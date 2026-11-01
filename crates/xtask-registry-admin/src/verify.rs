@@ -474,8 +474,10 @@ fn mint_url(request_url: &str, audience: &str) -> String {
 /// 30-minute lifetime the workflow's 15-minute job timeout sits well
 /// inside.  The exchange consumes the JWT's `jti` exactly as a
 /// verdict does, so the JWT it spends is minted for it alone.  A
-/// deliberate re-implementation, not a `cabin-registry-api` call
-/// (`docs/architecture.md`, `xtask-registry-admin`).
+/// deliberate re-implementation, not a `cabin-registry-api` call: the
+/// run keeps its own transport ceilings (`plane_agent`), and its
+/// revocation pins the exact `204` where the shared client also
+/// accepts `200`.
 fn exchange(agent: &ureq::Agent, minter: &Minter, api_origin: &str) -> Result<String> {
     let jwt = minter
         .mint(EXCHANGE_AUDIENCE)

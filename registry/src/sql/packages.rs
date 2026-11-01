@@ -50,14 +50,14 @@ statements! {
          metadata_json \
          FROM revisions WHERE verification = ?1 ORDER BY scope, name, version, revision";
 
-    /// The admin corpus listing (`docs/architecture.md`, "Name
-    /// fidelity"): every package with whether any of its versions is
-    /// **verified** - the verifier's name advisories compare a
-    /// candidate against every existing name, and skip a candidate
-    /// whose name was accepted once. Deliberately verified-only, not
-    /// any-verdict: a rejection must never vet a name, or an operator
-    /// rejecting an abstained squat would exempt that very name's
-    /// next version from the advisories.
+    /// The admin corpus listing (`docs/remote-registry.md`, "Admin API
+    /// (scope `verify`)"): every package with whether any of its
+    /// versions is **verified** - the verifier's name advisories
+    /// compare a candidate against every existing name, and skip a
+    /// candidate whose name was accepted once. Deliberately
+    /// verified-only, not any-verdict: a rejection must never vet a
+    /// name, or an operator rejecting an abstained squat would exempt
+    /// that very name's next version from the advisories.
     ADMIN_PACKAGES =
         "SELECT p.scope, p.name, \
          EXISTS(SELECT 1 FROM revisions r \
@@ -98,7 +98,7 @@ statements! {
     /// Whether the token's user is a member (any role) of the scope: the
     /// write plane's authorization read. A scope that does not exist has
     /// no members, so nonexistent and foreign scopes answer identically
-    /// by construction (`docs/architecture.md`, "The write path").
+    /// by construction.
     SCOPE_MEMBERSHIP =
         "SELECT COUNT(*) AS n FROM scope_members WHERE scope_name = ?1 AND user_id = ?2";
 
@@ -232,7 +232,9 @@ statements! {
     /// (`user_api::search_json`), so the statement stays a plain
     /// verified-only filter. Like [`REVERSE_DEPENDENCIES`], this scans
     /// the verified corpus per call - accepted at current scale; the
-    /// breaker's `d1_rows_read_day` budget is the tripwire.
+    /// breaker's `d1_rows_read_day` budget is the tripwire. Exhausting
+    /// that budget blocks writes, so both scans stay off
+    /// unauthenticated routes.
     SEARCH_VERIFIED_VERSIONS =
         "SELECT c.scope, c.name, c.version, v.yanked, c.published_at, v.downloads \
          FROM current_revisions c \
@@ -263,14 +265,12 @@ statements! {
     /// The verified versions whose stored `dependencies` map contains
     /// the canonical `<scope>/<name>` key in `?1`: a `json_each` walk
     /// over every verified row's `metadata_json` per call. That full
-    /// scan is the recorded decision (`docs/architecture.md`, "Search
-    /// and reverse dependencies"): at current scale it sits well
-    /// inside the D1 budget the breaker watches (`d1_rows_read_day`),
-    /// and the upgrade path - a publish-maintained dependents table,
-    /// the crates.io approach - is to be taken only if that metric
-    /// warns, not preemptively. Dependent packages are visible by
-    /// construction: a verified matching version is itself the
-    /// dependent's visibility.
+    /// scan is acceptable: at current scale it sits well inside the D1
+    /// budget the breaker watches (`d1_rows_read_day`), and the upgrade
+    /// path - a publish-maintained dependents table, the crates.io
+    /// approach - is to be taken only if that metric warns, not
+    /// preemptively. Dependent packages are visible by construction: a
+    /// verified matching version is itself the dependent's visibility.
     REVERSE_DEPENDENCIES =
         "SELECT scope, name, version, published_at FROM current_revisions \
          WHERE EXISTS (SELECT 1 FROM json_each(current_revisions.metadata_json, \

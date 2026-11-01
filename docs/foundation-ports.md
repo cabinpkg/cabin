@@ -104,7 +104,7 @@ alternative implementation with its own symbol namespace claims its own identity
 ## Materialization pipeline
 
 A port materializes through
-[`cabin_artifact::materialize_upstream`](architecture.md) - the one upstream-provenance
+`cabin_artifact::materialize_upstream` - the one upstream-provenance
 materialization pipeline, and the same implementation the hosted registry's external verifier
 replays against a published package's `[package.upstream]` declaration.  What publishes is
 therefore assembled by exactly what verifies:
@@ -167,12 +167,10 @@ pin before use, so a stale or corrupt entry is a miss, never a substitution.
   already fits Cabin's target model (a fixed list of sources plus include directories), optionally
   placing a prebuilt file with a static `[[package.upstream.copy]]` step or correcting one with a
   declared byte-exact patch.  Libraries that need configure-time generation, CMake / Meson / Autotools
-  driving, or custom build commands cannot be ported until the build graph runs generated actions
-  (planned: [capability roadmap](design/capability-roadmap/ledger.md) stage 07).
+  driving, or custom build commands cannot be ported until the build graph runs generated actions.
 - Not a variant-selection mechanism.  A published port carries whatever `[features]` its manifest
   declares (`cabin-ports/sqlite3` ships a `single-threaded` feature), but nothing in the port
-  vocabulary selects a shared or static build.  Shared-library selection is planned for capability
-  roadmap stage 08, and not as a port feature: features stay additive.
+  vocabulary selects a shared or static build.
 
 ## Error catalog
 

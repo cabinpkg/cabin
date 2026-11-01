@@ -1,8 +1,7 @@
 //! Worker-side client for the governor Durable Object
 //! (`src/governor_do.rs`). Thin and fail-closed: any transport error,
 //! non-200, or unparsable answer reads as "governor unavailable", and
-//! callers must refuse to initiate new billable R2 work on it
-//! (`docs/architecture.md`, "The cost governor").
+//! callers must refuse to initiate new billable R2 work on it.
 
 use worker::{Env, Headers, Method, Request, RequestInit, Response, console_error};
 

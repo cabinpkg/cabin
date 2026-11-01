@@ -250,16 +250,14 @@ impl HttpClient {
                 })
             }
             // The registry's two coded read refusals, each bound to its
-            // own status (`registry/docs/architecture.md`):
+            // own status (`docs/remote-registry.md`, "Error envelope"):
             //
             // - `503` + `registry_over_budget` is the read-side budget
-            //   breaker ("Billing model: the governor and the
-            //   breaker"): reads are refused service-wide until the
-            //   budget window resets ("Why 503, not 402").
+            //   breaker: reads are refused service-wide until the
+            //   budget window resets.
             // - `429` + `read_rate_limited` is the governor's per-caller
-            //   fairness refusal ("The cost governor"): with public
-            //   reads every caller - tokened or anonymous - has a daily
-            //   cache-miss window.
+            //   fairness refusal: with public reads every caller -
+            //   tokened or anonymous - has a daily cache-miss window.
             //
             // `503` is a status Cloudflare's own edge and runtime also
             // emit, so the envelope `code`, not the status, is what

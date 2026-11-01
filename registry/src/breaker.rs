@@ -1,6 +1,5 @@
 //! The free-plan budget circuit breaker: pure evaluation of usage against
-//! budgets (`docs/architecture.md`, "Billing model: the governor and the
-//! breaker").
+//! budgets (`docs/runbook.md`, "Budget breaker and service mode").
 //!
 //! The wasm32 glue's cron handler gathers usage (exact self-accounted R2
 //! storage from `meta.total_stored_bytes`, the rest from the Cloudflare
@@ -64,8 +63,8 @@ pub fn read_gate_refuses(mode: Option<Mode>, verify_exempt: bool) -> bool {
 /// that could unblock is at most ~15 minutes away). One code for both
 /// planes; only the detail names which surface is paused.
 ///
-/// The status is `503`, not `402` (`docs/architecture.md`, "Why 503, not
-/// 402"): a tripped breaker is operator-side, nothing the caller can pay
+/// The status is `503`, not `402` (`docs/remote-registry.md`, "Status
+/// codes"): a tripped breaker is operator-side, nothing the caller can pay
 /// clears it, and `503` has explicit `Retry-After` semantics where
 /// `402` has none.
 pub const OVER_BUDGET_STATUS: u16 = 503;

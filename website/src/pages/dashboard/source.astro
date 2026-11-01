@@ -1,10 +1,10 @@
 ---
 // The source viewer: browse the exact files of a published, verified
 // version, read straight from the stored archive via the session source
-// route (registry/docs/architecture.md, "The source viewer's ranged
-// reads"). The static build carries only the skeleton; source.ts picks
-// the package and version from the ?name=&version= query and does all
-// fetching and zip parsing client-side.
+// route (registry/src/source.rs). The static build carries only the
+// skeleton; source.ts picks the package and version from the
+// ?name=&version= query and does all fetching and zip parsing
+// client-side.
 import AccountShell from "../../components/account/AccountShell.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 ---

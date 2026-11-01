@@ -243,7 +243,7 @@ fn explicit_sysroot(
 
 /// `--sysroot`, else the config `[sysroot]` entry for `--target`, else
 /// the Apple SDK Apple Clang would use, `apple_sdk` from
-/// [`detect_toolchain`] (contracts: explicit choices over discovery).
+/// [`detect_toolchain`].
 /// Without a detection report, an explicit choice goes unchecked.
 pub(crate) fn select_sysroot(
     toolchain_args: &super::ToolchainSelectionArgs,
@@ -369,7 +369,7 @@ impl PreparedWorkspace {
 }
 
 /// The build context's plan inputs: tools for the build machine,
-/// with features and flags of their own (contracts section 1).
+/// with features and flags of their own.
 pub(crate) struct BuildContextPrep {
     /// Packages a build edge reaches; the plan builds their default
     /// targets and what those link.
@@ -1067,8 +1067,8 @@ fn plan_build_context(
     prepared: &PreparedWorkspace,
     context: &BuildContextPrep,
 ) -> Result<cabin_build::BuildGraph> {
-    // shortcut: build-context units get no pkg-config probe (stage 06's
-    // per-context providers), so a system dependency there fails here.
+    // shortcut: build-context units get no pkg-config probe until
+    // providers are per context, so a system dependency there fails here.
     super::system_deps::reject_build_context_system_deps(
         &prepared.graph,
         &context.platform,

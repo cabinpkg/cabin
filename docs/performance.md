@@ -1,9 +1,7 @@
 # Performance
 
 How to see where a Cabin command spends its time, measure it reproducibly, and catch regressions:
-trace capture, the `cargo perf` benchmarks, and profiling.  The design, the coverage record, and
-the platform verification matrix are in
-[`design/performance-observability.md`](design/performance-observability.md).
+trace capture, the `cargo perf` benchmarks, and profiling.
 
 ## Capturing a trace
 
@@ -29,6 +27,21 @@ The `cabin: wrote trace` line goes to stderr and is suppressed by `--quiet`; std
 and everything the command writes are the same with and without capture.  Keep the directory
 outside the package: `cabin package` and `cabin publish` archive every file under the package
 root, a trace directory there included.
+
+Capture costs about 1 ms per invocation, for creating the files, starting and joining the writer
+thread, and the renames; with `CABIN_TRACE_DIR` unset it is within noise of a binary built without
+tracing.  Measured with `hyperfine` 2.0 (5 warmups, 60 interleaved runs per command) on macOS 27.2
+on Apple silicon, over a warm `cabin fetch` of one file-registry dependency, with release builds of
+`16e100991` (before tracing) and #2068 (adding it):
+
+| Binary and capture | Wall time (mean ± σ) | Trace size |
+| --- | --- | --- |
+| `16e100991`, no instrumentation | 6.5 ± 0.6 ms | - |
+| #2068, capture disabled | 6.4 ± 0.5 ms | - |
+| #2068, `CABIN_TRACE_DIR` (`info`) | 7.4 ± 1.1 ms | 3.4 KB, 22 events |
+| #2068, `CABIN_TRACE_FILTER=debug` | 7.5 ± 1.1 ms | 7.6 KB, 48 events |
+
+To measure the current build, compare the `trace/noop-cxx-*` scenarios with `build/noop-cxx`.
 
 `CABIN_TRACE_FILTER` selects detail with `tracing-subscriber`
 [`Targets`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/targets/struct.Targets.html)
@@ -263,8 +276,7 @@ The test also assumes both sides ran under the same conditions.  Binaries measur
 `cargo perf run` (`--base`, or several `--cabin`) come closest, since their runs interleave; a saved
 baseline was measured at another time, under whatever load the machine had then, so comparing
 against it can report a false difference.  On a loaded machine even one run can, though more
-rarely.  Before acting on a surprising row, measure both binaries in one run, and repeat it (see
-the calibration in [`design/performance-observability.md`](design/performance-observability.md)).
+rarely.  Before acting on a surprising row, measure both binaries in one run, and repeat it.
 
 ### Micro-benchmarks
 

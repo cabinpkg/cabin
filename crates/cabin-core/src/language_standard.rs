@@ -23,12 +23,10 @@ use crate::{ResolvedProfileFlags, SourceLanguage, Target, classify_source};
 
 /// C language standards Cabin can request, oldest to newest.  The
 /// `Ord` derive follows declaration order, implementing the level
-/// chain `Level_C` of spec D2
-/// (`docs/design/standard-compatibility/spec.md`): chronological
-/// enumeration order, not numeric (`c89 < c11`), with no
-/// equivalence special case anywhere in the chain.  The `c90` alias
-/// is normalized away by [`Self::parse`] and is not an element of
-/// the chain (D2 remark).
+/// chain `Level_C` of D2: chronological enumeration order, not
+/// numeric (`c89 < c11`), with no equivalence special case anywhere
+/// in the chain.  The `c90` alias is normalized away by
+/// [`Self::parse`] and is not an element of the chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CStandard {
     #[serde(rename = "c89")]
@@ -90,12 +88,10 @@ impl std::str::FromStr for CStandard {
 
 /// C++ language standards Cabin can request, oldest to newest, in
 /// the plain chronological chain.  Implements the level chain
-/// `Level_C++` of spec D2
-/// (`docs/design/standard-compatibility/spec.md`): chronological
-/// enumeration order, not numeric (`c++98 < c++11`), with no
-/// equivalence special case anywhere in the chain.  The `c++03`
-/// alias is normalized away by [`Self::parse`] and is not an
-/// element of the chain (D2 remark).
+/// `Level_C++` of D2: chronological enumeration order, not numeric
+/// (`c++98 < c++11`), with no equivalence special case anywhere in
+/// the chain.  The `c++03` alias is normalized away by
+/// [`Self::parse`] and is not an element of the chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CxxStandard {
     #[serde(rename = "c++98")]
@@ -300,7 +296,7 @@ impl std::fmt::Display for LanguageStandard {
 pub trait StandardLevel: Copy + Ord + std::fmt::Debug + 'static {
     const LANGUAGE: SourceLanguage;
     fn level_str(self) -> &'static str;
-    /// The full level chain `Level_L` of spec D2, oldest to newest.
+    /// The full level chain `Level_L` of D2, oldest to newest.
     fn levels() -> &'static [Self];
 }
 
@@ -328,8 +324,7 @@ impl StandardLevel for CxxStandard {
 /// consumer standards the target's public headers accept.  `min` is
 /// always present; `max = None` leaves the range unbounded above
 /// (the minimum-only form).  This is the `{ min, max }` interval of
-/// spec D4 (`docs/design/standard-compatibility/spec.md`): D9 row 2
-/// maps a declaration to the compatibility requirement
+/// D4: D9 row 2 maps a declaration to the compatibility requirement
 /// [`crate::standard_compatibility::Requirement::Min`] /
 /// [`crate::standard_compatibility::Requirement::Bounded`].
 /// The fields are private so the `min <= max` invariant holds by
@@ -410,14 +405,13 @@ impl<'de, S: Deserialize<'de> + StandardLevel> Deserialize<'de> for StandardRequ
 /// One declared interface-standard value: either a requirement or
 /// the explicit `none`, meaning the target's headers are not
 /// consumable from that language.  Implements the explicit
-/// interface declaration `decl_L(t)` of spec D6
-/// (`docs/design/standard-compatibility/spec.md`); D6's `⊥` (no
+/// interface declaration `decl_L(t)` of D6; D6's `⊥` (no
 /// declaration) is an absent `Option<InterfaceRequirement>` at the
 /// use sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterfaceRequirement<S> {
     /// The target's headers are not consumable from this language:
-    /// the declared `"none"` of spec D6, which D9 row 1 maps to the
+    /// the declared `"none"` of D6, which D9 row 1 maps to the
     /// unsatisfiable requirement
     /// ([`crate::standard_compatibility::Requirement::Forbidden`]).
     None,
@@ -956,7 +950,7 @@ pub fn interface_cxx(
 /// target has sources of that language, declares a target-level
 /// field for it (implementation or interface), or is library-like
 /// while the package declares a package-level *interface* standard
-/// for it - mirroring the spec-D6 declaration mapping
+/// for it - mirroring the D6 declaration mapping
 /// (`dependency_attributes`), so the always-on build-time layer
 /// covers every range the post-resolution pass would compose.
 /// Package-level implementation defaults never create relevance by

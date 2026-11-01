@@ -1,9 +1,9 @@
 //! Post-resolution language-standard compatibility checking.
 //!
-//! Evaluates the edge-compatibility model of
-//! `docs/design/standard-compatibility/spec.md` over the planner's
-//! resolved target graph: per-target `ReqOf` attributes are mapped
-//! per the spec's D6 population contract, `cabin_workspace::standards`
+//! Evaluates the edge-compatibility model (the Lean model in
+//! `proofs/standard-compatibility`) over the planner's resolved
+//! target graph: per-target `ReqOf` attributes are mapped
+//! per the D6 population contract, `cabin_workspace::standards`
 //! composes the effective requirement `R_L` along public edges (D10),
 //! and every resolved dependency edge is checked per D13 for every
 //! language the consumer compiles.  Violated edges become
@@ -19,7 +19,7 @@
 //! feeds back into version selection.  Its defaults deliberately
 //! differ from the build-time interface enforcement in
 //! `planner::enforce_interface_standards`: a compiled dependency
-//! with no interface declaration imposes nothing here (spec D9 row
+//! with no interface declaration imposes nothing here (D9 row
 //! 4 - no implementation-standard fallback), while an explicit
 //! `"none"` is unsatisfiable (row 1).
 
@@ -86,7 +86,7 @@ pub enum RequirementOrigin {
     CrossLanguageDefault,
 }
 
-/// The violated effective requirement `R_L(d)` of spec D13,
+/// The violated effective requirement `R_L(d)` of D13,
 /// together with which side of it the consumer's level fails.
 /// `Unconstrained` cannot be violated, so it has no variant here.
 /// The violation's `origin` / `chain` fields cite the failing
@@ -138,7 +138,7 @@ pub struct ClashingBound {
     pub chain: Vec<String>,
 }
 
-/// One resolved dependency edge that violates spec D13 for one
+/// One resolved dependency edge that violates D13 for one
 /// consumer language.  A mixed-language consumer failing both
 /// languages on the same edge yields two records.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,7 +163,7 @@ pub struct StandardCompatViolation {
     /// The violated effective requirement `R_L(dependency)`.
     pub requirement: EdgeRequirement,
     /// `package:target` whose own `ReqOf` originates the
-    /// requirement (spec T1's closed form); equals `dependency`
+    /// requirement (T1's closed form); equals `dependency`
     /// when the dependency itself declares it.
     pub origin_target: String,
     /// The D9 row and declaration behind `origin_target`'s `ReqOf`.
@@ -203,7 +203,7 @@ struct NodeSites {
     impl_cxx: Option<DeclSite>,
 }
 
-/// Evaluate spec D13 over every resolved dependency edge and return
+/// Evaluate D13 over every resolved dependency edge and return
 /// the violated (edge, language) pairs, sorted by consumer,
 /// dependency, then language for deterministic output.
 ///
@@ -268,7 +268,7 @@ pub(crate) fn edge_violations(
     for (consumer_index, tid) in topo.iter().enumerate() {
         let consumer_target = lookup_target(tid, req.graph)?;
         // A header-only consumer compiles no language: every edge
-        // out of it is compatible vacuously (spec D13); its public
+        // out of it is compatible vacuously (D13); its public
         // edges still fold their requirements into `effective` (D10).
         if consumer_target.kind.is_header_only() {
             continue;
@@ -418,7 +418,7 @@ fn section_of(pkg_edge: &cabin_workspace::DependencyEdge) -> String {
     pkg_edge.kind.manifest_table(pkg_edge.condition.as_ref())
 }
 
-/// Spec D6 attribute mapping for one target, with the declaration
+/// D6 attribute mapping for one target, with the declaration
 /// sites behind each populated attribute.  The mapping and its
 /// population contract are
 /// [`cabin_core::standard_compatibility::dependency_attributes`]; only
@@ -437,7 +437,7 @@ fn dependency_attributes(
     );
     // A system-provided target's standards are the system library's,
     // which Cabin does not know: it counts as a compiled library that
-    // declares no interface (spec D9 row 4), constraining no consumer.
+    // declares no interface (D9 row 4), constraining no consumer.
     if req.system_targets.contains_key(tid) {
         attributes = DependencyAttributes {
             kind: cabin_core::standard_compatibility::DependencyKind::Compiled,
@@ -774,11 +774,11 @@ fn requirement_origin(
         },
         ReqOfSource::CrossLanguageDefault => RequirementOrigin::CrossLanguageDefault,
         // Row 4 yields `unconstrained`, which satisfies every
-        // consumer (spec D11): it can never originate a violated
+        // consumer (D11): it can never originate a violated
         // join.
-        ReqOfSource::CompiledNoDeclaration => unreachable!(
-            "a compiled target without a declaration imposes no constraint (spec D9 row 4)"
-        ),
+        ReqOfSource::CompiledNoDeclaration => {
+            unreachable!("a compiled target without a declaration imposes no constraint (D9 row 4)")
+        }
     }
 }
 

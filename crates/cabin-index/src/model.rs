@@ -98,14 +98,14 @@ pub struct VersionMetadata {
     /// the typed `standards` table below instead.  Older registries
     /// that omit the field continue to load.
     pub language: Option<serde_json::Value>,
-    /// Declared per-target standard-compatibility table (spec D9
+    /// Declared per-target standard-compatibility table (D9
     /// `ReqOf`, header-only inference applied).  A **typed** view -
     /// unlike the `language` passthrough above, which is round-trip
     /// archival only - so index consumers (preference mode, publish
     /// lints) can read a candidate version's per-target interface
     /// requirements without downloading its archive.  An empty table
     /// (the default for pre-`standards` entries) means everything is
-    /// unconstrained.  See `docs/design/standard-compatibility/registry-index.md`.
+    /// unconstrained.  See `docs/package-index.md`.
     pub standards: cabin_core::StandardsMetadata,
     /// Declared per-target native-library identity claims
     /// (`links`), keyed by target name.  A typed view like

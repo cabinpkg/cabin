@@ -54,7 +54,7 @@ pub(super) async fn handle_website(
         return Ok((response, None));
     }
     // The public stats subtree: the one unauthenticated JSON plane on
-    // this origin (`docs/architecture.md`, "Download counts").
+    // this origin.
     if crate::routes::is_stats_path(path) {
         return Ok((web_glue::respond_stats(req, env, path).await?, None));
     }

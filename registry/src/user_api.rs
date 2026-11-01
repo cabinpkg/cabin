@@ -77,9 +77,8 @@ pub struct PackageVersionRow {
     pub verification: String,
     pub yanked: bool,
     pub published_at: String,
-    /// The approximate served-download count (`docs/architecture.md`,
-    /// "Download counts"), version-level; always 0 for versions with
-    /// no verified revision.
+    /// The approximate served-download count ([`crate::telemetry`]),
+    /// version-level; always 0 for versions with no verified revision.
     pub downloads: u64,
     /// Whether this revision is the one the read plane currently
     /// serves for its version.
@@ -445,8 +444,7 @@ pub struct AddMember {
 }
 
 /// Parses and validates an add-member body: a positive GitHub numeric id
-/// and one of the two member roles (`owner` is the admin role;
-/// `docs/architecture.md`, "Scopes").
+/// and one of the two member roles (`owner` is the admin role).
 ///
 /// # Errors
 ///

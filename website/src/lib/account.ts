@@ -1,6 +1,6 @@
 // Client for the registry's session-cookie JSON user API, mounted on this
-// site's origin under /api/v1/user (see registry/docs/architecture.md in
-// the repository). Deliberately dependency-free: the node:test suite in
+// site's origin under /api/v1/user (see registry/src/user_api.rs in the
+// repository). Deliberately dependency-free: the node:test suite in
 // account.test.ts exercises it against a mocked fetch.
 //
 // Every call rides the session cookie (`credentials: "same-origin"`);

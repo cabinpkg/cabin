@@ -5,15 +5,15 @@ Cabin is a package manager and build system for C/C++: the `cabin` CLI
 archive verifier run from GitHub Actions (the driver
 `crates/xtask-registry-admin/src/verify.rs` and the inspector
 `crates/cabin-registry-verify`). All three and their interactions are in scope;
-`SECURITY.md` is the disclosure policy. The design is documented, so this file
-points rather than restates: `docs/architecture.md` (crate ownership and
-per-crate rules), `docs/package-format.md` ("Extraction safety contract"),
-`docs/remote-registry.md` (the protocol, its routes and caps; "The verifier's
-checks"; "Server checks versus client extraction"),
-`registry/docs/architecture.md` ("Origins and roles", "Two credential planes",
-"Scopes", "The write path", "The verification lifecycle", "The cost governor"),
-`registry/docs/archive-format.md`, `registry/docs/runbook.md` ("Data policy"),
-and the module table in `registry/AGENTS.md`.
+`SECURITY.md` is the disclosure policy. The contracts are documented, so this
+file points rather than restates: the crate-level `//!` docs and
+`crates/AGENTS.md` (crate ownership and boundaries), `docs/package-format.md`
+("Extraction safety contract"), `docs/remote-registry.md` (the protocol, its
+routes, authentication, and caps; "One role per hostname"; "Publish";
+"Verification lifecycle"; "The verifier's checks"; "Server checks versus client
+extraction"), `registry/docs/archive-format.md`, `registry/docs/runbook.md`
+("Data policy", "The cost governor"), and the module table in
+`registry/AGENTS.md` with the module docs it names.
 
 ## Trust boundaries and attacker-controlled input
 
@@ -33,13 +33,13 @@ scope-claim flows; the pre-credential routes (the session-token and
 trusted-publishing mints, whose credential is the body, and the verdict route,
 whose bearer is an OIDC JWT); the bearer plane (publish, yank, admin); the
 session plane (`/api/v1/user`, including the source viewer); and stored rows
-read back later. Routes and the two credential planes are specified in
-`docs/remote-registry.md` and `registry/docs/architecture.md`; body caps are
-constants in `registry/src/`. `wrangler.jsonc` vars and secrets are operator
-input, and so is the deploy toolchain: the deploy job installs `wrangler`
-through npm at deploy time, locked by `registry/package-lock.json`, so its
-dependency closure runs with the deploy token. That is an accepted boundary,
-not a hardened one.
+read back later. Routes and the bearer plane are specified in
+`docs/remote-registry.md`, the session plane in `registry/src/session.rs`; body
+caps are constants in `registry/src/`. `wrangler.jsonc` vars and secrets are
+operator input, and so is the deploy toolchain: the deploy job installs
+`wrangler` through npm at deploy time, locked by `registry/package-lock.json`,
+so its dependency closure runs with the deploy token. That is an accepted
+boundary, not a hardened one.
 
 **Verifier.** `cargo registry-verify` (the driver, run by
 `.github/workflows/registry-verify.yml`) downloads each pending archive with a
@@ -115,7 +115,7 @@ is medium unless stored state is left inconsistent, which rates by what the
 inconsistency allows. Denial of service without amplification and disclosure of
 non-secret state are low.
 
-A violated rule from `docs/architecture.md` is a finding only when you can show
+A violated crate-boundary rule is a finding only when you can show
 what it lets an attacker do; otherwise report it as a correctness issue. Context
 rather than exemptions: a cap at a value you would set differently; an
 allowlisted user exhausting their own quota; anything needing the operator's

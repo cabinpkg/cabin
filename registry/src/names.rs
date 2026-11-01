@@ -1,6 +1,5 @@
-//! The name-fidelity vocabulary shared by publish and the claim flow
-//! (`docs/architecture.md`, "Name fidelity"): the reserved-name list
-//! and the confusability skeleton fold.
+//! The name-fidelity vocabulary shared by publish and the claim flow:
+//! the reserved-name list and the confusability skeleton fold.
 
 /// Reserved DOS device stems, refused as package and scope names.
 /// Both become client-side directory names (the vendor and cache

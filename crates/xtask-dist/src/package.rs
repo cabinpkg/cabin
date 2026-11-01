@@ -25,8 +25,7 @@
 //! - **Single quotes are the only quoting around the package name in
 //!   the `Compress-Archive` command string,** so a version carrying a
 //!   `'` would break out of it. A tag name with a character outside
-//!   `[A-Za-z0-9._+-]` is therefore refused before anything is staged
-//!   (`docs/architecture.md`, "xtask-dist").
+//!   `[A-Za-z0-9._+-]` is therefore refused before anything is staged.
 //!
 //! Stated ceilings:
 //!

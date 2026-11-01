@@ -63,8 +63,8 @@ pub mod code {
     /// `cxxflags` also pin one via `-std=` / `/std:`.
     pub const LANGUAGE_STANDARD_FLAG_CONFLICT: &str = "cabin::language::standard_flag_conflict";
     /// Post-resolution standard-compatibility check: a resolved
-    /// dependency edge violates the standard-compatibility model
-    /// of `docs/design/standard-compatibility/spec.md` for a
+    /// dependency edge violates the standard-compatibility rules
+    /// of `docs/language-standards.md` for a
     /// language the consuming target compiles.  Fails the command
     /// unless the edge carries a per-edge
     /// `ignore-interface-standard = true` override, which instead

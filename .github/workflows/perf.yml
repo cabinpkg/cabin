@@ -50,7 +50,7 @@ jobs:
           persist-credentials: false
           path: perf checkout
       # No caches: a pull request's saves serve only that pull request,
-      # which rarely restores them (docs/design/ci-rust-caches.md).
+      # which rarely restores them.
       - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache: false

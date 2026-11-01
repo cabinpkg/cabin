@@ -11,8 +11,7 @@
 //! test (`tests/sql_validation/`) can prepare each one against the real,
 //! from-zero migrated schema - catching typos, wrong column names, and
 //! schema drift at test time - and so the CI guard (`cargo check-sql`)
-//! can keep new call sites from bypassing it. See `docs/architecture.md`,
-//! "Why no ORM".
+//! can keep new call sites from bypassing it.
 
 /// Declares one documented `pub const` per statement and collects the
 /// module's statements into its `STATEMENTS` group, one entry of

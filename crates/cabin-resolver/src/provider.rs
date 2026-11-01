@@ -145,12 +145,10 @@ fn declares(meta: &VersionMetadata, feature: Option<&str>) -> bool {
     feature.is_none_or(|f| f == DEFAULT_FEATURE_KEY || meta.features.features.contains_key(f))
 }
 
-/// The three preference tiers of
-/// `docs/design/standard-compatibility/preference-mode.md` section 1,
-/// ordered best-first: a declared-and-compatible candidate is
-/// preferred to an undeclared one (which merely does not deny
-/// compatibility), which is preferred to a declared-but-incompatible
-/// one.  The derived `Ord` is exactly that preference order.
+/// The three standard-preference tiers, ordered best-first: a
+/// declared-and-compatible candidate is preferred to an undeclared
+/// one (which merely does not deny compatibility), which is
+/// preferred to a declared-but-incompatible one.  The derived `Ord` is exactly that preference order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum StandardTier {
     /// Declares an interface requirement the consumer satisfies.
@@ -675,8 +673,7 @@ impl DependencyProvider for Provider<'_> {
 impl Provider<'_> {
     /// Pick a version of `entry` inside `range`, preferring the
     /// lockfile entry when it qualifies and otherwise applying the
-    /// standard-preference ordering of
-    /// `docs/design/standard-compatibility/preference-mode.md`.
+    /// [`StandardTier`] ordering.
     ///
     /// The admissible set - non-yanked, pre-release-filtered versions
     /// in `range` - is computed identically under both
@@ -710,7 +707,7 @@ impl Provider<'_> {
             return None;
         }
 
-        // Lockfile stability wins (preference-mode.md rule 4): a locked
+        // Lockfile stability wins: a locked
         // version that still qualifies is kept regardless of standards,
         // and never counts as a hold-back - metadata alone never churns
         // a lockfile.
@@ -741,7 +738,7 @@ impl Provider<'_> {
     }
 
     /// Classify a candidate version into its [`StandardTier`] against
-    /// the consumer standards (preference-mode.md section 1).
+    /// the consumer standards.
     fn tier(&self, entry: &IndexEntry, version: &Version) -> StandardTier {
         entry
             .versions
@@ -781,7 +778,7 @@ impl Provider<'_> {
 }
 
 /// Classify a candidate version's declared standards into its
-/// [`StandardTier`] against `consumer` (preference-mode.md section 1).
+/// [`StandardTier`] against `consumer`.
 /// The advertised requirement is the version-wide join (the transitive
 /// fallback); "declared" means it constrains a language the consumer
 /// actually compiles.  `!edge_compatible` is exactly the

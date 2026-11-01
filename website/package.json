@@ -23,9 +23,6 @@
         "@github/combobox-nav": "^3.0.2",
         "@lucide/astro": "^1.61.0",
         "fuse.js": "^7.5.0",
-        "katex": "^0.19.1",
-        "rehype-katex": "^7.0.1",
-        "remark-math": "^6.0.0",
         "semver": "^7.8.5",
         "smol-toml": "^1.9.1"
     },

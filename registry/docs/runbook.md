@@ -95,8 +95,7 @@ and the login-session mint additionally sit behind the Worker's own
 admission control: the `OIDC_LIMITER` ratelimit binding in
 `wrangler.jsonc` admits all three per client IP, and `JWKS_LIMITER`
 bounds the two OIDC endpoints' JWKS refetches; both are required by
-`cargo check-deploy` and fail closed when missing
-(`docs/architecture.md`, "Two credential planes"). Losing
+`cargo check-deploy` and fail closed when missing. Losing
 or misconfiguring the WAF rule therefore degrades defense in depth but
 never re-opens the unmetered-JWKS-refetch exposure; the worker's `429`
 carries the registry's own `rate_limited` envelope with a
@@ -452,9 +451,8 @@ ones. Launch is a data and policy event, in order:
    private-alpha copy on `/login/denied` - see `website/`).
 4. Decide and apply the write-access policy: expand
    `ALLOWED_GITHUB_IDS` or open sign-up. Reads need no decision -
-   verified-package reads are public by recorded decision
-   (`docs/architecture.md`, "Origins and roles"), pre-launch and
-   post-launch alike.
+   verified-package reads are public (`docs/remote-registry.md`, "Read
+   routes"), pre-launch and post-launch alike.
 5. Restore the `registry-verify` cron (the `schedule` trigger in
    `.github/workflows/registry-verify.yml`, removed for the private
    alpha) and re-run the verification workflow once (see "Verification
@@ -477,8 +475,7 @@ existing example of the pattern.
 The scheduled handler (cron, every 15 minutes) evaluates usage against the
 budgets and persists the result to `meta.service_mode`
 (`normal` | `warn` | `writes_blocked` | `reads_blocked`) with a
-human-readable `meta.service_mode_reason` (`docs/architecture.md`,
-"Billing model: the governor and the breaker"; `reads_blocked` is unreachable
+human-readable `meta.service_mode_reason` (`reads_blocked` is unreachable
 until a read budget is configured - see "Read budgets and paid-plan
 activation" below). Inspect it:
 
@@ -528,7 +525,7 @@ act that arms the read-side breaker: the configured value becomes the
 budget, and exhausting it moves the mode to `reads_blocked`, where
 authenticated data-plane reads answer `503` (the session plane, the
 public stats, the admin plane, and the verifier's config/artifact
-fetches keep working - `docs/architecture.md`). Do not set it before
+fetches keep working). Do not set it before
 the activation procedure below.
 
 The storage budget counts primary (BLOBS) bytes only, but every blob is
@@ -561,8 +558,8 @@ alert.
 ## The cost governor
 
 The governor is the hard, request-time authority for every billable R2
-resource the Worker can initiate (`docs/architecture.md`, "The cost
-governor"): one named SQLite-backed Durable Object (binding `GOVERNOR`,
+resource the Worker can initiate (`src/governor.rs`): one named
+SQLite-backed Durable Object (binding `GOVERNOR`,
 class `Governor`, singleton `"governor"`) whose ledger admits or
 refuses each R2 call before it is made. The breaker above stays the
 approximate, analytics-driven service mode; the governor is exact and
@@ -868,8 +865,8 @@ time, and a rollback does not restore DO state.
 
 ## Read budgets and paid-plan activation
 
-The read-side breaker (`reads_blocked`; `docs/architecture.md`, "Billing
-model: the governor and the breaker") ships as dormant infrastructure: fully
+The read-side breaker (`reads_blocked`; see "Budget breaker and service
+mode" above) ships as dormant infrastructure: fully
 implemented and tested, unreachable until `BUDGET_R2_CLASS_B_MONTH` is
 set. Arming it is a policy decision tied to leaving the free plan, in
 this order:
@@ -932,8 +929,8 @@ own OIDC JWT (audience `cabinpkg.com`) with a 30-minute token, revoked
 best-effort at run end - while the verdict PATCH authenticates
 **only** a fresh JWT for the verdict audience
 (`cabinpkg.com/verifier`), pinned to this repository and workflow by
-the `VERIFIER_*` vars in `wrangler.jsonc` (`docs/architecture.md` in
-this directory, "Trust model"). No registry token - the exchanged
+the `VERIFIER_*` vars in `wrangler.jsonc` (`docs/remote-registry.md`,
+"Admin API (scope `verify`)"). No registry token - the exchanged
 verify token included - can deliver a verdict, and each JWT
 authenticates exactly one request (its `jti` is consumed on use).
 
@@ -961,7 +958,7 @@ designed, visible in the run log as
 
 **Abstained versions.** Before downloading anything, the run checks
 each would-be-new name against the package corpus
-(`docs/architecture.md`, "Name fidelity") and **abstains** on a
+(`docs/remote-registry.md`, "The verifier's checks") and **abstains** on a
 finding: no verdict is rendered, the version stays pending, and the
 log shows
 `<name>@<version>: abstain (<rules>); leaving it pending for operator review`
@@ -1024,7 +1021,8 @@ flow, and empty it after.
 
 The workflow carries no registry-token secret. Each run's listings
 credential is minted through the trusted-publishing exchange (the
-verifier arm, `docs/architecture.md` in this directory) and revoked at
+verifier arm, `docs/remote-registry.md`, "Exchanging an Actions OIDC
+token") and revoked at
 run end, so there is nothing to rotate, nothing a wipe invalidates,
 and nothing to re-provision: the baseline migration seeds the backing
 identity (`VERIFIER_BACKING_ACCOUNT_ID` in `wrangler.jsonc`).

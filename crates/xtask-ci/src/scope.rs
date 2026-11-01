@@ -92,7 +92,7 @@ mod tests {
     fn the_website_surface_includes_docs_and_ports() {
         for path in [
             "website/package.json",
-            "docs/architecture.md",
+            "docs/manifest.md",
             "ports/zlib/1.3.1/cabin.toml",
         ] {
             assert!(of(&[path]).website, "{path} should be a website change");

@@ -242,7 +242,7 @@ fn merge_flags(flags: &mut ResolvedProfileFlags, contrib: &SystemDependencyFlags
 
 /// Refuse a build-context package that declares a system dependency
 /// active on the build machine: build-context units get no pkg-config
-/// probe until providers are per context (stage 06).
+/// probe until providers are per context.
 pub(crate) fn reject_build_context_system_deps(
     graph: &PackageGraph,
     build_machine: &TargetPlatform,

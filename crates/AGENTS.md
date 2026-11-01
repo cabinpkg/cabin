@@ -1,10 +1,8 @@
 # AGENTS.md - Rust workspace crates
 
-These rules apply under `crates/`. Crate ownership and the per-crate "must
-not" rules are canonical in `../docs/architecture.md` ("Crate
-responsibilities and rules"); read that section for every crate you touch,
-and update the doc in the same change when a boundary moves. Cross-crate
-rules that are easy to violate:
+These rules apply under `crates/`. Read the crate-level `//!` documentation
+of every crate you touch, and keep its stated responsibility and boundaries
+current when one moves. Cross-crate rules that are easy to violate:
 
 - New behavior lands in the owning crate behind a typed API, then threads
   through the CLI. Keep public APIs small: raw serde structs stay private to

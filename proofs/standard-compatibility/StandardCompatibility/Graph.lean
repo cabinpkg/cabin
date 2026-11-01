@@ -1,12 +1,11 @@
 /-
-The dependency-graph layer: R_L as a fold over a finite DAG (spec D10),
+The dependency-graph layer: R_L as a fold over a finite DAG (D10),
 its well-definedness (T1), growth (T2, C1, C2), and the generic form of
 conditional semantic soundness (T4).
 
-The spec's "finite DAG" hypothesis enters as well-foundedness of the
+The "finite DAG" hypothesis enters as well-foundedness of the
 public-dependency relation `DepRel deps` (on a finite acyclic graph the
-relation is well-founded; well-foundedness is exactly what the spec's
-longest-path height function provides).  `deps t` lists the public
+relation is well-founded).  `deps t` lists the public
 dependencies of `t`, so finite branching is structural.
 -/
 
@@ -72,13 +71,12 @@ section Graph
 variable {T : Type} {R : Type}
 variable (S : JSL R) (deps : T → List T) (wf : WellFounded (DepRel deps)) (reqOf : T → R)
 
-/-- Spec D10: the effective requirement, defined as a fold over the finite
-DAG of public dependencies.  Termination is the well-foundedness hypothesis
-(spec T1's height argument). -/
+/-- D10: the effective requirement, defined as a fold over the finite
+DAG of public dependencies.  Termination is the well-foundedness hypothesis. -/
 def Rfun : T → R :=
   wf.fix fun t rec => S.join (reqOf t) (joinListMem S (deps t) fun d hd => rec d hd)
 
-/-- Spec T1 (existence): `Rfun` satisfies the defining recursion of D10. -/
+/-- T1 (existence): `Rfun` satisfies the defining recursion of D10. -/
 theorem T1_exists (t : T) :
     Rfun S deps wf reqOf t
       = S.join (reqOf t) (S.joinList ((deps t).map (Rfun S deps wf reqOf))) := by
@@ -87,7 +85,7 @@ theorem T1_exists (t : T) :
   exact congrArg _ (joinListMem_eq S (deps t) _)
 
 include wf in
-/-- Spec T1 (uniqueness): any two solutions of the D10 recursion agree. -/
+/-- T1 (uniqueness): any two solutions of the D10 recursion agree. -/
 theorem T1_unique (f g : T → R)
     (hf : ∀ t, f t = S.join (reqOf t) (S.joinList ((deps t).map f)))
     (hg : ∀ t, g t = S.join (reqOf t) (S.joinList ((deps t).map g))) : f = g := by
@@ -95,7 +93,7 @@ theorem T1_unique (f g : T → R)
   refine wf.induction (C := fun x => f x = g x) t fun x ih => ?_
   rw [hf x, hg x, mapCongrMem fun d hd => ih d hd]
 
-/-- Spec D5: the public reachability list (`PubReach` as a list; membership
+/-- D5: the public reachability list (`PubReach` as a list; membership
 is reachability, duplicates are irrelevant by `joinList_congr_mem`). -/
 def reachList : T → List T :=
   wf.fix fun t rec => t :: flatMapMem (deps t) fun d hd => rec d hd
@@ -110,7 +108,7 @@ theorem mem_reachList_self (t : T) : t ∈ reachList deps wf t := by
   rw [reachList_eq]
   exact List.mem_cons_self ..
 
-/-- Spec T1 (closed form): `R_L(t)` is the join of `ReqOf` over the public
+/-- T1 (closed form): `R_L(t)` is the join of `ReqOf` over the public
 reachability set.  Duplicate visits along diamond paths are harmless by
 idempotence (`joinList_congr_mem`); this equation holds for the raw
 duplicate-carrying enumeration already. -/
@@ -124,7 +122,7 @@ theorem T1_closed_form (t : T) :
   rw [joinList_map_flatMap]
   exact congrArg S.joinList (mapCongrMem fun d hd => ih d hd)
 
-/-- Spec T1 (order-independence, list form): the closed-form join is
+/-- T1 (order-independence, list form): the closed-form join is
 invariant under any re-enumeration of the reachability set - hence any
 topological computation order yields the same `R_L`. -/
 theorem T1_order_independence (t : T) {l : List T}
@@ -159,7 +157,7 @@ theorem wf_of_sub {deps deps' : T → List T} (hdeps : ∀ t, ∀ d ∈ deps t, 
     (wf' : WellFounded (DepRel deps')) : WellFounded (DepRel deps) :=
   Subrelation.wf (fun {d t} h => hdeps t d h) wf'
 
-/-- Spec T2 (growth): more public edges and pointwise-larger `ReqOf` can
+/-- T2 (growth): more public edges and pointwise-larger `ReqOf` can
 only raise the effective requirement. -/
 theorem T2_growth (deps deps' : T → List T)
     (wf : WellFounded (DepRel deps)) (wf' : WellFounded (DepRel deps'))
@@ -178,8 +176,8 @@ theorem T2_growth (deps deps' : T → List T)
   exact S.le_trans (ih d (hdeps x d hd))
     (S.le_joinList (List.mem_map.mpr ⟨d, hdeps x d hd, rfl⟩))
 
-/-- Spec T2 (growth) against any join-compatible preorder: the form
-that instantiates to the spec's **denotational** strictness order
+/-- T2 (growth) against any join-compatible preorder: the form
+that instantiates to the **denotational** strictness order of D3
 (`T2_growth_denotational_*` in Spec.lean), whose pointwise hypothesis
 is weaker than the structural one of `T2_growth`. -/
 theorem T2_growth_of {le' : R → R → Prop} (H : JoinLub S le')
@@ -200,14 +198,14 @@ theorem T2_growth_of {le' : R → R → Prop} (H : JoinLub S le')
   exact H.trans (ih d (hdeps x d hd))
     (H.le_joinList (List.mem_map.mpr ⟨d, hdeps x d hd, rfl⟩))
 
-/-- Spec C1: adding a public dependency edge never lowers `R_L`. -/
+/-- C1: adding a public dependency edge never lowers `R_L`. -/
 theorem C1_add_edge (deps deps' : T → List T)
     (wf : WellFounded (DepRel deps)) (wf' : WellFounded (DepRel deps'))
     (reqOf : T → R) (hdeps : ∀ t, ∀ d ∈ deps t, d ∈ deps' t) (t : T) :
     S.le (Rfun S deps wf reqOf t) (Rfun S deps' wf' reqOf t) :=
   T2_growth S deps deps' wf wf' reqOf reqOf hdeps (fun u => S.le_refl (reqOf u)) t
 
-/-- Spec C2: adding a declaration where nothing was imposed (`ReqOf` was the
+/-- C2: adding a declaration where nothing was imposed (`ReqOf` was the
 bottom element, unconstrained) never lowers `R_L`. -/
 theorem C2_declare (deps : T → List T) (wf : WellFounded (DepRel deps))
     (reqOf reqOf' : T → R) (u : T)
@@ -221,7 +219,7 @@ theorem C2_declare (deps : T → List T) (wf : WellFounded (DepRel deps))
   · rw [hother x hx]
     exact S.le_refl _
 
-/-- Spec T4, generic form: for any antitone satisfaction predicate `P`
+/-- T4, generic form: for any antitone satisfaction predicate `P`
 (instantiated with `satisfies` at the consumer's level via L5) and any
 "compiles" obligation discharged by Assumption A on every publicly
 reachable target, edge compatibility (`P` holds of `R_L(d)`) implies the

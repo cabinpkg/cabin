@@ -32,7 +32,6 @@ export const DOCS_NAV: DocsNavSection[] = [
                 slug: "cargo-inspired-interface",
             },
             { label: "Creating a new package", slug: "new-and-init" },
-            { label: "Architecture", slug: "architecture" },
         ],
     },
     {
@@ -96,47 +95,12 @@ export const DOCS_NAV: DocsNavSection[] = [
                 slug: "package-format",
             },
             { label: "Local JSON package index", slug: "package-index" },
-            { label: "Registry design", slug: "registry-design" },
+            { label: "Registry interface", slug: "registry-design" },
             {
                 label: "Remote registry protocol",
                 slug: "remote-registry",
             },
             { label: "CLI distribution artifacts", slug: "distribution" },
-        ],
-    },
-    {
-        title: "Design",
-        items: [
-            {
-                label: "Standard compatibility specification",
-                slug: "design/standard-compatibility/spec",
-            },
-            {
-                label: "Standard compatibility registry index",
-                slug: "design/standard-compatibility/registry-index",
-            },
-            {
-                label: "Standard compatibility publish lints",
-                slug: "design/standard-compatibility/publish-lints",
-            },
-            {
-                label: "Standard compatibility preference mode",
-                slug: "design/standard-compatibility/preference-mode",
-            },
-            { label: "Boost foundation ports", slug: "design/boost-ports" },
-            {
-                label: "Capability roadmap contracts",
-                slug: "design/capability-roadmap/contracts",
-            },
-            {
-                label: "Capability roadmap ledger",
-                slug: "design/capability-roadmap/ledger",
-            },
-            {
-                label: "Performance observability",
-                slug: "design/performance-observability",
-            },
-            { label: "CI Rust caches", slug: "design/ci-rust-caches" },
         ],
     },
 ];

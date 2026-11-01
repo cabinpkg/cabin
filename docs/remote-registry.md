@@ -13,7 +13,7 @@
 > packaging revision (`<scope>-<name>-<version>-<revision>.zip`, so a downloaded archive stays
 > self-identifying outside the
 > directory tree), and publish/yank additionally require the token's user to be a member of the
-> target scope (see `registry/docs/architecture.md`, "Scopes").  Bare names exist only in
+> target scope (see `registry/README.md`, "Getting a token").  Bare names exist only in
 > local-only manifests and local file registries; `cabin publish` rejects them before any
 > connection.
 
@@ -61,7 +61,7 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `auth-required` | bool | `false` | When `true`, every request to this registry **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `false`: its verified reads are public (`registry/docs/architecture.md`, "Origins and roles"). |
+| `auth-required` | bool | `false` | When `true`, every request to this registry **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `false`: its verified reads are public (see [Read routes](#read-routes)). |
 | `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, and `cabin publish` and `cabin login` refuse plain `http` for a host other than loopback, as the sparse HTTP client does for the index URL.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) recognize the
@@ -283,8 +283,9 @@ artifact downloads - carries `Authorization: Bearer <token>`.  A stored token is
 two destinations: (a) the index origin it is stored under, and (b) the
 [`api`](#registry-configuration) origin declared by that index's authenticated `config.json`,
 where the mutation routes live - and nowhere else.  This mirrors Cargo, whose tokens go to the
-api host named in `config.json`.  Neither destination ever sees the token over plain `http`
-except loopback hosts (`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.
+api host named in `config.json`.  The client follows no redirects: a `3xx` response fails the
+request.  Neither destination ever sees the token over plain `http` except loopback hosts
+(`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.
 The [trusted-publishing](#publishing-from-github-actions) leg is the one variation: there the
 client discovers `api` from an *unauthenticated* `config.json` read (it has no token yet) and
 presents the run's OIDC token to that origin's exchange route to obtain one.
@@ -380,11 +381,11 @@ Server-side behavior is part of the contract:
   target-name keys, identities of ASCII letters, digits, `.`, `_`, `+`, and `-`, each identity
   claimed at most once), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
-  Two name-level rules join the same `400` family (`registry/docs/architecture.md`, "Name
-  fidelity"): a reserved package name (`package name is reserved` - the DOS device stems plus a
-  short project vocabulary), and, for a publish that would create a new package, a name that
-  collides with an existing same-scope package under `-`/`_` folding (`package name conflicts
-  with an existing package in this scope (differs only in '-' vs '_')`).
+  Two name-level rules join the same `400` family: a reserved package name
+  (`package name is reserved` - the DOS device stems plus a short project vocabulary), and, for a
+  publish that would create a new package, a name that collides with an existing same-scope
+  package under `-`/`_` folding (`package name conflicts with an existing package in this scope
+  (differs only in '-' vs '_')`).
   A version must be a plain upstream version: a `<version>` segment carrying SemVer build metadata
   is a `400` (`package version must not carry build metadata; packaging corrections are published
   as revisions of the same version`).
@@ -448,9 +449,9 @@ $ cabin resolve --manifest-path app/cabin.toml
 Client-side behavior:
 
 - The staging pipeline is the *same* one `cabin package` and the local
-  `cabin publish --registry-dir` run - same validation, same publish lints
-  ([`package-format.md`](package-format.md)), same deterministic archive and canonical per-version
-  metadata document.  The uploaded bytes are byte-identical to what `cabin package` writes into
+  `cabin publish --registry-dir` run - same validation, same
+  [publish checks](language-standards.md#publish-checks), same deterministic archive and canonical
+  per-version metadata document ([`package-format.md`](package-format.md)).  The uploaded bytes are byte-identical to what `cabin package` writes into
   `dist/` for the same source tree.
 - `config.json` (which supplies the [`api`](#registry-configuration) origin) and the lint baseline
   ride the read path with the publisher's token attached; the upload carries the same bearer token to the API origin,
@@ -539,7 +540,7 @@ Broken verification infrastructure can only keep content unexposed; it must neve
 unverified content.
 
 The verifier may also **abstain** - render no verdict at all, because an advisory name check
-wants an operator's eyes first (`registry/docs/architecture.md`, "Name fidelity").  Abstain is
+wants an operator's eyes first (see [name advisories](#the-verifiers-checks)).  Abstain is
 not a wire state: the version simply stays `pending`, and clients see exactly what they would
 see while awaiting any verdict.
 
@@ -730,8 +731,7 @@ scopes' packages, and a short unambiguous-profanity list matched as folded subst
 finding never rejects - the workflow **abstains** (no verdict; the version stays `pending`)
 and an operator reviews it, so a false positive costs a delay, never a rejection.  Once any
 version of a package is **verified**, later versions skip the advisories; a rejection never
-vets a name.  The rationale and
-rules live in `registry/docs/architecture.md`, "Name fidelity".
+vets a name.
 
 ### Server checks versus client extraction
 
@@ -955,7 +955,7 @@ a repeated `DELETE` idempotent - the same contract as the
 | `204` | A [trusted-publishing](#revoking-the-exchanged-token) or [session](#revoking-a-session-token) revocation that deleted the presented token. |
 | `400` | Malformed request: bad framing, an oversized body or metadata frame, invalid metadata, a version carrying build metadata, an invalid JSON body, or a `new-revision` query value other than `true`. |
 | `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there) - and every [trusted-publishing](#trusted-publishing) exchange, [login-session](#login-sessions) mint, or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge). |
-| `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
+| `403` | Valid token, but the scope the route requires is missing; on publish and yank, the token's user is not a member of the route's `<scope>` (or the token is confined to a different scope), answered with one byte-identical refusal whether or not the scope exists and before the request body or the version is consulted; or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; a revival that lost a race or whose timestamp is not later than the rejected revision's; or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |

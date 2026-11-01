@@ -123,25 +123,6 @@ the bytes, checks them against the revision's `sha256:<hex>` value, stores
 the archive under the content-addressed cache path, and extracts it with
 the same path-traversal protections used for local archives.
 
-## Transport And Format Boundaries
-
-The package index document shape is shared by the local filesystem and
-sparse HTTP read paths.  Transport-specific code lives outside the
-domain model:
-
-- `cabin-index` parses package index documents from local files;
-- `cabin-registry-file` owns the local mutable file-registry layout;
-- `cabin-index-http` performs read-only HTTP fetches and hands the
-  retrieved JSON to the same typed index model;
-- `cabin-registry-api` owns the authenticated mutation routes
-  (publish / yank, behind `-Z remote-registry`);
-- `cabin-artifact` verifies, caches, and extracts source archives
-  without knowing whether bytes came from a file or HTTP.
-
-The separation is intentional: adding a new local or static read
-transport should not require changing package metadata, the lockfile,
-or the build planner.
-
 ## Remote Registry Client
 
 Cabin's client for authenticated remote registries has stable reads;

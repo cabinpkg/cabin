@@ -10,12 +10,10 @@ tolerated.
 
 Zip is the format because the registry stores archives as opaque,
 content-addressed bytes and the source-code viewer needs **random
-access** into them (the browser range-reads the container;
-[`architecture.md`](architecture.md), "The source viewer's ranged
-reads"); a tar.gz would force either a server-side repack or a
-second derived artifact, both infeasible against the Workers CPU and R2
-budgets (see [`architecture.md`](architecture.md), "Why a strict zip
-profile"). The index document keeps its declared `source.format` as `"zip"`
+access** into them (the browser range-reads the container); a tar.gz
+would force either a server-side repack or a second derived artifact,
+both infeasible against the Workers CPU and R2 budgets. The index
+document keeps its declared `source.format` as `"zip"`
 ([`../../docs/package-index.md`](../../docs/package-index.md)).
 
 The profile makes container inspection cheap: the end-of-central-directory

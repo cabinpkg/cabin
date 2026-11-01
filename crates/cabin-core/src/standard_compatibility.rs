@@ -1,19 +1,20 @@
 //! Resolver-level standard-compatibility core.
 //!
-//! One-to-one implementation of the normative specification in
-//! `docs/design/standard-compatibility/spec.md`; public items cite
-//! the definition (D1, D2, ...) or lemma (L1, ...) they implement,
+//! D/L/T/C identifiers in comments here and in the crates built on
+//! this module name the definitions, lemmas, and theorems of the
+//! Lean model in `proofs/standard-compatibility`; public items cite
+//! the definition (D2, D3, ...) or lemma (L1, ...) they implement,
 //! and the tests cite the lemma they verify.  Pure data
 //! and logic only: no I/O, no logging, no globals.
 //!
-//! The requirement domain is the interval domain of spec D3/D4:
+//! The requirement domain is the interval domain of D3/D4:
 //! joins intersect accepted ranges, an empty intersection is
 //! `forbidden`, and the strictness order is not total - no
 //! code here or downstream may assume two requirements are
 //! comparable, or that one source alone determines a composed
 //! value (a range's bounds may come from different targets).
 //!
-//! The effective-requirement recursion `R_L` (spec D10/T1 -
+//! The effective-requirement recursion `R_L` (D10/T1 -
 //! transitive composition over the dependency graph) is deliberately
 //! not implemented here: it is a graph algorithm, and graph
 //! algorithms live in `cabin-workspace` (`cabin_workspace::standards`
@@ -22,12 +23,12 @@
 //! with [`Requirement::join`] along public edges and hand the result
 //! to [`edge_compatible`] as [`EffectiveRequirements`].
 //!
-//! Invariant I1 (spec D8): `gnu-extensions` never participates in
-//! compatibility.  Nothing in this module takes it as an input, and
-//! future changes must keep it that way.
+//! `gnu-extensions` never participates in compatibility.  Nothing in
+//! this module takes it as an input, and future changes must keep it
+//! that way.
 //!
-//! The languages themselves (spec D1) and their level chains (spec
-//! D2) are the existing [`crate::SourceLanguage`], [`CStandard`],
+//! The languages themselves and their level chains (D2) are the
+//! existing [`crate::SourceLanguage`], [`CStandard`],
 //! and [`CxxStandard`] types; the two languages appear here as the
 //! paired `c` / `cxx` fields of the structs below.
 
@@ -37,7 +38,7 @@ use crate::language_standard::{
 };
 use crate::{SourceLanguage, Target, classify_source};
 
-/// Spec D3: the per-language requirement domain `Req_L` - the
+/// D3: the per-language requirement domain `Req_L` - the
 /// interval domain over the level chain.  Each value denotes the
 /// set of consumer levels it accepts: everything, an up-set
 /// `[min, ∞)`, an inclusive interval `[min, max]`, or nothing.
@@ -51,19 +52,19 @@ use crate::{SourceLanguage, Target, classify_source};
 /// diagnostics report exactly the declared bounds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Requirement<S> {
-    /// Spec D3: imposes nothing on consumers.
+    /// D3: imposes nothing on consumers.
     Unconstrained,
-    /// Spec D3: `[m, ∞)` - requires a consumer level of at least
+    /// D3: `[m, ∞)` - requires a consumer level of at least
     /// the carried minimum, unbounded above.
     Min(S),
-    /// Spec D3: `[min, max]` - requires a consumer level inside the
+    /// D3: `[min, max]` - requires a consumer level inside the
     /// inclusive range.  The payload is a validated
     /// [`BoundedRange`], so an inverted range is unrepresentable
     /// even through this public variant; the join collapses an
     /// empty intersection to [`Self::Forbidden`] instead of
     /// building one.
     Bounded(BoundedRange<S>),
-    /// Spec D3: unsatisfiable.
+    /// D3: unsatisfiable.
     Forbidden,
 }
 
@@ -97,7 +98,7 @@ impl<S: Copy + Ord> BoundedRange<S> {
 }
 
 impl<S: Copy + Ord> Requirement<S> {
-    /// The declared-requirement embedding (spec D9 row 2): a
+    /// The declared-requirement embedding (D9 row 2): a
     /// minimum-only declaration is `[m, ∞)`, a bounded one the
     /// inclusive interval.
     #[must_use]
@@ -138,9 +139,9 @@ impl<S: Copy + Ord> Requirement<S> {
         }
     }
 
-    /// Spec D4: the join `r1 ⊔ r2` is the **intersection** of the
+    /// D4: the join `r1 ⊔ r2` is the **intersection** of the
     /// denoted sets - the least upper bound in the strictness order
-    /// (spec L2).  An empty intersection is [`Self::Forbidden`]:
+    /// (L2).  An empty intersection is [`Self::Forbidden`]:
     /// composing two requirements no consumer level satisfies
     /// simultaneously forbids the edge outright.
     #[must_use]
@@ -178,7 +179,7 @@ impl<S: Copy + Ord> Requirement<S> {
         }
     }
 
-    /// Spec D4: the set join `⨆ S` over a finite (multi)set, with
+    /// D4: the set join `⨆ S` over a finite (multi)set, with
     /// `⨆ ∅ = unconstrained`.
     #[must_use]
     pub fn join_all(requirements: impl IntoIterator<Item = Self>) -> Self {
@@ -187,7 +188,7 @@ impl<S: Copy + Ord> Requirement<S> {
             .fold(Self::Unconstrained, Self::join)
     }
 
-    /// Spec D11: `satisfies(c, L, r)` for a consumer whose effective
+    /// D11: `satisfies(c, L, r)` for a consumer whose effective
     /// compile level in `L` is `level` - membership in the denoted
     /// set.
     #[must_use]
@@ -200,9 +201,9 @@ impl<S: Copy + Ord> Requirement<S> {
         }
     }
 
-    /// Spec D12: the satisfaction set `Sat_L(r)`, as the sub-slice
+    /// D12: the satisfaction set `Sat_L(r)`, as the sub-slice
     /// of `levels` a consumer may compile at.  `levels` must be the
-    /// full chain `Level_L` of spec D2 ([`CStandard::ALL`] /
+    /// full chain `Level_L` of D2 ([`CStandard::ALL`] /
     /// [`CxxStandard::ALL`]).
     #[must_use]
     pub fn sat(self, levels: &[S]) -> Vec<S> {
@@ -227,7 +228,7 @@ impl<S: crate::language_standard::StandardLevel> std::fmt::Display for Requireme
     }
 }
 
-/// Spec D6: `kind(t)` - whether a dependency target has translation
+/// D6: `kind(t)` - whether a dependency target has translation
 /// units of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DependencyKind {
@@ -238,30 +239,30 @@ pub enum DependencyKind {
     HeaderOnly,
 }
 
-/// Spec D6: the resolved attributes of a dependency target, as
+/// D6: the resolved attributes of a dependency target, as
 /// produced by the manifest layer (precedence and inheritance
 /// already applied).  Per D6's population contract, `impl_*` is
 /// `Some` exactly when the target itself implements the language - a
 /// package-level implementation default alone never populates it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DependencyAttributes {
-    /// Spec D6: `kind(t)`.
+    /// D6: `kind(t)`.
     pub kind: DependencyKind,
-    /// Spec D6: `impl_C(t)`; `None` is `⊥` (the target does not
+    /// D6: `impl_C(t)`; `None` is `⊥` (the target does not
     /// implement C).
     pub impl_c: Option<CStandard>,
-    /// Spec D6: `impl_C++(t)`; `None` is `⊥`.
+    /// D6: `impl_C++(t)`; `None` is `⊥`.
     pub impl_cxx: Option<CxxStandard>,
-    /// Spec D6: `decl_C(t)`; `None` is `⊥` (no explicit interface
+    /// D6: `decl_C(t)`; `None` is `⊥` (no explicit interface
     /// declaration), `Some(InterfaceRequirement::None)` the declared
     /// `"none"`, and `Some(InterfaceRequirement::Requirement(..))` a
     /// declared minimum.
     pub decl_c: Option<InterfaceRequirement<CStandard>>,
-    /// Spec D6: `decl_C++(t)`.
+    /// D6: `decl_C++(t)`.
     pub decl_cxx: Option<InterfaceRequirement<CxxStandard>>,
 }
 
-/// Spec D9: which row of the declaration-to-requirement table
+/// D9: which row of the declaration-to-requirement table
 /// produced a `ReqOf` value.  Provenance-tracking callers (the
 /// effective-requirement composition of D10) record this alongside
 /// the requirement so a diagnostic can say *why* a target imposes
@@ -284,7 +285,7 @@ pub enum ReqOfSource {
     CrossLanguageDefault,
 }
 
-/// Spec D9: `ReqOf(d, C)`.  Shares rows 1-4 with the C++ side and
+/// D9: `ReqOf(d, C)`.  Shares rows 1-4 with the C++ side and
 /// lands on row 6 - the strict C++-to-C default `forbidden` - when
 /// the target neither declares a C interface nor implements C.
 #[must_use]
@@ -292,7 +293,7 @@ pub fn req_of_c(dependency: &DependencyAttributes) -> Requirement<CStandard> {
     req_of_c_with_source(dependency).0
 }
 
-/// Spec D9: `ReqOf(d, C)` together with the row that produced it.
+/// D9: `ReqOf(d, C)` together with the row that produced it.
 #[must_use]
 pub fn req_of_c_with_source(
     dependency: &DependencyAttributes,
@@ -305,7 +306,7 @@ pub fn req_of_c_with_source(
     )
 }
 
-/// Spec D9: `ReqOf(d, C++)`.  Shares rows 1-4 with the C side and
+/// D9: `ReqOf(d, C++)`.  Shares rows 1-4 with the C side and
 /// lands on row 5 - the permissive C-to-C++ default `unconstrained` -
 /// when the target neither declares a C++ interface nor implements
 /// C++.
@@ -314,7 +315,7 @@ pub fn req_of_cxx(dependency: &DependencyAttributes) -> Requirement<CxxStandard>
     req_of_cxx_with_source(dependency).0
 }
 
-/// Spec D9: `ReqOf(d, C++)` together with the row that produced it.
+/// D9: `ReqOf(d, C++)` together with the row that produced it.
 #[must_use]
 pub fn req_of_cxx_with_source(
     dependency: &DependencyAttributes,
@@ -327,7 +328,7 @@ pub fn req_of_cxx_with_source(
     )
 }
 
-/// Spec D9 rows 1-4, shared by both languages; `absent_default` is
+/// D9 rows 1-4, shared by both languages; `absent_default` is
 /// the language-specific row 5/6 outcome for `decl = ⊥`, `impl = ⊥`.
 fn req_of<S: Copy + Ord>(
     kind: DependencyKind,
@@ -363,7 +364,7 @@ fn req_of<S: Copy + Ord>(
     }
 }
 
-/// Spec D6 attribute mapping for one target, from resolved manifest
+/// D6 attribute mapping for one target, from resolved manifest
 /// attributes (target-over-package precedence and workspace
 /// inheritance already applied).
 ///
@@ -439,16 +440,16 @@ pub fn dependency_attributes(
     }
 }
 
-/// Spec D7: a consumer's compiled languages and effective compile
+/// D7: a consumer's compiled languages and effective compile
 /// levels.  `langs(c)` is the set of `Some` fields and `lvl(c, L)`
 /// the carried level, so `lvl` is total on `langs(c)` by
 /// construction.  A header-only consumer compiles no language: both
 /// fields `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsumerStandards {
-    /// Spec D7: `lvl(c, C)` when `C ∈ langs(c)`.
+    /// D7: `lvl(c, C)` when `C ∈ langs(c)`.
     pub c: Option<CStandard>,
-    /// Spec D7: `lvl(c, C++)` when `C++ ∈ langs(c)`.
+    /// D7: `lvl(c, C++)` when `C++ ∈ langs(c)`.
     pub cxx: Option<CxxStandard>,
 }
 
@@ -458,7 +459,7 @@ pub struct ConsumerStandards {
 /// `resolver.incompatible-rust-versions` (`allow` / `fallback`), and
 /// the semantics mirror it: standards are a *version-selection
 /// preference*, never a hard constraint on solvability.  See
-/// `docs/design/standard-compatibility/preference-mode.md`.
+/// "Version selection" in `docs/language-standards.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum IncompatibleStandards {
     /// Standards have no influence on version selection - selection is
@@ -529,18 +530,18 @@ impl std::fmt::Display for UnknownIncompatibleStandards {
 
 impl std::error::Error for UnknownIncompatibleStandards {}
 
-/// Spec D10: a dependency target's effective requirement `R_L(d)`
+/// D10: a dependency target's effective requirement `R_L(d)`
 /// for each language, already composed by the caller (the `R_L`
 /// recursion itself is outside this module; see the module docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EffectiveRequirements {
-    /// Spec D10: `R_C(d)`.
+    /// D10: `R_C(d)`.
     pub c: Requirement<CStandard>,
-    /// Spec D10: `R_C++(d)`.
+    /// D10: `R_C++(d)`.
     pub cxx: Requirement<CxxStandard>,
 }
 
-/// Spec D13: edge compatibility - the conjunction, over every
+/// D13: edge compatibility - the conjunction, over every
 /// language the consumer compiles, of `satisfies(c, L, R_L(d))`.
 /// Languages the consumer does not compile impose nothing, so a
 /// header-only consumer (empty `langs(c)`) is compatible vacuously;
@@ -556,8 +557,8 @@ pub fn edge_compatible(consumer: ConsumerStandards, dependency: EffectiveRequire
             .is_none_or(|level| dependency.cxx.satisfied_by(level))
 }
 
-/// Spec D14: package-version viability - the conjunction of edge
-/// compatibility (spec D13) over every dependency edge resolving to
+/// D14: package-version viability - the conjunction of edge
+/// compatibility (D13) over every dependency edge resolving to
 /// the candidate version.  One incompatible edge excludes the
 /// version.
 #[must_use]
@@ -576,7 +577,7 @@ mod tests {
 
     const KINDS: [DependencyKind; 2] = [DependencyKind::Compiled, DependencyKind::HeaderOnly];
 
-    /// Every element of `Req_L` (spec D3) for the given `Level_L`:
+    /// Every element of `Req_L` (D3) for the given `Level_L`:
     /// unconstrained, every minimum, every valid inclusive range,
     /// and forbidden.
     fn all_requirements<S: Copy + Ord>(levels: &[S]) -> Vec<Requirement<S>> {
@@ -596,7 +597,7 @@ mod tests {
         requirement.sat(levels)
     }
 
-    /// Spec D3's strictness order: reverse inclusion of the denoted
+    /// D3's strictness order: reverse inclusion of the denoted
     /// sets.  `spec_le(r, s)` means `r ⊑ s` - `s` is at least as
     /// strict, i.e. `Sat(s) ⊆ Sat(r)`.
     fn spec_le<S: Copy + Ord>(r: Requirement<S>, s: Requirement<S>, levels: &[S]) -> bool {
@@ -612,7 +613,7 @@ mod tests {
         InterfaceRequirement::Requirement(StandardRequirement::bounded(min, Some(max)).unwrap())
     }
 
-    /// `⊥` plus every level: the domain of `impl_L(t)` (spec D6).
+    /// `⊥` plus every level: the domain of `impl_L(t)` (D6).
     fn optional_levels<S: Copy>(levels: &[S]) -> Vec<Option<S>> {
         let mut options = vec![None];
         options.extend(levels.iter().copied().map(Some));
@@ -794,7 +795,7 @@ mod tests {
 
     /// Satisfaction sets are convex, and upward closure fails
     /// exactly for bounded shapes capped below the top of the chain
-    /// (spec L6), so remedies must not unconditionally say "raise
+    /// (L6), so remedies must not unconditionally say "raise
     /// your standard".
     #[test]
     fn satisfaction_is_convex_and_upward_closure_fails_only_below_the_top() {
@@ -1159,10 +1160,10 @@ mod tests {
         assert!(err.to_string().contains("allow, fallback"));
     }
 
-    /// Appendix reference table: `satisfies` over all of `CxxLevel`
+    /// Reference table: `satisfies` over all of `CxxLevel`
     /// for the four requirements the worked examples use.
     #[test]
-    fn appendix_reference_table_satisfies_over_cxx_levels() {
+    fn reference_table_satisfies_over_cxx_levels() {
         let table: [(Requirement<CxxStandard>, [bool; 7]); 4] = [
             (Requirement::Unconstrained, [true; 7]),
             (
@@ -1186,10 +1187,10 @@ mod tests {
         }
     }
 
-    /// Appendix example 1: a compiled C++23 implementation with a
+    /// Worked example 1: a compiled C++23 implementation with a
     /// declared `c++17` interface, consumed from `c++17`.
     #[test]
-    fn appendix_example_1_declared_interface_on_compiled_target() {
+    fn worked_example_1_declared_interface_on_compiled_target() {
         let z = DependencyAttributes {
             kind: DependencyKind::Compiled,
             impl_c: None,
@@ -1227,11 +1228,11 @@ mod tests {
         assert!(version_viable([(x, z_requirements)]));
     }
 
-    /// Appendix example 2: the diamond - consumers at c++17 and
+    /// Worked example 2: the diamond - consumers at c++17 and
     /// c++23 sharing one dependency version; the incompatible edge
     /// poisons the version for the whole graph.
     #[test]
-    fn appendix_example_2_diamond_shared_version() {
+    fn worked_example_2_diamond_shared_version() {
         let z = cxx_attrs(
             DependencyKind::Compiled,
             Some(interface_min(CxxStandard::Cxx20)),
@@ -1256,11 +1257,11 @@ mod tests {
         assert!(!version_viable([(y, z_requirements), (x, z_requirements)]));
     }
 
-    /// Appendix example 3: `"none"` on a transitive public
+    /// Worked example 3: `"none"` on a transitive public
     /// dependency poisons the root; a private edge would not
     /// propagate.
     #[test]
-    fn appendix_example_3_none_poisons_the_public_chain() {
+    fn worked_example_3_none_poisons_the_public_chain() {
         let b = cxx_attrs(
             DependencyKind::Compiled,
             Some(InterfaceRequirement::None),
@@ -1293,10 +1294,10 @@ mod tests {
         assert!(edge_compatible(root, a_private));
     }
 
-    /// Appendix example 4: a mixed-language consumer must satisfy
+    /// Worked example 4: a mixed-language consumer must satisfy
     /// every language it compiles; one failed conjunct suffices.
     #[test]
-    fn appendix_example_4_mixed_language_consumer() {
+    fn worked_example_4_mixed_language_consumer() {
         let w = DependencyAttributes {
             kind: DependencyKind::Compiled,
             impl_c: Some(CStandard::C17),
@@ -1349,10 +1350,10 @@ mod tests {
         }
     }
 
-    /// Appendix example 5: header-only inference, then the explicit
+    /// Worked example 5: header-only inference, then the explicit
     /// declaration relaxing the requirement down the chain.
     #[test]
-    fn appendix_example_5_header_only_inference_then_relaxation() {
+    fn worked_example_5_header_only_inference_then_relaxation() {
         let h = cxx_attrs(DependencyKind::HeaderOnly, None, Some(CxxStandard::Cxx20));
         // D9 row 3: the headers are the implementation.
         assert_eq!(req_of_cxx(&h), Requirement::Min(CxxStandard::Cxx20));

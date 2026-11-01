@@ -8,8 +8,8 @@
 //! guards in `xtask-registry-guard` - those read committed sources,
 //! take no credentials and mutate nothing.
 //!
-//! The disclosure rule the commands keep (`docs/architecture.md`,
-//! "`xtask-registry-admin`") is written for an operator reading their
+//! The disclosure rule the commands keep (`registry/docs/runbook.md`,
+//! "Logs") is written for an operator reading their
 //! own terminal, and [`verify`] and [`confirm_deploy`] are the commands
 //! whose audience is neither an operator nor a private one: they run
 //! unattended and their output is a public CI log.  `verify` prints

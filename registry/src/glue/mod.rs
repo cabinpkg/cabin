@@ -74,11 +74,11 @@ pub async fn fetch(mut req: Request, env: Env, ctx: Context) -> worker::Result<R
     Ok(response)
 }
 
-/// Routes one request by hostname role (`docs/architecture.md`, "Origins
-/// and roles"): the registry custom domain serves only the machine read
-/// plane; the website origin serves the OAuth, session, and Bearer
-/// mutation planes. Returns the response plus the authenticated token row
-/// id for logging.
+/// Routes one request by hostname role (`docs/remote-registry.md`, "One
+/// role per hostname"): the registry custom domain serves only the
+/// machine read plane; the website origin serves the OAuth, session, and
+/// Bearer mutation planes. Returns the response plus the authenticated
+/// token row id for logging.
 async fn handle(
     req: &mut Request,
     env: &Env,
@@ -308,8 +308,7 @@ async fn service_mode(env: &Env, db: &D1Database) -> worker::Result<breaker::Mod
     Ok(mode)
 }
 
-/// `Some(503)` when the budget breaker has writes blocked
-/// (`docs/architecture.md`, "Billing model: the governor and the breaker").
+/// `Some(503)` when the budget breaker has writes blocked.
 /// `>=`, not `==`: `reads_blocked` sits above `writes_blocked` on the
 /// ladder and blocks writes too.
 async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Response>> {
@@ -324,10 +323,9 @@ async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Respons
     Ok(None)
 }
 
-/// Renders a governor gate refusal for the Bearer plane
-/// (`docs/architecture.md`, "The cost governor"): the per-user fairness
-/// refusal is a `429` with its own code and a `Retry-After` reaching
-/// the next UTC day; every other refusal - pool exhausted, key
+/// Renders a governor gate refusal for the Bearer plane: the per-user
+/// fairness refusal is a `429` with its own code and a `Retry-After`
+/// reaching the next UTC day; every other refusal - pool exhausted, key
 /// conflict, or an unreachable governor - is the breaker's `503` +
 /// `registry_over_budget` envelope, with the detail picking the plane.
 fn governor_refusal_response(

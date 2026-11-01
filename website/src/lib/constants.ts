@@ -55,12 +55,12 @@ export const SIGNIN_RESTRICTION =
     "allowlisted maintainer accounts.";
 
 // Why the only sign-in option is GitHub: current policy, not
-// architecture - the registry's identity schema is provider-neutral
-// (registry/docs/architecture.md), but scope ownership today is proved
-// against GitHub, so the copy says "currently" and must not promise
-// GitHub forever or present it as a structural necessity. The claim
-// wording mirrors the usage policy's ("proving control of the GitHub
-// user or organization account with the same name").
+// architecture - the registry's identity schema is provider-neutral,
+// but scope ownership today is proved against GitHub, so the copy says
+// "currently" and must not promise GitHub forever or present it as a
+// structural necessity. The claim wording mirrors the usage policy's
+// ("proving control of the GitHub user or organization account with the
+// same name").
 export const SIGNIN_GITHUB_REASON =
     "Sign-in currently uses GitHub because Cabin package scopes map to " +
     "GitHub: a scope is claimed by proving control of the GitHub user " +

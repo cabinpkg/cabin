@@ -1,6 +1,6 @@
 //! The cost governor's accounting engine: hard, request-time admission
 //! control for every billable R2 resource Cabin can initiate
-//! (`docs/architecture.md`, "The cost governor").
+//! (`docs/runbook.md`, "The cost governor").
 //!
 //! The engine is pure Rust over a tiny [`Store`] abstraction so the same
 //! SQL and the same decision logic run against `rusqlite` in host tests

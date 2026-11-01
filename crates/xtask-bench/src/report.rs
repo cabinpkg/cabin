@@ -196,10 +196,9 @@ fn quantile(sorted: &[f64], q: f64) -> f64 {
 /// The metrics the comparison judges, each with the smallest change
 /// the policy counts as a regression or an improvement: relative, and
 /// absolute (seconds, bytes, instructions).  The floors sit past what
-/// the median moved in a quieter run of one binary against itself
-/// (`docs/design/performance-observability.md`): the wall time of
-/// scenarios under 30 ms, peak RSS, and instruction counts that do not
-/// depend on load.
+/// the median moved in a quieter run of one binary against itself:
+/// the wall time of scenarios under 30 ms, peak RSS, and instruction
+/// counts that do not depend on load.
 const METRICS: [(&str, f64, f64); 3] = [
     ("wall", 0.05, FLOOR_WALL_S),
     ("peak_rss", 0.05, FLOOR_RSS_BYTES),

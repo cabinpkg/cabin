@@ -1,7 +1,7 @@
 //! The canonical checksum spelling, mirrored from
 //! `cabin_core::checksum` because this worker is a standalone wasm
 //! workspace that must not pull the client data-model crate into its
-//! runtime tree (`docs/architecture.md`).  The parity test at the
+//! runtime tree.  The parity test at the
 //! bottom pins this mirror to the shared type the same way
 //! `src/names.rs` pins its device-stem list to `cabin-fs`, so the two
 //! grammars cannot drift silently.

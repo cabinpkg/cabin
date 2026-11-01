@@ -1,7 +1,7 @@
 /-
 Generic bounded join-semilattice layer.
 
-This is the algebra the graph development (Graph.lean) runs on: the spec's
+This is the algebra the graph development (Graph.lean) runs on:
 L2 says (Req_L, sqsubseteq, sqcup) is a bounded join-semilattice, and T1/T2
 are derived from exactly the associativity, commutativity, idempotence, and
 identity properties bundled here.  The
@@ -9,7 +9,7 @@ concrete instances for Req over CLevel / CxxLevel are built in Spec.lean by
 `decide`.
 
 Also here: `FinEnum`, a minimal finite-enumeration class that makes `decide`
-work for statements universally quantified over the finite spec domains.
+work for statements universally quantified over the finite domains.
 -/
 
 namespace StdCompat
@@ -27,7 +27,7 @@ instance {alpha : Type} [FinEnum alpha] (p : alpha → Prop) [DecidablePred p] :
   else
     .isFalse fun hall => h fun x _ => hall x
 
-/-- A bounded join-semilattice, presented equationally (spec L2): an
+/-- A bounded join-semilattice, presented equationally (L2): an
 associative, commutative, idempotent join with an identity element `bot`.
 The order is derived: `le a b := join a b = b`. -/
 structure JSL (R : Type) where
@@ -78,7 +78,7 @@ theorem join_le_join {a a' b b' : R} (ha : S.le a a') (hb : S.le b b') :
     S.le (S.join a b) (S.join a' b') :=
   S.join_le (S.le_trans ha (S.le_join_left a' b')) (S.le_trans hb (S.le_join_right a' b'))
 
-/-- Join of a list of elements (the spec's finite big-join, D4); the empty
+/-- Join of a list of elements (the finite big-join of D4); the empty
 join is `bot` (= unconstrained). -/
 def joinList : List R → R
   | [] => S.bot
@@ -116,13 +116,13 @@ theorem joinList_append : ∀ (l l' : List R),
   | nil => simp [S.bot_join]
   | cons a l ih => simp [ih, S.join_assoc]
 
-/-- Spec L7, first claim (with multisets read as lists): a list join is
+/-- L7, first claim (with multisets read as lists): a list join is
 monotone under membership inclusion. -/
 theorem L7_joinList_mono_subset {l l' : List R} (h : ∀ a ∈ l, a ∈ l') :
     S.le (S.joinList l) (S.joinList l') :=
   S.joinList_le fun a ha => S.le_joinList (h a ha)
 
-/-- Spec L7, second claim: a list join is monotone under pointwise `le`
+/-- L7, second claim: a list join is monotone under pointwise `le`
 (the two lists presented as a single list of pairs). -/
 theorem L7_joinList_mono_pointwise : ∀ (ps : List (R × R)),
     (∀ p ∈ ps, S.le p.1 p.2) →
@@ -135,7 +135,7 @@ theorem L7_joinList_mono_pointwise : ∀ (ps : List (R × R)),
     exact S.join_le_join (h p (List.mem_cons_self ..))
       (ih fun q hq => h q (List.mem_cons_of_mem p hq))
 
-/-- Spec T1 order-independence / L2 multiset independence: list joins depend
+/-- T1 order-independence / L2 multiset independence: list joins depend
 only on the set of members - any enumeration order and any multiplicity give
 the same result.  This is the confluence of computing R_L in an arbitrary
 topological order. -/
@@ -149,11 +149,11 @@ end JSL
 
 /-- A preorder for which a JSL's join is still a least upper bound.
 `JSL.le` itself qualifies (`JSL.joinLub`); so do the concrete
-requirement domains under the spec's **denotational** strictness
+requirement domains under the **denotational** strictness
 order, which is weaker than the structural order on shapes
 (`denotJoinLub_c` / `denotJoinLub_cxx` in Spec.lean).  The growth
 theorems are proved against this interface so they hold for the
-spec's `⊑`, not merely the structural order. -/
+denotational `⊑`, not merely the structural order. -/
 structure JoinLub {R : Type} (S : JSL R) (le' : R → R → Prop) : Prop where
   trans : ∀ {a b c : R}, le' a b → le' b c → le' a c
   bot_le : ∀ a : R, le' S.bot a
@@ -198,12 +198,12 @@ theorem join_le_join {a a' b b' : R} (ha : le' a a') (hb : le' b b') :
     le' (S.join a b) (S.join a' b') :=
   H.join_le (H.trans ha (H.le_join_left a' b')) (H.trans hb (H.le_join_right a' b'))
 
-/-- Spec L7, first claim, for any join-compatible preorder. -/
+/-- L7, first claim, for any join-compatible preorder. -/
 theorem L7_subset {l l' : List R} (h : ∀ a ∈ l, a ∈ l') :
     le' (S.joinList l) (S.joinList l') :=
   H.joinList_le fun a ha => H.le_joinList (h a ha)
 
-/-- Spec L7, second claim (pointwise), for any join-compatible
+/-- L7, second claim (pointwise), for any join-compatible
 preorder. -/
 theorem L7_pointwise : ∀ (ps : List (R × R)),
     (∀ p ∈ ps, le' p.1 p.2) →

@@ -1,9 +1,9 @@
-//! Download-telemetry batching policy (`docs/architecture.md`,
-//! "Download counts"): pure and host-testable. The wasm glue buffers
-//! per-version download counts in isolate memory and flushes them to D1
-//! in one batch when this policy says so. Telemetry is approximate by
-//! contract - an isolate that dies with a non-empty buffer loses those
-//! counts - and never part of the hard accounting ledger.
+//! Download-telemetry batching policy: pure and host-testable. The wasm
+//! glue buffers per-version download counts in isolate memory and
+//! flushes them to D1 in one batch when this policy says so. Telemetry
+//! is approximate by contract - an isolate that dies with a non-empty
+//! buffer loses those counts - and never part of the hard accounting
+//! ledger.
 
 /// Flush once this many distinct versions have pending counts, so one
 /// D1 batch stays small.
