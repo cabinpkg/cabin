@@ -596,7 +596,7 @@ pub(crate) fn prepare_workspace(
     }
     strict_packages.extend(activated_patches.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
-    let graph = cabin_workspace::load_workspace_with_options(
+    let mut graph = cabin_workspace::load_workspace_with_options(
         &manifest_path,
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &registry,
@@ -606,6 +606,7 @@ pub(crate) fn prepare_workspace(
             include_dev_for: &dev_for,
         },
     )?;
+    super::system_provided::apply_config_entries(&mut graph, &effective_config, &patched_names);
 
     // Resolve the workspace package selection up-front.  The planner
     // consumes the selected indices through `PlanRequest::selected_packages`

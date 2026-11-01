@@ -157,6 +157,37 @@ pub(crate) fn split_resolution(
     })
 }
 
+/// Put config files' `[system-provided]` entries in `graph`'s root
+/// policy, each replacing the root manifest's entry for its package, in
+/// the precedence `[patch]` uses.
+///
+/// An entry does not apply to a package the project builds from its own
+/// copy, one of `patched_names` or a local package of `graph`: a user
+/// config's entry applies to every project, the package's own checkout
+/// too.  A reload of the workspace takes the manifest's table afresh and
+/// may load local packages the earlier graph lacked, such as dev path
+/// dependencies, so call this on each graph whose policy is read.
+pub(crate) fn apply_config_entries(
+    graph: &mut PackageGraph,
+    config: &cabin_config::EffectiveConfig,
+    patched_names: &BTreeSet<String>,
+) {
+    for (name, provider) in &config.system_provided {
+        let local = patched_names.contains(name.as_str())
+            || graph
+                .packages
+                .iter()
+                .any(|pkg| pkg.kind == PackageKind::Local && pkg.package.name == *name);
+        if !local {
+            graph
+                .root_settings
+                .system_provided
+                .entries
+                .insert(name.clone(), provider.value.clone());
+        }
+    }
+}
+
 /// Refuse a package that is both `[patch]`ed and `[system-provided]`.
 pub(crate) fn reject_patched(
     settings: &SystemProvidedSettings,

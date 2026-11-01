@@ -771,6 +771,18 @@ pub(crate) fn config_view_json(
         })
         .collect();
 
+    let system_provided: serde_json::Map<String, serde_json::Value> = config
+        .system_provided
+        .iter()
+        .map(|(name, provider)| {
+            let view = serde_json::json!({
+                "provider": provider.value,
+                "value_source": config_value_source(provider.source).as_key(),
+            });
+            (name.as_str().to_owned(), view)
+        })
+        .collect();
+
     let sysroots: serde_json::Map<String, serde_json::Value> = config
         .sysroots
         .iter()
@@ -788,6 +800,7 @@ pub(crate) fn config_view_json(
         "toolchain": toolchain,
         "compiler_wrapper": compiler_wrapper,
         "runners": runners,
+        "system_provided": system_provided,
         "sysroots": sysroots,
     })
 }

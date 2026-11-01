@@ -192,7 +192,8 @@ Quiet mode (`cabin -q ...`): probe status output is suppressed.  Errors are not.
 
 `system = true` names a library that has no Cabin package.  To build a Cabin package against the
 system's copy of it instead, name the package in the workspace root manifest's `[system-provided]`
-table with the pkg-config module that supplies it:
+table, or in a [config file's](config.md#system-provided), with the pkg-config module that supplies
+it:
 
 ```toml
 [system-provided."cabin-ports/zlib"]
@@ -245,9 +246,9 @@ manifest that carries it.
   re-runs their compiles and links through Ninja's command-line check.  Like a dependency's
   interface, it is not part of any package's build-configuration fingerprint.
 
-`cabin metadata` reports the table as declared under the top-level `system_provided` object;
-`cabin -v` prints each probed module's version.  Not yet supported: the table in config files,
-static linking (`--static`), cross-sysroot defaults, a provider for MSVC, and provided packages a
+`cabin metadata` reports the effective table, config files' entries included, under the top-level
+`system_provided` object; `cabin -v` prints each probed module's version.  Not yet supported: static
+linking (`--static`), cross-sysroot defaults, a provider for MSVC, and provided packages a
 build dependency reaches.
 
 ## What Cabin does not do

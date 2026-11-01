@@ -329,21 +329,14 @@ pub enum ManifestError {
         source: cabin_core::PatchValidationError,
     },
 
-    /// A `[system-provided]` entry names an invalid pkg-config module.
+    /// A `[system-provided]` entry is not one valid module or a
+    /// non-empty table of valid modules per target.
     #[error("invalid `[system-provided]` entry for `{package}`: {source}")]
     InvalidSystemProvider {
         package: String,
         #[source]
-        source: cabin_core::ValidationError,
+        source: cabin_core::SystemProviderError,
     },
-
-    /// A `[system-provided]` entry names neither one module nor a
-    /// non-empty `targets` table, or both.
-    #[error(
-        "`[system-provided]` entry for `{package}` needs either `pkg-config` or a non-empty \
-         `targets` table, not both"
-    )]
-    SystemProviderShape { package: String },
 }
 
 /// Source-annotated form of a TOML parse failure.  Carries the
