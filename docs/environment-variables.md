@@ -133,9 +133,7 @@ executables run at once is `--test-jobs`, which no environment variable or confi
 (see [testing](testing.md#concurrency-and-timeouts)).
 
 `cabin tidy` honors the same precedence chain and forwards the resolved value to `run-clang-tidy` as
-`-j N`.  In `--fix` mode the effective parallelism is clamped to `1` so concurrent clang-tidy
-instances cannot race while applying overlapping fixes; verbose mode reports the override when a
-higher count was requested.
+`-j N`.
 
 ### Standard-aware version preference (`CABIN_RESOLVER_INCOMPATIBLE_STANDARDS`)
 

@@ -100,9 +100,7 @@ pub(crate) struct TidyArgs {
     /// Number of parallel `clang-tidy` instances to run.  Same
     /// precedence chain as `cabin build`: this flag wins over
     /// `CABIN_BUILD_JOBS`, then the `[build] jobs` config
-    /// setting, then the backend's own default.  In `--fix`
-    /// mode Cabin clamps the effective value to `1` so
-    /// concurrent rewrites cannot race.
+    /// setting, then the backend's own default.
     #[arg(short = 'j', long = "jobs", value_name = "N")]
     pub jobs: Option<cabin_core::BuildJobs>,
 }
@@ -163,22 +161,10 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         TidyMode::Check
     };
 
-    // In `--fix` mode the effective job count is clamped to 1: two
-    // clang-tidy instances applying overlapping rewrites can race, and
-    // the safest behavior is to serialize them.  A higher requested
-    // count is reported in verbose mode, not dropped silently.
-    let requested_jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
-    let effective_jobs = if matches!(mode, TidyMode::Fix) {
-        if requested_jobs.is_some_and(|j| j.get() > 1) {
-            reporter.verbose(format_args!(
-                "cabin: --fix forces tidy parallelism to 1 (requested -j{})",
-                requested_jobs.expect("checked above").get(),
-            ));
-        }
-        Some(cabin_core::BuildJobs::new(1).expect("1 is non-zero"))
-    } else {
-        requested_jobs
-    };
+    // `--fix` needs no serialization: `run-clang-tidy` has each
+    // clang-tidy instance export its fixes and applies them all once
+    // every instance has finished.
+    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
 
     // Short-circuit before asking the planner to do anything: a
     // workspace whose selected packages declare no C/C++ targets
@@ -427,7 +413,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         "cabin: compile database = {}",
         compile_db_path.display(),
     ));
-    if let Some(jobs) = effective_jobs {
+    if let Some(jobs) = jobs {
         reporter.verbose(format_args!("cabin: jobs = {}", jobs.get()));
     }
     reporter.very_verbose(format_args!(
@@ -438,7 +424,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
             TidyMode::Fix => " -fix",
             TidyMode::Check => "",
         },
-        match (tidy_verbosity, effective_jobs) {
+        match (tidy_verbosity, jobs) {
             (TidyVerbosity::Normal, Some(j)) => format!(" -quiet -j {}", j.get()),
             (TidyVerbosity::Normal, None) => " -quiet".to_owned(),
             (TidyVerbosity::Verbose, Some(j)) => format!(" -j {}", j.get()),
@@ -459,7 +445,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         compile_database_dir: profile_build_root,
         files,
         mode,
-        jobs: effective_jobs,
+        jobs,
         verbosity: tidy_verbosity,
     };
 

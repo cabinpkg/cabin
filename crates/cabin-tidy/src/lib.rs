@@ -5,10 +5,7 @@
 //! out from `cabin` so the executable-resolution rule, the
 //! `run-clang-tidy` command-line shape, and the typed jobs
 //! forwarding can be reused without dragging in the
-//! workspace-loader, build-planner, and config layers.  The
-//! fix-mode safety policy (clamping jobs to one) stays in the
-//! orchestration layer; the runner forwards whatever it is
-//! given.
+//! workspace-loader, build-planner, and config layers.
 //!
 //! Crate boundaries:
 //!
@@ -107,11 +104,7 @@ pub struct TidyRequest {
 
     /// Number of parallel `clang-tidy` instances `run-clang-tidy`
     /// should run.  `None` means "let `run-clang-tidy` pick its
-    /// default" (which today is the host's CPU count).  When the
-    /// CLI selects [`TidyMode::Fix`] the orchestration layer is
-    /// expected to clamp this to `Some(1)` for safety; the runner
-    /// passes whatever value it receives, so the policy lives in
-    /// one place.
+    /// default" (which today is the host's CPU count).
     pub jobs: Option<BuildJobs>,
 
     /// Cabin's verbosity hint.  Controls only whether Cabin

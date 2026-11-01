@@ -290,18 +290,17 @@ fn fix_flag_is_passed_to_tidy_driver() {
 }
 
 #[test]
-fn fix_mode_clamps_jobs_to_one() {
+fn fix_mode_forwards_jobs() {
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let record = dir.path().join("argv.log");
 
-    let assertion = cabin_with_fake_tidy()
+    cabin_with_fake_tidy()
         .current_dir(dir.path())
         .env("CABIN_FAKE_TIDY_RECORD", &record)
-        .args(["tidy", "--fix", "--jobs", "4", "--verbose"])
+        .args(["tidy", "--fix", "--jobs", "4"])
         .assert()
         .success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
 
     let lines = read_record(&record);
     let mut parts = lines[0].split('\t');
@@ -310,11 +309,7 @@ fn fix_mode_clamps_jobs_to_one() {
     let _fix = parts.next().unwrap();
     let _cdb = parts.next().unwrap();
     let jobs = parts.next().unwrap();
-    assert_eq!(jobs, "1", "fix mode must clamp jobs to 1: argv={argv}");
-    assert!(
-        stdout.contains("--fix forces tidy parallelism to 1"),
-        "verbose mode must surface the clamp: {stdout}"
-    );
+    assert_eq!(jobs, "4", "fix mode must forward --jobs: argv={argv}");
 }
 
 #[test]
