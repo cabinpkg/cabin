@@ -740,3 +740,131 @@ fn expiry_timestamps_must_be_the_fixed_width_iso_shape() {
     )
     .expect("the canonical shape is admitted");
 }
+
+/// One browser sign-in's session statements, as the OAuth callback
+/// batches them after the identity upsert: the prune, then the insert.
+/// The seconds bind as REAL, the way every D1 number does.
+fn start_browser_session(conn: &rusqlite::Connection, id: &str, account_id: &str, now: f64) {
+    conn.execute(sql::PRUNE_EXPIRED_BROWSER_SESSIONS, [now])
+        .expect("prune browser sessions");
+    conn.execute(
+        sql::INSERT_BROWSER_SESSION,
+        rusqlite::params![id, account_id, now + 28_800.0],
+    )
+    .expect("insert browser session");
+}
+
+/// The `user_id` [`sql::SESSION_USER`] resolves a cookie's
+/// `(account, session id)` pair to, if any.
+fn session_user(conn: &rusqlite::Connection, account_id: &str, id: &str) -> Option<i64> {
+    conn.query_row(
+        sql::SESSION_USER,
+        rusqlite::params!["github", account_id, id],
+        |row| row.get(0),
+    )
+    .map(Some)
+    .or_else(|err| match err {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+    .expect("resolve session")
+}
+
+fn logout(conn: &rusqlite::Connection, account_id: &str, id: &str) -> usize {
+    conn.execute(
+        sql::DELETE_BROWSER_SESSION,
+        rusqlite::params![id, account_id],
+    )
+    .expect("delete browser session")
+}
+
+#[test]
+fn a_logged_out_browser_session_stops_resolving_while_its_sibling_lives() {
+    let conn = migrated_connection();
+    sign_in(
+        &conn,
+        "github",
+        "424242",
+        "mona",
+        "2026-07-15T00:00:00.000Z",
+    );
+    // Two sign-ins of the same account: two browsers, two sessions.
+    start_browser_session(&conn, "laptop", "424242", 1_000.0);
+    start_browser_session(&conn, "phone", "424242", 1_001.0);
+    let (user_id, ..) = resolve(&conn, "github", "424242").expect("identity resolves");
+    assert_eq!(session_user(&conn, "424242", "laptop"), Some(user_id));
+    assert_eq!(session_user(&conn, "424242", "phone"), Some(user_id));
+
+    assert_eq!(logout(&conn, "424242", "laptop"), 1);
+    // Replaying the logged-out cookie resolves nothing - the same no-row
+    // answer as an unknown session - and the other sign-in is untouched.
+    assert_eq!(session_user(&conn, "424242", "laptop"), None);
+    assert_eq!(session_user(&conn, "424242", "phone"), Some(user_id));
+    // A second logout of the same cookie is a no-op, not an error.
+    assert_eq!(logout(&conn, "424242", "laptop"), 0);
+}
+
+#[test]
+fn a_session_belongs_to_its_own_account_only() {
+    let conn = migrated_connection();
+    sign_in(
+        &conn,
+        "github",
+        "424242",
+        "mona",
+        "2026-07-15T00:00:00.000Z",
+    );
+    sign_in(
+        &conn,
+        "github",
+        "583231",
+        "hubot",
+        "2026-07-15T00:00:00.000Z",
+    );
+    start_browser_session(&conn, "mona-session", "424242", 1_000.0);
+    start_browser_session(&conn, "hubot-session", "583231", 1_000.0);
+    let (mona, ..) = resolve(&conn, "github", "424242").expect("mona resolves");
+
+    // Another user's logout deletes their own session, never mona's -
+    // even naming mona's session id under their own account.
+    assert_eq!(logout(&conn, "583231", "hubot-session"), 1);
+    assert_eq!(logout(&conn, "583231", "mona-session"), 0);
+    assert_eq!(session_user(&conn, "424242", "mona-session"), Some(mona));
+    // Nor does a session id authenticate under another account.
+    assert_eq!(session_user(&conn, "583231", "mona-session"), None);
+}
+
+#[test]
+fn a_session_without_its_identity_resolves_to_nothing() {
+    // The post-wipe ghost, and an allowlisted account whose identity row
+    // never existed: a session row alone is not a user.
+    let conn = migrated_connection();
+    start_browser_session(&conn, "ghost", "424242", 1_000.0);
+    assert_eq!(session_user(&conn, "424242", "ghost"), None);
+}
+
+#[test]
+fn a_sign_in_prunes_exactly_the_expired_browser_sessions() {
+    let conn = migrated_connection();
+    sign_in(
+        &conn,
+        "github",
+        "424242",
+        "mona",
+        "2026-07-15T00:00:00.000Z",
+    );
+    // Expires at 28_800 + 0 and 28_800 + 1.
+    start_browser_session(&conn, "dead", "424242", 0.0);
+    start_browser_session(&conn, "live", "424242", 1.0);
+    // At the dead row's expiry instant its cookie no longer opens
+    // (`open_session` is strict `<`), so the inclusive prune takes it.
+    start_browser_session(&conn, "fresh", "424242", 28_800.0);
+    let survivors: Vec<String> = conn
+        .prepare("SELECT id FROM browser_sessions ORDER BY id")
+        .expect("prepare")
+        .query_map([], |row| row.get(0))
+        .expect("list sessions")
+        .collect::<Result<_, _>>()
+        .expect("session ids");
+    assert_eq!(survivors, ["fresh", "live"]);
+}

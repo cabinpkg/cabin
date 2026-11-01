@@ -197,6 +197,10 @@ facts that matter operationally:
   ops debugging, the session API also works directly: `curl -H "Cookie:
   cabin_session=..." -H "Content-Type: application/json" -H
   "X-CSRF-Protection: 1"` against `https://cabinpkg.com/api/v1/user/...`.
+- Each browser sign-in is a `browser_sessions` row that its cookie
+  needs; signing out deletes only that browser's row. To end every
+  browser session of an account (a stolen cookie), delete its rows:
+  `DELETE FROM browser_sessions WHERE provider_account_id = '<github id>'`.
 
 ## First-time provisioning
 
@@ -347,15 +351,12 @@ database delete and the end, the guard cannot read the half-provisioned
 database and refuses the re-run; finish by hand with the remaining
 steps ("First-time provisioning" has the same commands).
 
-Tokens live in the dropped database, so a wipe revokes everything; users
-re-authenticate afterward (`docs/remote-registry.md`).
-A browser still holding a pre-wipe session cookie recovers by visiting
-`/login`: GitHub auto-approves the already-authorized OAuth app, and
-`/callback` recreates the user row (the session API answers 401 for a
-session whose user row is gone until then). The operator's cookie skips
-even that round trip: the baseline migration seeds the operator's
-identity, so it resolves from apply time - which also means a wipe never
-invalidates that cookie; rotating `SESSION_SECRET` is what would. The
+Tokens and browser sessions live in the dropped database, so a wipe
+revokes everything; users re-authenticate afterward
+(`docs/remote-registry.md`). A browser still holding a pre-wipe session
+cookie - the operator's included - gets 401 from the session API until
+it visits `/login`: GitHub auto-approves the already-authorized OAuth
+app, and `/callback` recreates the user row and a fresh session. The
 verifier needs no re-provisioning at all (see "Verification pipeline").
 
 ### Post-wipe re-provisioning

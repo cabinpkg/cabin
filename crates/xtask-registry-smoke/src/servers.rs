@@ -203,6 +203,14 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'trustpub',
               'smoke', 'default');
+    -- The browser sessions the run hand-seals cookies for: github id
+    -- 0's main one every session leg rides and the one the logout leg
+    -- revokes (OR REPLACE revives it on a rerun), and the ghost - a live
+    -- session for id 1, which has no identity row.
+    INSERT OR REPLACE INTO browser_sessions (id, provider_account_id, expires_at)
+      VALUES ('smoke', '0', CAST(strftime('%s', 'now') AS INTEGER) + 3600),
+             ('smoke-logout', '0', CAST(strftime('%s', 'now') AS INTEGER) + 3600),
+             ('ghost', '1', CAST(strftime('%s', 'now') AS INTEGER) + 3600);
     DELETE FROM revisions WHERE scope = 'smoke';
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
@@ -609,11 +617,12 @@ impl DevServers {
     /// Wrangler reads `.dev.vars` for `wrangler dev`; an existing file
     /// is saved and restored.
     ///
-    /// `SESSION_SECRET` is pinned so the session-plane leg can mint a
-    /// valid session cookie for the seeded user (github id 0) without
-    /// a GitHub round trip; `ALLOWED_GITHUB_IDS` admits that id plus id
-    /// 1, whose identity row deliberately does not exist (the
-    /// post-wipe ghost-session case), and ids 3 and 4, the sign-in
+    /// `SESSION_SECRET` is pinned so the session-plane leg can mint
+    /// valid session cookies for the seeded `browser_sessions` rows
+    /// without a GitHub round trip; `ALLOWED_GITHUB_IDS` admits the
+    /// seeded user (github id 0) plus id 1, whose session row exists but
+    /// whose identity row deliberately does not (the post-wipe
+    /// ghost-session case), and ids 3 and 4, the sign-in
     /// leg's fresh accounts (too young to sign up, and old enough -
     /// only id 4 ever gets an identity row).  `SERVICE_MODE_TTL_SECS=0`
     /// disables the service-mode cache so the breaker leg observes a

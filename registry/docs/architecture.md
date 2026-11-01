@@ -411,10 +411,12 @@ website frontend consumes:
   inside the DELETE itself, so concurrent removals cannot race a scope
   into ownerlessness;
 - `POST /api/v1/user/logout` -> `{"ok":true}` with a `Set-Cookie` that
-  clears the session cookie (it is HttpOnly, so only the server can).
-  Sessions are stateless HMAC values: the sealed value stays verifiable
-  until its 8-hour expiry, so clearing the cookie is the sign-out and
-  removing the id from `ALLOWED_GITHUB_IDS` is the hard revocation.
+  clears the session cookie (it is HttpOnly, so only the server can)
+  and deletes that browser's `browser_sessions` row, so a copy of the
+  cookie stops working too. A session needs both its sealed value,
+  verifiable until its 8-hour expiry, and its row; deleting an
+  account's rows ends all of its sessions, and removing the id from
+  `ALLOWED_GITHUB_IDS` locks the account out.
 
 The exact response shapes live in `src/user_api.rs` (host-tested). The
 `Authorization` header is never read on this plane, and unauthenticated
@@ -450,11 +452,12 @@ derived from request input (the open-redirect guard).
   scope, not per package: publish and yank require membership in the
   target scope ("Scopes" below), and every member can act on every
   package under it.
-- The session cookie names the external identity (the numeric GitHub
-  id), resolved through `identities` on every request - deliberately
+- The session cookie names its `browser_sessions` row and the external
+  identity (the numeric GitHub id), resolved through that row and
+  `identities` on every request - deliberately
   not the `users.id`, which a pre-launch wipe would re-issue: a
   still-valid ghost cookie sealed over a row id could bind to whoever
-  received that id after the wipe. A session whose identity row is gone
+  received that id after the wipe. A session whose own or identity row is gone
   answers the same 401 as no session.
 - GitHub access tokens are transient: sign-in uses one for a single
   `/user` call, a claim for its few verification reads ("Scopes"

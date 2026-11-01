@@ -59,21 +59,22 @@ pub async fn respond_session(
     let Some(session) = session_from_request(req, env)? else {
         return json_error(401, error::AUTH_REQUIRED);
     };
-    // Logout needs no D1 state - and must work even when the session's
-    // identity row is gone (the post-wipe ghost), where the endpoints
-    // below answer 401: a valid cookie presented for logout is always
+    let db = env.d1("DB")?;
+    // Logout must work even when the session is already gone (logged
+    // out elsewhere, or the post-wipe ghost), where the endpoints below
+    // answer 401: a validly sealed cookie presented for logout is always
     // cleared.
     if route == SessionRoute::Logout {
         return match req.method() {
-            Method::Post => logout(req),
+            Method::Post => logout(req, &db, &session).await,
             _ => json_error(405, error::METHOD_NOT_ALLOWED),
         };
     }
-    let db = env.d1("DB")?;
-    // The allowlist admitted the id, but its identity row may be gone
-    // (the post-wipe scenario): every endpoint answers the same 401 as
-    // no session, never a phantom empty listing or a foreign-key 500.
-    let Some(user) = user_record(&db, session.github_id).await? else {
+    // The allowlist admitted the id, but its session may be logged out
+    // or its identity row gone (the post-wipe scenario): every endpoint
+    // answers the same 401 as no session, never a phantom empty listing
+    // or a foreign-key 500.
+    let Some(user) = session_user(&db, &session).await? else {
         return json_error(401, error::AUTH_REQUIRED);
     };
     match (route, req.method()) {
@@ -192,16 +193,28 @@ async fn stats_summary(env: &Env) -> worker::Result<Response> {
     Ok(response)
 }
 
-/// `POST /api/v1/user/logout`: clear the session cookie. Only a
-/// `Set-Cookie` can remove it (it is `HttpOnly`), so signing out is a
-/// session-plane mutation like any other, CSRF discipline included.
-/// Sessions are stateless HMAC values, so the sealed value itself stays
-/// verifiable until its expiry - clearing the browser's cookie is the
-/// sign-out; the allowlist is the hard revocation lever.
-fn logout(req: &Request) -> worker::Result<Response> {
+/// `POST /api/v1/user/logout`: revoke this cookie's session and clear
+/// the cookie. Only a `Set-Cookie` can remove it (it is `HttpOnly`), so
+/// signing out is a session-plane mutation like any other, CSRF
+/// discipline included. Deleting the `browser_sessions` row is what
+/// makes a copy of the cookie stop authenticating; the user's other
+/// sessions keep theirs. A failed delete answers 500 with the cookie
+/// kept, so the user can retry rather than believe a live session ended.
+async fn logout(
+    req: &Request,
+    db: &D1Database,
+    session: &session::Session,
+) -> worker::Result<Response> {
     if !csrf_ok(req)? {
         return json_error(403, error::CSRF_REQUIRED);
     }
+    db.prepare(sql::DELETE_BROWSER_SESSION)
+        .bind(&[
+            session.id.as_str().into(),
+            session.github_id.to_string().into(),
+        ])?
+        .run()
+        .await?;
     let clear = session::set_cookie(session::SESSION_COOKIE, "", 0, session::SESSION_COOKIE_PATH);
     let mut response = json_response(r#"{"ok":true}"#)?;
     response.headers_mut().append("set-cookie", &clear)?;
@@ -386,11 +399,16 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         signup::Gate::Deny => return denied(&[clear_state]),
     }
 
-    // The identity upsert: one transaction, user-creation first - the
-    // identity insert reads its `last_insert_rowid()`. The account id is
-    // bound as text on purpose (the column is TEXT, and a numeric D1
-    // bind rides as a float, which would store "26405363.0").
+    // The identity upsert and the new session row: one transaction,
+    // user-creation first - the identity insert reads its
+    // `last_insert_rowid()`. The account id is bound as text on purpose
+    // (the column is TEXT, and a numeric D1 bind rides as a float, which
+    // would store "26405363.0").
     let account_id = user.id.to_string();
+    let now = now_secs();
+    let expires_at = now + session::SESSION_MAX_AGE_SECS;
+    let session_id = auth::hex(&random_bytes::<16>()?);
+    let secs = |at: u64| js_int(i64::try_from(at).expect("Unix seconds fit i64"));
     db.batch(vec![
         db.prepare(sql::INSERT_USER_FOR_NEW_IDENTITY).bind(&[
             now_iso8601().into(),
@@ -402,11 +420,17 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
             account_id.as_str().into(),
             user.login.into(),
         ])?,
+        db.prepare(sql::PRUNE_EXPIRED_BROWSER_SESSIONS)
+            .bind(&[secs(now)])?,
+        db.prepare(sql::INSERT_BROWSER_SESSION).bind(&[
+            session_id.as_str().into(),
+            account_id.as_str().into(),
+            secs(expires_at),
+        ])?,
     ])
     .await?;
 
-    let expires_at = now_secs() + session::SESSION_MAX_AGE_SECS;
-    let sealed = session::seal_session(&secret, user.id, expires_at);
+    let sealed = session::seal_session(&secret, user.id, &session_id, expires_at);
     let cookie = session::set_cookie(
         session::SESSION_COOKIE,
         &sealed,
@@ -1318,11 +1342,26 @@ fn session_from_request(req: &Request, env: &Env) -> worker::Result<Option<sessi
     Ok(github_id_allowed(env, current.github_id)?.then_some(current))
 }
 
+/// The registry-native user a live browser session resolves to
+/// ([`sql::SESSION_USER`]); `None` once the session is logged out, or
+/// for an identity that never signed in (the post-wipe ghost).
+async fn session_user(
+    db: &D1Database,
+    session: &session::Session,
+) -> worker::Result<Option<UserRecord>> {
+    db.prepare(sql::SESSION_USER)
+        .bind(&[
+            GITHUB_PROVIDER.into(),
+            session.github_id.to_string().into(),
+            session.id.as_str().into(),
+        ])?
+        .first(None)
+        .await
+}
+
 /// The registry-native user a GitHub id resolves to through
-/// `identities`; `None` for an account that never signed in - for a
-/// session (the transient, post-wipe ghost case) that answers the same
-/// 401 as no session, and the claim and membership planes refuse the
-/// account.
+/// `identities`; `None` for an account that never signed in, which the
+/// claim and membership planes refuse.
 pub(crate) async fn user_record(
     db: &D1Database,
     github_id: i64,

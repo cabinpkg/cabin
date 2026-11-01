@@ -8,6 +8,7 @@ use anyhow::{Result, bail};
 
 use crate::context::{Base, Smoke};
 use crate::legs::claims::{location_value, state_value};
+use crate::legs::session::{csrf_headers, session_request};
 use crate::step;
 use crate::text::{capture, first_line, grep_lines, status_line_is, text};
 
@@ -27,6 +28,7 @@ pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     signin_mode(smoke, github_port, "existing-young")?;
     let block = callback_roundtrip(smoke)?;
     expect_dashboard(smoke, &block, "an existing user's young-account sign-in")?;
+    minted_session_lifecycle(smoke, &block)?;
 
     // A fresh allowlisted account five days old: refused, no session,
     // and the one redirect that names its reason and the first
@@ -114,6 +116,32 @@ fn expect_dashboard(smoke: &Smoke, block: &str, what: &str) -> Result<()> {
         bail!("{what} set no session cookie: {}", capture(&smoke.headers));
     }
     Ok(())
+}
+
+/// The cookie `/callback` itself minted - not one this harness sealed -
+/// authenticates, logs out, and is dead on replay: the session row the
+/// callback inserted must be the one the cookie names.
+fn minted_session_lifecycle(smoke: &mut Smoke, block: &str) -> Result<()> {
+    step("a callback-minted session authenticates until it logs out");
+    let Some(value) = session_cookies(block).first().and_then(|line| {
+        let (_, rest) = line.split_once(": cabin_session=")?;
+        rest.split(';').next()
+    }) else {
+        bail!("the sign-in set no session cookie value");
+    };
+    let cookie = format!("cabin_session={}", value.trim());
+    session_request(smoke, &cookie, "GET", "/api/v1/user", 200, &[], None)?;
+    smoke.expect_body(r#""github_id":0"#)?;
+    session_request(
+        smoke,
+        &cookie,
+        "POST",
+        "/api/v1/user/logout",
+        200,
+        &csrf_headers(),
+        None,
+    )?;
+    session_request(smoke, &cookie, "GET", "/api/v1/user", 401, &[], None)
 }
 
 /// Every `Set-Cookie` that stores a session (`Max-Age=0` clears one).

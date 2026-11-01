@@ -287,7 +287,8 @@ pub enum SessionRoute<'a> {
     ScopeMembers { scope: &'a str },
     /// `POST /api/v1/user/scopes/<scope>/members/<github_id>/remove`.
     RemoveScopeMember { scope: &'a str, github_id: i64 },
-    /// `POST /api/v1/user/logout`: clear the session cookie.
+    /// `POST /api/v1/user/logout`: revoke the cookie's session row and
+    /// clear the cookie.
     Logout,
 }
 
