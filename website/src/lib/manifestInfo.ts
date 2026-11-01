@@ -81,6 +81,7 @@ export function extractManifestInfo(
     context: string,
 ): PackageManifestInfo {
     const manifest = asRecord(parsed) ?? {};
+    rejectBuildDependencies(manifest, "[build-dependencies]", context);
     const dependencies: DependencyInfo[] = [
         ...dependencyTable(manifest.dependencies, "normal", null, context),
         ...dependencyTable(manifest["dev-dependencies"], "dev", null, context),
@@ -158,6 +159,7 @@ function conditionedDependencies(
             for (const kind of [
                 "dependencies",
                 "dev-dependencies",
+                "build-dependencies",
                 "system-dependencies",
             ]) {
                 if (kind in table) {
@@ -169,7 +171,7 @@ function conditionedDependencies(
             continue;
         }
         // The parser's cfg-table shape is deny_unknown_fields with
-        // exactly these five keys; anything else - notably
+        // exactly these six keys; anything else - notably
         // `system-dependencies`, since a conditional system dep is
         // spelled `system = true` inside the `dependencies` table -
         // is a publisher rejection, not data to drop.
@@ -180,6 +182,11 @@ function conditionedDependencies(
                 );
             }
         }
+        rejectBuildDependencies(
+            table,
+            `[target.${key}.build-dependencies]`,
+            context,
+        );
         dependencies.push(
             ...dependencyTable(
                 table.dependencies,
@@ -196,6 +203,29 @@ function conditionedDependencies(
         );
     }
     return dependencies;
+}
+
+// `cabin package` refuses build dependencies
+// (BuildDependencyNotPublishable): package indexes do not carry them.
+// It refuses entries, not the table, so an empty table publishes.
+function rejectBuildDependencies(
+    table: Record<string, unknown>,
+    section: string,
+    context: string,
+): void {
+    const value = table["build-dependencies"];
+    if (value === undefined) {
+        return;
+    }
+    const entries = asRecord(value);
+    if (entries === null) {
+        throw new Error(`${section} in ${context} must be a table.`);
+    }
+    if (Object.keys(entries).length > 0) {
+        throw new Error(
+            `${section} in ${context} cannot publish; package indexes do not carry build dependencies.`,
+        );
+    }
 }
 
 // The inner expression of a `cfg(...)` target key, verbatim (the
@@ -382,6 +412,7 @@ const DEPENDENCY_TABLE_KEYS = new Set([
 const CONDITIONAL_TARGET_KEYS = new Set([
     "dependencies",
     "dev-dependencies",
+    "build-dependencies",
     "toolchain",
     "profile",
     "sources",

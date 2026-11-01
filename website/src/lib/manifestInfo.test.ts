@@ -136,6 +136,37 @@ test("dependencies under a named target fail loudly, like the parser", () => {
     );
 });
 
+test("build dependencies fail the build in every table form", () => {
+    // `cabin package` refuses them (BuildDependencyNotPublishable), so
+    // a page must not render the package as if it had none.
+    for (const toml of [
+        '[build-dependencies]\ngen = "^1"',
+        '[target.\'cfg(os = "linux")\'.build-dependencies]\ngen = "^1"',
+        '[target.png.build-dependencies]\ngen = "^1"',
+    ]) {
+        assert.throws(
+            () => extract(toml),
+            /build-dependencies\] in test manifest (cannot publish|is not supported)/,
+            toml,
+        );
+    }
+});
+
+test("an empty build-dependencies table publishes", () => {
+    // It declares no Build-kind dependency, so `cabin package` accepts
+    // it; only the named-target form is refused by its mere presence.
+    const info = extract(`
+[build-dependencies]
+
+[target.'cfg(os = "linux")'.build-dependencies]
+`);
+    assert.deepEqual(info.dependencies, []);
+    assert.throws(
+        () => extract("[target.png.build-dependencies]"),
+        /is not supported/,
+    );
+});
+
 test("workspace = false beside a version is a plain registry dep", () => {
     // ordinary_dep_from_table routes (no path, version, workspace
     // != true) to the version source, so this legal spelling must

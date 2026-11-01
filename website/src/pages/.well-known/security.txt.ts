@@ -3,10 +3,11 @@ import type { APIRoute } from "astro";
 export const prerender = true;
 
 export const GET: APIRoute = () => {
-    // RFC 9116 requires an Expires date; roll it a year past each build so a
-    // deploy keeps the file current (trimmed to seconds for a clean RFC 3339 value).
+    // RFC 9116 requires an Expires date and recommends less than a year out;
+    // roll it 11 months past each build so a deploy keeps the file current
+    // (trimmed to seconds for a clean RFC 3339 value).
     const expires = new Date();
-    expires.setUTCFullYear(expires.getUTCFullYear() + 1);
+    expires.setUTCMonth(expires.getUTCMonth() + 11);
 
     return new Response(
         [
