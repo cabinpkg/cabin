@@ -212,7 +212,7 @@ pub enum ConfigParseError {
     /// A top-level table the parser did not recognize.  Lists the
     /// supported tables so users can see the full surface.
     #[error(
-        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, gc, toolchain, term, trust, patch, source-replacement, runner, sysroot"
+        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, gc, toolchain, term, trust, patch, source-replacement, system-provided, runner, sysroot"
     )]
     UnknownTopLevelTable { table: String },
 
@@ -228,6 +228,19 @@ pub enum ConfigParseError {
         package: String,
         #[source]
         source: cabin_core::PatchValidationError,
+    },
+
+    /// A `[system-provided]` key is not a valid package name.
+    #[error("invalid `[system-provided]` package name: {0}")]
+    InvalidSystemProvidedPackageName(String),
+
+    /// A `[system-provided]` row is not one valid module or a
+    /// non-empty table of valid modules per target.
+    #[error("invalid `[system-provided]` entry for `{package}`: {source}")]
+    InvalidSystemProvider {
+        package: String,
+        #[source]
+        source: Box<cabin_core::SystemProviderError>,
     },
 
     /// A `[source-replacement]` row failed validation

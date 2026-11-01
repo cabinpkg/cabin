@@ -3579,7 +3579,13 @@ fn system_provided_entry_takes_one_module_or_one_per_target() {
     ] {
         let err = parse(entry).unwrap_err();
         assert!(
-            matches!(&err, ManifestError::SystemProviderShape { package } if package == "acme/tls"),
+            matches!(
+                &err,
+                ManifestError::InvalidSystemProvider {
+                    package,
+                    source: cabin_core::SystemProviderError::Shape,
+                } if package == "acme/tls"
+            ),
             "{entry}: {err:?}"
         );
     }

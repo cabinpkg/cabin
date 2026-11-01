@@ -18,8 +18,8 @@ use cabin_core::{
 
 use crate::error::ConfigParseError;
 use crate::raw::{
-    RawBuild, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawGc, RawPaths, RawRegistry,
-    RawResolver, RawTerm, RawToolchain, RawTrust,
+    RawBuild, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawConfigSystemProvider,
+    RawGc, RawPaths, RawRegistry, RawResolver, RawTerm, RawToolchain, RawTrust,
 };
 
 /// Validated, typed contents of one config file.  The raw
@@ -42,6 +42,8 @@ pub struct ParsedConfig {
     pub patches: BTreeMap<PackageName, PatchSource>,
     /// Keyed by the original locator; each value is its replacement.
     pub source_replacements: BTreeMap<SourceLocator, SourceLocator>,
+    /// `[system-provided]`, keyed by package name.
+    pub system_provided: BTreeMap<PackageName, cabin_core::SystemProvider>,
     /// `[runner]`: the program and arguments `cabin run` and `cabin
     /// test` prefix to an executable built for `--target <triple>`.
     pub runners: BTreeMap<String, Vec<String>>,
@@ -173,6 +175,10 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         Some(rows) => parsed_source_replacements_from_raw(rows)?,
         None => BTreeMap::new(),
     };
+    let system_provided = match raw.system_provided {
+        Some(rows) => parsed_system_provided_from_raw(rows)?,
+        None => BTreeMap::new(),
+    };
     let runners = raw.runner.unwrap_or_default();
     for (triple, runner) in &runners {
         check_triple_key("runner", triple)?;
@@ -202,6 +208,7 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         trusted_projects,
         patches,
         source_replacements,
+        system_provided,
         runners,
         sysroots,
     })
@@ -407,6 +414,30 @@ fn parsed_patches_from_raw(
             }
         })?;
         out.insert(package, source);
+    }
+    Ok(out)
+}
+
+fn parsed_system_provided_from_raw(
+    rows: BTreeMap<String, RawConfigSystemProvider>,
+) -> Result<BTreeMap<PackageName, cabin_core::SystemProvider>, ConfigParseError> {
+    let mut out = BTreeMap::new();
+    for (raw_name, row) in rows {
+        let package = PackageName::new(raw_name)
+            .map_err(|err| ConfigParseError::InvalidSystemProvidedPackageName(err.to_string()))?;
+        let targets = row.targets.map(|rows| {
+            rows.into_iter()
+                .map(|(target, row)| (target, row.pkg_config))
+                .collect()
+        });
+        let provider =
+            cabin_core::SystemProvider::new(row.pkg_config, targets).map_err(|source| {
+                ConfigParseError::InvalidSystemProvider {
+                    package: package.as_str().to_owned(),
+                    source: Box::new(source),
+                }
+            })?;
+        out.insert(package, provider);
     }
     Ok(out)
 }
@@ -892,6 +923,57 @@ mod tests {
             }
             other => panic!("expected TargetConditionedNotSupported, got {other:?}"),
         }
+    }
+
+    /// The table takes the manifest table's shape and validation: one
+    /// module or one per target, each a pkg-config-safe name.
+    #[test]
+    fn system_provided_table_takes_the_manifest_shape() {
+        let parsed = parse_config_str(
+            r#"
+            [system-provided."acme/zlib"]
+            pkg-config = "zlib"
+
+            [system-provided."acme/tls"]
+            targets.ssl = { pkg-config = "libssl" }
+            targets.crypto = { pkg-config = "libcrypto" }
+            "#,
+        )
+        .unwrap();
+        let entry = |name| &parsed.system_provided[&PackageName::new(name).unwrap()];
+        assert_eq!(entry("acme/zlib").module_for("z"), Some("zlib"));
+        assert_eq!(entry("acme/tls").module_for("crypto"), Some("libcrypto"));
+        assert_eq!(entry("acme/tls").module_for("ssl"), Some("libssl"));
+
+        for (body, shape) in [
+            (
+                "pkg-config = \"z\"\ntargets.z = { pkg-config = \"z\" }",
+                true,
+            ),
+            ("targets = {}", true),
+            ("pkg-config = \"--libs\"", false),
+            ("targets.\"../z\" = { pkg-config = \"z\" }", false),
+        ] {
+            let err = parse_config_str(&format!("[system-provided.\"acme/zlib\"]\n{body}\n"))
+                .unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    ConfigParseError::InvalidSystemProvider { package, source }
+                        if package == "acme/zlib"
+                            && shape == (**source == cabin_core::SystemProviderError::Shape)
+                ),
+                "{body}: {err:?}"
+            );
+        }
+        assert!(matches!(
+            parse_config_str("[system-provided.\"acme/zlib\"]\nversion = \"1\"\n").unwrap_err(),
+            ConfigParseError::Toml(_)
+        ));
+        assert!(matches!(
+            parse_config_str("[system-provided.\"Acme/Zlib\"]\npkg-config = \"z\"\n").unwrap_err(),
+            ConfigParseError::InvalidSystemProvidedPackageName(_)
+        ));
     }
 
     #[test]

@@ -108,6 +108,9 @@ fmt = { path = "../forks/fmt" }
 [source-replacement]
 "https://example.com/index" = { index-path = "../mirror" }
 
+[system-provided."cabin-ports/zlib"]
+pkg-config = "zlib"
+
 [runner]
 aarch64-unknown-linux-gnu = ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu"]
 
@@ -254,6 +257,36 @@ The full schema, validation rules, and lockfile / metadata behavior live in
 - Member manifests cannot declare `[patch]` tables.
 - `cabin package` rejects manifests with a non-empty `[patch]` table; config patches and source
   replacements are excluded from package archives by `.cabin/`'s existing exclusion rule.
+
+### `[system-provided]`
+
+Packages the build takes from the system's pkg-config instead of fetching and building them, in the
+shape of the workspace root manifest's
+[`[system-provided]`](system-dependencies.md#system-provided-packages) table:
+
+```toml
+[system-provided."cabin-ports/zlib"]
+pkg-config = "zlib"
+
+[system-provided."acme/tls"]
+targets.ssl = { pkg-config = "libssl" }
+targets.crypto = { pkg-config = "libcrypto" }
+```
+
+A config file's entry replaces the root manifest's entry for the same package, and a higher-priority
+config file's entry replaces a lower one's, as for [`[patch]`](patch-overrides.md#patch-precedence);
+no layer can remove a lower layer's entry.  A config file's entry does not apply to a package the
+project builds from its own copy - a workspace member, a path dependency, or a `[patch]` - since a
+user config's entry applies to every project, the package's own checkout included; the root
+manifest naming such a package fails the build instead.  Otherwise an entry follows the manifest
+table's rules.  `--no-patches` does not disable the table.  `cabin metadata` reports the config files' entries with
+their `value_source` under `config.system_provided`, and the effective policy, the manifest's table
+with the config entries in place, under the top-level `system_provided`.
+
+A project's own `.cabin/config.toml` needs no [`[trust]`](#trust) for this table.  Its root manifest
+can declare the same entries, and an entry names only a pkg-config module, which Cabin looks up with
+the `pkg-config` from `PATH` or `CABIN_PKG_CONFIG` and its inherited environment, so the project
+chooses no executable and no package index.
 
 ### `[term]`
 

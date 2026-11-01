@@ -753,3 +753,212 @@ fn only_the_workspace_root_declares_the_policy() {
         "{stderr}"
     );
 }
+
+/// A project's own config file provides a package without `[trust]`, as
+/// its root manifest could: the build probes the config's module, and
+/// zlib's archive is gone, so it is never fetched.
+#[test]
+fn an_untrusted_projects_config_file_provides_a_package() {
+    require_c_and_cxx_build_tools();
+    if cfg!(windows) {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    publish_zlib_and_png(root);
+    hide_archives(root, "acme/zlib");
+    let system_include = root.join("sys/include");
+    assert_fs::fixture::ChildPath::new(system_include.join("z.h"))
+        .write_str(
+            "#ifndef Z_H\n#define Z_H\n#ifdef Z_SYSTEM\n#define Z_ORIGIN \"system\"\n#endif\n\
+             static inline int z_answer(void) { return 42; }\n#endif\n",
+        )
+        .unwrap();
+    let fixtures = Fixtures::new();
+    fixtures.write(
+        "zsys",
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "version": "1.3.1",
+            "cflags": format!("-I{} -DZ_SYSTEM", system_include.display()),
+            "libs": "",
+        }))
+        .unwrap(),
+    );
+    assert_fs::fixture::ChildPath::new(root.join("app/src/main.c"))
+        .write_str(
+            "#include <stdio.h>\n#include \"z.h\"\n\
+             int main(void) { printf(\"%s %d\\n\", Z_ORIGIN, z_answer()); return 0; }\n",
+        )
+        .unwrap();
+    let manifest = write_app(
+        root,
+        "\"acme/zlib\" = \"^1.3\"\n\n\
+         [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n\
+         deps = [\"acme/zlib\"]\n",
+        "",
+    );
+    assert_fs::fixture::ChildPath::new(root.join("app/.cabin/config.toml"))
+        .write_str(POLICY)
+        .unwrap();
+    let mut cmd = cabin_with_fake_pkg_config(&fixtures);
+    cmd.env_remove("CABIN_NO_CONFIG")
+        .args(["build", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(root.join("registry"))
+        .arg("--cache-dir")
+        .arg(root.join("cache"))
+        .arg("--build-dir")
+        .arg(root.join("build"))
+        .assert()
+        .success();
+    let output =
+        std::process::Command::new(root.join("build/dev/packages/app").join(host_exe("app")))
+            .output()
+            .unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "system 42\n");
+}
+
+/// For each package, the project's config file outranks the user's,
+/// which outranks the root manifest; `cabin metadata` reports the
+/// effective policy and, under `config`, where each config entry came
+/// from.
+#[test]
+fn config_file_entries_replace_lower_layers_per_package() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let manifest = write_app(
+        root,
+        "",
+        &format!(
+            "{POLICY}\n[system-provided.\"acme/tls\"]\ntargets.ssl = {{ pkg-config = \"libssl\" }}\n\
+             \n[system-provided.\"acme/png\"]\npkg-config = \"png-manifest\"\n"
+        ),
+    );
+    let user = root.join("user");
+    assert_fs::fixture::ChildPath::new(user.join("config.toml"))
+        .write_str(
+            "[system-provided.\"acme/zlib\"]\npkg-config = \"z-user\"\n\n\
+             [system-provided.\"acme/png\"]\npkg-config = \"png-user\"\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("app/.cabin/config.toml"))
+        .write_str(
+            "[system-provided.\"acme/zlib\"]\npkg-config = \"z-project\"\n\n\
+             [system-provided.\"acme/tls\"]\ntargets.ssl = { pkg-config = \"ssl3\" }\n\
+             targets.crypto = { pkg-config = \"crypto3\" }\n",
+        )
+        .unwrap();
+    let value = run_json(
+        cabin_with_config()
+            .env("CABIN_CONFIG_HOME", &user)
+            .args(["metadata", "--format", "json", "--manifest-path"])
+            .arg(&manifest),
+    );
+    let tls = serde_json::json!({
+        "targets": { "crypto": { "pkg-config": "crypto3" }, "ssl": { "pkg-config": "ssl3" } },
+    });
+    assert_eq!(
+        value["system_provided"],
+        serde_json::json!({
+            "acme/png": { "pkg-config": "png-user" },
+            "acme/tls": tls,
+            "acme/zlib": { "pkg-config": "z-project" },
+        })
+    );
+    assert_eq!(
+        value["config"]["system_provided"],
+        serde_json::json!({
+            "acme/png": { "provider": { "pkg-config": "png-user" }, "value_source": "user-config" },
+            "acme/tls": { "provider": tls, "value_source": "package-config" },
+            "acme/zlib": { "provider": { "pkg-config": "z-project" }, "value_source": "package-config" },
+        })
+    );
+}
+
+/// A config file's entry yields to the project's own copy of the
+/// package, a `[patch]` fork or a path dependency, since a user config's
+/// entry applies to every project; the root manifest's does not.
+#[test]
+fn a_config_file_entry_yields_to_a_local_copy() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    publish_zlib_and_png(root);
+    assert_fs::fixture::ChildPath::new(root.join("app/.cabin/config.toml"))
+        .write_str(POLICY)
+        .unwrap();
+    let metadata = |manifest: &Path| {
+        run_json(
+            cabin_with_config()
+                .args(["metadata", "--format", "json", "--manifest-path"])
+                .arg(manifest),
+        )
+    };
+
+    let patch = "\n[patch]\n\"acme/zlib\" = { path = \"../src-zlib\" }\n";
+    let manifest = write_app(root, "\"acme/zlib\" = \"^1.3\"\n", patch);
+    let value = metadata(&manifest);
+    assert_eq!(value["system_provided"], serde_json::json!({}));
+    assert_eq!(
+        value["config"]["system_provided"]["acme/zlib"]["value_source"],
+        "package-config"
+    );
+    write_app(
+        root,
+        "\"acme/zlib\" = \"^1.3\"\n",
+        &format!("{patch}{POLICY}"),
+    );
+    let stderr = cabin_with_config()
+        .args(["metadata", "--manifest-path"])
+        .arg(&manifest)
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(
+        flat_contains(
+            &stderr,
+            "`acme/zlib` is both `[patch]`ed and `[system-provided]`"
+        ),
+        "{stderr}"
+    );
+
+    write_app(root, "\"acme/zlib\" = { path = \"../src-zlib\" }\n", "");
+    assert_eq!(
+        metadata(&manifest)["system_provided"],
+        serde_json::json!({})
+    );
+}
+
+/// A dev path dependency, which only a `cabin test` loads, is the
+/// project's own copy too.
+#[test]
+fn a_config_file_entry_yields_to_a_dev_path_dependency() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    publish_zlib_and_png(root);
+    assert_fs::fixture::ChildPath::new(root.join("app/.cabin/config.toml"))
+        .write_str(POLICY)
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("app/tests/z_test.c"))
+        .write_str("#include \"z.h\"\nint main(void) { return z_answer() == 42 ? 0 : 1; }\n")
+        .unwrap();
+    let manifest = root.join("app/cabin.toml");
+    assert_fs::fixture::ChildPath::new(&manifest)
+        .write_str(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n\
+             [dev-dependencies]\n\"acme/zlib\" = { path = \"../src-zlib\" }\n\n\
+             [target.z_test]\ntype = \"test\"\nsources = [\"tests/z_test.c\"]\ndeps = [\"acme/zlib\"]\n",
+        )
+        .unwrap();
+    cabin_with_config()
+        .args(["test", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(root.join("build"))
+        .assert()
+        .success();
+}
