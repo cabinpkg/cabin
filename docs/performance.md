@@ -28,6 +28,21 @@ and everything the command writes are the same with and without capture.  Keep t
 outside the package: `cabin package` and `cabin publish` archive every file under the package
 root, a trace directory there included.
 
+Capture costs about 1 ms per invocation, for creating the files, starting and joining the writer
+thread, and the renames; with `CABIN_TRACE_DIR` unset it is within noise of a binary built without
+tracing.  Measured with `hyperfine` 2.0 (5 warmups, 60 interleaved runs per command) on macOS 27.2
+on Apple silicon, over a warm `cabin fetch` of one file-registry dependency, with release builds of
+`16e100991` (before tracing) and #2068 (adding it):
+
+| Binary and capture | Wall time (mean ± σ) | Trace size |
+| --- | --- | --- |
+| `16e100991`, no instrumentation | 6.5 ± 0.6 ms | - |
+| #2068, capture disabled | 6.4 ± 0.5 ms | - |
+| #2068, `CABIN_TRACE_DIR` (`info`) | 7.4 ± 1.1 ms | 3.4 KB, 22 events |
+| #2068, `CABIN_TRACE_FILTER=debug` | 7.5 ± 1.1 ms | 7.6 KB, 48 events |
+
+To measure the current build, compare the `trace/noop-cxx-*` scenarios with `build/noop-cxx`.
+
 `CABIN_TRACE_FILTER` selects detail with `tracing-subscriber`
 [`Targets`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/targets/struct.Targets.html)
 directives:
