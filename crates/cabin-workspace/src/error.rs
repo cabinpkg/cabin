@@ -67,6 +67,12 @@ pub enum WorkspaceError {
     LocalDependencyIsWorkspace { dep_name: String, path: PathBuf },
 
     #[error(
+        "registry or patch package source {path} is a workspace root without [package]; it must be a single package",
+        path = path.display()
+    )]
+    PackageSourceIsWorkspace { path: PathBuf },
+
+    #[error(
         "dependency {dep_name:?} points to package {actual_name:?} at {path}; local dependency aliases are not supported",
         path = path.display()
     )]
@@ -193,8 +199,8 @@ pub enum WorkspaceError {
     #[error("package selection is ambiguous in this workspace; pass --package <name>")]
     AmbiguousPackageSelection,
 
-    #[error("incompatible workspace requirements for `{name}`: {requirements}: {source}")]
-    IncompatibleWorkspaceRequirements {
+    #[error("cannot combine the requirements on `{name}` into one ({requirements}): {source}")]
+    UncombinableRequirements {
         name: String,
         requirements: String,
         #[source]

@@ -359,23 +359,27 @@ impl LibraryStems {
 /// `_`, `-`) into an identifier that is safe to drop into generated
 /// C/C++ source.  The conversion is narrow and deterministic:
 ///
-/// - `-` is mapped to `_`;
-/// - if the first character is an ASCII digit, a leading `_` is
-///   prepended so the result is a valid C++ identifier (which
-///   may not start with a digit);
+/// - `-` is mapped to `_`, and a run of `_` collapses to one;
+/// - if the first character is an ASCII digit, `lib_` is prepended
+///   so the result is a valid C++ identifier (which may not start
+///   with a digit);
 /// - a C++ keyword gets a trailing `_` (`class` -> `class_`).
 ///
-/// The input is already validated by [`validate_package_name`],
-/// so the output is guaranteed to be a non-empty sequence of
-/// ASCII letters, digits, and `_` that starts with a letter or
-/// `_`.
+/// The input is already validated by [`validate_package_name`]
+/// (lowercase, starting with a letter or digit), so the output is
+/// a non-empty sequence of ASCII letters, digits, and `_` that
+/// starts with a letter and never contains `__`, which rules out
+/// the identifiers [lex.name] reserves.  Reserved namespace names
+/// such as `std` and `posix` pass through unchanged.
 fn sanitize_identifier(raw: &str) -> String {
-    let mut out: String = raw
-        .chars()
-        .map(|c| if c == '-' { '_' } else { c })
-        .collect();
-    if out.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-        out.insert(0, '_');
+    let mut out = String::new();
+    if raw.starts_with(|c: char| c.is_ascii_digit()) {
+        out.push_str("lib_");
+    }
+    for c in raw.chars().map(|c| if c == '-' { '_' } else { c }) {
+        if !(c == '_' && out.ends_with('_')) {
+            out.push(c);
+        }
     }
     if CXX_KEYWORDS.contains(&out.as_str()) {
         out.push('_');
@@ -555,11 +559,18 @@ mod tests {
         let header =
             std::fs::read_to_string(dir.child("include/9lives/9lives.hpp").path()).unwrap();
         assert!(
-            header.contains("namespace _9lives"),
-            "namespace must start with `_` for digit-leading names: {header}"
+            header.contains("namespace lib_9lives {"),
+            "digit-leading names need an unreserved prefix: {header}"
         );
         let src = std::fs::read_to_string(dir.child("src/9lives.cc").path()).unwrap();
-        assert!(src.contains("namespace _9lives"));
+        assert!(src.contains("namespace lib_9lives {"));
+    }
+
+    #[test]
+    fn sanitize_identifier_never_emits_a_double_underscore() {
+        assert_eq!(sanitize_identifier("a--b"), "a_b");
+        assert_eq!(sanitize_identifier("a_-_b"), "a_b");
+        assert_eq!(sanitize_identifier("9-lives"), "lib_9_lives");
     }
 
     #[test]

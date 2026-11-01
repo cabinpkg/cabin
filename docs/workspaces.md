@@ -204,8 +204,8 @@ The same flag bundle applies to `cabin build`, `cabin metadata`, `cabin resolve`
 Pure workspace roots (no `[package]`) work too: `cabin resolve --workspace` over a workspace root
 that only has members with `[dependencies]` produces a lockfile rooted at a synthetic
 `cabin/workspace` 0.0.0 identity.  The hosted registry reserves the `cabin` scope, and resolving
-a pure workspace against any other index that carries or depends on `cabin/workspace` fails.  Member-level requirement conflicts (`fmt = "^10"` and `fmt
-= "^11"` in two members) surface as a clear `incompatible workspace requirements for 'fmt'` error.
+a pure workspace against any other index that carries or depends on `cabin/workspace` fails.  Member-level requirements on one name are intersected, so
+conflicting ones (`fmt = "^10"` and `fmt = "^11"` in two members) fail resolution because no version satisfies both.
 - **`cabin update`** takes `--package <name>` as the registry dependency to refresh, not as a
   workspace member.  To avoid colliding with that flag, `cabin update` exposes a *reduced*
   workspace-selection bundle - `--workspace`, `--default-members`, and `--exclude` - but **not**

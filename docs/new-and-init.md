@@ -70,9 +70,10 @@ include-dirs = ["include"]
 The generated header (`include/<package>/<package>.hpp`) and the implementation source
 (`src/<package>.cc`) define a minimal `add(int, int)` function inside a namespace derived from the
 package name.  Hyphens in the package name are mapped to underscores when forming the C++ namespace
-identifier (so `hello-world` becomes `namespace hello_world`), and a C++ keyword gains a trailing
-underscore (`class` becomes `namespace class_`); the on-disk file paths keep the original package
-name.
+identifier (so `hello-world` becomes `namespace hello_world`), and a run of underscores collapses to
+one.  A name starting with a digit gains a `lib_` prefix (`9lives` becomes `namespace lib_9lives`),
+and a C++ keyword gains a trailing underscore (`class` becomes `namespace class_`); the on-disk file
+paths keep the original package name.
 
 Existing header / source files at those paths are preserved unchanged.
 
