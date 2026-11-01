@@ -2555,6 +2555,47 @@ fn registry_dep_include_dirs_become_system_includes() {
 }
 
 #[test]
+fn registry_dep_include_dir_shadowing_a_standard_header_is_refused() {
+    let tmp = assert_fs::TempDir::new().unwrap();
+    let plan_with = |kind, allow: &[&str]| {
+        let mut graph = provenance_graph(kind);
+        graph.packages[0].manifest_dir = tmp.path().to_path_buf();
+        graph.root_settings.allow_standard_header_shadowing =
+            allow.iter().map(|name| pkg_name(name)).collect();
+        let tc = toolchain();
+        plan(&plan_request(&graph, &tc, "/abs/build")).map(|_| ())
+    };
+    // Compilers skip a directory named like a header.
+    std::fs::create_dir_all(tmp.path().join("include/vector")).unwrap();
+    plan_with(PackageKind::Registry, &[]).unwrap();
+
+    // A case-insensitive file system opens `VERSION` for `<version>`.
+    std::fs::write(tmp.path().join("include/VERSION"), "1.0\n").unwrap();
+    match plan_with(PackageKind::Registry, &[]) {
+        Err(BuildError::StandardHeaderShadowing {
+            package,
+            target,
+            include_dir,
+            path,
+            header,
+            case_folded,
+        }) => {
+            assert_eq!(package, "greet");
+            assert_eq!(target, "greet");
+            assert_eq!(include_dir, "include");
+            assert_eq!(path.file_name(), Some("VERSION"));
+            assert_eq!(header, "version");
+            assert!(case_folded);
+        }
+        other => panic!("expected StandardHeaderShadowing, got {other:?}"),
+    }
+    // Only the root manifest's allow list lifts it, and the user's
+    // own (local) packages are never checked.
+    plan_with(PackageKind::Registry, &["greet"]).unwrap();
+    plan_with(PackageKind::Local, &[]).unwrap();
+}
+
+#[test]
 fn msvc_with_external_support_keeps_system_includes() {
     let graph = provenance_graph(PackageKind::Registry);
     let bg = plan_provenance_graph(&graph, Dialect::Msvc, true);

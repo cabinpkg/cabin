@@ -76,6 +76,20 @@ pub(crate) struct RawManifest {
     /// Workspace-root only, like `[patch]`.
     #[serde(default, rename = "system-provided")]
     pub(crate) system_provided: BTreeMap<String, RawSystemProvider>,
+    /// `[standard-header-shadowing]` - read only from the workspace
+    /// root manifest and ignored elsewhere, so only the consumer may
+    /// let a registry package replace standard headers, never the
+    /// package's own metadata.
+    #[serde(default, rename = "standard-header-shadowing")]
+    pub(crate) standard_header_shadowing: Option<RawStandardHeaderShadowing>,
+}
+
+/// `[standard-header-shadowing]` table.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawStandardHeaderShadowing {
+    #[serde(default)]
+    pub(crate) allow: Vec<cabin_core::PackageName>,
 }
 
 /// `[toolchain]` table.  Adding new fields here requires a matching

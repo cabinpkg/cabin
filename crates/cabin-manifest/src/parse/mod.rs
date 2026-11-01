@@ -62,6 +62,10 @@ pub struct RootSettings {
         skip_serializing_if = "cabin_core::SystemProvidedSettings::is_empty"
     )]
     pub system_provided: cabin_core::SystemProvidedSettings,
+    /// `[standard-header-shadowing] allow`: registry packages whose
+    /// include dirs may hold files named like standard headers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_standard_header_shadowing: Vec<PackageName>,
 }
 
 impl RootSettings {
@@ -71,6 +75,7 @@ impl RootSettings {
             && self.compiler_wrapper.is_none()
             && self.patches.is_empty()
             && self.system_provided.is_empty()
+            && self.allow_standard_header_shadowing.is_empty()
     }
 }
 
@@ -186,6 +191,7 @@ fn split_profile_table(
     (base, t.variants)
 }
 
+#[allow(clippy::too_many_lines)] // one independent conversion per manifest table
 fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     let RawManifest {
         package,
@@ -200,6 +206,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         toolchain,
         patch,
         system_provided,
+        standard_header_shadowing,
     } = raw;
     let (profile_flags, profile) = split_profile_table(profile);
     let patches = patch_settings_from_raw(patch)?;
@@ -267,6 +274,9 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         compiler_wrapper: compiler_wrapper.clone(),
         patches: patches.clone(),
         system_provided: system_provided.clone(),
+        allow_standard_header_shadowing: standard_header_shadowing
+            .map(|table| table.allow)
+            .unwrap_or_default(),
     };
 
     let package = if let Some(raw_project) = package {

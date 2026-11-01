@@ -17,6 +17,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 mod lowering;
+mod shadowing;
 #[cfg(test)]
 mod tests;
 
@@ -240,7 +241,9 @@ struct PreparedAssembly {
 /// [`BuildError::PackageNameCollidesWithScope`] when one planned
 /// package's bare name is another planned package's scope;
 /// [`BuildError::DependencyCycle`]
-/// when the target dependency graph contains a cycle; and per-target
+/// when the target dependency graph contains a cycle;
+/// [`BuildError::StandardHeaderShadowing`] when a registry dependency's
+/// include dir holds a file named like a standard header; and per-target
 /// source errors ([`BuildError::UnrecognizedSourceExtension`],
 /// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
 /// [`BuildError::MissingLanguageStandard`], [`BuildError::MissingCCompiler`]).
@@ -248,6 +251,7 @@ struct PreparedAssembly {
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     let selected = select_targets(req)?;
     let resolved = resolve_dependencies(&selected, req)?;
+    shadowing::reject_standard_header_shadowing(&resolved.resolved_deps, req.graph)?;
     let graph = emit_actions(&selected, resolved, req)?;
     tracing::Span::current().record("actions", graph.actions.len());
     Ok(graph)
