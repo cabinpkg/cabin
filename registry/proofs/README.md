@@ -14,12 +14,13 @@ rules.
 
 CI runs the configurations marked below whenever the model, its
 configurations, or the witness-check xtask change
-(`.github/workflows/registry.yml`, job `tlc`, gated by the `tlc` list in
+(`.github/workflows/registry.yml`, jobs `tlc-respins`, `tlc-shared`
+and `tlc-scan`, one configuration each, gated by the `tlc` list in
 `.github/path-filters.yml` and feeding the required `registry-build`
-aggregate). A missing tool, a digest mismatch, a violation, or the job
-timeout fails the check. The job then runs each
-witness trap alone, where the reverse holds: a trap TLC does not report
-violated fails it ("Non-vacuity").
+aggregate). A missing tool, a digest mismatch, a violation, or a job
+timeout fails the check. `tlc-scan` then runs each witness trap alone,
+where the reverse holds: a trap TLC does not report violated fails it
+("Non-vacuity").
 
 ## Running it
 
@@ -273,7 +274,7 @@ revive, and one respin in a single execution when no sample is spent on a
 publish that then fails or loses its race. The GitHub runner takes about
 three times the local figures (the previous model's first configuration:
 2 min 3 s locally, 6 min 30 s in the merge-group run of #1932), which is
-what the `tlc` job's 30-minute timeout is sized against.
+what each `tlc-*` job's 30-minute timeout is sized against.
 
 ## Non-vacuity
 
@@ -282,7 +283,7 @@ behavior the model must be able to reach, so TLC must report it
 **violated**, and the printed trace is the witness.
 `RegistryLifecycleShared_witness.cfg` holds `NoSharedBlob`, which needs two
 versions sharing one checksum. TLC stops at the first violation, so the
-`tlc` job runs each trap alone, and fails if TLC does not report one
+`tlc-scan` job runs each trap alone, and fails if TLC does not report one
 violated. From the repository root:
 
 ```sh

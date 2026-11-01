@@ -832,7 +832,7 @@ batches, and the separate R2 and ledger writes, and the external
 verifier's pass from listing to `PATCH` with the archive inspector as an
 oracle - is modeled in TLA+
 under [`proofs/`](../proofs/README.md), and CI model-checks the finite
-configurations recorded there (the `tlc` job in `registry.yml`). The
+configurations recorded there (the `tlc-*` jobs in `registry.yml`). The
 model's README maps each action to the statement it abstracts and
 states what the check does and does not establish.
 
