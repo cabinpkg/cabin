@@ -260,13 +260,6 @@ jobs:
           cache-save-if: ${{ github.event_name != 'merge_group' }}
           rustflags: ""
 
-      - name: Probe the MinGW tools on PATH
-        run: |
-          where.exe gcc g++ ar
-          gcc -dumpmachine
-          g++ --version
-          ar --version
-
       - name: Build cabin
         run: cargo build --locked --bin cabin
 
