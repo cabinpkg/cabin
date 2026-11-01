@@ -16,10 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
 
-COPY . /src
 WORKDIR /src
 
-RUN rustup toolchain install && rustup target add wasm32-unknown-unknown
+# Ahead of the checkout, so a source change reuses this layer: only a
+# rust-toolchain.toml change rebuilds the toolchain and worker-build.
+COPY rust-toolchain.toml ./
+RUN rustup toolchain install && rustup target add wasm32-unknown-unknown \
+    && cargo install -q "worker-build@=0.8.5" --locked
+
+COPY . /src
 
 RUN cargo fetch --locked \
     && cargo test --workspace --all-targets --all-features --locked --no-run
@@ -27,7 +32,6 @@ RUN cargo fetch --locked \
 RUN cd registry \
     && cargo fetch --locked \
     && cargo test --locked --no-run \
-    && cargo install -q "worker-build@=0.8.5" --locked \
     && worker-build --release \
     && npm ci --ignore-scripts \
     && node_modules/.bin/wrangler --version

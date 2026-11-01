@@ -19,6 +19,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # One pin for the build the queue validates and the one Deploy ships.
+  WORKER_BUILD: worker-build@0.8.5
 
 jobs:
   # Which shared path filters (.github/path-filters.yml) match this
@@ -91,10 +93,15 @@ jobs:
         env:
           RUSTFLAGS: -D warnings
 
+      # Stays on PATH for the smoke's `wrangler dev`, which runs
+      # wrangler.jsonc's build.command again.
+      - name: Install worker-build
+        uses: taiki-e/cache-cargo-install-action@v3.0.8
+        with:
+          tool: ${{ env.WORKER_BUILD }}
+
       - name: Worker build
-        run: |
-          cargo install -q "worker-build@=0.8.5" --locked
-          worker-build --release
+        run: worker-build --release
 
       # After the build so the bundle export check runs against the
       # artifact wrangler would actually deploy.
@@ -355,6 +362,14 @@ jobs:
       - name: Build the deploy confirmation
         if: steps.freshness.outputs.superseded != 'true'
         run: cargo build --locked -p xtask-registry-admin
+
+      # Deploy runs wrangler.jsonc's build.command, which needs it on
+      # PATH; a cache miss compiles it here, before the token is in env.
+      - name: Install worker-build
+        if: steps.freshness.outputs.superseded != 'true'
+        uses: taiki-e/cache-cargo-install-action@v3.0.8
+        with:
+          tool: ${{ env.WORKER_BUILD }}
 
       - name: Deploy
         if: steps.freshness.outputs.superseded != 'true'

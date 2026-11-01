@@ -1,10 +1,10 @@
 name: Registry Cache
 
 # Not a required check. Builds what registry.yml's registry-build-work
-# compiles, worker-build included, and saves it under that job's cache
-# key: only a main run writes the scope that both pull requests and the
-# merge queue restore. The key covers rustc, so dispatch it after a
-# toolchain bump.
+# compiles and saves it under that job's cache key, and worker-build
+# under the install action's own: only a main run writes the scope that
+# both pull requests and the merge queue restore. The Rust key covers
+# rustc, so dispatch it after a toolchain bump.
 on:
   schedule:
     - cron: "11 3 * * *"
@@ -53,6 +53,7 @@ jobs:
       - run: cargo build --locked -p cabinpkg-registry-verify
         working-directory: .
 
-      - run: |
-          cargo install -q "worker-build@=0.8.5" --locked
-          worker-build --release
+      - uses: taiki-e/cache-cargo-install-action@v3.0.8
+        with:
+          tool: worker-build@0.8.5
+      - run: worker-build --release
