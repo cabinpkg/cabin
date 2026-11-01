@@ -109,7 +109,7 @@ pub use source_replacement::{
 pub use standard_compatibility::{
     BoundedRange, IncompatibleStandards, Requirement, UnknownIncompatibleStandards,
 };
-pub use system_provided::{SystemProvidedSettings, SystemProvider};
+pub use system_provided::{SystemProvidedSettings, SystemProvider, SystemTargetProvider};
 pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
 pub use term_text::escape_control_chars;
 pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvError};

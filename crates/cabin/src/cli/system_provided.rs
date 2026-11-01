@@ -19,7 +19,7 @@ use anyhow::{Context as _, Result, bail};
 
 use cabin_core::{
     DependencyKind, DependencySource, Features, Package, PackageConfigInput, PackageName,
-    SystemProvidedSettings, Target, TargetKind, TargetName, TargetPlatform,
+    SystemProvidedSettings, SystemProvider, Target, TargetKind, TargetName, TargetPlatform,
 };
 use cabin_index::PackageIndex;
 use cabin_resolver::{ResolveOutput, ResolvedSource};
@@ -84,33 +84,53 @@ pub(crate) fn split_resolution(
                     resolved.version
                 )
             })?;
-        let targets: Vec<&String> = meta.standards.targets.keys().collect();
-        let [target] = targets.as_slice() else {
-            bail!(
+        let listed: BTreeSet<&str> = meta.standards.targets.keys().map(String::as_str).collect();
+        let names: BTreeSet<&str> = match &settings.entries[name] {
+            SystemProvider::Module { .. } if listed.len() == 1 => listed,
+            SystemProvider::Module { .. } => bail!(
                 "`{name} {}` is `[system-provided]` by a single pkg-config module, but the index \
-                 lists {} library targets for it rather than one",
+                 lists {} library targets for it rather than one; give each its module under \
+                 `targets`",
                 resolved.version,
-                targets.len(),
-            );
+                listed.len(),
+            ),
+            // Every library target comes from the system, so no consumer
+            // reaches a target the stub lacks.
+            SystemProvider::Targets { targets } => {
+                let named: BTreeSet<&str> = targets.keys().map(TargetName::as_str).collect();
+                if named != listed {
+                    bail!(
+                        "`[system-provided]` names targets {named:?} for `{name} {}`, but the \
+                         index lists its library targets as {listed:?}",
+                        resolved.version,
+                    );
+                }
+                named
+            }
         };
-        let target = Target {
-            name: TargetName::new(target.as_str())?,
-            kind: TargetKind::HeaderOnly,
-            sources: Vec::new(),
-            include_dirs: Vec::new(),
-            defines: Vec::new(),
-            interface_defines: Vec::new(),
-            deps: Vec::new(),
-            required_features: Vec::new(),
-            language: cabin_core::LanguageStandardSettings::default(),
-            links: None,
-            conditional_sources: Vec::new(),
-            instruction_sets: BTreeMap::new(),
-        };
+        let targets = names
+            .into_iter()
+            .map(|target| {
+                Ok(Target {
+                    name: TargetName::new(target)?,
+                    kind: TargetKind::HeaderOnly,
+                    sources: Vec::new(),
+                    include_dirs: Vec::new(),
+                    defines: Vec::new(),
+                    interface_defines: Vec::new(),
+                    deps: Vec::new(),
+                    required_features: Vec::new(),
+                    language: cabin_core::LanguageStandardSettings::default(),
+                    links: None,
+                    conditional_sources: Vec::new(),
+                    instruction_sets: BTreeMap::new(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         stubs.push(Package::with_config(PackageConfigInput {
             name: name.clone(),
             version: resolved.version.clone(),
-            targets: vec![target],
+            targets,
             dependencies: Vec::new(),
             system_dependencies: Vec::new(),
             features: Features {
@@ -235,7 +255,7 @@ pub(crate) fn probe_provided(
     let tool = crate::cli::system_deps::pkg_config_for(platform)?;
     for idx in provided {
         let package = &graph.packages[idx].package;
-        let module = &settings.entries[&package.name].pkg_config;
+        let policy = &settings.entries[&package.name];
         // The comparators of every active target-context edge onto the
         // package, which pkg-config checks against the module's
         // version.  A `*` contributes none.
@@ -265,31 +285,39 @@ pub(crate) fn probe_provided(
             }
         }
         let requirement = comparators.into_iter().collect::<Vec<_>>().join(", ");
-        // The typed error renders with its own help; the module it
-        // names is the policy's.
-        let resolution = probe_system_dependency(&SystemDependencyProbeRequest {
-            name: module,
-            version_requirement: &requirement,
-            tool: &tool,
-        })?;
-        reporter.aux_verbose(format_args!(
-            "cabin: `{}` comes from pkg-config module `{module}` (version {})",
-            package.name,
-            resolution.version.as_deref().unwrap_or("unknown"),
-        ));
-        let flags = resolution.flags;
-        // `-D` tokens stay among the compile arguments, in pkg-config's
-        // order, so a later `-U` still undoes them.
-        interfaces.insert(
-            (idx, package.targets[0].name.as_str().to_owned()),
-            cabin_build::SystemTargetInterface {
-                include_dirs: flags.include_dirs,
-                system_include_dirs: flags.system_include_dirs,
-                defines: Vec::new(),
-                compile_args: flags.extra_compile_args,
-                link_args: flags.ldflags,
-            },
-        );
+        // Every module is a version of the package, so each one meets
+        // the requirement.
+        for target in &package.targets {
+            let target = target.name.as_str();
+            let module = policy
+                .module_for(target)
+                .expect("the stub's targets are the policy's");
+            // The typed error renders with its own help; the module it
+            // names is the policy's.
+            let resolution = probe_system_dependency(&SystemDependencyProbeRequest {
+                name: module,
+                version_requirement: &requirement,
+                tool: &tool,
+            })?;
+            reporter.aux_verbose(format_args!(
+                "cabin: `{}:{target}` comes from pkg-config module `{module}` (version {})",
+                package.name,
+                resolution.version.as_deref().unwrap_or("unknown"),
+            ));
+            let flags = resolution.flags;
+            // `-D` tokens stay among the compile arguments, in
+            // pkg-config's order, so a later `-U` still undoes them.
+            interfaces.insert(
+                (idx, target.to_owned()),
+                cabin_build::SystemTargetInterface {
+                    include_dirs: flags.include_dirs,
+                    system_include_dirs: flags.system_include_dirs,
+                    defines: Vec::new(),
+                    compile_args: flags.extra_compile_args,
+                    link_args: flags.ldflags,
+                },
+            );
+        }
     }
     Ok(interfaces)
 }

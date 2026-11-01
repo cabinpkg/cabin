@@ -336,6 +336,14 @@ pub enum ManifestError {
         #[source]
         source: cabin_core::ValidationError,
     },
+
+    /// A `[system-provided]` entry names neither one module nor a
+    /// non-empty `targets` table, or both.
+    #[error(
+        "`[system-provided]` entry for `{package}` needs either `pkg-config` or a non-empty \
+         `targets` table, not both"
+    )]
+    SystemProviderShape { package: String },
 }
 
 /// Source-annotated form of a TOML parse failure.  Carries the
