@@ -3,6 +3,7 @@ name: Rust Cache
 # Not a required check. Seeds on main the dependency caches rust.yml
 # restores read-only (docs/design/ci-rust-caches.md).
 on:
+  pull_request:
   schedule:
     - cron: "23 */6 * * *"
   workflow_dispatch:
@@ -18,7 +19,7 @@ jobs:
   # build-and-test's legs; lint-work and compiler-detection restore the
   # ubuntu-24.04 key, windows-msvc-autodiscovery the windows-2025-vs2026 one.
   debug:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -70,7 +71,7 @@ jobs:
         run: cargo build --locked --bin cabin
 
   fuzz:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
