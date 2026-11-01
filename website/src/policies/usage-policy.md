@@ -1,12 +1,12 @@
 # Usage Policy
 
-**Short version:** *The Cabin registry is a shared resource for the C/C++
+**Short version:** _The Cabin registry is a shared resource for the C/C++
 community, hosting a variety of packages from a diverse group of users. That
 resource is only effective when our users are able to work together as part of
 a community in good faith. While using the Cabin registry, you must comply with
 our Acceptable Use Policies, which include some restrictions on content and
 conduct related to user safety, intellectual property, privacy, authenticity,
-and other limitations. In short, be excellent to each other!*
+and other limitations. In short, be excellent to each other!_
 
 This policy applies to the Cabin registry service as a whole: the machine read
 plane at `registry.cabinpkg.com` and the website and API at `cabinpkg.com`.
