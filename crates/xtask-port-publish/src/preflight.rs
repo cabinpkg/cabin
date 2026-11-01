@@ -519,10 +519,7 @@ fn resolve_package_archive(
     // Atomic sibling-rename write, so a concurrent reader never sees
     // a partial archive at the content-addressed slot.  A checksum-
     // invalid entry may still occupy the slot (that is why this is a
-    // miss); it is replaced, so cache corruption self-heals.
-    if cached.exists() {
-        fs::remove_file(&cached).with_context(|| format!("removing stale {}", cached.display()))?;
-    }
+    // miss); the rename replaces it, so cache corruption self-heals.
     let staging = cached.with_extension("part");
     fs::write(&staging, &bytes).with_context(|| format!("writing {}", staging.display()))?;
     fs::rename(&staging, &cached).with_context(|| format!("moving into {}", cached.display()))?;
@@ -629,17 +626,18 @@ fn build_probe_against_registry(
             );
         }
         let built = started.elapsed();
-        if request.run_probes {
-            for consumer in probe_consumers(conversion) {
-                let status = cabin(&["run", "--bin", consumer.target])?;
-                if !status.success() {
-                    bail!(
-                        "preflight probe `{}` of {} {} failed ({status})",
-                        consumer.target,
-                        conversion.scoped_name.as_str(),
-                        conversion.published_version
-                    );
-                }
+        if !request.run_probes {
+            return Ok((built, Duration::ZERO));
+        }
+        for consumer in probe_consumers(conversion) {
+            let status = cabin(&["run", "--bin", consumer.target])?;
+            if !status.success() {
+                bail!(
+                    "preflight probe `{}` of {} {} failed ({status})",
+                    consumer.target,
+                    conversion.scoped_name.as_str(),
+                    conversion.published_version
+                );
             }
         }
         Ok((built, started.elapsed().saturating_sub(built)))

@@ -22,9 +22,10 @@ struct Cli {
     #[arg(long, group = "mode", requires = "index_url")]
     publish: bool,
     /// Registry index URL (required with --publish).
-    // `conflicts_with`, not `requires = "publish"`: a `SetTrue` flag
-    // always carries its defaulted `false`, which satisfies `requires`
-    // even when the flag was never passed. The pairing still holds:
+    // `conflicts_with`, not `requires = "publish"`: clap excuses a
+    // missing required argument that conflicts with a present one, and
+    // the `mode` group makes --publish conflict with --dry-run, so
+    // `--dry-run --index-url` would pass. The pairing still holds:
     // the URL forbids --dry-run, the required group then forces
     // --publish, and --publish requires the URL back.
     #[arg(long, conflicts_with = "dry_run")]
@@ -42,8 +43,8 @@ struct Cli {
     /// dir; kept on failure).
     #[arg(long)]
     work_dir: Option<PathBuf>,
-    /// Cabin binary for preflight builds (default: a sibling of this
-    /// executable).
+    /// Cabin binary for preflight builds and uploads (default: a
+    /// sibling of this executable).
     #[arg(long)]
     cabin: Option<PathBuf>,
 }
