@@ -32,6 +32,12 @@ evidence of current behavior, not proof that the behavior is correct.
   change would otherwise make an existing instruction factually incorrect.
 - Make the smallest coherent change required. Do not refactor, reformat,
   clean up, or remove unrelated code, including pre-existing dead code.
+- Proactively fix concrete, reproducible, low-risk bugs discovered during
+  other work. At the next safe point, create a separate worktree and PR
+  for unrelated fixes. Complete the normal checks, review, merge queue,
+  and cleanup without asking for approval. Do not merely report such
+  bugs at session end. Keep the original task moving. If a fix is
+  uncertain, invasive, or conflicts with ongoing work, report it instead.
 - Prefer existing repository mechanisms and maintained upstream tools,
   libraries, and platform features over repository-owned replacements. Do not
   reimplement or compatibility-port third-party semantics merely to remove a
