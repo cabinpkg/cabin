@@ -224,7 +224,6 @@ sources = ["src/lib.cc"]
     let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
     let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
     let _ninja = fake_tool_with_output(bin.path(), "ninja", "1.11.1\n", "", 0);
-    // No ccache staged.
     let assertion = cabin()
         .args(["build", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))

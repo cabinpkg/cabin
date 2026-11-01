@@ -16,11 +16,9 @@ fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
     out
 }
 
-/// Build a `.zip` containing a single entry with the given raw path
-/// name and body.  Returns its `sha256` hex.  Same as [`make_archive`]
-/// but writes the entry name verbatim so we can construct an unsafe
-/// archive entry (path traversal) that a safe reader must refuse - the
-/// zip writer permits `..` in a name, extraction rejects it.
+/// Build a single-entry `.zip` at `path` and return its sha256 hex.
+/// `zip::ZipWriter` stores `raw_name` unchecked, so a traversal name
+/// such as `../escape.txt` reaches the extractor, which must refuse it.
 fn make_archive_with_raw_name(path: &Path, raw_name: &str, body: &[u8]) -> String {
     if let Some(parent) = path.parent() {
         assert_fs::fixture::ChildPath::new(parent)
@@ -98,17 +96,14 @@ fn fetch_extracts_registry_package_into_cache() {
             "cabin: checksum matched for fmt 10.2.1 (sha256:{hex})"
         )));
 
-    // Lockfile written next to root manifest.
     let lock_path = dir.path().join("app/cabin.lock");
     assert!(lock_path.is_file(), "cabin.lock should exist");
     let lock_body = fs::read_to_string(&lock_path).unwrap();
     assert!(lock_body.contains(r#"name = "fmt""#));
     assert!(lock_body.contains(&format!("checksum = \"sha256:{hex}\"")));
 
-    // Archive present in the checksum-addressed cache.
     let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.zip"));
     assert!(archive_in_cache.is_file(), "archive should be cached");
-    // Source extracted with cabin.toml at root.
     let source_in_cache = cache.join("sources/sha256").join(&hex);
     assert!(source_in_cache.join("cabin.toml").is_file());
 }
@@ -278,11 +273,9 @@ deps = ["spdlog"]
     dir.child("app/cabin.toml").write_str(app_manifest).unwrap();
     dir.child("app/src/main.cc").write_str(app_main).unwrap();
 
-    // fmt archive (library).
     let fmt_archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let fmt_hex = make_archive(&fmt_archive, &fmt_archive_entries());
 
-    // spdlog archive: library that depends on fmt.
     let spdlog_manifest = r#"[package]
 name = "spdlog"
 version = "1.13.0"
@@ -341,7 +334,6 @@ deps = ["fmt"]
         .assert()
         .success();
 
-    // Both packages should have been fetched and built.
     assert!(
         cache
             .join("sources/sha256")
@@ -382,8 +374,6 @@ fn fetch_fails_on_checksum_mismatch() {
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     make_archive(&archive, &fmt_archive_entries());
-    // Index advertises a checksum that doesn't match the archive's
-    // actual bytes.
     let bogus_hex = "0".repeat(64);
     write_index_entry(
         &dir.path().join("index"),
@@ -481,7 +471,6 @@ fn frozen_uses_cache_after_initial_fetch() {
     );
 
     let cache = dir.path().join("cache");
-    // Populate cache normally.
     cabin()
         .args(["fetch", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
@@ -491,8 +480,7 @@ fn frozen_uses_cache_after_initial_fetch() {
         .arg(&cache)
         .assert()
         .success();
-    // Now move the source archive away and re-run with --frozen;
-    // cache hit should let it succeed.
+    // With the source archive gone, only a cache hit lets --frozen succeed.
     fs::remove_file(&archive).unwrap();
     cabin()
         .args(["fetch", "--frozen", "--manifest-path"])
@@ -568,9 +556,7 @@ fn frozen_does_not_write_lockfile_or_cache() {
         .arg(&cache)
         .assert()
         .failure();
-    // Lockfile must not have been created by the failed run.
     assert!(!dir.path().join("app/cabin.lock").exists());
-    // Cache must not have been populated by the failed run.
     let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.zip"));
     assert!(!archive_in_cache.exists());
 }

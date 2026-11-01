@@ -15,9 +15,8 @@ fn fake_ninja_path() -> PathBuf {
     workspace_test_bin("cabin-ninja-fake-ninja")
 }
 
-/// Configure the returned [`Command`] to use the fake ninja
-/// recorded at `record`.  Callers stage the project and add
-/// the subcommand and its flags.
+/// `cabin()` with the fake ninja, which appends each invocation's
+/// argv to `record`.
 fn cabin_with_fake_ninja(record: &Path) -> Command {
     let mut cmd = cabin();
     cmd.env("NINJA", fake_ninja_path())
@@ -322,13 +321,8 @@ fn config_zero_is_rejected_with_actionable_error() {
 
 #[test]
 fn run_jobs_before_doubledash_is_consumed_by_cabin() {
-    // `cabin run --jobs 4 -- --help`: `--jobs 4` appears
-    // before `--`, so Cabin parses it and forwards `-j4`
-    // to ninja. `--help` after `--` reaches the user
-    // program - but the fake ninja never produces an
-    // executable, so the run command exits non-zero
-    // after the ninja step.  We only care about what
-    // reached ninja.
+    // The fake ninja produces no executable, so `run` fails after
+    // the ninja step; only the ninja argv is checked.
     let dir = TempDir::new().unwrap();
     let record = dir.path().join("ninja.log");
     write_minimal_project(dir.path());
@@ -344,13 +338,9 @@ fn run_jobs_before_doubledash_is_consumed_by_cabin() {
 
 #[test]
 fn run_jobs_after_doubledash_does_not_reach_ninja() {
-    // `cabin run -- --jobs 4`: `--jobs 4` appears after
-    // `--` and is therefore destined for the user
-    // program.  Cabin must not interpret it as its own
-    // `--jobs` flag; ninja receives no `-j` argument.
-    // (The program is never reached because the fake
-    // ninja short-circuits, but Cabin's parse-time
-    // treatment is what this test pins down.)
+    // `--jobs 4` after `--` belongs to the program, not Cabin. The
+    // program never runs (the fake ninja produces no executable);
+    // the test pins Cabin's argument parsing only.
     let dir = TempDir::new().unwrap();
     let record = dir.path().join("ninja.log");
     write_minimal_project(dir.path());

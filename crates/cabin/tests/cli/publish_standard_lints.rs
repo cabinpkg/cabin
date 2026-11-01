@@ -140,7 +140,6 @@ fn pl1_rejects_and_leaves_registry_unwritten() {
         stderr.contains("rejected this publish"),
         "expected the rejection preamble in: {stderr}"
     );
-    // Nothing was written: the registry was never even initialized.
     assert!(!registry.join("config.json").exists());
     assert!(!registry.join("packages").exists());
 }
@@ -280,7 +279,6 @@ fn pl3_warns_on_patch_raise_cxx() {
     write_pkg(&pkg_root, &compiled_cxx("1.0.0", "c++17"), CXX_SOURCES);
     publish(&pkg_root, &registry).success();
 
-    // Patch release raising the interface minimum to c++20.
     write_pkg(&pkg_root, &compiled_cxx("1.0.1", "c++20"), CXX_SOURCES);
     let assertion = publish(&pkg_root, &registry).success();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
@@ -392,7 +390,6 @@ cxx-standard = "c++20"
         stdout.contains("Patch-release requirement check (PL3) skipped"),
         "expected the PL3-skip note in stdout: {stdout}"
     );
-    // PL2 still runs on the staging-only path.
     assert!(
         stderr.contains("warning:") && stderr.contains("interface-cxx-standard"),
         "expected the PL2 warning on the dry-run path: {stderr}"

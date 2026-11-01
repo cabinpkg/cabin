@@ -408,7 +408,8 @@ required-features = ["slow"]
     );
 }
 
-/// Package with one ungated and one feature-gated executable.
+/// Package with a feature-gated `extra` executable and, unless
+/// `gated_only`, an ungated `main` executable.
 fn write_gated_run_package(root: &Path, gated_only: bool) {
     let main_target = if gated_only {
         ""

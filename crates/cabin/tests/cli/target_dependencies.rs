@@ -48,8 +48,6 @@ spdlog = "^1"
     // The view always reports the resolved host platform.
     let target_platform = &value["target_platform"];
     assert_eq!(target_platform["os"].as_str().unwrap(), host_os_value());
-    // Two deps are listed; the host-matching one is active,
-    // the other is inactive.
     let deps = value["packages"][0]["dependencies"].as_array().unwrap();
     let fmt = deps.iter().find(|d| d["name"] == "fmt").unwrap();
     assert_eq!(fmt["active"].as_bool(), Some(true));

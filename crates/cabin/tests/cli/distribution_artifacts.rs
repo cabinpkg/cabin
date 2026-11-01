@@ -27,8 +27,6 @@ fn compgen_zsh_writes_completion_script_to_stdout() {
         .clone();
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(!stdout.is_empty(), "zsh completion should be non-empty");
-    // Zsh completion either mentions the binary or the standard
-    // `_cabin` function name.
     assert!(
         stdout.contains("cabin") || stdout.contains("_cabin"),
         "expected zsh script to reference cabin or _cabin"
@@ -90,8 +88,6 @@ fn compgen_writes_single_shell_to_output_dir() {
     assert!(path.is_file());
     let body = fs::read(&path).unwrap();
     assert!(!body.is_empty());
-    // Other shells should NOT have been written for a single-shell
-    // invocation.
     assert!(!out.join("cabin.bash").exists());
 }
 
@@ -126,11 +122,8 @@ fn mangen_writes_root_and_subcommand_pages_to_output_dir() {
     let root_body = fs::read_to_string(&root).unwrap();
     assert!(!root_body.is_empty());
 
-    // Every top-level subcommand - including the ones
-    // hidden from `cabin --help` - gets its own
-    // `cabin-<sub>.1` page.  The expected list is derived
-    // from clap so adding a subcommand updates this test
-    // automatically.
+    // Subcommands hidden from `cabin --help` also get a page;
+    // `all_subcommand_names` is read from clap and includes them.
     for sub in all_subcommand_names() {
         let path = out.join(format!("cabin-{sub}.1"));
         assert!(path.is_file(), "expected cabin-{sub}.1");

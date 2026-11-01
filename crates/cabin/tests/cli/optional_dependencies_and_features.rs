@@ -1,8 +1,5 @@
-//! End-to-end coverage for optional Cabin
-//! package dependencies, dependency feature requests, and the
-//! cross-package feature resolver.  These tests exercise the
-//! integration through the actual CLI binary so the JSON
-//! contract surfaces in the metadata output.
+//! End-to-end coverage for optional package dependencies, dependency
+//! feature requests, and the cross-package feature resolver.
 
 use super::*;
 
@@ -27,8 +24,8 @@ openssl = { version = "^3", optional = true }
 "#,
         )
         .unwrap();
-    // Index covers both fmt and openssl.  The resolver should
-    // only see `openssl` when `--features ssl` is passed.
+    // The index has `openssl`, so only the feature gate can keep it
+    // out of resolution.
     write_index_entry_no_source(&root.join("index"), "fmt", "10.2.1", &"0".repeat(64));
     write_index_entry_no_source(&root.join("index"), "openssl", "3.2.0", &"0".repeat(64));
 }
@@ -74,7 +71,6 @@ fn resolve_with_feature_includes_optional_dep() {
 #[test]
 fn resolve_no_default_features_disables_root_default_chain() {
     let dir = TempDir::new().unwrap();
-    // Default group enables ssl, which enables optional openssl.
     dir.child("cabin.toml")
         .write_str(
             r#"[package]
@@ -153,10 +149,6 @@ fn fetch_does_not_pull_disabled_optional_into_lockfile() {
 
 #[test]
 fn metadata_round_trips_optional_and_features_in_dependency_view() {
-    // `cabin metadata` JSON already prints each dep's name + kind
-    // + source.  This test pins that the optional flag and any
-    //   `features = [...]` declaration round-trip back through the
-    //   typed CLI view.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -173,10 +165,9 @@ openssl = { version = "^3", optional = true }
     let value = run_metadata(&dir.path().join("cabin.toml"));
     let demo = package_in(&value, "demo");
     let deps = demo["dependencies"].as_array().unwrap();
-    // The CLI view already serializes each `Dependency` via
-    // serde, so the new `optional`, `features`, and
-    // `default_features` fields show up automatically when
-    // their values differ from the documented defaults.
+    // `DependencyView` omits `optional`, `features`, and
+    // `default_features` at their defaults (false, empty, true), so
+    // the fixture sets each to a non-default value.
     let openssl = deps
         .iter()
         .find(|d| d["name"] == "openssl")
@@ -195,9 +186,6 @@ openssl = { version = "^3", optional = true }
 
 #[test]
 fn package_metadata_round_trips_optional_and_features() {
-    // `cabin package` writes canonical metadata; round-trip
-    // confirms the rich entry shape is used when fields are
-    // non-default.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

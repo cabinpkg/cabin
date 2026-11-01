@@ -1,9 +1,8 @@
 use super::*;
 
 /// Workspace with three members named `alpha`, `beta`, `gamma`,
-/// each with one executable and a shared `src/main.cc`.  The
-/// caller can request that `default-members` and an `exclude`
-/// pattern be added, and gets back the manifest path.
+/// each with one executable.  The caller can request that
+/// `default-members` and an `exclude` pattern be added.
 fn write_three_member_workspace(
     root: &Path,
     default_members: Option<&[&str]>,
@@ -376,7 +375,6 @@ fn build_with_explicit_packages_builds_only_those() {
             .join(host_exe("beta"))
             .is_file()
     );
-    // alpha and gamma must not have been built.
     assert!(
         !build_dir
             .join("dev/packages/alpha")
@@ -448,7 +446,6 @@ fn build_unknown_package_fails_clearly() {
 fn package_in_workspace_requires_explicit_selection() {
     let dir = TempDir::new().unwrap();
     write_three_member_workspace(dir.path(), None, None);
-    // Without --package, packaging the workspace root must fail.
     cabin()
         .args(["package", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -456,7 +453,6 @@ fn package_in_workspace_requires_explicit_selection() {
         .failure()
         .stderr(predicate::str::contains("--package <name>"));
 
-    // With a single --package, packaging the chosen member works.
     let dist = dir.path().join("dist");
     cabin()
         .args(["package", "--manifest-path"])
@@ -481,8 +477,6 @@ fn publish_in_workspace_requires_explicit_selection() {
         .unwrap();
     let registry = dir.path().join("registry");
 
-    // Without --package, publishing the workspace root must
-    // fail with the workspace-boundary error.
     cabin()
         .args(["publish", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -492,8 +486,6 @@ fn publish_in_workspace_requires_explicit_selection() {
         .failure()
         .stderr(predicate::str::contains("--package <name>"));
 
-    // With a single --package, publishing the chosen member
-    // succeeds.
     cabin()
         .args(["publish", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))

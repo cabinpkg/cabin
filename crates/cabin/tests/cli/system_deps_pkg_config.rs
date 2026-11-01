@@ -1,16 +1,15 @@
 use super::*;
 use std::path::PathBuf;
 
-/// Build with the `test-fake-pkg-config` feature on
-/// `cabin-system-deps`.
+/// The fake pkg-config binary, built by `cabin-system-deps` under its
+/// `test-fake-pkg-config` feature.
 fn fake_pkg_config_path() -> PathBuf {
     workspace_test_bin("cabin-system-deps-fake-pkg-config")
 }
 
-/// Pre-built TempDir holding fixture JSON files for the fake
-/// pkg-config.  Tests call `.write` to publish a module's
-/// metadata, then point `CABIN_FAKE_PKG_CONFIG_FIXTURES` at
-/// the directory path through the command env.
+/// TempDir of `<module>.json` files the fake pkg-config reads through
+/// `CABIN_FAKE_PKG_CONFIG_FIXTURES`; `write` publishes one module's
+/// metadata.
 pub(super) struct Fixtures {
     dir: TempDir,
 }
@@ -33,17 +32,15 @@ impl Fixtures {
     }
 }
 
-/// Build a `cabin` command pre-loaded with the fake
-/// pkg-config and a freshly-created fixture directory.  The
-/// caller publishes fixtures via the returned `Fixtures`
-/// handle.
+/// A `cabin` command whose pkg-config is the fake one, reading module
+/// metadata from `fixtures`.
 pub(super) fn cabin_with_fake_pkg_config(fixtures: &Fixtures) -> Command {
     let mut cmd = cabin();
     cmd.env("CABIN_PKG_CONFIG", fake_pkg_config_path());
     cmd.env("CABIN_FAKE_PKG_CONFIG_FIXTURES", fixtures.path());
-    // Poison the environment with a registry credential: the fake
-    // pkg-config hard-fails when it sees the variable, so every test
-    // in this module enforces the child-env scrub.
+    // Poison the environment with the registry token and the Actions
+    // OIDC request token: the fake pkg-config hard-fails when it sees
+    // either, so every command built here enforces the child-env scrub.
     cmd.env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234");
     cmd.env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-oidc-secret");
     cmd
@@ -330,14 +327,11 @@ fn build_compile_commands_carry_include_paths_from_pkg_config() {
         .unwrap();
     write_hello_main(dir.path());
 
-    // The default Windows toolchain is MSVC, and Cabin rejects
-    // `system = true` dependencies under MSVC: pkg-config emits
-    // GNU-style flags (`-I`, `-L`, `-lz`) that `cl` / `link` cannot
-    // consume, and on Windows the `.pc` files reference the MinGW
-    // ABI.  There is nothing to propagate, so the build is refused
-    // before any probe runs - assert the actionable diagnostic
-    // instead.  A GNU/Clang toolchain (the non-Windows default) flows
-    // the discovered flags through to the compile and link commands.
+    // The default Windows toolchain is MSVC, which refuses
+    // `system = true` dependencies before any probe runs
+    // (`ensure_dialect_supports_system_deps`).  A GNU/Clang toolchain,
+    // the non-Windows default, carries the discovered flags into the
+    // compile and link commands.
     if cfg!(windows) {
         let assertion = cabin_with_fake_pkg_config(&fixtures)
             .current_dir(dir.path())
@@ -397,10 +391,9 @@ fn fingerprint_moves_when_pkg_config_flags_change() {
             }"#,
     );
     let dir = TempDir::new().unwrap();
-    // The metadata view only emits `configuration` (and
-    // hence the fingerprint) when the package declares at
-    // least one feature.  Declare a trivial feature so the
-    // fingerprint surface is populated.
+    // The metadata view emits `configuration` (and hence the
+    // fingerprint) only for a package that declares a feature or a
+    // language setting (a standard or `gnu-extensions`).
     dir.child("cabin.toml")
 
             .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[features]\ndefault = []\nflag-a = []\n\n[dependencies]\nzlib = { version = \"\", system = true }\n")
@@ -450,10 +443,8 @@ fn fingerprint_moves_when_pkg_config_flags_change() {
     );
 }
 
-/// Walk the metadata view looking for the first build-config
-/// fingerprint.  Build-configurations live under
-/// `configurations.<package>.fingerprint`; the value is a
-/// hex string.  Robust against schema reshuffles.
+/// The first `fingerprint` string in the metadata view; build
+/// configurations sit at `packages[].configuration.fingerprint`.
 fn find_fingerprint(value: &serde_json::Value) -> String {
     fn walk(v: &serde_json::Value) -> Option<String> {
         if let Some(map) = v.as_object() {

@@ -10,10 +10,9 @@
 
 //! End-to-end tests for the user-facing example projects under
 //! `examples/`.  Each test copies one example into a temp dir and
-//! drives `cabin build` / `cabin run` against it through the
-//! compiled `cabin` binary, so the examples ship with a CI-enforced
-//! guarantee that they build and run with the version of Cabin in
-//! the same commit.
+//! drives `cabin build` / `cabin run` / `cabin test` against it through
+//! the compiled `cabin` binary, so CI checks the examples against the
+//! Cabin of the same commit.
 
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
@@ -36,9 +35,8 @@ fn examples_root() -> PathBuf {
         .join("examples")
 }
 
-/// Copy `examples/<name>/` into a fresh `assert_fs::TempDir` and
-/// return the temp dir.  Builds run against the copy so the source
-/// tree never accumulates `build/` directories.
+/// Copy `examples/<name>/` into a fresh temp dir so builds never
+/// accumulate `build/` directories in the source tree.
 fn copy_example(name: &str) -> TempDir {
     let dir = TempDir::new().expect("temp dir");
     dir.copy_from(examples_root().join(name), &["**"])
@@ -73,8 +71,6 @@ fn hello_c_builds_and_runs() {
         .arg(dir.path().join("build"))
         .assert()
         .success();
-    // `cabin run` is reserved for `executable` targets, so the
-    // example is exercised by running its produced binary directly.
     let artifact = dir.path().join(format!(
         "build/dev/packages/hello-c/hello-c{}",
         std::env::consts::EXE_SUFFIX
@@ -278,13 +274,12 @@ fn workspace_basic_runs_selected_package() {
 }
 
 // Real-upstream registry examples are external-network smoke tests:
-// each one stages the committed `ports/` tree into
-// a local file registry through the publisher
-// pipeline (one shared staging per test process, downloading the
-// pinned upstream archives) and consumes the published
-// `cabin-ports/*` packages from it.  They intentionally do not run in
-// default PR CI; the required CI exercises the same consumption
-// path hermetically via `cli/registry_ports.rs`.
+// they consume the `cabin-ports/*` packages that the publisher
+// pipeline stages from the committed `ports/` tree into a local file
+// registry (once per test process, downloading the pinned upstream
+// archives).  They do not run in default PR CI; the required CI
+// exercises the same consumption path hermetically via
+// `cli/registry_ports.rs`.
 #[test]
 #[ignore = "requires external network"]
 fn zlib_usage_builds_and_runs() {
@@ -386,7 +381,6 @@ fn sqlite3_usage_builds_and_runs() {
 #[ignore = "requires external network"]
 fn sqlite3_single_threaded_feature_disables_threadsafety() {
     require_c_and_cxx_build_tools();
-    // Start from the example, then enable the feature on the dependency.
     let dir = copy_example("sqlite3-usage");
     dir.child("cabin.toml")
         .write_str(
@@ -416,12 +410,12 @@ deps = ["cabin-ports/sqlite3"]
 }
 
 /// libpng depends on zlib, so this example exercises a transitive
-/// registry edge end to end.  The program forces a real zlib symbol
-/// (`zlibVersion()`) reached only through the `libpng -> zlib` edge,
-/// proving both the transitive include propagation (zlib.h is
-/// visible while compiling) and the transitive link (the zlib
-/// archive is on the final link line).  The hermetic cache-lifecycle
-/// counterpart lives in `cli/registry_ports.rs`.
+/// registry edge end to end: the libpng archive needs zlib's on the
+/// final link line.  libpng's edge onto zlib is private, so the example
+/// declares zlib itself for its own `zlibVersion()` call; both edges
+/// resolve to one zlib version.  The hermetic counterpart is
+/// `transitive_scoped_dep_builds_and_links_both_archives` in
+/// `cli/registry_ports.rs`.
 #[test]
 #[ignore = "requires external network"]
 fn libpng_usage_builds_and_runs() {

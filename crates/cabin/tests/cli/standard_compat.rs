@@ -17,9 +17,7 @@
 //! enforcement deliberately accepts - prove the gating comes from
 //! this check alone.  The one escape hatch is a per-edge
 //! `ignore-interface-standard = true` dependency override, which
-//! downgrades exactly that edge to an unchecked-edge note.  The
-//! removed `standard-compat` feature name is now an ordinary
-//! unknown `-Z` value.
+//! downgrades exactly that edge to an unchecked-edge note.
 
 use super::*;
 
@@ -151,7 +149,7 @@ fn direct_minimum_violation_fails_with_provenance_error() {
         stderr.contains(VIOLATION_CODE),
         "expected the stable code in: {stderr}"
     );
-    // Diagnostics v2: `consumer (standard, path:line) -> dependency
+    // The arrow reads `consumer (standard, path:line) -> dependency
     // requires ... (field, path:line)`.  `cxx-standard` sits on
     // line 12 of app/cabin.toml, `interface-cxx-standard` on line
     // 10 of lib/cabin.toml.
@@ -301,8 +299,6 @@ cxx-standard = "c++17"
         .code(1);
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let flat = flatten(&stderr);
-    // Exactly one edge errors (libb) and exactly one goes
-    // unchecked (liba).
     assert_eq!(
         stderr.matches(VIOLATION_CODE).count(),
         1,
@@ -633,7 +629,6 @@ deps = ["w"]
             ),
         "expected the C++-side error in: {flat}"
     );
-    // Two errors on the one edge: the code renders once each.
     assert_eq!(
         stderr.matches(VIOLATION_CODE).count(),
         2,
@@ -739,8 +734,6 @@ deps = ["acme/libnone"]
         ),
         "expected the disabled-consumption wording in: {first_flat}"
     );
-    // The registry dependency gets the pin remedy, then the
-    // override as the last resort.
     assert!(
         flat_contains(
             &first_stderr,
@@ -887,15 +880,12 @@ deps = ["acme/libiface"]
         );
     }
 
-    // Lower the consumer's standard *after* the lockfile was
-    // generated - exactly the staleness story the note explains.
     assert_fs::fixture::ChildPath::new(app_root.join("cabin.toml"))
         .write_str(&app_manifest("c++17"))
         .unwrap();
 
     for (subcommand, build_dir) in [("build", "build2"), ("test", "build3")] {
         let assertion = run(subcommand, build_dir);
-        // The standard-compat error gates the command itself now.
         let assertion = assertion.failure().code(1);
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         let flat = flatten(&stderr);
@@ -921,8 +911,6 @@ deps = ["acme/libiface"]
         );
     }
 
-    // The check validated a lockfile-loaded graph twice and never
-    // rewrote the lockfile.
     assert_eq!(
         std::fs::read(&lock_path).unwrap(),
         locked_bytes,
@@ -930,13 +918,12 @@ deps = ["acme/libiface"]
     );
 }
 
-/// A library whose public header uses a feature C++17 **removed**
-/// (the `register` storage-class specifier) declares the honest
-/// bounded interface `{ min = "c++11", max = "c++14" }`.  A
-/// consumer on c++17 is refused with the above-maximum wording and
-/// the lower-the-standard remedy - raising can never help against a
-/// cap - and a consumer capped at c++14 really compiles the header,
-/// proving the fixture (and the bound) genuine.
+/// A library whose public header uses the `register` storage-class
+/// specifier, removed in C++17, declares the interface
+/// `{ min = "c++11", max = "c++14" }`.  A c++17 consumer is refused
+/// with the above-maximum wording and the lower-the-standard remedy
+/// (raising cannot satisfy a cap), and a c++14 consumer compiles the
+/// header.
 #[test]
 fn bounded_range_caps_consumers_above_the_maximum() {
     require_cxx_build_tools();
@@ -956,12 +943,9 @@ interface-cxx-standard = { min = "c++11", max = "c++14" }
 "#,
         )
         .unwrap();
-    // `register` was removed in C++17 - the real-world shape the
-    // declared `max = "c++14"` encodes.  Compilers differ in whether
-    // they reject or merely warn about removed features, so the
-    // `#error` guard makes the cap's compile-time meaning
-    // deterministic; the c++14 leg below proves the header genuinely
-    // compiles inside the declared range.
+    // Compilers differ in whether they reject or only warn about
+    // removed features, so the `#error` guard makes the cap's
+    // compile-time meaning deterministic.
     assert_fs::fixture::ChildPath::new(dir.path().join("legacy/include/legacy.h"))
         .write_str(
             "#pragma once

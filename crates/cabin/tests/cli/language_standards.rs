@@ -390,9 +390,6 @@ include-dirs = ["include"]
     );
 }
 
-/// A bounded interface declaration round-trips through publish into
-/// both the canonical `language` block and the per-target
-/// `standards` table, `min` and `max` intact.
 #[test]
 fn published_index_preserves_bounded_interface_requirements() {
     let dir = TempDir::new().unwrap();
@@ -570,7 +567,6 @@ fn metadata_language_block_is_deterministic_and_reports_sources() {
         app.get("gnu_extensions").is_none(),
         "the default gnu-extensions = false reports no entry: {app}"
     );
-    // Deterministic across runs.
     let again = run_metadata(&manifest);
     assert_eq!(
         config,
@@ -597,10 +593,9 @@ fn explain_build_config_reports_effective_standards() {
 fn sibling_target_standard_does_not_gate_selected_target() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // `exotic` declares c++23 - which MSVC has no stable flag for -
-    // but `cabin run --bin app` never plans it, so toolchain
-    // validation must not reject the run (the regression Codex
-    // reported on the package-level requested-standards collection).
+    // `exotic` declares c++23 (no stable MSVC flag), but
+    // `cabin run --bin app` never plans it. Toolchain validation must
+    // check the planned graph's standards, not the package-level set.
     assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
         .write_str(
             r#"[package]

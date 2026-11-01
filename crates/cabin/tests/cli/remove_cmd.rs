@@ -47,7 +47,6 @@ fn remove_deletes_entry_and_reports_status() {
         body.contains("xxhash"),
         "sibling dep should remain:\n{body}"
     );
-    // Untouched sections and the surviving dep's comment survive.
     assert!(body.contains("[target.demo]"), "target lost:\n{body}");
     assert!(
         body.contains("# xxhash stays pinned"),
@@ -104,7 +103,6 @@ fn remove_missing_dependency_fails_with_cargo_wording() {
             "the dependency `nonexistent` could not be found in `dependencies`",
         ));
 
-    // The manifest is left untouched on failure.
     let after = std::fs::read_to_string(&manifest).unwrap();
     assert!(
         after.contains("zlib"),

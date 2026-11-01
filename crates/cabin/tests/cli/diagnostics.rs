@@ -1,10 +1,8 @@
 use super::*;
 
-/// Replace the absolute test-tempdir path in `text` with a
-/// stable placeholder so a golden assertion is byte-stable
-/// across CI / developer machines. macOS canonicalizes
-/// `/tmp/...` to `/private/tmp/...`, so we strip both
-/// prefixes.
+/// Replace the tempdir path in `text` with `<TMPDIR>`, in both its
+/// canonical and given spellings: macOS canonicalizes `/tmp/...` to
+/// `/private/tmp/...`.
 fn normalize(text: &str, tmpdir: &std::path::Path) -> String {
     let canonical = tmpdir
         .canonicalize()
@@ -26,12 +24,8 @@ fn missing_manifest_emits_typed_diagnostic_with_help() {
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let normalized = normalize(&stderr, dir.path());
-    // miette's fancy renderer emits the stable code on its
-    // own line, then a blank line, then ` × <message>`,
-    // and finally ` help: <help text>`.  Pin all three
-    // components plus the no-cause-chain invariant: the
-    // raw `os error 2` must not appear anywhere because
-    // the typed error sets its own message.
+    // `ManifestNotFound` carries no `io::Error` source, so the raw
+    // `os error 2` text must not appear.
     assert!(
         normalized.contains("cabin::workspace::manifest_not_found"),
         "missing code: {normalized:?}"
@@ -64,14 +58,8 @@ fn invalid_toml_manifest_renders_source_snippet() {
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-    // The exact byte position the toml parser flags varies
-    // between releases, so we assert on stable invariants:
-    // - the `parse_error` code,
-    // - the primary `× could not parse Cabin manifest`
-    //   line,
-    // - miette's box-drawing snippet header `╭─[path:l:c]`,
-    // - the offending source line embedded in the snippet,
-    // - a `help:` line.
+    // The span the toml parser reports varies between releases, so
+    // only position-independent parts of the report are asserted.
     assert!(
         stderr.contains("cabin::manifest::parse_error"),
         "missing parse_error code: {stderr}"
@@ -90,11 +78,8 @@ fn invalid_toml_manifest_renders_source_snippet() {
 
 #[test]
 fn cabin_help_works_outside_workspace() {
-    // A user invoking `cabin --help` should get the help
-    // text whether or not they are inside a Cabin
-    // workspace. clap short-circuits `--help` before
-    // dispatch, so we expect SUCCESS even from a tempdir
-    // that has no `cabin.toml`.
+    // clap handles `--help` before dispatch, so no `cabin.toml` is
+    // needed.
     let dir = TempDir::new().unwrap();
     cabin()
         .current_dir(dir.path())
@@ -105,14 +90,9 @@ fn cabin_help_works_outside_workspace() {
 
 #[test]
 fn cabin_subcommand_help_works_outside_workspace() {
-    // Same regression for `cabin <cmd> --help`.  The classic
-    // failure mode is: dispatcher tries to load the
-    // workspace before clap sees the `--help` flag, and the
-    // missing manifest fails the help invocation.  Every
-    // top-level subcommand is exercised - including the
-    // hidden distribution helpers - so a regression in any
-    // one of them surfaces here.  The list is derived from
-    // clap so a future subcommand is covered automatically.
+    // Pins the failure where a subcommand loads the workspace before
+    // clap handles `--help`.  `all_subcommand_names` is read from clap
+    // and includes hidden subcommands.
     let dir = TempDir::new().unwrap();
     for sub in all_subcommand_names() {
         cabin()
@@ -128,9 +108,7 @@ fn manifest_path_pointing_at_directory_emits_unreadable_diagnostic() {
     // `--manifest-path <dir>` is not a missing manifest:
     // the path canonicalizes fine but the subsequent
     // `read_to_string` in the manifest crate returns
-    // `IsADirectory`.  The diagnostic must be a typed
-    // `cabin::manifest::unreadable` with no chain
-    // duplication.
+    // `IsADirectory`.
     let dir = TempDir::new().unwrap();
     let assertion = cabin()
         .args(["metadata", "--manifest-path"])
@@ -142,12 +120,9 @@ fn manifest_path_pointing_at_directory_emits_unreadable_diagnostic() {
         stderr.contains("cabin::manifest::unreadable"),
         "expected manifest unreadable diagnostic code, got: {stderr}"
     );
-    // The OS error must appear once, not twice.  The old
-    // anyhow chain rendered "failed to read X: failed to
-    // read X: Is a directory: Is a directory" - and the
-    // miette renderer is configured `.without_cause_chain()`
-    // so it doesn't re-emit `╰─▶ Is a directory` either.  The
-    // OS message itself is platform-specific (Windows reports
+    // The renderer is configured `.without_cause_chain()`, so the OS
+    // error appears in the message only, not again as a `╰─▶` cause
+    // line.  The OS message is platform-specific (Windows reports
     // `Access is denied.` for opening a directory).
     let os_error = manifest_dir_read_error();
     let occurrences = stderr.matches(os_error).count();
@@ -171,9 +146,9 @@ version = "0.1.0"
 "#,
         )
         .unwrap();
-    // Strip every permission bit so `std::fs::canonicalize`
-    // (the workspace loader's first read) returns
-    // PermissionDenied rather than NotFound.
+    // Mode 000 leaves `canonicalize` succeeding (it needs no
+    // permission on the file itself) and makes the manifest crate's
+    // `read_to_string` fail with PermissionDenied.
     let mut perms = std::fs::metadata(&manifest).unwrap().permissions();
     perms.set_mode(0o000);
     std::fs::set_permissions(&manifest, perms).unwrap();

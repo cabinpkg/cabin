@@ -4,8 +4,7 @@
 use super::*;
 
 /// Single-package fixture with one library plus one passing test
-/// target.  Returns the temp dir guard so the caller can drive
-/// commands against it.
+/// target.
 fn passing_test_project() -> TempDir {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -142,8 +141,6 @@ fn build_default_does_not_build_dev_only_targets() {
         .assert()
         .success();
 
-    // The library object/archive must build; the dev-only
-    // targets must NOT appear in the generated default build plan.
     let archive = dir
         .path()
         .join("build/dev/packages/demo")
@@ -830,9 +827,8 @@ sources = ["src/lib.cc"]
 fn cabin_test_runs_in_deterministic_package_then_target_order() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // Workspace with two members; member `b` declares its
-    // tests *before* member `a` in TOML order, but the runner
-    // must sort by package then target.
+    // `members` lists `b` before `a`; the runner must still order by
+    // package, then target.
     dir.child("cabin.toml")
         .write_str(
             r#"[workspace]
@@ -876,8 +872,6 @@ deps = ["{member}"]
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
-    // Both tests must appear, with `a:a_z_test` before
-    // `b:b_a_test` regardless of TOML declaration order.
     let a_pos = stdout
         .find("test a:a_z_test ... ok")
         .unwrap_or_else(|| panic!("missing a:a_z_test in: {stdout}"));

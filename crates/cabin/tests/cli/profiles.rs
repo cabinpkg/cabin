@@ -426,8 +426,6 @@ debug = true
             .join("compile_commands.json"),
     )
     .unwrap();
-    // Inherits release defaults (-O3 -DNDEBUG) but turns
-    // debug info back on (-g).
     assert!(cc.contains(host_release_opt_flag()), "{cc}");
     assert!(cc.contains(host_define_ndebug_flag()), "{cc}");
     assert!(cc.contains(host_debug_info_flag()), "{cc}");
@@ -435,11 +433,6 @@ debug = true
 
 #[test]
 fn metadata_build_config_appends_inherited_profile_flags() {
-    // Top-level [profile] flags, the selected profile's
-    // inherits chain, and the leaf [profile.<name>] block
-    // must compose with **append** semantics - root → leaf -
-    // so the resolved build configuration carries every
-    // contributing layer in declaration order.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -489,12 +482,9 @@ cxxflags = ["-pg"]
 
 #[test]
 fn metadata_build_config_orders_all_four_layers() {
-    // Pin the full layer order documented in
-    // `docs/profiles.md`:
+    // Layer order documented in `docs/profiles.md`:
     // [profile] → matching [target.'cfg()'.profile]
     // → inherited profile parent → selected profile
-    // The conditional layer must land between the top-level
-    // [profile] block and the profile inherits chain.
     let host_os = std::env::consts::OS;
     let dir = TempDir::new().unwrap();
     let manifest = format!(

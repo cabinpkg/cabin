@@ -1,7 +1,7 @@
 //! End-to-end coverage for `cabin vendor` and `--offline`
-//! mode.  Each test stages a real `.zip` archive plus the
-//! file-registry index that publishes its checksum, so the
-//! tests exercise the full vendor → offline build pipeline.
+//! mode.  Tests that vendor a dependency stage a real `.zip`
+//! archive plus the file-registry index that publishes its
+//! checksum.
 
 use super::*;
 use std::path::PathBuf;
@@ -81,8 +81,6 @@ fn vendor_writes_deterministic_file_registry() {
         .assert()
         .success();
     let vendor = dir.path().join("proj/vendor");
-    // file-registry skeleton + artifact + per-package index +
-    // vendor summary.
     assert!(vendor.join("config.json").is_file());
     assert!(vendor.join("packages/fmt.json").is_file());
     assert!(vendor.join("cabin-vendor.json").is_file());
@@ -178,9 +176,8 @@ fn vendor_then_offline_build_links_against_the_vendored_dependency() {
         .assert()
         .success();
 
-    // Offline build using only the vendored directory and a
-    // fresh cache.  Must NOT touch the source index (we
-    // delete it to be sure).
+    // With the source index deleted, the offline build can read only
+    // the vendored directory and a fresh cache.
     fs::remove_dir_all(&index).unwrap();
     cabin()
         .args(["build", "--offline", "--manifest-path"])
@@ -269,9 +266,6 @@ sources = ["src/lib.cc"]
 
 #[test]
 fn vendor_locked_succeeds_when_lockfile_is_current() {
-    // First a vanilla vendor run writes both the lockfile
-    // and the vendor directory, then a follow-up `--locked`
-    // run must succeed without rewriting the lockfile.
     let dir = TempDir::new().unwrap();
     let index = stage_fmt_index(dir.path());
     stage_consumer_project(&dir.path().join("proj"));

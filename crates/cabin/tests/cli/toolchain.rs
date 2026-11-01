@@ -7,10 +7,10 @@ use super::*;
 #[cfg(unix)]
 use std::path::PathBuf;
 
-/// Helper: write a fake compiler/archiver `name` into `dir`
-/// and return its absolute path.  The fake binary is a
-/// minimal POSIX shell script so `--cxx /path/to/it` can be
-/// resolved; the tests never invoke it.
+/// Write a fake compiler/archiver `name` into `dir` and return its
+/// absolute path.  The fake is a POSIX shell script that exits 0, so
+/// `--cxx /path/to/it` resolves; `cabin metadata`'s fail-soft
+/// compiler detection runs it, but nothing compiles with it.
 #[cfg(unix)]
 fn fake_tool(dir: &Path, name: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;

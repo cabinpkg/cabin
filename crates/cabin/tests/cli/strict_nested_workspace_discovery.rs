@@ -1,13 +1,9 @@
 use super::*;
 
-/// When the user is sandwiched between two `[workspace]`
-/// roots - and the outer does NOT list the nested directory
-/// as a member - discovery still errors rather than silently
-/// picking one.  The strict rule names both roots, so the
-/// user can disambiguate by passing `--manifest-path`
-/// explicitly; an earlier rule only rejected the nested case
-/// via the loader and only when the outer claimed the nested
-/// as a member.
+/// Discovery from inside a `[workspace]` root nested in another
+/// errors, even when the outer root does not list the nested
+/// directory as a member.  The error names both roots so the user
+/// can pick one with `--manifest-path`.
 #[test]
 fn metadata_inside_nested_workspace_with_unrelated_outer_errors() {
     let dir = TempDir::new().unwrap();
@@ -60,8 +56,6 @@ fmt = ">=10.0.0 <11.0.0"
 "#,
         )
         .unwrap();
-    // `b` declares a dep on `spdlog` that the registry does
-    // not carry.  Selection-aware materialization must skip it.
     dir.child("packages/b/cabin.toml")
         .write_str(
             r#"[package]
