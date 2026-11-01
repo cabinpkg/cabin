@@ -797,6 +797,7 @@ fn plan_products_lists_every_product_and_depfile() {
                 system_include_dirs: vec![],
                 defines: vec![],
                 instruction_sets: vec![],
+                provider_flags: vec![],
                 extra_flags: vec![],
             },
             description: String::new(),

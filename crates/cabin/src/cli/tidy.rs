@@ -306,6 +306,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         build_flags: &build_flags,
         language_standards: &language_standards,
         standard_flag_conflicts: &standard_flag_conflicts,
+        system_targets: &std::collections::HashMap::new(),
         build_dir: build_dir.clone(),
         platform: TargetPlatform::current(),
         clang_target: None,

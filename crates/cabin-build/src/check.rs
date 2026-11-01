@@ -132,6 +132,7 @@ mod tests {
                 system_include_dirs: vec![],
                 defines: vec![],
                 instruction_sets: vec![],
+                provider_flags: vec![],
                 extra_flags: vec![],
             },
             description: format!("CXX {object}"),

@@ -145,8 +145,8 @@ fn gnu_std_flag(standard: LanguageStandard, gnu_extensions: bool) -> String {
     }
 }
 
-/// GNU/Clang compile argv: driver, target and sysroot, standard,
-/// profile (`-O<n>` / `-g` / `-DNDEBUG`), the `-MD -MF <depfile>`
+/// GNU/Clang compile argv: driver, target and sysroot, provider flags,
+/// standard, profile (`-O<n>` / `-g` / `-DNDEBUG`), the `-MD -MF <depfile>`
 /// (plus `-MT <stamp>` in syntax-only mode) dependency block, defines,
 /// includes, system includes, instruction sets, escape-hatch flags,
 /// and the mode-specific tail.
@@ -158,6 +158,7 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
         compile.target.as_deref(),
         compile.sysroot.as_ref(),
     ));
+    out.extend(args.provider_flags.iter().cloned());
     out.push(gnu_std_flag(compile.standard, compile.gnu_extensions));
     out.push(args.opt_level.as_flag().to_owned());
     if args.debug_info {
@@ -354,6 +355,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     // the box.  Every `cl` new enough to pass Cabin's `/std:`
     // validation (19.10+) understands the flag, as does `clang-cl`.
     out.push("/utf-8".to_owned());
+    out.extend(args.provider_flags.iter().cloned());
     out.push(msvc_std_flag(compile.standard).to_owned());
     if compile.standard.language() == SourceLanguage::Cxx {
         out.push("/EHsc".to_owned());
@@ -554,6 +556,7 @@ mod tests {
                 system_include_dirs: vec![Utf8PathBuf::from("/abs/dep/include")],
                 defines: strs(&["FOO=1"]),
                 instruction_sets: vec![],
+                provider_flags: vec![],
                 extra_flags: strs(&["-Wall"]),
             },
             description: "CXX /abs/build/main.o".to_owned(),
@@ -953,6 +956,7 @@ mod tests {
                 system_include_dirs: vec![Utf8PathBuf::from("C:/dep/include")],
                 defines: strs(&["FOO=1"]),
                 instruction_sets: vec![],
+                provider_flags: vec![],
                 extra_flags: strs(&["/W4"]),
             },
             description: "CXX C:/build/main.obj".to_owned(),
@@ -990,6 +994,23 @@ mod tests {
                 "/TpC:/src/main.cc",
                 "/FoC:/build/main.obj",
             ])
+        );
+    }
+
+    #[test]
+    fn provider_flags_precede_the_standard_and_profile_flags() {
+        let mut gnu = cxx_compile(CompileMode::Object);
+        gnu.arguments.provider_flags = strs(&["-std=c++11", "-O3"]);
+        assert_eq!(
+            compile_argv(Dialect::GnuLike, &gnu)[..5],
+            strs(&["/usr/bin/g++", "-std=c++11", "-O3", "-std=c++17", "-O0"])
+        );
+
+        let mut msvc = msvc_cxx_compile(CompileMode::Object);
+        msvc.arguments.provider_flags = strs(&["/std:c++14"]);
+        assert_eq!(
+            compile_argv(Dialect::Msvc, &msvc)[..5],
+            strs(&["cl.exe", "/nologo", "/utf-8", "/std:c++14", "/std:c++17"])
         );
     }
 

@@ -231,12 +231,15 @@ fn plan_request<'a>(
         LazyLock::new(HashMap::new);
     static NO_FLAG_CONFLICTS: LazyLock<HashMap<usize, Vec<cabin_core::StandardFlagConflict>>> =
         LazyLock::new(HashMap::new);
+    static NO_SYSTEM_TARGETS: LazyLock<HashMap<(usize, String), crate::SystemTargetInterface>> =
+        LazyLock::new(HashMap::new);
     PlanRequest {
         graph,
         toolchain: tc,
         build_flags: &EMPTY_BUILD_FLAGS,
         language_standards: &NO_LANGUAGE_STANDARDS,
         standard_flag_conflicts: &NO_FLAG_CONFLICTS,
+        system_targets: &NO_SYSTEM_TARGETS,
         build_dir: PathBuf::from(build_dir),
         platform: cabin_core::TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap(),
         clang_target: None,
@@ -775,6 +778,138 @@ fn cross_package_path_dep_links_library() {
     // A plain path dependency is the user's own code: nothing routes
     // to the system bucket.
     assert!(app_compile.arguments.system_include_dirs.is_empty());
+}
+
+/// A system-provided target's interface reaches the C and C++ compiles
+/// that see it like any library's, its compile arguments ahead of the
+/// consumer's own and its definitions under the conflict check, and its
+/// link arguments follow the package's `ldflags` in every link that
+/// reaches it, private edges included.
+#[test]
+fn system_provided_target_supplies_its_interface_and_link_arguments() {
+    let zlib = Package::new(
+        pkg_name("zlib"),
+        version(),
+        vec![target("z", TargetKind::HeaderOnly, &[], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let lib = Package::new(
+        pkg_name("lib"),
+        version(),
+        vec![target(
+            "lib",
+            TargetKind::Library,
+            &["src/lib.c", "src/lib.cc"],
+            &["zlib"],
+        )],
+        vec![dep("zlib", "../zlib")],
+    )
+    .unwrap();
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c"],
+            &["lib"],
+        )],
+        vec![dep("lib", "../lib")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("zlib", "/abs/zlib", zlib, vec![]),
+            make_pkg("lib", "/abs/lib", lib, vec![0]),
+            make_pkg("app", "/abs/app", app, vec![1]),
+        ],
+        vec![2],
+        Some(2),
+    );
+    let system_targets = HashMap::from([(
+        (0, "z".to_owned()),
+        crate::SystemTargetInterface {
+            include_dirs: vec![Utf8PathBuf::from("/usr/include")],
+            system_include_dirs: vec![Utf8PathBuf::from("/opt/zlib/include")],
+            defines: vec!["ZLIB_CONST".to_owned()],
+            compile_args: vec!["-pthread".to_owned()],
+            link_args: vec!["-L/opt/zlib/lib".to_owned(), "-lz".to_owned()],
+        },
+    )]);
+    let build_flags = HashMap::from([
+        (
+            1,
+            ResolvedProfileFlags {
+                extra_compile_args: vec!["-Wlib".to_owned()],
+                ..Default::default()
+            },
+        ),
+        (
+            2,
+            ResolvedProfileFlags {
+                ldflags: vec!["-Wl,--app".to_owned()],
+                ..Default::default()
+            },
+        ),
+    ]);
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.system_targets = &system_targets;
+    req.build_flags = &build_flags;
+    let bg = plan(&req).unwrap();
+
+    let compiles_of = |package: &str| -> Vec<&CompileAction> {
+        compile_actions(&bg)
+            .into_iter()
+            .filter(|c| {
+                c.object
+                    .as_str()
+                    .replace('\\', "/")
+                    .contains(&format!("/{package}/"))
+            })
+            .collect()
+    };
+    let lib_compiles = compiles_of("lib");
+    assert_eq!(lib_compiles.len(), 2);
+    for compile in &lib_compiles {
+        let args = &compile.arguments;
+        assert_eq!(args.include_dirs, [Utf8PathBuf::from("/usr/include")]);
+        assert_eq!(
+            args.system_include_dirs,
+            [Utf8PathBuf::from("/opt/zlib/include")]
+        );
+        assert_eq!(args.defines, ["ZLIB_CONST"]);
+        assert_eq!(args.provider_flags, ["-pthread"]);
+        assert_eq!(args.extra_flags, ["-Wlib"]);
+    }
+    // `lib` reaches zlib through a private edge: `app` compiles
+    // without zlib's interface but links its libraries.
+    let app_compile = &compiles_of("app")[0].arguments;
+    assert!(app_compile.include_dirs.is_empty() && app_compile.system_include_dirs.is_empty());
+    assert!(app_compile.defines.is_empty() && app_compile.provider_flags.is_empty());
+    assert_eq!(
+        link_action(&bg).arguments,
+        ["-Wl,--app", "-L/opt/zlib/lib", "-lz"]
+    );
+
+    // A supplied definition that disagrees with a visible
+    // `interface-defines` entry is a conflict.
+    let graph = diamond_with_defines(&["ZLIB_CONST=1"], &[], &[]);
+    let system_targets = HashMap::from([(
+        (1, "b".to_owned()),
+        crate::SystemTargetInterface {
+            defines: vec!["ZLIB_CONST=2".to_owned()],
+            ..Default::default()
+        },
+    )]);
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.system_targets = &system_targets;
+    let err = crate::validate_planned_standards(&plan(&req).unwrap()).unwrap_err();
+    assert!(
+        matches!(&err, BuildError::ConflictingInterfaceDefines { name, .. } if name == "ZLIB_CONST"),
+        "{err}"
+    );
 }
 
 #[test]
