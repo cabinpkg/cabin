@@ -16,7 +16,7 @@
 //! invoking Ninja: clang-tidy reads the JSON compilation database
 //! directly and a build is unnecessary for analysis.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -360,12 +360,11 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let compile_db_path = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&compile_db_path, &plan_graph)?;
 
-    // Filter discovered sources to those that have an entry in
-    // the compile database. `clang-tidy` cannot analyze a file
-    // without a compile command, and `run-clang-tidy` interprets
-    // bare filenames as regex patterns matched against the
-    // database, so passing files with no entry would produce
-    // confusing "no matches" warnings on stderr.
+    // Keep the discovered sources that have an entry in the compile
+    // database, spelled as that entry's `file`: `clang-tidy` cannot
+    // analyze a file without a compile command, and `run-clang-tidy`
+    // selects entries by that spelling, which canonicalization can
+    // change (Windows' `\\?\` prefix, a `./` in a manifest source).
     let mut excluded_directories = nested_package_excludes(&graph, &selected_indices);
     excluded_directories.push(build_dir);
     let roots: Vec<PathBuf> = resolved_selection
@@ -381,15 +380,20 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     };
     let discovered = discover_sources(&request)
         .map_err(|err| anyhow::anyhow!("source discovery failed: {err}"))?;
-    let compile_db_files: BTreeSet<PathBuf> = plan_graph
+    let compile_db_files: BTreeMap<PathBuf, &Path> = plan_graph
         .compile_commands
         .iter()
-        .map(|cc| canonicalize_or_self(cc.file.as_std_path()))
+        .map(|cc| {
+            (
+                canonicalize_or_self(cc.file.as_std_path()),
+                cc.file.as_std_path(),
+            )
+        })
         .collect();
     let files: Vec<PathBuf> = discovered
         .into_iter()
-        .map(|f| canonicalize_or_self(&f.absolute_path))
-        .filter(|p| compile_db_files.contains(p))
+        .filter_map(|f| compile_db_files.get(&canonicalize_or_self(&f.absolute_path)))
+        .map(|file| file.to_path_buf())
         .collect();
 
     let mut selected_names: Vec<String> = resolved_selection

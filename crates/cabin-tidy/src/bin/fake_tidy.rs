@@ -7,8 +7,9 @@
 //!
 //! - Recognizes `-p <dir>`, `-fix`, `-quiet`, and `-j <N>` flags
 //!   so tests can assert Cabin built the command line correctly.
-//! - Treats every remaining argument as a file path.  For each
-//!   file:
+//! - Treats every remaining argument as the file filter
+//!   `cabin-tidy` passes, an anchored regular expression that
+//!   escapes a literal path, and unescapes it.  For each file:
 //!   - if its contents contain the sentinel marker
 //!     `// CABIN-TIDY-FAIL`, emit a deterministic
 //!     `<path>:1:1: warning: fake-clang-tidy diagnostic`-shaped
@@ -71,7 +72,7 @@ fn main() -> ExitCode {
                 raw_argv.push(next.clone());
                 jobs = Some(next);
             }
-            other => files.push(PathBuf::from(other)),
+            other => files.push(PathBuf::from(unescape_filter(other))),
         }
     }
 
@@ -137,6 +138,23 @@ fn serde_record(
         .collect::<Vec<_>>()
         .join(" ");
     format!("{argv}\t{quiet}\t{fix}\t{compile_database_dir}\t{jobs}\t{files}")
+}
+
+fn unescape_filter(filter: &str) -> String {
+    let literal = filter
+        .strip_prefix('^')
+        .and_then(|f| f.strip_suffix('$'))
+        .unwrap_or(filter);
+    let mut path = String::new();
+    let mut chars = literal.chars();
+    while let Some(c) = chars.next() {
+        path.push(if c == '\\' {
+            chars.next().unwrap_or(c)
+        } else {
+            c
+        });
+    }
+    path
 }
 
 fn escape(s: &str) -> String {

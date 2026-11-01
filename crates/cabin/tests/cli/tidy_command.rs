@@ -485,6 +485,51 @@ fn repeated_exclude_accumulates() {
     assert!(!body.contains("src/b.cc"));
 }
 
+/// `run-clang-tidy` selects an entry by its own spelling of `file`,
+/// which keeps a manifest source's `./` that canonicalization drops.
+#[test]
+fn tidy_selects_each_file_by_its_compile_database_spelling() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.hello]
+type = "executable"
+sources = ["./src/main.cc"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/main.cc")
+        .write_str("int main() {}\n")
+        .unwrap();
+
+    let record = dir.path().join("argv.log");
+    cabin_with_fake_tidy()
+        .current_dir(dir.path())
+        .env("CABIN_FAKE_TIDY_RECORD", &record)
+        .arg("tidy")
+        .assert()
+        .success();
+
+    let cdb: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dir.path().join("build/dev/compile_commands.json")).unwrap(),
+    )
+    .unwrap();
+    let entry = normalize(cdb[0]["file"].as_str().unwrap());
+    let lines = read_record(&record);
+    let files = lines[0].split('\t').nth(5).unwrap();
+    // The record joins filters with spaces, which a path may contain,
+    // so match a whole space-delimited entry rather than splitting.
+    assert!(
+        format!(" {} ", normalize(files)).contains(&format!(" {entry} ")),
+        "no filter names the database entry {entry}: {files}"
+    );
+}
+
 #[test]
 fn vcs_ignored_files_are_skipped_by_default() {
     let dir = TempDir::new().unwrap();
