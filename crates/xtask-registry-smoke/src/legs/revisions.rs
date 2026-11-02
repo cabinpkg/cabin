@@ -414,15 +414,6 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
         &auth,
         None,
     )?;
-    // Header-identical too: the kind-guard 401 must not carry the
-    // generation debug stamp the unauthenticated 401 lacks, or the
-    // stamp is a token-validity oracle on this route.
-    if String::from_utf8_lossy(&smoke.headers)
-        .to_ascii_lowercase()
-        .contains("x-cabin-registry-generation")
-    {
-        bail!("the trustpub DELETE 401 must not carry the generation header");
-    }
     // The session mint gates identically, but past admission: a
     // credential GitHub refuses learns nothing of the mode, and only
     // an admitted identity sees the gate's 503.

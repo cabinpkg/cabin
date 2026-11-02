@@ -59,7 +59,7 @@ fn the_canonical_call_site_passes() {
         "fn take<'a>(sql: &'a str) -> &'a str { sql }\n",
         // A wrapped call whose argument carries a comment is still
         // the canonical call.
-        "db.prepare(\n    // The generation stamp.\n    sql::REGISTRY_GENERATION,\n)\n",
+        "db.prepare(\n    // One meta row.\n    sql::META_VALUE,\n)\n",
         "    .first(None)\n    .await?;\n",
     ));
     assert!(accepted, "the guard rejected the canonical call site");

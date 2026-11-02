@@ -19,7 +19,7 @@ use crate::{quota, sql, trustpub};
 
 use super::{
     Authn, authenticate, error_response, error_response_with_code, private_alpha_response,
-    stamp_generation, unauthorized, web_origin,
+    unauthorized, web_origin,
 };
 
 use governor::{admin_governor_mutation_response, admin_governor_usage_response};
@@ -66,20 +66,17 @@ pub(super) async fn handle_website(
         && (path == crate::routes::TRUSTPUB_TOKENS_PATH
             || path == crate::routes::SESSION_TOKENS_PATH)
     {
-        let (mut response, token_id) = if path == crate::routes::TRUSTPUB_TOKENS_PATH {
-            trustpub_exchange_response(req, env, &db).await?
+        return if path == crate::routes::TRUSTPUB_TOKENS_PATH {
+            trustpub_exchange_response(req, env, &db).await
         } else {
-            session_mint_response(req, env, &db).await?
+            session_mint_response(req, env, &db).await
         };
-        stamp_generation(&db, &mut response).await?;
-        return Ok((response, token_id));
     }
     // The other auth-exempt route: the verdict PATCH's credential is a
     // GitHub Actions OIDC JWT in the Authorization header, not a
     // registry token, so it too dispatches before the token check. No
     // token row exists to tie the request log to; the refusal reasons
-    // are logged by the authn itself. The generation stamp mirrors the
-    // exchange: uniform across the route's answers, refusals included.
+    // are logged by the authn itself.
     if req.method() == Method::Patch
         && let Some(ApiRoute::AdminVerdict {
             scope,
@@ -89,16 +86,14 @@ pub(super) async fn handle_website(
     {
         let (scope, name, version) = (scope.to_owned(), name.to_owned(), version.to_owned());
         // The same pre-verification admission gate as the exchange,
-        // ahead of `verdict_authn`'s JWT work; the refusal takes the
-        // generation stamp below like the route's other answers.
-        let mut response = if let Some(refusal) = oidc_admission(req, env).await? {
+        // ahead of `verdict_authn`'s JWT work.
+        let response = if let Some(refusal) = oidc_admission(req, env).await? {
             refusal
         } else if verdict_authn(req, env, &db).await? {
             verdict_response(req, env, ctx, &db, &scope, &name, &version).await?
         } else {
             unauthorized(env)?
         };
-        stamp_generation(&db, &mut response).await?;
         return Ok((response, None));
     }
     let auth = match authenticate(req, env, &db, ctx).await? {
@@ -115,7 +110,7 @@ pub(super) async fn handle_website(
         return Ok((response, Some(auth.token_id)));
     }
 
-    let mut response = match req.method() {
+    let response = match req.method() {
         // The admin listings and the governor snapshot are the only API
         // routes read with GET; anything else is an authenticated 404.
         Method::Get => match match_api_route(path) {
@@ -146,17 +141,11 @@ pub(super) async fn handle_website(
         },
         Method::Delete => match match_api_route(path) {
             Some(route @ (ApiRoute::TrustPubTokens | ApiRoute::SessionTokens)) => {
-                // Early return past the generation stamp below: the
-                // kind guard's 401 must stay header-identical to the
-                // unauthenticated one (which never gets the stamp), or
-                // the debug header becomes a token-validity oracle on
-                // this route. The 204 goes unstamped with it.
                 let statement = match route {
                     ApiRoute::SessionTokens => db.prepare(sql::DELETE_SESSION_TOKEN),
                     _ => db.prepare(sql::DELETE_TRUSTPUB_TOKEN),
                 };
-                let response = self_revoke_response(env, statement, &auth).await?;
-                return Ok((response, Some(auth.token_id)));
+                self_revoke_response(env, statement, &auth).await?
             }
             Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
@@ -179,8 +168,6 @@ pub(super) async fn handle_website(
         _ => error_response(405, error::METHOD_NOT_ALLOWED)?,
     };
 
-    // The same generation stamp as the read plane (docs/runbook.md).
-    stamp_generation(&db, &mut response).await?;
     Ok((response, Some(auth.token_id)))
 }
 

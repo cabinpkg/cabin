@@ -1,7 +1,7 @@
 //! The session-authenticated surface: the logout CSRF pair, the claim
 //! flow end to end against the GitHub mock, membership management, the
-//! owner gate's byte-identical 403, and the generation header - plus
-//! the claim-initiation fetch-metadata gate.
+//! owner gate's byte-identical 403, and the claim-initiation
+//! fetch-metadata gate.
 //!
 //! The membership legs ride the session cookie the session leg minted,
 //! so the cookie arrives as a parameter rather than being re-derived;
@@ -40,8 +40,7 @@ pub fn run(smoke: &mut Smoke, session_cookie: &str, github_port: u16) -> Result<
     unmatched_state(smoke)?;
     members(smoke, session_cookie)?;
     last_owner(smoke, session_cookie)?;
-    owner_gate(smoke, session_cookie)?;
-    generation_header(smoke)
+    owner_gate(smoke, session_cookie)
 }
 
 /// Logs out a second session of the same user (its own seeded row), so
@@ -317,22 +316,6 @@ fn owner_gate(smoke: &mut Smoke, cookie: &str) -> Result<()> {
             "foreign-scope and unclaimed-scope owner 403s differ: {}",
             capture(&smoke.body)
         );
-    }
-    Ok(())
-}
-
-fn generation_header(smoke: &mut Smoke) -> Result<()> {
-    step("authenticated responses carry the generation header");
-    let url = smoke.url(Base::Registry, "/config.json");
-    let auth = smoke.auth.clone();
-    // The header block lands in the *body* buffer, which is what the
-    // assertion reads, and the header buffer keeps what the previous
-    // request left in it.
-    let stale = std::mem::take(&mut smoke.headers);
-    smoke.http("GET", &url, &auth, None)?;
-    smoke.body = std::mem::replace(&mut smoke.headers, stale);
-    if grep_lines(&text(&smoke.body), "x-cabin-registry-generation:").is_empty() {
-        bail!("missing x-cabin-registry-generation header");
     }
     Ok(())
 }

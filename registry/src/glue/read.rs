@@ -19,7 +19,7 @@ use crate::{breaker, quota, sql, telemetry, verify};
 use super::{
     Authn, authenticate, error_response, error_response_with_code, governor_refusal_response,
     has_verify_scope, js_int, json_response, now_epoch_ms, private_alpha_response,
-    registry_unauthorized, service_mode, stamp_generation, web_origin,
+    registry_unauthorized, service_mode, web_origin,
 };
 
 #[derive(Deserialize)]
@@ -88,8 +88,7 @@ pub(super) async fn handle_registry(
         }
     };
     if req.method() != Method::Get {
-        let mut response = error_response(405, error::METHOD_NOT_ALLOWED)?;
-        stamp_generation(&db, &mut response).await?;
+        let response = error_response(405, error::METHOD_NOT_ALLOWED)?;
         return Ok((response, auth.map(|auth| auth.token_id)));
     }
 
@@ -104,7 +103,7 @@ pub(super) async fn handle_registry(
     let exempt = matches!(route, Route::Config)
         || (auth.as_ref().is_some_and(has_verify_scope) && matches!(route, Route::Artifact { .. }));
     let mode = service_mode(env, &db).await.ok();
-    let mut response = if breaker::read_gate_refuses(mode, exempt) {
+    let response = if breaker::read_gate_refuses(mode, exempt) {
         error_response_with_code(
             breaker::OVER_BUDGET_STATUS,
             breaker::OVER_BUDGET_READS_DETAIL,
@@ -115,9 +114,7 @@ pub(super) async fn handle_registry(
         match route {
             Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
             Route::Package { scope, name } => {
-                // Stamped inside: a cache hit must not read D1.
-                let response = cached_package_response(env, &db, scope, name).await?;
-                return Ok((response, auth.map(|auth| auth.token_id)));
+                cached_package_response(env, &db, scope, name).await?
             }
             Route::Artifact {
                 scope,
@@ -148,18 +145,15 @@ pub(super) async fn handle_registry(
         }
     };
 
-    // Debug aid for the pre-launch registry (see docs/runbook.md):
-    // stamp every read-plane response with the registry generation.
-    stamp_generation(&db, &mut response).await?;
     Ok((response, auth.map(|auth| auth.token_id)))
 }
 
 /// [`package_response`] through the edge cache. No caller input
 /// reaches the composition, so one entry serves every admitted reader
 /// (the caller calls this only past the admission check),
-/// and a hit reads no package rows: its generation stamp is the fill's,
-/// up to one TTL old. Fills are not coalesced, so concurrent misses each
-/// read the package. Cache errors read as misses, as for archives.
+/// and a hit reads no package rows. Fills are not coalesced, so
+/// concurrent misses each read the package. Cache errors read as misses,
+/// as for archives.
 async fn cached_package_response(
     env: &Env,
     db: &D1Database,
@@ -179,7 +173,6 @@ async fn cached_package_response(
         return thaw_cached(cached);
     }
     let mut response = package_response(db, scope, name).await?;
-    stamp_generation(db, &mut response).await?;
     if let Some(cache_control) = documents::package_cache_control(response.status_code(), ttl_secs)
     {
         let mut for_cache = response.cloned()?;
@@ -383,8 +376,8 @@ async fn artifact_response(
 }
 
 /// A cache-matched response carries immutable headers; rebuild a
-/// mutable response around the cached body and headers so the shared
-/// response plumbing (the generation stamp) can write to it.
+/// mutable response around the cached body and headers so the
+/// `cache-control` rewrite below can write to it.
 fn thaw_cached(mut cached: Response) -> worker::Result<Response> {
     let status = cached.status_code();
     let headers = cached.headers().clone();

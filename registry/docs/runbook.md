@@ -178,8 +178,8 @@ annotation instead of counting as a deploy. Rerun the job: it
 redeploys under a fresh tag, or stays green if a newer commit
 superseded it meanwhile. The confirmation reads the control plane, not
 an edge response (no request tells one version from another:
-`/healthz` and the generation header read the same from all of them),
-so the smoke checks below remain the edge-side check.
+`/healthz` reads the same from all of them), so the smoke checks below
+remain the edge-side check.
 
 Because the stamp covers migration *content*, an applied file's
 comments are frozen with its SQL: a rename elsewhere in the repository
@@ -324,11 +324,9 @@ smoke test). What it does, in order:
    runs exactly the files' content. Commit the stamp with the
    `wrangler.jsonc` change.
 5. Bumps `meta.registry_generation` to one more than the pre-wipe value
-   read in step 1 (every authenticated response except a token
-   self-revocation echoes it as `x-cabin-registry-generation`, so
-   clients and smoke runs can tell the wipe happened). A colo's edge
-   cache can keep serving a pre-wipe package document, stamp included,
-   for up to its 60 s TTL.
+   read in step 1 (`cargo registry-diagnose` reports it, so an operator
+   can tell the wipe happened). A colo's edge cache can keep serving a
+   pre-wipe package document for up to its 60 s TTL.
 6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings.
 7. Resets the governor ledger - a manual follow-up the command reminds
