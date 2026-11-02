@@ -53,7 +53,7 @@ where
 {
     use anyhow::Context;
     let body = serde_json::to_string_pretty(value).context(error_context)?;
-    println!("{body}");
+    println!("{}", cabin_core::escape_json_for_terminal(&body));
     Ok(())
 }
 
@@ -69,7 +69,7 @@ where
 {
     use anyhow::Context;
     let body = serde_json::to_string(value).context(error_context)?;
-    println!("{body}");
+    println!("{}", cabin_core::escape_json_for_terminal(&body));
     Ok(())
 }
 
@@ -114,6 +114,34 @@ pub(crate) fn rows_display_width(rows: &[SubcommandRow]) -> usize {
         .unwrap_or(0)
 }
 
+/// Exit with a clap error. Clap quotes argv verbatim into some errors
+/// (an unrecognized subcommand, a rejected value), so when any argument
+/// carries a control or bidi character the error prints through clap's
+/// `Display`, which drops all styling (the argument's own escape
+/// sequences included), with the remaining controls escaped. Help and
+/// version output are Cabin's own text and keep their styling, as do
+/// errors from clean argv.
+pub(crate) fn exit_clap_error(err: &clap::Error, arguments: &[std::ffi::OsString]) -> ! {
+    use clap::error::ErrorKind;
+    use std::io::Write as _;
+    let hostile = arguments.iter().any(|argument| {
+        let argument = argument.to_string_lossy();
+        cabin_core::escape_control_chars(&argument) != argument
+    });
+    let help = matches!(
+        err.kind(),
+        ErrorKind::DisplayHelp
+            | ErrorKind::DisplayVersion
+            | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    );
+    if hostile && !help {
+        let escaped = cabin_core::escape_control_chars_keeping_lines(&err.to_string());
+        let _ = std::io::stderr().write_all(escaped.as_bytes());
+        std::process::exit(err.exit_code());
+    }
+    err.exit()
+}
+
 /// Run the `cabin` CLI to completion using the given argv
 /// iterator.  Owns parsing, color/verbosity resolution,
 /// dispatch, and top-level error rendering.  The binary
@@ -142,7 +170,7 @@ where
             // detection, which differs from Cabin's (see
             // docs/environment-variables.md).
             let color = term_setup::clap_output_color(&arguments);
-            err.with_cmd(&cmd.color(color)).exit();
+            exit_clap_error(&err.with_cmd(&cmd.color(color)), &arguments);
         }
     };
     // `cabin ...` is a help-row affordance that doubles as a
@@ -154,7 +182,7 @@ where
     let dots_shortcut = matches.subcommand_name() == Some(help_rendering::DOTS_HINT);
     let mut parsed = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
-        Err(err) => err.exit(),
+        Err(err) => exit_clap_error(&err, &arguments),
     };
     if dots_shortcut {
         parsed.list = true;

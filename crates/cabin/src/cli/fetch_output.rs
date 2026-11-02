@@ -30,7 +30,12 @@ fn print_fetch_human(fetched: &[FetchedPackage], manifest_path: &Path) {
     println!("Fetched artifacts:");
     for pkg in fetched {
         let source = display_relative(&pkg.source_dir, manifest_path);
-        println!("  {} {} -> {}", pkg.name.as_str(), pkg.version, source);
+        println!(
+            "  {} {} -> {}",
+            pkg.name.as_str(),
+            pkg.version,
+            cabin_core::escape_control_chars(&source)
+        );
     }
 }
 

@@ -54,7 +54,7 @@ pub(crate) fn dispatch(argv: &[OsString]) -> Option<ExitCode> {
         std::iter::once(program_name).chain(operands.iter().cloned()),
     ) {
         Ok(parsed) => parsed,
-        Err(err) => err.exit(),
+        Err(err) => crate::exit_clap_error(&err, argv),
     };
     Some(match execute(verb, &parsed) {
         Ok(code) => code,

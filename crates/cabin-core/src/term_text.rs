@@ -48,6 +48,28 @@ pub fn escape_control_chars_keeping_lines(value: &str) -> String {
         .collect()
 }
 
+/// Make serialized JSON safe to print in a terminal without changing
+/// what it decodes to.
+///
+/// `serde_json` escapes C0 controls but writes DEL, C1 controls (such as
+/// the single-byte CSI, U+009B) and bidi controls raw. Each of those can
+/// occur only inside a JSON string - JSON's structure and whitespace are
+/// ASCII below DEL - so rewriting them as `\uXXXX` escapes leaves every
+/// decoded value intact. `json` must be a serialized JSON document.
+#[must_use]
+pub fn escape_json_for_terminal(json: &str) -> String {
+    use std::fmt::Write as _;
+    let mut escaped = String::with_capacity(json.len());
+    for ch in json.chars() {
+        if (ch.is_control() && ch > '\u{1f}') || is_bidi_control(ch) {
+            let _ = write!(escaped, "\\u{:04x}", u32::from(ch));
+        } else {
+            escaped.push(ch);
+        }
+    }
+    escaped
+}
+
 /// Unicode's bidirectional controls can reorder otherwise printable text
 /// in terminal diagnostics. Keep ordinary international text intact while
 /// making those invisible formatting characters explicit.
@@ -60,7 +82,9 @@ fn is_bidi_control(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_control_chars, escape_control_chars_keeping_lines};
+    use super::{
+        escape_control_chars, escape_control_chars_keeping_lines, escape_json_for_terminal,
+    };
 
     #[test]
     fn control_and_bidi_characters_lose_their_effect() {
@@ -82,6 +106,45 @@ mod tests {
             escape_control_chars_keeping_lines("a\tb\n\u{1b}[2K\r\n"),
             "a\tb\n\\u{1b}[2K\\r\n"
         );
+    }
+
+    #[test]
+    fn json_escaping_keeps_every_decoded_value() {
+        let hostile = [
+            "\u{1b}[2J",
+            "\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7}",
+            "\u{9b}2J\u{85}\u{7f}",
+            "\u{202e}gpj.exe",
+            "a\rb\nc\td",
+            "パッケージ café",
+        ];
+        let value =
+            serde_json::json!({ "flags": hostile, "nested": { "\u{202e}key": hostile[2] } });
+        for json in [
+            serde_json::to_string(&value).unwrap(),
+            serde_json::to_string_pretty(&value).unwrap(),
+        ] {
+            let escaped = escape_json_for_terminal(&json);
+            assert!(
+                !escaped.chars().any(|ch| ch == '\u{1b}'
+                    || ch == '\u{7f}'
+                    || ('\u{80}'..='\u{9f}').contains(&ch)
+                    || ch == '\u{202e}'),
+                "{escaped}"
+            );
+            assert!(escaped.contains("パッケージ café"));
+            let decoded: serde_json::Value = serde_json::from_str(&escaped).unwrap();
+            assert_eq!(decoded, value);
+        }
+    }
+
+    #[test]
+    fn json_without_controls_is_unchanged() {
+        let json = serde_json::to_string_pretty(
+            &serde_json::json!({ "name": "acme/demo", "dir": "/tmp/パッケージ" }),
+        )
+        .unwrap();
+        assert_eq!(escape_json_for_terminal(&json), json);
     }
 
     #[test]

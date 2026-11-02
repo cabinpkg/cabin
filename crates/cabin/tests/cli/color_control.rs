@@ -36,6 +36,58 @@ fn unknown_cli_color_is_rejected_before_dispatch() {
 }
 
 #[test]
+fn argument_errors_neutralize_control_characters_quoted_from_argv() {
+    let hostile = "x\u{1b}[2J\u{1b}]8;;https://example.com\u{7}\u{9b}\u{202e}\r";
+    let hostile_flag = format!("--{hostile}");
+    for args in [
+        vec!["--color", "always", hostile],
+        vec!["--color", "never", hostile],
+        vec!["--color", "always", "build", "--bogus", hostile],
+        vec!["--color", "always", "...", "--bogus", hostile],
+        // Ninja's internal `cabin stamp` parses separately.
+        vec!["stamp", &hostile_flag],
+    ] {
+        let assertion = cabin().args(&args).assert().code(2);
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+        assert!(
+            !stderr.contains([ESC, '\u{7}', '\u{9b}', '\u{202e}', '\r']),
+            "a raw control character reached stderr for {args:?}: {stderr:?}"
+        );
+        assert!(
+            !stderr.contains(r"\u{1b}"),
+            "styling turned into escaped text for {args:?}: {stderr:?}"
+        );
+        // Clap quotes an unrecognized subcommand, but not an unexpected
+        // argument's value.
+        if !args.contains(&"--bogus") {
+            assert!(stderr.contains(r"\u{202e}"), "{stderr:?}");
+        }
+    }
+}
+
+#[test]
+fn help_with_hostile_argv_keeps_its_styling() {
+    let assertion = cabin()
+        .args(["--color", "always", "build", "--profile", "dev\t", "--help"])
+        .assert()
+        .success();
+    assert!(String::from_utf8_lossy(&assertion.get_output().stdout).contains(ESC));
+}
+
+#[test]
+fn argument_errors_from_clean_argv_keep_their_styling() {
+    let assertion = cabin()
+        .args(["--color", "always", "bogus"])
+        .assert()
+        .code(2);
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains(ESC) && stderr.contains("bogus"),
+        "a clean argument error lost its styling: {stderr:?}"
+    );
+}
+
+#[test]
 fn invalid_environment_color_is_reported_before_dispatch() {
     let dir = TempDir::new().unwrap();
     let assertion = missing_manifest_command(&dir)
