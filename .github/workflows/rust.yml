@@ -208,40 +208,23 @@ jobs:
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.rust }},${{ needs.changes.outputs.fuzz }}
       - name: Fail unless windows-msvc-autodiscovery succeeded or the filter skipped it
-        id: gate-msvc
-        continue-on-error: true
         uses: ./.github/actions/required-gate
         with:
           result: ${{ needs.windows-msvc-autodiscovery.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.rust }}
       - name: Fail unless windows-mingw succeeded or the filter skipped it
-        id: gate-mingw
-        continue-on-error: true
         uses: ./.github/actions/required-gate
         with:
           result: ${{ needs.windows-mingw.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.rust }}
       - name: Fail unless compiler-detection succeeded or the filter skipped it
-        id: gate-cd
-        continue-on-error: true
         uses: ./.github/actions/required-gate
         with:
           result: ${{ needs.compiler-detection.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.rust }}
-      - name: Probe - every new gate failed
-        env:
-          MSVC: ${{ steps.gate-msvc.outcome }}
-          MINGW: ${{ steps.gate-mingw.outcome }}
-          CD: ${{ steps.gate-cd.outcome }}
-          RESULTS: ${{ needs.windows-msvc-autodiscovery.result }} ${{ needs.windows-mingw.result }} ${{ needs.compiler-detection.result }}
-        run: |
-          echo "gate outcomes: msvc=$MSVC mingw=$MINGW cd=$CD; job results: $RESULTS"
-          test "$MSVC" = failure
-          test "$MINGW" = failure
-          test "$CD" = failure
 
   # Cabin must find MSVC itself through `find-msvc-tools`: this job
   # omits `ilammy/msvc-dev-cmd`, so neither `cl.exe` / `lib.exe` nor
@@ -254,8 +237,6 @@ jobs:
     runs-on: windows-2025-vs2026
 
     steps:
-      - name: Probe - fail
-        run: exit 1
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
@@ -293,7 +274,7 @@ jobs:
   # beside it are found by Cabin itself.
   windows-mingw:
     needs: changes
-    if: false && needs.changes.outputs.rust == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-2025-vs2026
 
     steps:
@@ -338,11 +319,8 @@ jobs:
     # ubuntu-24.04 preinstalls both pinned compilers; bump the pins
     # and the image together.
     runs-on: ubuntu-24.04
-    timeout-minutes: 1
 
     steps:
-      - name: Probe - exceed the timeout
-        run: sleep 300
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
