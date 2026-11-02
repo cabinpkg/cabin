@@ -494,18 +494,18 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      # A rerun of this job alone would reuse the build's stale
-      # freshness answer: only "Re-run all jobs" can deploy.
-      - name: Require this attempt's Worker build
+      - name: Require a successful Worker build
         env:
           BUILD: ${{ needs.build-registry-worker.result }}
-          BUILD_ATTEMPT: ${{ needs.build-registry-worker.outputs.attempt }}
+        run: test "$BUILD" = success
+
+      # A rerun of this job alone would reuse the build's stale
+      # freshness answer: only "Re-run all jobs" can deploy.
+      - name: Refuse a rerun of this job alone
+        if: needs.build-registry-worker.outputs.attempt != github.run_attempt
         run: |
-          test "$BUILD" = success
-          if [ "$BUILD_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]; then
-            echo "::error title=Registry deploy needs a fresh build::Use Re-run all jobs: the build job's freshness check is from attempt $BUILD_ATTEMPT."
-            exit 1
-          fi
+          echo "::error title=Registry deploy needs a fresh build::Use Re-run all jobs: the build job's freshness check is from an earlier attempt."
+          exit 1
 
       - uses: actions/checkout@v7.0.1
         if: env.SKIP != 'true'
@@ -549,19 +549,15 @@ jobs:
         env:
           PATHSPECS: ${{ needs.build-registry-worker.outputs.pathspecs }}
         run: |
-          mapfile -t specs <<< "$PATHSPECS"
-          test -n "${specs[0]}"
+          test -n "$PATHSPECS"
           git fetch --quiet origin main
-          newer=$(git rev-list --full-history -n 1 "$GITHUB_SHA..origin/main" -- "${specs[@]}")
-          if [ -n "$newer" ]; then
-            echo "main carries the newer registry commit $newer; skipping"
-            echo "superseded=true" >> "$GITHUB_OUTPUT"
-          fi
+          newer=$(printf '%s\n' "$PATHSPECS" | tr '\n' '\0' | xargs -0 git rev-list --full-history -n 1 "$GITHUB_SHA..origin/main" --)
+          echo "newer=$newer" | tee -a "$GITHUB_OUTPUT"
 
       # CABIN_WORKER_PREBUILT turns wrangler.jsonc's build.command into a
       # no-op, and --no-bundle uploads the artifact without bundling.
       - name: Deploy
-        if: env.SKIP != 'true' && steps.fresh.outputs.superseded != 'true'
+        if: env.SKIP != 'true' && steps.fresh.outputs.newer == ''
         working-directory: registry
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
@@ -569,26 +565,34 @@ jobs:
         run: node_modules/.bin/wrangler deploy --no-bundle --tag "$DEPLOY_TAG"
 
       # A zero exit from `wrangler deploy` does not say which version
-      # serves; this requires the tagged one at 100%, retrying reads.
+      # serves; this requires the tagged one at 100%, read twice at most.
       - name: Confirm the deployed version
-        if: env.SKIP != 'true' && steps.fresh.outputs.superseded != 'true'
+        id: confirm
+        if: env.SKIP != 'true' && steps.fresh.outputs.newer == ''
+        continue-on-error: true
         shell: bash
         working-directory: registry
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
         run: |
-          for attempt in 1 2 3 4 5 6; do
-            if version=$(node_modules/.bin/wrangler deployments status --json | jq -er '.versions | select(length == 1) | .[0] | select(.percentage == 100) | .version_id') &&
-              tag=$(node_modules/.bin/wrangler versions view "$version" --json | jq -er '.annotations["workers/tag"]') &&
-              [ "$tag" = "$DEPLOY_TAG" ]; then
-              echo "version $version carries this run's tag $DEPLOY_TAG and takes all traffic"
-              exit 0
-            fi
-            echo "attempt $attempt/6: the serving version is not this run's at 100%"
-            if [ "$attempt" -lt 6 ]; then sleep 10; fi
-          done
-          echo "::error title=Registry deploy unconfirmed::The Deploy step exited 0, but Cloudflare does not show this run's version serving all traffic. Re-run all jobs, which rebuilds and redeploys under a fresh tag (or skips when superseded); if it fails again, read node_modules/.bin/wrangler deployments list from registry/ and run the smoke checks (registry/docs/runbook.md, \"Deploy skew\")."
-          exit 1
+          version=$(node_modules/.bin/wrangler deployments status --json | jq -er '.versions | select(length == 1) | .[0] | select(.percentage == 100) | .version_id')
+          node_modules/.bin/wrangler versions view "$version" --json | jq -e --arg tag "$DEPLOY_TAG" '.annotations["workers/tag"] == $tag'
+
+      - name: Confirm the deployed version again
+        id: reconfirm
+        if: steps.confirm.outcome == 'failure'
+        shell: bash
+        working-directory: registry
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
+        run: |
+          sleep 30
+          version=$(node_modules/.bin/wrangler deployments status --json | jq -er '.versions | select(length == 1) | .[0] | select(.percentage == 100) | .version_id')
+          node_modules/.bin/wrangler versions view "$version" --json | jq -e --arg tag "$DEPLOY_TAG" '.annotations["workers/tag"] == $tag'
+
+      - name: Report an unconfirmed deploy
+        if: failure() && steps.reconfirm.outcome == 'failure'
+        run: echo "::error title=Registry deploy unconfirmed::The Deploy step exited 0, but Cloudflare does not show this run's version serving all traffic. Re-run all jobs, which rebuilds and redeploys under a fresh tag (or skips when superseded); if it fails again, read node_modules/.bin/wrangler deployments list from registry/ and run the smoke checks (registry/docs/runbook.md, \"Deploy skew\")."
 
   # TEMPORARY PR probe for the build/deploy split; removed before merge.
   probe-build:
