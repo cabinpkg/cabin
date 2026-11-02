@@ -10,8 +10,8 @@
 //!
 //! Ceiling: this reads the control plane's deployment record, not an
 //! edge response. The Worker answers no request with its version, and
-//! `/healthz` and the generation header read the same from every
-//! version, so no request can tell the new code from the old.
+//! `/healthz` reads the same from every version, so no request can tell
+//! the new code from the old.
 //!
 //! Wrangler authenticates from `CLOUDFLARE_API_TOKEN` and
 //! `CLOUDFLARE_ACCOUNT_ID`; both reads need only the deploy token's

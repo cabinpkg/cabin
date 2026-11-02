@@ -39,9 +39,9 @@
 //! Properties:
 //!
 //! - **The generation is read before the wipe and written after it.**
-//!   Every authenticated response echoes `x-cabin-registry-generation`,
-//!   so clients and smoke runs can tell the wipe happened; a run that
-//!   read it afterwards would have nothing to bump.
+//!   `cargo registry-diagnose` reports it, so an operator can tell the
+//!   wipe happened; a run that read it afterwards would have nothing to
+//!   bump.
 //! - **That read is not rendered through [`display`].**  The two
 //!   coercions differ on exactly the values the numeric guard exists to
 //!   catch - see `logged` below.

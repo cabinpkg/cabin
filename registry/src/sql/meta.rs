@@ -1,9 +1,6 @@
 //! meta: service state and the storage self-accounting.
 
 statements! {
-    /// The pre-launch debug header's generation stamp.
-    REGISTRY_GENERATION = "SELECT value FROM meta WHERE key = 'registry_generation'";
-
     /// One `meta` row by key.
     META_VALUE = "SELECT value FROM meta WHERE key = ?1";
 

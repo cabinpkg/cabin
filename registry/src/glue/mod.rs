@@ -28,8 +28,6 @@ use bearer::handle_website;
 use cron::{evaluate_budgets, reconcile_governor};
 use read::handle_registry;
 
-const GENERATION_HEADER: &str = "x-cabin-registry-generation";
-
 /// Mutation JSON is tiny. This shared cap covers the bearer and session
 /// planes; publish passes its larger protocol limit to [`bounded_body`].
 pub(crate) const MAX_MUTATION_BODY_BYTES: usize = 4 * 1024;
@@ -274,21 +272,6 @@ fn bucket_from_columns(tokens: Option<f64>, updated_at: Option<&str>) -> Option<
 /// Rows changed by a statement, from its result metadata.
 pub(crate) fn changed_rows(meta: Option<worker::D1ResultMeta>) -> usize {
     meta.and_then(|meta| meta.changes).unwrap_or(0)
-}
-
-/// Stamps `meta.registry_generation` on the response; best-effort (the
-/// header is a debug aid, not part of the client contract).
-async fn stamp_generation(db: &D1Database, response: &mut Response) -> worker::Result<()> {
-    let record: Option<MetaRecord> = db
-        .prepare(sql::REGISTRY_GENERATION)
-        .first(None)
-        .await
-        .ok()
-        .flatten();
-    if let Some(MetaRecord { value: generation }) = record {
-        response.headers_mut().set(GENERATION_HEADER, &generation)?;
-    }
-    Ok(())
 }
 
 /// The `ALLOWED_GITHUB_IDS` allowlist: who may sign in and, during the
