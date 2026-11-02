@@ -390,6 +390,7 @@ dependencies = [
 name = "cabinpkg-diagnostics"
 version = "0.17.0"
 dependencies = [
+ "cabinpkg-core",
  "miette",
  "termcolor",
  "thiserror",

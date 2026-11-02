@@ -193,6 +193,7 @@ impl Reporter {
         if !self.verbosity.shows_status() {
             return;
         }
+        let args = escaped(args);
         // Pad spaces before the styled span so the leading
         // alignment is plain text; only the verb itself carries
         // the ANSI escape.
@@ -230,9 +231,7 @@ impl Reporter {
     /// verbosity-gated: they report a degraded or partial result
     /// rather than ordinary progress.
     pub(crate) fn warning(self, args: fmt::Arguments<'_>) {
-        let stderr = std::io::stderr();
-        let mut handle = stderr.lock();
-        let _ = writeln!(handle, "cabin: warning: {args}");
+        write_warning(&mut std::io::stderr().lock(), args);
     }
 
     /// Forward captured subprocess stderr to the user's stderr
@@ -274,6 +273,7 @@ impl Reporter {
         let stderr = std::io::stderr();
         let mut handle = stderr.lock();
         let _ = writeln!(handle);
+        let body = cabin_core::escape_control_chars_keeping_lines(body);
         let mut lines = body.lines();
         let Some(first) = lines.next() else {
             return;
@@ -331,6 +331,7 @@ impl Reporter {
     }
 
     fn write(self, stream: Stream, args: fmt::Arguments<'_>) {
+        let args = escaped(args);
         match stream {
             Stream::Stdout => {
                 let stdout = std::io::stdout();
@@ -346,9 +347,33 @@ impl Reporter {
     }
 }
 
+fn write_warning(handle: &mut impl Write, args: fmt::Arguments<'_>) {
+    let _ = writeln!(handle, "cabin: warning: {}", escaped(args));
+}
+
+/// Reporter payloads quote untrusted text (manifest and config values,
+/// paths), so only the styling the reporter adds itself may reach the
+/// terminal as control sequences.
+fn escaped(args: fmt::Arguments<'_>) -> String {
+    cabin_core::escape_control_chars_keeping_lines(&args.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn warning_escapes_control_characters_in_its_payload() {
+        let mut out = Vec::new();
+        write_warning(
+            &mut out,
+            format_args!("wrapper `missing\u{1b}]0;title\u{7}`"),
+        );
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "cabin: warning: wrapper `missing\\u{1b}]0;title\\u{7}`\n"
+        );
+    }
 
     fn no_env(_: &str) -> Option<String> {
         None

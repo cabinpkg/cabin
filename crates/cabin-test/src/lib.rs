@@ -866,7 +866,13 @@ fn failure_reason(status: &TestRunStatus) -> Option<String> {
         }
         TestRunStatus::Failed(ExitStatusKind::Unknown) => "unknown exit status".to_owned(),
         TestRunStatus::TimedOut(limit) => format!("timed out after {}s", limit.as_secs_f64()),
-        TestRunStatus::SpawnFailed(error) => format!("could not start: {error}"),
+        // The error can quote a runner name taken from configuration.
+        TestRunStatus::SpawnFailed(error) => {
+            format!(
+                "could not start: {}",
+                cabin_core::escape_control_chars(error)
+            )
+        }
     })
 }
 
@@ -1820,6 +1826,10 @@ exit 42
             (
                 TestRunStatus::SpawnFailed("permission denied".to_owned()),
                 "FAILED (could not start: permission denied)",
+            ),
+            (
+                TestRunStatus::SpawnFailed("`run\u{1b}]0;t\u{7}` not found".to_owned()),
+                "FAILED (could not start: `run\\u{1b}]0;t\\u{7}` not found)",
             ),
         ] {
             assert_eq!(

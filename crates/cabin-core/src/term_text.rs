@@ -30,6 +30,24 @@ pub fn escape_control_chars(value: &str) -> String {
     escaped
 }
 
+/// Escape terminal control characters in a whole rendered report, keeping
+/// its line feeds and tabs.
+///
+/// For a final report Cabin writes to the terminal, whose line breaks are
+/// layout. A newline inside quoted third-party text therefore survives, so
+/// text that must stay on one line still needs [`escape_control_chars`] at
+/// the boundary that owns it.
+#[must_use]
+pub fn escape_control_chars_keeping_lines(value: &str) -> String {
+    value
+        .split_inclusive(['\n', '\t'])
+        .map(|piece| {
+            let text = piece.strip_suffix(['\n', '\t']).unwrap_or(piece);
+            escape_control_chars(text) + &piece[text.len()..]
+        })
+        .collect()
+}
+
 /// Unicode's bidirectional controls can reorder otherwise printable text
 /// in terminal diagnostics. Keep ordinary international text intact while
 /// making those invisible formatting characters explicit.
@@ -42,7 +60,7 @@ fn is_bidi_control(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::escape_control_chars;
+    use super::{escape_control_chars, escape_control_chars_keeping_lines};
 
     #[test]
     fn control_and_bidi_characters_lose_their_effect() {
@@ -56,6 +74,14 @@ mod tests {
         for value in ["acme/demo 1.2.3", "パッケージ", "café"] {
             assert_eq!(escape_control_chars(value), value);
         }
+    }
+
+    #[test]
+    fn report_escaping_keeps_line_feeds_and_tabs() {
+        assert_eq!(
+            escape_control_chars_keeping_lines("a\tb\n\u{1b}[2K\r\n"),
+            "a\tb\n\\u{1b}[2K\\r\n"
+        );
     }
 
     #[test]
