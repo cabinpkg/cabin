@@ -8,6 +8,9 @@
     "main": "build/index.js",
     "compatibility_date": "2026-07-09",
     "workers_dev": false,
+    // Version URLs (and aliased ones) would be a second origin outside
+    // the custom domain; omitting this keeps whatever the dashboard has.
+    "preview_urls": false,
     // worker-build is a prerequisite on PATH, installed once at the
     // version CI pins (README.md, "Development"); every wrangler dev
     // and deploy runs this.
