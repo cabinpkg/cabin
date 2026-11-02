@@ -185,7 +185,7 @@ jobs:
   # posts per-leg names. `always()`, never `!cancelled()`: a cancelled
   # run must fail this check, not skip it to a green required check.
   build-and-test-required:
-    needs: [changes, build-and-test, fuzz]
+    needs: [changes, build-and-test, fuzz, windows-msvc-autodiscovery, windows-mingw, compiler-detection]
     if: always()
     runs-on: ubuntu-slim
     steps:
@@ -207,6 +207,24 @@ jobs:
           result: ${{ needs.fuzz.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.rust }},${{ needs.changes.outputs.fuzz }}
+      - name: Fail unless windows-msvc-autodiscovery succeeded or the filter skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.windows-msvc-autodiscovery.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.rust }}
+      - name: Fail unless windows-mingw succeeded or the filter skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.windows-mingw.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.rust }}
+      - name: Fail unless compiler-detection succeeded or the filter skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.compiler-detection.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.rust }}
 
   # Cabin must find MSVC itself through `find-msvc-tools`: this job
   # omits `ilammy/msvc-dev-cmd`, so neither `cl.exe` / `lib.exe` nor
