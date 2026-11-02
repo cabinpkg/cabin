@@ -260,13 +260,15 @@ fn resolve_vendor_dir(args: &VendorArgs, manifest_path: &std::path::Path) -> Res
 
 /// Build a [`VendorPlan`] from the pipeline's fetched packages
 /// plus the source index's per-package JSON files.  The function
-/// reads each `<index>/packages/<name>.json` once, picks the
+/// reads each package's document once, from wherever the index's
+/// layout places it ([`cabin_index::FileIndex`]), picks the
 /// resolved version's entry, and pairs it with the verified
 /// archive in the cache.
 fn build_vendor_plan(
     fetched: &[FetchedPackage],
     index_dir: &std::path::Path,
 ) -> Result<VendorPlan> {
+    let index = cabin_index::FileIndex::open(index_dir)?;
     let mut entries: Vec<VendorEntry> = Vec::with_capacity(fetched.len());
     // Cache index reads so a workspace that resolves multiple
     // versions of the same name does not re-parse the same file.
@@ -277,17 +279,10 @@ fn build_vendor_plan(
         let parsed = if let Some(v) = by_name.get(&name) {
             v.clone()
         } else {
-            // Mirror the file-registry layout: a scoped index doc
-            // nests under its scope dir (`packages/<scope>/<name>.json`),
-            // one path segment per name component.
-            let mut path = index_dir.join("packages");
-            if let Some(scope) = pkg.name.scope() {
-                path.push(scope);
-            }
-            path.push(format!("{}.json", pkg.name.base_name()));
+            let path = index.package_path(&pkg.name);
             let body = std::fs::read_to_string(&path).with_context(|| {
                 format!(
-                    "vendoring requires the source index to expose `packages/{name}.json` at `{}`",
+                    "vendoring requires the source index to expose `{name}`'s metadata at `{}`",
                     path.display()
                 )
             })?;
