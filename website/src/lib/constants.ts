@@ -22,8 +22,6 @@ export const INSTALL_DOC_URL = "/docs/installation/";
 export const EXTERNAL_URLS = {
     githubOrg: "https://github.com/cabinpkg",
     author: "https://github.com/ken-matsui",
-    demoGif:
-        "https://github.com/cabinpkg/cabin/releases/latest/download/demo.gif",
 } as const;
 
 export const NAV_LINKS = {

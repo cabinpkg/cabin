@@ -20,6 +20,8 @@ on:
         value: ${{ jobs.changes.outputs.fuzz }}
       website:
         value: ${{ jobs.changes.outputs.website }}
+      demo:
+        value: ${{ jobs.changes.outputs.demo }}
       registry:
         value: ${{ jobs.changes.outputs.registry }}
       registry-build:
@@ -48,6 +50,7 @@ jobs:
       toml: ${{ steps.filter.outputs.toml }}
       fuzz: ${{ steps.filter.outputs.fuzz }}
       website: ${{ steps.filter.outputs.website }}
+      demo: ${{ steps.filter.outputs.demo }}
       registry: ${{ steps.filter.outputs.registry }}
       registry-build: ${{ steps.filter.outputs.registry-build }}
       tlc: ${{ steps.filter.outputs.tlc }}

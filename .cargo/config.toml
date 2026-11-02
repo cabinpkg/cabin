@@ -10,9 +10,10 @@
 # Every alias names a ROOT-workspace package, so it resolves anywhere
 # inside the root workspace but not from `registry/`, which cargo
 # resolves against its own manifest. Run the aliases from the repository
-# root: `dist-package`, `registry-verify`, `workflow-superseded`,
-# `workflow-filter-coverage`, and `workflow-migrations-pending` resolve
-# repository paths against the working directory.
+# root: `demo-check`, `demo-record`, `dist-package`, `registry-verify`,
+# `workflow-superseded`, `workflow-filter-coverage`, and
+# `workflow-migrations-pending` resolve repository paths against the
+# working directory.
 #
 # Scalar (whitespace-split) alias values, not arrays: cargo JOINS array
 # config values across layers instead of overriding them, so a same-named
@@ -27,6 +28,8 @@ check-r2 = "run --quiet --locked -p xtask-registry-guard -- check-r2"
 check-sql = "run --quiet --locked -p xtask-registry-guard -- check-sql"
 check-tlc-witnesses = "run --quiet --locked -p xtask-registry-guard -- check-tlc-witnesses"
 ci = "run --quiet --locked -p xtask-ci --"
+demo-check = "run --quiet --locked -p xtask-demo -- check"
+demo-record = "run --quiet --locked -p xtask-demo -- record"
 dist-check = "run --quiet --locked -p xtask-dist -- check"
 dist-package = "run --quiet --locked -p xtask-dist -- package"
 fuzz-seeds = "run --quiet --locked -p xtask-fuzz -- seeds"

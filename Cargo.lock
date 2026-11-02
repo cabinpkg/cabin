@@ -3140,6 +3140,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtask-demo"
+version = "0.18.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "tempfile",
+]
+
+[[package]]
 name = "xtask-dist"
 version = "0.18.0"
 dependencies = [
