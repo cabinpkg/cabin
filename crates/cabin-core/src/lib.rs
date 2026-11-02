@@ -113,7 +113,7 @@ pub use system_provided::{
     SystemProvidedSettings, SystemProvider, SystemProviderError, SystemTargetProvider,
 };
 pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
-pub use term_text::escape_control_chars;
+pub use term_text::{escape_control_chars, escape_control_chars_keeping_lines};
 pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvError};
 pub use toolchain::{
     ConditionalToolchainDecl, ResolvedTool, ResolvedToolchain, Sysroot, ToolKind, ToolSelection,

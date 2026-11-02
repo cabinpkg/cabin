@@ -22,7 +22,9 @@
 //!   `render_to_string` always emits the no-color theme (used
 //!   by tests so output stays byte-stable across terminals);
 //!   [`render`] picks the colored or no-color theme from the
-//!   writer's own [`WriteColor::supports_color`] report.
+//!   writer's own [`WriteColor::supports_color`] report and
+//!   escapes terminal control characters quoted from untrusted
+//!   text (manifests, config files, registry responses).
 
 use std::io;
 
@@ -166,30 +168,45 @@ pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
 }
 
 /// Render a [`miette::Diagnostic`] onto `writer`, emitting ANSI
-/// color exactly when the writer reports it supports color.
+/// color when the writer reports it supports color.
 ///
-/// The writer capability is the single routing input: the caller
+/// The writer capability is the color routing input: the caller
 /// encodes the user's color choice in the writer it constructs,
 /// so a `NoColor` sink (a `termcolor::StandardStream` built with
 /// `ColorChoice::Never`) stays plain even under `--color always`.
+///
+/// Diagnostics quote untrusted text (a `cabin.toml` snippet, a
+/// config key, a registry message), so control characters in the
+/// report are escaped. miette's own color is control sequences
+/// too, so a report that needed escaping is written without
+/// color.
 ///
 /// # Errors
 /// Returns an [`io::Error`] if `GraphicalReportHandler::render_report`
 /// fails (wrapped via `io::Error::other`), or if writing the
 /// rendered bytes to `writer` or flushing it fails.
 pub fn render(diagnostic: &dyn miette::Diagnostic, writer: &mut dyn WriteColor) -> io::Result<()> {
-    let theme = if writer.supports_color() {
-        GraphicalTheme::unicode()
+    let plain = render_with(GraphicalTheme::unicode_nocolor(), diagnostic)?;
+    let escaped = cabin_core::escape_control_chars_keeping_lines(&plain);
+    // The two themes differ only in styles, so the colored report is
+    // this plain text plus miette's SGR sequences: when the plain
+    // text needed no escaping, every control sequence in the colored
+    // one is miette's own.
+    let report = if escaped == plain && writer.supports_color() {
+        render_with(GraphicalTheme::unicode(), diagnostic)?
     } else {
-        GraphicalTheme::unicode_nocolor()
+        escaped
     };
-    let handler = build_handler(theme);
+    writer.write_all(report.as_bytes())?;
+    writer.flush()
+}
+
+fn render_with(theme: GraphicalTheme, diagnostic: &dyn miette::Diagnostic) -> io::Result<String> {
     let mut buf = String::new();
-    handler
+    build_handler(theme)
         .render_report(&mut buf, diagnostic)
         .map_err(io::Error::other)?;
-    writer.write_all(buf.as_bytes())?;
-    writer.flush()
+    Ok(buf)
 }
 
 /// Construct miette's `GraphicalReportHandler` with cabin's
@@ -247,6 +264,51 @@ mod tests {
             s.contains('\x1b'),
             "expected ANSI escape for a color-capable writer, got: {s:?}"
         );
+    }
+
+    #[derive(Debug, Error, Diagnostic)]
+    #[error("invalid manifest {key}")]
+    struct Spanned {
+        key: String,
+        #[source_code]
+        src: String,
+        #[label("here")]
+        span: miette::SourceSpan,
+    }
+
+    fn render_colored(diagnostic: &dyn Diagnostic) -> String {
+        let mut sink = termcolor::Ansi::new(Vec::new());
+        render(diagnostic, &mut sink).expect("render should not fail");
+        String::from_utf8(sink.into_inner()).unwrap()
+    }
+
+    #[test]
+    fn render_escapes_control_characters_from_untrusted_text() {
+        let hostile = Spanned {
+            key: "\u{1b}]0;title\u{7}".to_owned(),
+            src: "name = \"\u{1b}[2J\"".to_owned(),
+            span: (0, 4).into(),
+        };
+        let rendered = render_colored(&hostile);
+        assert!(
+            !rendered.contains(['\u{1b}', '\u{7}']),
+            "control characters reached the terminal: {rendered:?}"
+        );
+        assert!(rendered.contains(r"invalid manifest \u{1b}]0;title\u{7}"));
+        assert!(rendered.contains(r#"name = "\u{1b}[2J""#));
+    }
+
+    #[test]
+    fn render_keeps_color_and_snippet_for_clean_text() {
+        let clean = Spanned {
+            key: "key".to_owned(),
+            src: "name = \"demo\"".to_owned(),
+            span: (0, 4).into(),
+        };
+        let rendered = render_colored(&clean);
+        assert!(rendered.contains('\u{1b}'), "expected color: {rendered:?}");
+        assert!(rendered.contains("name = \"demo\""));
+        assert!(rendered.contains("here"));
     }
 
     #[test]

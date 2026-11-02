@@ -11,6 +11,7 @@ description = "User-facing error diagnostics for Cabin"
 name = "cabin_diagnostics"
 
 [dependencies]
+cabin-core = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
 termcolor = { workspace = true }
 

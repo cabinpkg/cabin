@@ -12,7 +12,7 @@
 //! rendering via [`write_plain_error`].
 
 use cabin_core::ColorChoice;
-use termcolor::{StandardStream, WriteColor};
+use termcolor::WriteColor;
 
 use crate::diagnostic_registry::{DiagnosticCandidate, downcast_diagnostic};
 
@@ -42,9 +42,13 @@ pub(crate) fn render_error(error: &anyhow::Error, color: ColorChoice) {
 }
 
 /// Emit a plain `error: <message>` line, painting only the
-/// `error:` prefix.
-pub(crate) fn write_plain_error(stderr: &mut StandardStream, message: &str) -> std::io::Result<()> {
-    use std::io::Write as _;
+/// `error:` prefix.  The message is an error chain that may quote
+/// untrusted text, so its control characters are escaped.
+pub(crate) fn write_plain_error(
+    stderr: &mut impl WriteColor,
+    message: &str,
+) -> std::io::Result<()> {
+    let message = cabin_core::escape_control_chars_keeping_lines(message);
 
     if stderr.supports_color() {
         let mut spec = termcolor::ColorSpec::new();
@@ -55,5 +59,21 @@ pub(crate) fn write_plain_error(stderr: &mut StandardStream, message: &str) -> s
         writeln!(stderr, ": {message}")
     } else {
         writeln!(stderr, "error: {message}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_plain_error;
+
+    #[test]
+    fn plain_error_escapes_control_characters() {
+        let mut sink = termcolor::Ansi::new(Vec::new());
+        write_plain_error(&mut sink, "bad key `\u{1b}]0;title\u{7}`").unwrap();
+        let written = String::from_utf8(sink.into_inner()).unwrap();
+        assert!(
+            written.ends_with(": bad key `\\u{1b}]0;title\\u{7}`\n"),
+            "{written:?}"
+        );
     }
 }
