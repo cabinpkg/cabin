@@ -43,10 +43,11 @@
 //!   never that nothing needs deploying.  The iteration waits;
 //!   past `NO_RUN_PATIENCE` waits a verified empty listing Stops
 //!   (a run deleted by retention needs a fresh main push before a
-//!   re-dispatch).  The listing is also filtered to `branch=main`:
-//!   the merge queue's same-SHA `merge_group` run skips the deploy
-//!   job by event and would otherwise read as the change-gate skip
-//!   above.
+//!   re-dispatch).  The listing is also filtered to `branch=main`
+//!   and `event=push`: the merge queue's same-SHA `merge_group` run,
+//!   and a fork's pull-request run from its own `main` branch, skip
+//!   the deploy job by event and would otherwise read as the
+//!   change-gate skip above.
 //! - **A failing `gh` never fails the step.** A failed candidate
 //!   listing skips the scan, and a failed same-SHA or pending listing
 //!   takes its transient branch. A failed deploy-step lookup appends
@@ -522,8 +523,13 @@ fn text(captured: Vec<u8>) -> String {
     String::from_utf8_lossy(&crate::substitute(captured)).into_owned()
 }
 
+/// Every listing is limited to `push` runs, the only event that runs
+/// `deploy-registry`: `branch` matches a run's `head_branch`, which a
+/// fork's pull request from its own `main` also carries, and such a
+/// run - skipped deploy job, or pending forever - would otherwise
+/// answer for this SHA.
 fn runs_url(repository: &str, query: &str) -> String {
-    format!("repos/{repository}/actions/workflows/registry.yml/runs?{query}")
+    format!("repos/{repository}/actions/workflows/registry.yml/runs?event=push&{query}")
 }
 
 fn jobs_url(repository: &str, run_id: &str) -> String {
@@ -711,7 +717,7 @@ mod tests {
     fn the_urls_and_projections_are_spelled_exactly() {
         assert_eq!(
             runs_url("o/r", "head_sha=abc&branch=main"),
-            "repos/o/r/actions/workflows/registry.yml/runs?head_sha=abc&branch=main"
+            "repos/o/r/actions/workflows/registry.yml/runs?event=push&head_sha=abc&branch=main"
         );
         assert_eq!(
             jobs_url("o/r", "77"),
@@ -724,7 +730,7 @@ mod tests {
         // An unset context reads as empty and is spliced in as-is.
         assert_eq!(
             runs_url("", "head_sha="),
-            "repos//actions/workflows/registry.yml/runs?head_sha="
+            "repos//actions/workflows/registry.yml/runs?event=push&head_sha="
         );
     }
 
