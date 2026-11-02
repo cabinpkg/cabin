@@ -118,6 +118,18 @@ pub enum CompilerWrapperResolutionError {
     /// rather than lossily mangled into an unintended request.
     #[error("environment variable {var} is set but is not valid UTF-8", var = WRAPPER_ENV_VAR)]
     EnvNotUtf8,
+    /// On Windows, the wrapper is a `.bat` / `.cmd` batch file, which
+    /// `CreateProcess` runs through `cmd.exe`; see
+    /// [`cabin_core::ToolchainResolutionError::BatchFile`].
+    #[error(
+        "compiler wrapper `{path}` requested by {source_label} is a batch file; Windows runs batch files through `cmd.exe`, which re-parses their arguments, so Cabin cannot pass them safely; use an executable (`.exe`) instead",
+        path = path.display(),
+        source_label = source_label(*selected_from)
+    )]
+    BatchFile {
+        path: PathBuf,
+        selected_from: CompilerWrapperSource,
+    },
     /// Subprocess version probe failed.  Treated as a hard error in
     /// the build path so missing wrappers do not silently slip
     /// through; `cabin metadata` is fail-soft and reports `null`.
@@ -165,7 +177,8 @@ fn source_label(source: CompilerWrapperSource) -> &'static str {
 /// Returns [`CompilerWrapperResolutionError`]: `EnvParse` when
 /// `CABIN_COMPILER_WRAPPER` holds an invalid value, `EnvNotUtf8` when
 /// it is not UTF-8, `NotFound` when the requested wrapper cannot be
-/// located, `NonUtf8Path` when the located path is not UTF-8, and
+/// located, `BatchFile` when, on Windows, it is a `.bat` / `.cmd` file,
+/// `NonUtf8Path` when the located path is not UTF-8, and
 /// `SubprocessFailed` when a non-`None` `runner` fails to probe the
 /// wrapper's version.
 pub fn resolve_compiler_wrapper(
@@ -186,6 +199,12 @@ pub fn resolve_compiler_wrapper(
             selected_from: source,
         },
     )?;
+    if cfg!(windows) && crate::resolve::is_batch_file(&path.to_string_lossy()) {
+        return Err(CompilerWrapperResolutionError::BatchFile {
+            path,
+            selected_from: source,
+        });
+    }
     let identity = match runner {
         Some(runner) => Some(detect_identity(kind.clone(), &path, runner)?),
         None => None,
@@ -473,6 +492,33 @@ mod tests {
             err,
             CompilerWrapperResolutionError::EnvParse { .. }
         ));
+    }
+
+    #[test]
+    fn a_batch_file_wrapper_is_rejected_on_windows() {
+        let manifest = ManifestWrapper::default();
+        let host = host();
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let existing = path_set(&["/opt/tools/cache.bat"]);
+        let inputs = make_inputs(
+            Some(request("/opt/tools/cache.bat")),
+            &manifest,
+            &host,
+            env,
+            existing,
+        );
+        let result = resolve_compiler_wrapper(&inputs, None);
+        if cfg!(windows) {
+            assert!(matches!(
+                result,
+                Err(CompilerWrapperResolutionError::BatchFile {
+                    selected_from: CompilerWrapperSource::Cli,
+                    ..
+                })
+            ));
+        } else {
+            assert!(result.is_ok());
+        }
     }
 
     #[cfg(unix)]

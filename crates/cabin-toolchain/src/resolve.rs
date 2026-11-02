@@ -141,8 +141,9 @@ impl<'a> Inputs<'a> {
 /// required tool (`cxx` or `ar`) has neither an explicit selection
 /// nor a resolvable default, `UnsupportedCompiler` when a
 /// compiler slot names `link` or `lib` (the MSVC linker and archiver),
-/// and `NonUtf8Path` when a `CC` / `CXX` / `AR` value or a located
-/// tool path is not UTF-8.
+/// `BatchFile` when, on Windows, a resolved tool is a `.bat` / `.cmd`
+/// file, and `NonUtf8Path` when a `CC` / `CXX` / `AR` value or a
+/// located tool path is not UTF-8.
 pub fn resolve_toolchain(
     inputs: &Inputs<'_>,
 ) -> Result<ResolvedToolchain, ToolchainResolutionError> {
@@ -170,7 +171,37 @@ pub fn resolve_toolchain(
         Some(cc) => Some(cc),
         None => resolve_default(ToolKind::CCompiler, lead, inputs)?,
     };
+    // Ninja launches each tool with `CreateProcess`, and a compiler
+    // wrapper launches the compiler the same way.
+    if cfg!(windows)
+        && let Some(tool) = [Some(&cxx), Some(&ar), cc.as_ref()]
+            .into_iter()
+            .flatten()
+            .find(|tool| is_batch_file(tool.path.as_str()))
+    {
+        return Err(ToolchainResolutionError::BatchFile {
+            kind: tool.kind,
+            path: tool.path.clone(),
+            selected_from: tool.source,
+        });
+    }
     Ok(ResolvedToolchain { cxx, ar, cc })
+}
+
+/// Whether Windows `CreateProcess` runs `path` through `cmd.exe`: it
+/// ends in `.bat` or `.cmd` in any case, after the trailing dots and
+/// spaces Windows strips from a file name.  A suffix test, not
+/// `extension()`, so a file named just `.cmd` counts too.  The path is
+/// made absolute first so `.` and (on Windows) `..` components cannot
+/// hide the name `CreateProcess` will open, as in `cache.cmd\.`.
+pub(crate) fn is_batch_file(path: &str) -> bool {
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
+    let path = path.to_string_lossy();
+    let name = path.trim_end_matches(['.', ' ']).as_bytes();
+    name.len() >= 4 && {
+        let suffix = &name[name.len() - 4..];
+        suffix.eq_ignore_ascii_case(b".bat") || suffix.eq_ignore_ascii_case(b".cmd")
+    }
 }
 
 /// Resolve `kind` from the first layer above the defaults that
@@ -737,6 +768,52 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn batch_files_are_recognized_as_windows_resolves_them() {
+        for path in [
+            "C:/zig/zig-cc.cmd",
+            "zig-cc.BAT",
+            "zig-cc.Cmd. .",
+            "cc.bat ",
+            "C:/tools/.cmd",
+            ".bat",
+            "/tools/cache.cmd/.",
+            #[cfg(windows)]
+            r"C:\tools\cache.cmd\x\..",
+        ] {
+            assert!(is_batch_file(path), "{path}");
+        }
+        for path in ["cl.exe", "clang++", "cmd", "cc.bat.exe", "bat"] {
+            assert!(!is_batch_file(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_batch_file_tool_is_rejected_on_windows() {
+        let selection = ToolchainSelection::default().with_cli(
+            ToolKind::CCompiler,
+            ToolSpec::Name("/zig/zig-cc.cmd".into()),
+        );
+        let manifest = ToolchainSettings::default();
+        let host = host();
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let existing = path_set(&["/zig/zig-cc.cmd", "/usr/bin/clang++", "/usr/bin/ar"]);
+        let inputs = make_inputs(&selection, &manifest, &host, env, existing);
+        let result = resolve_toolchain(&inputs);
+        if cfg!(windows) {
+            assert!(matches!(
+                result,
+                Err(ToolchainResolutionError::BatchFile {
+                    kind: ToolKind::CCompiler,
+                    selected_from: ToolSource::Cli,
+                    ..
+                })
+            ));
+        } else {
+            assert!(result.is_ok());
+        }
     }
 
     #[test]
