@@ -25,21 +25,16 @@
 //! collection only removes files (and directories left empty), and
 //! Ninja rebuilds a missing output.
 //!
-//! The catalog is one small file per output directory (normally the
-//! package directory [`crate::layout`] puts a product in; see
-//! `split` for the one ambiguous layout), so recording a use
-//! reads only the shards of the directories the plan writes, rewriting
-//! one only to raise a stamp to the current active day.  Catalog files
-//! are replaced by rename but not synced (see `store`); one that cannot
-//! be read, or was written by a newer format, authorizes no removal.
-//! Commands record one at a time under the catalog's own lock, since
-//! two rewriting one shard from the same snapshot would lose one's
-//! update.  A plan already
-//! recorded on the current active day is remembered by digest and not
-//! recorded again: collection never lowers a stamp of the current day,
-//! and replacing an unreadable shard, which drops its stamps, forgets
-//! every remembered plan, so a remembered plan's shards still hold
-//! everything it would write.
+//! The catalog is two files: `state.json`, the active-day clock and
+//! the plans recorded on the current active day, and `catalog.json`,
+//! each product's stamp.  Catalog files are replaced by rename but not
+//! synced (see `store`); one that cannot be read, or was written by a
+//! newer format, authorizes no removal.  Commands record one at a time
+//! under the catalog's own lock, since two rewriting `catalog.json` from
+//! the same snapshot would lose one's update.  A plan already recorded
+//! on the current active day is remembered by digest, and recording it
+//! again reads only `state.json`: collection never lowers a stamp of the
+//! current day, so `catalog.json` still holds everything it would write.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -67,12 +62,11 @@ pub use lock::{BuildDirLock, LOCK_FILENAME};
 /// Directory under the build directory that holds the catalog.
 pub const CATALOG_DIR: &str = ".cabin-gc";
 const STATE_FILE: &str = "state.json";
-const RECORDED_FILE: &str = "recorded.json";
-const SHARDS_DIR: &str = "dirs";
-/// Plans [`Recorded`] remembers per active day; recording another
-/// forgets the oldest.
+const CATALOG_FILE: &str = "catalog.json";
+/// Plans [`State`] remembers per active day; recording another forgets
+/// the oldest.
 const RECORDED_PLANS: usize = 16;
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 /// Products used this many active days ago or more recently are never
 /// collected.
 const PROTECTED_AGE: u64 = 1;
@@ -131,7 +125,7 @@ fn io_err(path: &Path) -> impl FnOnce(io::Error) -> GcError + '_ {
 }
 
 /// The active-day clock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct State {
     version: u32,
@@ -142,6 +136,11 @@ struct State {
     index: u64,
     /// Index at which the latest complete collection ran.
     collected: u64,
+    /// [`plan_digest`]s of the plans recorded on active day `index`,
+    /// oldest first, whose products then held a stamp of at least
+    /// `index` (higher after a lost clock), so recording one of them
+    /// again on that day changes nothing.
+    plans: Vec<String>,
 }
 
 impl State {
@@ -151,6 +150,7 @@ impl State {
             day: today,
             index: 1,
             collected: 1,
+            plans: Vec::new(),
         }
     }
 
@@ -163,6 +163,7 @@ impl State {
         }
         if today > self.day {
             self.index += 1;
+            self.plans.clear();
         }
         self.day = today;
         true
@@ -173,36 +174,28 @@ impl State {
     }
 }
 
-/// The products one output directory's plans declared, with the active
-/// day each was last used.
+/// The products Cabin's plans declared, with the active day each was
+/// last used.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Shard {
+struct Catalog {
     version: u32,
-    /// Output directory, relative to the build directory, `/`-separated;
-    /// empty for the build directory itself.
-    dir: String,
-    /// Product paths relative to `dir` -> active-day index of last use.
+    /// Product paths relative to the build directory, `/`-separated ->
+    /// active-day index of last use.
     entries: BTreeMap<String, u64>,
 }
 
-impl Shard {
-    fn is_valid(&self) -> bool {
-        (self.dir.is_empty() || is_valid_relative(&self.dir))
-            && self.entries.keys().all(|rel| is_valid_relative(rel))
+impl Catalog {
+    fn new() -> Self {
+        Self {
+            version: FORMAT_VERSION,
+            entries: BTreeMap::new(),
+        }
     }
-}
 
-/// The plans recorded on active day `index`, whose products then held a
-/// stamp of at least `index` (higher after a lost clock), so recording
-/// one of them again on that day changes nothing.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Recorded {
-    version: u32,
-    index: u64,
-    /// [`plan_digest`]s, oldest first.
-    plans: Vec<String>,
+    fn is_valid(&self) -> bool {
+        self.entries.keys().all(|rel| is_valid_relative(rel))
+    }
 }
 
 #[derive(Deserialize)]
@@ -301,32 +294,26 @@ pub fn plan_products(graph: &BuildGraph) -> impl Iterator<Item = &Utf8Path> {
 /// [`GcError::UnsafeCatalog`] when it is not a real directory.  Callers
 /// fail the command: a use that is not recorded could let a later
 /// collection treat these products as unused.
-#[tracing::instrument(level = "debug", skip_all, fields(products = tracing::field::Empty, shards_written = tracing::field::Empty))]
+#[tracing::instrument(level = "debug", skip_all, fields(products = tracing::field::Empty))]
 pub fn record_use<'a>(
     build_dir: &Path,
     products: impl IntoIterator<Item = &'a Utf8Path>,
     today: u64,
 ) -> Result<bool, GcError> {
     let catalog = build_dir.join(CATALOG_DIR);
-    let shards_dir = catalog.join(SHARDS_DIR);
-    fs::create_dir_all(&shards_dir).map_err(io_err(&shards_dir))?;
+    fs::create_dir_all(&catalog).map_err(io_err(&catalog))?;
     // `create_dir_all` accepts a symlinked directory; writing through
     // one would let it redirect the catalog.
-    for dir in [&catalog, &shards_dir] {
-        if !is_real_dir(dir)? {
-            return Err(GcError::UnsafeCatalog(dir.clone()));
-        }
+    if !is_real_dir(&catalog)? {
+        return Err(GcError::UnsafeCatalog(catalog));
     }
 
     let products: Vec<&Utf8Path> = products.into_iter().collect();
     let plan = plan_digest(&products);
     let state_path = catalog.join(STATE_FILE);
-    let recorded_path = catalog.join(RECORDED_FILE);
     if let Loaded::Ok(state) = load::<State>(&state_path)?
         && state.day == today
-        && let Loaded::Ok(recorded) = load::<Recorded>(&recorded_path)?
-        && recorded.index == state.index
-        && recorded.plans.contains(&plan)
+        && state.plans.contains(&plan)
     {
         return Ok(state.collected < state.index);
     }
@@ -346,76 +333,48 @@ pub fn record_use<'a>(
         Loaded::Newer(_) => return Ok(false),
     };
     state_changed |= state.advance(today);
-    if state_changed {
-        store(&state_path, &state)?;
-    }
 
+    // `catalog.json` is written before `state.json`, so a remembered plan
+    // never vouches for stamps not yet written.  A catalog that was not
+    // loaded is replaced without its stamps (those files are never
+    // collected, the safe direction), so the state written forgets every
+    // remembered plan; if that write fails, they record again on the
+    // next active day.
+    let catalog_path = catalog.join(CATALOG_FILE);
+    let mut tracked = match load::<Catalog>(&catalog_path)? {
+        Loaded::Ok(tracked) if tracked.is_valid() => tracked,
+        Loaded::Newer(_) => return Ok(false),
+        _ => {
+            state.plans.clear();
+            Catalog::new()
+        }
+    };
     let relative: Vec<String> = products
         .iter()
         .filter_map(|product| relative_to(build_dir, product))
         .collect();
-    let mut by_dir: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut changed = false;
     for rel in &relative {
-        let (dir, rest) = split(rel);
-        by_dir.entry(dir).or_default().insert(rest);
-    }
-    let mut written = 0;
-    for (dir, rests) in by_dir {
-        let path = shard_path(&shards_dir, dir);
-        let mut shard = match load::<Shard>(&path)? {
-            Loaded::Ok(shard) if shard.is_valid() => shard,
-            Loaded::Newer(_) => continue,
-            // Replacing an unreadable shard forgets what it listed: those
-            // files are never collected, the safe direction.  Plans
-            // recorded today may be among them, so they are forgotten
-            // first, and record again even if this recording fails.
-            loaded => {
-                if !matches!(loaded, Loaded::Missing) {
-                    match fs::remove_file(&recorded_path) {
-                        Err(err) if err.kind() != io::ErrorKind::NotFound => {
-                            return Err(io_err(&recorded_path)(err));
-                        }
-                        _ => {}
-                    }
-                }
-                Shard {
-                    version: FORMAT_VERSION,
-                    dir: dir.to_owned(),
-                    entries: BTreeMap::new(),
-                }
-            }
-        };
-        let mut changed = false;
-        for rest in rests {
-            let index = shard.entries.entry(rest.to_owned()).or_insert(0);
-            if *index < state.index {
-                *index = state.index;
-                changed = true;
-            }
-        }
-        if changed {
-            store(&path, &shard)?;
-            written += 1;
+        let index = tracked.entries.entry(rel.clone()).or_insert(0);
+        if *index < state.index {
+            *index = state.index;
+            changed = true;
         }
     }
-    let mut recorded = match load::<Recorded>(&recorded_path)? {
-        Loaded::Ok(recorded) if recorded.index == state.index => recorded,
-        _ => Recorded {
-            version: FORMAT_VERSION,
-            index: state.index,
-            plans: Vec::new(),
-        },
-    };
-    if !recorded.plans.contains(&plan) {
-        if recorded.plans.len() == RECORDED_PLANS {
-            recorded.plans.remove(0);
-        }
-        recorded.plans.push(plan);
-        store(&recorded_path, &recorded)?;
+    if changed {
+        store(&catalog_path, &tracked)?;
     }
-    let span = tracing::Span::current();
-    span.record("products", relative.len());
-    span.record("shards_written", written);
+    if !state.plans.contains(&plan) {
+        if state.plans.len() == RECORDED_PLANS {
+            state.plans.remove(0);
+        }
+        state.plans.push(plan);
+        state_changed = true;
+    }
+    if state_changed {
+        store(&state_path, &state)?;
+    }
+    tracing::Span::current().record("products", relative.len());
     Ok(state.collected < state.index)
 }
 
@@ -468,7 +427,7 @@ pub struct CollectReport {
     /// Products that could not be removed; the catalog keeps them for a
     /// later collection.
     pub failed: Vec<(PathBuf, io::Error)>,
-    /// Catalog shards that could not be read; their products are kept.
+    /// Catalog files that could not be read; their products are kept.
     pub unreadable: usize,
     /// Logical size of the tracked products left, when a size budget
     /// was evaluated; above the budget only when products used on the
@@ -541,24 +500,26 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
         }
     };
 
-    let shards_dir = catalog.join(SHARDS_DIR);
-    if shards_dir.exists() && !is_real_dir(&shards_dir)? {
-        return Err(GcError::UnsafeCatalog(shards_dir));
-    }
-    let shards = load_shards(&shards_dir, &mut report)?;
+    let catalog_path = catalog.join(CATALOG_FILE);
+    let mut tracked = match load::<Catalog>(&catalog_path)? {
+        Loaded::Ok(tracked) if tracked.is_valid() => tracked,
+        loaded => {
+            if !matches!(loaded, Loaded::Missing) {
+                report.unreadable += 1;
+            }
+            Catalog::new()
+        }
+    };
     // Spellings that differ only in case can name one file (the macOS
     // and Windows defaults), so a path counts as used when any spelling
     // of it was: after `Util.cc` becomes `util.cc`, removing the old
     // spelling's object would remove the new one.
     let mut by_folded: BTreeMap<String, u64> = BTreeMap::new();
     let mut newest: BTreeMap<String, u64> = BTreeMap::new();
-    for (_, shard) in &shards {
-        for (rest, &index) in &shard.entries {
-            let path = join(&shard.dir, rest);
-            let used = by_folded.entry(path.to_lowercase()).or_insert(index);
-            *used = (*used).max(index);
-            newest.insert(path, 0);
-        }
+    for (path, &index) in &tracked.entries {
+        let used = by_folded.entry(path.to_lowercase()).or_insert(index);
+        *used = (*used).max(index);
+        newest.insert(path.clone(), 0);
     }
     for (path, index) in &mut newest {
         *index = by_folded[&path.to_lowercase()];
@@ -622,9 +583,11 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
         }
     } else {
         let mut dropped: BTreeSet<&str> = BTreeSet::new();
-        // Every directory a removal may have emptied, up to and including
-        // its output directory, each tried once after all removals,
-        // however many files were removed beneath it.
+        // Every directory a removal may have emptied, below the build
+        // directory, each tried once after all removals, however many
+        // files were removed beneath it.  A profile directory keeps its
+        // lock file and `build.ninja`, so it and the directories above it
+        // are never emptied.
         let mut emptied: BTreeSet<PathBuf> = BTreeSet::new();
         let deadline = req.time_limit.map(|limit| Instant::now() + limit);
         for (n, (rel, reason)) in evict.into_iter().enumerate() {
@@ -634,14 +597,12 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
             }
             match remove_product(req.build_dir, rel) {
                 Ok(Some((path, bytes))) => {
-                    let stop = req.build_dir.join(split(rel).0);
+                    // Each directory is inserted with all its ancestors.
                     for dir in path.ancestors().skip(1) {
-                        if dir == req.build_dir || !dir.starts_with(&stop) {
+                        if dir == req.build_dir || emptied.contains(dir) {
                             break;
                         }
-                        if !emptied.contains(dir) {
-                            emptied.insert(dir.to_path_buf());
-                        }
+                        emptied.insert(dir.to_path_buf());
                     }
                     report.collected.push(Collected {
                         path,
@@ -664,23 +625,19 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
         for dir in &emptied {
             let _ = fs::remove_dir(dir);
         }
-        for (path, mut shard) in shards {
-            let before = shard.entries.len();
-            shard
+        if !dropped.is_empty() {
+            tracked
                 .entries
-                .retain(|rest, _| !dropped.contains(join(&shard.dir, rest).as_str()));
-            if shard.entries.len() == before {
-                continue;
-            }
-            if shard.entries.is_empty() {
-                match fs::remove_file(&path) {
+                .retain(|path, _| !dropped.contains(path.as_str()));
+            if tracked.entries.is_empty() {
+                match fs::remove_file(&catalog_path) {
                     Err(err) if err.kind() != io::ErrorKind::NotFound => {
-                        return Err(io_err(&path)(err));
+                        return Err(io_err(&catalog_path)(err));
                     }
                     _ => {}
                 }
             } else {
-                store(&path, &shard)?;
+                store(&catalog_path, &tracked)?;
             }
         }
         if !report.incomplete && state.collected != state.index {
@@ -695,27 +652,6 @@ pub fn collect(req: &CollectRequest<'_>) -> Result<CollectReport, GcError> {
     span.record("bytes", report.collected_bytes());
     span.record("failed", report.failed.len());
     Ok(report)
-}
-
-fn load_shards(dir: &Path, report: &mut CollectReport) -> Result<Vec<(PathBuf, Shard)>, GcError> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(io_err(dir)(err)),
-    };
-    let mut shards = Vec::new();
-    for entry in entries {
-        let path = entry.map_err(io_err(dir))?.path();
-        if path.extension().is_none_or(|ext| ext != "json") {
-            continue;
-        }
-        match load::<Shard>(&path)? {
-            Loaded::Ok(shard) if shard.is_valid() => shards.push((path, shard)),
-            Loaded::Missing => {}
-            _ => report.unreadable += 1,
-        }
-    }
-    Ok(shards)
 }
 
 /// Remove the product at `rel`: `Some` with its path and size when a
@@ -791,42 +727,7 @@ fn is_valid_relative(rel: &str) -> bool {
     })
 }
 
-/// Split a product path into its output directory, the package
-/// directory [`crate::layout`] puts it in, and the rest: the cut is
-/// before the package's `obj` directory, else at the product's parent.
-/// A profile, package, scope, target, or source directory may be named
-/// `obj`, so the cut is at the first `obj` past the package name's first
-/// component with a target directory and a file below it.  That reads
-/// `packages/s/obj/obj/t/f.o` as package `s`'s, though the scoped
-/// package `s/obj` would write the same path.
-fn split(rel: &str) -> (&str, &str) {
-    let names: Vec<&str> = rel.split('/').collect();
-    // `packages` follows the profile, and `build-machine` after it in
-    // the build context.
-    let mut packages = if names[0] == crate::layout::TARGETS_DIR {
-        3
-    } else {
-        1
-    };
-    if names.get(packages) == Some(&crate::layout::BUILD_CONTEXT_DIR) {
-        packages += 1;
-    }
-    let cut = (packages + 2..names.len().saturating_sub(2))
-        .find(|&i| names[i] == "obj")
-        .unwrap_or(names.len() - 1);
-    let offset: usize = names[..cut].iter().map(|name| name.len() + 1).sum();
-    (rel[..offset].trim_end_matches('/'), &rel[offset..])
-}
-
-fn join(dir: &str, rest: &str) -> String {
-    if dir.is_empty() {
-        rest.to_owned()
-    } else {
-        format!("{dir}/{rest}")
-    }
-}
-
-/// Names a plan in [`Recorded`]: a digest of its products in plan order.
+/// Names a plan in [`State::plans`]: a digest of its products in plan order.
 fn plan_digest(products: &[&Utf8Path]) -> String {
     let mut bytes = Vec::new();
     for product in products {
@@ -834,10 +735,4 @@ fn plan_digest(products: &[&Utf8Path]) -> String {
         bytes.push(0);
     }
     cabin_core::hash::hash_reader(bytes.as_slice()).expect("reading a slice cannot fail")
-}
-
-fn shard_path(shards_dir: &Path, dir: &str) -> PathBuf {
-    let digest =
-        cabin_core::hash::hash_reader(dir.as_bytes()).expect("reading a slice cannot fail");
-    shards_dir.join(format!("{}.json", &digest[..32]))
 }
