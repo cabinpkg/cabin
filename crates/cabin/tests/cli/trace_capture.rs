@@ -116,6 +116,33 @@ fn quiet_suppresses_the_trace_location_line() {
     only_capture(&traces);
 }
 
+// Windows file names cannot hold control characters.
+#[cfg(unix)]
+#[test]
+fn the_trace_location_line_escapes_control_characters() {
+    let dir = TempDir::new().unwrap();
+    write_hello_project(dir.path());
+    let traces = dir
+        .path()
+        .join("t\u{1b}]8;;https://example.com\u{7}\u{202e}\r");
+
+    let output = traced(dir.path(), &traces)
+        .arg("metadata")
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains(['\u{1b}', '\u{7}', '\u{202e}', '\r']),
+        "{stderr:?}"
+    );
+    assert!(
+        stderr.contains(r"t\u{1b}]8;;https://example.com\u{7}\u{202e}\r"),
+        "{stderr:?}"
+    );
+}
+
 #[test]
 fn malformed_filter_refuses_to_run_the_command() {
     let dir = TempDir::new().unwrap();

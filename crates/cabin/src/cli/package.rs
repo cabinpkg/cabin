@@ -684,8 +684,14 @@ pub(super) fn emit_package_output(
 
 pub(super) fn print_package_human(artifact: &cabin_package::PackagedArtifact) {
     println!("Packaged {} {}", artifact.name.as_str(), artifact.version);
-    println!("  archive: {}", artifact.archive_path.display());
-    println!("  metadata: {}", artifact.metadata_path.display());
+    println!(
+        "  archive: {}",
+        cabin_core::escape_control_chars(&artifact.archive_path.display().to_string())
+    );
+    println!(
+        "  metadata: {}",
+        cabin_core::escape_control_chars(&artifact.metadata_path.display().to_string())
+    );
     println!("  checksum: {}", artifact.checksum);
 }
 
@@ -723,8 +729,14 @@ pub(super) fn print_dry_run_human(report: &cabin_publish::DryRunReport) {
     );
     println!();
     println!("Generated:");
-    println!("  archive: {}", report.archive_path.display());
-    println!("  metadata: {}", report.metadata_path.display());
+    println!(
+        "  archive: {}",
+        cabin_core::escape_control_chars(&report.archive_path.display().to_string())
+    );
+    println!(
+        "  metadata: {}",
+        cabin_core::escape_control_chars(&report.metadata_path.display().to_string())
+    );
     println!("  checksum: {}", report.checksum);
     println!();
     println!("This was a dry run. No registry was modified.");
@@ -796,9 +808,18 @@ pub(super) fn print_registry_publish_human(report: &cabin_publish::RegistryPubli
             report.version
         );
     }
-    println!("  registry: {}", report.registry_dir.display());
-    println!("  package index: {}", report.package_index_path.display());
-    println!("  artifact: {}", report.artifact_path.display());
+    println!(
+        "  registry: {}",
+        cabin_core::escape_control_chars(&report.registry_dir.display().to_string())
+    );
+    println!(
+        "  package index: {}",
+        cabin_core::escape_control_chars(&report.package_index_path.display().to_string())
+    );
+    println!(
+        "  artifact: {}",
+        cabin_core::escape_control_chars(&report.artifact_path.display().to_string())
+    );
     println!("  checksum: {}", report.checksum);
     println!("  revision: {}", report.revision);
     if report.dry_run {

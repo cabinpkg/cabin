@@ -305,7 +305,11 @@ impl TraceSession {
             None => {
                 if reporter.verbosity().shows_status() {
                     // Like the reporter, never fail a command over stderr.
-                    let _ = writeln!(io::stderr(), "cabin: wrote trace {}", trace_path.display());
+                    let _ = writeln!(
+                        io::stderr(),
+                        "cabin: wrote trace {}",
+                        cabin_core::escape_control_chars(&trace_path.display().to_string())
+                    );
                 }
             }
             Some(err) => reporter.warning(format_args!(

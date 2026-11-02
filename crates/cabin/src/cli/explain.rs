@@ -220,8 +220,13 @@ pub(crate) fn explain(
 
     match args.format {
         ResolveFormat::Human => {
+            // Plain text quoting registry and manifest values; its line
+            // breaks are layout.
             let rendered = cabin_explain::render_explanation_human(&explanation);
-            print!("{rendered}");
+            print!(
+                "{}",
+                cabin_core::escape_control_chars_keeping_lines(&rendered)
+            );
         }
         ResolveFormat::Json => {
             crate::print_pretty_json(&explanation, "failed to serialize explanation as JSON")?;
