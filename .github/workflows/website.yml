@@ -144,19 +144,11 @@ jobs:
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      # TEMPORARY PR PROBE: a cabin whose `run` prints the expected
-      # output but exits 1; both steps below must fail.
-      - name: Probe - make a failing cabin
-        run: |
-          printf '#!/bin/sh\nif [ "$1" = run ]; then echo "doubled(21) = 42"; exit 1; fi\nexec %s "$@"\n' "$RUNNER_TEMP/cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu/cabin" > "$RUNNER_TEMP/probe-cabin"
-          chmod +x "$RUNNER_TEMP/probe-cabin"
-
       - name: Check the demo without network access
-        continue-on-error: true
-        run: unshare --net --map-root-user cargo demo-check --cabin "$RUNNER_TEMP/probe-cabin"
+        run: unshare --net --map-root-user cargo demo-check --cabin "$RUNNER_TEMP/cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu/cabin"
 
       - name: Record the demo
-        run: cargo demo-record --cabin "$RUNNER_TEMP/probe-cabin" --out "$RUNNER_TEMP/demo.gif"
+        run: cargo demo-record --cabin "$RUNNER_TEMP/cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu/cabin" --out "$RUNNER_TEMP/demo.gif"
 
       - name: Upload demo
         uses: actions/upload-artifact@v7.0.2
