@@ -66,8 +66,8 @@ git push origin X.Y.Z
 
 Pushing the tag triggers `.github/workflows/release.yml`, which calls the dist workflow, builds the
 supported binary archives, runs each archive's binary on its own platform, attests them with GitHub
-artifact attestations, and creates a published GitHub release with auto-generated notes, the
-binary archives, and `demo.gif`.  Then check that a published archive's attestation verifies:
+artifact attestations, and creates a published GitHub release with auto-generated notes and the
+binary archives.  Then check that a published archive's attestation verifies:
 
 ```sh
 gh release download X.Y.Z --repo cabinpkg/cabin --pattern 'cabin-X.Y.Z-x86_64-unknown-linux-gnu.tar.xz'

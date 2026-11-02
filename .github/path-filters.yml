@@ -49,6 +49,20 @@ website:
   - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
+# website.yml's demo job: the recorded session and its tooling.
+demo:
+  - "demo.tape"
+  - "demo.zsh"
+  - "examples/workspace-basic/**"
+  - "crates/xtask-demo/**"
+  - "website/public/demo.gif"
+  - ".cargo/**"
+  - ".github/demo/**"
+  - ".github/workflows/website.yml"
+  - ".github/workflows/changes.yml"
+  - ".github/actions/required-gate/**"
+  - ".github/path-filters.yml"
+
 # registry.yml's conformance and deploy jobs and the deploy's
 # freshness check: the registry workspace, its crates/ path-deps,
 # and the xtask guards built from the root workspace.
@@ -101,6 +115,7 @@ registry-build:
   - "!crates/cabin-vendor/**"
   - "!crates/cabin-workspace/**"
   - "!crates/xtask-bench/**"
+  - "!crates/xtask-demo/**"
   - "!crates/xtask-dist/**"
   - "!crates/xtask-fuzz/**"
   - "!crates/xtask-port-publish/**"
@@ -153,6 +168,7 @@ ports-dry-run:
   - "!crates/cabin-registry-verify/**"
   - "!crates/xtask-bench/**"
   - "!crates/xtask-ci/**"
+  - "!crates/xtask-demo/**"
   - "!crates/xtask-dist/**"
   - "!crates/xtask-fuzz/**"
   - "!crates/xtask-registry-admin/**"
@@ -186,8 +202,6 @@ dist:
   - "crates/xtask-dist/**"
   - "crates/cabin/Cargo.toml"
   - "rust-toolchain.toml"
-  - "demo.tape"
-  - ".github/dist-demo/**"
   - ".github/workflows/dist.yml"
   - ".github/workflows/changes.yml"
   - ".github/actions/required-gate/**"

@@ -121,8 +121,8 @@ evidence of current behavior, not proof that the behavior is correct.
   `crates/AGENTS.md` "Repository automation (xtasks)".
 - Do not reintroduce shell or Perl repository tooling. This restriction does
   not cover product or website source, npm scripts, `Dockerfile`, `demo.tape`,
-  devcontainer provisioning, or normal invocation/configuration of external
-  tools.
+  `demo.zsh`, devcontainer provisioning, or normal invocation/configuration of
+  external tools.
 
 ## Checks
 

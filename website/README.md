@@ -62,6 +62,26 @@ npx wrangler deploy
 No deploy workflow is included because Cloudflare account and project secrets
 vary by environment.
 
+### Demo GIF
+
+`public/demo.gif`, served at `https://cabinpkg.com/demo.gif` for the home page
+and the repository README, records `../demo.tape`: a released Cabin building,
+running, and printing the dependency tree of `examples/workspace-basic`, with
+no registry access. It is a reviewed, committed asset; building the site needs
+none of the recording tools. To regenerate it:
+
+1. In a pull request, set `CABIN_RELEASE` in the `demo` job of
+   `.github/workflows/website.yml` to the release to record. The job downloads
+   that release's `x86_64-unknown-linux-gnu` archive and verifies its build
+   provenance with `gh attestation verify`.
+2. The job runs `cargo demo-check` without network access, then
+   `cargo demo-record`, which fails unless every command in the recorded
+   session exits 0 and shows its expected output, and uploads the GIF as the
+   `demo.gif` artifact. It also runs when the tape, `demo.zsh`, the example, or
+   `crates/xtask-demo` changes.
+3. Download the artifact over `public/demo.gif`, review every frame, and
+   commit it to the pull request. Merging deploys it with the rest of the site.
+
 ### Account pages
 
 `/dashboard`, `/dashboard/source`, `/dashboard/package`,

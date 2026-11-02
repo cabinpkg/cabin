@@ -273,6 +273,20 @@ fn workspace_basic_runs_selected_package() {
     );
 }
 
+// The website demo (`demo.tape`) shows this tree.
+#[test]
+fn workspace_basic_tree_shows_the_path_dependency() {
+    let dir = copy_example("workspace-basic");
+    cabin()
+        .args(["tree", "-p", "cli", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "└── util v0.1.0 [normal] (workspace)",
+        ));
+}
+
 // Real-upstream registry examples are external-network smoke tests:
 // they consume the `cabin-ports/*` packages that the publisher
 // pipeline stages from the committed `ports/` tree into a local file

@@ -3,12 +3,7 @@ import Icon from "../components/Icon.astro";
 import type { IconName } from "../components/Icon.astro";
 import Button from "../components/ui/Button.astro";
 import BaseLayout from "../layouts/BaseLayout.astro";
-import {
-    DOCS_URL,
-    EXTERNAL_URLS,
-    INSTALL_DOC_URL,
-    SITE_DESCRIPTION,
-} from "../lib/constants";
+import { DOCS_URL, INSTALL_DOC_URL, SITE_DESCRIPTION } from "../lib/constants";
 interface Feature {
     icon: IconName;
     title: string;
@@ -108,7 +103,7 @@ const quickstartOutput = "Hello from Cabin";
                     <span class="text-ink-faint">demo</span>
                 </figcaption>
                 <img
-                    src={EXTERNAL_URLS.demoGif}
+                    src="/demo.gif"
                     width="800"
                     height="450"
                     alt="Demo of Cabin package manager"

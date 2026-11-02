@@ -1,6 +1,6 @@
 # Cabin
 
-![demo](https://github.com/cabinpkg/cabin/releases/latest/download/demo.gif)
+![demo](https://cabinpkg.com/demo.gif)
 
 Cabin is an opinionated build and package manager for conventional C/C++ projects.
 

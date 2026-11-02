@@ -81,8 +81,10 @@ workflows:
         - 'ilammy/msvc-dev-cmd@v1.13.0'
         - 'uncenter/setup-taplo@b18c8c8302695fe63d6853bc004006215ac52b91'
     '.github/workflows/website.yml':
+        - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
+        - 'actions/upload-artifact@v7.0.2'
     '.github/workflows/zizmor.yml':
         - 'actions/checkout@v7.0.1'
 dependencies:

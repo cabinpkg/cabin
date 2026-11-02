@@ -60,10 +60,107 @@ jobs:
       - name: Build
         run: npm run build
 
-  # Branch protection pins this, not `build-work`: `always()`, never
-  # `!cancelled()`, fails it closed on a failed or cancelled gate.
+  # Records demo.tape with the Cabin release that the committed
+  # website/public/demo.gif shows (website/README.md, "Demo GIF").
+  # Branch protection pins `build` below, never this job.
+  demo:
+    needs: changes
+    if: needs.changes.outputs.demo == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: read # gh attestation verify
+    env:
+      CABIN_RELEASE: "0.18.0"
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+
+      - parallel:
+        - name: Install zsh and Ninja
+          run: |
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y zsh ninja-build
+
+        # Pinned static release builds. Pin ffmpeg to a BtbN MONTH-END
+        # autobuild (kept two years); dailies prune after 14 days.
+        # Every download verifies against a digest pinned in
+        # .github/demo/ before it is extracted or installed: each
+        # release's published checksum, except bat's (none published),
+        # computed from the release asset once.
+        - name: Install ffmpeg, ttyd, and bat
+          working-directory: ${{ runner.temp }}
+          run: |
+            wget -q https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1.tar.xz
+            wget -q https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
+            wget -q https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz
+            sha256sum --check --strict "$GITHUB_WORKSPACE/.github/demo/ffmpeg-ttyd-bat.sha256"
+            tar -xJf ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1.tar.xz
+            sudo mv ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin
+            chmod +x ttyd.x86_64
+            sudo mv ttyd.x86_64 /usr/local/bin/ttyd
+            tar -xzf bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz
+            sudo mv bat-v0.26.1-x86_64-unknown-linux-musl/bat /usr/local/bin
+
+        # The parallel steps below share this checkout as their working
+        # directory, so each verifies its own pin file: one shared list
+        # would race against a sibling step's in-flight download.
+        - name: Install VHS
+          run: |
+            wget -q https://github.com/charmbracelet/vhs/releases/download/v0.11.0/vhs_0.11.0_Linux_x86_64.tar.gz
+            sha256sum --check --strict .github/demo/vhs.sha256
+            tar -xzf vhs_0.11.0_Linux_x86_64.tar.gz
+            sudo mv vhs_0.11.0_Linux_x86_64/vhs /usr/local/bin
+
+        # System-wide: the recorded session gets a fresh HOME.
+        - name: Install Nerd Font
+          run: |
+            wget -q https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip
+            sha256sum --check --strict .github/demo/nerd-font.sha256
+            sudo unzip -q FiraCode.zip -d /usr/local/share/fonts/FiraCode
+            sudo fc-cache -f
+
+        - name: Download the Cabin release and verify its attestation
+          working-directory: ${{ runner.temp }}
+          env:
+            GH_TOKEN: ${{ github.token }}
+          run: |
+            gh release download "$CABIN_RELEASE" --repo cabinpkg/cabin --pattern "cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu.tar.xz"
+            gh attestation verify "cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu.tar.xz" --repo cabinpkg/cabin --signer-workflow cabinpkg/cabin/.github/workflows/release.yml --source-ref "refs/tags/$CABIN_RELEASE"
+            tar -xJf "cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu.tar.xz"
+
+        - name: Build the demo tool
+          run: cargo build --locked -p xtask-demo
+
+      # Ubuntu's AppArmor policy otherwise denies `unshare` the
+      # unprivileged user namespace it needs.
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Check the demo without network access
+        run: unshare --net --map-root-user cargo demo-check --cabin "$RUNNER_TEMP/cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu/cabin"
+
+      - name: Record the demo
+        run: cargo demo-record --cabin "$RUNNER_TEMP/cabin-$CABIN_RELEASE-x86_64-unknown-linux-gnu/cabin" --out "$RUNNER_TEMP/demo.gif"
+
+      - name: Upload demo
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          path: ${{ runner.temp }}/demo.gif
+          archive: false
+          if-no-files-found: error
+
+  # Branch protection pins this, not `build-work` or `demo`: `always()`,
+  # never `!cancelled()`, fails it closed on a failed or cancelled gate.
   build:
-    needs: [changes, build-work]
+    needs: [changes, build-work, demo]
     if: always()
     runs-on: ubuntu-slim
     steps:
@@ -79,3 +176,9 @@ jobs:
           result: ${{ needs.build-work.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.website }}
+      - name: Fail unless demo succeeded or the filter skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.demo.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.demo }}

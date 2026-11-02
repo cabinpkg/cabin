@@ -38,6 +38,7 @@ members = [
   "crates/xtask-port-publish",
   "crates/xtask-bench",
   "crates/xtask-ci",
+  "crates/xtask-demo",
   "crates/xtask-dist",
   "crates/xtask-fuzz",
   "crates/xtask-registry-admin",
