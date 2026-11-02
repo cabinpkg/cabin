@@ -116,7 +116,8 @@ and Node, then `npm ci --ignore-scripts` in this directory (again after
 `package-lock.json` changes) to install the wrangler `package.json` pins,
 and `cargo install worker-build@=0.8.5 --locked`, the version CI
 installs: every `wrangler dev` and `wrangler deploy` runs
-`worker-build --release` from `PATH`.
+`worker-build --release` from `PATH` (except with `CABIN_WORKER_PREBUILT`
+set, which CI's deploy uses).
 
 Before its servers start, the smoke also restores its local D1 export into a
 scratch database and requires the same schema and rows: the backup cron leg
@@ -140,7 +141,8 @@ and Kani jobs on the narrower `registry-build` filter, the TLC jobs on
 the narrower `tlc` filter), except `merge-readiness`, which runs the
 deploy's migrations gate on every pull request and merge group, so a
 stale `migrations-applied` stamp blocks unrelated merges too; a run on
-`main` also deploys the Worker (its `deploy-registry` job), unless a
+`main` also deploys the Worker (its `deploy-registry` job, which ships
+the artifact the secret-free `build-registry-worker` job built), unless a
 newer registry-relevant commit superseded it (green, Deploy step
 skipped, the newer run deploys) or unapplied D1 migrations block it
 (red). A deploy that exits 0 still fails the job unless Cloudflare then

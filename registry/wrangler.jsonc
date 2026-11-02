@@ -13,9 +13,11 @@
     "preview_urls": false,
     // worker-build is a prerequisite on PATH, installed once at the
     // version CI pins (README.md, "Development"); every wrangler dev
-    // and deploy runs this.
+    // and deploy runs this, except with CABIN_WORKER_PREBUILT set: CI
+    // bundles and deploys a build it already has (docs/runbook.md,
+    // "Deploy credential boundary").
     "build": {
-        "command": "worker-build --release"
+        "command": "test -n \"$CABIN_WORKER_PREBUILT\" || worker-build --release"
     },
     "observability": {
         "enabled": true,

@@ -367,24 +367,18 @@ jobs:
         run: cargo check-tlc-witnesses --jar registry/proofs/tla2tools.jar registry/proofs/RegistryLifecycle.tla registry/proofs/RegistryLifecycle_witness.cfg registry/proofs/RegistryLifecycleShared_witness.cfg
         working-directory: .
 
-  # Ships the Worker on a registry-relevant main push. Validation ran
-  # pre-merge (Merge Queue), so only the change gate runs here. No
-  # Worker build step of its own: `wrangler deploy` runs wrangler.jsonc's
-  # build.command.
-  deploy-registry:
+  # Builds the Worker for a registry-relevant main push. It holds no
+  # deploy credential: build scripts and proc-macros run only here
+  # (registry/docs/runbook.md, "Deploy credential boundary").
+  build-registry-worker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true'
     needs: changes
     runs-on: ubuntu-26.04
-    environment: production
-    env:
-      DEPLOY_TAG: ${{ github.run_id }}.${{ github.run_attempt }}
-    concurrency:
-      group: deploy-registry
-      # Queue burst deploys instead of cancelling all but the newest
-      # pending one; superseded runs skip their Deploy step and stay
-      # green, every other run deploys and confirms it, or fails.
-      queue: max
-      cancel-in-progress: false
+    outputs:
+      superseded: ${{ steps.freshness.outputs.superseded }}
+      pathspecs: ${{ steps.freshness.outputs.pathspecs }}
+      digest: ${{ steps.manifest.outputs.digest }}
+      attempt: ${{ github.run_attempt }}
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -402,22 +396,18 @@ jobs:
         with: # zizmor: ignore[cache-poisoning] -- accepted: low-trust runs cannot write main-scoped caches; see comment above
           target: wasm32-unknown-unknown
           cache-on-failure: false
-          # The root workspace too: the freshness step below builds an
-          # xtask crate from it.
+          # The root workspace too: the gate steps below build xtask
+          # crates from it.
           cache-workspaces: |
             .
             registry
           rustflags: ""
 
-      # The concurrency group serializes deploys but does not order
-      # them: an older run whose gate finished late would deploy after
-      # a newer one. Skip instead when main already carries a newer
-      # registry-relevant commit (the `registry` list in
-      # .github/path-filters.yml) - that commit's own run deploys, or
-      # its gate is red and nothing should.
+      # Skip early when main already carries a newer registry-relevant
+      # commit; deploy-registry rechecks with these pathspecs.
       - name: Skip when superseded by a newer main commit
         id: freshness
-        run: cargo workflow-superseded --relevant-to registry
+        run: cargo workflow-superseded --relevant-to registry --emit-pathspecs
 
       # Changed D1 migrations must be applied by hand before the Worker
       # ships (registry/docs/runbook.md, "Deploy skew"): the deploy
@@ -432,51 +422,170 @@ jobs:
         if: steps.freshness.outputs.superseded != 'true'
         run: cargo workflow-migrations-pending
 
-      - name: Install wrangler
-        id: wrangler
-        if: steps.freshness.outputs.superseded != 'true'
-        working-directory: registry
-        run: |
-          npm ci --ignore-scripts
-          version=$(jq -er .dependencies.wrangler package.json)
-          # An empty pin must fail here, not skip Deploy green.
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      # Compiled before the token reaches any step's env.
-      - name: Build the deploy confirmation
-        if: steps.freshness.outputs.superseded != 'true'
-        run: cargo build --locked -p xtask-registry-admin
-
-      # Deploy runs wrangler.jsonc's build.command, which needs it on
-      # PATH; a cache miss compiles it here, before the token is in env.
       - name: Install worker-build
         if: steps.freshness.outputs.superseded != 'true'
         uses: taiki-e/cache-cargo-install-action@v3.0.8
         with:
           tool: ${{ env.WORKER_BUILD }}
 
-      - name: Deploy
+      - name: Build the Worker
         if: steps.freshness.outputs.superseded != 'true'
-        uses: cloudflare/wrangler-action@v4.1.3
-        with:
-          apiToken: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
-          # Public account tag (also in wrangler.jsonc vars); pinning it
-          # here keeps deploy independent of account inference from the
-          # token's resource scope.
-          accountId: 7bd7dbea3c4c76cd396153fb0e92178f
-          # The exact pin installed above: the action runs that copy
-          # and never falls back to its unpinned default.
-          wranglerVersion: ${{ steps.wrangler.outputs.version }}
-          workingDirectory: registry
-          # Tags the version with this run attempt for the check below.
-          command: deploy --tag ${{ env.DEPLOY_TAG }}
+        working-directory: registry
+        run: worker-build --release
 
-      # A zero exit from `wrangler deploy` does not say which version
-      # serves; this requires the tagged one at 100%.
-      - name: Confirm the deployed version
+      - name: Deploy-config guard
         if: steps.freshness.outputs.superseded != 'true'
+        run: cargo check-deploy --require-bundle
+
+      - name: Install wrangler
+        if: steps.freshness.outputs.superseded != 'true'
+        working-directory: registry
+        run: npm ci --ignore-scripts
+
+      # Bundling runs here, never next to the token: deploy-registry
+      # uploads this output as-is with --no-bundle.
+      - name: Bundle the Worker
+        if: steps.freshness.outputs.superseded != 'true'
+        working-directory: registry
+        env:
+          CABIN_WORKER_PREBUILT: "1"
+        run: node_modules/.bin/wrangler deploy --dry-run --outdir dist
+
+      # Guards against shipping a different or damaged artifact, not
+      # against this job: it builds the artifact anyway.
+      - name: Record the artifact digest
+        id: manifest
+        if: steps.freshness.outputs.superseded != 'true'
+        shell: bash
+        working-directory: registry/dist
+        run: echo "digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7.0.2
+        if: steps.freshness.outputs.superseded != 'true'
+        with:
+          name: registry-worker-${{ github.run_attempt }}
+          path: registry/dist
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  # Ships the artifact above on a fresh runner that compiles nothing:
+  # the deploy credential never shares a runner with a build. The job
+  # and Deploy step names are read by ports-publish's deploy wait.
+  deploy-registry:
+    # Runs, and fails, when the build failed: a skipped job would read
+    # as "nothing to deploy" to ports-publish's deploy wait.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true' }}
+    needs: [changes, build-registry-worker]
+    runs-on: ubuntu-26.04
+    environment: production
+    env:
+      DEPLOY_TAG: ${{ github.run_id }}.${{ github.run_attempt }}
+      # Public account tag (also in wrangler.jsonc vars), so wrangler
+      # never infers the account from the token's resource scope.
+      CLOUDFLARE_ACCOUNT_ID: 7bd7dbea3c4c76cd396153fb0e92178f
+      SKIP: ${{ needs.build-registry-worker.outputs.superseded == 'true' }}
+    concurrency:
+      group: deploy-registry
+      # Queue burst deploys instead of cancelling all but the newest
+      # pending one; superseded runs skip their Deploy step and stay
+      # green, every other run deploys and confirms it, or fails.
+      queue: max
+      cancel-in-progress: false
+
+    steps:
+      # A rerun of this job alone would reuse the build's stale
+      # freshness answer: only "Re-run all jobs" can deploy.
+      - name: Require this attempt's Worker build
+        env:
+          BUILD: ${{ needs.build-registry-worker.result }}
+          BUILD_ATTEMPT: ${{ needs.build-registry-worker.outputs.attempt }}
+        run: |
+          test "$BUILD" = success
+          if [ "$BUILD_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]; then
+            echo "::error title=Registry deploy needs a fresh build::Use Re-run all jobs: the build job's freshness check is from attempt $BUILD_ATTEMPT."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7.0.1
+        if: env.SKIP != 'true'
+        with:
+          persist-credentials: false
+          # Full history for the freshness recheck below.
+          fetch-depth: 0
+
+      - name: Install wrangler
+        if: env.SKIP != 'true'
+        working-directory: registry
+        run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@v8.0.2
+        if: env.SKIP != 'true'
+        with:
+          name: registry-worker-${{ github.run_attempt }}
+          path: registry/build
+
+      # Only regular files: the digest skips anything else, and wrangler
+      # would read a symlink's target into the upload.
+      - name: Verify the artifact digest
+        if: env.SKIP != 'true'
+        shell: bash
+        working-directory: registry/build
+        env:
+          EXPECTED: ${{ needs.build-registry-worker.outputs.digest }}
+        run: |
+          test -z "$(find . ! -type f ! -type d -print -quit)"
+          actual=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          test -n "$EXPECTED"
+          test "$actual" = "$EXPECTED"
+
+      # The build's freshness answer is minutes old, and the queue
+      # serializes deploys without ordering them: recheck, with plain git,
+      # right before deploying.
+      - name: Skip when superseded by a newer main commit
+        id: fresh
+        if: env.SKIP != 'true'
+        shell: bash
+        env:
+          PATHSPECS: ${{ needs.build-registry-worker.outputs.pathspecs }}
+        run: |
+          mapfile -t specs <<< "$PATHSPECS"
+          test -n "${specs[0]}"
+          git fetch --quiet origin main
+          newer=$(git rev-list --full-history -n 1 "$GITHUB_SHA..origin/main" -- "${specs[@]}")
+          if [ -n "$newer" ]; then
+            echo "main carries the newer registry commit $newer; skipping"
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # CABIN_WORKER_PREBUILT turns wrangler.jsonc's build.command into a
+      # no-op, and --no-bundle uploads the artifact without bundling.
+      - name: Deploy
+        if: env.SKIP != 'true' && steps.fresh.outputs.superseded != 'true'
+        working-directory: registry
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: 7bd7dbea3c4c76cd396153fb0e92178f
-        run: cargo registry-confirm-deploy "$DEPLOY_TAG"
+          CABIN_WORKER_PREBUILT: "1"
+        run: node_modules/.bin/wrangler deploy --no-bundle --tag "$DEPLOY_TAG"
+
+      # A zero exit from `wrangler deploy` does not say which version
+      # serves; this requires the tagged one at 100%, retrying reads.
+      - name: Confirm the deployed version
+        if: env.SKIP != 'true' && steps.fresh.outputs.superseded != 'true'
+        shell: bash
+        working-directory: registry
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if version=$(node_modules/.bin/wrangler deployments status --json | jq -er '.versions | select(length == 1) | .[0] | select(.percentage == 100) | .version_id') &&
+              tag=$(node_modules/.bin/wrangler versions view "$version" --json | jq -er '.annotations["workers/tag"]') &&
+              [ "$tag" = "$DEPLOY_TAG" ]; then
+              echo "version $version carries this run's tag $DEPLOY_TAG and takes all traffic"
+              exit 0
+            fi
+            echo "attempt $attempt/6: the serving version is not this run's at 100%"
+            if [ "$attempt" -lt 6 ]; then sleep 10; fi
+          done
+          echo "::error title=Registry deploy unconfirmed::The Deploy step exited 0, but Cloudflare does not show this run's version serving all traffic. Re-run all jobs, which rebuilds and redeploys under a fresh tag (or skips when superseded); if it fails again, read node_modules/.bin/wrangler deployments list from registry/ and run the smoke checks (registry/docs/runbook.md, \"Deploy skew\")."
+          exit 1

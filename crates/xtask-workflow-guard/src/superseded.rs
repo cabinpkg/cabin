@@ -31,8 +31,8 @@
 //! the commit that fixes it, whose own run deploys.
 //!
 //! Nothing reaches stdout in either answer; the negative case writes
-//! nothing anywhere. Stated ceiling: git's own exit status (128 for an
-//! unreachable remote) collapses to 1.
+//! nothing anywhere but the `--emit-pathspecs` output. Stated ceiling:
+//! git's own exit status (128 for an unreachable remote) collapses to 1.
 
 use std::process::{Command, Stdio};
 
@@ -54,7 +54,7 @@ pub(crate) const FILTER_FILE: &str = ".github/path-filters.yml";
 /// When the answer cannot be established (module docs, "Failure
 /// direction"), or when `$GITHUB_OUTPUT` is unusable in the positive
 /// case.
-pub fn run(relevant_to: Option<&str>) -> Result<()> {
+pub fn run(relevant_to: Option<&str>, emit_pathspecs: bool) -> Result<()> {
     fetch_origin_main()?;
 
     let sha = std::env::var("GITHUB_SHA").unwrap_or_default();
@@ -62,6 +62,9 @@ pub fn run(relevant_to: Option<&str>) -> Result<()> {
         Some(name) => filter_pathspecs(name)?,
         None => Vec::new(),
     };
+    if emit_pathspecs {
+        crate::append_github_output(&pathspecs_output(&pathspecs))?;
+    }
     if superseded(&sha, &pathspecs)? {
         record_superseded()?;
     }
@@ -130,6 +133,12 @@ pub(crate) fn filter_entries(text: &str, name: &str) -> Option<Vec<String>> {
         }
     }
     (!entries.is_empty()).then_some(entries)
+}
+
+/// A multiline `pathspecs` output, one pathspec per line. Every
+/// pathspec starts with `:(`, so none can end the heredoc early.
+fn pathspecs_output(pathspecs: &[String]) -> String {
+    format!("pathspecs<<EOF\n{}\nEOF\n", pathspecs.join("\n"))
 }
 
 /// Whether `origin/main` carries a commit after `sha` that touches
