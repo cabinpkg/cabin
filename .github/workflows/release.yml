@@ -25,6 +25,11 @@ jobs:
 
   dist:
     needs: on-main
+    # dist.yml's `changes` job declares pull-requests: read; a called
+    # workflow can never exceed the calling job's permissions.
+    permissions:
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/dist.yml
 
   release:
