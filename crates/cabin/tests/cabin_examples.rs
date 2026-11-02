@@ -277,18 +277,14 @@ fn workspace_basic_runs_selected_package() {
 #[test]
 fn workspace_basic_tree_shows_the_path_dependency() {
     let dir = copy_example("workspace-basic");
-    let output = cabin()
+    cabin()
         .args(["tree", "-p", "cli", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .assert()
         .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    assert!(
-        stdout.contains("└── util v0.1.0 [normal] (workspace)"),
-        "workspace-basic tree -p cli: stdout = {stdout}"
-    );
+        .stdout(predicates::str::contains(
+            "└── util v0.1.0 [normal] (workspace)",
+        ));
 }
 
 // Real-upstream registry examples are external-network smoke tests:
