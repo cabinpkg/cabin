@@ -134,6 +134,7 @@ dependencies = [
  "cabinpkg-fs",
  "cabinpkg-manifest",
  "camino",
+ "flate2",
  "semver",
  "serde",
  "serde_json",

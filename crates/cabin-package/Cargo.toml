@@ -15,6 +15,9 @@ cabin-core = { workspace = true }
 cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
 camino = { workspace = true }
+# Unused in code: selects flate2's backend, which zip's `deflate-flate2`
+# leaves unset, so this crate builds on its own (e.g. `cargo publish`).
+flate2 = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
