@@ -4,7 +4,7 @@ For maintainers cutting a release.  Cabin follows [semantic versioning](https://
 
 ## Update versions
 
-Every crate inherits its version from the workspace, so the version string lives in one file: the
+Every release crate inherits its version from the root workspace, so the version string lives in the
 root `Cargo.toml`.  Replace the old version with the new one everywhere it appears there - the
 `version` under `[workspace.package]` and the `version` pin on every `cabinpkg`/`cabinpkg-*` entry
 under `[workspace.dependencies]`.  Leave the per-crate `crates/*/Cargo.toml` files alone; they use
@@ -24,30 +24,21 @@ hand.
 Confirm nothing was missed, then refresh the lockfile:
 
 ```sh
-cargo check   # updates Cargo.lock
+# updates Cargo.lock
+cargo check
+cargo update --workspace --manifest-path registry/Cargo.toml
+cargo update --workspace --manifest-path fuzz/Cargo.toml
+
 rg 'x\.y\.z'  # must not show Cabin workspace version pins
 ```
 
 ## Run all required checks
 
-These mirror CI, which validates pull requests and merge-queue runs but not tags, so they must pass
-on the release commit before you tag:
+Run `cargo ci` on the committed version-bump branch before merging. It checks changes relative to
+`main`, so running it on `main` after the merge would skip the checks:
 
 ```sh
-cargo fmt --all --verbose -- --check
-taplo fmt --check
-typos
-cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
-cargo check --workspace --all-targets --locked --verbose
-cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
-
-# Conventional-commit lint of the release commit (mirrors CI's
-# @commitlint/config-conventional gate on pull requests). The header
-# must be a valid conventional commit, e.g. `chore: release X.Y.Z`,
-# and short enough that the squash suffix " (#N)" keeps it <= 100
-# chars - CI lints the combined header.
-(cd .github/commitlint && npm ci --ignore-scripts && npx commitlint --last --verbose)
+cargo ci
 
 # This is the real pre-flight gate: it packages and verifies every crate without uploading.
 cargo publish --workspace --dry-run --allow-dirty
