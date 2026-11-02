@@ -12,51 +12,30 @@ use crate::path_search::{find_with_exe_suffix, looks_like_relative_path, search_
 /// and [`ToolchainError::NoNinja`] when no `ninja` binary is found on
 /// `PATH`.
 pub fn locate_ninja() -> Result<PathBuf, ToolchainError> {
-    find_command_with_env(|v| std::env::var_os(v), "NINJA", &["ninja"])
+    find_ninja(&|v| std::env::var_os(v))
 }
 
-/// Locate an executable, honoring an environment variable override and
-/// falling back to a list of candidate names searched on `PATH`.  The
-/// environment getter is injectable so the helper can be tested without
-/// mutating real process environment.
-fn find_command_with_env<F>(
-    env: F,
-    env_var: &str,
-    fallbacks: &[&str],
-) -> Result<PathBuf, ToolchainError>
-where
-    F: Fn(&str) -> Option<OsString>,
-{
-    if let Some(value) = env(env_var) {
-        if let Some(path) = locate(&env, value.as_os_str()) {
-            return Ok(path);
-        }
-        return Err(ToolchainError::BadEnvOverride {
-            var: env_var.to_owned(),
-            value: value.to_string_lossy().into_owned(),
-        });
-    }
-    for &candidate in fallbacks {
-        if let Some(path) = locate(&env, OsStr::new(candidate)) {
-            return Ok(path);
-        }
-    }
-    Err(ToolchainError::NoNinja)
-}
-
-fn locate<F>(env: &F, name: &OsStr) -> Option<PathBuf>
-where
-    F: Fn(&str) -> Option<OsString>,
-{
-    let probe = |p: &Path| p.is_file();
-    let path = Path::new(name);
-    if path.is_absolute() || looks_like_relative_path(&name.to_string_lossy()) {
+// Not `resolve::locate`: `NINJA` may name a non-UTF-8 path, and the
+// MSVC registry fallback there must not hand back `cl.exe` as Ninja.
+fn find_ninja(env: &dyn Fn(&str) -> Option<OsString>) -> Result<PathBuf, ToolchainError> {
+    let probe = Path::is_file;
+    let Some(value) = env("NINJA") else {
+        return search_path(OsStr::new("ninja"), env, &probe).ok_or(ToolchainError::NoNinja);
+    };
+    let path = Path::new(&value);
+    let found = if path.is_absolute() || looks_like_relative_path(&value.to_string_lossy()) {
         if probe(path) {
-            return Some(path.to_path_buf());
+            Some(path.to_path_buf())
+        } else {
+            find_with_exe_suffix(path, &probe)
         }
-        return find_with_exe_suffix(path, &probe);
-    }
-    search_path(name, env, &probe)
+    } else {
+        search_path(&value, env, &probe)
+    };
+    found.ok_or_else(|| ToolchainError::BadEnvOverride {
+        var: "NINJA".to_owned(),
+        value: value.to_string_lossy().into_owned(),
+    })
 }
 
 #[cfg(test)]
@@ -90,8 +69,25 @@ mod tests {
         env.insert("NINJA", OsString::from(ninja.to_str().unwrap()));
         env.insert("PATH", OsString::from(""));
 
-        let found = find_command_with_env(fake_env(env), "NINJA", &["ninja"]).unwrap();
+        let found = find_ninja(&fake_env(env)).unwrap();
         assert_eq!(found, ninja);
+    }
+
+    // Linux only: macOS file systems reject non-UTF-8 names.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn env_override_accepts_a_non_utf8_path() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = assert_fs::TempDir::new().unwrap();
+        let ninja = make_executable(&dir, "ninja");
+        let renamed = dir.path().join(OsStr::from_bytes(b"ninja-\xff"));
+        std::fs::rename(&ninja, &renamed).unwrap();
+
+        let mut env = HashMap::new();
+        env.insert("NINJA", renamed.as_os_str().to_owned());
+        env.insert("PATH", OsString::from(""));
+
+        assert_eq!(find_ninja(&fake_env(env)).unwrap(), renamed);
     }
 
     #[test]
@@ -103,7 +99,7 @@ mod tests {
         env.insert("NINJA", missing.as_os_str().to_owned());
         env.insert("PATH", OsString::from(""));
 
-        let err = find_command_with_env(fake_env(env), "NINJA", &["ninja"]).unwrap_err();
+        let err = find_ninja(&fake_env(env)).unwrap_err();
         match err {
             ToolchainError::BadEnvOverride { var, value } => {
                 assert_eq!(var, "NINJA");
@@ -122,25 +118,7 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("PATH", OsString::from(dir.path().to_str().unwrap()));
 
-        let found = find_command_with_env(fake_env(env), "NINJA", &["ninja"]).unwrap();
-        assert_eq!(
-            std::fs::canonicalize(&found).unwrap(),
-            std::fs::canonicalize(&ninja).unwrap()
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn falls_through_candidates_in_order() {
-        let dir = assert_fs::TempDir::new().unwrap();
-        let ninja = make_executable(&dir, "ninja");
-
-        let mut env = HashMap::new();
-        env.insert("PATH", OsString::from(dir.path().to_str().unwrap()));
-
-        let found =
-            find_command_with_env(fake_env(env), "NINJA", &["ninja-build", "ninja4", "ninja"])
-                .unwrap();
+        let found = find_ninja(&fake_env(env)).unwrap();
         assert_eq!(
             std::fs::canonicalize(&found).unwrap(),
             std::fs::canonicalize(&ninja).unwrap()
@@ -151,12 +129,7 @@ mod tests {
     fn returns_not_found_when_nothing_matches() {
         let mut env = HashMap::new();
         env.insert("PATH", OsString::from(""));
-        let err = find_command_with_env(
-            fake_env(env),
-            "NINJA",
-            &["definitely-not-a-real-ninja-9999"],
-        )
-        .unwrap_err();
+        let err = find_ninja(&fake_env(env)).unwrap_err();
         assert!(matches!(err, ToolchainError::NoNinja));
     }
 }

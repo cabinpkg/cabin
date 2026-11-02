@@ -36,7 +36,7 @@ use cabin_core::{
     ToolSource, ToolSpec, ToolchainResolutionError, ToolchainSelection, ToolchainSettings,
 };
 
-use crate::path_search::{find_with_exe_suffix, looks_like_relative_path, search_path};
+use crate::path_search::{find_with_exe_suffix, search_path};
 
 /// Deterministic environment lookup the resolver consults for
 /// `CC` / `CXX` / `AR` / `PATH`.  Production callers wrap
@@ -441,20 +441,11 @@ where
                 find_with_exe_suffix(path.as_std_path(), probe)
             }
         }
+        // On Windows without an activated MSVC environment, `cl` /
+        // `lib` / `link` are not on `PATH`; fall back to discovering
+        // them from the registry so a build works vcvars-free.
         ToolSpec::Name(name) => {
-            let path = Path::new(name);
-            if path.is_absolute() || looks_like_relative_path(name) {
-                if probe(path) {
-                    Some(path.to_path_buf())
-                } else {
-                    find_with_exe_suffix(path, probe)
-                }
-            } else {
-                // On Windows without an activated MSVC environment, `cl` /
-                // `lib` / `link` are not on `PATH`; fall back to discovering
-                // them from the registry so a build works vcvars-free.
-                search_path(name, env, probe).or_else(|| crate::msvc::msvc_tool_path(name))
-            }
+            search_path(name, env, probe).or_else(|| crate::msvc::msvc_tool_path(name))
         }
     }?;
     // Ninja runs commands from the build directory, so a path found
