@@ -105,7 +105,7 @@ fn check(cabin: &Path) -> Result<()> {
     let output = zsh.wait_with_output().context("running zsh")?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     print!("{stdout}");
-    validate(&session.read(LOG)?, &stdout, &stdout, &version)
+    validate(&read(session.home(), LOG)?, &stdout, &stdout, &version)
 }
 
 fn record(cabin: &Path, out: &Path) -> Result<()> {
@@ -118,15 +118,15 @@ fn record(cabin: &Path, out: &Path) -> Result<()> {
         .status()
         .context("running vhs")?;
     ensure!(status.success(), "vhs failed: {status}");
-    promote(&session, &version, out)
+    promote(session.home(), &version, out)
 }
 
-/// Write the recording's GIF to `out` once its log and screen capture
-/// pass [`validate`] and the GIF is whole.
-fn promote(session: &Session, version: &str, out: &Path) -> Result<()> {
-    let screen = session.read(SCREEN)?;
-    validate(&session.read(LOG)?, &screen, &final_frame(&screen), version)?;
-    let path = session.home().join(GIF);
+/// Write the GIF a recording left in `dir` to `out` once its log and
+/// screen capture pass [`validate`] and the GIF is whole.
+fn promote(dir: &Path, version: &str, out: &Path) -> Result<()> {
+    let screen = read(dir, SCREEN)?;
+    validate(&read(dir, LOG)?, &screen, &final_frame(&screen), version)?;
+    let path = dir.join(GIF);
     let gif = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
     // VHS exits 0 even when FFmpeg fails to encode the GIF.
     ensure!(
@@ -281,15 +281,17 @@ impl Session {
         }
         command
     }
+}
 
-    fn read(&self, name: &str) -> Result<String> {
-        let path = self.home().join(name);
-        fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
-    }
+fn read(dir: &Path, name: &str) -> Result<String> {
+    let path = dir.join(name);
+    fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
 }
 
 #[cfg(test)]
 mod tests {
+    use assert_fs::prelude::*;
+
     use super::*;
 
     const VERSION: &str = "cabin 0.18.0";
@@ -350,31 +352,25 @@ mod tests {
 
     #[test]
     fn a_failed_recording_keeps_the_previous_gif() {
-        let dir = tempfile::tempdir().unwrap();
-        let session = Session {
-            home: dir.path().to_owned(),
-            _dir: dir,
-            path: OsString::new(),
-            rc: PathBuf::new(),
-        };
-        let home = session.home();
-        fs::write(home.join(GIF), "GIF89a-new;").unwrap();
-        fs::write(home.join(SCREEN), passing_output()).unwrap();
-        let out = home.join("published.gif");
-        fs::write(&out, "previous").unwrap();
+        let dir = assert_fs::TempDir::new().unwrap();
+        let (gif, log) = (dir.child(GIF), dir.child(LOG));
+        gif.write_str("GIF89a-new;").unwrap();
+        dir.child(SCREEN).write_str(&passing_output()).unwrap();
+        let out = dir.child("published.gif");
+        out.write_str("previous").unwrap();
 
         let failed = passing_log().replace("0 cabin run", "127 cabin run");
-        fs::write(home.join(LOG), failed).unwrap();
-        assert!(promote(&session, VERSION, &out).is_err());
-        assert_eq!(fs::read_to_string(&out).unwrap(), "previous");
+        log.write_str(&failed).unwrap();
+        assert!(promote(dir.path(), VERSION, out.path()).is_err());
+        out.assert("previous");
 
-        fs::write(home.join(LOG), passing_log()).unwrap();
-        fs::write(home.join(GIF), "GIF89a-truncated").unwrap();
-        assert!(promote(&session, VERSION, &out).is_err());
-        assert_eq!(fs::read_to_string(&out).unwrap(), "previous");
+        log.write_str(&passing_log()).unwrap();
+        gif.write_str("GIF89a-truncated").unwrap();
+        assert!(promote(dir.path(), VERSION, out.path()).is_err());
+        out.assert("previous");
 
-        fs::write(home.join(GIF), "GIF89a-new;").unwrap();
-        promote(&session, VERSION, &out).unwrap();
-        assert_eq!(fs::read_to_string(&out).unwrap(), "GIF89a-new;");
+        gif.write_str("GIF89a-new;").unwrap();
+        promote(dir.path(), VERSION, out.path()).unwrap();
+        out.assert("GIF89a-new;");
     }
 }

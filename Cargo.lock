@@ -3144,6 +3144,7 @@ name = "xtask-demo"
 version = "0.18.0"
 dependencies = [
  "anyhow",
+ "assert_fs",
  "clap",
  "tempfile",
 ]
