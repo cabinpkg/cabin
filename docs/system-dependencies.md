@@ -123,8 +123,10 @@ as written, because `pkg-config` has no SemVer pre-release ordering.
 Requirements that do not parse as SemVer are forwarded to `pkg-config` as one or more explicit
 `operator version` pairs, with the module name repeated before each pair (`>= 1.0.1f < 3.0.0z`
 becomes `name >= 1.0.1f name < 3.0.0z`).  Tokens that do not form such pairs - a bare non-SemVer
-token (e.g.  `vendor-special`), a dangling operator, or a pair that does not start with a
-`pkg-config` comparison operator - produce a clear error rather than being silently dropped.
+token (e.g.  `vendor-special`), a dangling operator, a pair that does not start with a
+`pkg-config` comparison operator, or a version that does not start with an ASCII letter or digit
+(which `pkg-config` could read as an option) - produce a clear error rather than being silently
+dropped.
 
 `pkg-config` itself does the version comparison.
 

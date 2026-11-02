@@ -544,7 +544,12 @@ fn build_constraints(name: &str, requirement: &str) -> Result<ConstraintArgv, Pk
                 return Err(invalid());
             }
             for pair in split.chunks(2) {
-                if !matches!(pair[0], "=" | "!=" | "<" | "<=" | ">" | ">=") {
+                // pkgconf parses options after positionals, so an operand
+                // like `--log-file=x` from an untrusted manifest would run
+                // as an option; a version starts with an alphanumeric.
+                if !matches!(pair[0], "=" | "!=" | "<" | "<=" | ">" | ">=")
+                    || !pair[1].starts_with(|c: char| c.is_ascii_alphanumeric())
+                {
                     return Err(invalid());
                 }
                 argv.push(OsString::from(name));
@@ -1215,6 +1220,17 @@ mod tests {
         build_constraints("openssl", ">= 1.0.1f <").unwrap_err();
         // Even count but the pair does not start with an operator.
         build_constraints("openssl", "one two").unwrap_err();
+    }
+
+    #[test]
+    fn build_constraints_rejects_option_shaped_version_operand() {
+        for requirement in [">= --log-file=x", ">= -x", ">= 1.0 < --log-file=x"] {
+            let err = build_constraints("zlib", requirement).unwrap_err();
+            assert!(
+                matches!(err, PkgConfigError::InvalidVersionRequirement { .. }),
+                "{requirement}: {err:?}"
+            );
+        }
     }
 
     #[test]
