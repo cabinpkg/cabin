@@ -125,15 +125,20 @@ A root found **above the current directory** is the trust boundary for every set
 on the user's behalf (`[toolchain]`, `[patch]`, the root's `.cabin/config.toml`), so it is honored only
 under these rules:
 
-- On Unix, the root manifest (the file itself, not a symlink or hard-link target) and its directory
-  must have the same owner as the nearest package manifest below it, or as the current directory when
-  no package manifest lies between, and neither may be world-writable or a symlink; the root's
-  `.cabin/config.toml` and `.cabin/` directory, when present, pass the same owner, mode and
-  no-symlink checks.  Otherwise discovery errors with `owned by a different user,
-  hard-linked, world-writable, or a symlink`.  This stops a world-writable ancestor
+- The root manifest (the file itself, not a symlink target or, on Unix, a hard-link target) and its
+  directory must have the same owner as the nearest package manifest below it, or as the current
+  directory when no package manifest lies between, and neither may be a symlink (on Windows, a
+  junction either) or, on Unix, world-writable; the root's `.cabin/config.toml` and `.cabin/`
+  directory, when present, pass the same owner, mode and no-symlink checks.  Otherwise discovery
+  errors with `owned by a different user, hard-linked, world-writable, or a symlink`.  This stops a world-writable ancestor
   such as `/tmp` or a shared drop directory from planting a root, and a world-writable manifest or
   config file from being edited into one, whose toolchain would run for every package below it.  Group-writable team checkouts pass: anyone who can write to the root
-  directory is trusted as its owner is.  Windows has no owner or mode check.
+  directory is trusted as its owner is.  On Windows the owner is the file's owner SID, the check
+  Git's `safe.directory` makes, so a root another user created where anyone may create files (such
+  as `C:\ProgramData`) is refused, and so is any root on a FAT or exFAT drive, which reports every
+  file as owned by Everyone.  Windows has no access-list check: a root you own in a folder whose
+  access list lets other users modify your files (such as a folder made directly under `C:\`) is
+  still trusted.
 - A package the root lists as a member (directly or through a glob) adopts the root, from the package
   directory or any subdirectory of it.
 - A package the root `exclude`s builds standalone, as if no root were above it.

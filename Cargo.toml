@@ -113,6 +113,7 @@ etcetera = "0.11"
 find-msvc-tools = "0.1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
+windows-sys = "0.61"
 zip = { version = "9.1", default-features = false, features = [
   "deflate-flate2",
 ] }
