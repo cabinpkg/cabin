@@ -1,6 +1,6 @@
 //! Root-dependency checks Cabin runs before invoking `PubGrub`.
 //!
-//! Three things happen here, in this order:
+//! Two things happen here, in this order:
 //!
 //! 1. [`effective_locked`] applies the [`ResolveMode`] visibility
 //!    rules to the caller-supplied lockfile map.
@@ -17,10 +17,6 @@
 //!   (via [`validate_locked_root_dependency`])
 //! * `UnknownFeature` for a root feature request no in-range
 //!   version declares.
-//! 3. The returned constraint map seeds the locked-mode
-//!    constraint recorder so a later
-//!    `LockedVersionViolatesConstraint` cites the root
-//!    requirement.
 
 use std::collections::BTreeMap;
 
@@ -50,27 +46,12 @@ pub(crate) fn effective_locked(input: &ResolveInput) -> BTreeMap<PackageName, Lo
 }
 
 /// Validate root dependencies before invoking `PubGrub`.
-///
-/// Returns the per-package constraint records that seed the
-/// locked-mode constraint recorder, so a later
-/// `LockedVersionViolatesConstraint` on a package the root also
-/// depends on names the root requirement that imposed it.
 pub(crate) fn preflight_root_dependencies(
     input: &ResolveInput,
     index: &PackageIndex,
     locked: &BTreeMap<PackageName, LockedVersion>,
-) -> Result<BTreeMap<PackageName, Vec<ResolverConstraint>>, ResolveError> {
-    let mut constraints: BTreeMap<PackageName, Vec<ResolverConstraint>> = BTreeMap::new();
-
+) -> Result<(), ResolveError> {
     for (name, req) in &input.root_dependencies {
-        constraints
-            .entry(name.clone())
-            .or_default()
-            .push(ResolverConstraint {
-                origin: input.root_name.clone(),
-                requirement: req.clone(),
-            });
-
         // A lazily loaded index records a package the registry does
         // not have as an entry without versions.
         let entry = lookup(input, index, name)?
@@ -86,7 +67,7 @@ pub(crate) fn preflight_root_dependencies(
             continue;
         }
 
-        check_root_candidates(name, entry, req, &constraints)?;
+        check_root_candidates(&input.root_name, name, entry, req)?;
     }
 
     for (name, features) in &input.root_features {
@@ -110,15 +91,14 @@ pub(crate) fn preflight_root_dependencies(
         }
     }
 
-    Ok(constraints)
+    Ok(())
 }
 
 /// Run every `Locked`-mode check for a single root dependency:
 /// the shared metadata checks (missing / yanked / checksum) of
-/// [`validate_locked_metadata`], then the constraint check.  The
-/// constraint check is inline because the root path carries a
-/// single [`VersionReq`] while the transitive path runs across an
-/// accumulated constraint set.
+/// [`validate_locked_metadata`], then the constraint check against
+/// the root's [`VersionReq`].  The provider checks every transitive
+/// edge the same way before `PubGrub` sees its range.
 fn validate_locked_root_dependency(
     root_name: &PackageName,
     name: &PackageName,
@@ -146,10 +126,10 @@ fn validate_locked_root_dependency(
 /// `AllMatchingVersionsYanked` if every matching version is
 /// yanked.
 fn check_root_candidates(
+    root_name: &PackageName,
     name: &PackageName,
     entry: &IndexEntry,
     req: &VersionReq,
-    constraints: &BTreeMap<PackageName, Vec<ResolverConstraint>>,
 ) -> Result<(), ResolveError> {
     let matching: Vec<&Version> = entry
         .versions
@@ -160,7 +140,10 @@ fn check_root_candidates(
     if matching.is_empty() {
         return Err(ResolveError::NoMatchingVersion {
             package: name.as_str().to_owned(),
-            constraints: constraints.get(name).cloned().unwrap_or_default(),
+            constraints: vec![ResolverConstraint {
+                origin: root_name.clone(),
+                requirement: req.clone(),
+            }],
         });
     }
     if !matching

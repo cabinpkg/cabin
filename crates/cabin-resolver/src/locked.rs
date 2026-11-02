@@ -1,44 +1,15 @@
 //! Helpers shared by the root preflight and the transitive
 //! `choose_version` path when validating a lockfile-pinned
-//! candidate.
-//!
-//! Two pieces live here:
-//!
-//! * [`validate_locked_metadata`], the missing / yanked /
-//!   checksum check both call sites need to run in the same
-//!   order before the constraint check, and
-//!   [`check_locked_pin_listed`], its missing / checksum part that
-//!   every mode keeping pins runs over the solution;
-//! * [`LockedConstraintRecorder`], the per-resolve store the
-//!   transitive path consults when reporting a
-//!   [`ResolveError::LockedVersionViolatesConstraint`].
-//!
-//! ## Recorder invariant
-//!
-//! The recorder is *only* constructed when the resolver is
-//! running in [`ResolveMode::Locked`].  In `Locked` mode every
-//! package has at most one allowed version, so a conflict leaves
-//! `PubGrub` no other version to try: it may still backjump, but
-//! only on its way to failing, and a successful resolve never
-//! backtracks.  `PubGrub` calls `get_dependencies` at most once
-//! per package and version, so the recorded constraints all come
-//! from that single candidate graph.
-//!
-//! Outside `Locked` mode `PubGrub` may try, then discard, a
-//! version of a package - leaving stale entries behind.  The
-//! recorder API guards against that misuse by being unreachable
-//! outside the locked code path: [`Provider`](crate::provider)
-//! holds it as `Option<LockedConstraintRecorder>` and populates
-//! it only in `Locked` mode.
-
-use std::cell::RefCell;
-use std::collections::BTreeMap;
+//! candidate: [`validate_locked_metadata`], the missing / yanked /
+//! checksum check both call sites need to run in the same order
+//! before the constraint check, and [`check_locked_pin_listed`], its
+//! missing / checksum part that every mode keeping pins runs over the
+//! solution.
 
 use cabin_core::PackageName;
 use cabin_index::{IndexEntry, VersionMetadata};
-use semver::VersionReq;
 
-use crate::error::{ResolveError, ResolverConstraint};
+use crate::error::ResolveError;
 use crate::input::LockedVersion;
 
 /// Run the missing / yanked / checksum checks for a locked
@@ -123,49 +94,4 @@ fn check_locked_revision(
         });
     }
     Ok(())
-}
-
-/// Per-package constraint records observed during `Locked`-mode
-/// resolution; see the module docs for why no other mode may hold
-/// one.
-pub(crate) struct LockedConstraintRecorder {
-    by_package: RefCell<BTreeMap<PackageName, Vec<ResolverConstraint>>>,
-}
-
-impl LockedConstraintRecorder {
-    /// Build a recorder pre-populated with the root-dependency
-    /// constraints found during preflight, so a later
-    /// `LockedVersionViolatesConstraint` on a package the root
-    /// also depends on cites the root requirement.
-    pub(crate) fn new(seed: BTreeMap<PackageName, Vec<ResolverConstraint>>) -> Self {
-        Self {
-            by_package: RefCell::new(seed),
-        }
-    }
-
-    /// Record that `origin` imposes `requirement` on `package`.
-    pub(crate) fn record(
-        &self,
-        package: &PackageName,
-        origin: PackageName,
-        requirement: VersionReq,
-    ) {
-        self.by_package
-            .borrow_mut()
-            .entry(package.clone())
-            .or_default()
-            .push(ResolverConstraint {
-                origin,
-                requirement,
-            });
-    }
-
-    /// Return the constraints recorded so far for `package`.
-    pub(crate) fn snapshot(&self, package: &PackageName) -> Vec<ResolverConstraint> {
-        self.by_package
-            .borrow()
-            .get(package)
-            .cloned()
-            .unwrap_or_default()
-    }
 }

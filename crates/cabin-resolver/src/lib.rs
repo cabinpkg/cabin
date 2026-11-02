@@ -13,8 +13,7 @@
 //! * `provider` - the `PubGrub` `DependencyProvider`
 //!   implementation, candidate selection, and dependency-edge
 //!   filtering.
-//! * `locked` - shared locked-version metadata validation
-//!   plus the locked-mode-only constraint recorder.
+//! * `locked` - shared locked-version metadata validation.
 //! * `explanation` - `PubGrub` no-solution → Cabin
 //!   `ResolveError::Conflict` conversion.
 //! * `output` - `PubGrub` `SelectedDependencies` →
@@ -177,12 +176,10 @@ fn resolve_once_unchecked(
     let root_dependencies = convert_root_dependencies(input, index)?;
 
     // Preflight surfaces Cabin's targeted error variants for
-    // root dependencies before `PubGrub` is invoked; the
-    // returned constraints seed the locked-mode recorder when
-    // it is constructed.
-    let root_constraints = preflight_root_dependencies(input, index, &locked)?;
+    // root dependencies before `PubGrub` is invoked.
+    preflight_root_dependencies(input, index, &locked)?;
 
-    let provider = Provider::new(input, index, locked, root_constraints, root_dependencies);
+    let provider = Provider::new(input, index, locked, root_dependencies);
 
     let result = pubgrub::resolve(
         &provider,
@@ -3789,6 +3786,28 @@ mod tests {
                 .any(|c| c.origin.as_str() == "b" && c.requirement.to_string() == "^1.0"),
             "{err:?}"
         );
+    }
+
+    /// A pin every requirement accepts but whose own metadata is
+    /// unusable is reported as the conflict that excluded it, not as a
+    /// constraint violation.
+    #[test]
+    fn locked_mode_reports_why_an_accepted_pin_is_unusable() {
+        let index = build_index(vec![featured(
+            "d",
+            vec![(
+                "1.0.0",
+                featured_version(vec![], &[], &[("f", &["dep:missing"])]),
+            )],
+        )]);
+        let mut input =
+            input_with_locked(vec![("d", "^1")], vec![("d", "1.0.0")], ResolveMode::Locked);
+        request(&mut input, "d", &["f"]);
+        let err = resolve(&input, &index).unwrap_err();
+        let ResolveError::Conflict { detail, .. } = &err else {
+            panic!("expected a conflict, got {err:?}");
+        };
+        assert!(detail.contains("undeclared dependency missing"), "{detail}");
     }
 
     /// A lazily loaded index is asked for exactly the metadata the

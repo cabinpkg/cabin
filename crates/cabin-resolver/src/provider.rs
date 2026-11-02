@@ -28,18 +28,8 @@
 //! produced ahead of time in [`crate::preflight`].  Transitive
 //! `Locked`-mode failures, and `LockedVersionLacksFeature` for any
 //! package, surface here, returned through `PubGrub`'s
-//! `ErrorChoosingVersion` as their original [`ResolveError`].
-//!
-//! ## Locked-mode constraint recording
-//!
-//! When the resolver runs in [`ResolveMode::Locked`], the
-//! provider records every constraint emitted by
-//! `get_dependencies` so a
-//! [`ResolveError::LockedVersionViolatesConstraint`] on a
-//! transitive package can cite the parents that imposed the
-//! requirement.  The recorder is held as
-//! `Option<LockedConstraintRecorder>` and constructed only in
-//! `Locked` mode - see [`crate::locked`] for the invariant.
+//! `ErrorRetrievingDependencies` or `ErrorChoosingVersion` as their
+//! original [`ResolveError`].
 
 use std::cell::RefCell;
 use std::cmp::Reverse;
@@ -58,7 +48,7 @@ use semver::{Version, VersionReq};
 
 use crate::error::{ResolveError, ResolverConstraint};
 use crate::input::{LockedVersion, ResolveInput, ResolveMode};
-use crate::locked::{LockedConstraintRecorder, validate_locked_metadata};
+use crate::locked::validate_locked_metadata;
 use crate::range::req_to_range;
 
 /// A `PubGrub` package.  Feature requests are solver packages of
@@ -201,7 +191,6 @@ pub(crate) struct Provider<'a> {
     index: &'a PackageIndex,
     root_dependencies: Vec<(PackageName, Ranges<Version>)>,
     locked: BTreeMap<PackageName, LockedVersion>,
-    locked_constraints: Option<LockedConstraintRecorder>,
     /// The names a lazily loaded index has not fetched that the solve
     /// reached, all reported when it stops for one of them.
     pub(crate) unfetched: RefCell<BTreeSet<PackageName>>,
@@ -212,20 +201,13 @@ impl<'a> Provider<'a> {
         input: &'a ResolveInput,
         index: &'a PackageIndex,
         locked: BTreeMap<PackageName, LockedVersion>,
-        root_constraints: BTreeMap<PackageName, Vec<ResolverConstraint>>,
         root_dependencies: Vec<(PackageName, Ranges<Version>)>,
     ) -> Self {
-        // The recorder exists iff resolution routes through
-        // `choose_locked_candidate`, encoding the locked-mode
-        // invariant structurally - see [`crate::locked`].
-        let locked_constraints = matches!(input.mode, ResolveMode::Locked)
-            .then(|| LockedConstraintRecorder::new(root_constraints));
         Self {
             input,
             index,
             root_dependencies,
             locked,
-            locked_constraints,
             unfetched: RefCell::default(),
         }
     }
@@ -297,34 +279,32 @@ impl<'a> Provider<'a> {
         }))
     }
 
-    /// In `Locked` mode, record the edge `parent` places on `dep_name`
-    /// and match it against the locked version.
+    /// In `Locked` mode, match the edge `parent` places on `dep_name`
+    /// against the locked version.
     fn check_locked_edge(
         &self,
         parent: &PackageName,
         dep_name: &PackageName,
         dep: &IndexPackageDependency,
     ) -> Result<(), EdgeError> {
-        if let Some(recorder) = &self.locked_constraints {
-            recorder.record(dep_name, parent.clone(), dep.req.clone());
-            // Matched per edge, not when `dep_name` is decided: an edge
-            // arriving after that decision would conflict with it, and
-            // the backjump would report the edge's parent instead.
-            if let Some(locked) = self.locked.get(dep_name)
-                && !self.is_local(dep_name)
-                && !dep.req.matches(&locked.version)
-            {
-                return Err(EdgeError::Fatal(
-                    ResolveError::LockedVersionViolatesConstraint {
-                        name: dep_name.as_str().to_owned(),
-                        version: locked.version.to_string(),
-                        constraints: vec![ResolverConstraint {
-                            origin: parent.clone(),
-                            requirement: dep.req.clone(),
-                        }],
-                    },
-                ));
-            }
+        // Matched per edge, not when `dep_name` is decided: an edge
+        // arriving after that decision would conflict with it, and
+        // the backjump would report the edge's parent instead.
+        if matches!(self.input.mode, ResolveMode::Locked)
+            && let Some(locked) = self.locked.get(dep_name)
+            && !self.is_local(dep_name)
+            && !dep.req.matches(&locked.version)
+        {
+            return Err(EdgeError::Fatal(
+                ResolveError::LockedVersionViolatesConstraint {
+                    name: dep_name.as_str().to_owned(),
+                    version: locked.version.to_string(),
+                    constraints: vec![ResolverConstraint {
+                        origin: parent.clone(),
+                        requirement: dep.req.clone(),
+                    }],
+                },
+            ));
         }
         Ok(())
     }
@@ -607,8 +587,10 @@ impl DependencyProvider for Provider<'_> {
                 .map(|(v, _)| v.clone()));
         }
 
-        if let Some(recorder) = &self.locked_constraints {
-            let version = self.choose_locked_candidate(name, recorder, entry, range)?;
+        if matches!(self.input.mode, ResolveMode::Locked) {
+            let Some(version) = self.choose_locked_candidate(name, entry, range)? else {
+                return Ok(None);
+            };
             if let Some(feature) = feature
                 && !entry
                     .versions
@@ -750,30 +732,27 @@ impl Provider<'_> {
 
     /// Pick the locked version for `package` in `Locked` mode,
     /// emitting the more specific `Locked*` variants when the
-    /// locked entry conflicts with the index or with the range
-    /// `PubGrub` derived during this resolve.  Preflight matches
-    /// root requirements and [`Self::require_edge`] matches every
-    /// transitive one against the locked version.
+    /// locked entry conflicts with the index.  Preflight matches
+    /// root requirements and [`Self::check_locked_edge`] matches every
+    /// transitive one against the locked version, so a `range` that
+    /// excludes it was narrowed by a conflict (such as an unusable
+    /// dependency or feature of the pinned version) or by the
+    /// `range` module's documented `-0` approximation; `None` lets
+    /// `PubGrub` explain it.
     fn choose_locked_candidate(
         &self,
         package: &PackageName,
-        recorder: &LockedConstraintRecorder,
         entry: &IndexEntry,
         range: &Ranges<Version>,
-    ) -> Result<Version, ResolveError> {
+    ) -> Result<Option<Version>, ResolveError> {
         let locked = self
             .locked
             .get(package)
             .ok_or_else(|| ResolveError::LockfileMissingPackage(package.as_str().to_owned()))?;
         validate_locked_metadata(package, locked, entry)?;
-        if !range.contains(&locked.version) {
-            return Err(ResolveError::LockedVersionViolatesConstraint {
-                name: package.as_str().to_owned(),
-                version: locked.version.to_string(),
-                constraints: recorder.snapshot(package),
-            });
-        }
-        Ok(locked.version.clone())
+        Ok(range
+            .contains(&locked.version)
+            .then(|| locked.version.clone()))
     }
 }
 

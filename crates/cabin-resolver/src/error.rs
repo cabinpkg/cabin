@@ -210,8 +210,6 @@ fn format_constraints(constraints: &[ResolverConstraint]) -> String {
         .map(|c| format!("{} requires {}", c.origin.as_str(), c.requirement))
         .collect();
     parts.sort();
-    // Two features enabling one edge record it twice.
-    parts.dedup();
     parts.join("; ")
 }
 
