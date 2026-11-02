@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-artifact"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "atomic-write-file",
  "cabinpkg-core",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-core"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "cabinpkg-env",
  "cabinpkg-fs",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-env"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "shlex 2.0.1",
  "thiserror",
@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-fs"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "atomic-write-file",
  "dunce",
@@ -113,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-manifest"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "cabinpkg-core",
  "camino",
@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-package"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "cabinpkg-core",
  "cabinpkg-fs",
@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-registry-verify"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "cabinpkg-artifact",
  "cabinpkg-core",

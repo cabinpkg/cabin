@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-core"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "cabinpkg-env",
  "cabinpkg-fs",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-env"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "shlex",
  "thiserror",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-fs"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "atomic-write-file",
  "dunce",
