@@ -7,7 +7,7 @@ c-standard = "c11"
 # libpng depends on zlib. The app declares only libpng; zlib is
 # pulled in transitively and its archive joins the final link, while
 # its headers stay behind libpng's private edge.
-"cabin-ports/libpng" = "=1.6.50"
+"cabin-ports/libpng" = "=1.6.59"
 
 [target.png-info]
 type = "executable"

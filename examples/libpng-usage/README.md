@@ -1,7 +1,7 @@
 # libpng-usage
 
 A consumer example for the `cabin-ports/libpng` registry package, published from the curated
-[`ports/libpng/1.6.50/`](../../ports/libpng/1.6.50/)
+[`ports/libpng/1.6.59/`](../../ports/libpng/1.6.59/)
 package directory.
 The program creates a libpng read struct, prints the libpng version, and prints the zlib version
 it calls directly.
@@ -18,7 +18,7 @@ onto zlib is private - `png.h` never includes `zlib.h` - so zlib's headers stop 
 
 ```toml
 [dependencies]
-"cabin-ports/libpng" = "=1.6.50"
+"cabin-ports/libpng" = "=1.6.59"
 "cabin-ports/zlib" = "^1.3"
 ```
 
@@ -27,7 +27,7 @@ Both edges resolve to one zlib version.  The dependency tree shows them:
 ```
 $ cabin tree
 libpng-usage v0.1.0 (workspace)
-|-- cabin-ports/libpng v1.6.50 [normal] (registry, sha256:...)
+|-- cabin-ports/libpng v1.6.59 [normal] (registry, sha256:...)
 |   `-- cabin-ports/zlib v1.3.1 [normal] (registry, sha256:...)
 `-- cabin-ports/zlib v1.3.1 [normal] (registry, sha256:...) (*)
 ```
@@ -43,7 +43,7 @@ cabin run
 Expected output (versions are whatever the resolved packages pin):
 
 ```
-libpng version: 1.6.50
+libpng version: 1.6.59
 zlib version: 1.3.1
 ```
 
