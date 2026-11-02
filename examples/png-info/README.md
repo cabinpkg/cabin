@@ -33,7 +33,7 @@ Expected output (the encoded byte count may vary with the zlib version):
 ```
 png-info: 2x2, 4 channel(s), 84 byte(s) encoded
 roundtrip pixels match: yes
-libpng version: 1.6.50
+libpng version: 1.6.59
 ```
 
 ## Offline

@@ -428,7 +428,7 @@ fn libpng_usage_builds_and_runs() {
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
         index_path: Some(committed_ports_registry().to_path_buf()),
-        expected_stdout: &["libpng version: 1.6.50", "zlib version: 1.3"],
+        expected_stdout: &["libpng version: 1.6.59", "zlib version: 1.3"],
     });
 }
 
@@ -856,7 +856,7 @@ fn png_info_builds_and_runs() {
         expected_stdout: &[
             "png-info: 2x2, 4 channel(s)",
             "roundtrip pixels match: yes",
-            "libpng version: 1.6.50",
+            "libpng version: 1.6.59",
         ],
     });
 }
