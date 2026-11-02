@@ -24,6 +24,10 @@ enum Command {
         /// Path filter a newer commit must match to supersede this run
         #[arg(long, value_name = "FILTER")]
         relevant_to: Option<String>,
+        /// Also record the filter's pathspecs as the `pathspecs` output,
+        /// for a later job that rechecks with plain git
+        #[arg(long, requires = "relevant_to")]
+        emit_pathspecs: bool,
     },
     /// Fail, with an error annotation naming the by-hand recovery, unless
     /// the committed D1 migrations match the stamp in
@@ -53,10 +57,11 @@ fn main() -> ExitCode {
 /// with the exit status, which is the step's verdict.
 fn run(command: &Command) -> Result<ExitCode> {
     match command {
-        Command::Superseded { relevant_to } => {
-            xtask_workflow_guard::superseded::run(relevant_to.as_deref())
-                .map(|()| ExitCode::SUCCESS)
-        }
+        Command::Superseded {
+            relevant_to,
+            emit_pathspecs,
+        } => xtask_workflow_guard::superseded::run(relevant_to.as_deref(), *emit_pathspecs)
+            .map(|()| ExitCode::SUCCESS),
         Command::MigrationsPending => {
             xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS)
         }

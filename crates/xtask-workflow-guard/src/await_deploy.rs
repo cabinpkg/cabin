@@ -24,7 +24,7 @@
 //! - A same-SHA Registry run that succeeded with its Deploy step
 //!   *skipped* takes the failure path's pending-descendant exit
 //!   instead of idling into the hour ceiling - see
-//!   `SameShaDeploy`.  Only the freshness guard skips that step (a
+//!   `SameShaDeploy`.  Only the freshness checks skip that step (a
 //!   migration awaiting its by-hand apply fails the job instead), so
 //!   the stop means the newer run owning the deploy failed; an
 //!   operator reruns this workflow once a deploy lands.

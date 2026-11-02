@@ -49,12 +49,6 @@ enum Command {
     /// Copy verified blobs missing from the backup bucket
     /// (`cargo registry-backup-backfill`).
     BackupBackfill,
-    /// Confirm the version the deploy job tagged serves all traffic
-    /// (`cargo registry-confirm-deploy`).
-    ConfirmDeploy {
-        /// The `--tag` the Deploy step passed to `wrangler deploy`.
-        tag: String,
-    },
     /// Safe diagnostics bundle (`cargo registry-diagnose`).
     Diagnose,
     /// The cost governor's ledger: usage | compare | reconcile
@@ -119,7 +113,6 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::BackupAudit { keys } => xtask_registry_admin::audit::run(keys),
         Command::BackupBackfill => xtask_registry_admin::backfill::run(),
-        Command::ConfirmDeploy { tag } => xtask_registry_admin::confirm_deploy::run(&tag),
         Command::Diagnose => xtask_registry_admin::diagnose::run(),
         Command::Governor { rest } => governor(&rest),
         Command::LaunchGuard { target } => xtask_registry_admin::launch_guard::run(target.mode()),

@@ -4,9 +4,9 @@ All wrangler commands run with `registry/` as the working directory against
 the single top-level configuration in `wrangler.jsonc` (no wrangler
 environments, no `--env`), as `node_modules/.bin/wrangler`: the version
 `package.json` pins, installed by `npm ci --ignore-scripts` there (again
-after `package-lock.json` changes). Every `wrangler deploy`, including the
-one `cargo registry-wipe` runs after recreating the database, builds the
-Worker with `worker-build` from `PATH`: install the version CI pins first
+after `package-lock.json` changes). Every `wrangler deploy` without
+`CABIN_WORKER_PREBUILT`, including the one `cargo registry-wipe` runs after
+recreating the database, builds the Worker with `worker-build` from `PATH`: install the version CI pins first
 (`registry/README.md`, "Development"). Authentication: `CLOUDFLARE_API_TOKEN` in the
 environment (scopes: Workers Scripts Edit, D1 Edit, R2 Edit, and DNS Edit
 on the cabinpkg.com zone).
@@ -133,14 +133,15 @@ the manual fallback. The CI deploy token is scoped to Workers
 Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
 remain manual steps in this runbook. For exactly that reason a
 `deploy-registry` run ends one of three ways. It **deploys**: its
-Deploy step ran and succeeded, and `cargo registry-confirm-deploy`
-then read Cloudflare's latest deployment routing all traffic to the
+Deploy step ran and succeeded, and the next step then read
+Cloudflare's latest deployment routing all traffic to the
 one version Deploy tagged with the run attempt (`wrangler deploy
 --tag <run id>.<attempt>`). It is **superseded**: main already
 carries a newer registry-relevant commit, so it skips Deploy and stays
 green, and that commit's run owns the deploy. Or it is **blocked**:
 `migrations/` content disagrees with the `migrations-applied` stamp
-(or the gate cannot compare them), so the job fails red, deploying
+(or the gate cannot compare them), so the `build-registry-worker`
+job fails and `deploy-registry` fails red at its first step, deploying
 nothing, with a `Registry deploy blocked` error annotation naming the
 recovery; nothing in CI applies a migration. A blocked run never
 deploys. The same gate runs before the merge: the `merge-readiness`
@@ -174,12 +175,49 @@ Hand-refreshing the stamp bypasses those checks; don't.
 
 A Deploy step that exits 0 without its tagged version then serving
 all traffic fails the job with a `Registry deploy unconfirmed` error
-annotation instead of counting as a deploy. Rerun the job: it
-redeploys under a fresh tag, or stays green if a newer commit
-superseded it meanwhile. The confirmation reads the control plane, not
+annotation instead of counting as a deploy. Re-run all jobs (a rerun
+of `deploy-registry` alone fails, since it would reuse the build's
+freshness answer): it rebuilds and redeploys under a fresh tag, or
+stays green if a newer commit superseded it meanwhile. The
+confirmation reads the control plane, not
 an edge response (no request tells one version from another:
 `/healthz` reads the same from all of them), so the smoke checks below
 remain the edge-side check.
+
+**Deploy credential boundary.** The deploy token
+(`CF_REGISTRY_DEPLOY_TOKEN`, a `production` environment secret whose
+deployment branch policy admits only `main`) never shares a runner
+with a build. `build-registry-worker` holds no secret: it runs the
+freshness and migration gates, `worker-build --release`, and the
+deploy-config guard, bundles the result with `wrangler deploy
+--dry-run --outdir dist`, and uploads `dist/` as the run's
+`registry-worker-<attempt>` artifact with a SHA-256 digest of its
+files. `deploy-registry` starts on a fresh runner, installs wrangler
+from `package-lock.json` with `--ignore-scripts`, downloads that run's
+artifact, refuses it unless it holds only regular files matching the
+digest, and deploys it with `wrangler deploy --no-bundle` and
+`CABIN_WORKER_PREBUILT=1`, which turns `wrangler.jsonc`'s
+`build.command` into a no-op: no Cargo command, build script,
+proc-macro, or bundler runs next to the token. Right before deploying
+it rechecks freshness with plain git, against the
+`.github/path-filters.yml` pathspecs the build job resolved, because
+the build's answer is minutes old and the deploy queue does not order
+runs. The recheck and the activation are not atomic: a commit landing
+between them does not stop this deploy, but that commit's own deploy
+waits in the queue until this job ends, so an older run never replaces
+a newer run's Worker. Limits: this keeps build-time code from reading
+the token, but such code can still change the Worker it builds (or the pathspecs it
+hands over), and that Worker runs with its own bindings and secrets;
+the digest catches a missing, damaged, or substituted artifact, not
+one a compromised build job produced; wrangler and its npm
+dependencies run with the token, as they always have; wrangler still
+parses the artifact's entry with esbuild (without bundling) and reads
+the source map its `sourceMappingURL` comment names, which a
+compromised build could point at another JSON file on the deploy
+runner (the token itself is only in the environment); and when
+Cloudflare rejects a deploy for startup time, wrangler loads the
+bundle in a local `workerd` to profile it, so the Worker's own code
+runs on that runner, inside the V8 sandbox.
 
 Because the stamp covers migration *content*, an applied file's
 comments are frozen with its SQL: a rename elsewhere in the repository
