@@ -35,13 +35,13 @@
 //!   plan.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
 use cabin_fs::write_atomic;
-use cabin_registry_file::{FileRegistry, RegistryConfig};
+use cabin_registry_file::{FileRegistry, REGISTRY_CONFIG_FILENAME, RegistryConfig};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -157,6 +157,12 @@ pub struct VendorOptions {
     /// [`VendorReport::frozen`].  The orchestration layer applies
     /// it to the lockfile policy.
     pub frozen: bool,
+    /// The caller named the vendor directory explicitly
+    /// (`--vendor-dir`), so a symlink at its root is the user's choice
+    /// and is followed.  Otherwise the directory is the default inside
+    /// the checkout, and a symlinked root is refused like any other
+    /// symlink in the tree.
+    pub explicit_vendor_dir: bool,
 }
 
 /// Outcome of one [`materialize`] invocation.
@@ -210,7 +216,10 @@ pub struct VendorOutcomeEntry {
 /// archive's SHA-256 differs from the plan's checksum,
 /// `StaleArtifact` when an existing destination archive has a
 /// conflicting checksum, `UnsafeArtifactPath` when an artifact
-/// destination contains `..`, `MalformedIndexEntry` when a source
+/// destination contains `..`, `SymlinkInVendorDir` when a path to be
+/// read or written runs through a symlink inside the vendor directory
+/// (or the default vendor directory is itself a symlink),
+/// `MalformedIndexEntry` when a source
 /// index entry does not list the vendored revision or its `source`
 /// object, and `Json` when the summary fails to serialize.
 #[tracing::instrument(name = "materialize_vendor", level = "info", skip_all)]
@@ -219,7 +228,21 @@ pub fn materialize(
     vendor_dir: &Path,
     options: &VendorOptions,
 ) -> Result<VendorReport, VendorError> {
+    if !options.explicit_vendor_dir
+        && fs::symlink_metadata(vendor_dir).is_ok_and(|meta| meta.file_type().is_symlink())
+    {
+        return Err(VendorError::SymlinkInVendorDir {
+            path: vendor_dir.to_path_buf(),
+        });
+    }
     let vendor_dir = canonicalize_or_create(vendor_dir)?;
+
+    // `open_or_initialize` reads `config.json` and creates the
+    // configured layout directories, so check their paths first.
+    refuse_symlinks_below(&vendor_dir, &vendor_dir.join(REGISTRY_CONFIG_FILENAME))?;
+    let layout = FileRegistry::inspect(&vendor_dir).map_err(VendorError::Registry)?;
+    refuse_symlinks_below(&vendor_dir, &layout.packages_dir())?;
+    refuse_symlinks_below(&vendor_dir, &layout.artifacts_dir())?;
 
     // Ensure / re-use the file-registry skeleton (writes
     // `config.json` if missing).
@@ -261,6 +284,7 @@ pub fn materialize(
             let artifact_relative =
                 registry.relative_source_path(&entry.name, &entry.version, revision);
             let written = copy_archive_if_changed(
+                &vendor_dir,
                 &entry.archive_source,
                 &artifact_path,
                 entry.checksum.hex(),
@@ -314,7 +338,7 @@ pub fn materialize(
         let target = registry.package_index_path(name);
         let body =
             cabin_registry_file::index::render(&index, &target).map_err(VendorError::Registry)?;
-        write_if_changed(&target, body.as_bytes())?;
+        write_if_changed(&vendor_dir, &target, body.as_bytes())?;
     }
 
     // The summary lists every vendored
@@ -327,6 +351,7 @@ pub fn materialize(
     let mut summary_body = serde_json::to_string_pretty(&summary).map_err(VendorError::Json)?;
     summary_body.push('\n');
     write_if_changed(
+        &vendor_dir,
         &vendor_dir.join(VENDOR_SUMMARY_FILENAME),
         summary_body.as_bytes(),
     )?;
@@ -410,6 +435,14 @@ pub enum VendorError {
         reason: String,
     },
 
+    /// A path the vendor writer would create, read, or write runs
+    /// through a symlink inside the vendor directory.
+    #[error(
+        "refusing to vendor through symlink `{}` inside the vendor directory; remove it and re-run",
+        path.display()
+    )]
+    SymlinkInVendorDir { path: PathBuf },
+
     /// Generic I/O failure with the file path that triggered
     /// it.  Wraps the underlying `io::Error`.
     #[error("vendor I/O error at {}: {source}", path.display())]
@@ -442,6 +475,7 @@ fn canonicalize_or_create(dir: &Path) -> Result<PathBuf, VendorError> {
 }
 
 fn copy_archive_if_changed(
+    vendor_dir: &Path,
     src: &Path,
     dst: &Path,
     expected_hex: &str,
@@ -455,6 +489,7 @@ fn copy_archive_if_changed(
             path: dst.to_path_buf(),
         });
     }
+    refuse_symlinks_below(vendor_dir, dst)?;
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent).map_err(|source| VendorError::Io {
             path: parent.to_path_buf(),
@@ -482,46 +517,33 @@ fn copy_archive_if_changed(
         path: src.to_path_buf(),
         source,
     })?;
-    // `Path::with_extension` would replace the trailing `.zip`, so
-    // the `.partial` suffix is appended via `OsString`.
-    let temp = {
-        let mut s: OsString = dst.as_os_str().to_owned();
-        s.push(".partial");
-        PathBuf::from(s)
-    };
-    {
-        let mut output = fs::File::create(&temp).map_err(|source| VendorError::Io {
-            path: temp.clone(),
-            source,
-        })?;
-        // Errors mapped to `temp`: a mid-stream failure is far more
-        // likely to be a write to the vendor target than the already-
-        // opened source archive going unreadable.
-        let actual = cabin_core::hash::hash_copy(&mut input, &mut output).map_err(|source| {
-            VendorError::Io {
-                path: temp.clone(),
-                source,
-            }
-        })?;
-        if actual != expected_hex {
-            let _ = fs::remove_file(&temp);
-            return Err(VendorError::ChecksumMismatch {
-                name: name.as_str().to_owned(),
-                version: version.to_string(),
-                expected: format!("sha256:{expected_hex}"),
-                actual: format!("sha256:{actual}"),
-                archive: src.to_path_buf(),
-            });
-        }
-    }
-    fs::rename(&temp, dst).map_err(|source| VendorError::Io {
+    let io_error = |source| VendorError::Io {
         path: dst.to_path_buf(),
         source,
-    })?;
+    };
+    // Stage under a fresh, exclusively created name so no file planted
+    // in the vendor tree is opened (or followed) as the staging file.
+    let mut staged = AtomicWriteFile::open(dst).map_err(io_error)?;
+    // Errors mapped to `dst`: a mid-stream failure is far more likely
+    // to be a write to the vendor target than the already-opened
+    // source archive going unreadable.
+    let actual = cabin_core::hash::hash_copy(&mut input, &mut staged).map_err(io_error)?;
+    if actual != expected_hex {
+        let _ = staged.discard();
+        return Err(VendorError::ChecksumMismatch {
+            name: name.as_str().to_owned(),
+            version: version.to_string(),
+            expected: format!("sha256:{expected_hex}"),
+            actual: format!("sha256:{actual}"),
+            archive: src.to_path_buf(),
+        });
+    }
+    staged.commit().map_err(io_error)?;
     Ok(true)
 }
 
-fn write_if_changed(path: &Path, body: &[u8]) -> Result<(), VendorError> {
+fn write_if_changed(vendor_dir: &Path, path: &Path, body: &[u8]) -> Result<(), VendorError> {
+    refuse_symlinks_below(vendor_dir, path)?;
     if let Ok(existing) = fs::read(path)
         && existing == body
     {
@@ -537,6 +559,36 @@ fn write_if_changed(path: &Path, body: &[u8]) -> Result<(), VendorError> {
         path: path.to_path_buf(),
         source,
     })
+}
+
+/// Refuse a symlink at any existing component of `path` below
+/// `vendor_dir`, before anything is created, read, or written there.
+/// A checkout can ship symlinks inside `vendor/`; following one would
+/// redirect a fixed-name write, or the destination hash read, outside
+/// the tree.  `vendor_dir` itself is already canonicalized;
+/// [`materialize`] decides whether its root may be a symlink.
+fn refuse_symlinks_below(vendor_dir: &Path, path: &Path) -> Result<(), VendorError> {
+    let relative = path
+        .strip_prefix(vendor_dir)
+        .expect("vendor write paths are built under the vendor directory");
+    let mut current = vendor_dir.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(VendorError::SymlinkInVendorDir { path: current });
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => {
+                return Err(VendorError::Io {
+                    path: current,
+                    source,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn file_sha256(path: &Path) -> Result<String, VendorError> {
@@ -955,6 +1007,142 @@ mod tests {
                 );
             }
             other => panic!("expected StaleArtifact, got {other:?}"),
+        }
+    }
+
+    /// A checkout-planted file at the old predictable staging name is
+    /// never opened: the sentinel it points at keeps its bytes.
+    #[cfg(unix)]
+    #[test]
+    fn materialize_ignores_planted_staging_symlink() {
+        let cache = TempDir::new().unwrap();
+        let vendor = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let sentinel = outside.child("sentinel");
+        sentinel.write_str("keep").unwrap();
+        let (archive, checksum) = write_archive(&cache, "acme/foo", "1.0.0", b"zip");
+        let dst = vendor.child(format!(
+            "artifacts/acme/foo/acme-foo-1.0.0-{}.zip",
+            rev(&checksum)
+        ));
+        fs::create_dir_all(dst.parent().unwrap()).unwrap();
+        let mut partial = dst.as_os_str().to_owned();
+        partial.push(".partial");
+        std::os::unix::fs::symlink(sentinel.path(), partial).unwrap();
+
+        let plan = VendorPlan::new(vec![entry("acme/foo", "1.0.0", archive, &checksum)]).unwrap();
+        materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
+        assert_eq!(fs::read(dst.path()).unwrap(), b"zip");
+        assert_eq!(fs::read_to_string(sentinel.path()).unwrap(), "keep");
+    }
+
+    /// A symlink a checkout ships inside the vendor tree - at the
+    /// archive destination or as a scope directory - is refused before
+    /// anything is read or written through it.
+    #[cfg(unix)]
+    #[test]
+    fn materialize_refuses_symlinks_inside_vendor_dir() {
+        for rel in [
+            "artifacts/acme/foo/acme-foo-1.0.0-{rev}.zip",
+            "artifacts/acme",
+            "packages/acme",
+        ] {
+            let cache = TempDir::new().unwrap();
+            let vendor = TempDir::new().unwrap();
+            let outside = TempDir::new().unwrap();
+            let sentinel = outside.child("sentinel");
+            sentinel.write_str("keep").unwrap();
+            let (archive, checksum) = write_archive(&cache, "acme/foo", "1.0.0", b"zip");
+            let link = vendor.child(rel.replace("{rev}", rev(&checksum)));
+            fs::create_dir_all(link.parent().unwrap()).unwrap();
+            let target = if rel.ends_with("acme") {
+                outside.path()
+            } else {
+                sentinel.path()
+            };
+            std::os::unix::fs::symlink(target, link.path()).unwrap();
+
+            let plan =
+                VendorPlan::new(vec![entry("acme/foo", "1.0.0", archive, &checksum)]).unwrap();
+            let err = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
+            assert!(
+                matches!(err, VendorError::SymlinkInVendorDir { .. }),
+                "{rel}: expected SymlinkInVendorDir, got {err:?}"
+            );
+            assert_eq!(fs::read_to_string(sentinel.path()).unwrap(), "keep");
+            assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1, "{rel}");
+        }
+    }
+
+    /// The default vendor directory sits in the checkout, so a
+    /// committed `vendor -> elsewhere` link is refused; an explicit
+    /// `--vendor-dir` symlink is the user's choice and followed.
+    #[cfg(unix)]
+    #[test]
+    fn materialize_refuses_symlinked_default_vendor_root() {
+        let project = TempDir::new().unwrap();
+        let other = TempDir::new().unwrap();
+        let link = project.child("vendor");
+        std::os::unix::fs::symlink(other.path(), link.path()).unwrap();
+
+        let err = materialize(
+            &VendorPlan::default(),
+            link.path(),
+            &VendorOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, VendorError::SymlinkInVendorDir { .. }),
+            "expected SymlinkInVendorDir, got {err:?}"
+        );
+        assert_eq!(fs::read_dir(other.path()).unwrap().count(), 0);
+
+        let explicit = VendorOptions {
+            explicit_vendor_dir: true,
+            ..VendorOptions::default()
+        };
+        materialize(&VendorPlan::default(), link.path(), &explicit).unwrap();
+        assert!(other.path().join(VENDOR_SUMMARY_FILENAME).is_file());
+    }
+
+    /// A committed `config.json` symlink, or a configured layout
+    /// subdirectory that runs through a committed symlink, is refused
+    /// before the registry skeleton is read or created.
+    #[cfg(unix)]
+    #[test]
+    fn materialize_refuses_symlinks_in_registry_layout() {
+        for case in ["config", "nested-dir"] {
+            let vendor = TempDir::new().unwrap();
+            let outside = TempDir::new().unwrap();
+            let config = r#"{"schema":1,"kind":"file-registry","packages":"escape/new-dir","artifacts":"artifacts"}"#;
+            if case == "config" {
+                outside.child("config.json").write_str(config).unwrap();
+                std::os::unix::fs::symlink(
+                    outside.child("config.json").path(),
+                    vendor.child("config.json").path(),
+                )
+                .unwrap();
+            } else {
+                vendor.child("config.json").write_str(config).unwrap();
+                std::os::unix::fs::symlink(outside.path(), vendor.child("escape").path()).unwrap();
+            }
+            let before = fs::read_dir(outside.path()).unwrap().count();
+
+            let err = materialize(
+                &VendorPlan::default(),
+                vendor.path(),
+                &VendorOptions::default(),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(err, VendorError::SymlinkInVendorDir { .. }),
+                "{case}: expected SymlinkInVendorDir, got {err:?}"
+            );
+            assert_eq!(
+                fs::read_dir(outside.path()).unwrap().count(),
+                before,
+                "{case}"
+            );
         }
     }
 

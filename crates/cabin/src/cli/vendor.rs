@@ -172,6 +172,7 @@ pub(crate) fn vendor(
             &vendor_dir,
             &VendorOptions {
                 frozen: args.frozen,
+                explicit_vendor_dir: args.vendor_dir.is_some(),
             },
         )
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
@@ -239,6 +240,7 @@ pub(crate) fn vendor(
         &vendor_dir,
         &VendorOptions {
             frozen: args.frozen,
+            explicit_vendor_dir: args.vendor_dir.is_some(),
         },
     )
     .map_err(|err| anyhow::anyhow!(err.to_string()))?;

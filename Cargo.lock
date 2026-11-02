@@ -699,6 +699,7 @@ name = "cabinpkg-vendor"
 version = "0.17.0"
 dependencies = [
  "assert_fs",
+ "atomic-write-file",
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-registry-file",

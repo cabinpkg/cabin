@@ -11,6 +11,7 @@ description = "Offline dependency vendoring for Cabin"
 name = "cabin_vendor"
 
 [dependencies]
+atomic-write-file = { workspace = true }
 cabin-core = { workspace = true }
 cabin-fs = { workspace = true }
 cabin-registry-file = { workspace = true }
