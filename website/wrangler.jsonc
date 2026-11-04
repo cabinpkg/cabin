@@ -2,6 +2,7 @@
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "cabin-website",
     "compatibility_date": "2026-05-03",
+    "workers_dev": false,
     "assets": {
         "directory": "./dist",
         "not_found_handling": "404-page"
