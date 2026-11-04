@@ -3,6 +3,8 @@
     "name": "cabin-website",
     "compatibility_date": "2026-05-03",
     "workers_dev": false,
+    "preview_urls": false,
+    "previews": {},
     "assets": {
         "directory": "./dist",
         "not_found_handling": "404-page"
