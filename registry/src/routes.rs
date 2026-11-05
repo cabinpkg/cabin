@@ -27,6 +27,16 @@ pub enum Route<'a> {
     },
 }
 
+impl Route<'_> {
+    /// Whether the read plane answers a `GET` of this route without a
+    /// token. During the private alpha only the health check and
+    /// `config.json` are; every other route needs an admitted token
+    /// (`docs/remote-registry.md`, "Read routes").
+    pub fn is_public(&self) -> bool {
+        matches!(self, Route::Healthz | Route::Config)
+    }
+}
+
 /// Matches `path` (percent-encoded, no query string) against the read
 /// routes. Any percent-escape fails the component charsets below, so encoded
 /// traversal never parses.

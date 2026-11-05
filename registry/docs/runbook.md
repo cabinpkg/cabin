@@ -257,6 +257,20 @@ facts that matter operationally:
   browser session of an account (a stolen cookie), delete its rows:
   `DELETE FROM browser_sessions WHERE provider_account_id = '<github id>'`.
 
+**Website catalog refresh.** The `*/15` cron keeps the website's
+package pages on the registry's catalog (`docs/remote-registry.md`,
+"The catalog"). It fetches `https://cabinpkg.com/catalog-provenance.json`
+(a same-zone `fetch` reaches the website Worker because it serves its
+own domain, not a route) and, when that record differs from what
+`/catalog.json` answers anonymously, POSTs the `WEBSITE_DEPLOY_HOOK`
+secret: a Workers Builds deploy hook of `cabin-website` for `main`
+(the Worker's Settings, Builds, Deploy Hooks). The `website_refresh`
+meta row counts the triggers per catalog, at most three; `wrangler
+tail` shows the `website refresh:` lines. Without the secret the step
+does nothing. A website rollback whose recorded catalog no longer
+matches, or that predates the record (a 404), is rebuilt over by the
+next pass; delete the secret first to keep one.
+
 ## First-time provisioning
 
 Prerequisite besides the API token: the GitHub OAuth app (homepage
@@ -271,8 +285,9 @@ during the private alpha, to use the registry at all - every Bearer token
 is re-checked against it on use);
 the wrangler secrets are the client secret, the session secret,
 `ANALYTICS_API_TOKEN` for the budget cron, and `D1_EXPORT_API_TOKEN` for
-the nightly dump (plus the optional `NOTIFY_WEBHOOK_URL`; see "Budget
-breaker and service mode" and "Disaster recovery").
+the nightly dump (plus the optional `NOTIFY_WEBHOOK_URL` and
+`WEBSITE_DEPLOY_HOOK`; see "Budget breaker and service mode",
+"Disaster recovery", and "Integrated topology and route management").
 
 ```sh
 node_modules/.bin/wrangler d1 create cabin-registry
