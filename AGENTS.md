@@ -15,9 +15,9 @@ evidence of current behavior, not proof that the behavior is correct.
 - Read `registry/AGENTS.md` before changing `registry/`; it routes registry
   work to the owning module and names the registry-specific checks, which
   `cargo ci` does not cover.
-- Read `website/AGENTS.md` before changing `website/`, `docs/`, or
-  `ports-revision`; those paths share the website verification gate. `docs/`
-  contains the canonical Markdown rendered by the website.
+- Read `website/AGENTS.md` before changing `website/` or `docs/`; those paths
+  share the website verification gate. `docs/` contains the canonical Markdown
+  rendered by the website.
 - Read `.github/AGENTS.md` before changing GitHub Actions workflows or other
   `.github/` configuration.
 - Use `RELEASING.md` for release procedure. Do not infer release policy from
@@ -122,8 +122,8 @@ evidence of current behavior, not proof that the behavior is correct.
 
 - Run `cargo ci` from the repository root. It scopes expensive checks to
   changes relative to `origin/main`.
-- Changes under `docs/` or `website/`, or to `ports-revision`, require the
-  website gate defined in `website/AGENTS.md`. `cargo ci` runs it for those
+- Changes under `docs/` or `website/` require the website gate defined in
+  `website/AGENTS.md`. `cargo ci` runs it for those
   paths; run it manually if site output changes through another path.
 - Changes under `registry/` require the registry checks listed in
   `registry/AGENTS.md`; `cargo ci` does not run them.

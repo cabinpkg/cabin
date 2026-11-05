@@ -57,8 +57,10 @@ jobs:
       - name: Test
         run: npm test
 
+      # Both catalog states from committed fixtures; the deploy build
+      # (`npm run build`) reads the live registry instead.
       - name: Build
-        run: npm run build
+        run: npm run build:fixtures
 
   # Records demo.tape with the Cabin release that the committed
   # website/public/demo.gif shows (website/README.md, "Demo GIF").

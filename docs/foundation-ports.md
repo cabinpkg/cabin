@@ -7,12 +7,13 @@ that do not yet ship a native `cabin.toml` - to Cabin's build model.  Their sour
 public registry; that repository is closed to arbitrary submissions and its ports are intended to
 be retired incrementally as upstreams adopt native `cabin.toml`.
 
-You can browse the foundation-port catalog at https://cabinpkg.com.
+[cabinpkg.com](https://cabinpkg.com) lists the packages the hosted registry serves to everyone
+([The catalog](remote-registry.md#the-catalog)); during the registry's private alpha it lists
+none.
 
 ## Consuming a foundation port
 
-Foundation ports are consumed as ordinary registry packages under the `cabin-ports` scope, which is
-the form the package pages on [cabinpkg.com](https://cabinpkg.com) show:
+Foundation ports are consumed as ordinary registry packages under the `cabin-ports` scope:
 
 ```toml
 [dependencies]
@@ -351,11 +352,10 @@ rather than misread.
 ## The pinned catalog
 
 The repository-root `ports-revision` file pins one commit on the `main` branch of
-[`cabin-ports/ports`](https://github.com/cabin-ports/ports).  The website's package pages, the
-real-upstream example tests, `cargo perf run --ports`, and `cargo fuzz-seeds` read the ports of
-that commit; the `cabin` CLI never reads it.  The website's `npm run build` and `npm run dev`
-check it out into `website/.ports/` themselves.  The others take the `ports/` directory of a
-checkout of the pinned commit, which must be on `main`:
+[`cabin-ports/ports`](https://github.com/cabin-ports/ports) as a test input: the real-upstream
+example tests, `cargo perf run --ports`, and `cargo fuzz-seeds` read the ports of that commit, and
+neither the `cabin` CLI nor the website reads it.  They take the `ports/` directory of a checkout of
+the pinned commit, which must be on `main`:
 
 ```console
 $ git clone https://github.com/cabin-ports/ports ../cabin-ports

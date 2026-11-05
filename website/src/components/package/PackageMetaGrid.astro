@@ -64,20 +64,9 @@ const { package: pack, versions, currentVersion } = Astro.props;
             <Card class="p-6">
                 <h2 class="mb-4 text-lg font-bold">Provenance</h2>
                 <p class="mb-4 text-sm leading-6 text-ink-muted">
-                    This package is Cabin's packaging of pinned, unmodified
-                    upstream sources; the upstream project is developed
-                    independently and does not publish it.
+                    Built from this pinned upstream source archive.
                 </p>
                 <dl class="space-y-4">
-                    <div class="flex items-center justify-between gap-4">
-                        <dt class="flex items-center gap-2 text-ink-muted">
-                            <Icon name="tag" class="h-4 w-4" />
-                            Upstream version
-                        </dt>
-                        <dd class="font-mono text-sm font-semibold text-ink">
-                            {pack.upstream.version}
-                        </dd>
-                    </div>
                     <div>
                         <dt class="mb-1 flex items-center gap-2 text-ink-muted">
                             <Icon name="download" class="h-4 w-4" />

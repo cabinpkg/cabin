@@ -1,18 +1,10 @@
-// Normalized dependency and feature information extracted from a
-// package manifest: dependencies split by kind (normal / dev), system
-// dependencies as their own source, `cfg(...)` conditions flattened to
-// per-entry inner expressions the way the registry index encodes them
-// (crates/cabin-index/src/loader.rs `RawIndexPackageDepTable.target`),
-// and the `[features]` table with its entries classified by the
-// cabin-core grammar. Index-document-only fields (`standards`, `links`,
-// `yanked`, revisions) are outside this model.
-//
-// Structural checks only, mirroring the manifest parser's rules
-// (crates/cabin-manifest/src/parse/dependency.rs and the
-// feature-entry grammar in crates/cabin-core/src/config.rs): shapes
-// the publisher rejects fail the build here. Semantic validation -
-// unknown feature references, cycles, `dep:` on a non-optional
-// dependency, requirement syntax - stays the publisher's job.
+// A catalog version's dependency and feature declarations, mapped for
+// rendering.  The catalog copies them verbatim from the registry's stored
+// index entry (crates/cabin-index/src/loader.rs `RawVersion`): registry
+// dependencies by kind, system dependencies with their own kind, a
+// `cfg(...)` condition as its inner expression in `target`, and the
+// `[features]` table.  The registry validated all of it at publish, so
+// only the shape this module reads is checked.
 
 export type DependencyKind = "normal" | "dev";
 
@@ -22,11 +14,9 @@ export interface DependencyInfo {
     /** `registry` resolves through the registry; `system` probes pkg-config. */
     source: "registry" | "system";
     /**
-     * The version requirement as the manifest spells it (free-form
+     * The version requirement as the index stores it (free-form
      * pkg-config spelling for system deps, where blank means
-     * unconstrained). The index stores the parsed
-     * `semver::VersionReq`'s serialization instead, so comparing
-     * against index metadata must normalize first.
+     * unconstrained).
      */
     req: string;
     /** Inner expression of a `cfg(...)` condition, or null when unconditional. */
@@ -36,8 +26,6 @@ export interface DependencyInfo {
     features: string[];
     /** false when the edge disables the dependency's default features. */
     defaultFeatures: boolean;
-    /** true when the edge opts out of the standard-compatibility check. */
-    ignoreInterfaceStandard: boolean;
 }
 
 // One entry of a feature's list, classified by the cabin-core grammar
@@ -58,46 +46,37 @@ export interface FeatureInfo {
 export interface PackageFeatures {
     /** The reserved `default` list (empty when not declared). */
     default: string[];
-    /** Every non-`default` feature, in manifest order. */
+    /** Every declared feature, in the stored (name) order. */
     entries: FeatureInfo[];
 }
 
 export interface PackageManifestInfo {
     dependencies: DependencyInfo[];
     /**
-     * null when the manifest declares no `[features]` table at all,
-     * so callers hide the section instead of asserting "no features";
-     * a declared-but-empty table stays distinguishable and renders.
+     * null when the version declares no features (publish omits an
+     * empty table), so callers hide the section.
      */
     features: PackageFeatures | null;
 }
 
-/**
- * Extracts the normalized info from a smol-toml-parsed manifest.
- * Throws on shapes the publisher's manifest parser rejects.
- */
-export function extractManifestInfo(
-    parsed: unknown,
+export function versionManifestInfo(
+    entry: Record<string, unknown>,
     context: string,
 ): PackageManifestInfo {
-    const manifest = asRecord(parsed) ?? {};
-    rejectBuildDependencies(manifest, "[build-dependencies]", context);
-    const dependencies: DependencyInfo[] = [
-        ...dependencyTable(manifest.dependencies, "normal", null, context),
-        ...dependencyTable(manifest["dev-dependencies"], "dev", null, context),
-        ...conditionedDependencies(manifest.target, context),
-    ];
     return {
-        dependencies,
-        features: featuresTable(manifest.features, context),
+        dependencies: [
+            ...registryDependencies(entry.dependencies, "normal", context),
+            ...registryDependencies(entry["dev-dependencies"], "dev", context),
+            ...systemDependencies(entry["system-dependencies"], context),
+        ],
+        features: features(entry.features, context),
     };
 }
 
 /**
  * Groups dependencies for rendering: the unconditional group first,
- * then one group per `cfg(...)` condition in lexical order (manifest
- * key order is author-chosen; sorting keeps the rendered page
- * deterministic and stable across edits that only reorder tables).
+ * then one group per `cfg(...)` condition in lexical order, so the
+ * rendered page is deterministic.
  */
 export function groupDependencies(
     dependencies: DependencyInfo[],
@@ -129,469 +108,151 @@ export function groupDependencies(
     return ordered;
 }
 
-// `[target.'cfg(...)'.dependencies]` / `.dev-dependencies`: the
-// manifest nests conditional tables under the cfg key; the index
-// document flattens them to per-entry conditions, and so does this.
-// Named build targets (`[target.png]`) carry no dependency tables -
-// the manifest parser rejects dependencies under one as an almost-
-// certain typo of the cfg form (TargetSpecificDependenciesNotSupported),
-// so finding them fails the build here too instead of dropping them.
-// Cfg keys are sorted for a deterministic flat order.
-function conditionedDependencies(
-    target: unknown,
+// `{ name: "req" | { version, optional?, features?, default-features?,
+// target? } }`
+function registryDependencies(
+    value: unknown,
+    kind: DependencyKind,
     context: string,
 ): DependencyInfo[] {
-    if (target === undefined) {
-        return [];
-    }
-    const tables = asRecord(target);
-    if (tables === null) {
-        throw new Error(`[target] in ${context} must be a table.`);
-    }
-    const dependencies: DependencyInfo[] = [];
-    for (const key of Object.keys(tables).sort()) {
-        const condition = cfgInnerExpression(key);
-        const table = asRecord(tables[key]);
-        if (table === null) {
-            throw new Error(`[target.${key}] in ${context} must be a table.`);
+    return Object.entries(table(value, kind, context)).map(([name, spec]) => {
+        if (typeof spec === "string") {
+            return {
+                name,
+                kind,
+                source: "registry",
+                req: spec,
+                condition: null,
+                optional: false,
+                features: [],
+                defaultFeatures: true,
+            };
         }
-        if (condition === null) {
-            for (const kind of [
-                "dependencies",
-                "dev-dependencies",
-                "build-dependencies",
-                "system-dependencies",
-            ]) {
-                if (kind in table) {
-                    throw new Error(
-                        `[target.${key}.${kind}] in ${context} is not supported; conditional dependencies use the [target.'cfg(...)'.${kind}] form.`,
-                    );
-                }
-            }
-            continue;
+        if (
+            !isRecord(spec) ||
+            typeof spec.version !== "string" ||
+            !optional(spec.optional, "boolean") ||
+            !optional(spec["default-features"], "boolean") ||
+            !optional(spec.target, "string") ||
+            !(spec.features === undefined || isStringList(spec.features))
+        ) {
+            throw new Error(`Malformed dependency ${name} in ${context}.`);
         }
-        // The parser's cfg-table shape is deny_unknown_fields with
-        // exactly these six keys; anything else - notably
-        // `system-dependencies`, since a conditional system dep is
-        // spelled `system = true` inside the `dependencies` table -
-        // is a publisher rejection, not data to drop.
-        for (const field of Object.keys(table)) {
-            if (!CONDITIONAL_TARGET_KEYS.has(field)) {
-                throw new Error(
-                    `[target.${key}] in ${context} declares an unknown field "${field}".`,
-                );
-            }
-        }
-        rejectBuildDependencies(
-            table,
-            `[target.${key}.build-dependencies]`,
-            context,
-        );
-        dependencies.push(
-            ...dependencyTable(
-                table.dependencies,
-                "normal",
-                condition,
-                context,
-            ),
-            ...dependencyTable(
-                table["dev-dependencies"],
-                "dev",
-                condition,
-                context,
-            ),
-        );
-    }
-    return dependencies;
-}
-
-// `cabin package` refuses build dependencies
-// (BuildDependencyNotPublishable): package indexes do not carry them.
-// It refuses entries, not the table, so an empty table publishes.
-function rejectBuildDependencies(
-    table: Record<string, unknown>,
-    section: string,
-    context: string,
-): void {
-    const value = table["build-dependencies"];
-    if (value === undefined) {
-        return;
-    }
-    const entries = asRecord(value);
-    if (entries === null) {
-        throw new Error(`${section} in ${context} must be a table.`);
-    }
-    if (Object.keys(entries).length > 0) {
-        throw new Error(
-            `${section} in ${context} cannot publish; package indexes do not carry build dependencies.`,
-        );
-    }
-}
-
-// The inner expression of a `cfg(...)` target key, verbatim (the
-// registry canonicalizes it; re-implementing that grammar here would
-// duplicate the parser this loader exists to avoid). Trimmed on both
-// levels like the manifest parser (`is_cfg_expression` trims the key,
-// `parse_cfg` trims the inner expression), so a padded key is still a
-// condition rather than silently becoming a named target.
-function cfgInnerExpression(key: string): string | null {
-    const trimmed = key.trim();
-    return trimmed.startsWith("cfg(") && trimmed.endsWith(")")
-        ? trimmed.slice("cfg(".length, -1).trim()
-        : null;
-}
-
-function dependencyTable(
-    table: unknown,
-    kind: DependencyKind,
-    condition: string | null,
-    context: string,
-): DependencyInfo[] {
-    if (table === undefined) {
-        return [];
-    }
-    const record = asRecord(table);
-    if (record === null) {
-        // A present-but-malformed section is a publisher rejection;
-        // treating it as absent would render "no dependencies" for a
-        // manifest whose dependency declaration exists.
-        throw new Error(
-            `The ${kind === "dev" ? "dev-dependencies" : "dependencies"} table in ${context} must be a table.`,
-        );
-    }
-    return Object.entries(record).map(([name, spec]) =>
-        dependencyEntry(name, spec, kind, condition, context),
-    );
-}
-
-function dependencyEntry(
-    name: string,
-    spec: unknown,
-    kind: DependencyKind,
-    condition: string | null,
-    context: string,
-): DependencyInfo {
-    const system = asRecord(spec)?.system === true;
-    if (!(system ? SYSTEM_DEPENDENCY_NAME : PACKAGE_NAME).test(name)) {
-        throw new Error(
-            `Dependency name "${name}" in ${context} is outside the ${system ? "pkg-config module" : "package"}-name grammar.`,
-        );
-    }
-    if (typeof spec === "string") {
         return {
             name,
             kind,
             source: "registry",
-            req: requirement(name, spec, context),
-            condition,
-            optional: false,
-            features: [],
-            defaultFeatures: true,
-            ignoreInterfaceStandard: false,
+            req: spec.version,
+            condition: (spec.target as string | undefined) ?? null,
+            optional: spec.optional === true,
+            features: (spec.features as string[] | undefined) ?? [],
+            defaultFeatures: spec["default-features"] !== false,
         };
-    }
-    const table = asRecord(spec);
-    if (table === null) {
-        throw new Error(
-            `Dependency "${name}" in ${context} must be a requirement string or a table.`,
-        );
-    }
-    // The manifest parser's raw table is deny_unknown_fields; a key
-    // outside its surface is a publisher rejection, so it fails here
-    // instead of being silently ignored.
-    for (const key of Object.keys(table)) {
-        if (!DEPENDENCY_TABLE_KEYS.has(key)) {
-            throw new Error(
-                `Dependency "${name}" in ${context} declares an unknown field "${key}".`,
-            );
-        }
-    }
-    if (booleanField(name, table, "system", false, context)) {
-        // The manifest parser rejects every other source and flag
-        // alongside `system = true`, and requires the version (the
-        // pkg-config requirement) - mirror both.
-        for (const field of [
-            "path",
-            "workspace",
-            "features",
-            "default-features",
-            "optional",
-            "ignore-interface-standard",
-        ]) {
-            if (field in table) {
+    });
+}
+
+// `{ name: { version, dependency_kind?, target? } }`
+function systemDependencies(value: unknown, context: string): DependencyInfo[] {
+    return Object.entries(table(value, "system", context)).map(
+        ([name, spec]) => {
+            if (
+                !isRecord(spec) ||
+                typeof spec.version !== "string" ||
+                !optional(spec.target, "string") ||
+                !(
+                    spec.dependency_kind === undefined ||
+                    spec.dependency_kind === "normal" ||
+                    spec.dependency_kind === "dev"
+                )
+            ) {
                 throw new Error(
-                    `System dependency "${name}" in ${context} declares "${field}", which is incompatible with system = true.`,
+                    `Malformed system dependency ${name} in ${context}.`,
                 );
             }
-        }
-        // Unlike a registry requirement, the pkg-config requirement
-        // may be blank: cabin-system-deps `build_constraints` probes
-        // an empty or whitespace-only requirement as unconstrained,
-        // so only a missing/non-string version is a rejection.
-        if (typeof table.version !== "string") {
-            throw new Error(
-                `System dependency "${name}" in ${context} declares no version requirement.`,
-            );
-        }
-        return {
-            name,
-            kind,
-            source: "system",
-            req: table.version,
-            condition,
-            optional: false,
-            features: [],
-            defaultFeatures: true,
-            ignoreInterfaceStandard: false,
-        };
-    }
-    // A path dependency cannot publish, whatever else it carries.
-    // `workspace` selects the unpublishable workspace source only
-    // when true: `workspace = false` alongside a version parses as a
-    // plain version dependency (ordinary_dep_from_table), and alone
-    // it leaves the entry without a source - the requirement check
-    // below rejects that like the parser does.
-    if ("path" in table) {
-        throw new Error(
-            `Dependency "${name}" in ${context} declares "path"; published packages carry versioned registry dependencies only.`,
-        );
-    }
-    if (booleanField(name, table, "workspace", false, context)) {
-        throw new Error(
-            `Dependency "${name}" in ${context} declares "workspace"; published packages carry versioned registry dependencies only.`,
-        );
-    }
-    const optional = booleanField(name, table, "optional", false, context);
-    // `optional` is meaningful on normal-kind dependencies only
-    // (OptionalNotSupportedForKind).
-    if (optional && kind !== "normal") {
-        throw new Error(
-            `Dependency "${name}" in ${context} declares "optional" on a ${kind} dependency; only normal dependencies can be optional.`,
-        );
-    }
-    return {
-        name,
-        kind,
-        source: "registry",
-        req: requirement(name, table.version, context),
-        condition,
-        optional,
-        features: featureList(name, table.features, context),
-        defaultFeatures: booleanField(
-            name,
-            table,
-            "default-features",
-            true,
-            context,
-        ),
-        ignoreInterfaceStandard: booleanField(
-            name,
-            table,
-            "ignore-interface-standard",
-            false,
-            context,
-        ),
-    };
-}
-
-const DEPENDENCY_TABLE_KEYS = new Set([
-    "path",
-    "version",
-    "workspace",
-    "system",
-    "optional",
-    "features",
-    "default-features",
-    "ignore-interface-standard",
-]);
-
-// The full `[target.'cfg(...)']` surface (the parser's
-// RawConditionalTargetTable): toolchain, profile, and sources are
-// real fields this page has no use for, so they pass silently rather
-// than failing manifests that publish.
-const CONDITIONAL_TARGET_KEYS = new Set([
-    "dependencies",
-    "dev-dependencies",
-    "build-dependencies",
-    "toolchain",
-    "profile",
-    "sources",
-]);
-
-// The package-name grammar (cabin-core model.rs `PackageName::new`):
-// an optional GitHub-login-shaped scope (lowercase/digits/hyphens, at
-// most 39 bytes, no edge hyphen) and a `[a-z0-9][a-z0-9_-]*` package
-// part.
-const PACKAGE_NAME =
-    /^(?:[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/)?[a-z0-9][a-z0-9_-]*$/;
-// A `system = true` key names a pkg-config module instead
-// (`validate_system_dependency_name`): path-safe, so `glib-2.0` and
-// `SDL2` pass, with no leading dot or hyphen (which also covers "."
-// and "..").
-const SYSTEM_DEPENDENCY_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
-
-// A missing or blank requirement fails the build: Cabin trims, then
-// refuses the empty string, and an entry without a version cannot
-// publish.
-function requirement(name: string, value: unknown, context: string): string {
-    if (typeof value !== "string" || value.trim() === "") {
-        throw new Error(
-            `Dependency "${name}" in ${context} declares no version requirement.`,
-        );
-    }
-    return value;
-}
-
-function booleanField(
-    name: string,
-    table: Record<string, unknown>,
-    field: string,
-    absent: boolean,
-    context: string,
-): boolean {
-    const value = table[field];
-    if (value === undefined) {
-        return absent;
-    }
-    if (typeof value !== "boolean") {
-        throw new Error(
-            `Dependency "${name}" in ${context} declares a non-boolean "${field}".`,
-        );
-    }
-    return value;
-}
-
-function featureList(name: string, value: unknown, context: string): string[] {
-    if (value === undefined) {
-        return [];
-    }
-    if (
-        !Array.isArray(value) ||
-        value.some((entry) => typeof entry !== "string" || entry === "")
-    ) {
-        throw new Error(
-            `Dependency "${name}" in ${context} declares a "features" list with a non-string or empty name.`,
-        );
-    }
-    return value as string[];
-}
-
-function featuresTable(
-    value: unknown,
-    context: string,
-): PackageFeatures | null {
-    if (value === undefined) {
-        return null;
-    }
-    const table = asRecord(value);
-    if (table === null) {
-        throw new Error(`[features] in ${context} must be a table.`);
-    }
-    const features: PackageFeatures = { default: [], entries: [] };
-    for (const [name, list] of Object.entries(table)) {
-        if (
-            !Array.isArray(list) ||
-            list.some((entry) => typeof entry !== "string")
-        ) {
-            throw new Error(
-                `Feature "${name}" in ${context} must be a list of strings.`,
-            );
-        }
-        if (name === "default") {
-            // `Features::validate` runs the feature-name grammar over
-            // the default list too (each entry names a local feature,
-            // so `dep:` / `x/y` shapes are outside it); whether the
-            // named feature is declared is the semantic half left to
-            // the publisher.
-            for (const entry of list as string[]) {
-                if (!FEATURE_NAME.test(entry)) {
-                    throw new Error(
-                        `The default feature list in ${context} has an entry "${entry}" outside the feature-name grammar.`,
-                    );
-                }
-            }
-            features.default = list as string[];
-            continue;
-        }
-        if (!FEATURE_NAME.test(name)) {
-            throw new Error(
-                `Feature name "${name}" in ${context} is outside the feature-name grammar.`,
-            );
-        }
-        features.entries.push({
-            name,
-            enables: (list as string[]).map((entry) =>
-                classifyFeatureEntry(name, entry, context),
-            ),
-        });
-    }
-    return features;
-}
-
-// The feature-name and entry-identifier grammars the manifest parser
-// enforces (cabin-core `Features::validate` / `FeatureEntry::parse`):
-// names are ASCII letters/digits/_/-; entry identifiers additionally
-// allow `.`; a dependency reference is a bare name or one scope slash.
-const FEATURE_NAME = /^[A-Za-z0-9_-]+$/;
-const ENTRY_IDENTIFIER = /^[A-Za-z0-9_.-]+$/;
-
-function dependencyReference(value: string): boolean {
-    const parts = value.split("/");
-    return (
-        parts.length <= 2 && parts.every((part) => ENTRY_IDENTIFIER.test(part))
+            return {
+                name,
+                kind:
+                    (spec.dependency_kind as DependencyKind | undefined) ??
+                    "normal",
+                source: "system",
+                req: spec.version,
+                condition: (spec.target as string | undefined) ?? null,
+                optional: false,
+                features: [],
+                defaultFeatures: true,
+            };
+        },
     );
 }
 
-function classifyFeatureEntry(
-    feature: string,
-    entry: string,
-    context: string,
-): FeatureReference {
-    const invalid = (): never => {
-        throw new Error(
-            `Feature "${feature}" in ${context} has an entry "${entry}" outside the feature-entry grammar.`,
-        );
+// `{ default?: [...], features?: { name: [...] } }` (cabin-core
+// `Features`), each part omitted when empty.
+function features(value: unknown, context: string): PackageFeatures | null {
+    if (value === undefined) {
+        return null;
+    }
+    const block = table(value, "features", context);
+    const defaults = block.default ?? [];
+    if (
+        !isStringList(defaults) ||
+        Object.keys(block).some(
+            (key) => key !== "default" && key !== "features",
+        )
+    ) {
+        throw new Error(`Malformed default features in ${context}.`);
+    }
+    return {
+        default: defaults,
+        entries: Object.entries(table(block.features, "features", context)).map(
+            ([name, list]) => {
+                if (!isStringList(list)) {
+                    throw new Error(`Malformed feature ${name} in ${context}.`);
+                }
+                return { name, enables: list.map(featureReference) };
+            },
+        ),
     };
-    if (entry === "") {
-        invalid();
-    }
-    const optionalDependency = entry.startsWith("dep:")
-        ? entry.slice("dep:".length)
-        : null;
-    if (optionalDependency !== null) {
-        if (!dependencyReference(optionalDependency)) {
-            invalid();
-        }
-        return { kind: "optional-dependency", dependency: optionalDependency };
-    }
-    const lastSlash = entry.lastIndexOf("/");
-    if (lastSlash !== -1) {
-        const dependency = entry.slice(0, lastSlash);
-        const forwarded = entry.slice(lastSlash + 1);
-        if (
-            !dependencyReference(dependency) ||
-            !ENTRY_IDENTIFIER.test(forwarded)
-        ) {
-            invalid();
-        }
-        return { kind: "dependency-feature", dependency, feature: forwarded };
-    }
-    if (!ENTRY_IDENTIFIER.test(entry)) {
-        invalid();
-    }
-    return { kind: "feature", feature: entry };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return null;
+function featureReference(entry: string): FeatureReference {
+    if (entry.startsWith("dep:")) {
+        return { kind: "optional-dependency", dependency: entry.slice(4) };
     }
-    // smol-toml models TOML datetimes as Date subclasses; only a
-    // plain object is a table (a datetime would otherwise read as an
-    // empty one and dodge the must-be-a-table rejections).
-    const proto = Object.getPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) {
-        return null;
+    const slash = entry.lastIndexOf("/");
+    return slash === -1
+        ? { kind: "feature", feature: entry }
+        : {
+              kind: "dependency-feature",
+              dependency: entry.slice(0, slash),
+              feature: entry.slice(slash + 1),
+          };
+}
+
+function table(
+    value: unknown,
+    what: string,
+    context: string,
+): Record<string, unknown> {
+    if (value === undefined) {
+        return {};
     }
-    return value as Record<string, unknown>;
+    if (!isRecord(value)) {
+        throw new Error(`Malformed ${what} table in ${context}.`);
+    }
+    return value;
+}
+
+function optional(value: unknown, type: "boolean" | "string"): boolean {
+    return value === undefined || typeof value === type;
+}
+
+function isStringList(value: unknown): value is string[] {
+    return (
+        Array.isArray(value) &&
+        value.every((entry) => typeof entry === "string")
+    );
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

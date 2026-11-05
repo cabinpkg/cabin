@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { findHtmlFiles } from "./lib/find-html-files.mjs";
 
-const distDirectory = path.resolve("dist");
+const distDirectory = path.resolve(process.env.SITE_DIST ?? "dist");
 const inlineScripts = [];
 
 for (const filePath of await findHtmlFiles(distDirectory)) {

@@ -46,9 +46,7 @@ pub fn surfaces(changed: &[String]) -> Surfaces {
             ".cargo/",
             "rust-toolchain",
         ]),
-        // The website build also loads the foundation ports of the
-        // cabin-ports/ports commit `ports-revision` pins.
-        website: any(&["website/", "docs/", "ports-revision"]),
+        website: any(&["website/", "docs/"]),
     }
 }
 
@@ -84,11 +82,12 @@ mod tests {
     }
 
     #[test]
-    fn the_website_surface_includes_docs_and_the_ports_pin() {
-        for path in ["website/package.json", "docs/manifest.md", "ports-revision"] {
+    fn the_website_surface_includes_docs() {
+        for path in ["website/package.json", "docs/manifest.md"] {
             assert!(of(&[path]).website, "{path} should be a website change");
         }
         assert!(!of(&["crates/cabin/src/lib.rs"]).website);
+        assert!(!of(&["ports-revision"]).website);
         assert!(!of(&["CONTRIBUTING.md"]).website);
     }
 

@@ -56,7 +56,7 @@ export function apiReferences(html) {
 // The walk only runs when invoked as a script (npm run verify:progressive);
 // the test suite imports apiReferences without touching dist/.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    const distDirectory = path.resolve("dist");
+    const distDirectory = path.resolve(process.env.SITE_DIST ?? "dist");
     const offenders = [];
 
     for (const filePath of await findHtmlFiles(distDirectory)) {

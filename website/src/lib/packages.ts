@@ -1,6 +1,4 @@
-import semver from "semver";
-import { stringifyValue } from "./format.ts";
-import { loadPortsAsPackageRecords } from "./ports.ts";
+import { type Catalog, type CatalogPackage, loadCatalog } from "./catalog.ts";
 import type { PackageRecord, PackageSearchIndexItem } from "./types.ts";
 
 export type { PackageRecord };
@@ -25,187 +23,65 @@ export interface PackageDetailData {
     versions: PackageVersionListItem[];
 }
 
-let packageCache: Promise<PackageRecord[]> | undefined;
+let catalogCache: Catalog | undefined;
 
-export function fetchAllPackages(): Promise<PackageRecord[]> {
-    packageCache ??= loadPortsAsPackageRecords();
-    return packageCache;
+// Loaded once per build; every page renders the same catalog.
+export function getCatalog(): Catalog {
+    catalogCache ??= loadCatalog();
+    return catalogCache;
 }
 
-export function groupPackagesByName(
-    packages: PackageRecord[],
-): Map<string, PackageRecord[]> {
-    const grouped = new Map<string, PackageRecord[]>();
-
-    for (const pack of packages) {
-        if (!pack.name) {
-            continue;
-        }
-
-        const versions = grouped.get(pack.name) ?? [];
-        versions.push(pack);
-        grouped.set(pack.name, versions);
-    }
-
-    return grouped;
-}
-
-export function selectLatestPackage(packages: PackageRecord[]): PackageRecord {
-    if (packages.length === 0) {
-        throw new Error("Cannot select latest package from an empty list.");
-    }
-
-    return [...packages].sort(comparePackageVersions)[0];
-}
-
-export function comparePackageVersions(
-    first: PackageRecord,
-    second: PackageRecord,
-): number {
-    const firstVersion = semver.valid(first.version);
-    const secondVersion = semver.valid(second.version);
-
-    if (firstVersion !== null && secondVersion !== null) {
-        const semverCompare = semver.rcompare(firstVersion, secondVersion);
-        if (semverCompare !== 0) {
-            return semverCompare;
-        }
-    }
-
-    const stringCompare = String(second.version).localeCompare(
-        String(first.version),
-    );
-    if (stringCompare !== 0) {
-        return stringCompare;
-    }
-
-    return String(first.name).localeCompare(String(second.name));
-}
-
-// The navigation between a package's published versions. Applies the
-// same blank-version and duplicate guards as
-// getPackageVersionStaticPaths, so the list can never link a page the
-// route generation skipped (the ports loader already forbids both;
-// the invariant must not depend on the data source). It deliberately
-// reuses comparePackageVersions - the ordering that selects which
-// page is "latest" - so the list can never label a version latest
-// while the routes serve another, including under that comparator's
-// known ceiling (numeric components above Number.MAX_SAFE_INTEGER
-// fall back lexically; fixing that belongs in the comparator, where
-// both consumers inherit it together).
+// The navigation between a package's versions, in the registry's order
+// (descending SemVer precedence), marking the version it names latest.
 export function buildVersionList(
-    versions: PackageRecord[],
+    pack: CatalogPackage,
 ): PackageVersionListItem[] {
-    const seen = new Set<string>();
-    const items: PackageVersionListItem[] = [];
-    for (const pack of [...versions].sort(comparePackageVersions)) {
-        const version = stringifyValue(pack.version);
-        if (version === "" || seen.has(version)) {
-            continue;
-        }
-        seen.add(version);
-        items.push({
-            version,
-            href: getPackageVersionHref(pack.name, version),
-            isLatest: items.length === 0,
-        });
-    }
-    return items;
+    return pack.versions.map((record) => ({
+        version: record.version,
+        href: getPackageVersionHref(pack.name, record.version),
+        isLatest: record === pack.latest,
+    }));
 }
 
-export async function getLatestPackages(): Promise<PackageRecord[]> {
-    const grouped = groupPackagesByName(await fetchAllPackages());
-
-    return Array.from(grouped.values())
-        .map(selectLatestPackage)
-        .sort((first, second) => first.name.localeCompare(second.name));
+export function getPackageSearchIndex(): PackageSearchIndexItem[] {
+    return getCatalog().packages.map((pack) => ({
+        name: pack.name,
+        version: pack.latest.version,
+        href: getPackageHrefOrNull(pack.name),
+    }));
 }
 
-export async function getPackageSearchIndex(): Promise<
-    PackageSearchIndexItem[]
-> {
-    return (await getLatestPackages()).map(toPackageSearchIndexItem);
+export function getPackageStaticPaths() {
+    return getCatalog().packages.flatMap((pack) => {
+        const parts = getPackageRouteParts(pack.name);
+        return parts === null
+            ? []
+            : [
+                  {
+                      params: parts,
+                      props: {
+                          pack: pack.latest,
+                          versions: buildVersionList(pack),
+                      },
+                  },
+              ];
+    });
 }
 
-export async function getPackageStaticPaths() {
-    const grouped = groupPackagesByName(await fetchAllPackages());
-
-    return Array.from(grouped.entries())
-        .flatMap(([packageName, versions]) => {
-            const parts = getPackageRouteParts(packageName);
-
-            if (parts === null) {
-                return [];
-            }
-
-            return [
-                {
-                    params: parts,
-                    props: {
-                        pack: selectLatestPackage(versions),
-                        versions: buildVersionList(versions),
-                    },
-                },
-            ];
-        })
-        .sort((first, second) =>
-            first.props.pack.name.localeCompare(second.props.pack.name),
-        );
-}
-
-export async function getPackageVersionStaticPaths() {
-    const grouped = groupPackagesByName(await fetchAllPackages());
-    const paths: Array<{
-        params: PackageVersionRouteParts;
-        props: PackageDetailData;
-    }> = [];
-    const seen = new Set<string>();
-
-    for (const [packageName, versions] of grouped) {
-        const parts = getPackageRouteParts(packageName);
-
+export function getPackageVersionStaticPaths(): Array<{
+    params: PackageVersionRouteParts;
+    props: PackageDetailData;
+}> {
+    return getCatalog().packages.flatMap((pack) => {
+        const parts = getPackageRouteParts(pack.name);
         if (parts === null) {
-            continue;
+            return [];
         }
-
-        const versionList = buildVersionList(versions);
-        for (const pack of versions) {
-            const version = stringifyValue(pack.version);
-
-            if (version === "") {
-                continue;
-            }
-
-            if (version.includes("/")) {
-                throw new Error(
-                    `Package "${packageName}" has a version "${version}" that contains "/", which cannot be represented as a single /packages/<group>/<name>/<version> route segment.`,
-                );
-            }
-
-            const key = `${parts.group}/${parts.name}@${version}`;
-            if (seen.has(key)) {
-                continue;
-            }
-            seen.add(key);
-
-            paths.push({
-                params: { ...parts, version },
-                props: {
-                    pack,
-                    versions: versionList,
-                },
-            });
-        }
-    }
-
-    return paths.sort((first, second) => {
-        const nameCompare = first.props.pack.name.localeCompare(
-            second.props.pack.name,
-        );
-        if (nameCompare !== 0) {
-            return nameCompare;
-        }
-        return first.params.version.localeCompare(second.params.version);
+        const versions = buildVersionList(pack);
+        return pack.versions.map((record) => ({
+            params: { ...parts, version: record.version },
+            props: { pack: record, versions },
+        }));
     });
 }
 
@@ -234,14 +110,6 @@ export function getPackageVersionHref(
     }
 
     return `/packages/${encodeURIComponent(parts.group)}/${encodeURIComponent(parts.name)}/${encodeURIComponent(version)}`;
-}
-
-function toPackageSearchIndexItem(pack: PackageRecord): PackageSearchIndexItem {
-    return {
-        name: pack.name,
-        version: pack.version,
-        href: getPackageHrefOrNull(pack.name),
-    };
 }
 
 function getPackageRouteParts(packageName: string): PackageRouteParts | null {

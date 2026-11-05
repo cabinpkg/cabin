@@ -6,16 +6,21 @@ A package registry website for Cabin, a package manager and build system for C/C
 
 ### Architecture
 
-This site is a fully static Astro build. Package data comes from the foundation
-ports of the [`cabin-ports/ports`](https://github.com/cabin-ports/ports) commit
-that `../ports-revision` pins: `npm run build` and `npm run dev` first check it
-out into `.ports/` (`npm run fetch:ports`, which needs `git` and network access
-to GitHub, and fails the build if the fetch does). Package detail pages are
-pre-rendered, and `/packages.json` is generated for client-side search.
+This site is a fully static Astro build. Package data comes from the hosted
+registry's catalog, `https://registry.cabinpkg.com/catalog.json`
+([`../docs/remote-registry.md`](../docs/remote-registry.md#the-catalog)):
+`npm run build` and `npm run dev` first fetch it anonymously into `.catalog/`
+(`npm run fetch:catalog`). A `200` renders every package it lists; the
+registry's private-alpha `401` renders the unavailable state, with no package
+pages and an empty `/packages.json`; any other response fails the build. After
+building, `npm run build` fetches the catalog again and fails if it changed in
+the meantime, so a stale build never deploys. Package detail pages are
+pre-rendered, `/packages.json` is generated for client-side search, and
+`/catalog-provenance.json` records which catalog the build rendered.
 
-The catalog changes only when a pull request moves `../ports-revision` to a
-newer `cabin-ports/ports` commit on `main`, so each website build is
-reproducible from its own commit.
+`npm run build:fixtures`, the CI build, needs no network: it builds the site
+once per catalog state from `fixtures/catalog.json` into `dist-fixtures/` and
+verifies each. It never writes `dist/`.
 
 The output in `dist/` can be served by Cloudflare Pages, Cloudflare Workers
 Static Assets, or any static file host. No SSR adapter, API routes, or server
@@ -48,7 +53,8 @@ npm run preview
 ```
 
 `npm run build` runs Astro type checking, verifies that generated HTML has no
-inline scripts, and writes the static site to `dist/`.
+inline scripts, and writes the static site to `dist/`. It needs network access
+to the registry.
 
 Biome is used for TypeScript, JavaScript, CSS, and config files. Astro component
 files are excluded from Biome because this setup relies on Astro's own parser and
@@ -140,8 +146,8 @@ Each package gets two statically generated detail routes:
 - `/packages/<group>/<name>` renders the latest version.
 - `/packages/<group>/<name>/<version>` renders that exact version.
 
-Both are pre-rendered at build time from the same pinned port data and share
-their markup through `src/components/package/PackageDetailView.astro`.
+Both are pre-rendered at build time from the same catalog and share their
+markup through `src/components/package/PackageDetailView.astro`.
 
 ### Documentation
 

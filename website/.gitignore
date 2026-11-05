@@ -6,11 +6,12 @@
 # astro
 /.astro/
 
-# the pinned ports catalog (scripts/fetch-ports.mjs)
-/.ports/
+# the registry catalog the build renders (scripts/fetch-catalog.mjs)
+/.catalog/
 
 # production
 /dist
+/dist-fixtures
 
 # misc
 .DS_Store

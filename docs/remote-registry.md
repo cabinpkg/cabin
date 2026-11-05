@@ -381,6 +381,13 @@ packaging `revision` and, when its stored index entry has them, that entry's `de
 of its `upstream` block; nothing else of the entry.  The route is admitted like the package documents: during the private alpha an
 anonymous request gets the uniform private-alpha `401`.
 
+Each website deploy builds its package pages from one anonymous fetch of this route: a `200`
+renders every package it lists, the private-alpha `401` renders none, and any other response fails
+the build.  The build then fetches the route again and fails rather than deploy a catalog that
+changed while it ran.  `https://cabinpkg.com/catalog-provenance.json` records which catalog the
+deployed site rendered: its `state` (`available` or `unavailable`) and, when available, the SHA-256
+of the catalog bytes.
+
 ## Publish
 
 ```text

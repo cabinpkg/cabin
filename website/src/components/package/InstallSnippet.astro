@@ -1,5 +1,4 @@
 ---
-import { REGISTRY_PRIVATE_ALPHA } from "../../lib/constants";
 import type { PackageRecord } from "../../lib/packages";
 import Icon from "../Icon.astro";
 import Card from "../ui/Card.astro";
@@ -22,11 +21,4 @@ const installSnippet = `[dependencies]\n"${pack.name}" = "=${pack.version}"`;
     </div>
     <p class="mb-3 leading-7 text-ink-muted">Add this to your <code class="rounded-sm bg-night-lifted px-1.5 py-0.5 font-mono text-sm text-ink">cabin.toml</code>:</p>
     <CodeBlock code={installSnippet} />
-    <p class="mt-3 text-sm leading-6 text-ink-muted">
-        {REGISTRY_PRIVATE_ALPHA} This dependency does not resolve for the
-        public until the registry opens. See <a
-            href="/docs/foundation-ports/"
-            class="font-medium text-steel hover:text-steel-bright">the
-            foundation ports docs</a>.
-    </p>
 </Card>
