@@ -295,7 +295,12 @@ archives, so a rerun stays a no-op either way.
 ### Publish automation
 
 The `cabin-ports/ports` workflows automate the tool.  Every pull request there runs the
-complete `--dry-run` preflight with no secrets, on Linux, macOS, and Windows (`ci.yml`).
+complete `--dry-run` preflight with no secrets, on Linux, macOS, and Windows (`ci.yml`), with the
+Cabin commit the tool is pinned to.  That pin moves only when a ports maintainer adopts a newer
+Cabin commit through such a pull request (that repository's `README.md`, "Cabin revision").
+Cabin's own CI runs no full-catalog dry-run - its scheduled real-upstream example tests and
+benchmarks build only the ports they use - so a Cabin change is checked against every port only
+once that pin adopts it: a green Cabin CI run promises nothing about building every port.
 Publishing is manual only: dispatching `publish.yml` from `main` publishes the set to
 `https://registry.cabinpkg.com` (a dispatch on any other ref publishes nothing), so a ports
 change merged to `main` reaches the registry at the next dispatch - and the same dispatch is the
@@ -358,11 +363,6 @@ $ FOUNDATION_PORTS_DIR=website/.ports/ports cargo test --test cabin_examples -- 
 $ cargo perf run --ports website/.ports/ports
 $ cargo fuzz-seeds --ports website/.ports/ports
 ```
-
-Pull requests that change what `cabin` builds also run that commit's publisher preflight
-(`--dry-run`, see [Publishing ports as registry packages](#publishing-ports-as-registry-packages))
-with the pull request's own `cabin` on Linux, macOS, and Windows, so every port keeps building
-with the candidate client.
 
 The catalog those consumers see changes only through a pull request that moves the pin to a newer
 commit on that repository's `main`.

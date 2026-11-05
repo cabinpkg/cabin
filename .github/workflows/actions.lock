@@ -44,10 +44,6 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
         - 'ilammy/msvc-dev-cmd@v1.13.0'
-    '.github/workflows/ports-dry-run.yml':
-        - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
-        - 'actions/checkout@v7.0.1'
-        - 'ilammy/msvc-dev-cmd@v1.13.0'
     '.github/workflows/proofs.yml':
         - 'actions/checkout@v7.0.1'
         - 'leanprover/lean-action@v1.6.2'

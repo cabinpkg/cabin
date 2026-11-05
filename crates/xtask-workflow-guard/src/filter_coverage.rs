@@ -2,13 +2,10 @@
 //! run by `.github/workflows/rust.yml`'s lint job,
 //! `.github/workflows/registry.yml`'s conformance job, and `cargo ci`.
 //!
-//! Two lists in `.github/path-filters.yml` scope jobs by what those jobs
-//! build instead of by every crate:
-//!
-//! - `registry-build` (registry.yml's build and Kani jobs): the registry
-//!   workspace and `REGISTRY_ROOTS`, plus `REGISTRY_INPUTS`.
-//! - `ports-dry-run` (ports-dry-run.yml): the `cabin` binary, plus
-//!   `PORTS_INPUTS`.
+//! One list in `.github/path-filters.yml` scopes jobs by what those jobs
+//! build instead of by every crate: `registry-build` (registry.yml's
+//! build and Kani jobs), the registry workspace and `REGISTRY_ROOTS`,
+//! plus `REGISTRY_INPUTS`.
 //!
 //! The coarse `registry` list (the conformance job and the main-push
 //! deploy) is checked against `registry-build`'s closure and inputs too,
@@ -79,9 +76,6 @@ const REGISTRY_ROOTS: &[&str] = &[
     "cabinpkg-registry-verify",
 ];
 
-/// The `cabin` binary the dry-run builds the ports with.
-const CLI: &str = "cabinpkg";
-
 /// Non-Cargo inputs every scoped job reads; directories end in `/`.
 const SHARED_INPUTS: &[&str] = &[
     "Cargo.toml",
@@ -96,7 +90,6 @@ const REGISTRY_INPUTS: &[&str] = &[
     ".github/workflows/registry.yml",
     ".github/actions/required-gate/",
 ];
-const PORTS_INPUTS: &[&str] = &["ports-revision", ".github/workflows/ports-dry-run.yml"];
 
 #[derive(Deserialize)]
 struct Metadata {
@@ -153,10 +146,12 @@ pub fn run() -> Result<()> {
     let members = registry.workspace_members.iter().map(String::as_str);
     let mut registry_packages = closure(&registry, members.collect())?;
     registry_packages.extend(closure(&root, members_named(&root, REGISTRY_ROOTS)?)?);
-    let ports_packages = closure(&root, members_named(&root, &[CLI])?)?;
-    let dirs =
-        |packages: &[&Package]| resolved(packages.iter().map(|&package| dir(package)).collect());
-    let (registry_dirs, ports_dirs) = (dirs(&registry_packages)?, dirs(&ports_packages)?);
+    let registry_dirs = resolved(
+        registry_packages
+            .iter()
+            .map(|&package| dir(package))
+            .collect(),
+    )?;
     let member_dirs = [&root, &registry].into_iter().flat_map(|metadata| {
         let members = metadata.packages.iter();
         members
@@ -164,7 +159,7 @@ pub fn run() -> Result<()> {
             .map(dir)
     });
     let member_dirs: HashSet<PathBuf> = resolved(member_dirs.collect())?.into_iter().collect();
-    let reached: BTreeSet<&PathBuf> = registry_dirs.iter().chain(&ports_dirs).collect();
+    let reached: BTreeSet<&PathBuf> = registry_dirs.iter().collect();
 
     let mut report = String::new();
     for dir in reached
@@ -177,8 +172,7 @@ pub fn run() -> Result<()> {
             dir.strip_prefix(&repo).unwrap_or(dir).display()
         )?;
     }
-    let reached_packages = registry_packages.iter().chain(&ports_packages).copied();
-    for src in escaping(&repo, reached_packages)? {
+    for src in escaping(&repo, registry_packages.iter().copied())? {
         writeln!(
             report,
             "  target outside its package: {}",
@@ -186,7 +180,7 @@ pub fn run() -> Result<()> {
         )?;
     }
     let mut lists = HashMap::new();
-    for name in ["registry-build", "registry", "ports-dry-run", "rust"] {
+    for name in ["registry-build", "registry", "rust"] {
         let entries = filter_entries(&text, name)
             .with_context(|| format!("no usable `{name}` list in {FILTER_FILE}"))?;
         for entry in entries.iter().filter(|entry| !canonical(entry)) {
@@ -194,12 +188,8 @@ pub fn run() -> Result<()> {
         }
         lists.insert(name, entries);
     }
-    for (name, dirs, inputs) in [
-        ("registry-build", &registry_dirs, REGISTRY_INPUTS),
-        ("registry", &registry_dirs, REGISTRY_INPUTS),
-        ("ports-dry-run", &ports_dirs, PORTS_INPUTS),
-    ] {
-        for path in missing(&repo, dirs, inputs, &lists[name])? {
+    for name in ["registry-build", "registry"] {
+        for path in missing(&repo, &registry_dirs, REGISTRY_INPUTS, &lists[name])? {
             writeln!(report, "  {name}: {path}")?;
         }
     }
@@ -411,6 +401,9 @@ fn covered(entries: &[String], path: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// The fixture's root, a stand-in for `REGISTRY_ROOTS`.
+    const ROOT: &str = "cabinpkg-registry-verify";
+
     /// A resolved workspace at `/repo`: `(name, directory, deps)`, the
     /// directory relative to `/repo` unless absolute, and the
     /// packages named in `members` its members.
@@ -449,10 +442,7 @@ mod tests {
 
     /// `entries` plus a covering entry for every non-Cargo input.
     fn with_inputs(entries: &[&str]) -> Vec<String> {
-        let inputs = SHARED_INPUTS
-            .iter()
-            .chain(REGISTRY_INPUTS)
-            .chain(PORTS_INPUTS);
+        let inputs = SHARED_INPUTS.iter().chain(REGISTRY_INPUTS);
         let globs = inputs.map(|path| {
             let glob = if path.ends_with('/') { "**" } else { "" };
             format!("{path}{glob}")
@@ -460,15 +450,15 @@ mod tests {
         list(entries).into_iter().chain(globs).collect()
     }
 
-    /// `cabinpkg` reaches `cabin-build`, `cabin-tidy`, and `cabin-publish`,
+    /// The root reaches `cabin-build`, `cabin-tidy`, and `cabin-publish`,
     /// all of which reach `cabin-core`, and the fetched `anyhow`;
     /// `xtask-ci` is outside the closure.
-    fn ports_workspace() -> Metadata {
+    fn scoped_workspace() -> Metadata {
         workspace(
             &[
                 (
-                    CLI,
-                    "crates/cabin",
+                    ROOT,
+                    "crates/cabin-registry-verify",
                     &["cabin-build", "cabin-tidy", "cabin-publish", "anyhow"],
                 ),
                 ("cabin-build", "crates/cabin-build", &["cabin-core"]),
@@ -479,7 +469,7 @@ mod tests {
                 ("xtask-ci", "crates/xtask-ci", &["cabin-core"]),
             ],
             &[
-                CLI,
+                ROOT,
                 "cabin-build",
                 "cabin-core",
                 "cabin-tidy",
@@ -489,35 +479,38 @@ mod tests {
         )
     }
 
-    fn ports_missing(metadata: &Metadata, entries: &[String]) -> Vec<String> {
-        let roots = members_named(metadata, &[CLI]).unwrap();
+    fn scoped_missing(metadata: &Metadata, entries: &[String]) -> Vec<String> {
+        let roots = members_named(metadata, &[ROOT]).unwrap();
         let dirs: Vec<&Path> = closure(metadata, roots)
             .unwrap()
             .into_iter()
             .map(dir)
             .collect();
-        missing(Path::new("/repo"), &dirs, PORTS_INPUTS, entries).unwrap()
+        missing(Path::new("/repo"), &dirs, REGISTRY_INPUTS, entries).unwrap()
     }
 
     #[test]
     fn a_crate_outside_the_closure_may_be_excluded() {
         let entries = with_inputs(&["crates/**", "!crates/xtask-ci/**"]);
-        let missing = ports_missing(&ports_workspace(), &entries);
+        let missing = scoped_missing(&scoped_workspace(), &entries);
         assert!(missing.is_empty(), "{missing:?}");
     }
 
     #[test]
     fn a_crate_inside_the_closure_may_not() {
         for (excluded, expected) in [
-            // Direct and transitive dependencies of the binary, and the
+            // Direct and transitive dependencies of the root, and the
             // root.
             ("!crates/cabin-tidy/**", "crates/cabin-tidy/"),
             ("!crates/cabin-core/**", "crates/cabin-core/"),
             ("!crates/cabin-publish/**", "crates/cabin-publish/"),
-            ("!crates/cabin/**", "crates/cabin/"),
+            (
+                "!crates/cabin-registry-verify/**",
+                "crates/cabin-registry-verify/",
+            ),
         ] {
             assert_eq!(
-                ports_missing(&ports_workspace(), &with_inputs(&["crates/**", excluded])),
+                scoped_missing(&scoped_workspace(), &with_inputs(&["crates/**", excluded])),
                 vec![expected.to_owned()],
                 "{excluded}"
             );
@@ -527,22 +520,22 @@ mod tests {
     #[test]
     fn every_non_cargo_input_must_be_covered() {
         let full = with_inputs(&["crates/**"]);
-        for input in SHARED_INPUTS.iter().chain(PORTS_INPUTS) {
+        for input in SHARED_INPUTS.iter().chain(REGISTRY_INPUTS) {
             let without: Vec<String> = full
                 .iter()
                 .filter(|entry| !entry.starts_with(input))
                 .cloned()
                 .collect();
             assert_eq!(
-                ports_missing(&ports_workspace(), &without),
+                scoped_missing(&scoped_workspace(), &without),
                 vec![(*input).to_owned()],
                 "{input}"
             );
         }
         // Excluding part of an input directory uncovers all of it.
         assert_eq!(
-            ports_missing(
-                &ports_workspace(),
+            scoped_missing(
+                &scoped_workspace(),
                 &with_inputs(&["crates/**", "!.cargo/x/**"])
             ),
             vec![".cargo/".to_owned()]
@@ -552,16 +545,16 @@ mod tests {
     #[test]
     fn every_resolved_edge_counts_whatever_its_kind() {
         let metadata: Metadata = serde_json::from_str(
-            r#"{"workspace_members": ["cli"],
+            r#"{"workspace_members": ["root"],
                 "packages": [
-                  {"id": "cli", "name": "cabinpkg",
-                   "manifest_path": "/repo/crates/cabin/Cargo.toml", "targets": []},
+                  {"id": "root", "name": "cabinpkg-registry-verify",
+                   "manifest_path": "/repo/crates/cabin-registry-verify/Cargo.toml", "targets": []},
                   {"id": "build", "name": "build",
                    "manifest_path": "/repo/crates/build/Cargo.toml", "targets": []},
                   {"id": "dev", "name": "dev",
                    "manifest_path": "/repo/crates/dev/Cargo.toml", "targets": []}],
                 "resolve": {"nodes": [
-                  {"id": "cli", "deps": [
+                  {"id": "root", "deps": [
                     {"pkg": "build", "dep_kinds": [{"kind": "build", "target": null}]},
                     {"pkg": "dev", "dep_kinds": [{"kind": "dev", "target": "cfg(windows)"}]}]},
                   {"id": "build", "deps": []},
@@ -569,37 +562,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            ports_missing(&metadata, &with_inputs(&["crates/cabin/**"])),
+            scoped_missing(
+                &metadata,
+                &with_inputs(&["crates/cabin-registry-verify/**"])
+            ),
             ["crates/build/", "crates/dev/"]
         );
     }
 
     #[test]
     fn a_missing_root_or_node_fails() {
-        let mut metadata = ports_workspace();
-        metadata.workspace_members.retain(|id| id != CLI);
-        assert!(members_named(&metadata, &[CLI]).is_err());
+        let mut metadata = scoped_workspace();
+        metadata.workspace_members.retain(|id| id != ROOT);
+        assert!(members_named(&metadata, &[ROOT]).is_err());
 
-        let mut metadata = ports_workspace();
+        let mut metadata = scoped_workspace();
         metadata
             .resolve
             .nodes
             .retain(|node| node.id != "cabin-core");
-        let roots = members_named(&metadata, &[CLI]).unwrap();
+        let roots = members_named(&metadata, &[ROOT]).unwrap();
         assert!(closure(&metadata, roots).is_err());
     }
 
     #[test]
     fn every_closure_edit_must_reach_the_guard() {
-        // The binary reaches a package outside `crates/`.
-        let mut metadata = ports_workspace();
+        // The root reaches a package outside `crates/`.
+        let mut metadata = scoped_workspace();
         let anyhow = metadata
             .packages
             .iter_mut()
             .find(|package| package.name == "anyhow")
             .unwrap();
         anyhow.manifest_path = PathBuf::from("/repo/local/anyhow/Cargo.toml");
-        let roots = members_named(&metadata, &[CLI]).unwrap();
+        let roots = members_named(&metadata, &[ROOT]).unwrap();
         let dirs: Vec<&Path> = closure(&metadata, roots)
             .unwrap()
             .into_iter()
