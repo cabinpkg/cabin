@@ -100,17 +100,21 @@ jobs:
           rustflags: ""
       - name: Install hyperfine
         run: cargo install -q "hyperfine@=2.0.0" --locked
-      - name: Check out the pinned foundation ports
-        run: node website/scripts/fetch-ports.mjs
+      - name: Check out the pinned cabin-ports/ports
+        run: |
+          grep -Eqx '[0-9a-f]{40}' ports-revision
+          git clone --quiet https://github.com/cabin-ports/ports "$RUNNER_TEMP/cabin-ports"
+          git -C "$RUNNER_TEMP/cabin-ports" merge-base --is-ancestor "$(cat ports-revision)" origin/main
+          git -C "$RUNNER_TEMP/cabin-ports" checkout --quiet --detach "$(cat ports-revision)"
       - name: Compare every scenario against the requested base
         if: inputs.base != ''
-        run: cargo perf run --ports website/.ports/ports --fail-on-regression --base "$BASE" --out target/perf/out
+        run: cargo perf run --ports "$RUNNER_TEMP/cabin-ports/ports" --fail-on-regression --base "$BASE" --out target/perf/out
         env:
           BASE: ${{ inputs.base }}
       # Eight days, not seven: consecutive weekly runs overlap rather than skip commits.
       - name: Compare every scenario against this branch eight days earlier
         if: inputs.base == ''
-        run: cargo perf run --ports website/.ports/ports --fail-on-regression --base "$(git rev-list -1 --before='8 days ago' HEAD)" --out target/perf/out
+        run: cargo perf run --ports "$RUNNER_TEMP/cabin-ports/ports" --fail-on-regression --base "$(git rev-list -1 --before='8 days ago' HEAD)" --out target/perf/out
       - name: Summarize
         if: always() && hashFiles('target/perf/out/compare.md') != ''
         run: cat target/perf/out/compare.md target/perf/out/report.md >> "$GITHUB_STEP_SUMMARY"

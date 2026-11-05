@@ -25,13 +25,17 @@ jobs:
           cache-on-failure: false
           rustflags: ""
 
-      - name: Check out the pinned foundation ports
-        run: node website/scripts/fetch-ports.mjs
+      - name: Check out the pinned cabin-ports/ports
+        run: |
+          grep -Eqx '[0-9a-f]{40}' ports-revision
+          git clone --quiet https://github.com/cabin-ports/ports "$RUNNER_TEMP/cabin-ports"
+          git -C "$RUNNER_TEMP/cabin-ports" merge-base --is-ancestor "$(cat ports-revision)" origin/main
+          git -C "$RUNNER_TEMP/cabin-ports" checkout --quiet --detach "$(cat ports-revision)"
 
       - name: Run ignored real-upstream registry example smoke tests
         run: |
           cargo test -p cabinpkg --test cabin_examples --all-features --locked \
             --verbose -- --ignored --show-output
         env:
-          FOUNDATION_PORTS_DIR: website/.ports/ports
+          FOUNDATION_PORTS_DIR: ${{ runner.temp }}/cabin-ports/ports
           RUST_BACKTRACE: "1"

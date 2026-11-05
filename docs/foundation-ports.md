@@ -353,15 +353,17 @@ rather than misread.
 The repository-root `ports-revision` file pins one commit on the `main` branch of
 [`cabin-ports/ports`](https://github.com/cabin-ports/ports).  The website's package pages, the
 real-upstream example tests, `cargo perf run --ports`, and `cargo fuzz-seeds` read the ports of
-that commit; the `cabin` CLI never reads it.  `node website/scripts/fetch-ports.mjs` checks the
-pinned commit out into `website/.ports/` and fails unless it is on `main` (the website's
-`npm run build` and `npm run dev` run it first); then pass that checkout's `ports/` directory:
+that commit; the `cabin` CLI never reads it.  The website's `npm run build` and `npm run dev`
+check it out into `website/.ports/` themselves.  The others take the `ports/` directory of a
+checkout of the pinned commit, which must be on `main`:
 
 ```console
-$ node website/scripts/fetch-ports.mjs
-$ FOUNDATION_PORTS_DIR=website/.ports/ports cargo test --test cabin_examples -- --ignored
-$ cargo perf run --ports website/.ports/ports
-$ cargo fuzz-seeds --ports website/.ports/ports
+$ git clone https://github.com/cabin-ports/ports ../cabin-ports
+$ git -C ../cabin-ports merge-base --is-ancestor "$(cat ports-revision)" origin/main
+$ git -C ../cabin-ports checkout --detach "$(cat ports-revision)"
+$ FOUNDATION_PORTS_DIR=../cabin-ports/ports cargo test --test cabin_examples -- --ignored
+$ cargo perf run --ports ../cabin-ports/ports
+$ cargo fuzz-seeds --ports ../cabin-ports/ports
 ```
 
 The catalog those consumers see changes only through a pull request that moves the pin to a newer
