@@ -164,9 +164,11 @@ async fn try_refresh_website(env: &Env, db: &D1Database, hook: &str) -> worker::
         .await?;
     let mut init = RequestInit::new();
     init.with_method(Method::Post);
-    let triggered = Fetch::Request(Request::new_with_init(hook, &init)?)
-        .send()
-        .await?;
+    // The hook URL carries its token and request errors can quote the URL,
+    // so they never reach the log.
+    let failed = |_| worker::Error::RustError("the deploy hook POST failed".to_owned());
+    let request = Request::new_with_init(hook, &init).map_err(failed)?;
+    let triggered = Fetch::Request(request).send().await.map_err(failed)?;
     if !(200..300).contains(&triggered.status_code()) {
         return Err(worker::Error::RustError(format!(
             "the deploy hook answered {}",
