@@ -268,8 +268,8 @@ secret: a Workers Builds deploy hook of `cabin-website` for `main`
 meta row counts the triggers per catalog, at most three; `wrangler
 tail` shows the `website refresh:` lines. Without the secret the step
 does nothing. A website rollback whose recorded catalog no longer
-matches is rebuilt over by the next pass; delete the secret first to
-keep one.
+matches, or that predates the record (a 404), is rebuilt over by the
+next pass; delete the secret first to keep one.
 
 ## First-time provisioning
 

@@ -133,13 +133,14 @@ async fn try_refresh_website(env: &Env, db: &D1Database, hook: &str) -> worker::
     let mut deployed = Fetch::Request(Request::new(&url, Method::Get)?)
         .send()
         .await?;
-    if deployed.status_code() != 200 {
-        return Err(worker::Error::RustError(format!(
-            "{url} answered {}",
-            deployed.status_code()
-        )));
-    }
-    let provenance = deployed.text().await?;
+    let provenance = match deployed.status_code() {
+        200 => deployed.text().await?,
+        // A deployment from before the record existed is stale, not unreachable.
+        404 => String::new(),
+        status => {
+            return Err(worker::Error::RustError(format!("{url} answered {status}")));
+        }
+    };
     let stored = read_meta(db, catalog_refresh::META_KEY).await?;
     if catalog_refresh::is_current(&provenance, &target) {
         if stored.as_deref().is_some_and(|value| !value.is_empty()) {
