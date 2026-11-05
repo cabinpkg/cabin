@@ -5,7 +5,7 @@
 // remains is worth rendering - a script-less homepage, docs page,
 // search page, package page, and 404 each keep their core content, and
 // JS-only sections ship `hidden` instead of as empty shells.
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "parse5";
@@ -110,7 +110,7 @@ export function statsBandShipsHidden(html) {
 const MIN_VISIBLE_TEXT = 200;
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    const distDirectory = path.resolve("dist");
+    const distDirectory = path.resolve(process.env.SITE_DIST ?? "dist");
     const failures = [];
     const page = async (relativePath) => {
         const html = await readFile(
@@ -153,96 +153,117 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         );
     }
     {
-        // The first page of packages is server-rendered; script-less
-        // visitors still get browsable package links - in <main> and
-        // with link text, so neither a chrome link nor a bare
-        // `<a href>` shell counts.
-        const search = await page("search/index.html");
-        search.expect(
-            search.content.links.some(
-                (link) =>
-                    link.main &&
-                    link.href.startsWith("/packages/") &&
-                    link.text.length > 0,
-            ),
-            "server-renders at least one usable /packages/ link",
-        );
-        // scripts/search.ts re-paginates into this element, even when
-        // the static render has a single page.
-        search.expect(
-            search.html.includes('id="pagination"'),
-            "ships the #pagination element the search script fills",
-        );
-    }
-    {
-        // Expected package pages come from the ports tree - the same
-        // source the build reads - never from what the build happened
-        // to emit, so losing route generation (the latest pages or the
+        // Expectations come from the catalog the build read (.catalog/,
+        // src/lib/catalog.ts), never from what the build happened to
+        // emit, so losing route generation (the latest pages or the
         // per-version ones) is a failure instead of a shrunken
-        // expectation. The manifest-only filter mirrors
-        // src/lib/ports.ts; each page must carry its own package's
-        // install snippet, not just any snippet.
-        const portsDirectory = path.resolve(".ports", "ports");
-        const subdirectories = async (directory) =>
-            (await readdir(directory, { withFileTypes: true }).catch(() => []))
-                .filter((entry) => entry.isDirectory())
-                .map((entry) => entry.name)
-                .sort();
-        const expectations = [];
-        for (const name of await subdirectories(portsDirectory)) {
-            const versions = [];
-            for (const version of await subdirectories(
-                path.join(portsDirectory, name),
-            )) {
-                const published = await stat(
-                    path.join(portsDirectory, name, version, "cabin.toml"),
-                ).then(
-                    // isFile mirrors ports.ts: a directory named
-                    // cabin.toml is not a publishable version.
-                    (entry) => entry.isFile(),
-                    () => false,
-                );
-                if (published) {
-                    versions.push(version);
-                }
-            }
-            if (versions.length === 0) {
-                continue;
-            }
-            expectations.push({
-                segments: ["packages", "cabin-ports", name, "index.html"],
-                snippet: `"cabin-ports/${name}" = "=`,
-            });
-            for (const version of versions) {
-                expectations.push({
-                    segments: [
-                        "packages",
-                        "cabin-ports",
-                        name,
-                        version,
-                        "index.html",
-                    ],
-                    snippet: `"cabin-ports/${name}" = "=${version}"`,
-                });
-            }
-        }
-        if (expectations.length === 0) {
-            failures.push("ports: no publishable port versions found");
-        }
-        for (const { segments, snippet } of expectations) {
-            const relativePath = path.join(...segments);
-            let detail;
-            try {
-                detail = await page(relativePath);
-            } catch {
-                failures.push(`${relativePath}: page missing from the build`);
-                continue;
-            }
-            detail.expect(
-                detail.content.mainText.includes("[dependencies]") &&
-                    detail.content.mainText.includes(snippet),
-                "carries this package's install snippet in static text",
+        // expectation.
+        const catalogInput = (file) =>
+            readFile(path.resolve(".catalog", file), "utf8");
+        const provenance = JSON.parse(await catalogInput("provenance.json"));
+        const emitted = await readFile(
+            path.join(distDirectory, "catalog-provenance.json"),
+            "utf8",
+        ).catch(() => "");
+        if (emitted !== JSON.stringify(provenance)) {
+            failures.push(
+                "catalog-provenance.json: does not record the catalog the build read",
             );
+        }
+        const search = await page("search/index.html");
+        const packageLinks = search.content.links.filter(
+            (link) =>
+                link.main &&
+                link.href.startsWith("/packages/") &&
+                link.text.length > 0,
+        );
+        if (provenance.state === "available") {
+            const { packages } = JSON.parse(await catalogInput("catalog.json"));
+            // The first page of packages is server-rendered; script-less
+            // visitors still get browsable package links - in <main> and
+            // with link text, so neither a chrome link nor a bare
+            // `<a href>` shell counts.
+            search.expect(
+                packages.length === 0 || packageLinks.length > 0,
+                "server-renders at least one usable /packages/ link",
+            );
+            // scripts/search.ts re-paginates into this element, even
+            // when the static render has a single page.
+            search.expect(
+                search.html.includes('id="pagination"'),
+                "ships the #pagination element the search script fills",
+            );
+            // The search index lists each package at its latest version,
+            // in the catalog's order.
+            const listed = await readFile(
+                path.join(distDirectory, "packages.json"),
+                "utf8",
+            ).catch(() => "[]");
+            if (
+                JSON.stringify(
+                    JSON.parse(listed).map((item) => [item.name, item.version]),
+                ) !==
+                JSON.stringify(packages.map((pack) => [pack.name, pack.latest]))
+            ) {
+                failures.push(
+                    "packages.json: does not list the catalog's packages at their latest versions",
+                );
+            }
+            // Each page must carry its own package's install snippet,
+            // not just any snippet.
+            const expectations = packages.flatMap(
+                ({ name, latest, versions }) => [
+                    {
+                        segments: ["packages", ...name.split("/")],
+                        snippet: `"${name}" = "=${latest}"`,
+                    },
+                    ...versions.map(({ version }) => ({
+                        segments: ["packages", ...name.split("/"), version],
+                        snippet: `"${name}" = "=${version}"`,
+                    })),
+                ],
+            );
+            for (const { segments, snippet } of expectations) {
+                const relativePath = path.join(...segments, "index.html");
+                let detail;
+                try {
+                    detail = await page(relativePath);
+                } catch {
+                    failures.push(
+                        `${relativePath}: page missing from the build`,
+                    );
+                    continue;
+                }
+                detail.expect(
+                    detail.content.mainText.includes("[dependencies]") &&
+                        detail.content.mainText.includes(snippet),
+                    "carries this package's install snippet in static text",
+                );
+            }
+        } else {
+            // While the registry refuses anonymous catalog reads, the
+            // site says so and lists nothing.
+            search.expect(
+                search.html.includes('id="catalog-unavailable"') &&
+                    search.content.mainText.includes("private alpha") &&
+                    packageLinks.length === 0,
+                "says the catalog is unavailable and links no package",
+            );
+            const listed = await readFile(
+                path.join(distDirectory, "packages.json"),
+                "utf8",
+            );
+            if (listed !== "[]") {
+                failures.push("packages.json: lists packages");
+            }
+            if (
+                await stat(path.join(distDirectory, "packages")).then(
+                    () => true,
+                    () => false,
+                )
+            ) {
+                failures.push("packages/: package pages were rendered");
+            }
         }
     }
     {

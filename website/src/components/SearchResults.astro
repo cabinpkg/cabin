@@ -1,0 +1,53 @@
+---
+// The search page's listing and the script that re-renders it client-side
+// (scripts/search.ts).  A component, so the page renders it - script
+// included - only while the catalog is available.
+import type { PackageSearchIndexItem } from "../lib/types";
+import { getEmptySearchMessage, type PaginationResult } from "../lib/search";
+import Icon from "./Icon.astro";
+import PackageCard from "./package/PackageCard.astro";
+import Pagination from "./ui/Pagination.astro";
+
+interface Props {
+    pagination: PaginationResult<PackageSearchIndexItem>;
+}
+
+const { pagination: initialPagination } = Astro.props;
+---
+
+<section
+    id="empty-state"
+    class:list={[
+        "rounded-md border border-line bg-night-raised px-6 py-16 text-center",
+        initialPagination.total > 0 && "hidden",
+    ]}
+    aria-live="polite"
+>
+    <div class="mb-6 flex justify-center text-ink-faint">
+        <Icon name="box" class="h-16 w-16" />
+    </div>
+    <h2 class="mb-3 text-2xl font-bold tracking-tight">No packages found</h2>
+    <p id="empty-message" class="text-lg text-ink-muted">
+        {getEmptySearchMessage("")}
+    </p>
+</section>
+
+<section id="results" class="space-y-4" aria-live="polite">
+    {initialPagination.items.map((pack) => <PackageCard package={pack} />)}
+</section>
+
+<Pagination
+    id="pagination"
+    query=""
+    page={initialPagination.page}
+    perPage={initialPagination.perPage}
+    totalPages={initialPagination.totalPages}
+/>
+
+<PackageCard templateId="package-card-template" />
+<PackageCard
+    templateId="package-card-template-static"
+    templateLinkable={false}
+/>
+
+<script src="../scripts/search.ts"></script>

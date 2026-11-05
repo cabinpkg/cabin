@@ -8,7 +8,7 @@ import { findHtmlFiles } from "./lib/find-html-files.mjs";
 //  2. No relative `*.md` link survives in a docs page — that would mean the
 //     remark rewriter did not run, and the link would 404 in the browser.
 
-const distDirectory = path.resolve("dist");
+const distDirectory = path.resolve(process.env.SITE_DIST ?? "dist");
 const docsDirectory = path.join(distDirectory, "docs");
 
 const generatedPages = new Set();

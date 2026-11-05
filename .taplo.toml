@@ -1,3 +1,3 @@
 # Benchmark inputs that `cargo perf` and the Criterion benches generate
-# under target/ are not source, nor is the pinned ports checkout.
-exclude = ["target/**", "website/.ports/**"]
+# under target/ are not source.
+exclude = ["target/**"]

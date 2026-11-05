@@ -57,7 +57,12 @@ fn website_steps() -> ExitCode {
     // `npm.cmd`: on Windows npm is a cmd shim, which `Command::new`
     // does not resolve from `npm`.
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    for step in [&["ci"][..], &["run", "lint"], &["test"], &["run", "build"]] {
+    for step in [
+        &["ci"][..],
+        &["run", "lint"],
+        &["test"],
+        &["run", "build:fixtures"],
+    ] {
         match Command::new(npm).args(step).current_dir(&website).status() {
             Ok(status) if status.success() => {}
             Ok(_) => return ExitCode::FAILURE,
@@ -315,13 +320,11 @@ fn website(
 ) -> Result<()> {
     if surfaces.website {
         gate.launch(
-            "npm ci && npm run lint && npm test && npm run build (website/)",
+            "npm ci && npm run lint && npm test && npm run build:fixtures (website/)",
             Command::new(gate_binary).arg(format!("--{WEBSITE_STEPS}")),
         )?;
     } else {
-        gate.say(
-            "skipping website lint/test/build: no website/, docs/ or ports-revision changes since main",
-        )?;
+        gate.say("skipping website lint/test/build: no website/ or docs/ changes since main")?;
     }
 
     Ok(())

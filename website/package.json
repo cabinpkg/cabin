@@ -4,9 +4,10 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "npm run fetch:ports && astro dev",
-        "build": "npm run fetch:ports && npm run typecheck && astro build && npm run verify",
-        "fetch:ports": "node scripts/fetch-ports.mjs",
+        "dev": "npm run fetch:catalog && astro dev",
+        "build": "npm run fetch:catalog && npm run typecheck && astro build && npm run verify && node scripts/fetch-catalog.mjs --check",
+        "build:fixtures": "npm run typecheck && node scripts/build-fixtures.mjs",
+        "fetch:catalog": "node scripts/fetch-catalog.mjs",
         "preview": "astro preview",
         "lint": "biome check .",
         "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\"",
@@ -23,9 +24,7 @@
         "@fontsource/ibm-plex-mono": "^5.3.0",
         "@github/combobox-nav": "^3.0.2",
         "@lucide/astro": "^1.61.0",
-        "fuse.js": "^7.5.0",
-        "semver": "^7.8.5",
-        "smol-toml": "^1.9.1"
+        "fuse.js": "^7.5.0"
     },
     "devDependencies": {
         "@astrojs/check": "^0.9.12",
@@ -35,7 +34,6 @@
         "@tailwindcss/typography": "^0.5.20",
         "@tailwindcss/vite": "^4.3.3",
         "@types/node": "26.6.5",
-        "@types/semver": "^7.8.0",
         "astro": "^7.4.2",
         "parse5": "^8.0.1",
         "rehype-autolink-headings": "^7.1.0",

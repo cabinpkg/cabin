@@ -3,17 +3,14 @@ import type { PackageManifestInfo } from "./manifestInfo.ts";
 export interface PackageRecord {
     name: string;
     version: string;
-    // Normalized dependency and feature declarations
-    // (src/lib/manifestInfo.ts), extracted once at load time.
+    // Dependency and feature declarations (src/lib/manifestInfo.ts).
     manifest: PackageManifestInfo;
     upstream: PackageUpstream | null;
 }
 
-// Committed provenance for a package that repackages an upstream
-// release (the cabin-ports packages): the upstream version, plus the
+// Declared provenance for a package built from an upstream release: the
 // pinned source archive.
 export interface PackageUpstream {
-    version: string;
     archiveUrl: string;
     // Algorithm-prefixed checksum of the pinned archive
     // ("sha256:<64 lowercase hex>"), as the manifest spells it.

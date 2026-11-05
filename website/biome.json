@@ -5,8 +5,9 @@
             "**",
             "!.claude/**/*",
             "!.astro/**/*",
-            "!.ports/**/*",
+            "!.catalog/**/*",
             "!dist/**/*",
+            "!dist-fixtures/**/*",
             "!node_modules/**/*",
             "!src/**/*.astro",
             "!**/*.svg"

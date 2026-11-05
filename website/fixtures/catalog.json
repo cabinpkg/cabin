@@ -1,0 +1,81 @@
+{
+    "schema": 1,
+    "packages": [
+        {
+            "name": "acme/widget",
+            "latest": "2.1.0",
+            "versions": [
+                {
+                    "version": "3.0.0-rc.1",
+                    "revision": "0a1b2c3d4e5f6a7b",
+                    "dependencies": {
+                        "cabin-ports/zlib": "^1.3"
+                    }
+                },
+                {
+                    "version": "2.1.0",
+                    "revision": "1a1b2c3d4e5f6a7b",
+                    "dependencies": {
+                        "cabin-ports/zlib": {
+                            "version": "^1.3",
+                            "features": ["simd"],
+                            "default-features": false
+                        },
+                        "cabin-ports/fmt": {
+                            "version": "^12",
+                            "optional": true,
+                            "target": "os = \"linux\""
+                        }
+                    },
+                    "dev-dependencies": {
+                        "acme/testkit": "^1"
+                    },
+                    "system-dependencies": {
+                        "pthread": {
+                            "version": "",
+                            "dependency_kind": "normal",
+                            "target": "os = \"linux\""
+                        },
+                        "valgrind": {
+                            "version": ">=3",
+                            "dependency_kind": "dev"
+                        }
+                    },
+                    "features": {
+                        "default": ["fast"],
+                        "features": {
+                            "extra": [],
+                            "fast": ["cabin-ports/zlib/simd", "extra"],
+                            "fmt": ["dep:cabin-ports/fmt"]
+                        }
+                    }
+                },
+                {
+                    "version": "1.0.0",
+                    "revision": "2a1b2c3d4e5f6a7b",
+                    "dependencies": {}
+                }
+            ]
+        },
+        {
+            "name": "cabin-ports/zlib",
+            "latest": "1.3.1",
+            "versions": [
+                {
+                    "version": "1.3.1",
+                    "revision": "3a1b2c3d4e5f6a7b",
+                    "dependencies": {},
+                    "features": {
+                        "features": {
+                            "simd": []
+                        }
+                    },
+                    "upstream": {
+                        "url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+                        "checksum": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+                    }
+                }
+            ]
+        }
+    ]
+}
