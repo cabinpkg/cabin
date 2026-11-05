@@ -1,8 +1,9 @@
 //! The registry-deploy wait: the "Wait for a registry deploy
-//! containing this SHA" step of `.github/workflows/ports-publish.yml`.
-//! Its target is explicit (`--repository`, `--sha`) rather than the
-//! run's own context, so a publisher whose client is built from a
-//! pinned Cabin commit can wait from another repository's workflow.
+//! containing the pinned Cabin commit" step of `cabin-ports/ports`'
+//! `.github/workflows/publish.yml`. Its target is explicit
+//! (`--repository`, `--sha`) rather than the run's own context, because
+//! that publisher's client is built from a pinned Cabin commit and the
+//! wait runs from its own repository's workflow.
 //! It runs in a clone of `--repository`, whose `origin` it fetches.
 //!
 //! - A same-SHA Registry run whose `deploy-registry` JOB itself
@@ -17,14 +18,15 @@
 //!   path that can change the Worker's accepted schema or the publish
 //!   client (`registry/`, `crates/`, the root manifests, `.cargo/`,
 //!   the filter file itself) must stay in `registry.yml`'s `registry`
-//!   filter, so the only pushes that reach this arm - ports-publish
-//!   ran, the registry jobs skipped - are ones touching nothing but
-//!   the ports tree or ports-publish's own workflow file, neither of
-//!   which any Worker or client code reads.  A `ports` filter entry
-//!   absent from the `registry` filter (other than `ports/**` and
-//!   `.github/workflows/ports-publish.yml`) would let a
-//!   client-changing push publish against a Worker whose conformance
-//!   never ran for it.
+//!   filter, so the only pushes that reach this arm - the registry
+//!   jobs skipped - are ones touching nothing any Worker or client
+//!   code reads.  A client-changing path absent from that filter would
+//!   let its push publish against a Worker whose conformance never ran
+//!   for it.  Residual: an earlier registry commit whose deploy is
+//!   still running or never landed is not detected here, since a later
+//!   commit that skips the deploy reads as current. A failed deploy's
+//!   red job is the alert; a publish racing a running one fails against
+//!   the older Worker, and a rerun once that deploy lands publishes.
 //! - A same-SHA Registry run that succeeded with its Deploy step
 //!   *skipped* takes the failure path's pending-descendant exit
 //!   instead of idling into the hour ceiling - see

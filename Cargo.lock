@@ -3176,27 +3176,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xtask-port-publish"
-version = "0.18.0"
-dependencies = [
- "anyhow",
- "assert_fs",
- "cabinpkg-core",
- "cabinpkg-env",
- "cabinpkg-manifest",
- "cabinpkg-publish",
- "clap",
- "etcetera",
- "flate2",
- "semver",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "tiny_http",
-]
-
-[[package]]
 name = "xtask-registry-admin"
 version = "0.18.0"
 dependencies = [

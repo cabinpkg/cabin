@@ -107,12 +107,6 @@ evidence of current behavior, not proof that the behavior is correct.
 - `--target` selects the platform triple to build for. Do not use it for
   manifest-target selection. The build-output flag is `--build-dir`;
   `--target-dir` is not an alias.
-- A port directory, except its unpublished `tests/`, is published verbatim, so
-  every edit, including a comment, changes archive bytes. Compare its published
-  digest before editing and do not fold a port correction into unrelated work.
-  Follow
-  `docs/foundation-ports.md` "Packaging revisions" for how a correction
-  respins as a packaging revision of the same upstream version.
 
 ## Repository automation
 
@@ -147,7 +141,7 @@ evidence of current behavior, not proof that the behavior is correct.
   installation, top-level commands, or package-page snippets.
 - Migrations and removals can stale descriptions outside the code path.
   Check `docs/`, `CONTRIBUTING.md`, each affected example README and
-  `examples/README.md`, `ports/README.md`, and website copy. Update claims
+  `examples/README.md`, and website copy. Update claims
   about the repository's current shape; leave durable upstream facts and
   policy alone.
 - Keep public documentation focused on current user-visible behavior and

@@ -7,8 +7,8 @@
 //!
 //! - `registry-build` (registry.yml's build and Kani jobs): the registry
 //!   workspace and `REGISTRY_ROOTS`, plus `REGISTRY_INPUTS`.
-//! - `ports-dry-run` (ports-publish.yml's pull-request dry-run): the
-//!   `cabin` binary and the publisher, plus `PORTS_INPUTS`.
+//! - `ports-dry-run` (ports-dry-run.yml): the `cabin` binary, plus
+//!   `PORTS_INPUTS`.
 //!
 //! The coarse `registry` list (the conformance job and the main-push
 //! deploy) is checked against `registry-build`'s closure and inputs too,
@@ -81,8 +81,6 @@ const REGISTRY_ROOTS: &[&str] = &[
 
 /// The `cabin` binary the dry-run builds the ports with.
 const CLI: &str = "cabinpkg";
-/// The port publisher the dry-run runs.
-const PUBLISHER: &str = "xtask-port-publish";
 
 /// Non-Cargo inputs every scoped job reads; directories end in `/`.
 const SHARED_INPUTS: &[&str] = &[
@@ -98,12 +96,7 @@ const REGISTRY_INPUTS: &[&str] = &[
     ".github/workflows/registry.yml",
     ".github/actions/required-gate/",
 ];
-const PORTS_INPUTS: &[&str] = &[
-    "ports/",
-    // Decides the patch bytes the Windows leg checks out.
-    ".gitattributes",
-    ".github/workflows/ports-publish.yml",
-];
+const PORTS_INPUTS: &[&str] = &["ports-revision", ".github/workflows/ports-dry-run.yml"];
 
 #[derive(Deserialize)]
 struct Metadata {
@@ -160,7 +153,7 @@ pub fn run() -> Result<()> {
     let members = registry.workspace_members.iter().map(String::as_str);
     let mut registry_packages = closure(&registry, members.collect())?;
     registry_packages.extend(closure(&root, members_named(&root, REGISTRY_ROOTS)?)?);
-    let ports_packages = closure(&root, members_named(&root, &[CLI, PUBLISHER])?)?;
+    let ports_packages = closure(&root, members_named(&root, &[CLI])?)?;
     let dirs =
         |packages: &[&Package]| resolved(packages.iter().map(|&package| dir(package)).collect());
     let (registry_dirs, ports_dirs) = (dirs(&registry_packages)?, dirs(&ports_packages)?);
@@ -467,22 +460,21 @@ mod tests {
         list(entries).into_iter().chain(globs).collect()
     }
 
-    /// `cabinpkg` reaches `cabin-build` and `cabin-tidy`, both of which
-    /// reach `cabin-core`; the publisher reaches `cabin-publish` and the
-    /// fetched `anyhow`; `xtask-ci` is outside the closure.
+    /// `cabinpkg` reaches `cabin-build`, `cabin-tidy`, and `cabin-publish`,
+    /// all of which reach `cabin-core`, and the fetched `anyhow`;
+    /// `xtask-ci` is outside the closure.
     fn ports_workspace() -> Metadata {
         workspace(
             &[
-                (CLI, "crates/cabin", &["cabin-build", "cabin-tidy"]),
+                (
+                    CLI,
+                    "crates/cabin",
+                    &["cabin-build", "cabin-tidy", "cabin-publish", "anyhow"],
+                ),
                 ("cabin-build", "crates/cabin-build", &["cabin-core"]),
                 ("cabin-core", "crates/cabin-core", &[]),
                 ("cabin-tidy", "crates/cabin-tidy", &["cabin-core"]),
                 ("cabin-publish", "crates/cabin-publish", &["cabin-core"]),
-                (
-                    PUBLISHER,
-                    "crates/xtask-port-publish",
-                    &["cabin-publish", "anyhow"],
-                ),
                 ("anyhow", "/home/.cargo/registry/src/anyhow-1.0.0", &[]),
                 ("xtask-ci", "crates/xtask-ci", &["cabin-core"]),
             ],
@@ -492,14 +484,13 @@ mod tests {
                 "cabin-core",
                 "cabin-tidy",
                 "cabin-publish",
-                PUBLISHER,
                 "xtask-ci",
             ],
         )
     }
 
     fn ports_missing(metadata: &Metadata, entries: &[String]) -> Vec<String> {
-        let roots = members_named(metadata, &[CLI, PUBLISHER]).unwrap();
+        let roots = members_named(metadata, &[CLI]).unwrap();
         let dirs: Vec<&Path> = closure(metadata, roots)
             .unwrap()
             .into_iter()
@@ -518,16 +509,12 @@ mod tests {
     #[test]
     fn a_crate_inside_the_closure_may_not() {
         for (excluded, expected) in [
-            // A direct and a transitive dependency of the binary.
+            // Direct and transitive dependencies of the binary, and the
+            // root.
             ("!crates/cabin-tidy/**", "crates/cabin-tidy/"),
             ("!crates/cabin-core/**", "crates/cabin-core/"),
-            // The publisher's own dependency, and the two roots.
             ("!crates/cabin-publish/**", "crates/cabin-publish/"),
             ("!crates/cabin/**", "crates/cabin/"),
-            (
-                "!crates/xtask-port-publish/**",
-                "crates/xtask-port-publish/",
-            ),
         ] {
             assert_eq!(
                 ports_missing(&ports_workspace(), &with_inputs(&["crates/**", excluded])),
@@ -556,39 +543,33 @@ mod tests {
         assert_eq!(
             ports_missing(
                 &ports_workspace(),
-                &with_inputs(&["crates/**", "!ports/zlib/**"])
+                &with_inputs(&["crates/**", "!.cargo/x/**"])
             ),
-            vec!["ports/".to_owned()]
+            vec![".cargo/".to_owned()]
         );
     }
 
     #[test]
     fn every_resolved_edge_counts_whatever_its_kind() {
         let metadata: Metadata = serde_json::from_str(
-            r#"{"workspace_members": ["cli", "publisher"],
+            r#"{"workspace_members": ["cli"],
                 "packages": [
                   {"id": "cli", "name": "cabinpkg",
                    "manifest_path": "/repo/crates/cabin/Cargo.toml", "targets": []},
                   {"id": "build", "name": "build",
                    "manifest_path": "/repo/crates/build/Cargo.toml", "targets": []},
                   {"id": "dev", "name": "dev",
-                   "manifest_path": "/repo/crates/dev/Cargo.toml", "targets": []},
-                  {"id": "publisher", "name": "xtask-port-publish",
-                   "manifest_path": "/repo/crates/xtask-port-publish/Cargo.toml", "targets": []}],
+                   "manifest_path": "/repo/crates/dev/Cargo.toml", "targets": []}],
                 "resolve": {"nodes": [
                   {"id": "cli", "deps": [
                     {"pkg": "build", "dep_kinds": [{"kind": "build", "target": null}]},
                     {"pkg": "dev", "dep_kinds": [{"kind": "dev", "target": "cfg(windows)"}]}]},
                   {"id": "build", "deps": []},
-                  {"id": "dev", "deps": []},
-                  {"id": "publisher", "deps": []}]}}"#,
+                  {"id": "dev", "deps": []}]}}"#,
         )
         .unwrap();
         assert_eq!(
-            ports_missing(
-                &metadata,
-                &with_inputs(&["crates/cabin/**", "crates/xtask-port-publish/**"])
-            ),
+            ports_missing(&metadata, &with_inputs(&["crates/cabin/**"])),
             ["crates/build/", "crates/dev/"]
         );
     }
@@ -596,8 +577,8 @@ mod tests {
     #[test]
     fn a_missing_root_or_node_fails() {
         let mut metadata = ports_workspace();
-        metadata.workspace_members.retain(|id| id != PUBLISHER);
-        assert!(members_named(&metadata, &[CLI, PUBLISHER]).is_err());
+        metadata.workspace_members.retain(|id| id != CLI);
+        assert!(members_named(&metadata, &[CLI]).is_err());
 
         let mut metadata = ports_workspace();
         metadata
@@ -610,7 +591,7 @@ mod tests {
 
     #[test]
     fn every_closure_edit_must_reach_the_guard() {
-        // The publisher reaches a package outside `crates/`.
+        // The binary reaches a package outside `crates/`.
         let mut metadata = ports_workspace();
         let anyhow = metadata
             .packages
@@ -618,7 +599,7 @@ mod tests {
             .find(|package| package.name == "anyhow")
             .unwrap();
         anyhow.manifest_path = PathBuf::from("/repo/local/anyhow/Cargo.toml");
-        let roots = members_named(&metadata, &[CLI, PUBLISHER]).unwrap();
+        let roots = members_named(&metadata, &[CLI]).unwrap();
         let dirs: Vec<&Path> = closure(&metadata, roots)
             .unwrap()
             .into_iter()
