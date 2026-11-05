@@ -6,6 +6,9 @@
 # astro
 /.astro/
 
+# the pinned ports catalog (scripts/fetch-ports.mjs)
+/.ports/
+
 # production
 /dist
 

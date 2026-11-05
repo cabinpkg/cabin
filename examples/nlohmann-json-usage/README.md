@@ -45,5 +45,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::nlohmann_json_usage_builds_and_runs`)
 is `#[ignore = "requires external network"]`: it stages the
-committed ports into a local file registry through the publisher
+ports in `FOUNDATION_PORTS_DIR` into a local file registry through the publisher
 pipeline and builds this example against it with `--index-path`.

@@ -289,9 +289,9 @@ fn workspace_basic_tree_shows_the_path_dependency() {
 
 // Real-upstream registry examples are external-network smoke tests:
 // they consume the `cabin-ports/*` packages that the publisher's
-// staging step stages from the committed `ports/` tree into a local file
-// registry (once per test process, downloading the pinned upstream
-// archives).  They do not run in default PR CI; the required CI
+// staging step stages from the pinned catalog (`FOUNDATION_PORTS_DIR`)
+// into a local file registry (once per test process, downloading the
+// pinned upstream archives).  They do not run in default PR CI; the required CI
 // exercises the same consumption path hermetically via
 // `cli/registry_ports.rs`.
 #[test]
@@ -307,7 +307,7 @@ fn zlib_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["zlib version: 1.3"],
     });
 }
@@ -324,7 +324,7 @@ fn cjson_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["cJSON parsed name: Cabin", "cJSON version: 1.7"],
     });
 }
@@ -342,7 +342,7 @@ fn xxhash_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["xxHash version: 803", "XXH64(\"Cabin\") = 002d85a6f376e171"],
     });
 }
@@ -357,7 +357,7 @@ fn tinyxml2_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["tinyxml2 parsed to: Cabin", "tinyxml2 version: 11.0.0"],
     });
 }
@@ -378,7 +378,7 @@ fn sqlite3_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "sqlite version: 3.53",
             "sqlite threadsafe: 1",
@@ -418,7 +418,7 @@ deps = ["cabin-ports/sqlite3"]
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["sqlite threadsafe: 0"],
     });
 }
@@ -441,7 +441,7 @@ fn libpng_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["libpng version: 1.6.59", "zlib version: 1.3"],
     });
 }
@@ -459,7 +459,7 @@ fn fmt_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["fmt version: 120200", "Hello, Cabin!"],
     });
 }
@@ -477,7 +477,7 @@ fn spdlog_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["[info] Hello from spdlog!", "spdlog version: 1.17.0"],
     });
 }
@@ -499,7 +499,7 @@ fn googletest_usage_runs_tests() {
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
         .arg("--index-path")
-        .arg(committed_ports_registry())
+        .arg(pinned_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -532,7 +532,7 @@ fn catch2_usage_runs_tests() {
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
         .arg("--index-path")
-        .arg(committed_ports_registry())
+        .arg(pinned_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -559,7 +559,7 @@ fn nlohmann_json_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "json parsed name: Cabin",
             "json parsed answer: 42",
@@ -580,7 +580,7 @@ fn cli11_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["CLI11 parsed count: 3", "CLI11 version: 2.6.2"],
     });
 }
@@ -599,7 +599,7 @@ fn miniz_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "miniz roundtrip: Cabin compresses with miniz",
             "miniz version: 11.3.2",
@@ -619,7 +619,7 @@ fn stb_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["stb_sprintf formatted: Cabin scores 42"],
     });
 }
@@ -638,7 +638,7 @@ fn uthash_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["uthash lookup: cabin = 42", "uthash version: 2.4.0"],
     });
 }
@@ -655,7 +655,7 @@ fn inih_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &["inih parsed name: Cabin", "inih parsed port: 8080"],
     });
 }
@@ -672,7 +672,7 @@ fn picohttpparser_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "picohttpparser method: GET",
             "picohttpparser path: /hello",
@@ -735,7 +735,7 @@ int main(int argc, char* argv[]) {
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
         .arg("--index-path")
-        .arg(committed_ports_registry())
+        .arg(pinned_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -762,7 +762,7 @@ fn cli_with_spdlog_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "[info] preparing 2 greeting(s) for Cabin",
             "1/2: Hello, Cabin!",
@@ -790,7 +790,7 @@ fn unit_test_gtest_runs_tests() {
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
         .arg("--index-path")
-        .arg(committed_ports_registry())
+        .arg(pinned_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -820,7 +820,7 @@ fn json_cli_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "package: json-cli v0.1.0",
             "dependency count: 3",
@@ -842,7 +842,7 @@ fn sqlite_todo_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "[x] #1 write the manifest",
             "[ ] #2 add a lockfile",
@@ -866,7 +866,7 @@ fn png_info_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
-        index_path: Some(committed_ports_registry().to_path_buf()),
+        index_path: Some(pinned_ports_registry().to_path_buf()),
         expected_stdout: &[
             "png-info: 2x2, 4 channel(s)",
             "roundtrip pixels match: yes",
@@ -888,7 +888,7 @@ fn workspace_app_and_lib_builds_and_runs() {
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
         .arg("--index-path")
-        .arg(committed_ports_registry())
+        .arg(pinned_ports_registry())
         .assert()
         .success();
     // `default-members = ["packages/app"]` selects the app without
@@ -903,7 +903,7 @@ fn workspace_app_and_lib_builds_and_runs() {
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
         .arg("--index-path")
-        .arg(committed_ports_registry())
+        .arg(pinned_ports_registry())
         .assert()
         .success()
         .get_output()

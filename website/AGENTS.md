@@ -6,8 +6,9 @@ directory.
 ## Static architecture
 
 - Keep the public website static. Generate package pages at build time from the
-  committed foundation ports under `../ports/`; do not add a live-registry
-  dependency to static generation.
+  foundation ports of the `cabin-ports/ports` commit that `../ports-revision`
+  pins, which `npm run build` and `npm run dev` check out into `.ports/`; do not
+  add a live-registry dependency to static generation.
 - Keep registry statistics and other runtime data that enhance public pages as
   progressive enhancements. Those pages must retain meaningful script-less and
   offline content. Keep fetch-only UI hidden until its request succeeds.

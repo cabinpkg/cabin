@@ -100,15 +100,17 @@ jobs:
           rustflags: ""
       - name: Install hyperfine
         run: cargo install -q "hyperfine@=2.0.0" --locked
+      - name: Check out the pinned foundation ports
+        run: node website/scripts/fetch-ports.mjs
       - name: Compare every scenario against the requested base
         if: inputs.base != ''
-        run: cargo perf run --ports --fail-on-regression --base "$BASE" --out target/perf/out
+        run: cargo perf run --ports website/.ports/ports --fail-on-regression --base "$BASE" --out target/perf/out
         env:
           BASE: ${{ inputs.base }}
       # Eight days, not seven: consecutive weekly runs overlap rather than skip commits.
       - name: Compare every scenario against this branch eight days earlier
         if: inputs.base == ''
-        run: cargo perf run --ports --fail-on-regression --base "$(git rev-list -1 --before='8 days ago' HEAD)" --out target/perf/out
+        run: cargo perf run --ports website/.ports/ports --fail-on-regression --base "$(git rev-list -1 --before='8 days ago' HEAD)" --out target/perf/out
       - name: Summarize
         if: always() && hashFiles('target/perf/out/compare.md') != ''
         run: cat target/perf/out/compare.md target/perf/out/report.md >> "$GITHUB_STEP_SUMMARY"

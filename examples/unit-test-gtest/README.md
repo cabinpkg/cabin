@@ -48,5 +48,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::unit_test_gtest_runs_tests`) is
-`#[ignore = "requires external network"]`: it stages the committed ports into a local file
+`#[ignore = "requires external network"]`: it stages the ports in `FOUNDATION_PORTS_DIR` into a local file
 registry through the publisher pipeline and runs this example against it with `--index-path`.

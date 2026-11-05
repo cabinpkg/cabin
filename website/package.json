@@ -4,8 +4,9 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "astro dev",
-        "build": "npm run typecheck && astro build && npm run verify",
+        "dev": "npm run fetch:ports && astro dev",
+        "build": "npm run fetch:ports && npm run typecheck && astro build && npm run verify",
+        "fetch:ports": "node scripts/fetch-ports.mjs",
         "preview": "astro preview",
         "lint": "biome check .",
         "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\"",

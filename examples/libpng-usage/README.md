@@ -70,7 +70,7 @@ consults the registry index, so a fully offline build needs a local index; see
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::libpng_usage_builds_and_runs`) runs only with `--ignored`
-and needs outbound network: it stages the committed ports into a local file registry through the
+and needs outbound network: it stages the ports in `FOUNDATION_PORTS_DIR` into a local file registry through the
 publisher pipeline and builds against that with `--index-path`, downloading the pinned upstream
 archives on the way.  The hermetic cache-lifecycle coverage lives in
 `crates/cabin/tests/cli/registry_ports.rs`.

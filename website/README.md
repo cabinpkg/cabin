@@ -6,10 +6,16 @@ A package registry website for Cabin, a package manager and build system for C/C
 
 ### Architecture
 
-This site is a fully static Astro build. Package data comes from the local
-port definitions under `../ports/` at build time, package
-detail pages are pre-rendered, and `/packages.json` is generated for
-client-side search.
+This site is a fully static Astro build. Package data comes from the foundation
+ports of the [`cabin-ports/ports`](https://github.com/cabin-ports/ports) commit
+that `../ports-revision` pins: `npm run build` and `npm run dev` first check it
+out into `.ports/` (`npm run fetch:ports`, which needs `git` and network access
+to GitHub, and fails the build if the fetch does). Package detail pages are
+pre-rendered, and `/packages.json` is generated for client-side search.
+
+The catalog changes only when a pull request moves `../ports-revision` to a
+newer `cabin-ports/ports` commit on `main`, so each website build is
+reproducible from its own commit.
 
 The output in `dist/` can be served by Cloudflare Pages, Cloudflare Workers
 Static Assets, or any static file host. No SSR adapter, API routes, or server
@@ -134,7 +140,7 @@ Each package gets two statically generated detail routes:
 - `/packages/<group>/<name>` renders the latest version.
 - `/packages/<group>/<name>/<version>` renders that exact version.
 
-Both are pre-rendered at build time from the same local port data and share
+Both are pre-rendered at build time from the same pinned port data and share
 their markup through `src/components/package/PackageDetailView.astro`.
 
 ### Documentation

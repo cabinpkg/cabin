@@ -5,6 +5,7 @@
             "**",
             "!.claude/**/*",
             "!.astro/**/*",
+            "!.ports/**/*",
             "!dist/**/*",
             "!node_modules/**/*",
             "!src/**/*.astro",

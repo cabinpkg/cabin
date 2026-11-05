@@ -2,10 +2,10 @@
 
 Foundation ports are **curated packages** that adapt important existing C/C++ libraries - libraries
 that do not yet ship a native `cabin.toml` - to Cabin's build model.  Their sources live in the
-repository-root
-[`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/)
-directory and are explicitly **not** a public registry; this directory is closed to arbitrary
-submissions and is intended to be retired incrementally as upstreams adopt native `cabin.toml`.
+[`ports/`](https://github.com/cabin-ports/ports/tree/main/ports/) directory of the
+[`cabin-ports/ports`](https://github.com/cabin-ports/ports) repository and are explicitly **not** a
+public registry; that repository is closed to arbitrary submissions and its ports are intended to
+be retired incrementally as upstreams adopt native `cabin.toml`.
 
 You can browse the foundation-port catalog at https://cabinpkg.com.
 
@@ -25,8 +25,9 @@ version string, and consumers pin them through the lockfile's checksum instead. 
 dependencies resolve through the hosted registry by default (no flag; see
 [remote-registry.md](remote-registry.md#the-default-registry)).  The hosted registry is in private
 alpha: it is restricted to its maintainer, so hosted foundation ports are not available to the
-public yet, and resolving one fails with an explanation of that status.  The recipes in `ports/`
-stay public, and local builds and local file registries (`--index-path`) are unaffected.
+public yet, and resolving one fails with an explanation of that status.  The recipes in
+`cabin-ports/ports` stay public, and local builds and local file registries (`--index-path`) are
+unaffected.
 
 There is no port-specific dependency form.  A port is an ordinary registry package, and a manifest
 that tries to name one specially (`port = true`, `port-path = "..."`) is rejected as an unknown
@@ -313,10 +314,9 @@ to the `cabin-ports` scope, revoking it on the way out (see
 [Trusted publishing](remote-registry.md#trusted-publishing); which workflows may exchange is
 operator-registered registry data).  Upstream archives restored from the CI cache are never trusted: the
 tool re-hashes every cached archive against the checksum its port's `[package.upstream]` pins,
-and re-downloads on a mismatch.  The ports tree and the
-workflow live in the `cabinpkg/cabin` repository; the
-`cabin-ports` GitHub organization is the registry scope authority, not a separate source
-repository.
+and re-downloads on a mismatch.  The workflow publishes this
+repository's copy of the ports, which matches the one in `cabin-ports/ports`; the `cabin-ports`
+GitHub organization is the registry scope authority.
 
 ### Packaging revisions
 
@@ -340,6 +340,25 @@ respin may also correct what resolution consumes - the published package's `depe
 `features`, `standards`, or `links`: each revision keeps its own, so the old revision's pins keep
 their graph.  The package's index document then becomes schema 2, which earlier clients refuse
 rather than misread.
+
+## The pinned catalog
+
+The repository-root `ports-revision` file pins one commit on the `main` branch of
+[`cabin-ports/ports`](https://github.com/cabin-ports/ports).  The website's package pages, the
+real-upstream example tests, `cargo perf run --ports`, and `cargo fuzz-seeds` read the ports of
+that commit; the `cabin` CLI never reads it.  `node website/scripts/fetch-ports.mjs` checks the
+pinned commit out into `website/.ports/` and fails unless it is on `main` (the website's
+`npm run build` and `npm run dev` run it first); then pass that checkout's `ports/` directory:
+
+```console
+$ node website/scripts/fetch-ports.mjs
+$ FOUNDATION_PORTS_DIR=website/.ports/ports cargo test --test cabin_examples -- --ignored
+$ cargo perf run --ports website/.ports/ports
+$ cargo fuzz-seeds --ports website/.ports/ports
+```
+
+The catalog those consumers see changes only through a pull request that moves the pin to a newer
+commit on that repository's `main`.
 
 ## Retiring a foundation port
 

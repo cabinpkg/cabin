@@ -182,7 +182,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         // expectation. The manifest-only filter mirrors
         // src/lib/ports.ts; each page must carry its own package's
         // install snippet, not just any snippet.
-        const portsDirectory = path.resolve("..", "ports");
+        const portsDirectory = path.resolve(".ports", "ports");
         const subdirectories = async (directory) =>
             (await readdir(directory, { withFileTypes: true }).catch(() => []))
                 .filter((entry) => entry.isDirectory())

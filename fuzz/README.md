@@ -60,14 +60,16 @@ crashing input. Nothing keeps that input, since a public repository's
 logs, artifacts, and caches are all readable: reproduce the crash by
 fuzzing that target locally.
 
-`seeds/` is generated: `cargo fuzz-seeds`, from the repository root,
-stages example packages (C and C++) and a package of the fallback
+`seeds/` is generated: `cargo fuzz-seeds --ports <dir>`, from the
+repository root, stages example packages (C and C++) and a package of the fallback
 manifest through the real packager, writes the example packages' files
 as round-trip specs, copies the published-archive fixture, re-wraps
 those archives' files under a `pkg/` top directory as zip and tar for
 the extraction targets, writes the patch seeds with `git diff` against
 a copy of the harness's tree, and collects every `cabin.toml` under
-`examples/` and `ports/`. `dicts/` holds the libFuzzer dictionaries.
+`examples/` and `<dir>`, the pinned foundation ports
+([`docs/foundation-ports.md`](../docs/foundation-ports.md#the-pinned-catalog)).
+`dicts/` holds the libFuzzer dictionaries.
 
 The fuzz crate has its own `Cargo.lock`; Dependabot updates it
 separately from the root lockfile, so shared dependencies (`zip`, `toml`,

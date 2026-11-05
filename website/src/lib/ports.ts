@@ -1,37 +1,19 @@
-import { existsSync } from "node:fs";
 import { lstat, readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { extractManifestInfo } from "./manifestInfo.ts";
 import type { PackageRecord } from "./types";
 
-// The foundation ports live at the repository root under ports/. The
-// nearest ancestor of the current working directory that contains it is
-// used, so the build works from website/ or from the repo root.
-// import.meta.url is unusable: `astro build` bundles this module into
+// The foundation ports come from the cabin-ports/ports commit that
+// ../ports-revision pins, checked out into .ports/ by
+// scripts/fetch-ports.mjs (`npm run build` and `npm run dev` run it).
+// Resolved against the working directory, website/: import.meta.url is
+// unusable, because `astro build` bundles this module into
 // dist/.prerender/chunks/ at a different depth than this source file.
-const PORTS_SUBPATH = "ports";
-function resolvePortsDir(): string {
-    let dir = process.cwd();
-    let parent = dirname(dir);
-    while (dir !== parent) {
-        const candidate = join(dir, PORTS_SUBPATH);
-        if (existsSync(candidate)) {
-            return candidate;
-        }
-        dir = parent;
-        parent = dirname(dir);
-    }
-    const rootCandidate = join(dir, PORTS_SUBPATH);
-    return existsSync(rootCandidate)
-        ? rootCandidate
-        : join(process.cwd(), PORTS_SUBPATH);
-}
-
-const PORTS_DIR = resolvePortsDir();
+const PORTS_DIR = join(process.cwd(), ".ports", "ports");
 
 // The registry identity every port publishes under, mirroring the
-// xtask-port-publish conversion (crates/xtask-port-publish): the site must
+// publisher (cabin-ports/ports, src/plan.rs): the site must
 // present exactly the names and versions the registry serves, without a
 // live-registry build dependency.
 const REGISTRY_SCOPE = "cabin-ports";
@@ -59,7 +41,7 @@ export async function loadPortsFromDir(
 ): Promise<PackageRecord[]> {
     if (!(await directoryExists(portsDir))) {
         throw new Error(
-            `Ports directory not found at ${portsDir}. Expected ports/ in the cabin repository.`,
+            `Ports directory not found at ${portsDir}; run \`npm run fetch:ports\`.`,
         );
     }
 
@@ -248,8 +230,8 @@ function parseProvenanceUrl(archiveUrl: string, context: string): URL {
     return parsedUrl;
 }
 
-// The publisher's identity rule (xtask-port-publish::plan::
-// scoped_package_name): the directory is spelled exactly as the
+// The publisher's identity rule (cabin-ports/ports, src/plan.rs
+// `scoped_package_name`): the directory is spelled exactly as the
 // package name, so a name the registry would reject fails the build
 // here instead of publishing a page for a package that cannot exist.
 export function scopedPackageName(portName: string, context: string): string {

@@ -65,21 +65,24 @@ pub fn stage_ports_registry(ports_dir: &Path, cache_dir: &Path, work_dir: &Path)
     stage(ports_dir, cache_dir, work_dir, ArchiveFetch::CacheOnly)
 }
 
-/// The committed `ports/` tree staged into one
-/// immutable file registry shared by every test in the calling
-/// process.  Staging downloads the pinned real upstream
+/// The pinned catalog's ports (`FOUNDATION_PORTS_DIR`, relative to the
+/// repository root; `docs/foundation-ports.md`, "The pinned catalog")
+/// staged into one immutable file registry shared by every test in the
+/// calling process.  Staging downloads the pinned real upstream
 /// archives, so callers must be `#[ignore = "requires external
 /// network"]` tests; sharing one registry keeps the ignored example
 /// suite from re-downloading the whole set per test.
-pub fn committed_ports_registry() -> &'static Path {
+pub fn pinned_ports_registry() -> &'static Path {
     static STAGED: OnceLock<StagedCommitted> = OnceLock::new();
     STAGED
         .get_or_init(|| {
-            let root = assert_fs::TempDir::new().expect("committed-ports staging dir");
-            let ports_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("..")
-                .join("..")
-                .join("ports");
+            let root = assert_fs::TempDir::new().expect("pinned-ports staging dir");
+            let ports_dir =
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join(std::env::var_os("FOUNDATION_PORTS_DIR").expect(
+                        "set FOUNDATION_PORTS_DIR to the pinned catalog's ports directory",
+                    ));
             let registry = stage(
                 &ports_dir,
                 &root.path().join("cache"),

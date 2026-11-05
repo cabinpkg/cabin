@@ -320,7 +320,7 @@ fn website(
         )?;
     } else {
         gate.say(
-            "skipping website lint/test/build: no website/, docs/ or ports/ changes since main",
+            "skipping website lint/test/build: no website/, docs/ or ports-revision changes since main",
         )?;
     }
 

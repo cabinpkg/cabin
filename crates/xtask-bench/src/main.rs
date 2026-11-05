@@ -54,6 +54,10 @@ enum Command {
         cabin: PathBuf,
         #[arg(long, default_value_t = 1)]
         repeat: usize,
+        /// The pinned catalog's ports directory, for a foundation-port
+        /// scenario.
+        #[arg(long, value_name = "DIR")]
+        ports: Option<PathBuf>,
     },
     /// Per-iteration state reset; hyperfine's `--prepare` runs it.
     #[command(hide = true)]
@@ -70,10 +74,11 @@ struct RunArgs {
     /// few for a comparison to show a difference.
     #[arg(long)]
     smoke: bool,
-    /// Include the foundation-port scenarios (downloads upstream
-    /// archives on first use).
-    #[arg(long)]
-    ports: bool,
+    /// Include the foundation-port scenarios, staged from this ports
+    /// directory of the pinned catalog (docs/foundation-ports.md, "The
+    /// pinned catalog"); downloads upstream archives on first use.
+    #[arg(long, value_name = "DIR")]
+    ports: Option<PathBuf>,
     /// A prebuilt binary to measure, as `LABEL=PATH`; repeatable.
     #[arg(long, value_name = "LABEL=PATH")]
     cabin: Vec<String>,
@@ -156,7 +161,8 @@ fn run_cli(cli: Cli) -> Result<ExitCode> {
             scenario,
             cabin,
             repeat,
-        } => exec(&scenario, cabin, repeat),
+            ports,
+        } => exec(&scenario, cabin, repeat, ports.as_deref()),
         Command::Mutate { action, path } => {
             let mutation = match action.as_str() {
                 "touch" => Mutation::Touch(path),
@@ -175,7 +181,7 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
     let scenarios: Vec<Scenario> = scenario::catalog()
         .into_iter()
         .filter(|s| !args.smoke || s.smoke)
-        .filter(|s| args.ports || !s.ports)
+        .filter(|s| args.ports.is_some() || !s.ports)
         .filter(|s| {
             args.filter.is_empty() || args.filter.iter().any(|f| s.name.contains(f.as_str()))
         })
@@ -227,7 +233,8 @@ fn run_suite(args: RunArgs) -> Result<ExitCode> {
         binaries.push(run::binary(label, std::path::absolute(path)?, &out)?);
     }
 
-    let ctx = run::Harness::new(&repo, checkout, out.clone(), &scenarios)?;
+    let ports = args.ports.as_deref();
+    let ctx = run::Harness::new(&repo, checkout, out.clone(), &scenarios, ports)?;
     let schedule = match (args.runs, args.smoke) {
         (Some(runs), _) => run::Schedule {
             warmup: 1,
@@ -344,7 +351,7 @@ fn results_path(arg: &str) -> PathBuf {
     }
 }
 
-fn exec(name: &str, cabin: PathBuf, repeat: usize) -> Result<ExitCode> {
+fn exec(name: &str, cabin: PathBuf, repeat: usize, ports: Option<&Path>) -> Result<ExitCode> {
     let scenario = scenario::catalog()
         .into_iter()
         .find(|s| s.name == name)
@@ -358,6 +365,7 @@ fn exec(name: &str, cabin: PathBuf, repeat: usize) -> Result<ExitCode> {
         checkout,
         out.clone(),
         std::slice::from_ref(&scenario),
+        ports,
     )?;
     let prepared = run::prepare(&ctx, &scenario, &binary, &out.join(scenario.slug()))?;
     for _ in 0..repeat {
