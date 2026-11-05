@@ -39,11 +39,12 @@ toml:
 fuzz:
   - "fuzz/**"
 
-# website.yml: the site renders docs/ and the ports tree's pages.
+# website.yml: the site renders docs/ and the pinned ports catalog's
+# pages.
 website:
   - "website/**"
   - "docs/**"
-  - "ports/**"
+  - "ports-revision"
   - ".github/workflows/website.yml"
   - ".github/workflows/changes.yml"
   - ".github/actions/required-gate/**"

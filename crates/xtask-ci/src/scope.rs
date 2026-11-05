@@ -50,9 +50,9 @@ pub fn surfaces(changed: &[String]) -> Surfaces {
             ".cargo/",
             "rust-toolchain",
         ]),
-        // The website build also loads the foundation ports
-        // (`website/src/lib/ports.ts` reads `ports/`).
-        website: any(&["website/", "docs/", "ports/"]),
+        // The website build also loads the foundation ports of the
+        // cabin-ports/ports commit `ports-revision` pins.
+        website: any(&["website/", "docs/", "ports-revision"]),
     }
 }
 
@@ -89,28 +89,24 @@ mod tests {
     }
 
     #[test]
-    fn the_website_surface_includes_docs_and_ports() {
-        for path in [
-            "website/package.json",
-            "docs/manifest.md",
-            "ports/zlib/1.3.1/cabin.toml",
-        ] {
+    fn the_website_surface_includes_docs_and_the_ports_pin() {
+        for path in ["website/package.json", "docs/manifest.md", "ports-revision"] {
             assert!(of(&[path]).website, "{path} should be a website change");
         }
         assert!(!of(&["crates/cabin/src/lib.rs"]).website);
         assert!(!of(&["CONTRIBUTING.md"]).website);
     }
 
-    /// One path on a shared surface pulls in every check that surface
-    /// feeds, which is why `ports/` sets both.
+    /// The website reads the pinned catalog, not the committed tree, so
+    /// a committed port alone is no website change.
     #[test]
-    fn ports_touch_both_the_rust_and_website_surfaces() {
+    fn committed_ports_touch_only_the_rust_surface() {
         let touched = of(&["ports/zlib/1.3.1/cabin.toml"]);
         assert_eq!(
             touched,
             Surfaces {
                 rust: true,
-                website: true,
+                website: false,
             }
         );
     }

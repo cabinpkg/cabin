@@ -25,7 +25,7 @@ pub use fake_ports::FakePortRepo;
 #[allow(unused_imports)]
 pub use foundation_port_smoke::{PortBuildRun, run_port_build_then_run};
 #[allow(unused_imports)]
-pub use ports_registry::{RegistryConsumer, committed_ports_registry, stage_ports_registry};
+pub use ports_registry::{RegistryConsumer, pinned_ports_registry, stage_ports_registry};
 
 /// File name of the executable built from `stem` in the host's
 /// build dialect (`app` on Unix, `app.exe` on Windows).

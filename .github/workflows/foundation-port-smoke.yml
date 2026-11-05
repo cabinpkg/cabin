@@ -25,9 +25,13 @@ jobs:
           cache-on-failure: false
           rustflags: ""
 
+      - name: Check out the pinned foundation ports
+        run: node website/scripts/fetch-ports.mjs
+
       - name: Run ignored real-upstream registry example smoke tests
         run: |
           cargo test -p cabinpkg --test cabin_examples --all-features --locked \
             --verbose -- --ignored --show-output
         env:
+          FOUNDATION_PORTS_DIR: website/.ports/ports
           RUST_BACKTRACE: "1"

@@ -40,6 +40,7 @@ impl Harness {
         checkout: Checkout,
         out: PathBuf,
         scenarios: &[Scenario],
+        ports_dir: Option<&Path>,
     ) -> Result<Self> {
         fs::create_dir_all(&out)?;
         let perf = repo.join("target/perf");
@@ -66,15 +67,17 @@ impl Harness {
             .iter()
             .any(|s| s.ports)
             .then(|| {
-                // Staged every run: the ports are read from `ports/`,
-                // which can change without rebuilding the harness.
+                let ports_dir =
+                    ports_dir.context("the foundation-port scenarios need --ports <DIR>")?;
+                // Staged every run: the ports directory can change
+                // without rebuilding the harness.
                 eprintln!("perf: staging foundation ports (downloads upstream archives once)");
                 // Under `work/`, which the harness owns, whatever `--out` is.
                 let staging = out.join("work/ports");
                 if staging.exists() {
                     fs::remove_dir_all(&staging)?;
                 }
-                ports::stage_registry(repo, &perf.join("ports-download-cache"), &staging)
+                ports::stage_registry(ports_dir, &perf.join("ports-download-cache"), &staging)
             })
             .transpose()?;
         let http = match &registry {

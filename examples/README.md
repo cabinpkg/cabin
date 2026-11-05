@@ -10,11 +10,11 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
   directory.
 - `crates/<name>/examples/` - **Cargo example targets for the Rust crates.** None exist today; this
   is where they would go if added.
-- `ports/` - **curated foundation ports.** Port directories that adapt real
-  upstream C/C++ libraries that do not yet ship a native `cabin.toml`, and the source the
-  `cabin-ports/*` registry packages these examples depend on are published from.  Each is
-  committed as a provenance-bearing package.  Not example projects; see
-  [`../ports/README.md`](../ports/README.md).
+- [`cabin-ports/ports`](https://github.com/cabin-ports/ports) - **curated foundation ports.**
+  Port directories that adapt real upstream C/C++ libraries that do not yet ship a native
+  `cabin.toml`, and the source the `cabin-ports/*` registry packages these examples depend on are
+  published from.  A separate repository, not example projects; see
+  [`docs/foundation-ports.md`](../docs/foundation-ports.md).
 
 ## Available examples
 
@@ -78,6 +78,8 @@ The tests copy each example into a temporary directory before building, so the s
 accumulates build output.  Tests that compile real sources fail with a clear message when Ninja or
 a C/C++ compiler is missing.  The tests
 for the examples consuming `cabin-ports/*` packages are `#[ignore]`d because they need outbound
-network; run them with `cargo test --test cabin_examples -- --ignored`, which stages the committed
-ports into a local file registry through the publisher pipeline - downloading the pinned upstream
-archives - and builds each example against that registry with `--index-path`.
+network; run them with `FOUNDATION_PORTS_DIR=<dir> cargo test --test cabin_examples -- --ignored`,
+where `<dir>` holds the pinned foundation ports
+([`docs/foundation-ports.md`](../docs/foundation-ports.md#the-pinned-catalog)).  They stage those
+ports into a local file registry through the publisher's staging step - downloading the pinned
+upstream archives - and build each example against that registry with `--index-path`.

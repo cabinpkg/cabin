@@ -1,7 +1,7 @@
-//! Real-world inputs: a few committed foundation ports, staged into a
-//! file registry by the publisher's own staging step
-//! (`cabin_publish::upstream`).  The first staging downloads the
-//! pinned upstream archives; later runs reuse them.
+//! Real-world inputs: a few foundation ports of the pinned catalog
+//! (`--ports`), staged into a file registry by the publisher's own
+//! staging step (`cabin_publish::upstream`).  The first staging
+//! downloads the pinned upstream archives; later runs reuse them.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -17,8 +17,7 @@ pub const PORTS: [(&str, &str); 4] = [
     ("cabin-ports/spdlog", "^1.17"),
 ];
 
-pub fn stage_registry(repo: &Path, download_cache: &Path, work: &Path) -> Result<PathBuf> {
-    let ports = repo.join("ports");
+pub fn stage_registry(ports: &Path, download_cache: &Path, work: &Path) -> Result<PathBuf> {
     let registry = work.join("registry");
     for (name, _) in PORTS {
         let name_dir = ports.join(name.trim_start_matches("cabin-ports/"));

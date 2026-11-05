@@ -1,7 +1,8 @@
 //! Fuzz-target maintenance (`fuzz/README.md`).
 //!
 //!   `cargo fuzz-seeds`     regenerate `fuzz/seeds/` from in-tree
-//!                          packages and manifests
+//!                          packages and manifests, and the pinned
+//!                          foundation ports' manifests (`--ports`)
 //!   `cargo fuzz-check`     lint and test the fuzz workspace and replay
 //!                          every target's seeds
 //!   `cargo fuzz-campaign`  fuzz every target on its kept corpus, then
@@ -35,9 +36,6 @@ const FALLBACK_MANIFEST: &str = "[package]\nname = \"demo\"\nversion = \"1.2.3\"
 /// an upstream release archive does; the harness's `SEED_PREFIX`,
 /// whose test checks the seeds against it.
 const SEED_PREFIX: &str = "pkg";
-
-/// Trees whose every `cabin.toml` seeds the manifest parser.
-const MANIFEST_TREES: &[&str] = &["examples", "ports"];
 
 /// How long `cargo fuzz-campaign` fuzzes each target.
 const CAMPAIGN_SECONDS: u32 = 300;
@@ -109,7 +107,13 @@ const PATCH_SEEDS: &[(&str, &[Edit])] = &[
 #[derive(Parser)]
 enum Cli {
     /// Regenerate the seed corpora under `fuzz/seeds/`.
-    Seeds,
+    Seeds {
+        /// The `ports/` directory of a cabin-ports/ports checkout at the
+        /// commit `ports-revision` pins; its manifests seed the parser
+        /// alongside the examples'.
+        #[arg(long, value_name = "DIR")]
+        ports: PathBuf,
+    },
     /// Lint and test `fuzz/` and replay every target's seeds (needs
     /// `cargo-fuzz`).
     Check,
@@ -121,7 +125,7 @@ enum Cli {
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = match Cli::parse() {
-        Cli::Seeds => seeds(&root),
+        Cli::Seeds { ports } => seeds(&root, &ports),
         Cli::Check => check(&root.join("fuzz")),
         Cli::Campaign => campaign(&root.join("fuzz")),
     };
@@ -134,7 +138,12 @@ fn main() -> ExitCode {
     }
 }
 
-fn seeds(root: &Path) -> Result<()> {
+fn seeds(root: &Path, ports: &Path) -> Result<()> {
+    ensure!(
+        ports.is_dir(),
+        "--ports {} is not a directory",
+        ports.display()
+    );
     let out = root.join("fuzz/seeds");
     if out.exists() {
         fs::remove_dir_all(&out).with_context(|| format!("removing {}", out.display()))?;
@@ -174,10 +183,12 @@ fn seeds(root: &Path) -> Result<()> {
     write_seeds(&out.join("apply_patch"), &patch_seeds()?)?;
     write_seeds(&out.join("package_round_trip"), &specs)?;
 
+    // Every `cabin.toml` under both trees, each named by its path below
+    // the tree's parent (`examples-...`, `ports-...`).
     let mut manifests = Vec::new();
-    for tree in MANIFEST_TREES {
-        collect_manifests(root, &root.join(tree), &mut manifests)?;
-    }
+    collect_manifests(root, &root.join("examples"), &mut manifests)?;
+    let ports_parent = ports.parent().context("--ports has no parent directory")?;
+    collect_manifests(ports_parent, ports, &mut manifests)?;
     write_seeds(&out.join("parse_manifest"), &manifests)
 }
 
@@ -351,7 +362,7 @@ fn collect_manifests(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) 
             let rel = path
                 .parent()
                 .and_then(|parent| parent.strip_prefix(root).ok())
-                .context("a manifest outside the repository")?;
+                .context("a manifest outside its tree")?;
             let components: Vec<_> = rel.iter().map(|part| part.to_string_lossy()).collect();
             let name = format!("{}.toml", components.join("-"));
             let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;

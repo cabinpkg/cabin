@@ -53,8 +53,8 @@ export const SIGNIN_RESTRICTION =
     "other accounts cannot sign in.";
 
 // Shown wherever the site catalogs foundation ports, which are built
-// from the public recipes in ports/ but served only by the hosted
-// registry - closed to the public during its private alpha.
+// from the public recipes in cabin-ports/ports but served only by the
+// hosted registry - closed to the public during its private alpha.
 export const REGISTRY_PRIVATE_ALPHA =
     "The hosted Cabin registry is in private alpha and restricted to its " +
     "maintainer, so foundation ports are not available to the public " +
