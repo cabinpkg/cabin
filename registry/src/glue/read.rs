@@ -75,10 +75,10 @@ pub(super) async fn handle_registry(
     // answered the same way to a caller that presents a token, so the
     // verifier's fetches fail loudly on a rotated token instead of
     // reading as missing rows.
-    let anonymous_config = matches!(route, Route::Config)
+    let anonymous = route.is_public()
         && req.method() == Method::Get
         && req.headers().get("authorization")?.is_none();
-    let auth = if anonymous_config {
+    let auth = if anonymous {
         None
     } else {
         match authenticate(req, env, &db, ctx).await? {
@@ -246,7 +246,7 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
 /// `GET /catalog.json`: [`documents::catalog_json`] over every
 /// verified, non-yanked version's current revision, so it shows exactly
 /// what the package documents serve as resolvable.
-async fn catalog_response(db: &D1Database) -> worker::Result<Response> {
+pub(super) async fn catalog_response(db: &D1Database) -> worker::Result<Response> {
     let rows: Vec<documents::CatalogRow> =
         db.prepare(sql::CATALOG_VERSIONS).all().await?.results()?;
     match documents::catalog_json(&rows) {

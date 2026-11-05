@@ -25,7 +25,7 @@ use crate::governor::{self, Consume, Decision, OpPool, Refusal, StoragePool};
 use crate::{allowlist, breaker, quota, sql};
 
 use bearer::handle_website;
-use cron::{evaluate_budgets, reconcile_governor};
+use cron::{evaluate_budgets, reconcile_governor, refresh_website};
 use read::handle_registry;
 
 /// Mutation JSON is tiny. This shared cap covers the bearer and session
@@ -439,7 +439,8 @@ const BREAKER_CRON: &str = "*/15 * * * *";
 /// budgets, persist the resulting service mode - failed analytics
 /// queries leave their metric unset, which can escalate but never
 /// unblock writes, [`breaker::next_mode`]), then the governor
-/// reconciliation pass and a backup-queue drain. Any other trigger -
+/// reconciliation pass, the website catalog refresh, and a backup-queue
+/// drain. Any other trigger -
 /// the nightly `0 3 * * *`, or a temporary schedule added for an ops
 /// rehearsal - runs the D1 dump job, so exercising the backup path
 /// never needs a recompile.
@@ -450,7 +451,10 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
             console_error!("budget evaluation failed; keeping the last service mode: {err}");
         }
         match env.d1("DB") {
-            Ok(db) => reconcile_governor(&env, &db).await,
+            Ok(db) => {
+                reconcile_governor(&env, &db).await;
+                refresh_website(&env, &db).await;
+            }
             Err(err) => console_error!("governor reconciliation: no DB binding: {err}"),
         }
         crate::backup_glue::drain_backup_queue(&env).await;

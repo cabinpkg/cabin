@@ -388,6 +388,14 @@ changed while it ran.  `https://cabinpkg.com/catalog-provenance.json` records wh
 deployed site rendered: its `state` (`available` or `unavailable`) and, when available, the SHA-256
 of the catalog bytes.
 
+With the website's deploy hook configured, the registry compares that record every 15 minutes with
+what the route answers anonymously at that moment and, when they differ, triggers a website rebuild
+through the hook: at most once per
+pass and three times per catalog, after which it only logs until the catalog changes or the site
+catches up.  While the triggered builds succeed, the site therefore lags the registry by at most one
+such interval plus a build, plus the route's 60-second edge cache, and a deploy that overwrites a
+newer one with an older catalog is corrected the same way.
+
 ## Publish
 
 ```text

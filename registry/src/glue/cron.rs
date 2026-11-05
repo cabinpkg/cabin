@@ -1,13 +1,19 @@
-//! The breaker cron's budget evaluation and governor reconciliation.
+//! The breaker cron's budget evaluation, governor reconciliation, and
+//! website catalog refresh.
 
 use serde::Deserialize;
-use worker::{D1Database, Env, console_error, console_log};
+use sha2::{Digest, Sha256};
+use worker::{D1Database, Env, Fetch, Method, Request, RequestInit, console_error, console_log};
 
+use crate::catalog_refresh::{self, Target};
 use crate::governor::{self, StoragePool};
 use crate::governor_client::{self};
-use crate::{analytics, backup, breaker, sql, verify};
+use crate::routes::Route;
+use crate::{analytics, auth, backup, breaker, sql, verify};
 
-use super::{CountRecord, non_negative, now_iso8601, post_json, read_meta, upsert_meta};
+use super::{
+    CountRecord, non_negative, now_iso8601, post_json, read_meta, upsert_meta, web_origin,
+};
 
 #[derive(Deserialize)]
 struct LiveBlobRecord {
@@ -95,6 +101,80 @@ pub(super) async fn push_live_set_to_governor(
         live,
     };
     Ok(governor_client::reconcile(env, &request).await)
+}
+
+/// The website catalog refresh ([`catalog_refresh`]), dormant until the
+/// `WEBSITE_DEPLOY_HOOK` secret (a Workers Builds deploy hook of
+/// `cabin-website`) is set. Failures only log; the next pass retries.
+pub(super) async fn refresh_website(env: &Env, db: &D1Database) {
+    let Ok(hook) = env.secret("WEBSITE_DEPLOY_HOOK") else {
+        return;
+    };
+    if let Err(err) = try_refresh_website(env, db, &hook.to_string()).await {
+        console_error!("website refresh: {err}");
+    }
+}
+
+async fn try_refresh_website(env: &Env, db: &D1Database, hook: &str) -> worker::Result<()> {
+    // What the website's anonymous deploy fetch gets, by the read
+    // plane's own admission rule.
+    let target = if Route::Catalog.is_public() {
+        let mut catalog = super::read::catalog_response(db).await?;
+        if catalog.status_code() != 200 {
+            return Err(worker::Error::RustError(
+                "the catalog did not compose".to_owned(),
+            ));
+        }
+        Target::Available(auth::hex(&Sha256::digest(catalog.bytes().await?)))
+    } else {
+        Target::Unavailable
+    };
+    let url = format!("{}/catalog-provenance.json", web_origin(env)?);
+    let mut deployed = Fetch::Request(Request::new(&url, Method::Get)?)
+        .send()
+        .await?;
+    if deployed.status_code() != 200 {
+        return Err(worker::Error::RustError(format!(
+            "{url} answered {}",
+            deployed.status_code()
+        )));
+    }
+    let provenance = deployed.text().await?;
+    let stored = read_meta(db, catalog_refresh::META_KEY).await?;
+    if catalog_refresh::is_current(&provenance, &target) {
+        if stored.as_deref().is_some_and(|value| !value.is_empty()) {
+            upsert_meta(db, catalog_refresh::META_KEY, "")?
+                .run()
+                .await?;
+        }
+        return Ok(());
+    }
+    let Some(next) = catalog_refresh::next_trigger(stored.as_deref(), &target) else {
+        console_error!(
+            "website refresh: the site still lacks the current catalog after {} rebuilds; \
+             waiting for the catalog to change or the site to catch up",
+            catalog_refresh::MAX_TRIGGERS
+        );
+        return Ok(());
+    };
+    // Counted before the POST, so a failing meta write cannot leave
+    // triggers uncounted.
+    upsert_meta(db, catalog_refresh::META_KEY, &next)?
+        .run()
+        .await?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post);
+    let triggered = Fetch::Request(Request::new_with_init(hook, &init)?)
+        .send()
+        .await?;
+    if !(200..300).contains(&triggered.status_code()) {
+        return Err(worker::Error::RustError(format!(
+            "the deploy hook answered {}",
+            triggered.status_code()
+        )));
+    }
+    console_log!("website refresh: triggered a rebuild ({next})");
+    Ok(())
 }
 
 /// One usage snapshot: the exact self-accounted storage plus the
