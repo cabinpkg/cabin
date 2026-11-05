@@ -206,10 +206,10 @@ shared materializer, and are catalogued with
 
 ## Publishing ports as registry packages
 
-The repository tool `xtask-port-publish` (`crates/xtask-port-publish`, a `publish = false`
-workspace crate that is not part of the shipped `cabin` binary) publishes every committed port as
-an ordinary registry package under the **`cabin-ports`** scope, verbatim from the manifest
-committed in it.  The rules that manifest must meet:
+The `port-publish` tool of [`cabin-ports/ports`](https://github.com/cabin-ports/ports), a
+repository-owned package that is not part of the shipped `cabin` binary, publishes every port
+committed there as an ordinary registry package under the **`cabin-ports`** scope, verbatim from
+the manifest committed in it.  The rules that manifest must meet:
 
 - **Identity.**  `cabin-ports/<name>`, declared by the manifest itself, with `<name>` spelled
   exactly as the port directory (`cjson/` declares `cabin-ports/cjson`; the upstream `cJSON`
@@ -269,10 +269,13 @@ its declared patches from the port directory, so `tests/` is never published: ed
 changes no archive bytes.  The ports pull-request dry-run runs on Linux, macOS, and Windows.
 
 ```console
-$ cargo build -p cabinpkg
-$ cargo port-publish --dry-run
-$ cargo port-publish --publish --index-url https://registry.cabinpkg.com
+$ cargo run --locked -- --dry-run --cabin <cabin>
+$ cargo run --locked -- --publish --cabin <cabin> --index-url https://registry.cabinpkg.com
 ```
+
+Run them from a `cabin-ports/ports` checkout.  `<cabin>` is a `cabin` binary built from the Cabin
+commit the tool's own Cabin crates are pinned to; that repository's `README.md` has the commands
+that install it.
 
 `--dry-run` stops after the preflight.  `--publish` performs the same preflight (building, not
 running, the probes) and then uploads
@@ -291,18 +294,17 @@ archives, so a rerun stays a no-op either way.
 
 ### Publish automation
 
-The workflow `.github/workflows/ports-publish.yml` automates the tool.  Every pull request that
-can change the dry-run's result runs the complete `--dry-run` preflight with no secrets, on
-Linux, macOS, and Windows: the `ports-dry-run` filter in `.github/path-filters.yml` matches the
-ports, every crate in the dependency closure of the `cabin` binary and the publisher (checked by
-`cargo workflow-filter-coverage`), and the build configuration.  Publishing is manual only: dispatching the
-workflow from `main` publishes the set to `https://registry.cabinpkg.com` (dispatching it on any
-other ref runs the dry-run instead, never a publish), so a ports change merged to `main` reaches
-the registry at the next dispatch - and the same dispatch is the recovery path after a
-pre-launch registry wipe.  Dispatching with the `exchange-check` input
+The `cabin-ports/ports` workflows automate the tool.  Every pull request there runs the
+complete `--dry-run` preflight with no secrets, on Linux, macOS, and Windows (`ci.yml`).
+Publishing is manual only: dispatching `publish.yml` from `main` publishes the set to
+`https://registry.cabinpkg.com` (a dispatch on any other ref publishes nothing), so a ports
+change merged to `main` reaches the registry at the next dispatch - and the same dispatch is the
+recovery path after a pre-launch registry wipe.  The run first waits for a registry deploy whose
+Cabin commit contains the one the tool is pinned to, so the client never sends metadata the
+running registry does not accept.  Dispatching with the `exchange-check` input
 instead exchanges and immediately revokes a trusted-publishing token, proving the registered
-binding end to end while publishing nothing.  Publish runs are serialized and an active run is
-never cancelled; a run superseded by a newer commit on `main` skips its upload instead
+binding end to end while publishing nothing.  Publish runs are serialized and queued, never
+cancelled; a run superseded by a newer commit on `main` skips its upload instead
 of immutably publishing an intermediate state, and nothing publishes again until the next
 dispatch.  The check runs immediately before the publish
 command, whose own preflight still takes minutes - a commit landing inside that residual window
@@ -314,9 +316,9 @@ to the `cabin-ports` scope, revoking it on the way out (see
 [Trusted publishing](remote-registry.md#trusted-publishing); which workflows may exchange is
 operator-registered registry data).  Upstream archives restored from the CI cache are never trusted: the
 tool re-hashes every cached archive against the checksum its port's `[package.upstream]` pins,
-and re-downloads on a mismatch.  The workflow publishes this
-repository's copy of the ports, which matches the one in `cabin-ports/ports`; the `cabin-ports`
-GitHub organization is the registry scope authority.
+and re-downloads on a mismatch.  The `cabin-ports` GitHub organization owns that repository and
+is the registry scope's authority; registered trusted publishing admits only its `publish.yml`
+on `main`.
 
 ### Packaging revisions
 

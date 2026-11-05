@@ -153,13 +153,13 @@ pub fn run(mode: Mode) -> Result<()> {
     if matches!(mode, Mode::Remote) {
         // The one follow-up that must happen BEFORE the wipe, so it is
         // printed before the confirmation rather than with the others:
-        // a ports-publish run mints its own publish token through the
+        // a ports publish run mints its own publish token through the
         // trusted-publishing exchange, and the post-wipe governor wipe
         // refuses while any live publish token exists.
         println!(
-            "before wiping: gh workflow disable ports-publish.yml, cancel any in-flight \
-             ports-publish or registry-verify run, and stay clear of the 03:00 UTC nightly \
-             dump (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
+            "before wiping: gh workflow disable publish.yml -R cabin-ports/ports, cancel any \
+             in-flight ports publish or registry-verify run, and stay clear of the 03:00 UTC \
+             nightly dump (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
         );
         or_fail(confirm());
     }
@@ -315,9 +315,9 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, \"Post-wipe re-provisioning
      empty.  Its no-delayed-publisher evidence gate requires zero live
      publish tokens and a login-session token carries publish, so block
      writes first, wait out the in-flight window (~5 min), then run under
-     writes_blocked - the gate clears on that path; ports-publish stays
-     disabled until the next step
-  5. re-enable ports-publish (gh workflow enable ports-publish.yml),
+     writes_blocked - the gate clears on that path; the ports publish
+     workflow stays disabled until the next step
+  5. re-enable it (gh workflow enable publish.yml -R cabin-ports/ports),
      prove the binding with an exchange-check dispatch, then dispatch
      it plainly from main to republish the set - no publish token or
      secret to mint: each run's OIDC exchange is the credential
