@@ -471,10 +471,10 @@ jobs:
 
   # Ships the artifact above on a fresh runner that compiles nothing:
   # the deploy credential never shares a runner with a build. The job
-  # and Deploy step names are read by ports-publish's deploy wait.
+  # and Deploy step names are read by cabin-ports/ports' deploy wait.
   deploy-registry:
     # Runs, and fails, when the build failed: a skipped job would read
-    # as "nothing to deploy" to ports-publish's deploy wait.
+    # as "nothing to deploy" to cabin-ports/ports' deploy wait.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true' }}
     needs: [changes, build-registry-worker]
     runs-on: ubuntu-26.04

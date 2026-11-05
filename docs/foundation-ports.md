@@ -359,6 +359,11 @@ $ cargo perf run --ports website/.ports/ports
 $ cargo fuzz-seeds --ports website/.ports/ports
 ```
 
+Pull requests that change what `cabin` builds also run that commit's publisher preflight
+(`--dry-run`, see [Publishing ports as registry packages](#publishing-ports-as-registry-packages))
+with the pull request's own `cabin` on Linux, macOS, and Windows, so every port keeps building
+with the candidate client.
+
 The catalog those consumers see changes only through a pull request that moves the pin to a newer
 commit on that repository's `main`.
 

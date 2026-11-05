@@ -39,13 +39,9 @@ pub fn surfaces(changed: &[String]) -> Surfaces {
             .any(|path| prefixes.iter().any(|prefix| path.starts_with(prefix)))
     };
     Surfaces {
-        // `ports/` counts as a Rust surface: the publisher's
-        // committed-tree guard catches incomplete version directories,
-        // so a ports-only change still has to run the Rust gate.
         rust: any(&[
             "crates/",
             "examples/",
-            "ports/",
             "Cargo.",
             ".cargo/",
             "rust-toolchain",
@@ -69,7 +65,6 @@ mod tests {
         for path in [
             "crates/cabin/src/lib.rs",
             "examples/hello-c/cabin.toml",
-            "ports/zlib/1.3.1/cabin.toml",
             "Cargo.toml",
             "Cargo.lock",
             ".cargo/config.toml",
@@ -95,20 +90,6 @@ mod tests {
         }
         assert!(!of(&["crates/cabin/src/lib.rs"]).website);
         assert!(!of(&["CONTRIBUTING.md"]).website);
-    }
-
-    /// The website reads the pinned catalog, not the committed tree, so
-    /// a committed port alone is no website change.
-    #[test]
-    fn committed_ports_touch_only_the_rust_surface() {
-        let touched = of(&["ports/zlib/1.3.1/cabin.toml"]);
-        assert_eq!(
-            touched,
-            Surfaces {
-                rust: true,
-                website: false,
-            }
-        );
     }
 
     #[test]

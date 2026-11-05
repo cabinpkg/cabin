@@ -1,7 +1,7 @@
 # libpng-usage
 
 A consumer example for the `cabin-ports/libpng` registry package, published from the curated
-[`ports/libpng/1.6.59/`](../../ports/libpng/1.6.59/)
+[`ports/libpng/1.6.59/`](https://github.com/cabin-ports/ports/tree/main/ports/libpng/1.6.59/)
 package directory.
 The program creates a libpng read struct, prints the libpng version, and prints the zlib version
 it calls directly.

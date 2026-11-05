@@ -1,0 +1,87 @@
+name: Ports Dry Run
+
+# Builds every foundation port of the cabin-ports/ports commit that
+# ports-revision pins with this pull request's `cabin`, through that
+# repository's publisher preflight (docs/foundation-ports.md, "The
+# pinned catalog"), on each platform the ports must support. Publishes
+# nothing and holds no credential.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # Which shared path filters (.github/path-filters.yml) match this
+  # pull request; the dry-run skips when its filter does not.
+  changes:
+    # The gate's token comes from this job: a called workflow can
+    # never exceed the calling job's permissions.
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/changes.yml
+
+  dry-run:
+    needs: changes
+    if: needs.changes.outputs.ports-dry-run == 'true'
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-26
+          - windows-2025-vs2026
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # No caches: a pull request's saves are restorable only by that
+      # pull request, so they almost never hit and only evict others.
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+
+      # Outside this workspace, which Cargo would otherwise take as the
+      # checkout's own. Only a commit on main: its history is never
+      # rewritten. The pin is read from the blob, since Windows checks
+      # the file out with CRLF.
+      - name: Check out the pinned cabin-ports/ports
+        shell: bash
+        run: |
+          git clone --quiet https://github.com/cabin-ports/ports "$RUNNER_TEMP/cabin-ports"
+          git -C "$RUNNER_TEMP/cabin-ports" merge-base --is-ancestor "$(git show HEAD:ports-revision)" origin/main
+          git -C "$RUNNER_TEMP/cabin-ports" checkout --quiet --detach "$(git show HEAD:ports-revision)"
+
+      - name: Build cabin
+        run: cargo build --locked -p cabinpkg
+
+      # pwsh on every platform: on Windows, Git Bash's `link.exe` would
+      # shadow MSVC's.
+      - name: Run the publisher dry-run
+        shell: pwsh
+        working-directory: ${{ runner.temp }}/cabin-ports
+        env:
+          CABIN: ${{ github.workspace }}/target/debug/cabin${{ runner.os == 'Windows' && '.exe' || '' }}
+          CABIN_CACHE_DIR: ${{ runner.temp }}/cabin-cache
+          # Windows' default %TEMP% sits on C:, slower than RUNNER_TEMP's
+          # D:; the publisher's scratch tree and MSVC's temporaries follow TMP.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+        run: cargo run --locked -- --dry-run --cabin $env:CABIN

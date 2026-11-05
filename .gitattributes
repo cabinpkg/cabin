@@ -1,3 +1,2 @@
 .github/workflows/*.lock.yml linguist-generated=true
 fuzz/seeds/apply_patch/** -text
-ports/**/*.patch -text

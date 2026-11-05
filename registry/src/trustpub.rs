@@ -53,8 +53,8 @@ const LEEWAY_SECONDS: i64 = 60;
 
 /// How long a minted exchange token lives. Well inside the schema's
 /// one-day trustpub ceiling; long enough for one `cabin publish`
-/// invocation - a port-publish batch (`BATCH_SIZE` in
-/// `crates/xtask-port-publish/src/remote.rs`) - to publish on the one
+/// invocation - a port-publish batch (`BATCH_SIZE` in `cabin-ports/ports`'
+/// `src/remote.rs`) - to publish on the one
 /// token (the token is multi-use within the TTL).
 pub const TOKEN_TTL_SECS: i64 = 30 * 60;
 

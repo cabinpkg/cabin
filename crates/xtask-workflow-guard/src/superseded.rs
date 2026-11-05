@@ -1,12 +1,11 @@
 //! The freshness guard: the "Skip when superseded by a newer main
-//! commit" step of `.github/workflows/registry.yml` and
-//! `.github/workflows/ports-publish.yml`.
+//! commit" step of `.github/workflows/registry.yml`.
 //!
 //! `--relevant-to <filter>` scopes the check through the shared filter
 //! file instead of a duplicated list: only newer commits matching that
 //! filter's entries in `.github/path-filters.yml` supersede this run.
 //! A newer commit matching none of them cannot change what this run
-//! deploys or publishes, so skipping for it would strand this run's
+//! deploys, so skipping for it would strand this run's
 //! work with no later run redoing it.
 //!
 //! The entries reach git as `:(glob)` pathspecs, and `!` entries as
@@ -17,7 +16,7 @@
 //! newer commit that changed those paths on either side of one.
 //!
 //! Failure direction: **every failure fails the step**, so the deploy
-//! or publish it gates never runs on an unanswered question. A failed
+//! it gates never runs on an unanswered question. A failed
 //! fetch, a `$GITHUB_SHA` that is unset or not a full lowercase commit
 //! id, a `rev-list` that exits non-zero (an unknown commit, a shallow
 //! clone not containing it), and a named list that defies the strict

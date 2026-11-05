@@ -35,7 +35,6 @@ members = [
   # Repository tooling. `xtask-*` crates are `publish = false` maintainer
   # tools reached through the aliases in .cargo/config.toml, never part of
   # the shipped surface (AGENTS.md, "Repository automation").
-  "crates/xtask-port-publish",
   "crates/xtask-bench",
   "crates/xtask-ci",
   "crates/xtask-demo",

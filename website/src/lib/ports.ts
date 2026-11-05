@@ -35,7 +35,7 @@ export function loadPortsAsPackageRecords(): Promise<PackageRecord[]> {
 
 // Exported with an explicit directory so tests can exercise the
 // loader against fixture trees; the site itself always loads the
-// committed ports tree.
+// pinned ports checkout.
 export async function loadPortsFromDir(
     portsDir: string,
 ): Promise<PackageRecord[]> {
