@@ -28,8 +28,6 @@ on:
         value: ${{ jobs.changes.outputs.registry-build }}
       tlc:
         value: ${{ jobs.changes.outputs.tlc }}
-      ports-dry-run:
-        value: ${{ jobs.changes.outputs.ports-dry-run }}
       docker:
         value: ${{ jobs.changes.outputs.docker }}
       dist:
@@ -52,7 +50,6 @@ jobs:
       registry: ${{ steps.filter.outputs.registry }}
       registry-build: ${{ steps.filter.outputs.registry-build }}
       tlc: ${{ steps.filter.outputs.tlc }}
-      ports-dry-run: ${{ steps.filter.outputs.ports-dry-run }}
       docker: ${{ steps.filter.outputs.docker }}
       dist: ${{ steps.filter.outputs.dist }}
       filter-file: ${{ steps.filter-file.outputs.changed }}

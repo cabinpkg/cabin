@@ -142,31 +142,6 @@ tlc:
   - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
-# ports-dry-run.yml: the cabin-ports/ports commit ports-revision pins and
-# every crate but those outside what it builds, which
-# `cargo workflow-filter-coverage` checks.
-ports-dry-run:
-  - "ports-revision"
-  - "crates/**"
-  - "!crates/cabin-registry-verify/**"
-  - "!crates/xtask-bench/**"
-  - "!crates/xtask-ci/**"
-  - "!crates/xtask-demo/**"
-  - "!crates/xtask-dist/**"
-  - "!crates/xtask-fuzz/**"
-  - "!crates/xtask-registry-admin/**"
-  - "!crates/xtask-registry-fixtures/**"
-  - "!crates/xtask-registry-guard/**"
-  - "!crates/xtask-registry-smoke/**"
-  - "!crates/xtask-workflow-guard/**"
-  - "Cargo.toml"
-  - "Cargo.lock"
-  - "rust-toolchain.toml"
-  - ".cargo/**"
-  - ".github/workflows/ports-dry-run.yml"
-  - ".github/workflows/changes.yml"
-  - ".github/path-filters.yml"
-
 # docker.yml proves the packaging only; a docker-only breakage
 # surfaces on the next Dockerfile-touching change (accepted).
 docker:
