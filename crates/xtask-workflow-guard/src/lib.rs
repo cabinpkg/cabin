@@ -1,12 +1,12 @@
 //! Guards that keep an out-of-order or premature workflow run from
 //! mutating a shared resource, decided from repository files, git
-//! history and the GitHub Actions run context.
+//! history and GitHub Actions run state.
 //!
 //! This is the only crate allowed to read `GITHUB_*` context, write
 //! `$GITHUB_OUTPUT` / `$GITHUB_ENV`, and call the GitHub REST API. It
 //! never touches the live registry service and never performs the
-//! mutation it gates - it reads committed repository state and the
-//! run's own context, and only decides whether the mutation may
+//! mutation it gates - it reads committed repository state and GitHub
+//! Actions run state, and only decides whether the mutation may
 //! proceed. It holds no secret beyond the run's own `GITHUB_TOKEN`.
 
 use std::fs::OpenOptions;
