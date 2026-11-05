@@ -731,10 +731,9 @@ mod tests {
             "aud": DEFAULT_AUDIENCE,
             "exp": NOW + 600,
             "jti": "jti-0001",
-            "repository_id": 119_684_778,
-            "repository_owner_id": 35_998_702,
-            "workflow_ref":
-                "cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main",
+            "repository_id": 1_446_491_029,
+            "repository_owner_id": 308_231_483,
+            "workflow_ref": "cabin-ports/ports/.github/workflows/publish.yml@refs/heads/main",
             "ref": "refs/heads/main",
         })
     }
@@ -755,9 +754,9 @@ mod tests {
             GithubClaims {
                 jti: "jti-0001".into(),
                 verifiable_until: NOW + 600 + LEEWAY_SECONDS,
-                repository_id: 119_684_778,
-                repository_owner_id: 35_998_702,
-                workflow_ref: "cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main"
+                repository_id: 1_446_491_029,
+                repository_owner_id: 308_231_483,
+                workflow_ref: "cabin-ports/ports/.github/workflows/publish.yml@refs/heads/main"
                     .into(),
                 git_ref: "refs/heads/main".into(),
                 environment: None,
@@ -1216,7 +1215,7 @@ mod tests {
     fn base_config() -> TrustpubConfig {
         TrustpubConfig {
             scope: "cabin-ports".to_owned(),
-            workflow_filename: "ports-publish.yml".to_owned(),
+            workflow_filename: "publish.yml".to_owned(),
             git_ref: Some("refs/heads/main".to_owned()),
             environment: None,
             quota_class: "operator".to_owned(),
@@ -1320,7 +1319,7 @@ mod tests {
         other.workflow_filename = "release.yml".to_owned();
         let configs = [other, base_config()];
         let selected = select_config(&claims, &configs).expect("one match");
-        assert_eq!(selected.workflow_filename, "ports-publish.yml");
+        assert_eq!(selected.workflow_filename, "publish.yml");
         let mut second_scope = base_config();
         second_scope.scope = "other-scope".to_owned();
         let configs = [base_config(), second_scope];
@@ -1376,13 +1375,8 @@ mod tests {
 
     #[test]
     fn verifier_pins_refuse_each_mismatched_claim() {
-        let pins = VerifierPins::parse(
-            "35998702",
-            "119684778",
-            "ports-publish.yml",
-            "refs/heads/main",
-        )
-        .expect("pins parse");
+        let pins = VerifierPins::parse("308231483", "1446491029", "publish.yml", "refs/heads/main")
+            .expect("pins parse");
         let claims = parsed_claims();
         assert_eq!(pins.refuses(&claims), None);
         let mut wrong = claims.clone();
@@ -1393,7 +1387,7 @@ mod tests {
         assert_eq!(pins.refuses(&wrong), Some("repository_id"));
         let mut wrong = claims.clone();
         wrong.workflow_ref =
-            "cabinpkg/cabin/.github/workflows/other.yml@refs/heads/main".to_owned();
+            "cabin-ports/ports/.github/workflows/other.yml@refs/heads/main".to_owned();
         assert_eq!(pins.refuses(&wrong), Some("workflow filename"));
         // A workflow_ref no filename can be extracted from fails the
         // same pin - never a pass-through.
@@ -1473,7 +1467,7 @@ mod tests {
             rusqlite::params![
                 token_id,
                 owner,
-                "trusted-publishing: ports-publish.yml",
+                "trusted-publishing: publish.yml",
                 token_hash,
                 created_at,
                 expires_at,

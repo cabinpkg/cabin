@@ -59,11 +59,11 @@ fn the_trustpub_seed_names_the_ports_publishing_workflow() {
         row,
         (
             "cabin-ports".to_owned(),
-            // The cabinpkg organization and cabinpkg/cabin, by their
-            // immutable numeric GitHub ids.
-            35_998_702,
-            119_684_778,
-            "ports-publish.yml".to_owned(),
+            // The cabin-ports organization and cabin-ports/ports, by
+            // their immutable numeric GitHub ids (migration 0002).
+            308_231_483,
+            1_446_491_029,
+            "publish.yml".to_owned(),
             Some("refs/heads/main".to_owned()),
             None,
             "operator".to_owned(),

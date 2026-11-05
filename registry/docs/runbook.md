@@ -417,14 +417,16 @@ verifier needs no re-provisioning at all (see "Verification pipeline").
 
 Do the whole sequence in one sitting, in this order - two of the steps
 gate on each other and doing them out of order costs a revoke-and-remint
-round trip (drilled 2026-07-29). Before the wipe itself, disable
-ports-publish (`gh workflow disable ports-publish.yml`) and cancel any
-in-flight ports-publish run: publish runs exist only from a manual
-dispatch, but one mid-ceremony would mint its own publish token
+round trip (drilled 2026-07-29). Before the wipe itself, disable the
+ports publish workflow (`gh workflow disable publish.yml -R
+cabin-ports/ports`) and cancel any in-flight run of it: publish runs
+exist only from a manual dispatch, but one mid-ceremony would mint its
+own publish token
 through the trusted-publishing exchange - the governor wipe in step 4
-refuses while any live publish token exists - and a run left polling
-in its deploy wait would publish the moment step 1's merge deploys,
-before the governor gate has run. Re-enable it in step 5.
+refuses while any live publish token exists - and a run left going
+would publish into the wiped registry as soon as its deploy wait finds
+a deploy containing its pinned Cabin commit, usually at once, before
+the governor gate has run. Re-enable it in step 5.
 The backup bucket has writers no disabled workflow or blocked write
 stops, so quiesce them too: dispatch no `registry-verify` run and let an
 in-flight one finish (a verdict queues a backup copy), confirm the queue
@@ -472,8 +474,9 @@ serves - makes step 4 refuse rather than undercount.
    harmless. Never do that for a key with a `.` or `..` path segment:
    no registry writer produces one, and its delete URL resolves to
    another path of the API - the bucket's own, at worst.
-5. Re-enable ports-publish (`gh workflow enable ports-publish.yml`),
-   prove the trusted-publishing binding with an `exchange-check`
+5. Re-enable the ports publish workflow (`gh workflow enable
+   publish.yml -R cabin-ports/ports`), prove the trusted-publishing
+   binding with an `exchange-check`
    dispatch (exchange + immediate revocation, publishes nothing), then
    dispatch it plainly from `main` to republish the set. There is no
    publish token to mint and no `CABIN_PORTS_TOKEN` secret: the run's

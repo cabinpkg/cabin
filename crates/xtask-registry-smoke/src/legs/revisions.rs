@@ -355,7 +355,7 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
         Some(br#"{"jwt":"not-a-jwt"}"#),
     )?;
     let jwt = smoke.mint_verifier_jwt(
-        r#"{"aud":"cabinpkg.com","workflow_ref":"cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main"}"#,
+        r#"{"aud":"cabinpkg.com","repository_owner_id":"308231483","repository_id":"1446491029","workflow_ref":"cabin-ports/ports/.github/workflows/publish.yml@refs/heads/main"}"#,
     )?;
     let body = format!(r#"{{"jwt":"{jwt}"}}"#);
     // The migration-seeded cabin-ports config matches this JWT; back
