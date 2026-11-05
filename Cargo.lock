@@ -295,7 +295,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "which",
- "xtask-port-publish",
  "zip",
 ]
 
@@ -558,12 +557,18 @@ name = "cabinpkg-publish"
 version = "0.18.0"
 dependencies = [
  "assert_fs",
+ "cabinpkg-artifact",
  "cabinpkg-core",
+ "cabinpkg-index-http",
+ "cabinpkg-manifest",
  "cabinpkg-package",
  "cabinpkg-registry-file",
  "camino",
+ "flate2",
  "predicates",
  "semver",
+ "sha2",
+ "tar",
  "thiserror",
 ]
 
@@ -3125,7 +3130,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tiny_http",
- "xtask-port-publish",
 ]
 
 [[package]]
@@ -3177,13 +3181,10 @@ version = "0.18.0"
 dependencies = [
  "anyhow",
  "assert_fs",
- "cabinpkg-artifact",
  "cabinpkg-core",
  "cabinpkg-env",
- "cabinpkg-index-http",
  "cabinpkg-manifest",
  "cabinpkg-publish",
- "camino",
  "clap",
  "etcetera",
  "flate2",

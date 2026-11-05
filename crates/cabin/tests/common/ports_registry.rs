@@ -1,11 +1,10 @@
 //! Registry-fixture staging for integration tests that consume
 //! `cabin-ports/*` packages.
 //!
-//! Fixtures are generated through the publisher's own pipeline
-//! (`xtask_port_publish`): discovery via `plan::load_conversions`,
-//! then materialization + file-registry publish via
-//! `preflight::stage_conversion`.  Tests therefore
-//! consume byte-identical packages to what `xtask-port-publish`
+//! Fixtures are generated through the foundation-port publisher's
+//! own staging step (`cabin_publish::upstream`): materialization
+//! from the pinned archive, then the file-registry publish.  Tests
+//! therefore consume byte-identical packages to what the publisher
 //! stages, instead of hand-written index metadata that could drift
 //! from the real conversion rules.
 
@@ -13,8 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use xtask_port_publish::plan;
-use xtask_port_publish::preflight::{ArchiveFetch, stage_conversion};
+use cabin_publish::upstream::{ArchiveFetch, stage_committed_package};
 
 /// Writer for a small executable package consuming `cabin-ports/*`
 /// registry dependencies, shared by the registry-ports test modules.
@@ -105,19 +103,40 @@ struct StagedCommitted {
 }
 
 fn stage(ports_dir: &Path, cache_dir: &Path, work_dir: &Path, fetch: ArchiveFetch) -> PathBuf {
-    let conversions = plan::load_conversions(ports_dir).expect("load committed ports");
     let registry_dir = work_dir.join("registry");
     let sources_dir = work_dir.join("src");
     let ports_cache = cache_dir.join("ports");
-    for conversion in &conversions {
-        stage_conversion(conversion, &ports_cache, &sources_dir, &registry_dir, fetch)
+    let mut staged = 0;
+    // `<name>/<version>/` directories; a file registry accepts
+    // packages in any order, so no publication order is needed.
+    for name_dir in sorted_dirs(ports_dir) {
+        for package_dir in sorted_dirs(&name_dir) {
+            stage_committed_package(
+                &package_dir,
+                &ports_cache,
+                &sources_dir,
+                &registry_dir,
+                fetch,
+            )
             .unwrap_or_else(|err| {
                 panic!(
-                    "staging {} {} into the fixture registry: {err:#}",
-                    conversion.scoped_name.as_str(),
-                    conversion.published_version
+                    "staging {} into the fixture registry: {err}",
+                    package_dir.display()
                 )
             });
+            staged += 1;
+        }
     }
+    assert!(staged > 0, "no ports found under {}", ports_dir.display());
     registry_dir
+}
+
+fn sorted_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = fs::read_dir(dir)
+        .unwrap_or_else(|err| panic!("reading {}: {err}", dir.display()))
+        .map(|entry| entry.expect("ports directory entry").path())
+        .filter(|path| path.is_dir())
+        .collect();
+    dirs.sort();
+    dirs
 }

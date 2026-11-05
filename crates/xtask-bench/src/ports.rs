@@ -1,13 +1,13 @@
 //! Real-world inputs: a few committed foundation ports, staged into a
-//! file registry by the publisher's own pipeline.  The first staging
-//! downloads the pinned upstream archives; later runs reuse them.
+//! file registry by the publisher's own staging step
+//! (`cabin_publish::upstream`).  The first staging downloads the
+//! pinned upstream archives; later runs reuse them.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use xtask_port_publish::plan;
-use xtask_port_publish::preflight::{self, ArchiveFetch};
+use cabin_publish::upstream::{ArchiveFetch, stage_committed_package};
 
 /// Two C and two C++ libraries, one with an inter-port dependency.
 pub const PORTS: [(&str, &str); 4] = [
@@ -18,21 +18,26 @@ pub const PORTS: [(&str, &str); 4] = [
 ];
 
 pub fn stage_registry(repo: &Path, download_cache: &Path, work: &Path) -> Result<PathBuf> {
-    let conversions = plan::load_conversions(&repo.join("ports")).context("loading ports/")?;
+    let ports = repo.join("ports");
     let registry = work.join("registry");
-    for conversion in conversions.iter().filter(|c| {
-        PORTS
-            .iter()
-            .any(|(name, _)| *name == c.scoped_name.as_str())
-    }) {
-        preflight::stage_conversion(
-            conversion,
-            download_cache,
-            &work.join("src"),
-            &registry,
-            ArchiveFetch::CacheOrDownload,
-        )
-        .with_context(|| format!("staging {}", conversion.scoped_name.as_str()))?;
+    for (name, _) in PORTS {
+        let name_dir = ports.join(name.trim_start_matches("cabin-ports/"));
+        let mut versions = std::fs::read_dir(&name_dir)
+            .with_context(|| format!("reading {}", name_dir.display()))?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        versions.retain(|path| path.is_dir());
+        versions.sort();
+        for package_dir in versions {
+            stage_committed_package(
+                &package_dir,
+                download_cache,
+                &work.join("src"),
+                &registry,
+                ArchiveFetch::CacheOrDownload,
+            )
+            .with_context(|| format!("staging {}", package_dir.display()))?;
+        }
     }
     Ok(registry)
 }

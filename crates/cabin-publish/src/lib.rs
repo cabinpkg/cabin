@@ -10,8 +10,13 @@
 //!   `cabin-registry-file` to mutate (or validate without
 //!   mutating) a local file registry.
 //!
+//! [`upstream`] stages a committed package that declares
+//! `[package.upstream]` into a publishable directory first.
+//!
 //! Crate boundaries:
-//! - this crate must not implement HTTP / sparse / OCI publish;
+//! - this crate must not implement HTTP / sparse / OCI publish; its
+//!   only network access is [`upstream`]'s pinned-archive download
+//!   through `cabin-index-http`;
 //! - it must not implement server-side functionality;
 //! - file-registry layout, atomic-ish writes, and the lock file all
 //!   live in `cabin-registry-file`;
@@ -23,6 +28,7 @@ pub mod dry_run;
 pub mod error;
 pub mod lints;
 pub mod registry;
+pub mod upstream;
 
 pub use dry_run::{DryRunReport, DryRunRequest, dry_run};
 pub use error::PublishError;
