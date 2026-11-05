@@ -202,3 +202,32 @@ jobs:
           status="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE https://cabinpkg.com/api/v1/trusted_publishing/tokens -H "Authorization: Bearer $token")"
           echo "revocation answered $status"
           test "$status" = 204
+
+  # TEMPORARY PR probe (removed before merge): the guard waits on an
+  # explicit target other than this run's own SHA.
+  await-deploy-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+      - name: A deployed commit answers 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo workflow-await-deploy --repository cabinpkg/cabin --sha 54227ced113827fdf83c0e807e6385e50111aeca
+      - name: An empty target is refused
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          cargo workflow-await-deploy --repository cabinpkg/cabin --sha ""
+          status=$?
+          echo "exit $status"
+          test "$status" -eq 1
