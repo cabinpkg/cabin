@@ -203,6 +203,13 @@ fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
             text(&smoke.body)
         );
     }
+    smoke.check("/catalog.json", &[200])?;
+    if contains(
+        &smoke.body,
+        format!(r#""name":"{}""#, scoped_name(inputs)).as_bytes(),
+    ) {
+        bail!("the catalog lists a pending package: {}", text(&smoke.body));
+    }
     smoke.as_publisher();
     // And they have no backup copy: only versions that become verified
     // enter the durable backup set (the verdict batch enqueues the
@@ -405,6 +412,14 @@ fn real_verification(
     smoke.expect_body(r#""changed":true"#)?;
 
     smoke.as_publisher();
+    smoke.check("/catalog.json", &[200])?;
+    smoke.expect_body(&format!(
+        r#""name":"{}","latest":"{}","versions":[{{"version":"{}","revision":"{}""#,
+        scoped_name(inputs),
+        inputs.version,
+        inputs.version,
+        inputs.rev
+    ))?;
     smoke.check(inputs.package_path, &[200])?;
     smoke.expect_body(&format!(r#""name":"{}""#, scoped_name(inputs)))?;
     smoke.expect_body(r#""0.2.0""#)?;
@@ -541,6 +556,7 @@ fn closed_to_outsiders(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<
     smoke.as_outsider();
     let outsider = smoke.auth.clone();
     for (at, method, path) in [
+        (Base::Registry, "GET", "/catalog.json"),
         (Base::Registry, "GET", inputs.package_path),
         (Base::Registry, "GET", inputs.artifact_path),
         (Base::Registry, "GET", "/config.json"),

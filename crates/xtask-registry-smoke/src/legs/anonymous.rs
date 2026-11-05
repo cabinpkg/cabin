@@ -78,6 +78,7 @@ fn read_plane(smoke: &mut Smoke) -> Result<()> {
     // existing package, an unknown one, and an artifact path answer the
     // same bytes.
     for path in [
+        "/catalog.json",
         "/packages/smoke/withdep.json",
         "/packages/smoke/never-published.json",
         "/artifacts/smoke/withdep/smoke-withdep-0.1.0-0123456789abcdef.zip",

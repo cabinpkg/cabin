@@ -80,7 +80,7 @@ UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
 
 | Hostname | Role |
 | --- | --- |
-| `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, artifact downloads, and `/healthz`.  During the private alpha only `config.json` and the bodyless `/healthz` answer without an admitted credential.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
+| `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, the [catalog](#the-catalog), artifact downloads, and `/healthz`.  During the private alpha only `config.json` and the bodyless `/healthz` answer without an admitted credential.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
 | `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, and `GET /api/v1/stats`, aggregate download/package totals (service-local; not part of the client protocol; during the private alpha a Bearer route like the others).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
 
 On the index host, every path outside the read plane - the mutation routes included - answers
@@ -356,8 +356,30 @@ downloadable, and carries its own `resolution` when it resolves differently from
 which is what keeps lockfiles that pin it building.
 
 The hosted registry serves `/packages/<scope>/<name>.json` - including the `404` for an unknown
-package - from a per-location edge cache that keeps each answer for 60 seconds and is never purged,
-so a verdict or a yank can take about a minute to reach every reader.
+package - and [`/catalog.json`](#the-catalog) from a per-location edge cache that keeps each answer
+for 60 seconds and is never purged, so a verdict or a yank can take about a minute to reach every
+reader.
+
+### The catalog
+
+`GET /catalog.json` on the hosted registry is the website's package catalog, not part of the client
+protocol: no `cabin` command reads it.  It lists every package, in every scope, that has a verified,
+non-yanked version, and exactly those versions - what the package documents serve as resolvable -
+each at its current revision:
+
+```json
+{"schema":1,"packages":[{"name":"<scope>/<name>","latest":"1.3.1","versions":[
+  {"version":"1.3.1","revision":"<16 hex>","dependencies":{},
+   "upstream":{"url":"https://...","checksum":"sha256:<64 hex>"}}]}]}
+```
+
+Packages appear in bytewise name order, each one's versions in descending SemVer precedence.
+`latest` is the greatest version without a pre-release tag, the one a `*` requirement selects, or
+the greatest pre-release when a package has nothing else.  Each version carries its served
+packaging `revision` and, when its stored index entry has them, that entry's `dependencies`,
+`dev-dependencies`, `system-dependencies`, and `features` verbatim, plus the `url` and `checksum`
+of its `upstream` block; nothing else of the entry.  The route is admitted like the package documents: during the private alpha an
+anonymous request gets the uniform private-alpha `401`.
 
 ## Publish
 

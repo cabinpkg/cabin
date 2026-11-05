@@ -1,6 +1,8 @@
 //! Composition of the JSON documents the read routes serve.
 
-use serde::Serialize;
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 /// `config.json` for this registry. Exactly the fields the Cabin client's
@@ -180,7 +182,91 @@ fn resolution_fields(entry: &Map<String, Value>) -> Map<String, Value> {
         .collect()
 }
 
-/// The package document's edge-cache TTL unless the
+/// One row of the catalog read (`sql::CATALOG_VERSIONS`): a verified,
+/// non-yanked version's current revision.
+#[derive(Debug, Deserialize)]
+pub struct CatalogRow {
+    pub scope: String,
+    pub name: String,
+    pub version: String,
+    pub revision: String,
+    /// The current revision's canonical entry, stored verbatim at
+    /// publish time.
+    pub metadata_json: String,
+}
+
+/// The stored entry's blocks the catalog copies verbatim: what the
+/// website renders of a version.  `upstream` is projected separately.
+const CATALOG_FIELDS: [&str; 4] = [
+    "dependencies",
+    "dev-dependencies",
+    "system-dependencies",
+    "features",
+];
+
+/// Composes `catalog.json`: every package with a verified, non-yanked
+/// version, by canonical name, each with `latest` and its versions in
+/// descending `SemVer` precedence.  `latest` is the greatest version
+/// without a pre-release tag - what a `*` requirement resolves to - or,
+/// for a package with only pre-releases, the greatest of those.  Each
+/// version carries its served packaging revision, the [`CATALOG_FIELDS`]
+/// its stored entry has, and the `url` and `checksum` of its `upstream`
+/// block; nothing else of the stored entry is exposed.
+///
+/// # Errors
+///
+/// When a stored version is not `SemVer` or a stored entry is not a JSON
+/// object - internal invariant breaks (publish validated both) the
+/// caller reports as a 500.
+pub fn catalog_json(rows: &[CatalogRow]) -> Result<String, String> {
+    let mut packages: BTreeMap<String, Vec<(semver::Version, Value)>> = BTreeMap::new();
+    for row in rows {
+        let name = format!("{}/{}", row.scope, row.name);
+        let precedence = semver::Version::parse(&row.version)
+            .map_err(|err| format!("stored version {name}@{} is not SemVer: {err}", row.version))?;
+        let stored = stored_entry(&name, &row.version, &row.metadata_json)?;
+        let mut entry = Map::new();
+        entry.insert("version".to_owned(), Value::String(row.version.clone()));
+        entry.insert("revision".to_owned(), Value::String(row.revision.clone()));
+        for field in CATALOG_FIELDS {
+            if let Some(value) = stored.get(field) {
+                entry.insert(field.to_owned(), value.clone());
+            }
+        }
+        if let Some(Value::Object(upstream)) = stored.get("upstream") {
+            let projected = upstream
+                .iter()
+                .filter(|(key, _)| matches!(key.as_str(), "url" | "checksum"))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            entry.insert("upstream".to_owned(), Value::Object(projected));
+        }
+        packages
+            .entry(name)
+            .or_default()
+            .push((precedence, Value::Object(entry)));
+    }
+    let packages: Vec<Value> = packages
+        .into_iter()
+        .map(|(name, mut versions)| {
+            versions.sort_by(|a, b| b.0.cmp(&a.0));
+            let latest = versions
+                .iter()
+                .find(|(precedence, _)| precedence.pre.is_empty())
+                .unwrap_or(&versions[0]);
+            let latest = latest.1["version"].clone();
+            let versions: Vec<Value> = versions.into_iter().map(|(_, entry)| entry).collect();
+            serde_json::json!({ "name": name, "latest": latest, "versions": versions })
+        })
+        .collect();
+    Ok(serde_json::json!({ "schema": 1, "packages": packages }).to_string())
+}
+
+/// The catalog's synthetic edge-cache identity; like
+/// [`package_cache_url`], no route serves it.
+pub const CATALOG_CACHE_URL: &str = "https://registry.cabinpkg.com/__cache/catalog.json";
+
+/// The package documents' and the catalog's edge-cache TTL unless the
 /// `PACKAGE_CACHE_TTL_SECS` env var overrides it (0 disables the cache;
 /// the smoke test pins 0 to observe verdicts and yanks immediately).
 /// The Cache API is per colo and nothing purges it, so this bounds how
@@ -198,7 +284,7 @@ pub fn package_cache_url(scope: &str, name: &str) -> String {
     format!("https://registry.cabinpkg.com/__cache/packages/{scope}/{name}.json")
 }
 
-/// The `Cache-Control` for the stored copy of a package-document
+/// The `Cache-Control` for the stored copy of a composed-document
 /// response, or `None` when it must not be stored. Only the composed
 /// document and the unknown-package `404` are stored, so a transient
 /// `500` never outlives its cause.
@@ -228,6 +314,57 @@ mod tests {
                 Some(Route::Package { scope, name })
             );
         }
+    }
+
+    fn catalog_row(
+        scope: &str,
+        name: &str,
+        version: &str,
+        revision: &str,
+        metadata_json: &str,
+    ) -> CatalogRow {
+        CatalogRow {
+            scope: scope.to_owned(),
+            name: name.to_owned(),
+            version: version.to_owned(),
+            revision: revision.to_owned(),
+            metadata_json: metadata_json.to_owned(),
+        }
+    }
+
+    #[test]
+    fn catalog_orders_by_precedence_and_exposes_only_the_rendered_fields() {
+        let upstream_sum = format!("sha256:{}", "a".repeat(64));
+        let full = format!(
+            r#"{{"schema":1,"name":"fmtlib/fmt","version":"1.10.0","dependencies":{{"acme/zlib":"^1.3"}},"dev-dependencies":{{"acme/doctest":{{"version":"^2","features":["x"]}}}},"system-dependencies":{{"pthread":{{"version":"","dependency_kind":"normal","target":"os = \"linux\""}}}},"features":{{"default":["simd"],"simd":[]}},"profiles":{{"dev":{{}}}},"standards":{{"targets":{{}}}},"links":{{"fmt":"fmt"}},"upstream":{{"url":"https://example.com/fmt.tar.gz","checksum":"{upstream_sum}","format":"tar.gz","strip-prefix":"fmt-1.10.0"}},"yanked":false,"checksum":"sha256:{}","source":{{"type":"archive","path":"p","format":"zip"}}}}"#,
+            "b".repeat(64)
+        );
+        let bare = r#"{"dependencies":{}}"#;
+        // Rows arrive in table order; the catalog sorts names bytewise and
+        // versions by SemVer precedence, where `1.10.0` outranks `1.9.0`
+        // and `alpha.10` outranks `alpha.2`.
+        let rows = [
+            catalog_row("fmtlib", "fmt", "1.9.0", REV_A, bare),
+            catalog_row("fmtlib", "fmt", "1.11.0-rc.1", REV_A, bare),
+            catalog_row("fmtlib", "fmt", "1.10.0", REV_B, &full),
+            catalog_row("acme", "only-pre", "1.0.0-alpha.2", REV_A, bare),
+            catalog_row("acme", "only-pre", "1.0.0-alpha.10", REV_B, bare),
+        ];
+        // `latest` skips the newer pre-release while a release exists,
+        // and falls back to the greatest pre-release when none does.
+        let expected = format!(
+            r#"{{"schema":1,"packages":[{{"name":"acme/only-pre","latest":"1.0.0-alpha.10","versions":[{{"version":"1.0.0-alpha.10","revision":"{REV_B}","dependencies":{{}}}},{{"version":"1.0.0-alpha.2","revision":"{REV_A}","dependencies":{{}}}}]}},{{"name":"fmtlib/fmt","latest":"1.10.0","versions":[{{"version":"1.11.0-rc.1","revision":"{REV_A}","dependencies":{{}}}},{{"version":"1.10.0","revision":"{REV_B}","dependencies":{{"acme/zlib":"^1.3"}},"dev-dependencies":{{"acme/doctest":{{"version":"^2","features":["x"]}}}},"system-dependencies":{{"pthread":{{"version":"","dependency_kind":"normal","target":"os = \"linux\""}}}},"features":{{"default":["simd"],"simd":[]}},"upstream":{{"url":"https://example.com/fmt.tar.gz","checksum":"{upstream_sum}"}}}},{{"version":"1.9.0","revision":"{REV_A}","dependencies":{{}}}}]}}]}}"#
+        );
+        assert_eq!(catalog_json(&rows).unwrap(), expected);
+        assert_eq!(catalog_json(&[]).unwrap(), r#"{"schema":1,"packages":[]}"#);
+    }
+
+    #[test]
+    fn catalog_rejects_corrupt_stored_rows() {
+        let err = catalog_json(&[catalog_row("a", "b", "1.0", REV_A, "{}")]).unwrap_err();
+        assert!(err.contains("a/b@1.0 is not SemVer"), "err: {err}");
+        let err = catalog_json(&[catalog_row("a", "b", "1.0.0", REV_A, "[]")]).unwrap_err();
+        assert!(err.contains("not a JSON object"), "err: {err}");
     }
 
     #[test]

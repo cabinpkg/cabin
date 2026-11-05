@@ -20,7 +20,7 @@ use crate::context::{Base, Smoke};
 use crate::legs::anonymous::{SESSION_TOKENS_PATH, TRUSTPUB_TOKENS_PATH, uniform_401_with};
 use crate::servers::{d1, d1_json, d1_quiet};
 use crate::step;
-use crate::text::capture;
+use crate::text::{capture, contains};
 
 /// What earlier legs leave behind that this span reads.  The paths are
 /// passed in rather than rebuilt here; `rev` is not among them because
@@ -151,6 +151,18 @@ fn yank_cycle(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str)
     smoke.expect_body(r#""changed":true"#)?;
     smoke.check(inputs.package_path, &[200])?;
     smoke.expect_body(r#""yanked":true"#)?;
+    // Its only version yanked, the package leaves the catalog.
+    let listed = format!(
+        r#""name":"{}/{}","latest":"{}""#,
+        inputs.scope, inputs.name, inputs.version
+    );
+    smoke.check("/catalog.json", &[200])?;
+    if contains(&smoke.body, listed.as_bytes()) {
+        bail!(
+            "the catalog lists a yanked version: {}",
+            capture(&smoke.body)
+        );
+    }
     // The session packages listing mirrors the row: the seeded user
     // created the package, its version is verified by now, and
     // currently yanked.
@@ -164,7 +176,9 @@ fn yank_cycle(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str)
     smoke.expect_body(r#""yanked":false"#)?;
     smoke.expect_body(r#""changed":true"#)?;
     smoke.check(inputs.package_path, &[200])?;
-    smoke.expect_body(r#""yanked":false"#)
+    smoke.expect_body(r#""yanked":false"#)?;
+    smoke.check("/catalog.json", &[200])?;
+    smoke.expect_body(&listed)
 }
 
 fn artifact_checksum(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {

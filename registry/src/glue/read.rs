@@ -113,8 +113,12 @@ pub(super) async fn handle_registry(
     } else {
         match route {
             Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
+            Route::Catalog => {
+                cached_document(env, documents::CATALOG_CACHE_URL, catalog_response(&db)).await?
+            }
             Route::Package { scope, name } => {
-                cached_package_response(env, &db, scope, name).await?
+                let cache_url = documents::package_cache_url(scope, name);
+                cached_document(env, &cache_url, package_response(&db, scope, name)).await?
             }
             Route::Artifact {
                 scope,
@@ -148,39 +152,39 @@ pub(super) async fn handle_registry(
     Ok((response, auth.map(|auth| auth.token_id)))
 }
 
-/// [`package_response`] through the edge cache. No caller input
-/// reaches the composition, so one entry serves every admitted reader
-/// (the caller calls this only past the admission check),
-/// and a hit reads no package rows. Fills are not coalesced, so
-/// concurrent misses each read the package. Cache errors read as misses,
+/// A composed read document ([`package_response`],
+/// [`catalog_response`]) through the edge cache under `cache_url`. No
+/// caller input beyond the route's validated components reaches the
+/// composition, so one entry serves every admitted reader (the caller
+/// calls this only past the admission check), and a hit reads no
+/// rows; `compose` runs only on a miss. Fills are not coalesced, so
+/// concurrent misses each read the rows. Cache errors read as misses,
 /// as for archives.
-async fn cached_package_response(
+async fn cached_document(
     env: &Env,
-    db: &D1Database,
-    scope: &str,
-    name: &str,
+    cache_url: &str,
+    compose: impl Future<Output = worker::Result<Response>>,
 ) -> worker::Result<Response> {
     let ttl_secs = env
         .var("PACKAGE_CACHE_TTL_SECS")
         .ok()
         .and_then(|var| var.to_string().parse::<u64>().ok())
         .unwrap_or(documents::PACKAGE_CACHE_TTL_SECS);
-    let cache_url = documents::package_cache_url(scope, name);
     let cache = worker::Cache::default();
     if ttl_secs > 0
-        && let Ok(Some(cached)) = cache.get(cache_url.as_str(), false).await
+        && let Ok(Some(cached)) = cache.get(cache_url, false).await
     {
         return thaw_cached(cached);
     }
-    let mut response = package_response(db, scope, name).await?;
+    let mut response = compose.await?;
     if let Some(cache_control) = documents::package_cache_control(response.status_code(), ttl_secs)
     {
         let mut for_cache = response.cloned()?;
         for_cache
             .headers_mut()
             .set("cache-control", &cache_control)?;
-        if let Err(err) = cache.put(cache_url.as_str(), for_cache).await {
-            console_error!("caching package document {scope}/{name} failed: {err}");
+        if let Err(err) = cache.put(cache_url, for_cache).await {
+            console_error!("caching {cache_url} failed: {err}");
         }
     }
     response.headers_mut().set("cache-control", "no-store")?;
@@ -234,6 +238,21 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
         Ok(body) => json_response(&body),
         Err(detail) => {
             console_error!("package document for {scope}/{name}: {detail}");
+            error_response(500, error::INTERNAL)
+        }
+    }
+}
+
+/// `GET /catalog.json`: [`documents::catalog_json`] over every
+/// verified, non-yanked version's current revision, so it shows exactly
+/// what the package documents serve as resolvable.
+async fn catalog_response(db: &D1Database) -> worker::Result<Response> {
+    let rows: Vec<documents::CatalogRow> =
+        db.prepare(sql::CATALOG_VERSIONS).all().await?.results()?;
+    match documents::catalog_json(&rows) {
+        Ok(body) => json_response(&body),
+        Err(detail) => {
+            console_error!("catalog: {detail}");
             error_response(500, error::INTERNAL)
         }
     }

@@ -11,6 +11,10 @@
 pub enum Route<'a> {
     Healthz,
     Config,
+    /// `GET /catalog.json`: every package with a verified, non-yanked
+    /// version, for the website build
+    /// (`docs/remote-registry.md`, "Read routes"); no client reads it.
+    Catalog,
     Package {
         scope: &'a str,
         name: &'a str,
@@ -32,6 +36,9 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
     }
     if path == "/config.json" {
         return Some(Route::Config);
+    }
+    if path == "/catalog.json" {
+        return Some(Route::Catalog);
     }
     if let Some(rest) = path.strip_prefix("/packages/") {
         let (scope, name) = rest.split_once('/')?;
@@ -471,9 +478,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matches_the_three_read_routes_and_healthz() {
+    fn matches_the_read_routes_and_healthz() {
         assert_eq!(match_route("/healthz"), Some(Route::Healthz));
         assert_eq!(match_route("/config.json"), Some(Route::Config));
+        assert_eq!(match_route("/catalog.json"), Some(Route::Catalog));
         assert_eq!(
             match_route("/packages/fmtlib/fmt.json"),
             Some(Route::Package {

@@ -138,8 +138,8 @@ fn scoped_statements_never_cross_scopes() {
     assert_eq!(stored, "10", "the right-scope refund fires exactly once");
 }
 
-/// Seeds one user plus the packages and versions the search and
-/// reverse-dependency statements walk: a target package with two
+/// Seeds one user plus the packages and versions the search,
+/// catalog, and reverse-dependency statements walk: a target package with two
 /// verified versions, a pending-only lookalike, an underscore/plain
 /// name pair for the literal-match check, and dependents in every
 /// lifecycle state.
@@ -265,6 +265,56 @@ fn search_rows_are_verified_only_and_terms_stay_literal() {
     // there is no pattern-length ceiling to trip (D1 caps LIKE
     // patterns at 50 bytes; instr takes the term as a plain value).
     assert_eq!(search_names(&conn, &"x".repeat(64)), Vec::<String>::new());
+}
+
+/// The catalog lists exactly what the package documents serve as
+/// resolvable, across every scope: each verified, non-yanked version
+/// at its current revision. Pending-only and rejected-only packages and
+/// yanked versions are absent, a superseded verified revision is not
+/// listed, and a pending respin leaves the verified revision listed.
+#[test]
+fn catalog_rows_are_the_current_revisions_of_unyanked_verified_versions() {
+    let conn = migrated_connection();
+    seed_search_corpus(&conn);
+    conn.execute(
+        "INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
+                                published_at, archive_size, published_by, verification)
+         VALUES ('alpha', 'target', '1.1.0', 'c12', 'c12', '{\"dependencies\":{}}',
+                 '2026-07-18T02:00:00.000Z', 10, 2, 'pending'),
+                ('alpha', 'target', '1.1.0', 'c00', 'c00', '{\"dependencies\":{}}',
+                 '2026-07-17T00:00:00.000Z', 10, 2, 'verified')",
+        [],
+    )
+    .expect("pending respin and superseded revision");
+
+    let mut statement = conn
+        .prepare(sql::CATALOG_VERSIONS)
+        .expect("prepare catalog");
+    let mut rows: Vec<String> = statement
+        .query_map([], |row| {
+            Ok(format!(
+                "{}/{}@{} {}",
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?
+            ))
+        })
+        .expect("run catalog")
+        .collect::<Result<_, _>>()
+        .expect("catalog rows");
+    rows.sort();
+    assert_eq!(
+        rows,
+        [
+            "acme/bare-dep@1.0.0 c10",
+            "acme/dev-dep@1.0.0 c11",
+            "alpha/my_pkg@1.0.0 c04",
+            "alpha/myxpkg@1.0.0 c05",
+            "alpha/target@1.1.0 c02",
+            "gabime/spdlog@1.14.0 c07",
+        ]
+    );
 }
 
 /// The reverse-dependency walk's semantics - the verified-only

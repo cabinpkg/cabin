@@ -646,8 +646,8 @@ impl DevServers {
     /// (deployed: 300 s), with `DOWNLOAD_FLUSH_INTERVAL_MS=0` flushing
     /// every buffered download count immediately for the same reason
     /// (deployed: 30 s batches).  `PACKAGE_CACHE_TTL_SECS=0` disables
-    /// the package-document edge cache so a verdict or yank shows in
-    /// the next read (deployed: 60 s).  The `GITHUB_*` entries point the claim
+    /// the package-document and catalog edge cache so a verdict or yank
+    /// shows in the next read (deployed: 60 s).  The `GITHUB_*` entries point the claim
     /// flow's server-side calls and the verdict endpoint's JWKS fetch
     /// at the GitHub mock (the client secret only has to exist for the
     /// mock exchange).  `VERIFIER_BACKING_ACCOUNT_ID` overrides the
