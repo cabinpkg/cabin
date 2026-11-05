@@ -288,8 +288,8 @@ fn workspace_basic_tree_shows_the_path_dependency() {
 }
 
 // Real-upstream registry examples are external-network smoke tests:
-// they consume the `cabin-ports/*` packages that the publisher
-// pipeline stages from the committed `ports/` tree into a local file
+// they consume the `cabin-ports/*` packages that the publisher's
+// staging step stages from the committed `ports/` tree into a local file
 // registry (once per test process, downloading the pinned upstream
 // archives).  They do not run in default PR CI; the required CI
 // exercises the same consumption path hermetically via

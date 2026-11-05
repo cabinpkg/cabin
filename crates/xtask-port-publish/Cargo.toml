@@ -13,13 +13,10 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
-cabin-artifact = { workspace = true }
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
-cabin-index-http = { workspace = true }
 cabin-manifest = { workspace = true }
 cabin-publish = { workspace = true }
-camino = { workspace = true }
 clap = { workspace = true }
 etcetera = { workspace = true }
 semver = { workspace = true }

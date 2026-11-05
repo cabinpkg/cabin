@@ -11,16 +11,22 @@ description = "Publish workflow orchestration for Cabin"
 name = "cabin_publish"
 
 [dependencies]
+cabin-artifact = { workspace = true }
 cabin-core = { workspace = true }
+cabin-index-http = { workspace = true }
+cabin-manifest = { workspace = true }
 cabin-package = { workspace = true }
 cabin-registry-file = { workspace = true }
+camino = { workspace = true }
 semver = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }
-camino = { workspace = true }
+flate2 = { workspace = true }
 predicates = "3"
+sha2 = { workspace = true }
+tar = { workspace = true }
 
 [lints]
 workspace = true

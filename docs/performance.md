@@ -179,7 +179,7 @@ writes as zero, cannot be told apart from it.
 | Registry metadata | `index/http-wide`, `index/http-lazy`, `index/rtt-wide`, `index/rtt-deep`, `index/rtt-lazy`, `index/rtt-lazy-pair` | The sparse HTTP index over loopback, and an 8-deep optional-feature chain that needs one resolution round per level; the `rtt` scenarios wait a 20 ms round trip before each response, as a nearby registry would, and add a 60-deep chain and two halves of the optional chain resolved at once |
 | Artifacts | `artifact/fetch-cold`, `artifact/fetch-warm` | Downloading, verifying, and extracting 20 archives; re-validating a warm cache |
 | Measurement | `trace/noop-cxx-info`, `trace/noop-cxx-debug` | Capture overhead: compare with `build/noop-cxx` |
-| Real packages (`--ports`) | `ports/resolve`, `ports/fetch-cold`, `ports/build-clean`, `ports/build-noop` | zlib, libpng, fmt, and spdlog from `ports/`, staged by the port publisher's own pipeline.  The first run downloads their pinned upstream archives |
+| Real packages (`--ports`) | `ports/resolve`, `ports/fetch-cold`, `ports/build-clean`, `ports/build-noop` | zlib, libpng, fmt, and spdlog from `ports/`, staged by the port publisher's own staging step.  The first run downloads their pinned upstream archives |
 
 The inputs are generated into `target/perf/fixtures/` and reused until the harness is rebuilt; the
 ports are staged into each run's own directory.  The synthetic registry is published through the
