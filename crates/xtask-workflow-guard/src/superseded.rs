@@ -175,7 +175,7 @@ fn superseded(sha: &str, pathspecs: &[String]) -> Result<bool> {
 
 /// A full SHA-1 or SHA-256 object name in git's lowercase hex, which
 /// also keeps the `rev-list` range from ever reading as an option.
-fn is_commit_id(sha: &str) -> bool {
+pub(crate) fn is_commit_id(sha: &str) -> bool {
     matches!(sha.len(), 40 | 64)
         && sha
             .bytes()

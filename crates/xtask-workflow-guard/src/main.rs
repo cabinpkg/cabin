@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-/// Guards over a GitHub Actions run's own context, run from a workflow
-/// step through their Cargo aliases.
+/// Guards over GitHub Actions runs, run from a workflow step through
+/// their Cargo aliases.
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -34,9 +34,17 @@ enum Command {
     /// registry/migrations-applied (`cargo workflow-migrations-pending`).
     MigrationsPending,
     /// Wait for a successful main Registry deploy whose head contains
-    /// `$GITHUB_SHA`, or for one of the answers that ends the wait early
-    /// (`cargo workflow-await-deploy`).
-    AwaitDeploy,
+    /// `--sha`, or for one of the answers that ends the wait early
+    /// (`cargo workflow-await-deploy`). Run it in a clone of
+    /// `--repository`.
+    AwaitDeploy {
+        /// `owner/name` of the repository whose Registry workflow deploys
+        #[arg(long, value_name = "OWNER/NAME")]
+        repository: String,
+        /// Commit the deployed Worker must contain
+        #[arg(long)]
+        sha: String,
+    },
     /// Fail unless each crate-scoped list in `.github/path-filters.yml`
     /// covers every crate and non-Cargo input its jobs build from
     /// (`cargo workflow-filter-coverage`).
@@ -65,7 +73,9 @@ fn run(command: &Command) -> Result<ExitCode> {
         Command::MigrationsPending => {
             xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS)
         }
-        Command::AwaitDeploy => Ok(xtask_workflow_guard::await_deploy::run()),
+        Command::AwaitDeploy { repository, sha } => {
+            Ok(xtask_workflow_guard::await_deploy::run(sha, repository))
+        }
         Command::FilterCoverage => {
             xtask_workflow_guard::filter_coverage::run().map(|()| ExitCode::SUCCESS)
         }

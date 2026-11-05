@@ -165,7 +165,7 @@ jobs:
         if: steps.freshness.outputs.superseded != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: cargo workflow-await-deploy
+        run: cargo workflow-await-deploy --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
 
       - name: Publish to registry.cabinpkg.com
         if: steps.freshness.outputs.superseded != 'true'

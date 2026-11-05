@@ -1,5 +1,9 @@
 //! The registry-deploy wait: the "Wait for a registry deploy
 //! containing this SHA" step of `.github/workflows/ports-publish.yml`.
+//! Its target is explicit (`--repository`, `--sha`) rather than the
+//! run's own context, so a publisher whose client is built from a
+//! pinned Cabin commit can wait from another repository's workflow.
+//! It runs in a clone of `--repository`, whose `origin` it fetches.
 //!
 //! - A same-SHA Registry run whose `deploy-registry` JOB itself
 //!   concluded `skipped` - the workflow's change gate found no
@@ -71,8 +75,8 @@
 //!   not exit waits 40 seconds exactly once - every transient/retry
 //!   branch, the fall-through, and a provisional Stop alike. The
 //!   ceiling is 90 waits and then the timeout.
-//! - **`$GITHUB_SHA` and `$GITHUB_REPOSITORY` read as empty when
-//!   unset** and are spliced into URLs and arguments as-is.
+//! - **`--sha` and `--repository` are spliced into URLs and
+//!   arguments as-is.**
 //!
 //! Stated ceilings:
 //!
@@ -89,8 +93,6 @@
 //!   `jq`'s own code - parse failures vary by jq version, and a
 //!   missing binary has none - is not propagated, and nothing
 //!   downstream reads more than pass or fail.
-//! - **The context is read once**, at startup, rather than at each
-//!   splice: nothing this step spawns can change its own environment.
 
 use std::io::Write as _;
 use std::process::{Command, ExitCode, Stdio};
@@ -133,21 +135,18 @@ const PENDING_JQ: &str = r#".workflow_runs[] | select(.status != "completed") | 
 /// carries `\n`.
 const IFS: [char; 2] = [' ', '\t'];
 
-/// Wait for a successful `main` Registry deploy whose head contains
-/// `$GITHUB_SHA`, or for one of the answers that ends the wait early.
+/// Wait for a successful `main` Registry deploy of `repository` whose
+/// head contains `sha`, or for one of the answers that ends the wait
+/// early.
 #[must_use]
-pub fn run() -> ExitCode {
-    ExitCode::from(poll(
-        &mut Spawn,
-        &mut Console,
-        &context("GITHUB_SHA"),
-        &context("GITHUB_REPOSITORY"),
-    ))
-}
-
-/// An unset - or non-UTF-8 - variable reads as the empty string.
-fn context(name: &str) -> String {
-    std::env::var(name).unwrap_or_default()
+pub fn run(sha: &str, repository: &str) -> ExitCode {
+    // Anything else splices into the same-SHA listing as no filter at
+    // all, whose newest run would answer for this SHA.
+    if !crate::superseded::is_commit_id(sha) {
+        eprintln!("--sha must be a full lowercase commit id, not {sha:?}");
+        return ExitCode::FAILURE;
+    }
+    ExitCode::from(poll(&mut Spawn, &mut Console, sha, repository))
 }
 
 trait Output {
@@ -608,6 +607,16 @@ impl Shell for Spawn {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An empty or `#`-carrying `--sha` would list every main run, and
+    /// the newest one's verdict would answer for it; neither reaches
+    /// the API.
+    #[test]
+    fn run_refuses_anything_but_a_full_commit_id() {
+        for sha in ["", "#", "-h", "54227ced1", &"A".repeat(40)] {
+            assert_eq!(run(sha, "cabinpkg/cabin"), ExitCode::FAILURE, "{sha:?}");
+        }
+    }
 
     /// A scripted [`Shell`]: each capture is answered by the first
     /// entry whose needle appears in the joined argv - consulting the
