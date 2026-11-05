@@ -241,6 +241,21 @@ statements! {
          JOIN versions v ON v.scope = c.scope AND v.name = c.name AND v.version = c.version \
          WHERE instr(c.scope || '/' || c.name, ?1) > 0";
 
+    /// The catalog (`GET /catalog.json`): every scope's verified,
+    /// non-yanked versions with their current revision's stored
+    /// metadata, grouped and ordered in host-testable Rust
+    /// (`documents::catalog_json`).  A scan of the verified corpus like
+    /// [`SEARCH_VERIFIED_VERSIONS`], so it stays off unauthenticated
+    /// routes: the read plane's private-alpha admission check covers
+    /// it, and opening that plane to anonymous reads must first take
+    /// the scan off the request path - the edge cache spares only hits,
+    /// and concurrent misses each scan.
+    CATALOG_VERSIONS =
+        "SELECT c.scope, c.name, c.version, c.revision, c.metadata_json \
+         FROM current_revisions c \
+         JOIN versions v ON v.scope = c.scope AND v.name = c.name AND v.version = c.version \
+         WHERE v.yanked = 0";
+
     /// One visible package's verified versions with the stored
     /// metadata each carries: the session package-detail read.
     /// Served-revision-only like [`CURRENT_REVISIONS_BY_PACKAGE`], so a

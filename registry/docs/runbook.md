@@ -79,7 +79,9 @@ dependency tree fans out many read requests from one IP in seconds -
 while abuse of the omitted routes can at worst exhaust free-plan quotas
 that fail closed without billing (Workers requests; D1 reads, though a
 read-route request reads a few point rows plus rows of only the package
-it names, and a package document the edge cache still holds none;
+it names, and a package document the edge cache still holds none -
+except an uncached `/catalog.json`, which scans the verified corpus and
+is safe only while the read plane admits nobody anonymous;
 artifact downloads are R2 Class B). The one rule the Free plan grants goes where
 the paid exposure (R2 Class A writes) and the heavy CPU live. The zone
 security exemption above must likewise keep the machine `/api/*` traffic
