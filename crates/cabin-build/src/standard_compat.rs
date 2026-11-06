@@ -179,6 +179,12 @@ pub struct StandardCompatViolation {
     /// [`StandardCompatViolation::consumer_site`], which points at
     /// the workspace root manifest for inherited standards.
     pub consumer_manifest_path: PathBuf,
+    /// Whether the consuming package - the one whose manifest
+    /// declares this edge and any override on it - came from a
+    /// registry.  Unlike [`StandardCompatViolation::dependency_is_registry`]
+    /// this describes the declaring side, so the CLI can tell an
+    /// override the user owns from one inside a registry package.
+    pub consumer_is_registry: bool,
     /// Whether the consuming package opted this edge out of the
     /// check with `ignore-interface-standard = true` on the
     /// selected dependency entry.  The CLI renders ignored
@@ -720,6 +726,10 @@ fn classified_violation<S: StandardLevel>(
         consumer_manifest_path: context.req.graph.packages[context.consumer_tid.0]
             .manifest_path
             .clone(),
+        consumer_is_registry: matches!(
+            context.req.graph.packages[context.consumer_tid.0].kind,
+            PackageKind::Registry
+        ),
         ignored: context.ignored,
         override_section: context.override_section.clone(),
     }

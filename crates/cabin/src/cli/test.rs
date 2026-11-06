@@ -307,7 +307,13 @@ pub(crate) fn test(
         );
     }
 
-    let plan_graph = plan_prepared(&prepared, Some(test_selectors), false, color)?;
+    let plan_graph = plan_prepared(
+        &prepared,
+        Some(test_selectors),
+        false,
+        color,
+        reporter.verbosity(),
+    )?;
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
 
     // `cabin test` prints no `Finished` banner - the test summary

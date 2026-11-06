@@ -40,7 +40,13 @@ pub(super) fn build(
         },
         reporter,
     )?;
-    let plan_graph = plan_prepared(&prepared, None, matches!(mode, BuildMode::Check), color)?;
+    let plan_graph = plan_prepared(
+        &prepared,
+        None,
+        matches!(mode, BuildMode::Check),
+        color,
+        reporter.verbosity(),
+    )?;
 
     // `invoke_ninja_and_report` emits the shared "wrote …" /
     // "invoking …" verbose lines.

@@ -4646,6 +4646,36 @@ fn standard_compat_marks_ignored_edge_violations() {
     );
 }
 
+/// `consumer_is_registry` follows the package that declares the
+/// edge, independently of `dependency_is_registry`: the CLI keys
+/// unchecked-edge visibility on who owns the override.
+#[test]
+fn standard_compat_records_consumer_and_dependency_origins_separately() {
+    let mut graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(interface_req(CxxStandard::Cxx20)),
+            &[],
+        ),
+        "lib",
+    );
+    for (consumer, dependency) in [
+        (PackageKind::Local, PackageKind::Registry),
+        (PackageKind::Registry, PackageKind::Local),
+    ] {
+        graph.packages[0].kind = consumer;
+        graph.packages[1].kind = dependency;
+        let v = &standard_compat_violations(&graph)[0];
+        assert_eq!(v.consumer_is_registry, consumer == PackageKind::Registry);
+        assert_eq!(
+            v.dependency_is_registry,
+            dependency == PackageKind::Registry
+        );
+    }
+}
+
 /// The opt-out only counts on package-dependency edges the
 /// consuming target could resolve through (the planner's own
 /// visibility rule): a flag on an activated `[dev-dependencies]`

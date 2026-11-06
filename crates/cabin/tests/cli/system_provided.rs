@@ -6,7 +6,7 @@ const POLICY: &str = "\n[system-provided.\"acme/zlib\"]\npkg-config = \"zsys\"\n
 
 /// Write `files` under `<root>/<dir>` and publish the package there into
 /// `<root>/registry`.
-fn publish(root: &Path, dir: &str, files: &[(&str, &str)]) {
+pub(super) fn publish(root: &Path, dir: &str, files: &[(&str, &str)]) {
     for (path, body) in files {
         assert_fs::fixture::ChildPath::new(root.join(dir).join(path))
             .write_str(body)

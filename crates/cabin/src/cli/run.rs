@@ -174,6 +174,7 @@ pub(crate) fn run(
         }]),
         false,
         color,
+        reporter.verbosity(),
     )?;
 
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
