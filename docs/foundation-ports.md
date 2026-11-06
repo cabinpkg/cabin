@@ -241,9 +241,11 @@ one port may expose different library targets.  The preflight probe links the li
 available with the package's *default* features: one gated behind a non-default
 `required-features` entry still publishes, but the probe does not compile it, because the probe
 enables no extra features.  A target declaring `interface-cxx-standard = "none"` is linked by a C
-consumer and the rest by a C++ one, so a package mixing the two is probed from both languages.
+consumer and the rest by a C++ one, so a package mixing the two is probed from both languages; one
+of the rest that declares an `interface-c-standard` other than `"none"` is linked by the C
+consumer as well.
 Each probe compiles at the lowest standard the linked targets' declared interfaces accept (`c11` /
-`c++17` when they declare none), except that an MSVC host raises a floor below C11 / C++14 to
+`c++17` when they declare no interface), except that an MSVC host raises a floor below C11 / C++14 to
 those: `cl.exe` has no `/std:` flag for C99 or C++11.
 
 Both modes run the complete local preflight first: fetch or reuse every pinned upstream archive
@@ -260,14 +262,15 @@ archived manifest, source materialization, and compilation of every compiled lib
 Exercising a port's *API* (including its headers, calling its symbols) needs per-library
 knowledge a generic converter does not have, so that knowledge is committed in the port: a probe
 consumer compiles the port's `tests/main.cc` (or `tests/main.c` for the C consumer) when it has
-one, and an empty `main` otherwise; any other file in `tests/` (a misspelled name, or `main.c` for
-a port with no C consumer) fails the preflight rather than being skipped.  `--dry-run` then runs
-every probe, and a non-zero exit fails the preflight, so a consumer test is an ordinary program
-that returns non-zero on failure.  `--publish` builds the probes but never runs them: running
-upstream code in the job that holds the trusted-publishing OIDC token would hand that code the
-token, so running them is the pull-request dry-run's job.  Packaging copies only the manifest and
-its declared patches from the port directory, so `tests/` is never published: editing a test
-changes no archive bytes.  The ports pull-request dry-run runs on Linux, macOS, and Windows.
+one, and an empty `main` otherwise; any other file in `tests/` except a dotfile (a misspelled name,
+or `main.c` for a port with no C consumer) fails the preflight rather than being
+skipped.  `--dry-run` then runs every probe, and a non-zero exit fails the preflight, so a consumer
+test is an ordinary program that returns non-zero on failure.  `--publish` builds the probes but
+never runs them: running upstream code in the job that holds the trusted-publishing OIDC token
+would hand that code the token, so running them is the pull-request dry-run's job.  Packaging
+copies only the manifest and its declared patches from the port directory, so `tests/` is never
+published: editing a test changes no archive bytes.  The ports pull-request dry-run runs on Linux,
+macOS, and Windows.
 
 ```console
 $ cargo run --locked -- --dry-run --cabin <cabin>
