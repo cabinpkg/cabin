@@ -19,6 +19,7 @@
 //! `ignore-interface-standard = true` dependency override, which
 //! downgrades exactly that edge to an unchecked-edge note.
 
+use super::system_provided::publish;
 use super::*;
 
 /// Collapse miette's graphical wrapping so failure messages stay
@@ -1297,5 +1298,361 @@ cxx-standard = "c++17"
         ),
         "expected the conflicting-requirements help in: {}",
         flatten(&stderr)
+    );
+}
+
+/// A C++-only library with `interface-cxx-standard = "none"`: both
+/// languages of a mixed consumer violate an edge to it, in the
+/// forbidden classes the build-time enforcement accepts.
+const LIBNONE_FILES: &[(&str, &str)] = &[
+    (
+        "cabin.toml",
+        r#"[package]
+name = "cabin-ports/libnone"
+version = "0.1.0"
+cxx-standard = "c++17"
+interface-cxx-standard = "none"
+
+[target.libnone]
+type = "library"
+sources = ["src/libnone.cc"]
+include-dirs = ["include"]
+"#,
+    ),
+    ("include/libnone.h", "#pragma once\nint libnone_value();\n"),
+    (
+        "src/libnone.cc",
+        "#include \"libnone.h\"\nint libnone_value() { return 9; }\n",
+    ),
+];
+
+/// The files of a mixed C/C++ library `cabin-ports/<name>` whose
+/// private edge to `cabin-ports/libnone` violates both languages,
+/// optionally overridden.
+fn mixed_consumer_files(name: &str, ignore: bool) -> Vec<(String, String)> {
+    let dep = if ignore {
+        r#"{ version = "0.1.0", ignore-interface-standard = true }"#
+    } else {
+        r#""0.1.0""#
+    };
+    vec![
+        (
+            "cabin.toml".to_owned(),
+            format!(
+                r#"[package]
+name = "cabin-ports/{name}"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[dependencies]
+"cabin-ports/libnone" = {dep}
+
+[target.{name}]
+type = "library"
+sources = ["src/{name}.c", "src/{name}_cxx.cc"]
+include-dirs = ["include"]
+deps = ["cabin-ports/libnone"]
+"#
+            ),
+        ),
+        (
+            format!("include/{name}.h"),
+            format!("#pragma once\nint {name}_value(void);\n"),
+        ),
+        (
+            format!("src/{name}.c"),
+            format!("#include \"{name}.h\"\nint {name}_value(void) {{ return 3; }}\n"),
+        ),
+        (
+            format!("src/{name}_cxx.cc"),
+            format!("int {name}_cxx_value() {{ return 4; }}\n"),
+        ),
+    ]
+}
+
+fn borrowed(files: &[(String, String)]) -> Vec<(&str, &str)> {
+    files
+        .iter()
+        .map(|(path, contents)| (path.as_str(), contents.as_str()))
+        .collect()
+}
+
+/// Edge naming of the unchecked-edge note for `consumer`'s override
+/// on its edge to `cabin-ports/libnone`.
+fn unchecked_libnone_note(consumer: &str) -> String {
+    format!(
+        "dependency edge `{consumer}` -> `cabin-ports/libnone:libnone` is unchecked: \
+         `ignore-interface-standard = true` is set for `cabin-ports/libnone` in the \
+         `[dependencies]` table of"
+    )
+}
+
+/// The unchecked-edge note follows the override's owner, never the
+/// package name: the local root's override shows at every
+/// verbosity, while the identical override inside the registry
+/// package `cabin-ports/mid` shows only at verbose - through `-v`
+/// or `CABIN_TERM_VERBOSE` - across build, check, run, and test,
+/// and again at normal verbosity once `mid` itself is the local
+/// root.  An overridden edge with nothing to report (`app` ->
+/// `mid`) stays silent even in verbose mode, and `mid`'s two
+/// violated languages render one note.
+#[test]
+fn registry_internal_unchecked_edge_is_verbose_only() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let registry = dir.path().join("registry");
+    publish(dir.path(), "libnone", LIBNONE_FILES);
+    publish(
+        dir.path(),
+        "mid",
+        &borrowed(&mixed_consumer_files("mid", true)),
+    );
+    for (path, contents) in [
+        (
+            "app/cabin.toml",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"cabin-ports/libnone" = { version = "0.1.0", ignore-interface-standard = true }
+"cabin-ports/mid" = { version = "0.1.0", ignore-interface-standard = true }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["cabin-ports/libnone", "cabin-ports/mid"]
+
+[target.smoke]
+type = "test"
+sources = ["tests/smoke.cc"]
+deps = ["cabin-ports/mid"]
+"#,
+        ),
+        ("app/src/main.cc", "int main() { return 0; }\n"),
+        ("app/tests/smoke.cc", "int main() { return 0; }\n"),
+    ] {
+        assert_fs::fixture::ChildPath::new(dir.path().join(path))
+            .write_str(contents)
+            .unwrap();
+    }
+    let run = |args: &[&str], env: Option<(&str, &str)>| {
+        let mut command = cabin();
+        if let Some((key, value)) = env {
+            command.env(key, value);
+        }
+        let assertion = command
+            .args(args)
+            .arg("--manifest-path")
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(&registry)
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .arg("--build-dir")
+            .arg(dir.path().join("app/build"))
+            .assert()
+            .success();
+        String::from_utf8_lossy(&assertion.get_output().stderr).to_string()
+    };
+    let local_note = unchecked_libnone_note("app:app");
+    let registry_note = unchecked_libnone_note("cabin-ports/mid:mid");
+
+    for args in [&["build"][..], &["-q", "check"]] {
+        let stderr = run(args, None);
+        assert_eq!(
+            stderr.matches(UNCHECKED_CODE).count(),
+            1,
+            "`cabin {args:?}` shows only the local note: {stderr}"
+        );
+        assert!(
+            flat_contains(&stderr, &local_note),
+            "expected the local note from `cabin {args:?}` in: {}",
+            flatten(&stderr)
+        );
+    }
+
+    let stderr = run(&["-v", "run"], None);
+    assert_eq!(
+        stderr.matches(UNCHECKED_CODE).count(),
+        2,
+        "verbose shows one note per violated overridden edge: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, &local_note) && flat_contains(&stderr, &registry_note),
+        "expected both notes in: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        !flat_contains(&stderr, "`app:app` -> `cabin-ports/mid:mid`"),
+        "an override without a violation reports nothing: {}",
+        flatten(&stderr)
+    );
+
+    let stderr = run(&["test"], Some(("CABIN_TERM_VERBOSE", "1")));
+    assert!(
+        flat_contains(&stderr, &registry_note),
+        "CABIN_TERM_VERBOSE reveals the registry-internal note: {}",
+        flatten(&stderr)
+    );
+
+    // `mid`'s published source checked out and built as the local
+    // root owns its override: the note shows at normal verbosity.
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("mid/cabin.toml"))
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .arg("--build-dir")
+        .arg(dir.path().join("mid/build"))
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert_eq!(
+        stderr.matches(UNCHECKED_CODE).count(),
+        1,
+        "one note for the two violated languages: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, &unchecked_libnone_note("cabin-ports/mid:mid")),
+        "expected the local package's note in: {}",
+        flatten(&stderr)
+    );
+}
+
+/// Hiding is confined to overridden edges: a registry package's
+/// non-overridden violations still error and fail the command at
+/// every verbosity, and an override on a range violation inside a
+/// registry package still fails through the build-time enforcement.
+#[test]
+fn registry_internal_violations_still_fail() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let registry = dir.path().join("registry");
+    publish(dir.path(), "libnone", LIBNONE_FILES);
+    publish(
+        dir.path(),
+        "strict",
+        &borrowed(&mixed_consumer_files("strict", false)),
+    );
+    publish(
+        dir.path(),
+        "legacy",
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "cabin-ports/legacy"
+version = "0.1.0"
+cxx-standard = "c++14"
+interface-cxx-standard = { min = "c++11", max = "c++14" }
+
+[target.legacy]
+type = "library"
+sources = ["src/legacy.cc"]
+include-dirs = ["include"]
+"#,
+            ),
+            ("include/legacy.h", "#pragma once\nint legacy_value();\n"),
+            (
+                "src/legacy.cc",
+                "#include \"legacy.h\"\nint legacy_value() { return 7; }\n",
+            ),
+        ],
+    );
+    publish(
+        dir.path(),
+        "modern",
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "cabin-ports/modern"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"cabin-ports/legacy" = { version = "0.1.0", ignore-interface-standard = true }
+
+[target.modern]
+type = "library"
+sources = ["src/modern.cc"]
+deps = ["cabin-ports/legacy"]
+"#,
+            ),
+            (
+                "src/modern.cc",
+                "#include \"legacy.h\"\nint modern_value() { return legacy_value(); }\n",
+            ),
+        ],
+    );
+    let build = |dep: &str, verbosity: &[&str]| {
+        let app = dir.path().join(format!("app-{}", dep.replace('/', "-")));
+        assert_fs::fixture::ChildPath::new(app.join("cabin.toml"))
+            .write_str(&format!(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"{dep}" = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["{dep}"]
+"#
+            ))
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(app.join("src/main.cc"))
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        let assertion = cabin()
+            .args(verbosity)
+            .args(["build", "--manifest-path"])
+            .arg(app.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&registry)
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .arg("--build-dir")
+            .arg(app.join("build"))
+            .assert()
+            .failure();
+        String::from_utf8_lossy(&assertion.get_output().stderr).to_string()
+    };
+
+    for verbosity in [&[][..], &["-q"], &["-v"]] {
+        let stderr = build("cabin-ports/strict", verbosity);
+        assert_eq!(
+            stderr.matches(VIOLATION_CODE).count(),
+            2,
+            "both languages of the registry edge error under {verbosity:?}: {stderr}"
+        );
+        assert!(
+            flat_contains(&stderr, "`cabin-ports/strict:strict` (c11,")
+                && flat_contains(&stderr, "2 standard compatibility violations"),
+            "expected the registry consumer's gating errors under {verbosity:?} in: {}",
+            flatten(&stderr)
+        );
+    }
+
+    let stderr = build("cabin-ports/modern", &[]);
+    assert!(
+        flat_contains(
+            &stderr,
+            "lower `cabin-ports/modern:modern`'s C++ standard to at most `c++14`"
+        ),
+        "the build-time layer must still reject the overridden range violation: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        !stderr.contains(UNCHECKED_CODE),
+        "the registry-internal note stays hidden at normal verbosity: {stderr}"
     );
 }

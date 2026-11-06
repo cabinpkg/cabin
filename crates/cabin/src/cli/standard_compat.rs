@@ -11,7 +11,8 @@
 //! error-severity and fail the command; a violation whose edge
 //! carries the per-edge `ignore-interface-standard = true`
 //! override renders as an unchecked-edge note instead and never
-//! gates.
+//! gates; the note is verbose-only when a registry package
+//! declares the override.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -32,7 +33,10 @@ use cabin_diagnostics::miette;
 /// Non-ignored violations render as errors and produce an `Err`
 /// that fails the command.  Ignored violations (per-edge
 /// `ignore-interface-standard = true`) render as one
-/// unchecked-edge note per edge and never gate.
+/// unchecked-edge note per edge and never gate.  A note for an
+/// override declared inside a registry package renders only at
+/// `verbosity` `Verbose` or above: its owner is the dependency's
+/// publisher, not the user running the command.
 ///
 /// # Errors
 /// Returns an error when at least one non-ignored violation was
@@ -40,6 +44,7 @@ use cabin_diagnostics::miette;
 pub(crate) fn report(
     violations: &[StandardCompatViolation],
     color: cabin_core::ColorChoice,
+    verbosity: cabin_core::Verbosity,
     lockfile_pinned: &BTreeSet<(String, String)>,
 ) -> Result<()> {
     if violations.is_empty() {
@@ -50,6 +55,9 @@ pub(crate) fn report(
     let mut gating = 0usize;
     for violation in violations {
         if violation.ignored {
+            if violation.consumer_is_registry && !verbosity.shows_verbose() {
+                continue;
+            }
             // One note per edge: a mixed-language consumer failing
             // both languages on one overridden edge yields two
             // records but the edge goes unchecked exactly once.
@@ -472,6 +480,7 @@ mod tests {
             },
             chain: vec!["liba:liba".to_owned(), "libb:libb".to_owned()],
             consumer_manifest_path: PathBuf::from("/nonexistent/app/cabin.toml"),
+            consumer_is_registry: false,
             ignored: false,
             override_section: Some("[dependencies]".to_owned()),
         }
@@ -954,25 +963,35 @@ mod tests {
     }
 
     /// `report` fails with the violation count once every diagnostic
-    /// has rendered; the ignored-only path succeeds.
+    /// has rendered, even at quiet verbosity and for a registry
+    /// consumer; the ignored-only path succeeds.
     #[test]
     fn report_gates_unless_ignored() {
-        let violations = [min_violation()];
-        let err = report(
-            &violations,
-            cabin_core::ColorChoice::Never,
-            &BTreeSet::new(),
-        )
-        .unwrap_err();
-        let message = err.to_string();
-        assert_eq!(
-            message, "1 standard compatibility violation",
-            "expected the bare violation count in: {message}"
-        );
+        let mut registry_consumer = min_violation();
+        registry_consumer.consumer_is_registry = true;
+        for violation in [min_violation(), registry_consumer] {
+            let err = report(
+                &[violation],
+                cabin_core::ColorChoice::Never,
+                cabin_core::Verbosity::Quiet,
+                &BTreeSet::new(),
+            )
+            .unwrap_err();
+            let message = err.to_string();
+            assert_eq!(
+                message, "1 standard compatibility violation",
+                "expected the bare violation count in: {message}"
+            );
+        }
 
         let mut ignored = min_violation();
         ignored.ignored = true;
-        report(&[ignored], cabin_core::ColorChoice::Never, &BTreeSet::new())
-            .expect("ignored violations never gate");
+        report(
+            &[ignored],
+            cabin_core::ColorChoice::Never,
+            cabin_core::Verbosity::Normal,
+            &BTreeSet::new(),
+        )
+        .expect("ignored violations never gate");
     }
 }

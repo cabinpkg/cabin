@@ -245,7 +245,10 @@ packages, and keep a path-safe grammar that allows uppercase and `.` (`glib-2.0`
 post-resolution standard-compatibility check (see
 [`language-standards.md`](language-standards.md#post-resolution-compatibility-errors)).
 The check still evaluates the edge and prints a downgraded note that the edge is unchecked, so the
-override cannot silently rot.  The exemption covers this check only: the always-on build-time
+override cannot silently rot.  An override declared in a registry dependency's own manifest
+belongs to that dependency's maintainers, so its note prints only at verbose output (`-v`,
+`CABIN_TERM_VERBOSE`, or `[term] verbose`); an override in the root package, a workspace member,
+or a path or `[patch]` package always prints it.  The exemption covers this check only: the always-on build-time
 interface enforcement is unaffected, so it can unblock the interface-`"none"` and cross-language
 violation classes but not interface-range violations - below the declared minimum or above the
 declared maximum - which that enforcement independently rejects.  The field is deliberately per-edge: there is no package-wide or global variant.  It is accepted on every package-sourced

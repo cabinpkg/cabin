@@ -974,6 +974,7 @@ pub(crate) fn plan_prepared(
     selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
     check: bool,
     color: cabin_core::ColorChoice,
+    verbosity: cabin_core::Verbosity,
 ) -> Result<cabin_build::BuildGraph> {
     let plan_graph = super::plan(&super::PlanRequest {
         graph: &prepared.graph,
@@ -1040,6 +1041,7 @@ pub(crate) fn plan_prepared(
     super::standard_compat::report(
         &plan_graph.standard_compat_violations,
         color,
+        verbosity,
         &prepared.lockfile_pinned,
     )?;
     // Validate the plan-dependent toolchain contract against exactly

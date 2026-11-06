@@ -408,8 +408,12 @@ A single escape hatch exists, deliberately narrow and per-edge:
   `[dev-dependencies]` table entry (see
   [`manifest.md`](manifest.md#ignore-interface-standard)) exempts exactly that edge.  The check
   still evaluates the edge and prints a downgraded note that the edge is unchecked - the override
-  suppresses the failure, not the evaluation.  It is deliberately narrow: there is no
-  package-wide or global variant.
+  suppresses the failure, not the evaluation.  When a registry dependency's own manifest declares
+  the override, the note prints only at verbose output (`-v`, `CABIN_TERM_VERBOSE`, or
+  `[term] verbose`), for that dependency's maintainers and for debugging; overrides in local packages
+  (the root, workspace members, path and `[patch]` packages) always print it.  Errors print at
+  every verbosity, including errors inside registry dependencies.  It is deliberately narrow:
+  there is no package-wide or global variant.
 
 ## Version selection
 
