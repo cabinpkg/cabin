@@ -248,11 +248,14 @@ Each probe compiles at the lowest standard the linked targets' declared interfac
 `c++17` when they declare no interface), except that an MSVC host raises a floor below C11 / C++14 to
 those: `cl.exe` has no `/std:` flag for C99 or C++11.
 
-Both modes run the complete local preflight first: fetch or reuse every pinned upstream archive
+Both modes run the local preflight first: fetch or reuse every pinned upstream archive
 (SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard safe
 materialization pipeline (extraction, `strip-prefix`, copy steps, patches),
 package each port and publish it into a temporary file registry in publication order, and build
-every port against the generated packages.  The probe builds run in parallel, one worker per CPU
+every port against the generated packages.  A dry-run given `--changed-since <rev>` or
+`--port <name>` narrows that to a selection after validating the whole catalog (that repository's
+`README.md`, "Selective dry-runs"); `--publish` always preflights every port.  The probe builds run
+in parallel, one worker per CPU
 with two build jobs each, each probe starting as soon as its port is staged; a failure still
 reports the earliest failing port in publication order, and a successful run ends with each phase's
 time summed over the ports and the slowest ports.  Each port is built through a generated probe
@@ -269,8 +272,7 @@ test is an ordinary program that returns non-zero on failure.  `--publish` build
 never runs them: running upstream code in the job that holds the trusted-publishing OIDC token
 would hand that code the token, so running them is the pull-request dry-run's job.  Packaging
 copies only the manifest and its declared patches from the port directory, so `tests/` is never
-published: editing a test changes no archive bytes.  The ports pull-request dry-run runs on Linux,
-macOS, and Windows.
+published: editing a test changes no archive bytes.
 
 ```console
 $ cargo run --locked -- --dry-run --cabin <cabin>
@@ -281,7 +283,7 @@ Run them from a `cabin-ports/ports` checkout.  `<cabin>` is a `cabin` binary bui
 commit the tool's own Cabin crates are pinned to; that repository's `README.md` has the commands
 that install it.
 
-`--dry-run` stops after the preflight.  `--publish` performs the same preflight (building, not
+`--dry-run` stops after the preflight.  `--publish` preflights every port (building, not
 running, the probes) and then uploads
 every package through the registry API in publication order, in consecutive batches of 50 (sized
 for the operator quota class's publish rate): each batch is one `cabin publish` invocation, which
@@ -298,13 +300,18 @@ archives, so a rerun stays a no-op either way.
 
 ### Publish automation
 
-The `cabin-ports/ports` workflows automate the tool.  Every pull request there runs the
-complete `--dry-run` preflight with no secrets, on Linux, macOS, and Windows (`ci.yml`), with the
+The `cabin-ports/ports` workflows automate the tool.  Every pull request and merge-queue run there
+runs the `--dry-run` preflight with no secrets, on Linux, macOS, and Windows (`ci.yml`), with the
 Cabin commit the tool is pinned to.  That pin moves only when a ports maintainer adopts a newer
-Cabin commit through such a pull request (that repository's `README.md`, "Cabin revision").
-Cabin's own CI runs no full-catalog dry-run - its scheduled real-upstream example tests and
-benchmarks build only the ports they use - so a Cabin change is checked against every port only
-once that pin adopts it: a green Cabin CI run promises nothing about building every port.
+Cabin commit through such a pull request (that repository's `README.md`, "Cabin revision").  A
+change that only adds new package names, editing at most `README.md` or `AGENTS.md` besides,
+preflights every version of those names and their dependency closure.  A change that only edits
+`README.md` or `AGENTS.md` preflights nothing.  Any other change preflights the whole catalog: a new
+version of an existing port, any edit under an existing port, the Cabin pin, the tooling, or
+CI.  Every run still loads and validates the whole catalog first.  Cabin's own CI runs no
+full-catalog dry-run - its scheduled real-upstream example tests and benchmarks build only the ports
+they use - so a Cabin change is checked against every port only once that pin adopts it: a green
+Cabin CI run promises nothing about building every port.
 Publishing is manual only: dispatching `publish.yml` from `main` publishes the set to
 `https://registry.cabinpkg.com` (a dispatch on any other ref publishes nothing), so a ports
 change merged to `main` reaches the registry at the next dispatch - and the same dispatch is the
