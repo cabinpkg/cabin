@@ -360,6 +360,76 @@ fn build_dependency_targets_reject_targets_the_build_machine_cannot_build() {
     }
 }
 
+/// Two projects require different versions of one registry build tool
+/// and share an artifact cache: each builds and runs its own version.
+#[test]
+fn two_projects_build_two_versions_of_one_build_tool() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let index = dir.path().join("index");
+    assert_fs::fixture::ChildPath::new(index.join("config.json"))
+        .write_str("{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n")
+        .unwrap();
+    let mut versions = Vec::new();
+    for major in ["1", "2"] {
+        let version = format!("{major}.0.0");
+        let checksum = make_archive(
+            &index.join(format!("artifacts/gen/gen-{version}.zip")),
+            &[
+                (
+                    "cabin.toml",
+                    &format!(
+                        "[package]\nname = \"gen\"\nversion = \"{version}\"\nc-standard = \"c11\"\n\n[target.gen]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n"
+                    ),
+                ),
+                (
+                    "src/main.c",
+                    &format!(
+                        "#include <stdio.h>\nint main(void) {{ puts(\"{major}\"); return 0; }}\n"
+                    ),
+                ),
+            ],
+        );
+        let revision = &checksum[..16];
+        versions.push(format!(
+            "\"{version}\": {{\"dependencies\": {{}}, \"yanked\": false, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/gen/gen-{version}.zip\", \"format\": \"zip\"}}}}}}}}"
+        ));
+    }
+    assert_fs::fixture::ChildPath::new(index.join("packages/gen.json"))
+        .write_str(&format!(
+            "{{\"schema\": 1, \"name\": \"gen\", \"versions\": {{{}}}}}\n",
+            versions.join(", ")
+        ))
+        .unwrap();
+    for major in ["1", "2"] {
+        let proj = assert_fs::fixture::ChildPath::new(dir.path().join(format!("proj{major}")));
+        proj.child("cabin.toml")
+            .write_str(&format!(
+                "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ngen = \"{major}.0.0\"\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n"
+            ))
+            .unwrap();
+        proj.child("src/main.c")
+            .write_str("int main(void) { return 0; }\n")
+            .unwrap();
+        cabin()
+            .current_dir(proj.path())
+            .args(["build", "--index-path"])
+            .arg(&index)
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .assert()
+            .success();
+    }
+    for major in ["1", "2"] {
+        let tool = dir
+            .path()
+            .join(format!("proj{major}/build/dev/build-machine/packages/gen"))
+            .join(host_exe("gen"));
+        let output = std::process::Command::new(&tool).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), major);
+    }
+}
+
 /// A build tool and the target program are separate link/runtime
 /// domains: each may contain a native identity once.
 #[test]
