@@ -43,7 +43,7 @@ version = "0.1.0"
 }
 
 #[test]
-fn metadata_requires_resolvable_cxx_before_detection() {
+fn metadata_requires_a_resolvable_compiler_before_detection() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -62,8 +62,8 @@ version = "0.1.0"
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("no usable C++ compiler found on PATH"),
-        "expected missing-CXX diagnostic, got: {stderr}"
+        stderr.contains("no usable C or C++ compiler found on PATH"),
+        "expected missing-compiler diagnostic, got: {stderr}"
     );
 }
 

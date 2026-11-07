@@ -869,11 +869,11 @@ fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
     let ar_id = parse_ar_version_output("GNU ar (GNU Binutils) 2.40\n");
     let ar_caps = derive_ar_capabilities(&ar_id);
     let report = ToolchainDetectionReport {
-        cxx: ToolDetection {
+        cxx: Some(ToolDetection {
             path: camino::Utf8PathBuf::from("/opt/llvm/bin/clang++"),
             identity: cxx_id,
             capabilities: cxx_caps,
-        },
+        }),
         cc: None,
         ar: ToolDetection {
             path: camino::Utf8PathBuf::from("/usr/bin/ar"),

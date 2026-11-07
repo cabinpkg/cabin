@@ -13,8 +13,8 @@ use std::hash::BuildHasher;
 
 use cabin_core::{
     ArchiverKind, CStandard, CxxStandard, ResolvedLanguageStandards, ResolvedToolchain,
-    SourceLanguage, ToolchainDetectionReport, classify_source, effective_c, effective_cxx,
-    validate_ar_for_backend, validate_c_standards, validate_cc_for_backend,
+    SourceLanguage, ToolKind, ToolchainDetectionReport, classify_source, effective_c,
+    effective_cxx, validate_ar_for_backend, validate_c_standards, validate_cc_for_backend,
     validate_cxx_for_backend, validate_cxx_standards,
 };
 use cabin_workspace::PackageGraph;
@@ -121,7 +121,7 @@ pub fn collect_requested_standards<S: BuildHasher>(
     out
 }
 
-/// Validate that the C++ compiler and archiver in `report` can
+/// Validate that the lead compiler and archiver in `report` can
 /// execute the command shapes emitted by the current backend.
 /// Returns the first problem encountered so users see one
 /// actionable error, not a wall of unrelated failures.
@@ -156,21 +156,28 @@ pub fn validate_toolchain_for_backend(
     toolchain: &ResolvedToolchain,
     report: &ToolchainDetectionReport,
 ) -> Result<(), BuildError> {
-    let cxx_spec = toolchain.cxx.spec.display();
-    validate_cxx_for_backend(&cxx_spec, report.cxx.identity.kind)?;
+    let lead = toolchain.lead();
+    let lead_spec = lead.spec.display();
+    let lead_kind = report.lead().identity.kind;
+    if lead.kind == ToolKind::CCompiler {
+        validate_cc_for_backend(&lead_spec, lead_kind)?;
+    } else {
+        validate_cxx_for_backend(&lead_spec, lead_kind)?;
+    }
     let ar_spec = toolchain.ar.spec.display();
     validate_ar_for_backend(&ar_spec, report.ar.identity.kind)?;
 
     // Both tools individually run; now require them to share a
-    // dialect.  The C++ compiler picks it (MSVC `cl` vs GCC/Clang)
+    // dialect.  The lead compiler picks it (MSVC `cl` vs GCC/Clang)
     // and the archiver must match.
-    let cxx_is_msvc = report.cxx.identity.kind.speaks_msvc_dialect();
+    let lead_is_msvc = lead_kind.speaks_msvc_dialect();
     let ar_is_msvc = report.ar.identity.kind == ArchiverKind::Lib;
-    if cxx_is_msvc != ar_is_msvc {
+    if lead_is_msvc != ar_is_msvc {
         return Err(BuildError::MixedToolchainDialects {
             detail: format!(
-                "C++ compiler `{cxx_spec}` is {}, but archiver `{ar_spec}` is {}",
-                dialect_label(cxx_is_msvc),
+                "{} `{lead_spec}` is {}, but archiver `{ar_spec}` is {}",
+                lead.kind.human_label(),
+                dialect_label(lead_is_msvc),
                 dialect_label(ar_is_msvc),
             ),
         });
@@ -204,8 +211,9 @@ pub fn validate_toolchain_standards(
     report: &ToolchainDetectionReport,
     requested: &RequestedStandards,
 ) -> Result<(), BuildError> {
-    let cxx_spec = toolchain.cxx.spec.display();
-    validate_cxx_standards(&cxx_spec, &report.cxx.identity, &requested.cxx)?;
+    if let (Some(cxx_tool), Some(cxx)) = (toolchain.cxx.as_ref(), report.cxx.as_ref()) {
+        validate_cxx_standards(&cxx_tool.spec.display(), &cxx.identity, &requested.cxx)?;
+    }
     // The C compiler is only validated when a C compile was
     // planned.  The resolver fills the optional `cc` slot from the
     // host default fallback (`cl` on Windows) even for a C++-only
@@ -216,13 +224,18 @@ pub fn validate_toolchain_standards(
     {
         let cc_spec = cc_tool.spec.display();
         validate_cc_for_backend(&cc_spec, cc_detection.identity.kind)?;
-        let cxx_is_msvc = report.cxx.identity.kind.speaks_msvc_dialect();
+        // Without a C++ compiler the C compiler is the lead, so this
+        // only compares the two when both exist.
+        let lead = toolchain.lead();
+        let lead_is_msvc = report.lead().identity.kind.speaks_msvc_dialect();
         let cc_is_msvc = cc_detection.identity.kind.speaks_msvc_dialect();
-        if cc_is_msvc != cxx_is_msvc {
+        if cc_is_msvc != lead_is_msvc {
             return Err(BuildError::MixedToolchainDialects {
                 detail: format!(
-                    "C++ compiler `{cxx_spec}` is {}, but C compiler `{cc_spec}` is {}",
-                    dialect_label(cxx_is_msvc),
+                    "{} `{}` is {}, but C compiler `{cc_spec}` is {}",
+                    lead.kind.human_label(),
+                    lead.spec.display(),
+                    dialect_label(lead_is_msvc),
                     dialect_label(cc_is_msvc),
                 ),
             });
@@ -348,7 +361,10 @@ pub fn msvc_external_includes_supported(
     report: &ToolchainDetectionReport,
     has_c_sources: bool,
 ) -> bool {
-    let cxx_ok = report.cxx.capabilities.external_include_dirs.supported;
+    let cxx_ok = report
+        .cxx
+        .as_ref()
+        .is_none_or(|cxx| cxx.capabilities.external_include_dirs.supported);
     let cc_ok = !has_c_sources
         || report
             .cc
@@ -364,7 +380,10 @@ pub fn clang_cl_languages(report: &ToolchainDetectionReport) -> Vec<SourceLangua
     let cc = report.cc.as_ref().map(|cc| cc.identity.kind);
     [
         (SourceLanguage::C, cc),
-        (SourceLanguage::Cxx, Some(report.cxx.identity.kind)),
+        (
+            SourceLanguage::Cxx,
+            report.cxx.as_ref().map(|cxx| cxx.identity.kind),
+        ),
     ]
     .into_iter()
     .filter(|(_, kind)| *kind == Some(cabin_core::CompilerKind::ClangCl))
@@ -400,12 +419,12 @@ mod tests {
 
     fn make_toolchain(cxx_spec: &str, ar_spec: &str) -> ResolvedToolchain {
         ResolvedToolchain {
-            cxx: ResolvedTool {
+            cxx: Some(ResolvedTool {
                 kind: ToolKind::CxxCompiler,
                 path: Utf8PathBuf::from("/bin").join(cxx_spec),
                 spec: ToolSpec::Name(cxx_spec.into()),
                 source: ToolSource::Default,
-            },
+            }),
             ar: ResolvedTool {
                 kind: ToolKind::Archiver,
                 path: Utf8PathBuf::from("/bin").join(ar_spec),
@@ -420,11 +439,11 @@ mod tests {
         let cxx_caps = derive_cxx_capabilities(&cxx);
         let ar_caps = derive_ar_capabilities(&ar);
         ToolchainDetectionReport {
-            cxx: ToolDetection {
+            cxx: Some(ToolDetection {
                 path: Utf8PathBuf::from("/bin/cxx"),
                 identity: cxx,
                 capabilities: cxx_caps,
-            },
+            }),
             cc: None,
             ar: ToolDetection {
                 path: Utf8PathBuf::from("/bin/ar"),
@@ -553,6 +572,45 @@ mod tests {
             matches!(err, BuildError::MixedToolchainDialects { .. }),
             "clang-cl + GNU ar should be rejected as mixed-dialect, got: {err}"
         );
+    }
+
+    /// A toolchain whose only compiler is `cc` holds that compiler to
+    /// the lead's checks before planning.
+    #[test]
+    fn a_c_only_toolchain_validates_its_c_compiler_as_the_lead() {
+        let c_only = |compiler: CompilerIdentity, archiver: ArchiverIdentity, ar_spec: &str| {
+            let mut toolchain = make_toolchain("cl", ar_spec);
+            let mut cc = toolchain.cxx.take().unwrap();
+            cc.kind = ToolKind::CCompiler;
+            toolchain.cc = Some(cc);
+            let mut report = report_for(compiler, archiver);
+            report.cc = report.cxx.take();
+            validate_toolchain_for_backend(&toolchain, &report)
+        };
+        let msvc = CompilerIdentity {
+            kind: CompilerKind::Msvc,
+            version: CompilerVersion::parse("19.40.33811"),
+            target: None,
+            raw_version_line: "Microsoft (R) C/C++ Optimizing Compiler".into(),
+        };
+        let gnu_ar = ArchiverIdentity {
+            kind: ArchiverKind::Ar,
+            version: CompilerVersion::parse("2.40"),
+            raw_version_line: "GNU ar".into(),
+        };
+        let err = c_only(msvc, gnu_ar.clone(), "ar").unwrap_err();
+        assert!(
+            matches!(err, BuildError::MixedToolchainDialects { .. }),
+            "{err}"
+        );
+        let unknown = CompilerIdentity {
+            kind: CompilerKind::Unknown,
+            version: None,
+            target: None,
+            raw_version_line: "mystery".into(),
+        };
+        let err = c_only(unknown, gnu_ar, "ar").unwrap_err();
+        assert!(matches!(err, BuildError::UnsupportedToolchain(_)), "{err}");
     }
 
     #[test]

@@ -94,11 +94,11 @@ pub struct SystemTargetInterface {
 pub struct PlanRequest<'a> {
     pub graph: &'a PackageGraph,
     /// Resolved C/C++ toolchain.  The planner picks the compile
-    /// driver per source language (`toolchain.cc.path()` for `.c`,
-    /// `toolchain.cxx.path()` for `.cc` / `.cpp` / `.cxx` /
-    /// `.c++` / `.C`) and the link driver per executable (C when its
-    /// linked objects came from C sources and none from C++,
-    /// otherwise C++).
+    /// driver per source language (`toolchain.cc` for `.c`,
+    /// `toolchain.cxx` for `.cc` / `.cpp` / `.cxx` / `.c++` / `.C`)
+    /// and the link driver per executable (C when its linked objects
+    /// came from C sources and none from C++, otherwise the lead
+    /// compiler).
     /// `toolchain.ar.path()` drives archive commands.
     pub toolchain: &'a ResolvedToolchain,
     /// Per-package resolved build flags.  Missing entries fall
@@ -246,7 +246,8 @@ struct PreparedAssembly {
 /// include dir holds a file named like a standard header; and per-target
 /// source errors ([`BuildError::UnrecognizedSourceExtension`],
 /// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
-/// [`BuildError::MissingLanguageStandard`], [`BuildError::MissingCCompiler`]).
+/// [`BuildError::MissingLanguageStandard`], [`BuildError::MissingCCompiler`],
+/// [`BuildError::MissingCxxCompiler`]).
 #[tracing::instrument(level = "info", skip_all, fields(actions = tracing::field::Empty))]
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     let selected = select_targets(req)?;
@@ -775,9 +776,11 @@ fn emit_actions(
             actions.push(BuildAction::Compile(compile));
         }
         for asm in &assembly {
-            // The C++ compiler is the one the dialect was detected
+            // The lead compiler is the one the dialect was detected
             // from, so it is the driver that understands its syntax.
-            let Some(assembler) = req.dialect.assembler(asm.syntax, req.toolchain.cxx.path())
+            let Some(assembler) = req
+                .dialect
+                .assembler(asm.syntax, req.toolchain.lead().path())
             else {
                 let (syntax, needs) = match asm.syntax {
                     AssemblySyntax::Gnu => ("GNU", "a GCC or Clang toolchain"),
@@ -890,7 +893,9 @@ fn emit_actions(
                 let languages_slice: Vec<SourceLanguage> = languages_here.iter().copied().collect();
                 let driver_language = link_driver_language(&languages_slice);
                 let driver_path = match driver_language {
-                    SourceLanguage::Cxx => req.toolchain.cxx.path(),
+                    // A C++ object was compiled with `cxx`, so the lead is
+                    // `cxx`; an assembly-only closure links with either.
+                    SourceLanguage::Cxx => req.toolchain.lead().path(),
                     // Only a lowered C source puts C in the manifest, and
                     // `compile_dispatch` fails its compile without `cc`.
                     SourceLanguage::C => req

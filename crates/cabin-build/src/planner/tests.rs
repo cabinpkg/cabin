@@ -184,12 +184,12 @@ fn dep(name: &str, path: &str) -> Dependency {
 fn toolchain() -> ResolvedToolchain {
     use cabin_core::{ResolvedTool, ToolKind, ToolSource, ToolSpec};
     ResolvedToolchain {
-        cxx: ResolvedTool {
+        cxx: Some(ResolvedTool {
             kind: ToolKind::CxxCompiler,
             path: Utf8PathBuf::from("/usr/bin/g++"),
             spec: ToolSpec::Name("g++".into()),
             source: ToolSource::Default,
-        },
+        }),
         ar: ResolvedTool {
             kind: ToolKind::Archiver,
             path: Utf8PathBuf::from("/usr/bin/ar"),
@@ -417,7 +417,7 @@ fn assembly_sources_assemble_into_the_target_archive() {
         let package = Package::new(pkg_name("ctx"), version(), vec![lib], Vec::new()).unwrap();
         let graph = single_package_graph(package, "/abs/proj");
         let mut tc = toolchain_with_cc();
-        tc.cxx.path = Utf8PathBuf::from(cxx);
+        tc.cxx.as_mut().unwrap().path = Utf8PathBuf::from(cxx);
         let mut request = plan_request(&graph, &tc, "/abs/proj/build");
         request.dialect = dialect;
         let bg = plan(&request).unwrap();
@@ -501,7 +501,7 @@ fn assembly_only_executable_links_with_the_cxx_driver() {
             _ => None,
         })
         .expect("link action present");
-    assert_eq!(link.linker, tc.cxx.path);
+    assert_eq!(link.linker, tc.cxx.as_ref().unwrap().path);
 }
 
 /// A syntax the active toolchain cannot assemble fails planning
@@ -518,7 +518,7 @@ fn assembly_syntax_must_match_the_toolchain_dialect() {
         let package = Package::new(pkg_name("ctx"), version(), vec![lib], Vec::new()).unwrap();
         let graph = single_package_graph(package, "/abs/proj");
         let mut tc = toolchain_with_cc();
-        tc.cxx.path = Utf8PathBuf::from(cxx);
+        tc.cxx.as_mut().unwrap().path = Utf8PathBuf::from(cxx);
         let mut request = plan_request(&graph, &tc, "/abs/proj/build");
         request.dialect = dialect;
         let bg = plan(&request).unwrap();
@@ -3327,6 +3327,63 @@ fn link_driver_ignores_the_own_objects_of_an_executable_dependency() {
     );
 }
 
+/// A toolchain with a C compiler and no C++ compiler, as on a machine
+/// that has only `cc` installed.
+fn c_only_toolchain() -> ResolvedToolchain {
+    let mut tc = toolchain_with_cc();
+    tc.cxx = None;
+    tc
+}
+
+#[test]
+fn missing_cxx_compiler_yields_actionable_error_with_target_id() {
+    let package = Package::new(
+        pkg_name("cxxdemo"),
+        version(),
+        vec![target(
+            "cxxdemo_exe",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/cxxdemo");
+    let tc = c_only_toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/cxxdemo/build")).unwrap_err();
+    assert!(
+        matches!(&err, BuildError::MissingCxxCompiler { target, path }
+            if target == "cxxdemo:cxxdemo_exe" && path == Utf8Path::new("/abs/cxxdemo/src/main.cc")),
+        "{err:?}"
+    );
+}
+
+/// Without a C++ compiler the C compiler is the lead: it assembles
+/// `.S` and drives the link of an assembly-only executable, which
+/// otherwise takes the C++ driver.
+#[test]
+fn c_only_toolchain_assembles_and_links_with_the_c_driver() {
+    let exe = target("ctx", TargetKind::Executable, &["src/start.S"], &[]);
+    let package = Package::new(pkg_name("ctx"), version(), vec![exe], Vec::new()).unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = c_only_toolchain();
+    let cc = tc.cc.as_ref().unwrap().path.clone();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/proj/build")).unwrap();
+    for action in &bg.actions {
+        match action {
+            BuildAction::Assemble(a) => assert_eq!(a.assembler, cc),
+            BuildAction::Link(l) => assert_eq!(l.linker, cc),
+            _ => {}
+        }
+    }
+    assert!(
+        bg.actions
+            .iter()
+            .any(|a| matches!(a, BuildAction::Assemble(_)))
+    );
+}
+
 #[test]
 fn missing_c_compiler_yields_actionable_error_with_target_id() {
     // C source + no `cc` resolved → MissingCCompiler error
@@ -5460,7 +5517,7 @@ fn standard_compat_violations_are_toolchain_independent() {
     let gnu = plan(&gnu_req).unwrap().standard_compat_violations;
 
     let mut msvc_tc = toolchain_with_cc();
-    msvc_tc.cxx.path = Utf8PathBuf::from("C:/tools/msvc/cl.exe");
+    msvc_tc.cxx.as_mut().unwrap().path = Utf8PathBuf::from("C:/tools/msvc/cl.exe");
     msvc_tc.cc.as_mut().unwrap().path = Utf8PathBuf::from("C:/tools/msvc/cl.exe");
     let mut msvc_req = plan_request(&graph, &msvc_tc, "/abs/app/build");
     msvc_req.dialect = Dialect::Msvc;

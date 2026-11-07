@@ -271,9 +271,9 @@ pub fn detect_toolchain(
         let ar = scope.spawn(|| {
             tracing::dispatcher::with_default(&dispatch, || detect_ar(&toolchain.ar, runner))
         });
-        let cxx = detect_cxx(&toolchain.cxx, runner);
+        let cxx = toolchain.cxx.as_ref().map(|tool| detect_cxx(tool, runner));
         Ok(ToolchainDetectionReport {
-            cxx: cxx?,
+            cxx: cxx.transpose()?,
             cc: cc.map(join).transpose()?,
             ar: join(ar)?,
         })
@@ -478,7 +478,11 @@ mod tests {
     }
 
     fn toolchain_with(cxx: ResolvedTool, ar: ResolvedTool) -> ResolvedToolchain {
-        ResolvedToolchain { cxx, ar, cc: None }
+        ResolvedToolchain {
+            cxx: Some(cxx),
+            ar,
+            cc: None,
+        }
     }
 
     #[test]
@@ -501,8 +505,19 @@ mod tests {
                 0,
             );
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::Clang);
-        assert!(report.cxx.capabilities.gcc_style_flags.supported);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::Clang
+        );
+        assert!(
+            report
+                .cxx
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .gcc_style_flags
+                .supported
+        );
         assert_eq!(report.ar.identity.kind, ArchiverKind::Ar);
         assert!(report.ar.capabilities.ar_crs.supported);
     }
@@ -531,12 +546,31 @@ mod tests {
                 0,
             );
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::ClangCl);
-        assert!(report.cxx.capabilities.msvc_style_flags.supported);
-        assert!(!report.cxx.capabilities.gcc_style_flags.supported);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::ClangCl
+        );
+        assert!(
+            report
+                .cxx
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .msvc_style_flags
+                .supported
+        );
+        assert!(
+            !report
+                .cxx
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .gcc_style_flags
+                .supported
+        );
         assert!(
             cabin_core::cxx_standard_capability(
-                &report.cxx.identity,
+                &report.cxx.as_ref().unwrap().identity,
                 cabin_core::CxxStandard::Cxx17
             )
             .supported
@@ -569,8 +603,19 @@ mod tests {
                 0,
             );
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::ClangCl);
-        assert!(report.cxx.capabilities.msvc_style_flags.supported);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::ClangCl
+        );
+        assert!(
+            report
+                .cxx
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .msvc_style_flags
+                .supported
+        );
     }
 
     #[test]
@@ -631,7 +676,10 @@ mod tests {
                 1,
             );
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::AppleClang);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::AppleClang
+        );
         // Name-based fallback classifies BSD `ar` as the GNU/BSD
         // family for capability purposes.
         assert_eq!(report.ar.identity.kind, ArchiverKind::Ar);
@@ -674,10 +722,24 @@ mod tests {
             .with("/bin/funky-cxx", &["--version"], "", &banner, 1)
             .with("/bin/ar", &["--version"], "GNU ar 2.40\n", "", 0);
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::Unknown);
-        assert!(!report.cxx.capabilities.gcc_style_flags.supported);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::Unknown
+        );
+        assert!(
+            !report
+                .cxx
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .gcc_style_flags
+                .supported
+        );
         // The reported line is kept, and bounded like every banner's.
-        assert_eq!(report.cxx.identity.raw_version_line, banner[..256]);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.raw_version_line,
+            banner[..256]
+        );
     }
 
     #[test]
@@ -700,8 +762,19 @@ mod tests {
                 0,
             );
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::Msvc);
-        assert!(!report.cxx.capabilities.gcc_style_flags.supported);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::Msvc
+        );
+        assert!(
+            !report
+                .cxx
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .gcc_style_flags
+                .supported
+        );
         assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
         assert!(!report.ar.capabilities.ar_crs.supported);
     }
@@ -733,8 +806,19 @@ mod tests {
                 1,
             );
         let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::Msvc);
-        assert!(report.cxx.capabilities.msvc_style_flags.supported);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::Msvc
+        );
+        assert!(
+            report
+                .cxx
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .msvc_style_flags
+                .supported
+        );
         assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
     }
 
@@ -768,13 +852,16 @@ mod tests {
             }
         }
         let toolchain = ResolvedToolchain {
-            cxx: tool(ToolKind::CxxCompiler, "/bin/clang++", "clang++"),
+            cxx: Some(tool(ToolKind::CxxCompiler, "/bin/clang++", "clang++")),
             cc: Some(tool(ToolKind::CCompiler, "/bin/clang", "clang")),
             ar: tool(ToolKind::Archiver, "/bin/ar", "ar"),
         };
         let runner = Rendezvous(std::sync::Mutex::new(0), std::sync::Condvar::new());
         let report = detect_toolchain(&toolchain, &runner).unwrap();
-        assert_eq!(report.cxx.identity.kind, CompilerKind::Clang);
+        assert_eq!(
+            report.cxx.as_ref().unwrap().identity.kind,
+            CompilerKind::Clang
+        );
     }
 
     #[test]
@@ -833,7 +920,7 @@ mod tests {
             )
             .with("/bin/ar", &["--version"], "GNU ar 2.40\n", "", 0);
         let toolchain = ResolvedToolchain {
-            cxx,
+            cxx: Some(cxx),
             ar,
             cc: Some(cc),
         };

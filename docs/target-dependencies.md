@@ -132,7 +132,7 @@ metadata` reports under `toolchain.detected.<slot>.identity.kind`: `clang`, `app
 `clang-cl`, `gcc`, `msvc`, and `unknown`.  Any other value (an executable name like `"clang++"`, a
 different casing) is rejected at manifest parse time, because a typo here would otherwise silently
 never match.  `unknown` is matchable and covers an unrecognized `--version` banner, the fail-soft
-commands where detection could not run at all, and (for `cc`) an unresolved C compiler slot.
+commands where detection could not run at all, and an unresolved compiler slot.
 
 `cc_version` / `cxx_version` take a SemVer **requirement** - the same grammar as dependency
 versions, including comma/space comparator lists - matched against the detected version zero-padded

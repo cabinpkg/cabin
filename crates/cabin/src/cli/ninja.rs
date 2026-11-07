@@ -77,15 +77,16 @@ pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
 /// toolset. (`VSLANG` is applied regardless.)
 pub(crate) fn discovered_msvc_install_applies(
     toolchain: &cabin_core::ResolvedToolchain,
-    cxx_kind: cabin_core::CompilerKind,
+    lead_kind: cabin_core::CompilerKind,
 ) -> bool {
-    if cxx_kind == cabin_core::CompilerKind::ClangCl {
+    if lead_kind == cabin_core::CompilerKind::ClangCl {
         return true;
     }
-    match &toolchain.cxx.spec {
+    let lead = toolchain.lead();
+    match &lead.spec {
         cabin_core::ToolSpec::Name(_) => true,
         cabin_core::ToolSpec::Path(_) => {
-            cabin_toolchain::path_is_discovered_msvc_cl(toolchain.cxx.path.as_std_path())
+            cabin_toolchain::path_is_discovered_msvc_cl(lead.path.as_std_path())
         }
     }
 }
@@ -622,7 +623,7 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     let ninja_env = if req.plan_graph.dialect == cabin_build::Dialect::Msvc {
         cabin_toolchain::msvc_environment(discovered_msvc_install_applies(
             req.toolchain,
-            req.detection.cxx.identity.kind,
+            req.detection.lead().identity.kind,
         ))
     } else {
         Vec::new()
@@ -765,7 +766,7 @@ mod tests {
             source: ToolSource::Cli,
         };
         ResolvedToolchain {
-            cxx: pinned(ToolKind::CxxCompiler, path),
+            cxx: Some(pinned(ToolKind::CxxCompiler, path)),
             ar: pinned(ToolKind::Archiver, "/llvm/bin/llvm-lib.exe"),
             cc: None,
         }

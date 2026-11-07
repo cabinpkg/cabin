@@ -45,7 +45,8 @@ The planner then:
   effective C++ standard (required);
 - chooses the **link driver** by walking the target's own objects plus every transitively reachable
   library object: if any object came from a C++ source, or none came from a C or C++ source
-  (assembly only), link with the C++ driver; otherwise link with the C driver.  Pure-C executables
+  (assembly only), link with the C++ driver (the C driver when no C++ compiler resolves);
+  otherwise link with the C driver.  Pure-C executables
   therefore stay off the C++ runtime; mixed targets inherit the C++ runtime as required.
 
 Sources whose extension is not recognized produce an explicit `unrecognized extension` build error
@@ -57,7 +58,7 @@ A target may also list assembly sources, which Cabin assembles rather than compi
 
 | Extension | Syntax                     | Assembler                                         |
 | --------- | -------------------------- | ------------------------------------------------- |
-| `.S`      | GNU assembly, preprocessed | the GCC or Clang driver that compiles C++         |
+| `.S`      | GNU assembly, preprocessed | the GCC or Clang lead compiler (C++, else C)      |
 | `.asm`    | MASM                       | `ml64.exe` from the directory holding `cl.exe` (x64 MSVC; not `clang-cl`) |
 
 Only the target's defines and include dirs reach the assembler: standards, optimization, and the
