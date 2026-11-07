@@ -808,15 +808,21 @@ mod tests {
             description: "AS /abs/build/jump.o".into(),
         });
         let gnu = render(&graph_with(vec![assemble.clone()], vec![])).unwrap();
-        assert!(
-            gnu.contains(
-                "rule assemble\n  command = $command\n  depfile = $depfile\n  deps = gcc\n"
-            )
-        );
+        assert!(gnu.contains(
+            r"rule assemble
+  command = $command
+  depfile = $depfile
+  deps = gcc
+"
+        ));
         assert!(gnu.contains("build /abs/build/jump.o: assemble /abs/src/jump.S"));
         assert!(gnu.contains("depfile = /abs/build/jump.o.d"));
         let msvc = render(&msvc_graph_with(vec![assemble])).unwrap();
-        assert!(msvc.contains("rule assemble\n  command = $command\n  description"));
+        assert!(msvc.contains(
+            r"rule assemble
+  command = $command
+  description"
+        ));
         assert!(!msvc.contains("depfile = /abs/build/jump.o.d"));
         let plain = render(&graph_with(vec![compile_action()], vec![])).unwrap();
         assert!(!plain.contains("rule assemble"));
@@ -1342,7 +1348,10 @@ mod tests {
             );
             assert!(
                 body.contains(
-                    "  depfile = /abs/build/main.o.d\n  deps = msvc\n  msvc_deps_prefix = cabin-depfile:\n"
+                    r"  depfile = /abs/build/main.o.d
+  deps = msvc
+  msvc_deps_prefix = cabin-depfile:
+"
                 ),
                 "{body}"
             );
@@ -1376,18 +1385,19 @@ mod tests {
         let body = render_with_inline_limit(&graph, Path::new("/opt/cabin/bin/cabin"), 0).unwrap();
         assert!(
             body.contains(
-                "  archivecmd = /usr/bin/ar @/abs/build/libfoo.a+.rsp\n  \
-                 rspfile = /abs/build/libfoo.a+.rsp\n  \
-                 rspfile_content = crs /abs/build/libfoo.a /abs/build/a\\ b.o \
-                 /abs/build/it\\'s\\\\\\\"$$x.o\n"
+                r#"  archivecmd = /usr/bin/ar @/abs/build/libfoo.a+.rsp
+  rspfile = /abs/build/libfoo.a+.rsp
+  rspfile_content = crs /abs/build/libfoo.a /abs/build/a\ b.o /abs/build/it\'s\\\"$$x.o
+"#
             ),
             "{body}"
         );
         assert!(
             body.contains(
-                "  command = /usr/bin/g++ @/abs/build/hello+.rsp\n  \
-                 rspfile = /abs/build/hello+.rsp\n  \
-                 rspfile_content = /abs/build/main.o -o /abs/build/hello\n"
+                r"  command = /usr/bin/g++ @/abs/build/hello+.rsp
+  rspfile = /abs/build/hello+.rsp
+  rspfile_content = /abs/build/main.o -o /abs/build/hello
+"
             ),
             "{body}"
         );
@@ -1418,9 +1428,10 @@ mod tests {
         };
         assert!(
             body.contains(&format!(
-                "  archivecmd = /usr/bin/llvm-ar {option}@/abs/build/libfoo.a+.rsp\n  \
-                 rspfile = /abs/build/libfoo.a+.rsp\n  \
-                 rspfile_content = {content}\n"
+                r"  archivecmd = /usr/bin/llvm-ar {option}@/abs/build/libfoo.a+.rsp
+  rspfile = /abs/build/libfoo.a+.rsp
+  rspfile_content = {content}
+"
             )),
             "{body}"
         );

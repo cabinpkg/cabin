@@ -189,7 +189,12 @@ pub(super) fn parse_workspace_dep_source(
     // legal bare TOML key, and the package-name grammar excludes quotes
     // and backslashes, so plain quoting is enough.
     let manifest = format!(
-        "[package]\nname = \"workspace\"\nversion = \"0.0.0\"\n[dependencies]\n\"{name}\" = \"{}\"\n",
+        r#"[package]
+name = "workspace"
+version = "0.0.0"
+[dependencies]
+"{name}" = "{}"
+"#,
         req.replace('"', "\\\""),
     );
     let parsed = cabin_manifest::parse_manifest_str(&manifest).map_err(|source| {

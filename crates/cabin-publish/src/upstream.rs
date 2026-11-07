@@ -466,12 +466,18 @@ mod tests {
     /// displace what publishes.
     #[test]
     fn an_upstream_root_manifest_never_displaces_the_committed_one() {
-        const COMMITTED: &str = "[package]\nname = \"cabin-ports/zlib\"\nversion = \"1.3.1\"\n";
+        const COMMITTED: &str = r#"[package]
+name = "cabin-ports/zlib"
+version = "1.3.1"
+"#;
         let dir = assert_fs::TempDir::new().unwrap();
         let (bytes, hex) = tar_gz(&[
             (
                 "zlib-1.3.1/cabin.toml",
-                "[package]\nname = \"upstream-decoy\"\nversion = \"9.9.9\"\n",
+                r#"[package]
+name = "upstream-decoy"
+version = "9.9.9"
+"#,
             ),
             ("zlib-1.3.1/zlib.c", "int z(void) { return 0; }\n"),
         ]);

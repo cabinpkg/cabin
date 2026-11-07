@@ -1327,8 +1327,11 @@ mod tests {
         assert_eq!(
             body,
             format!(
-                "[registries.\"https://registry.cabinpkg.com\"]\ntoken = \"{SECRET}\"\n\
-                 expires-at = \"{EXPIRES}\"\napi-url = \"{API}\"\n"
+                r#"[registries."https://registry.cabinpkg.com"]
+token = "{SECRET}"
+expires-at = "{EXPIRES}"
+api-url = "{API}"
+"#
             )
         );
 
@@ -1435,13 +1438,20 @@ mod tests {
             format!("[auth]\ntoken = \"{SECRET}\"\n"),
             // Unknown field inside a registry entry.
             format!(
-                "[registries.\"https://example.com\"]\ntoken = \"{SECRET}\"\n\
-                 expires-at = \"{EXPIRES}\"\napi-url = \"{API}\"\nscope = \"publish\"\n"
+                r#"[registries."https://example.com"]
+token = "{SECRET}"
+expires-at = "{EXPIRES}"
+api-url = "{API}"
+scope = "publish"
+"#
             ),
             // Typo'd `token` key.
             format!(
-                "[registries.\"https://example.com\"]\ntokn = \"{SECRET}\"\n\
-                 expires-at = \"{EXPIRES}\"\napi-url = \"{API}\"\n"
+                r#"[registries."https://example.com"]
+tokn = "{SECRET}"
+expires-at = "{EXPIRES}"
+api-url = "{API}"
+"#
             ),
         ] {
             std::fs::write(store.path(), &body).unwrap();
@@ -1494,8 +1504,11 @@ mod tests {
             std::fs::write(
                 store.path(),
                 format!(
-                    "[registries.\"{key}\"]\ntoken = \"{SECRET}\"\n\
-                     expires-at = \"{EXPIRES}\"\napi-url = \"{API}\"\n"
+                    r#"[registries."{key}"]
+token = "{SECRET}"
+expires-at = "{EXPIRES}"
+api-url = "{API}"
+"#
                 ),
             )
             .unwrap();

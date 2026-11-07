@@ -25,7 +25,13 @@ pub const FALLBACK_PACKAGE_NAME: &str = "cabin-package";
 
 /// Minimal C++ executable body emitted alongside a binary-package
 /// manifest.
-pub const BINARY_MAIN_CC_TEMPLATE: &str = "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from Cabin\\n\";\n    return 0;\n}\n";
+pub const BINARY_MAIN_CC_TEMPLATE: &str = r#"#include <iostream>
+
+int main() {
+    std::cout << "Hello from Cabin\n";
+    return 0;
+}
+"#;
 
 /// Conventional `.gitignore` body emitted by `cabin new` and by
 /// `cabin init` when one does not already exist.  Cabin's default
@@ -269,57 +275,61 @@ pub fn render_manifest(name: &str, kind: ScaffoldKind) -> String {
 // manifests declare one explicitly for the C++ sources they ship.
 fn render_binary_manifest(name: &str) -> String {
     format!(
-        "[package]\n\
-         name = \"{name}\"\n\
-         version = \"0.1.0\"\n\
-         cxx-standard = \"c++17\"\n\
-         \n\
-         [target.{name}]\n\
-         type = \"executable\"\n\
-         sources = [\"src/main.cc\"]\n"
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.{name}]
+type = "executable"
+sources = ["src/main.cc"]
+"#
     )
 }
 
 fn render_library_manifest(name: &str) -> String {
     let stems = LibraryStems::from_package_name(name);
     format!(
-        "[package]\n\
-         name = \"{name}\"\n\
-         version = \"0.1.0\"\n\
-         cxx-standard = \"c++17\"\n\
-         \n\
-         [target.{name}]\n\
-         type = \"library\"\n\
-         sources = [\"src/{src}\"]\n\
-         include-dirs = [\"include\"]\n",
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.{name}]
+type = "library"
+sources = ["src/{src}"]
+include-dirs = ["include"]
+"#,
         src = stems.source_filename,
     )
 }
 
 fn render_library_header(stems: &LibraryStems) -> String {
     format!(
-        "#pragma once\n\
-         \n\
-         namespace {ns} {{\n\
-         \n\
-         int add(int a, int b);\n\
-         \n\
-         }}  // namespace {ns}\n",
+        r"#pragma once
+
+namespace {ns} {{
+
+int add(int a, int b);
+
+}}  // namespace {ns}
+",
         ns = stems.namespace,
     )
 }
 
 fn render_library_source(stems: &LibraryStems) -> String {
     format!(
-        "#include \"{include}\"\n\
-         \n\
-         namespace {ns} {{\n\
-         \n\
-         int add(int a, int b) {{\n\
-         \x20   return a + b;\n\
-         }}\n\
-         \n\
-         }}  // namespace {ns}\n",
+        r#"#include "{include}"
+
+namespace {ns} {{
+
+int add(int a, int b) {{
+    return a + b;
+}}
+
+}}  // namespace {ns}
+"#,
         include = stems.header_include_path,
         ns = stems.namespace,
     )

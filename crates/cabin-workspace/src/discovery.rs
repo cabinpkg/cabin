@@ -369,7 +369,12 @@ members = ["packages/app"]
             )
             .unwrap();
         dir.child("packages/app/cabin.toml")
-            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         let found = discover_workspace_root(&dir.path().join("packages/app"))
             .unwrap()
@@ -396,7 +401,12 @@ members = []
     fn returns_none_when_no_workspace_root() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
-            .write_str("[package]\nname = \"only\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "only"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         // Assumes no ancestor of the temporary directory holds a
         // workspace root.
@@ -414,7 +424,12 @@ members = ["packages/app"]
             )
             .unwrap();
         dir.child("packages/app/cabin.toml")
-            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         let found = discover_workspace_root(&dir.path().join("packages/app"))
             .unwrap()
@@ -437,11 +452,21 @@ members = ["packages/app"]
             )
             .unwrap();
         dir.child("packages/app/cabin.toml")
-            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         dir.child("packages/app/src").create_dir_all().unwrap();
         dir.child("scratch/other/cabin.toml")
-            .write_str("[package]\nname = \"other\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "other"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         let found = discover_workspace_root(&dir.path().join("packages/app/src"))
             .unwrap()
@@ -474,7 +499,10 @@ exclude = ["packages/vendored"]
         for name in ["app", "vendored"] {
             dir.child(format!("packages/{name}/cabin.toml"))
                 .write_str(&format!(
-                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"
+                    r#"[package]
+name = "{name}"
+version = "0.1.0"
+"#
                 ))
                 .unwrap();
         }
@@ -496,7 +524,12 @@ exclude = ["packages/vendored"]
             let elsewhere = TempDir::new().unwrap();
             elsewhere
                 .child("vendored/cabin.toml")
-                .write_str("[package]\nname = \"vendored\"\nversion = \"0.1.0\"\n")
+                .write_str(
+                    r#"[package]
+name = "vendored"
+version = "0.1.0"
+"#,
+                )
                 .unwrap();
             std::fs::remove_dir_all(dir.path().join("packages/vendored")).unwrap();
             std::os::unix::fs::symlink(
@@ -531,7 +564,12 @@ members = ["app"]
             )
             .unwrap();
         dir.child("app/cabin.toml")
-            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         dir.child("docs").create_dir_all().unwrap();
         dir.child(".cabin/config.toml").write_str("").unwrap();
@@ -597,7 +635,12 @@ members = ["app"]
             )
             .unwrap();
         dir.child("app/cabin.toml")
-            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         dir.child("docs").create_dir_all().unwrap();
         dir.child(".cabin/config.toml").write_str("").unwrap();

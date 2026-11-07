@@ -22,7 +22,11 @@ pub enum PublishError {
     /// local manifests.  Raised before any lint, registry, or network
     /// work so the fix is the first thing the user sees.
     #[error(
-        "registry packages must be named `<scope>/<name>`, but `{name}` is a bare name; in {manifest_path}, change\n    name = \"{name}\"\nto your claimed scope, e.g.\n    name = \"<scope>/{name}\"\n(local-only builds and path dependencies may keep bare names)"
+        r#"registry packages must be named `<scope>/<name>`, but `{name}` is a bare name; in {manifest_path}, change
+    name = "{name}"
+to your claimed scope, e.g.
+    name = "<scope>/{name}"
+(local-only builds and path dependencies may keep bare names)"#
     )]
     BarePackageName { name: String, manifest_path: String },
 

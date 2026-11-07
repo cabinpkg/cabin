@@ -1341,12 +1341,13 @@ mod tests {
         )]);
         apply(
             &dir,
-            "--- a/src/lib.c\n\
-             +++ b/src/lib.c\n\
-             @@ -1,2 +1,2 @@\n \
-             int a() { return 1; }\n\
-             -int b() { return 2; }\n\
-             +int b() { return 3; }\n",
+            r"--- a/src/lib.c
++++ b/src/lib.c
+@@ -1,2 +1,2 @@
+ int a() { return 1; }
+-int b() { return 2; }
++int b() { return 3; }
+",
         )
         .unwrap();
         assert_eq!(
@@ -1384,7 +1385,14 @@ mod tests {
         let dir = tree(&[("a.txt", "x\n")]);
         for (patch, why) in [
             (
-                "int evil(void);\n/*\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+                r"int evil(void);
+/*
+--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
                 "C code and a comment opener before the diff",
             ),
             (
@@ -1392,17 +1400,34 @@ mod tests {
                 "format-patch signature trailer",
             ),
             (
-                "index /* 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+                r"index /* 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
                 "free text in an index line",
             ),
             (
-                "diff --git a/a.txt b/a.txt\nnew file mode 100644 /*\n\
-                 --- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+                r"diff --git a/a.txt b/a.txt
+new file mode 100644 /*
+--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
                 "free text after a mode",
             ),
             (
-                "diff --git a/a.txt /* b/a.txt */\n\
-                 --- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+                r"diff --git a/a.txt /* b/a.txt */
+--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
                 "free text in diff --git paths",
             ),
             (
@@ -1440,15 +1465,16 @@ mod tests {
         let dir = tree(&[("gone.h", "#define GONE 1\n")]);
         apply(
             &dir,
-            "--- /dev/null\n\
-             +++ b/include/new.h\n\
-             @@ -0,0 +1,2 @@\n\
-             +#pragma once\n\
-             +int added(void);\n\
-             --- a/gone.h\n\
-             +++ /dev/null\n\
-             @@ -1,1 +0,0 @@\n\
-             -#define GONE 1\n",
+            r"--- /dev/null
++++ b/include/new.h
+@@ -0,0 +1,2 @@
++#pragma once
++int added(void);
+--- a/gone.h
++++ /dev/null
+@@ -1,1 +0,0 @@
+-#define GONE 1
+",
         )
         .unwrap();
         assert_eq!(
@@ -1465,11 +1491,21 @@ mod tests {
         let dir = tree(&[("conf.h", "#define A 1\n")]);
         let first = PatchInput {
             name: "patches/0001.patch",
-            bytes: b"--- a/conf.h\n+++ b/conf.h\n@@ -1,1 +1,1 @@\n-#define A 1\n+#define A 2\n",
+            bytes: br"--- a/conf.h
++++ b/conf.h
+@@ -1,1 +1,1 @@
+-#define A 1
++#define A 2
+",
         };
         let second = PatchInput {
             name: "patches/0002.patch",
-            bytes: b"--- a/conf.h\n+++ b/conf.h\n@@ -1,1 +1,2 @@\n #define A 2\n+#define B 1\n",
+            bytes: br"--- a/conf.h
++++ b/conf.h
+@@ -1,1 +1,2 @@
+ #define A 2
++#define B 1
+",
         };
         apply_unified_patches(dir.path(), &[first, second]).unwrap();
         assert_eq!(read(&dir, "conf.h"), b"#define A 2\n#define B 1\n");
@@ -1485,15 +1521,16 @@ mod tests {
         let dir = tree(&[("a.txt", "one\ntwo\nthree\nfour\n")]);
         apply(
             &dir,
-            "--- a/a.txt\n\
-             +++ b/a.txt\n\
-             @@ -1,2 +1,2 @@\n\
-             -one\n\
-             +ONE\n \
-             two\n\
-             @@ -4,1 +4,1 @@\n\
-             -four\n\
-             +FOUR\n",
+            r"--- a/a.txt
++++ b/a.txt
+@@ -1,2 +1,2 @@
+-one
++ONE
+ two
+@@ -4,1 +4,1 @@
+-four
++FOUR
+",
         )
         .unwrap();
         assert_eq!(read(&dir, "a.txt"), b"ONE\ntwo\nthree\nFOUR\n");
@@ -1529,7 +1566,12 @@ mod tests {
         let dir = tree(&[("mixed.txt", "hello\r\n")]);
         let err = apply(
             &dir,
-            "--- a/mixed.txt\n+++ b/mixed.txt\n@@ -1,1 +1,1 @@\n-hello\n+goodbye\n",
+            r"--- a/mixed.txt
++++ b/mixed.txt
+@@ -1,1 +1,1 @@
+-hello
++goodbye
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::ContextMismatch { .. }), "{err:?}");
@@ -1540,14 +1582,15 @@ mod tests {
         let dir = tree(&[("frag.txt", "line\nend")]);
         apply(
             &dir,
-            "--- a/frag.txt\n\
-             +++ b/frag.txt\n\
-             @@ -1,2 +1,2 @@\n \
-             line\n\
-             -end\n\
-             \\ No newline at end of file\n\
-             +end!\n\
-             \\ No newline at end of file\n",
+            r"--- a/frag.txt
++++ b/frag.txt
+@@ -1,2 +1,2 @@
+ line
+-end
+\ No newline at end of file
++end!
+\ No newline at end of file
+",
         )
         .unwrap();
         assert_eq!(read(&dir, "frag.txt"), b"line\nend!");
@@ -1560,7 +1603,12 @@ mod tests {
         let dir = tree(&[("frag.txt", "end")]);
         let err = apply(
             &dir,
-            "--- a/frag.txt\n+++ b/frag.txt\n@@ -1,1 +1,1 @@\n-end\n+end!\n",
+            r"--- a/frag.txt
++++ b/frag.txt
+@@ -1,1 +1,1 @@
+-end
++end!
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::ContextMismatch { .. }), "{err:?}");
@@ -1576,7 +1624,11 @@ mod tests {
         let dir = tree(&[("a.txt", "old\n")]);
         let err = apply(
             &dir,
-            "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-old\n+new",
+            r"--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-old
++new",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -1586,7 +1638,10 @@ mod tests {
         // is never created from an incomplete final line.
         let err = apply(
             &dir,
-            "--- /dev/null\n+++ b/n.h\n@@ -0,0 +1,1 @@\n+#pragma on",
+            r"--- /dev/null
++++ b/n.h
+@@ -0,0 +1,1 @@
++#pragma on",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -1601,14 +1656,15 @@ mod tests {
         let dir = tree(&[("frag.txt", "line\nend")]);
         let err = apply(
             &dir,
-            "--- a/frag.txt\n\
-             +++ b/frag.txt\n\
-             @@ -1,2 +1,2 @@\n \
-             line\n\
-             -end\n\
-             \\ garbage\n\
-             +end!\n\
-             \\ No newline at end of file\n",
+            r"--- a/frag.txt
++++ b/frag.txt
+@@ -1,2 +1,2 @@
+ line
+-end
+\ garbage
++end!
+\ No newline at end of file
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -1629,7 +1685,12 @@ mod tests {
         dir.child("big.txt").write_binary(&big).unwrap();
         let err = apply(
             &dir,
-            "--- a/big.txt\n+++ b/big.txt\n@@ -1,1 +1,1 @@\n-\n+x\n",
+            r"--- a/big.txt
++++ b/big.txt
+@@ -1,1 +1,1 @@
+-
++x
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::TargetTooLarge { .. }), "{err:?}");
@@ -1646,7 +1707,12 @@ mod tests {
         dir.child("lines.txt").write_binary(&newlines).unwrap();
         let err = apply(
             &dir,
-            "--- a/lines.txt\n+++ b/lines.txt\n@@ -1,1 +1,1 @@\n-\n+x\n",
+            r"--- a/lines.txt
++++ b/lines.txt
+@@ -1,1 +1,1 @@
+-
++x
+",
         )
         .unwrap_err();
         match err {
@@ -1664,15 +1730,30 @@ mod tests {
         let dir = tree(&[("a.txt", "x\n")]);
         for (patch, why) in [
             (
-                "--- x/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+                r"--- x/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
                 "old side",
             ),
             (
-                "--- a/a.txt\n+++ a/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+                r"--- a/a.txt
++++ a/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
                 "new side",
             ),
             (
-                "--- a*/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+                r"--- a*/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
                 "comment closer in the prefix",
             ),
         ] {
@@ -1693,7 +1774,12 @@ mod tests {
         // count carries across the slice.
         let inputs = [PatchInput {
             name: "patches/p.patch",
-            bytes: b"--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+            bytes: br"--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
         }];
         let dir = tree(&[("a.txt", "x\n")]);
         let mut work = 0;
@@ -1729,7 +1815,11 @@ mod tests {
             use std::fmt::Write as _;
             let _ = write!(
                 patch,
-                "--- /dev/null\n+++ b/f{i}.txt\n@@ -0,0 +1,1 @@\n+x\n"
+                r"--- /dev/null
++++ b/f{i}.txt
+@@ -0,0 +1,1 @@
++x
+"
             );
             patch
         });
@@ -1752,8 +1842,17 @@ mod tests {
         let dir = tree(&[("a.txt", "x\ny\n")]);
         let err = apply(
             &dir,
-            "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-x\n+z\n\
-             --- a/a.txt\n+++ b/a.txt\n@@ -2,1 +2,1 @@\n-y\n+w\n",
+            r"--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++z
+--- a/a.txt
++++ b/a.txt
+@@ -2,1 +2,1 @@
+-y
++w
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -1768,9 +1867,23 @@ mod tests {
         // hand-edited hunk math.
         let dir = tree(&[("a.txt", "x\ny\n")]);
         for patch in [
-            "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +999,1 @@\n-x\n+z\n",
+            r"--- a/a.txt
++++ b/a.txt
+@@ -1,1 +999,1 @@
+-x
++z
+",
             // The second hunk ignores the +1 delta the first created.
-            "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,2 @@\n-x\n+x\n+w\n@@ -2,1 +2,1 @@\n-y\n+q\n",
+            r"--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,2 @@
+-x
++x
++w
+@@ -2,1 +2,1 @@
+-y
++q
+",
         ] {
             let err = apply(&dir, patch).unwrap_err();
             assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -1793,7 +1906,13 @@ mod tests {
         assert!(!create_would_conflict(dir.path(), "etoile.c").unwrap());
         let err = apply(
             &dir,
-            &format!("--- /dev/null\n+++ b/{nfc}\n@@ -0,0 +1,1 @@\n+int evil();\n"),
+            &format!(
+                r"--- /dev/null
++++ b/{nfc}
+@@ -0,0 +1,1 @@
++int evil();
+"
+            ),
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::TargetConflict { .. }), "{err:?}");
@@ -1811,7 +1930,14 @@ mod tests {
         dir.child("lines.txt").write_binary(&newlines).unwrap();
         let err = apply(
             &dir,
-            "--- a/lines.txt\n+++ b/lines.txt\n@@ -1,1 +1,3 @@\n-\n+\n+\n+\n",
+            r"--- a/lines.txt
++++ b/lines.txt
+@@ -1,1 +1,3 @@
+-
++
++
++
+",
         )
         .unwrap_err();
         match err {
@@ -1850,7 +1976,11 @@ mod tests {
         dir.child("big.txt").write_binary(&at_cap).unwrap();
         let err = apply(
             &dir,
-            "--- a/big.txt\n+++ b/big.txt\n@@ -1,0 +2,1 @@\n+added\n",
+            r"--- a/big.txt
++++ b/big.txt
+@@ -1,0 +2,1 @@
++added
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::TargetTooLarge { .. }), "{err:?}");
@@ -1864,13 +1994,13 @@ mod tests {
         let dir = tree(&[("frag.txt", "keep\nend\n")]);
         apply(
             &dir,
-            "--- a/frag.txt\n\
-             +++ b/frag.txt\n\
-             @@ -1,2 +1,2 @@\n \
-             keep\n\
-             -end\n\
-             +end!\n\
-             \\ No newline at end of file",
+            r"--- a/frag.txt
++++ b/frag.txt
+@@ -1,2 +1,2 @@
+ keep
+-end
++end!
+\ No newline at end of file",
         )
         .unwrap();
         assert_eq!(read(&dir, "frag.txt"), b"keep\nend!");
@@ -1881,14 +2011,15 @@ mod tests {
         let dir = tree(&[("list.txt", "middle\n")]);
         apply(
             &dir,
-            "--- a/list.txt\n\
-             +++ b/list.txt\n\
-             @@ -0,0 +1,1 @@\n\
-             +first\n\
-             @@ -1,1 +2,1 @@\n \
-             middle\n\
-             @@ -1,0 +3,1 @@\n\
-             +last\n",
+            r"--- a/list.txt
++++ b/list.txt
+@@ -0,0 +1,1 @@
++first
+@@ -1,1 +2,1 @@
+ middle
+@@ -1,0 +3,1 @@
++last
+",
         )
         .unwrap();
         assert_eq!(read(&dir, "list.txt"), b"first\nmiddle\nlast\n");
@@ -1898,10 +2029,22 @@ mod tests {
     fn context_divergence_is_rejected_without_offset_search() {
         // The removed line exists one line further down; `patch`
         // would find it with an offset, this engine must not.
-        let dir = tree(&[("shifted.c", "// new comment\nint a;\nint b;\n")]);
+        let dir = tree(&[(
+            "shifted.c",
+            r"// new comment
+int a;
+int b;
+",
+        )]);
         let err = apply(
             &dir,
-            "--- a/shifted.c\n+++ b/shifted.c\n@@ -1,2 +1,2 @@\n-int a;\n+int a2;\n int b;\n",
+            r"--- a/shifted.c
++++ b/shifted.c
+@@ -1,2 +1,2 @@
+-int a;
++int a2;
+ int b;
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::ContextMismatch { .. }), "{err:?}");
@@ -1982,7 +2125,14 @@ mod tests {
         // would create a zero-byte file (or delete an empty one),
         // slipping past the hunkless-section guard.
         let dir = tree(&[("keep.txt", "x\n")]);
-        let err = apply(&dir, "--- /dev/null\n+++ b/empty.txt\n@@ -0,0 +0,0 @@\n").unwrap_err();
+        let err = apply(
+            &dir,
+            r"--- /dev/null
++++ b/empty.txt
+@@ -0,0 +0,0 @@
+",
+        )
+        .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
         assert!(!dir.child("empty.txt").path().exists());
     }
@@ -1994,14 +2144,15 @@ mod tests {
         let dir = tree(&[("a.txt", "old")]);
         let err = apply(
             &dir,
-            "--- a/a.txt\n\
-             +++ b/a.txt\n\
-             @@ -1,1 +1,1 @@\n\
-             -old\n\
-             \\ No newline at end of file\n\
-             \\ No newline at end of file\n\
-             +new\n\
-             \\ No newline at end of file\n",
+            r"--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-old
+\ No newline at end of file
+\ No newline at end of file
++new
+\ No newline at end of file
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -2016,14 +2167,15 @@ mod tests {
         let dir = tree(&[("keep.txt", "x\n")]);
         let err = apply(
             &dir,
-            "diff --git a/link b/link\n\
-             new file mode 120000\n\
-             index 0000000..1111111\n\
-             --- /dev/null\n\
-             +++ b/link\n\
-             @@ -0,0 +1,1 @@\n\
-             +target/path\n\
-             \\ No newline at end of file\n",
+            r"diff --git a/link b/link
+new file mode 120000
+index 0000000..1111111
+--- /dev/null
++++ b/link
+@@ -0,0 +1,1 @@
++target/path
+\ No newline at end of file
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -2038,15 +2190,16 @@ mod tests {
         let dir = tree(&[("real.c", "x\n")]);
         let err = apply(
             &dir,
-            "diff --git a/empty.txt b/empty.txt\n\
-             new file mode 100644\n\
-             index 0000000..e69de29\n\
-             diff --git a/real.c b/real.c\n\
-             --- a/real.c\n\
-             +++ b/real.c\n\
-             @@ -1,1 +1,1 @@\n\
-             -x\n\
-             +y\n",
+            r"diff --git a/empty.txt b/empty.txt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/real.c b/real.c
+--- a/real.c
++++ b/real.c
+@@ -1,1 +1,1 @@
+-x
++y
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::Malformed { .. }), "{err:?}");
@@ -2060,13 +2213,14 @@ mod tests {
         let dir = tree(&[("f.c", "a\n")]);
         apply(
             &dir,
-            "diff --git a/f.c b/f.c\n\
-             index 1111111..2222222 100644\n\
-             --- a/f.c\n\
-             +++ b/f.c\n\
-             @@ -1,1 +1,1 @@\n\
-             -a\n\
-             +b\n",
+            r"diff --git a/f.c b/f.c
+index 1111111..2222222 100644
+--- a/f.c
++++ b/f.c
+@@ -1,1 +1,1 @@
+-a
++b
+",
         )
         .unwrap();
         assert_eq!(read(&dir, "f.c"), b"b\n");
@@ -2100,11 +2254,12 @@ mod tests {
         let dir = tree(&[("café.c", "int x;\n")]);
         apply(
             &dir,
-            "--- \"a/caf\\303\\251.c\"\n\
-             +++ \"b/caf\\303\\251.c\"\n\
-             @@ -1,1 +1,1 @@\n\
-             -int x;\n\
-             +int y;\n",
+            r#"--- "a/caf\303\251.c"
++++ "b/caf\303\251.c"
+@@ -1,1 +1,1 @@
+-int x;
++int y;
+"#,
         )
         .unwrap();
         assert_eq!(read(&dir, "café.c"), b"int y;\n");
@@ -2117,7 +2272,12 @@ mod tests {
         let dir = tree(&[("a.txt", "x\n")]);
         let err = apply(
             &dir,
-            "--- \"a/../escape.txt\"\n+++ \"b/../escape.txt\"\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+            r#"--- "a/../escape.txt"
++++ "b/../escape.txt"
+@@ -1,1 +1,1 @@
+-x
++y
+"#,
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::UnsafePath { .. }), "{err:?}");
@@ -2135,7 +2295,14 @@ mod tests {
             "a/patches\\win.txt",
             "a/con",
         ] {
-            let patch = format!("--- {header}\n+++ {header}\n@@ -1,1 +1,1 @@\n-x\n+y\n");
+            let patch = format!(
+                r"--- {header}
++++ {header}
+@@ -1,1 +1,1 @@
+-x
++y
+"
+            );
             let err = apply(&dir, &patch).unwrap_err();
             assert!(
                 matches!(err, PatchError::UnsafePath { .. }),
@@ -2149,7 +2316,12 @@ mod tests {
         let dir = tree(&[("dir/inner.txt", "x\n"), ("present.txt", "x\n")]);
         let missing = apply(
             &dir,
-            "--- a/absent.txt\n+++ b/absent.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+            r"--- a/absent.txt
++++ b/absent.txt
+@@ -1,1 +1,1 @@
+-x
++y
+",
         )
         .unwrap_err();
         assert!(
@@ -2160,15 +2332,27 @@ mod tests {
         // Modifying a directory, creating over an existing file, and
         // creating below a path occupied by a regular file all fail
         // deterministically.
-        let dir_target =
-            apply(&dir, "--- a/dir\n+++ b/dir\n@@ -1,1 +1,1 @@\n-x\n+y\n").unwrap_err();
+        let dir_target = apply(
+            &dir,
+            r"--- a/dir
++++ b/dir
+@@ -1,1 +1,1 @@
+-x
++y
+",
+        )
+        .unwrap_err();
         assert!(
             matches!(dir_target, PatchError::TargetConflict { .. }),
             "{dir_target:?}"
         );
         let exists = apply(
             &dir,
-            "--- /dev/null\n+++ b/present.txt\n@@ -0,0 +1,1 @@\n+y\n",
+            r"--- /dev/null
++++ b/present.txt
+@@ -0,0 +1,1 @@
++y
+",
         )
         .unwrap_err();
         assert!(
@@ -2177,7 +2361,11 @@ mod tests {
         );
         let through_file = apply(
             &dir,
-            "--- /dev/null\n+++ b/present.txt/below.txt\n@@ -0,0 +1,1 @@\n+y\n",
+            r"--- /dev/null
++++ b/present.txt/below.txt
+@@ -0,0 +1,1 @@
++y
+",
         )
         .unwrap_err();
         assert!(
@@ -2191,7 +2379,11 @@ mod tests {
         let dir = tree(&[("two.txt", "one\ntwo\n")]);
         let err = apply(
             &dir,
-            "--- a/two.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-one\n",
+            r"--- a/two.txt
++++ /dev/null
+@@ -1,1 +0,0 @@
+-one
+",
         )
         .unwrap_err();
         assert!(matches!(err, PatchError::ContextMismatch { .. }), "{err:?}");
@@ -2223,7 +2415,12 @@ mod tests {
         let dir = tree(&[("f.c", "int f() { return 0; }\n")]);
         apply(
             &dir,
-            "--- a/f.c\n+++ b/f.c\n@@ -1,1 +1,1 @@ int f()\n-int f() { return 0; }\n+int f() { return 1; }\n",
+            r"--- a/f.c
++++ b/f.c
+@@ -1,1 +1,1 @@ int f()
+-int f() { return 0; }
++int f() { return 1; }
+",
         )
         .unwrap();
         assert_eq!(read(&dir, "f.c"), b"int f() { return 1; }\n");

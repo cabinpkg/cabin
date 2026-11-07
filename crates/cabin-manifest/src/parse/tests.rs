@@ -1103,9 +1103,22 @@ fn whitespace_package_name_errors() {
 #[test]
 fn mixed_case_package_and_dependency_names_error() {
     for manifest in [
-        "[package]\nname = \"Boa\"\nversion = \"0.1.0\"\n",
-        "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dependencies]\n\"scope/Boa\" = \"1\"\n",
-        "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dev-dependencies]\n\"scope/b.oa\" = \"1\"\n",
+        r#"[package]
+name = "Boa"
+version = "0.1.0"
+"#,
+        r#"[package]
+name = "boa"
+version = "0.1.0"
+[dependencies]
+"scope/Boa" = "1"
+"#,
+        r#"[package]
+name = "boa"
+version = "0.1.0"
+[dev-dependencies]
+"scope/b.oa" = "1"
+"#,
     ] {
         let err = parse_manifest_str(manifest).unwrap_err();
         assert!(
@@ -1122,9 +1135,13 @@ fn mixed_case_package_and_dependency_names_error() {
 /// upstream spelling and only the path-safe rules apply.
 #[test]
 fn system_dependency_keys_keep_the_pkg_config_grammar() {
-    let manifest = "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dependencies]\n\
-                    \"glib-2.0\" = { version = \">=2\", system = true }\n\
-                    SDL2 = { version = \">=2\", system = true }\n";
+    let manifest = r#"[package]
+name = "boa"
+version = "0.1.0"
+[dependencies]
+"glib-2.0" = { version = ">=2", system = true }
+SDL2 = { version = ">=2", system = true }
+"#;
     let package = parse_manifest_str(manifest).unwrap().package.unwrap();
     let mut names: Vec<&str> = package
         .system_dependencies
@@ -1134,8 +1151,12 @@ fn system_dependency_keys_keep_the_pkg_config_grammar() {
     names.sort_unstable();
     assert_eq!(names, ["SDL2", "glib-2.0"]);
 
-    let manifest = "[package]\nname = \"boa\"\nversion = \"0.1.0\"\n[dependencies]\n\
-                    \"-lz\" = { version = \"\", system = true }\n";
+    let manifest = r#"[package]
+name = "boa"
+version = "0.1.0"
+[dependencies]
+"-lz" = { version = "", system = true }
+"#;
     assert!(matches!(
         parse_manifest_str(manifest).unwrap_err(),
         ManifestError::Validation(ValidationError::InvalidSystemDependencyName(_))
@@ -1455,7 +1476,13 @@ fn pure_workspace_rejects_package_level_tables() {
         ("[dev-dependencies]\nfmt = \"^10\"", "[dev-dependencies]"),
         ("[features]\nextra = []", "[features]"),
     ] {
-        let manifest = format!("[workspace]\nmembers = [\"packages/*\"]\n\n{table}\n");
+        let manifest = format!(
+            r#"[workspace]
+members = ["packages/*"]
+
+{table}
+"#
+        );
         let err = parse_manifest_str(&manifest).unwrap_err();
         let actual = match &err {
             ManifestError::ProfileFlagsWithoutPackage { table }
@@ -2338,7 +2365,13 @@ fn build_dependency_targets_parse_and_are_rejected_elsewhere() {
 
     for section in ["dependencies", "dev-dependencies"] {
         let err = parse_project_err(&format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[{section}]\ngen = {{ path = \"../gen\", targets = [\"gen\"] }}\n"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[{section}]
+gen = {{ path = "../gen", targets = ["gen"] }}
+"#
         ));
         assert!(
             matches!(err, ManifestError::TargetsNotSupportedForKind { .. }),
@@ -2346,7 +2379,13 @@ fn build_dependency_targets_parse_and_are_rejected_elsewhere() {
         );
     }
     let err = parse_project_err(
-        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build-dependencies]\ngen = { path = \"../gen\", targets = [] }\n",
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[build-dependencies]
+gen = { path = "../gen", targets = [] }
+"#,
     );
     assert!(
         matches!(err, ManifestError::EmptyDependencyTargets { .. }),
@@ -2403,7 +2442,13 @@ fn build_dependencies_parse_as_the_build_kind() {
         (r#"zlib = { version = ">=1.2", system = true }"#, false),
     ] {
         let err = parse_manifest_str(&format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build-dependencies]\n{entry}\n"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[build-dependencies]
+{entry}
+"#
         ))
         .unwrap_err();
         match err {
@@ -3247,8 +3292,13 @@ fn invalid_profile_name_is_rejected() {
 
 #[test]
 fn invalid_inherits_names_the_broken_rule() {
-    let manifest =
-        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[profile.ci]\ninherits = \"release.\"\n";
+    let manifest = r#"[package]
+name = "app"
+version = "0.1.0"
+
+[profile.ci]
+inherits = "release."
+"#;
     let err = parse_manifest_str(manifest).unwrap_err();
     assert!(
         matches!(&err, ManifestError::InvalidInheritedProfileName { profile, source }
@@ -3272,7 +3322,14 @@ fn profile_names_windows_would_alias_are_rejected() {
             "release.",
         ),
     ] {
-        let manifest = format!("[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n{table}\n");
+        let manifest = format!(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+{table}
+"#
+        );
         match parse_manifest_str(&manifest).unwrap_err() {
             ManifestError::InvalidProfileName(err) => assert_eq!(err.value, value),
             other => panic!("expected InvalidProfileName for {value:?}, got {other:?}"),
@@ -3593,7 +3650,12 @@ fn system_provided_table_rejects_an_option_shaped_module() {
 fn system_provided_entry_takes_one_module_or_one_per_target() {
     let parse = |entry: &str| {
         parse_manifest_str(&format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[system-provided.\"acme/tls\"]\n{entry}"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[system-provided."acme/tls"]
+{entry}"#
         ))
     };
     let package = parse(
@@ -4164,21 +4226,30 @@ fn conditional_sources_need_a_compiled_target_and_a_platform_condition() {
             interface-c-standard = "c11"
         "#;
     let err = parse_project_err(&format!(
-        "{base}\n[target.'cfg(os = \"linux\")'.sources]\nmissing = [\"linux.c\"]\n"
+        r#"{base}
+[target.'cfg(os = "linux")'.sources]
+missing = ["linux.c"]
+"#
     ));
     assert!(
         matches!(&err, ManifestError::ConditionalSourcesUnknownTarget { target, .. } if target == "missing"),
         "{err:?}"
     );
     let err = parse_project_err(&format!(
-        "{base}\n[target.'cfg(os = \"linux\")'.sources]\nheaders = [\"linux.c\"]\n"
+        r#"{base}
+[target.'cfg(os = "linux")'.sources]
+headers = ["linux.c"]
+"#
     ));
     assert!(
         matches!(&err, ManifestError::HeaderOnlyDeclaresSources { target } if target == "headers"),
         "{err:?}"
     );
     let err = parse_project_err(&format!(
-        "{base}\n[target.'cfg(feature = \"simd\")'.sources]\nlib = [\"simd.c\"]\n"
+        r#"{base}
+[target.'cfg(feature = "simd")'.sources]
+lib = ["simd.c"]
+"#
     ));
     assert!(
         matches!(err, ManifestError::ConditionalSourcesNotPlatformOnly { .. }),
@@ -4202,7 +4273,11 @@ fn instruction_sets_key_plain_and_conditional_sources() {
             sum = ["src/sum_sse41.c", "src/sum_avx2.c"]
         "#;
     let package = parse_project(&format!(
-        "{base}\n[target.sum.instruction-sets]\n\"src/sum_sse41.c\" = [\"sse4.1\"]\n\"src/sum_avx2.c\" = [\"avx\", \"avx2\"]\n"
+        r#"{base}
+[target.sum.instruction-sets]
+"src/sum_sse41.c" = ["sse4.1"]
+"src/sum_avx2.c" = ["avx", "avx2"]
+"#
     ));
     assert_eq!(
         package.targets[0].instruction_sets,
@@ -4219,7 +4294,10 @@ fn instruction_sets_key_plain_and_conditional_sources() {
     );
 
     let err = parse_project_err(&format!(
-        "{base}\n[target.sum.instruction-sets]\n\"src/other.c\" = [\"avx2\"]\n"
+        r#"{base}
+[target.sum.instruction-sets]
+"src/other.c" = ["avx2"]
+"#
     ));
     assert!(
         matches!(&err, ManifestError::Validation(ValidationError::InstructionSetsForUnknownSource { path, .. })
@@ -4227,7 +4305,10 @@ fn instruction_sets_key_plain_and_conditional_sources() {
         "{err:?}"
     );
     let err = parse_project_err(&format!(
-        "{base}\n[target.sum.instruction-sets]\n\"src/sum.c\" = [\"avx512f\"]\n"
+        r#"{base}
+[target.sum.instruction-sets]
+"src/sum.c" = ["avx512f"]
+"#
     ));
     assert!(err.to_string().contains("unknown variant"), "{err:?}");
 }

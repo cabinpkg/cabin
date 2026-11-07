@@ -170,17 +170,18 @@ pub fn render(diag: &LinkDiagnostic) -> String {
     };
     let _ = write!(
         out,
-        "package `{package}` declares {declared},\n\
-         but `[target.{target}]` {gap}\n\
-         \n\
-         Declaring a dependency makes it available; each target's\n\
-         `deps =` list is {role}\n\
-         \n\
-         Add the dep to the target:\n\
-         \n\
-         \x20   [target.{target}]\n\
-         \x20   # ...existing fields...\n\
-         \x20   deps = [\"{first}\"]\n"
+        r#"package `{package}` declares {declared},
+but `[target.{target}]` {gap}
+
+Declaring a dependency makes it available; each target's
+`deps =` list is {role}
+
+Add the dep to the target:
+
+    [target.{target}]
+    # ...existing fields...
+    deps = ["{first}"]
+"#
     );
     out
 }
@@ -354,8 +355,9 @@ mod tests {
 
     #[test]
     fn parses_macos_failed_line() {
-        let stderr = "FAILED: [code=1] /abs/build/dev/packages/mytest/mytest\n\
-                      /usr/bin/c++ ...\n";
+        let stderr = r"FAILED: [code=1] /abs/build/dev/packages/mytest/mytest
+/usr/bin/c++ ...
+";
         let failure = parse_link_failure_candidates(stderr, Dialect::GnuLike)
             .into_iter()
             .next()
@@ -385,8 +387,9 @@ mod tests {
     /// as it would on POSIX.
     #[test]
     fn parses_windows_failed_line_with_backslashes() {
-        let stderr = "FAILED: build\\dev\\packages\\mytest\\mytest.exe\n\
-                      link.exe ...\n";
+        let stderr = r"FAILED: build\dev\packages\mytest\mytest.exe
+link.exe ...
+";
         let failure = parse_link_failure_candidates(stderr, Dialect::Msvc)
             .into_iter()
             .next()
@@ -479,9 +482,10 @@ mod tests {
     // ---- diagnose ------------------------------------------------
 
     fn ninja_link_failure() -> &'static str {
-        "FAILED: [code=1] /abs/build/dev/packages/mytest/mytest\n\
-         /usr/bin/c++ obj/main.cc.o -o /abs/.../mytest\n\
-         ld: symbol(s) not found for architecture arm64\n"
+        r"FAILED: [code=1] /abs/build/dev/packages/mytest/mytest
+/usr/bin/c++ obj/main.cc.o -o /abs/.../mytest
+ld: symbol(s) not found for architecture arm64
+"
     }
 
     #[test]
@@ -527,9 +531,10 @@ mod tests {
     /// context is planned apart, under its own `packages/` tree.
     #[test]
     fn diagnose_resolves_the_scoped_reading() {
-        let stderr = "FAILED: [code=1] /abs/build/dev/packages/fmtlib/fmt/demo\n\
-             /usr/bin/c++ obj/main.cc.o -o /abs/.../demo\n\
-             ld: symbol(s) not found for architecture arm64\n";
+        let stderr = r"FAILED: [code=1] /abs/build/dev/packages/fmtlib/fmt/demo
+/usr/bin/c++ obj/main.cc.o -o /abs/.../demo
+ld: symbol(s) not found for architecture arm64
+";
         let diag = diagnose(stderr, Dialect::GnuLike, |pkg, target| {
             matches!((pkg, target), ("fmtlib/fmt", "demo") | ("fmtlib", "fmt"))
                 .then(|| deps(&["zlib"], &[]))
@@ -646,9 +651,10 @@ mod tests {
     /// `obj/<target>/` subdirectory.
     #[test]
     fn flags_a_missing_header_in_a_bare_package_compile() {
-        let output = "FAILED: [code=1] /abs/build/dev/packages/app/obj/app/src/main.cc.o\n\
-             /usr/bin/c++ -c src/main.cc -o ...\n\
-             src/main.cc:1:10: fatal error: 'kit.h' file not found\n";
+        let output = r"FAILED: [code=1] /abs/build/dev/packages/app/obj/app/src/main.cc.o
+/usr/bin/c++ -c src/main.cc -o ...
+src/main.cc:1:10: fatal error: 'kit.h' file not found
+";
         let diag = diagnose_compile(output, Dialect::GnuLike).unwrap();
         assert_eq!(
             diag,
@@ -665,8 +671,9 @@ mod tests {
     /// `obj/<target>/`.
     #[test]
     fn flags_a_missing_header_in_a_scoped_package_compile() {
-        let output = "FAILED: build/dev/packages/acme/app/obj/demo/src/main.c.o\n\
-             src/main.c:1:10: fatal error: kit.h: No such file or directory\n";
+        let output = r"FAILED: build/dev/packages/acme/app/obj/demo/src/main.c.o
+src/main.c:1:10: fatal error: kit.h: No such file or directory
+";
         let diag = diagnose(output, Dialect::GnuLike, |pkg, target| {
             (pkg == "acme/app" && target == "demo").then(|| deps(&["kit"], &[]))
         })
@@ -681,9 +688,9 @@ mod tests {
     /// MSVC's `C1083`, with Windows separators.
     #[test]
     fn flags_a_missing_header_from_msvc() {
-        let output = "FAILED: build\\dev\\packages\\app\\obj\\app\\src\\main.cc.obj\n\
-             src\\main.cc(1): fatal error C1083: Cannot open include file: 'kit.h': \
-             No such file or directory\n";
+        let output = r"FAILED: build\dev\packages\app\obj\app\src\main.cc.obj
+src\main.cc(1): fatal error C1083: Cannot open include file: 'kit.h': No such file or directory
+";
         assert!(diagnose_compile(output, Dialect::Msvc).is_some());
     }
 
@@ -694,8 +701,9 @@ mod tests {
     fn finds_the_planner_anchor_past_a_source_dir_named_packages() {
         for source in ["src/packages/main.cc.o", "src/packages/net/conn.cc.o"] {
             let output = format!(
-                "FAILED: /b/dev/packages/app/obj/app/{source}\n\
-                 fatal error: 'kit.h' file not found\n"
+                r"FAILED: /b/dev/packages/app/obj/app/{source}
+fatal error: 'kit.h' file not found
+"
             );
             assert!(
                 diagnose_compile(&output, Dialect::GnuLike).is_some(),
@@ -708,8 +716,9 @@ mod tests {
     /// anchor component.
     #[test]
     fn reads_a_package_named_packages() {
-        let output = "FAILED: /b/dev/packages/packages/obj/app/src/main.cc.o\n\
-             fatal error: 'kit.h' file not found\n";
+        let output = r"FAILED: /b/dev/packages/packages/obj/app/src/main.cc.o
+fatal error: 'kit.h' file not found
+";
         let diag = diagnose(output, Dialect::GnuLike, |pkg, target| {
             (pkg == "packages" && target == "app").then(|| deps(&["kit"], &[]))
         });
@@ -720,12 +729,13 @@ mod tests {
     /// an unlisted dep.
     #[test]
     fn ignores_compile_failures_that_are_not_a_missing_header() {
-        let output = "FAILED: /b/dev/packages/app/obj/app/src/main.cc.o\n\
-             src/main.cc:3:1: error: expected ';' after expression\n";
+        let output = r"FAILED: /b/dev/packages/app/obj/app/src/main.cc.o
+src/main.cc:3:1: error: expected ';' after expression
+";
         assert!(diagnose_compile(output, Dialect::GnuLike).is_none());
-        let msvc = "FAILED: build\\dev\\packages\\app\\obj\\app\\src\\main.cc.obj\n\
-             src\\main.cc(1): fatal error C1083: Cannot open source file: 'gen.cc': \
-             No such file or directory\n";
+        let msvc = r"FAILED: build\dev\packages\app\obj\app\src\main.cc.obj
+src\main.cc(1): fatal error C1083: Cannot open source file: 'gen.cc': No such file or directory
+";
         assert!(diagnose_compile(msvc, Dialect::Msvc).is_none());
     }
 
@@ -733,10 +743,11 @@ mod tests {
     /// failure says nothing about the first failed action.
     #[test]
     fn ignores_a_missing_header_from_another_failed_action() {
-        let output = "FAILED: /b/dev/packages/app/obj/app/src/main.cc.o\n\
-             src/main.cc:3:1: error: expected ';' after expression\n\
-             FAILED: /b/dev/packages/other/obj/other/src/lib.cc.o\n\
-             src/lib.cc:1:10: fatal error: 'kit.h' file not found\n";
+        let output = r"FAILED: /b/dev/packages/app/obj/app/src/main.cc.o
+src/main.cc:3:1: error: expected ';' after expression
+FAILED: /b/dev/packages/other/obj/other/src/lib.cc.o
+src/lib.cc:1:10: fatal error: 'kit.h' file not found
+";
         assert!(diagnose_compile(output, Dialect::GnuLike).is_none());
     }
 

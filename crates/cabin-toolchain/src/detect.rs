@@ -793,9 +793,11 @@ mod tests {
                 "/bin/cl",
                 &["--version"],
                 "",
-                "Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35211 for x64\n\
-                 Copyright (C) Microsoft Corporation.  All rights reserved.\n\n\
-                 cl : Command line error D8003 : missing source filename\n",
+                r"Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35211 for x64
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+cl : Command line error D8003 : missing source filename
+",
                 2,
             )
             .with(

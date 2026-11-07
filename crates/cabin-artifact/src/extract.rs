@@ -1246,7 +1246,10 @@ mod tests {
             &[
                 (
                     "cabin.toml",
-                    "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
+                    r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
                 ),
                 ("src/main.cc", "int main() { return 0; }\n"),
             ],
@@ -1508,7 +1511,12 @@ mod tests {
     fn validate_extracted_accepts_matching_manifest() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap();
     }
@@ -1524,7 +1532,12 @@ mod tests {
     fn validate_extracted_rejects_name_mismatch() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
-            .write_str("[package]\nname = \"other\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "other"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let err = validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap_err();
         match err {
@@ -1638,7 +1651,10 @@ mod tests {
             &[
                 (
                     "cabin.toml",
-                    "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
+                    r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
                 ),
                 ("src/main.cc", "int main() { return 0; }\n"),
             ],
@@ -2478,7 +2494,12 @@ mod tests {
     fn validate_extracted_rejects_version_mismatch() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "fmt"
+version = "10.1.0"
+"#,
+            )
             .unwrap();
         let err = validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap_err();
         assert!(matches!(err, ArtifactError::ManifestMismatch { .. }));
