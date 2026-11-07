@@ -145,7 +145,7 @@ fn scoped_statements_never_cross_scopes() {
 /// lifecycle state.
 fn seed_search_corpus(conn: &rusqlite::Connection) {
     conn.execute_batch(
-        "INSERT INTO users (id, created_at) VALUES (2, '2026-07-18T00:00:00.000Z');
+        r#"INSERT INTO users (id, created_at) VALUES (2, '2026-07-18T00:00:00.000Z');
          INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
            VALUES ('alpha', 'github', '1', '2026-07-18T00:00:00.000Z'),
                   ('beta', 'github', '2', '2026-07-18T00:00:00.000Z'),
@@ -176,34 +176,34 @@ fn seed_search_corpus(conn: &rusqlite::Connection) {
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
            VALUES
-           ('alpha', 'target', '1.0.0', 'c01', 'c01', '{\"dependencies\":{}}',
+           ('alpha', 'target', '1.0.0', 'c01', 'c01', '{"dependencies":{}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
-           ('alpha', 'target', '1.1.0', 'c02', 'c02', '{\"dependencies\":{}}',
+           ('alpha', 'target', '1.1.0', 'c02', 'c02', '{"dependencies":{}}',
             '2026-07-18T01:00:00.000Z', 10, 2, 'verified'),
-           ('beta', 'target-pending', '1.0.0', 'c03', 'c03', '{\"dependencies\":{}}',
+           ('beta', 'target-pending', '1.0.0', 'c03', 'c03', '{"dependencies":{}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'pending'),
-           ('alpha', 'my_pkg', '1.0.0', 'c04', 'c04', '{\"dependencies\":{}}',
+           ('alpha', 'my_pkg', '1.0.0', 'c04', 'c04', '{"dependencies":{}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
-           ('alpha', 'myxpkg', '1.0.0', 'c05', 'c05', '{\"dependencies\":{}}',
+           ('alpha', 'myxpkg', '1.0.0', 'c05', 'c05', '{"dependencies":{}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('gabime', 'spdlog', '1.13.0', 'c06', 'c06',
-            '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
+            '{"dependencies":{"alpha/target":"^1"}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('gabime', 'spdlog', '1.14.0', 'c07', 'c07',
-            '{\"dependencies\":{\"alpha/target\":{\"version\":\"^1\",\"optional\":true}}}',
+            '{"dependencies":{"alpha/target":{"version":"^1","optional":true}}}',
             '2026-07-18T01:00:00.000Z', 10, 2, 'verified'),
            ('acme', 'pending-dep', '1.0.0', 'c08', 'c08',
-            '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
+            '{"dependencies":{"alpha/target":"^1"}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'pending'),
            ('acme', 'rejected-dep', '1.0.0', 'c09', 'c09',
-            '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
+            '{"dependencies":{"alpha/target":"^1"}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'rejected'),
            ('acme', 'bare-dep', '1.0.0', 'c10', 'c10',
-            '{\"dependencies\":{\"target\":\"^1\"}}',
+            '{"dependencies":{"target":"^1"}}',
             '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('acme', 'dev-dep', '1.0.0', 'c11', 'c11',
-            '{\"dependencies\":{},\"dev-dependencies\":{\"alpha/target\":\"^1\"}}',
-            '2026-07-18T00:00:00.000Z', 10, 2, 'verified');",
+            '{"dependencies":{},"dev-dependencies":{"alpha/target":"^1"}}',
+            '2026-07-18T00:00:00.000Z', 10, 2, 'verified');"#,
     )
     .expect("seed the search corpus");
 }
@@ -277,12 +277,12 @@ fn catalog_rows_are_the_current_revisions_of_unyanked_verified_versions() {
     let conn = migrated_connection();
     seed_search_corpus(&conn);
     conn.execute(
-        "INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
+        r#"INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
-         VALUES ('alpha', 'target', '1.1.0', 'c12', 'c12', '{\"dependencies\":{}}',
+         VALUES ('alpha', 'target', '1.1.0', 'c12', 'c12', '{"dependencies":{}}',
                  '2026-07-18T02:00:00.000Z', 10, 2, 'pending'),
-                ('alpha', 'target', '1.1.0', 'c00', 'c00', '{\"dependencies\":{}}',
-                 '2026-07-17T00:00:00.000Z', 10, 2, 'verified')",
+                ('alpha', 'target', '1.1.0', 'c00', 'c00', '{"dependencies":{}}',
+                 '2026-07-17T00:00:00.000Z', 10, 2, 'verified')"#,
         [],
     )
     .expect("pending respin and superseded revision");

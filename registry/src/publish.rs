@@ -1392,9 +1392,9 @@ mod tests {
         // packages.
         let scoped = metadata_json("fmtlib", "fmt", "1.0.0").replace(
             "\"dependencies\": {}",
-            "\"dependencies\": {\"madler/zlib\": \"^1\"},\n  \
-             \"dev-dependencies\": {\"catchorg/catch2\": \"^3\"},\n  \
-             \"system-dependencies\": {\"openssl\": {\"version\": \">=3\"}}",
+            r#""dependencies": {"madler/zlib": "^1"},
+  "dev-dependencies": {"catchorg/catch2": "^3"},
+  "system-dependencies": {"openssl": {"version": ">=3"}}"#,
         );
         assert!(validate_metadata("fmtlib", "fmt", "1.0.0", REV, scoped.as_bytes()).is_ok());
         // The dev-dependencies map is typed for the key check, so a

@@ -1149,11 +1149,15 @@ mod tests {
         // signature would refuse this valid token.
         let header = format!("{{ \"kid\" : \"{KID_A}\" ,\n  \"typ\":\"JWT\", \"alg\":\"RS256\" }}");
         let claims = format!(
-            "{{\n  \"ref\": \"refs/heads/main\",\n  \"jti\": \"jti-0001\" ,\n  \
-             \"workflow_ref\": \"cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main\",\n  \
-             \"repository_owner_id\": 35998702,  \"repository_id\": 119684778,\n  \
-             \"runner_environment\": \"github-hosted\",\n  \
-             \"exp\": {exp},  \"aud\": \"{DEFAULT_AUDIENCE}\",\n  \"iss\": \"{GITHUB_OIDC_ISSUER}\"\n}}",
+            r#"{{
+  "ref": "refs/heads/main",
+  "jti": "jti-0001" ,
+  "workflow_ref": "cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main",
+  "repository_owner_id": 35998702,  "repository_id": 119684778,
+  "runner_environment": "github-hosted",
+  "exp": {exp},  "aud": "{DEFAULT_AUDIENCE}",
+  "iss": "{GITHUB_OIDC_ISSUER}"
+}}"#,
             exp = NOW + 600,
         );
         let token = sign_raw(key_a(), &header, &claims);
