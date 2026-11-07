@@ -32,13 +32,31 @@ fn publish_zlib_and_png(root: &Path) {
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"acme/zlib\"\nversion = \"1.3.0\"\nc-standard = \"c11\"\n\n\
-                 [target.z]\ntype = \"library\"\nsources = [\"src/z.c\"]\ninclude-dirs = [\"include\"]\n",
+                r#"[package]
+name = "acme/zlib"
+version = "1.3.0"
+c-standard = "c11"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+include-dirs = ["include"]
+"#,
             ),
             (
                 "include/z.h",
-                "#ifndef Z_H\n#define Z_H\n#define Z_ORIGIN \"source\"\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\
-                 int z_answer(void);\n#ifdef __cplusplus\n}\n#endif\n#endif\n",
+                r#"#ifndef Z_H
+#define Z_H
+#define Z_ORIGIN "source"
+#ifdef __cplusplus
+extern "C" {
+#endif
+int z_answer(void);
+#ifdef __cplusplus
+}
+#endif
+#endif
+"#,
             ),
             (
                 "src/z.c",
@@ -52,18 +70,35 @@ fn publish_zlib_and_png(root: &Path) {
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"acme/png\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
-                 [dependencies]\n\"acme/zlib\" = \">=1.2\"\n\n\
-                 [target.png]\ntype = \"library\"\nsources = [\"src/png.c\"]\ninclude-dirs = [\"include\"]\n\
-                 deps = [\"acme/zlib\"]\n",
+                r#"[package]
+name = "acme/png"
+version = "1.0.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/zlib" = ">=1.2"
+
+[target.png]
+type = "library"
+sources = ["src/png.c"]
+include-dirs = ["include"]
+deps = ["acme/zlib"]
+"#,
             ),
             (
                 "include/png.h",
-                "#ifdef __cplusplus\nextern \"C\"\n#endif\nconst char *png_origin(void);\n",
+                r#"#ifdef __cplusplus
+extern "C"
+#endif
+const char *png_origin(void);
+"#,
             ),
             (
                 "src/png.c",
-                "#include \"png.h\"\n#include \"z.h\"\nconst char *png_origin(void) { return Z_ORIGIN; }\n",
+                r#"#include "png.h"
+#include "z.h"
+const char *png_origin(void) { return Z_ORIGIN; }
+"#,
             ),
         ],
     );
@@ -75,7 +110,13 @@ fn write_app(root: &Path, deps: &str, policy: &str) -> PathBuf {
     let manifest = root.join("app/cabin.toml");
     assert_fs::fixture::ChildPath::new(&manifest)
         .write_str(&format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\n{deps}\n{policy}"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+{deps}
+{policy}"#
         ))
         .unwrap();
     manifest
@@ -118,8 +159,14 @@ fn one_consumer_builds_from_source_or_from_the_system() {
     let system_include = root.join("sys/include");
     assert_fs::fixture::ChildPath::new(system_include.join("z.h"))
         .write_str(
-            "#ifndef Z_H\n#define Z_H\n#ifdef Z_SYSTEM\n#define Z_ORIGIN \"system\"\n#endif\n\
-             static inline int z_answer(void) { return 42; }\n#endif\n",
+            r#"#ifndef Z_H
+#define Z_H
+#ifdef Z_SYSTEM
+#define Z_ORIGIN "system"
+#endif
+static inline int z_answer(void) { return 42; }
+#endif
+"#,
         )
         .unwrap();
     let fixtures = Fixtures::new();
@@ -133,20 +180,32 @@ fn one_consumer_builds_from_source_or_from_the_system() {
         }))
         .unwrap(),
     );
-    let deps = "\"acme/zlib\" = \"^1.3\"\n\"acme/png\" = \"^1.0\"\n\n\
-                [target.glue]\ntype = \"library\"\nsources = [\"src/glue.c\"]\nc-standard = \"c11\"\n\
-                deps = [\"acme/zlib\"]\n\n\
-                [target.app]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\ncxx-standard = \"c++17\"\n\
-                deps = [\"glue\", \"acme/png\", \"acme/zlib\"]\n";
+    let deps = r#""acme/zlib" = "^1.3"
+"acme/png" = "^1.0"
+
+[target.glue]
+type = "library"
+sources = ["src/glue.c"]
+c-standard = "c11"
+deps = ["acme/zlib"]
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+cxx-standard = "c++17"
+deps = ["glue", "acme/png", "acme/zlib"]
+"#;
     assert_fs::fixture::ChildPath::new(root.join("app/src/glue.c"))
         .write_str("#include \"z.h\"\nconst char *glue_origin(void) { return Z_ORIGIN; }\n")
         .unwrap();
     assert_fs::fixture::ChildPath::new(root.join("app/src/main.cc"))
         .write_str(
-            "#include <cstdio>\n#include \"png.h\"\n#include \"z.h\"\n\
-             extern \"C\" const char *glue_origin(void);\n\
-             int main() { std::printf(\"%s %s %s %d\\n\", Z_ORIGIN, glue_origin(), png_origin(), \
-             z_answer()); return 0; }\n",
+            r#"#include <cstdio>
+#include "png.h"
+#include "z.h"
+extern "C" const char *glue_origin(void);
+int main() { std::printf("%s %s %s %d\n", Z_ORIGIN, glue_origin(), png_origin(), z_answer()); return 0; }
+"#,
         )
         .unwrap();
     let build = |manifest: &Path| {
@@ -223,10 +282,21 @@ fn an_absent_or_mismatched_module_fails_the_build() {
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"acme/extra\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
-                 [dependencies]\n\"acme/zlib\" = { version = \"^9\", optional = true }\n\n\
-                 [features]\nz = [\"dep:acme/zlib\"]\n\n\
-                 [target.extra]\ntype = \"library\"\nsources = [\"src/extra.c\"]\n",
+                r#"[package]
+name = "acme/extra"
+version = "1.0.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/zlib" = { version = "^9", optional = true }
+
+[features]
+z = ["dep:acme/zlib"]
+
+[target.extra]
+type = "library"
+sources = ["src/extra.c"]
+"#,
             ),
             ("src/extra.c", "int extra(void) { return 0; }\n"),
         ],
@@ -236,9 +306,16 @@ fn an_absent_or_mismatched_module_fails_the_build() {
         .unwrap();
     let manifest = write_app(
         root,
-        "\"acme/zlib\" = \"*\"\n\"acme/png\" = \"^1.0\"\n\"acme/extra\" = \"^1.0\"\n\n\
-         [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n\
-         deps = [\"acme/png\"]\n",
+        r#""acme/zlib" = "*"
+"acme/png" = "^1.0"
+"acme/extra" = "^1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+deps = ["acme/png"]
+"#,
         POLICY,
     );
     let fixtures = Fixtures::new();
@@ -264,7 +341,12 @@ fn an_absent_or_mismatched_module_fails_the_build() {
 
     fixtures.write(
         "zsys",
-        "{\n\"version\": \"1.1.0\",\n\"cflags\": \"\",\n\"libs\": \"\"\n}\n",
+        r#"{
+"version": "1.1.0",
+"cflags": "",
+"libs": ""
+}
+"#,
     );
     let stderr = build();
     assert!(
@@ -288,8 +370,15 @@ fn a_build_dependency_cannot_reach_a_provided_package() {
         .unwrap();
     let manifest = write_app(
         root,
-        "\n[build-dependencies]\n\"acme/zlib\" = \"^1.3\"\n\n\
-         [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n",
+        r#"
+[build-dependencies]
+"acme/zlib" = "^1.3"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+"#,
         POLICY,
     );
     let stderr = cabin_with_fake_pkg_config(&Fixtures::new())
@@ -368,9 +457,18 @@ fn a_provided_package_cannot_reach_a_package_built_from_source() {
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"acme/imaging\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
-                 [dependencies]\n\"acme/png\" = \"^1.0\"\n\n\
-                 [target.imaging]\ntype = \"library\"\nsources = [\"src/imaging.c\"]\n",
+                r#"[package]
+name = "acme/imaging"
+version = "1.0.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/png" = "^1.0"
+
+[target.imaging]
+type = "library"
+sources = ["src/imaging.c"]
+"#,
             ),
             ("src/imaging.c", "int imaging(void) { return 0; }\n"),
         ],
@@ -381,10 +479,19 @@ fn a_provided_package_cannot_reach_a_package_built_from_source() {
     let fixtures = Fixtures::new();
     fixtures.write(
         "imaging",
-        "{\n\"version\": \"1.0.0\",\n\"cflags\": \"\",\n\"libs\": \"\"\n}\n",
+        r#"{
+"version": "1.0.0",
+"cflags": "",
+"libs": ""
+}
+"#,
     );
-    let target = "\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n\
-                  c-standard = \"c11\"\n";
+    let target = r#"
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+"#;
     let policy = "\n[system-provided.\"acme/imaging\"]\npkg-config = \"imaging\"\n";
     let build = |manifest: &Path| {
         let mut cmd = cabin_with_fake_pkg_config(&fixtures);
@@ -401,7 +508,11 @@ fn a_provided_package_cannot_reach_a_package_built_from_source() {
 
     let manifest = write_app(
         root,
-        &format!("\"acme/imaging\" = \"^1.0\"\n\"acme/zlib\" = \"^1.3\"\n{target}"),
+        &format!(
+            r#""acme/imaging" = "^1.0"
+"acme/zlib" = "^1.3"
+{target}"#
+        ),
         policy,
     );
     let stderr = build(&manifest).failure().get_output().stderr.clone();
@@ -418,8 +529,11 @@ fn a_provided_package_cannot_reach_a_package_built_from_source() {
     write_app(
         root,
         &format!(
-            "\"acme/imaging\" = \"^1.0\"\n\n\
-             [target.'cfg(os = \"none-such\")'.dependencies]\n\"acme/zlib\" = \"^1.3\"\n{target}"
+            r#""acme/imaging" = "^1.0"
+
+[target.'cfg(os = "none-such")'.dependencies]
+"acme/zlib" = "^1.3"
+{target}"#
         ),
         policy,
     );
@@ -435,7 +549,12 @@ fn a_package_cannot_be_both_patched_and_provided() {
     let manifest = write_app(
         root,
         "\"acme/zlib\" = \"^1.3\"\n",
-        &format!("\n[patch]\n\"acme/zlib\" = {{ path = \"../src-zlib\" }}\n{POLICY}"),
+        &format!(
+            r#"
+[patch]
+"acme/zlib" = {{ path = "../src-zlib" }}
+{POLICY}"#
+        ),
     );
     let stderr = fetch(root, &manifest).failure().get_output().stderr.clone();
     let stderr = String::from_utf8_lossy(&stderr);
@@ -467,8 +586,15 @@ fn a_patch_only_a_provided_package_reaches_is_dormant() {
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"acme/extra\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
-                 [target.extra]\ntype = \"library\"\nsources = [\"src/extra.c\"]\n",
+                r#"[package]
+name = "acme/extra"
+version = "1.0.0"
+c-standard = "c11"
+
+[target.extra]
+type = "library"
+sources = ["src/extra.c"]
+"#,
             ),
             ("src/extra.c", "int extra(void) { return 0; }\n"),
         ],
@@ -477,9 +603,18 @@ fn a_patch_only_a_provided_package_reaches_is_dormant() {
     for (path, body) in [
         (
             "zlib-fork/cabin.toml",
-            "[package]\nname = \"acme/zlib\"\nversion = \"1.3.0\"\nc-standard = \"c11\"\n\n\
-             [dependencies]\n\"acme/extra\" = \"^1.0\"\n\n\
-             [target.z]\ntype = \"library\"\nsources = [\"src/z.c\"]\n",
+            r#"[package]
+name = "acme/zlib"
+version = "1.3.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/extra" = "^1.0"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+"#,
         ),
         ("zlib-fork/src/z.c", "int z_answer(void) { return 42; }\n"),
         ("app/src/main.c", "int main(void) { return 0; }\n"),
@@ -490,15 +625,30 @@ fn a_patch_only_a_provided_package_reaches_is_dormant() {
     }
     let manifest = write_app(
         root,
-        "\"acme/png\" = \"^1.0\"\n\n\
-         [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n",
-        "\n[patch]\n\"acme/zlib\" = { path = \"../zlib-fork\" }\n\n\
-         [system-provided.\"acme/png\"]\npkg-config = \"pngsys\"\n",
+        r#""acme/png" = "^1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+"#,
+        r#"
+[patch]
+"acme/zlib" = { path = "../zlib-fork" }
+
+[system-provided."acme/png"]
+pkg-config = "pngsys"
+"#,
     );
     let fixtures = Fixtures::new();
     fixtures.write(
         "pngsys",
-        "{\n\"version\": \"1.0.0\",\n\"cflags\": \"\",\n\"libs\": \"\"\n}\n",
+        r#"{
+"version": "1.0.0",
+"cflags": "",
+"libs": ""
+}
+"#,
     );
     cabin_with_fake_pkg_config(&fixtures)
         .args(["build", "--manifest-path"])
@@ -523,8 +673,15 @@ fn a_local_package_cannot_be_provided() {
     for (path, body) in [
         (
             "zlib/cabin.toml",
-            "[package]\nname = \"acme/zlib\"\nversion = \"1.3.0\"\nc-standard = \"c11\"\n\n\
-             [target.z]\ntype = \"library\"\nsources = [\"src/z.c\"]\n",
+            r#"[package]
+name = "acme/zlib"
+version = "1.3.0"
+c-standard = "c11"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+"#,
         ),
         ("zlib/src/z.c", "int z_answer(void) { return 42; }\n"),
         ("app/src/main.c", "int main(void) { return 0; }\n"),
@@ -535,8 +692,13 @@ fn a_local_package_cannot_be_provided() {
     }
     let manifest = write_app(
         root,
-        "\"acme/zlib\" = { path = \"../zlib\" }\n\n\
-         [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n",
+        r#""acme/zlib" = { path = "../zlib" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+"#,
         POLICY,
     );
     let stderr = cabin_with_fake_pkg_config(&Fixtures::new())
@@ -573,9 +735,21 @@ fn each_library_target_comes_from_its_own_module() {
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"acme/tls\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
-                 [target.ssl]\ntype = \"library\"\nsources = [\"src/ssl.c\"]\ninclude-dirs = [\"include\"]\n\n\
-                 [target.crypto]\ntype = \"library\"\nsources = [\"src/crypto.c\"]\ninclude-dirs = [\"include\"]\n",
+                r#"[package]
+name = "acme/tls"
+version = "1.0.0"
+c-standard = "c11"
+
+[target.ssl]
+type = "library"
+sources = ["src/ssl.c"]
+include-dirs = ["include"]
+
+[target.crypto]
+type = "library"
+sources = ["src/crypto.c"]
+include-dirs = ["include"]
+"#,
             ),
             ("include/tls.h", "#define TLS_ORIGIN \"source\"\n"),
             ("src/ssl.c", "int ssl(void) { return 0; }\n"),
@@ -586,13 +760,18 @@ fn each_library_target_comes_from_its_own_module() {
     let system_include = root.join("sys/include");
     assert_fs::fixture::ChildPath::new(system_include.join("tls.h"))
         .write_str(
-            "#if defined(SSL_SYSTEM) && defined(CRYPTO_SYSTEM)\n#define TLS_ORIGIN \"system\"\n#endif\n",
+            r#"#if defined(SSL_SYSTEM) && defined(CRYPTO_SYSTEM)
+#define TLS_ORIGIN "system"
+#endif
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(root.join("app/src/main.c"))
         .write_str(
-            "#include <stdio.h>\n#include \"tls.h\"\n\
-             int main(void) { printf(\"%s\\n\", TLS_ORIGIN); return 0; }\n",
+            r#"#include <stdio.h>
+#include "tls.h"
+int main(void) { printf("%s\n", TLS_ORIGIN); return 0; }
+"#,
         )
         .unwrap();
     let fixtures = Fixtures::new();
@@ -614,9 +793,14 @@ fn each_library_target_comes_from_its_own_module() {
         format!("-I{} -DSSL_SYSTEM", system_include.display()),
     );
     module("libcrypto", "0.9.0", "-DCRYPTO_SYSTEM".to_owned());
-    let deps = "\"acme/tls\" = \"^1.0\"\n\n\
-                [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n\
-                deps = [\"acme/tls:ssl\", \"acme/tls:crypto\"]\n";
+    let deps = r#""acme/tls" = "^1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+deps = ["acme/tls:ssl", "acme/tls:crypto"]
+"#;
     let build = || {
         let mut cmd = cabin_with_fake_pkg_config(&fixtures);
         cmd.args(["build", "--manifest-path"])
@@ -652,8 +836,11 @@ fn each_library_target_comes_from_its_own_module() {
     write_app(
         root,
         deps,
-        "\n[system-provided.\"acme/tls\"]\ntargets.ssl = { pkg-config = \"libssl\" }\n\
-         targets.crypto = { pkg-config = \"libcrypto\" }\n",
+        r#"
+[system-provided."acme/tls"]
+targets.ssl = { pkg-config = "libssl" }
+targets.crypto = { pkg-config = "libcrypto" }
+"#,
     );
     let stderr = failure();
     assert!(
@@ -680,7 +867,10 @@ fn metadata_reports_the_declared_policy() {
         dir.path(),
         "",
         &format!(
-            "{POLICY}\n[system-provided.\"acme/tls\"]\ntargets.ssl = {{ pkg-config = \"libssl\" }}\n"
+            r#"{POLICY}
+[system-provided."acme/tls"]
+targets.ssl = {{ pkg-config = "libssl" }}
+"#
         ),
     );
     let value = run_json(
@@ -707,7 +897,10 @@ fn only_the_workspace_root_declares_the_policy() {
         .unwrap();
     dir.child("member/cabin.toml")
         .write_str(&format!(
-            "[package]\nname = \"member\"\nversion = \"0.1.0\"\n{POLICY}"
+            r#"[package]
+name = "member"
+version = "0.1.0"
+{POLICY}"#
         ))
         .unwrap();
     let stderr = cabin()
@@ -730,8 +923,15 @@ fn only_the_workspace_root_declares_the_policy() {
     let package = dir.path().join("pkg");
     assert_fs::fixture::ChildPath::new(package.join("cabin.toml"))
         .write_str(&format!(
-            "[package]\nname = \"acme/lib\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n\
-             [target.lib]\ntype = \"library\"\nsources = [\"src/lib.c\"]\n{POLICY}"
+            r#"[package]
+name = "acme/lib"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.lib]
+type = "library"
+sources = ["src/lib.c"]
+{POLICY}"#
         ))
         .unwrap();
     assert_fs::fixture::ChildPath::new(package.join("src/lib.c"))
@@ -770,8 +970,14 @@ fn an_untrusted_projects_config_file_provides_a_package() {
     let system_include = root.join("sys/include");
     assert_fs::fixture::ChildPath::new(system_include.join("z.h"))
         .write_str(
-            "#ifndef Z_H\n#define Z_H\n#ifdef Z_SYSTEM\n#define Z_ORIGIN \"system\"\n#endif\n\
-             static inline int z_answer(void) { return 42; }\n#endif\n",
+            r#"#ifndef Z_H
+#define Z_H
+#ifdef Z_SYSTEM
+#define Z_ORIGIN "system"
+#endif
+static inline int z_answer(void) { return 42; }
+#endif
+"#,
         )
         .unwrap();
     let fixtures = Fixtures::new();
@@ -786,15 +992,22 @@ fn an_untrusted_projects_config_file_provides_a_package() {
     );
     assert_fs::fixture::ChildPath::new(root.join("app/src/main.c"))
         .write_str(
-            "#include <stdio.h>\n#include \"z.h\"\n\
-             int main(void) { printf(\"%s %d\\n\", Z_ORIGIN, z_answer()); return 0; }\n",
+            r#"#include <stdio.h>
+#include "z.h"
+int main(void) { printf("%s %d\n", Z_ORIGIN, z_answer()); return 0; }
+"#,
         )
         .unwrap();
     let manifest = write_app(
         root,
-        "\"acme/zlib\" = \"^1.3\"\n\n\
-         [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\nc-standard = \"c11\"\n\
-         deps = [\"acme/zlib\"]\n",
+        r#""acme/zlib" = "^1.3"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+deps = ["acme/zlib"]
+"#,
         "",
     );
     assert_fs::fixture::ChildPath::new(root.join("app/.cabin/config.toml"))
@@ -831,22 +1044,35 @@ fn config_file_entries_replace_lower_layers_per_package() {
         root,
         "",
         &format!(
-            "{POLICY}\n[system-provided.\"acme/tls\"]\ntargets.ssl = {{ pkg-config = \"libssl\" }}\n\
-             \n[system-provided.\"acme/png\"]\npkg-config = \"png-manifest\"\n"
+            r#"{POLICY}
+[system-provided."acme/tls"]
+targets.ssl = {{ pkg-config = "libssl" }}
+
+[system-provided."acme/png"]
+pkg-config = "png-manifest"
+"#
         ),
     );
     let user = root.join("user");
     assert_fs::fixture::ChildPath::new(user.join("config.toml"))
         .write_str(
-            "[system-provided.\"acme/zlib\"]\npkg-config = \"z-user\"\n\n\
-             [system-provided.\"acme/png\"]\npkg-config = \"png-user\"\n",
+            r#"[system-provided."acme/zlib"]
+pkg-config = "z-user"
+
+[system-provided."acme/png"]
+pkg-config = "png-user"
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(root.join("app/.cabin/config.toml"))
         .write_str(
-            "[system-provided.\"acme/zlib\"]\npkg-config = \"z-project\"\n\n\
-             [system-provided.\"acme/tls\"]\ntargets.ssl = { pkg-config = \"ssl3\" }\n\
-             targets.crypto = { pkg-config = \"crypto3\" }\n",
+            r#"[system-provided."acme/zlib"]
+pkg-config = "z-project"
+
+[system-provided."acme/tls"]
+targets.ssl = { pkg-config = "ssl3" }
+targets.crypto = { pkg-config = "crypto3" }
+"#,
         )
         .unwrap();
     let value = run_json(
@@ -949,9 +1175,19 @@ fn a_config_file_entry_yields_to_a_dev_path_dependency() {
     let manifest = root.join("app/cabin.toml");
     assert_fs::fixture::ChildPath::new(&manifest)
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n\
-             [dev-dependencies]\n\"acme/zlib\" = { path = \"../src-zlib\" }\n\n\
-             [target.z_test]\ntype = \"test\"\nsources = [\"tests/z_test.c\"]\ndeps = [\"acme/zlib\"]\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dev-dependencies]
+"acme/zlib" = { path = "../src-zlib" }
+
+[target.z_test]
+type = "test"
+sources = ["tests/z_test.c"]
+deps = ["acme/zlib"]
+"#,
         )
         .unwrap();
     cabin_with_config()

@@ -3,7 +3,13 @@ use super::*;
 fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
-    writeln!(out, "[package]\nname = \"{name}\"\nversion = \"{version}\"").unwrap();
+    writeln!(
+        out,
+        r#"[package]
+name = "{name}"
+version = "{version}""#
+    )
+    .unwrap();
     if !deps.is_empty() {
         out.push_str("\n[dependencies]\n");
         for (name, req) in deps {
@@ -34,7 +40,10 @@ include-dirs = ["include"]
 
 const FMT_HEADER: &str = "#pragma once\nvoid say_hello();\n";
 
-const FMT_SRC: &str = "#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n";
+const FMT_SRC: &str = r#"#include <iostream>
+#include "fmt.h"
+void say_hello() { std::cout << "hello from fmt\n"; }
+"#;
 
 const APP_MAIN: &str = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
 
@@ -258,8 +267,10 @@ include-dirs = ["include"]
 deps = ["fmt"]
 "#;
     let spdlog_header = "#pragma once\nvoid log_hello();\n";
-    let spdlog_src =
-        "#include \"spdlog.h\"\n#include \"fmt.h\"\nvoid log_hello() { say_hello(); }\n";
+    let spdlog_src = r#"#include "spdlog.h"
+#include "fmt.h"
+void log_hello() { say_hello(); }
+"#;
     let spdlog_archive = dir.path().join("index/artifacts/spdlog-1.13.0.zip");
     let spdlog_hex = make_archive(
         &spdlog_archive,

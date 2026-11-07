@@ -418,7 +418,10 @@ sources = ["src/main.cc"]
             write_executable(
                 fake,
                 &format!(
-                    "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'clang version {version}'; exit 0; fi\nexec {real} \"$@\"\n"
+                    r#"#!/bin/sh
+if [ "$1" = --version ]; then echo 'clang version {version}'; exit 0; fi
+exec {real} "$@"
+"#
                 ),
             );
         }
@@ -546,8 +549,11 @@ sources = ["src/main.cc", "src/value.c"]
         .unwrap();
     root.child("src/main.cc")
         .write_str(
-            "#include <cstdio>\n#include <envdep.h>\nextern \"C\" int c_value(void);\n\
-             int main() { std::printf(\"value=%d,%d\\n\", ENVDEP, c_value()); }\n",
+            r#"#include <cstdio>
+#include <envdep.h>
+extern "C" int c_value(void);
+int main() { std::printf("value=%d,%d\n", ENVDEP, c_value()); }
+"#,
         )
         .unwrap();
     for (name, value) in [("one", 1), ("two", 2)] {
@@ -585,7 +591,13 @@ sources = ["src/main.cc", "src/value.c"]
 fn recording_tool(dir: &Path, name: &str) -> PathBuf {
     let path = dir.join(name);
     // A redirection, not `touch`: the tests run with `PATH` narrowed.
-    write_executable(&path, "#!/bin/sh\n: >\"$0.ran\"\nexit 0\n");
+    write_executable(
+        &path,
+        r#"#!/bin/sh
+: >"$0.ran"
+exit 0
+"#,
+    );
     path
 }
 
@@ -616,7 +628,10 @@ fn an_untrusted_project_cannot_run_a_tool_it_names_by_path() {
         project
             .child("cabin.toml")
             .write_str(&format!(
-                "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n{build_table}"
+                r#"[package]
+name = "demo"
+version = "0.1.0"
+{build_table}"#
             ))
             .unwrap();
         let home = TempDir::new().unwrap();
@@ -676,7 +691,13 @@ fn a_symlinked_manifest_does_not_extend_trust_to_its_own_directory() {
     let safe = TempDir::new().unwrap();
     safe.child("cabin.toml")
         .write_str(
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[toolchain]\ncxx = \"./shim\"\n",
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[toolchain]
+cxx = "./shim"
+"#,
         )
         .unwrap();
     let evil = TempDir::new().unwrap();

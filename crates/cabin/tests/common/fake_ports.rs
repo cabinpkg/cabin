@@ -173,13 +173,22 @@ impl FakePortBuilder {
             format!("patches = [{}]\n", entries.join(", "))
         };
         let mut upstream = format!(
-            "[package.upstream]\nurl = \"{}\"\nchecksum = \"sha256:{sha256}\"\nformat = \"tar.gz\"\nstrip-prefix = \"{strip_prefix}\"\n{patches_key}",
+            r#"[package.upstream]
+url = "{}"
+checksum = "sha256:{sha256}"
+format = "tar.gz"
+strip-prefix = "{strip_prefix}"
+{patches_key}"#,
             archive_url(archive_name)
         );
         for (from, to) in &self.copies {
             write!(
                 upstream,
-                "\n[[package.upstream.copy]]\nfrom = \"{}\"\nto = \"{}\"\n",
+                r#"
+[[package.upstream.copy]]
+from = "{}"
+to = "{}"
+"#,
                 toml_escape(from),
                 toml_escape(to)
             )

@@ -324,14 +324,15 @@ fn populate_workspace(dir: &Path) {
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.join("hello").join("cabin.toml"))
         .write_str(
-            "[package]\n\
-             name = \"hello\"\n\
-             version = \"0.1.0\"\n\
-             cxx-standard = \"c++17\"\n\
-             \n\
-             [target.hello]\n\
-             type = \"executable\"\n\
-             sources = [\"src/main.cc\"]\n",
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.join("hello").join("src").join("main.cc"))
@@ -339,14 +340,15 @@ fn populate_workspace(dir: &Path) {
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.join("util").join("cabin.toml"))
         .write_str(
-            "[package]\n\
-             name = \"util\"\n\
-             version = \"0.1.0\"\n\
-             cxx-standard = \"c++17\"\n\
-             \n\
-             [target.util]\n\
-             type = \"library\"\n\
-             sources = [\"src/util.cc\"]\n",
+            r#"[package]
+name = "util"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.util]
+type = "library"
+sources = ["src/util.cc"]
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.join("util").join("src").join("util.cc"))
@@ -498,7 +500,15 @@ fn clean_refuses_bare_package_named_like_a_workspace_scope() {
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("fmtlib/cabin.toml"))
         .write_str(
-            "[package]\nname = \"fmtlib\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.fmtlib]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n",
+            r#"[package]
+name = "fmtlib"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.fmtlib]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("fmtlib/src/lib.cc"))
@@ -506,7 +516,15 @@ fn clean_refuses_bare_package_named_like_a_workspace_scope() {
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("fmt/cabin.toml"))
         .write_str(
-            "[package]\nname = \"fmtlib/fmt\"\nversion = \"1.0.0\"\ncxx-standard = \"c++17\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\n",
+            r#"[package]
+name = "fmtlib/fmt"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.fmt]
+type = "library"
+sources = ["src/fmt.cc"]
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("fmt/src/fmt.cc"))

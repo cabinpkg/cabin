@@ -5,11 +5,20 @@
 use super::*;
 
 fn manifest(package: &str, targets: &[&str]) -> String {
-    let header =
-        format!("[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n");
+    let header = format!(
+        r#"[package]
+name = "{package}"
+version = "0.1.0"
+c-standard = "c11"
+"#
+    );
     targets.iter().fold(header, |text, name| {
         text + &format!(
-            "\n[target.\"{name}\"]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n"
+            r#"
+[target."{name}"]
+type = "executable"
+sources = ["src/main.c"]
+"#
         )
     })
 }
@@ -93,12 +102,23 @@ fn sources_one_letter_case_apart_collide_only_where_the_filesystem_ignores_case(
         .output();
     dir.child("cabin.toml")
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\", \"src/a.c\", \"src/A.c\"]\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c", "src/a.c", "src/A.c"]
+"#,
         )
         .unwrap();
     dir.child("src/main.c")
         .write_str(
-            "int lower(void);\nint upper(void);\nint main(void) { return lower() + upper(); }\n",
+            r"int lower(void);
+int upper(void);
+int main(void) { return lower() + upper(); }
+",
         )
         .unwrap();
     dir.child("src/a.c")

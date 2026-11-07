@@ -384,14 +384,15 @@ sources = ["tests/big.c"]
     // Touch every page of 64 MiB so it is resident.
     dir.child("tests/big.c")
         .write_str(
-            "#include <stdlib.h>\n\
-             int main(void) {\n\
-             size_t n = (size_t)64 << 20;\n\
-             volatile char *p = malloc(n);\n\
-             if (!p) return 1;\n\
-             for (size_t i = 0; i < n; i += 4096) p[i] = 1;\n\
-             return 0;\n\
-             }\n",
+            r"#include <stdlib.h>
+int main(void) {
+size_t n = (size_t)64 << 20;
+volatile char *p = malloc(n);
+if (!p) return 1;
+for (size_t i = 0; i < n; i += 4096) p[i] = 1;
+return 0;
+}
+",
         )
         .unwrap();
     // A parent larger than both: Linux carries a spawning process's

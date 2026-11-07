@@ -436,7 +436,12 @@ cxx-standard = "c++20"
         .write_str("#pragma once\nint a_value();\n")
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("liba/src/a.cc"))
-        .write_str("#include \"a.h\"\n#include \"b.h\"\nint a_value() { return b_value() + 1; }\n")
+        .write_str(
+            r#"#include "a.h"
+#include "b.h"
+int a_value() { return b_value() + 1; }
+"#,
+        )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
         .write_str(
@@ -953,15 +958,15 @@ interface-cxx-standard = { min = "c++11", max = "c++14" }
     // compile-time meaning deterministic.
     assert_fs::fixture::ChildPath::new(dir.path().join("legacy/include/legacy.h"))
         .write_str(
-            "#pragma once
+            r#"#pragma once
 #if defined(__cplusplus) && __cplusplus > 201402L
-#error \"legacy's headers do not support C++17 or newer\"
+#error "legacy's headers do not support C++17 or newer"
 #endif
 inline int legacy_value() {
     register int fast = 7;
     return fast;
 }
-",
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("legacy/src/legacy.cc"))
@@ -1092,7 +1097,12 @@ interface-c-standard = { min = "c99", max = "c17" }
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("clib/include/clib.h"))
         .write_str(
-            "#pragma once\n#if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L\n#error \"clib's headers do not support standards after C17\"\n#endif\nint clib_value(void);\n",
+            r#"#pragma once
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L
+#error "clib's headers do not support standards after C17"
+#endif
+int clib_value(void);
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("clib/src/clib.c"))
@@ -1232,7 +1242,12 @@ deps = [
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("mid/include/mid.h"))
-        .write_str("#pragma once\n#include \"modern.h\"\n#include \"legacy.h\"\n")
+        .write_str(
+            r#"#pragma once
+#include "modern.h"
+#include "legacy.h"
+"#,
+        )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
         .write_str(

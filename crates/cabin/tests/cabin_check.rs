@@ -129,8 +129,15 @@ fn check_fails_on_semantic_error() {
     let dir = TempDir::new().expect("temp dir");
     dir.child("cabin.toml")
         .write_str(
-            "[package]\nname = \"broken\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n\
-             [target.broken]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n",
+            r#"[package]
+name = "broken"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.broken]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
         )
         .unwrap();
     // An undeclared identifier is a front-end error, which syntax-only

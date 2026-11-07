@@ -163,7 +163,13 @@ helper = {{ path = "helper" }}
     dir.child("cabin.toml").write_str(&manifest).unwrap();
     dir.child("helper/cabin.toml")
         .write_str(
-            "[package]\nname = \"helper\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \"^1\"\n",
+            r#"[package]
+name = "helper"
+version = "0.1.0"
+
+[dependencies]
+zlib = "^1"
+"#,
         )
         .unwrap();
     let index = dir.path().join("index");

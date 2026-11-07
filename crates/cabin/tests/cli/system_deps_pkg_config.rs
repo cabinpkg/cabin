@@ -51,7 +51,18 @@ pub(super) fn cabin_with_fake_pkg_config(fixtures: &Fixtures) -> Command {
 /// it as needed.
 fn manifest_with_system_dep(version: &str, required_clause: &str) -> String {
     format!(
-        "[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nzlib = {{ version = \"{version}\", system = true{required_clause} }}\n",
+        r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
+
+[dependencies]
+zlib = {{ version = "{version}", system = true{required_clause} }}
+"#,
     )
 }
 
@@ -406,10 +417,21 @@ fn fingerprint_moves_when_pkg_config_flags_change() {
     // fingerprint) only for a package that declares a feature or a
     // language setting; `cxx-standard` is that setting here.
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nzlib = { version = \"\", system = true }\n")
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
 
-            .unwrap();
+[dependencies]
+zlib = { version = "", system = true }
+"#,
+        )
+        .unwrap();
     write_hello_main(dir.path());
 
     let stdout1 = String::from_utf8_lossy(
@@ -489,10 +511,21 @@ fn non_matching_target_conditional_system_dep_does_not_require_pkg_config() {
     let dir = TempDir::new().unwrap();
     let unreachable = dir.path().join("never-reached-pkg-config");
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"none-such\")'.dependencies]\nzlib = { version = \"\", system = true }\n")
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
 
-            .unwrap();
+[target.'cfg(os = "none-such")'.dependencies]
+zlib = { version = "", system = true }
+"#,
+        )
+        .unwrap();
     write_hello_main(dir.path());
 
     let mut cmd = cabin();
@@ -525,12 +558,21 @@ fn matching_target_conditional_system_dep_is_probed() {
         "linux"
     };
     assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str(&format!(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str(&format!(
-                "[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"{host_os}\")'.dependencies]\nzlib = {{ version = \"\", system = true }}\n",
-            ))
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
 
-            .unwrap();
+[target.'cfg(os = "{host_os}")'.dependencies]
+zlib = {{ version = "", system = true }}
+"#,
+        ))
+        .unwrap();
     write_hello_main(dir.path());
 
     let assertion = cabin_with_fake_pkg_config(&fixtures)

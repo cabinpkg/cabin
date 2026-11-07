@@ -23,7 +23,10 @@ version = "0.1.0"
     let cxx = fake_tool_with_output(
         bin.path(),
         "fake-clang++",
-        "clang version 17.0.6\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\n",
+        r"clang version 17.0.6
+Target: x86_64-unknown-linux-gnu
+Thread model: posix
+",
         "",
         0,
     );
@@ -193,7 +196,10 @@ version = "0.1.0"
     let cxx = fake_tool_with_output(
         bin.path(),
         "fake-clang++",
-        "clang version 17.0.6\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\n",
+        r"clang version 17.0.6
+Target: x86_64-unknown-linux-gnu
+Thread model: posix
+",
         "",
         0,
     );

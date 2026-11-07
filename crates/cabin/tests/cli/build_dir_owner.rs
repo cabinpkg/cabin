@@ -31,7 +31,19 @@ fn write_workspace(dir: &Path, cxx: bool) {
     };
     root.child("cabin.toml")
         .write_str(&format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n{standard}\n\n[target.app]\ntype = \"executable\"\nsources = [\"{source}\"]\n\n[target.app_test]\ntype = \"test\"\nsources = [\"{source}\"]\n"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+{standard}
+
+[target.app]
+type = "executable"
+sources = ["{source}"]
+
+[target.app_test]
+type = "test"
+sources = ["{source}"]
+"#
         ))
         .unwrap();
     root.child(source).write_str(body).unwrap();

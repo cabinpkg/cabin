@@ -56,7 +56,13 @@ fn remove_deletes_entry_and_reports_status() {
 
 #[test]
 fn remove_last_dependency_drops_empty_table() {
-    let body = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"cabin-ports/zlib\" = \"=1.3.1\"\n";
+    let body = r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+"cabin-ports/zlib" = "=1.3.1"
+"#;
     let (_dir, manifest) = manifest_with(body);
     cabin()
         .args(["remove", "cabin-ports/zlib", "--manifest-path"])
@@ -73,7 +79,13 @@ fn remove_last_dependency_drops_empty_table() {
 
 #[test]
 fn remove_from_dev_dependencies() {
-    let body = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dev-dependencies]\n\"cabin-ports/tinyxml2\" = \"=11.0.0\"\n";
+    let body = r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dev-dependencies]
+"cabin-ports/tinyxml2" = "=11.0.0"
+"#;
     let (_dir, manifest) = manifest_with(body);
     cabin()
         .args(["remove", "cabin-ports/tinyxml2", "--dev", "--manifest-path"])
@@ -141,7 +153,13 @@ fn remove_targets_selected_workspace_member() {
         .unwrap();
     dir.child("packages/app/cabin.toml")
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"cabin-ports/zlib\" = \"=1.3.1\"\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"cabin-ports/zlib" = "=1.3.1"
+"#,
         )
         .unwrap();
 

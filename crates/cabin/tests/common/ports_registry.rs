@@ -45,7 +45,19 @@ impl RegistryConsumer<'_> {
         fs::write(
             dir.join("cabin.toml"),
             format!(
-                "[package]\nname = \"{}\"\nversion = \"0.1.0\"\n{}\n\n[dependencies]\n{}\n\n[target.{}]\ntype = \"executable\"\nsources = [\"src/{}\"]\ndeps = [{}]\n",
+                r#"[package]
+name = "{}"
+version = "0.1.0"
+{}
+
+[dependencies]
+{}
+
+[target.{}]
+type = "executable"
+sources = ["src/{}"]
+deps = [{}]
+"#,
                 self.name, self.standard, self.dependencies, self.name, self.source_name, deps
             ),
         )

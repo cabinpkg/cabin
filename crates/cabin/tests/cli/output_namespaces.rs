@@ -11,7 +11,12 @@ use super::*;
 pub(super) fn build_machine_triple() -> String {
     let tmp = TempDir::new().unwrap();
     tmp.child("cabin.toml")
-        .write_str("[package]\nname = \"probe\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "probe"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let metadata = cabin()
         .args(["metadata", "--manifest-path"])

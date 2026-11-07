@@ -49,7 +49,10 @@ deps = ["fx"]
     write(
         dir,
         "include/fx/a.hpp",
-        "#include \"fx/inner.h\"\nint fx_a();\nextern \"C\" int fx_b(void);\n",
+        r#"#include "fx/inner.h"
+int fx_a();
+extern "C" int fx_b(void);
+"#,
     );
     write(
         dir,
@@ -260,9 +263,15 @@ fn cabin_depfile_reads_what_ninja_reads() {
     let tmp = TempDir::new().unwrap();
     let cabin = assert_cmd::cargo::cargo_bin("cabin");
     let mut manifest = format!(
-        "rule gcc\n  command = touch $out\n  depfile = $out.d\n  deps = gcc\n\
-         rule cabin\n  command = '{}' depfile $out.d -- touch $out\n  deps = msvc\n  \
-         msvc_deps_prefix = cabin-depfile:\n",
+        r"rule gcc
+  command = touch $out
+  depfile = $out.d
+  deps = gcc
+rule cabin
+  command = '{}' depfile $out.d -- touch $out
+  deps = msvc
+  msvc_deps_prefix = cabin-depfile:
+",
         cabin
             .to_str()
             .unwrap()
@@ -355,9 +364,20 @@ fn long_archive_and_link_commands_use_response_files() {
         &dir,
         "cabin.toml",
         &format!(
-            "[package]\nname = \"big\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n\
-             [target.big]\ntype = \"library\"\nsources = [{}]\n\n\
-             [target.app]\ntype = \"executable\"\nsources = [\"app/main.c\", {}]\ndeps = [\"big\"]\n",
+            r#"[package]
+name = "big"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.big]
+type = "library"
+sources = [{}]
+
+[target.app]
+type = "executable"
+sources = ["app/main.c", {}]
+deps = ["big"]
+"#,
             sources("lib"),
             sources("app"),
         ),
@@ -379,8 +399,11 @@ fn long_archive_and_link_commands_use_response_files() {
         &dir,
         "app/main.c",
         &format!(
-            "#include <stdio.h>\nint lib_{last}(void);\nint app_{last}(void);\n\
-             int main(void) {{ printf(\"value=%d\\n\", lib_{last}() + app_{last}()); return 0; }}\n"
+            r#"#include <stdio.h>
+int lib_{last}(void);
+int app_{last}(void);
+int main(void) {{ printf("value=%d\n", lib_{last}() + app_{last}()); return 0; }}
+"#
         ),
     );
     cabin()

@@ -517,7 +517,14 @@ patches = ["patches/0001-fix-msvc-build.patch"]
         .write_str(&manifest)
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("patches/0001-fix-msvc-build.patch"))
-        .write_str("--- a/src/fmt.cc\n+++ b/src/fmt.cc\n@@ -1,1 +1,1 @@\n-x\n+y\n")
+        .write_str(
+            r"--- a/src/fmt.cc
++++ b/src/fmt.cc
+@@ -1,1 +1,1 @@
+-x
++y
+",
+        )
         .unwrap();
     let dist = dir.path().join("dist");
     cabin()

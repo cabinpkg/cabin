@@ -383,7 +383,12 @@ fn no_files_succeeds_with_message() {
     // check.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
-        .write_str("[package]\nname = \"empty\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "empty"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     dir.child("docs/README.md")
         .write_str("no sources here\n")
@@ -421,10 +426,18 @@ fn fail_marker_causes_non_zero_exit_and_preserves_diagnostic() {
 fn exclude_path_skips_named_file() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/extra.cc\"]\n")
-
-            .unwrap();
+[target.hello]
+type = "executable"
+sources = ["src/main.cc", "src/extra.cc"]
+"#,
+        )
+        .unwrap();
     dir.child("src/main.cc")
         .write_str("int main() {}\n")
         .unwrap();
@@ -452,10 +465,18 @@ fn exclude_path_skips_named_file() {
 fn repeated_exclude_accumulates() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/a.cc\", \"src/b.cc\"]\n")
-
-            .unwrap();
+[target.hello]
+type = "executable"
+sources = ["src/main.cc", "src/a.cc", "src/b.cc"]
+"#,
+        )
+        .unwrap();
     dir.child("src/main.cc")
         .write_str("int main() {}\n")
         .unwrap();
@@ -529,10 +550,18 @@ sources = ["./src/main.cc"]
 fn vcs_ignored_files_are_skipped_by_default() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
-
-            .unwrap();
+[target.hello]
+type = "executable"
+sources = ["src/main.cc", "src/generated.cc"]
+"#,
+        )
+        .unwrap();
     dir.child("src/main.cc")
         .write_str("int main() {}\n")
         .unwrap();
@@ -563,10 +592,18 @@ fn vcs_ignored_files_are_skipped_by_default() {
 fn no_ignore_vcs_includes_gitignored_files() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
-
-            .unwrap();
+[target.hello]
+type = "executable"
+sources = ["src/main.cc", "src/generated.cc"]
+"#,
+        )
+        .unwrap();
     dir.child("src/main.cc")
         .write_str("int main() {}\n")
         .unwrap();
@@ -992,7 +1029,13 @@ helper = {{ path = "helper" }}
         .unwrap();
     dir.child("helper/cabin.toml")
         .write_str(
-            "[package]\nname = \"helper\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = \"1.0\"\n",
+            r#"[package]
+name = "helper"
+version = "0.1.0"
+
+[dependencies]
+fmt = "1.0"
+"#,
         )
         .unwrap();
 
@@ -1010,10 +1053,21 @@ helper = {{ path = "helper" }}
 fn versioned_dependency_produces_actionable_error() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "hello"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nfmt = \"1.0\"\n")
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
 
-            .unwrap();
+[dependencies]
+fmt = "1.0"
+"#,
+        )
+        .unwrap();
     dir.child("src/main.cc")
         .write_str("int main() {}\n")
         .unwrap();

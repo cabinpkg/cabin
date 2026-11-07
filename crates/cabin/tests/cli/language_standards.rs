@@ -112,7 +112,15 @@ include-dirs = ["include"]
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("include/util.h"))
         .write_str(
-            "#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint util(void);\n#ifdef __cplusplus\n}\n#endif\n",
+            r#"#pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
+int util(void);
+#ifdef __cplusplus
+}
+#endif
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("src/util.c"))
@@ -763,7 +771,12 @@ cxx-standard = "c++17"
         .write_str("#pragma once\nint a_value();\n")
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("liba/src/a.cc"))
-        .write_str("#include \"a.h\"\n#include \"b.h\"\nint a_value() { return b_value() + 1; }\n")
+        .write_str(
+            r#"#include "a.h"
+#include "b.h"
+int a_value() { return b_value() + 1; }
+"#,
+        )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
         .write_str(
@@ -1024,7 +1037,10 @@ c-standard = "c11"
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("liba/src/a.c"))
         .write_str(
-            "#include \"a.h\"\n#include \"b.h\"\nint a_value(void) { return b_value() + 1; }\n",
+            r#"#include "a.h"
+#include "b.h"
+int a_value(void) { return b_value() + 1; }
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
@@ -1238,7 +1254,15 @@ include-dirs = ["include"]
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("include/util.h"))
         .write_str(
-            "#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint util(void);\n#ifdef __cplusplus\n}\n#endif\n",
+            r#"#pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
+int util(void);
+#ifdef __cplusplus
+}
+#endif
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("src/util.c"))

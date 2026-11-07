@@ -61,7 +61,10 @@ deps = ["applib", "harness"]
         .unwrap();
     assert_fs::fixture::ChildPath::new(root.join("app/tests/app_test.cc"))
         .write_str(
-            "#include \"applib.h\"\n#include \"harness.h\"\nint main() { return applib_answer() == harness_answer() ? 0 : 1; }\n",
+            r#"#include "applib.h"
+#include "harness.h"
+int main() { return applib_answer() == harness_answer() ? 0 : 1; }
+"#,
         )
         .unwrap();
     root.join("app/cabin.toml")
@@ -389,7 +392,10 @@ deps = ["depcheck"]
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("harness/src/harness.cc"))
         .write_str(
-            "#include \"harness.h\"\n#include \"depcheck.h\"\nint harness_answer() { return depcheck_answer(); }\n",
+            r#"#include "harness.h"
+#include "depcheck.h"
+int harness_answer() { return depcheck_answer(); }
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
@@ -513,7 +519,10 @@ deps = ["optdep"]
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("harness/src/harness.cc"))
         .write_str(
-            "#include \"harness.h\"\n#include \"optdep.h\"\nint harness_answer() { return optdep_answer(); }\n",
+            r#"#include "harness.h"
+#include "optdep.h"
+int harness_answer() { return optdep_answer(); }
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))

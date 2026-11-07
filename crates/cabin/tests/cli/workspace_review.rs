@@ -10,12 +10,18 @@ members = ["packages/*"]
         .unwrap();
     for name in ["alpha", "beta", "gamma"] {
         assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/cabin.toml")))
+            .write_str(&format!(
+                r#"[package]
+name = "{name}"
+version = "0.1.0"
+cxx-standard = "c++17"
 
-                .write_str(&format!(
-                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.{name}]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n"
-                ))
-
-                .unwrap();
+[target.{name}]
+type = "executable"
+sources = ["src/main.cc"]
+"#
+            ))
+            .unwrap();
         assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/src/main.cc")))
             .write_str(HELLO_MAIN_CC)
             .unwrap();
@@ -41,7 +47,12 @@ members = ["../outside"]
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(outside_dir.join("cabin.toml"))
-        .write_str("[package]\nname = \"sneaky\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "sneaky"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     cabin()
         .args(["metadata", "--manifest-path"])
@@ -66,11 +77,19 @@ fn exclude_absolute_path_rejected_at_cli() {
     };
     dir.child("cabin.toml")
         .write_str(&format!(
-            "[workspace]\nmembers = [\"packages/keep\"]\nexclude = [\"{absolute_exclude}\"]\n"
+            r#"[workspace]
+members = ["packages/keep"]
+exclude = ["{absolute_exclude}"]
+"#
         ))
         .unwrap();
     dir.child("packages/keep/cabin.toml")
-        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "keep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     cabin()
         .args(["metadata", "--manifest-path"])
@@ -95,7 +114,12 @@ members = ["packages/*"]
         .unwrap();
     // empty: declares no targets at all.
     dir.child("packages/empty/cabin.toml")
-        .write_str("[package]\nname = \"empty\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "empty"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     dir.child("packages/peer/cabin.toml")
         .write_str(
@@ -162,8 +186,13 @@ fn resolve_pure_workspace_refuses_an_index_naming_the_synthetic_root() {
             .unwrap();
         dir.child("packages/app/cabin.toml")
             .write_str(&format!(
-                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
-                 [dependencies]\n\"{dependency}\" = \"^1\"\n"
+                r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"{dependency}" = "^1"
+"#
             ))
             .unwrap();
         dir.child(format!("index/{indexed}.json"))
