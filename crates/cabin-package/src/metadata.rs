@@ -370,6 +370,7 @@ mod tests {
             default_features: true,
             condition: None,
             ignore_interface_standard: false,
+            targets: std::collections::BTreeSet::new(),
         }
     }
 
@@ -383,6 +384,7 @@ mod tests {
             default_features: true,
             condition: None,
             ignore_interface_standard: false,
+            targets: std::collections::BTreeSet::new(),
         }
     }
 

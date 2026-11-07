@@ -56,6 +56,7 @@ fn dep_normal(name: &str, optional: bool) -> Dependency {
         default_features: true,
         condition: None,
         ignore_interface_standard: false,
+        targets: BTreeSet::new(),
     }
 }
 
@@ -74,6 +75,7 @@ fn dep_normal_with(
         default_features,
         condition: None,
         ignore_interface_standard: false,
+        targets: BTreeSet::new(),
     }
 }
 
@@ -103,6 +105,7 @@ fn make_graph(packages: Vec<(Package, Vec<(usize, DependencyKind)>)>) -> Package
                     kind,
                     condition: None,
                     ignore_interface_standard: false,
+                    targets: BTreeSet::new(),
                 })
                 .collect(),
             kind: PackageKind::Local,
@@ -141,6 +144,7 @@ fn dep_dev(name: &str) -> Dependency {
         default_features: true,
         condition: None,
         ignore_interface_standard: false,
+        targets: BTreeSet::new(),
     }
 }
 
@@ -222,6 +226,7 @@ fn dep_dev_versioned(name: &str) -> Dependency {
         default_features: true,
         condition: None,
         ignore_interface_standard: false,
+        targets: BTreeSet::new(),
     }
 }
 

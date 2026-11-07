@@ -184,6 +184,10 @@ struct DependencyView<'a> {
     /// feature.  Omitted when `true` (the documented default).
     #[serde(skip_serializing_if = "is_true_dep")]
     default_features: bool,
+    /// The `targets` a build-dependency entry selects.  Omitted when
+    /// empty (the dependency's default targets).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    targets: &'a BTreeSet<cabin_core::TargetName>,
     /// Canonical inner-expression form of an optional `cfg(...)`
     /// predicate copied from the manifest.  Omitted when no
     /// `[target.'cfg(...)']` table guarded this dependency.
@@ -347,6 +351,7 @@ fn build_package_view<'a>(
             optional: d.optional,
             features: d.features.as_slice(),
             default_features: d.default_features,
+            targets: &d.targets,
             target: d.condition.as_ref().map(ToString::to_string),
             active: d.matches_platform(platform),
             source: match &d.source {

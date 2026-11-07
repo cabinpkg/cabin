@@ -371,9 +371,13 @@ impl PreparedWorkspace {
 /// The build context's plan inputs: tools for the build machine,
 /// with features and flags of their own.
 pub(crate) struct BuildContextPrep {
-    /// Packages a build edge reaches; the plan builds their default
-    /// targets and what those link.
+    /// Packages a build edge reaches; the plan builds their targets
+    /// (see `selected`) and what those link.
     pub roots: Vec<usize>,
+    /// The targets to build when some edge lists `targets`: those
+    /// targets, plus the default targets of each root an edge reaches
+    /// without `targets`.  `None` builds every root's default targets.
+    pub selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
     pub included: BTreeSet<usize>,
     /// Whether `--target` was given: the build machine then has a
     /// toolchain of its own.
@@ -891,7 +895,14 @@ fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep
             inputs.reporter,
         )?
     };
+    let enabled_features = super::enabled_features_by_package(inputs.features);
+    let no_features = BTreeSet::new();
+    let enabled_of = |idx: usize| enabled_features.get(&idx).unwrap_or(&no_features);
     let mut roots = BTreeSet::new();
+    // Roots some active edge reaches without `targets`, and the
+    // targets the active edges list.
+    let mut defaulted = BTreeSet::new();
+    let mut listed = BTreeSet::new();
     for (features, platform) in [
         (inputs.target_features, inputs.platform),
         (inputs.features, &inputs.build_machine),
@@ -901,21 +912,97 @@ fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep
                 if edge.kind == cabin_core::DependencyKind::Build && edge.matches_platform(platform)
                 {
                     roots.insert(edge.index);
+                    if edge.targets.is_empty() {
+                        defaulted.insert(edge.index);
+                    }
+                    for name in &edge.targets {
+                        check_listed_build_target(graph, idx, edge.index, name, enabled_of)?;
+                        listed.insert((edge.index, name.as_str()));
+                    }
                 }
             }
         }
     }
+    // Without any `targets`, the planner's default selection over the
+    // roots applies unchanged.
+    let selected = (!listed.is_empty()).then(|| {
+        let default_targets = defaulted.iter().flat_map(|&idx| {
+            graph.packages[idx]
+                .package
+                .targets
+                .iter()
+                .filter(move |target| {
+                    target.kind.is_default_buildable()
+                        && target.missing_required_features(enabled_of(idx)).is_empty()
+                })
+                .map(move |target| (idx, target.name.as_str()))
+        });
+        default_targets
+            .chain(listed)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|(idx, name)| cabin_build::ManifestTargetSelector {
+                package: Some(graph.packages[idx].package.name.as_str().to_owned()),
+                name: name.to_owned(),
+            })
+            .collect()
+    });
     Ok(BuildContextPrep {
         roots: roots.into_iter().collect(),
+        selected,
         included: inputs.features.included.clone(),
         cross: inputs.cross,
-        enabled_features: super::enabled_features_by_package(inputs.features),
+        enabled_features,
         build_flags,
         standard_flag_conflicts,
         platform: inputs.build_machine,
         toolchain: inputs.toolchain,
         detection_report: inputs.detection,
     })
+}
+
+/// Reject a `targets` entry of `dependent`'s build edge to `dep` that
+/// names no target of `dep`, a target the build machine does not
+/// build by default (a test or example), or a target whose
+/// `required-features` the build context leaves off.
+fn check_listed_build_target<'a>(
+    graph: &PackageGraph,
+    dependent: usize,
+    dep: usize,
+    name: &cabin_core::TargetName,
+    enabled_of: impl Fn(usize) -> &'a BTreeSet<String>,
+) -> Result<()> {
+    let dependent = &graph.packages[dependent].package.name;
+    let package = &graph.packages[dep].package;
+    let Some(target) = package.targets.iter().find(|target| target.name == *name) else {
+        let candidates: Vec<String> = package
+            .targets
+            .iter()
+            .filter(|target| target.kind.is_default_buildable())
+            .map(|target| format!("`{}`", target.name))
+            .collect();
+        bail!(
+            "build dependency `{}` of `{dependent}` has no target `{name}` named in `targets`; its targets are {}",
+            package.name,
+            candidates.join(", "),
+        );
+    };
+    if !target.kind.is_default_buildable() {
+        bail!(
+            "build dependency `{}` of `{dependent}` names the {} target `{name}` in `targets`; only library, header-only, and executable targets are built for the build machine",
+            package.name,
+            target.kind,
+        );
+    }
+    let missing = target.missing_required_features(enabled_of(dep));
+    if !missing.is_empty() {
+        bail!(
+            "build dependency `{}` of `{dependent}` names `{name}` in `targets`, which requires the features [{}]; add them to `features` on the build-dependency entry",
+            package.name,
+            missing.join(", "),
+        );
+    }
+    Ok(())
 }
 
 /// Resolve and detect the build machine's toolchain for a `--target`
@@ -1064,7 +1151,7 @@ pub(crate) fn plan_prepared(
     Ok(plan_graph)
 }
 
-/// Plan the build context: the build dependencies' default targets,
+/// Plan the build context: the build dependencies' selected targets,
 /// built for the build machine with its toolchain.
 fn plan_build_context(
     prepared: &PreparedWorkspace,
@@ -1087,7 +1174,7 @@ fn plan_build_context(
         build_dir: prepared.build_dir.clone(),
         platform: context.platform.clone(),
         profile: prepared.profile.clone(),
-        selected: None,
+        selected: context.selected.clone(),
         selected_packages: Some(&context.roots),
         compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(

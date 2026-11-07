@@ -2,8 +2,10 @@ use crate::error::ManifestError;
 use crate::raw::{RawDependency, RawDependencyTable};
 use cabin_core::{
     Condition, Dependency, DependencyKind, DependencySource, PackageName, SystemDependency,
+    TargetName,
 };
 use camino::Utf8PathBuf;
+use std::collections::BTreeSet;
 
 /// Inspect `raw` and route it onto either `dep_models`
 /// (Cabin-package dependency) or `system_models` (system-sourced
@@ -41,6 +43,7 @@ struct ResolvedDep {
     features: Vec<String>,
     default_features: bool,
     ignore_interface_standard: bool,
+    targets: BTreeSet<TargetName>,
 }
 
 pub(super) fn package_dependency_from_raw(
@@ -56,6 +59,7 @@ pub(super) fn package_dependency_from_raw(
             features: Vec::new(),
             default_features: true,
             ignore_interface_standard: false,
+            targets: BTreeSet::new(),
         },
         RawDependency::Table(table) => {
             // `route_dependency_from_raw` sends `system = true`
@@ -70,6 +74,7 @@ pub(super) fn package_dependency_from_raw(
         features,
         default_features,
         ignore_interface_standard,
+        targets,
     } = raw_outcome;
     // `workspace = true` is rejected under a `cfg(...)` table:
     // there is no per-condition `[workspace.*]` table to inherit
@@ -90,6 +95,7 @@ pub(super) fn package_dependency_from_raw(
         default_features,
         condition,
         ignore_interface_standard,
+        targets,
     })
 }
 
@@ -109,6 +115,7 @@ fn ordinary_dep_from_table(
         features,
         default_features,
         ignore_interface_standard,
+        targets,
     } = table;
     // `optional = true` is supported only for normal
     // dependencies.
@@ -127,6 +134,25 @@ fn ordinary_dep_from_table(
         });
     }
     let default_features_flag = default_features.unwrap_or(true);
+
+    let targets = match targets {
+        None => BTreeSet::new(),
+        Some(_) if kind != DependencyKind::Build => {
+            return Err(ManifestError::TargetsNotSupportedForKind {
+                name: name.to_owned(),
+                kind,
+            });
+        }
+        Some(names) if names.is_empty() => {
+            return Err(ManifestError::EmptyDependencyTargets {
+                name: name.to_owned(),
+            });
+        }
+        Some(names) => names
+            .into_iter()
+            .map(TargetName::new)
+            .collect::<Result<_, _>>()?,
+    };
 
     // `workspace = false` is an explicit-disable error, distinct
     // from an absent field.
@@ -161,6 +187,7 @@ fn ordinary_dep_from_table(
         features: features_vec,
         default_features: default_features_flag,
         ignore_interface_standard: ignore_interface_standard.unwrap_or(false),
+        targets,
     })
 }
 
@@ -184,6 +211,7 @@ pub(super) fn system_dependency_from_raw_table(
         features,
         default_features,
         ignore_interface_standard,
+        targets,
     } = table;
     debug_assert!(system, "router only dispatches here when system = true");
 
@@ -200,6 +228,7 @@ pub(super) fn system_dependency_from_raw_table(
             "ignore-interface-standard",
             ignore_interface_standard.is_some(),
         ),
+        ("targets", targets.is_some()),
     ];
     for &(field, present) in forbidden {
         if present {

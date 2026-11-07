@@ -178,6 +178,7 @@ fn dep(name: &str, path: &str) -> Dependency {
         default_features: true,
         condition: None,
         ignore_interface_standard: false,
+        targets: std::collections::BTreeSet::new(),
     }
 }
 
@@ -277,6 +278,7 @@ fn make_pkg(
                 kind: cabin_core::DependencyKind::Normal,
                 condition: None,
                 ignore_interface_standard: false,
+                targets: std::collections::BTreeSet::new(),
             })
             .collect(),
         kind: PackageKind::Local,
@@ -4759,6 +4761,7 @@ fn standard_compat_dev_edge_flag_does_not_cover_ordinary_targets() {
             kind: cabin_core::DependencyKind::Dev,
             condition: None,
             ignore_interface_standard: true,
+            targets: std::collections::BTreeSet::new(),
         });
     let violations = standard_compat_violations(&graph);
     assert_eq!(violations.len(), 1);
@@ -4807,6 +4810,7 @@ fn standard_compat_matches_override_to_the_selected_edge() {
             kind: cabin_core::DependencyKind::Dev,
             condition: None,
             ignore_interface_standard: true,
+            targets: std::collections::BTreeSet::new(),
         });
     let tc = toolchain_with_cc();
     let violations_of = |graph: &PackageGraph| {
