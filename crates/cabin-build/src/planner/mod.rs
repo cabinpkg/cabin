@@ -16,7 +16,10 @@ use camino::Utf8PathBuf;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
+mod build_dependencies;
 mod lowering;
+
+pub use build_dependencies::select_build_dependency_targets;
 mod shadowing;
 #[cfg(test)]
 mod tests;
