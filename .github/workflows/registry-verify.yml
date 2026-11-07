@@ -1,12 +1,14 @@
 name: Registry Verify
 
 # The registry's external verifier (registry/docs/runbook.md,
-# "Verification pipeline"). Manual dispatch only while the registry is
-# in private alpha; the 5-minute cron returns at launch (runbook,
-# "Launch checklist"). What a run verifies is whatever the registry
+# "Verification pipeline"): a normal pass every 5 minutes, plus
+# operator dispatches. What a run verifies is whatever the registry
 # reports as pending, never this repository's files; the dispatch
-# inputs below only select among those pending versions.
+# inputs below only select among those pending versions, and a
+# scheduled run has none, so it is always a normal pass.
 on:
+  schedule:
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     # Operator resolution of one abstained version (runbook,
     # "Verification pipeline").
@@ -35,7 +37,8 @@ permissions: {}
 
 # Runs must never overlap: a run that lists a version while an
 # earlier run is mid-verdict could double-report.  A queued run
-# supersedes any previously queued one; the running one finishes.
+# supersedes any previously queued one, a scheduled pass a queued
+# dispatch included; the running one finishes.
 concurrency:
   group: registry-verify
 

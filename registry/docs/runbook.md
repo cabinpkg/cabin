@@ -428,7 +428,8 @@ revokes everything; users re-authenticate afterward
 cookie - the operator's included - gets 401 from the session API until
 it visits `/login`: GitHub auto-approves the already-authorized OAuth
 app, and `/callback` recreates the user row and a fresh session. The
-verifier needs no re-provisioning at all (see "Verification pipeline").
+verifier needs no re-provisioning, only re-enabling in step 5 (see
+"Verification pipeline").
 
 ### Post-wipe re-provisioning
 
@@ -437,16 +438,19 @@ gate on each other and doing them out of order costs a revoke-and-remint
 round trip (drilled 2026-07-29). Before the wipe itself, disable the
 ports publish workflow (`gh workflow disable publish.yml -R
 cabin-ports/ports`) and cancel any in-flight run of it: publish runs
-exist only from a manual dispatch, but one mid-ceremony would mint its
-own publish token
+come from a manual dispatch or its schedule, and one mid-ceremony would
+mint its own publish token
 through the trusted-publishing exchange - the governor wipe in step 4
 refuses while any live publish token exists - and a run left going
 would publish into the wiped registry as soon as its deploy wait finds
 a deploy containing its pinned Cabin commit, usually at once, before
 the governor gate has run. Re-enable it in step 5.
 The backup bucket has writers no disabled workflow or blocked write
-stops, so quiesce them too: dispatch no `registry-verify` run and let an
-in-flight one finish (a verdict queues a backup copy), confirm the queue
+stops, so quiesce them too: disable the verifier (`gh workflow disable
+registry-verify.yml`, which stops its schedule but not the runs it
+already queued), cancel its queued runs, and let a running one finish
+(a verdict queues a backup copy); once `gh run list --workflow
+registry-verify.yml` shows none queued or in progress, confirm the queue
 is drained (`SELECT COUNT(*) FROM backup_pending` answers 0), and keep
 the window clear of the 03:00 UTC nightly dump, which the Worker's cron
 writes into the bucket on its own - from the wipe through step 4, which
@@ -491,13 +495,16 @@ serves - makes step 4 refuse rather than undercount.
    harmless. Never do that for a key with a `.` or `..` path segment:
    no registry writer produces one, and its delete URL resolves to
    another path of the API - the bucket's own, at worst.
-5. Re-enable the ports publish workflow (`gh workflow enable
-   publish.yml -R cabin-ports/ports`), prove the trusted-publishing
-   binding with an `exchange-check`
+5. Start the ports receipts log over while the publish workflow is
+   still disabled (its README, "Automatic publishing"), then re-enable
+   it (`gh workflow enable publish.yml -R cabin-ports/ports`), prove
+   the trusted-publishing binding with an `exchange-check`
    dispatch (exchange + immediate revocation, publishes nothing), then
-   dispatch it plainly from `main` to republish the set. There is no
-   publish token to mint and no `CABIN_PORTS_TOKEN` secret: the run's
-   OIDC exchange is the credential.
+   dispatch it plainly from `main` to republish the set. There is
+   no publish token to mint and no `CABIN_PORTS_TOKEN` secret: the run's
+   OIDC exchange is the credential. Re-enable the verifier (`gh workflow
+   enable registry-verify.yml`); its schedule verifies the republished
+   set.
 6. Rerun whatever main CI went red against the old registry
    (`gh run rerun <id> --failed`); byte-identical republication of the
    already-landed packages no-ops, so a partial run resumes cleanly.
@@ -533,11 +540,10 @@ ones. Launch is a data and policy event, in order:
    `auth-required: true` (`src/documents.rs`): reopening public reads is
    a code change, not a data flip (`docs/remote-registry.md`, "Read
    routes").
-5. Restore the `registry-verify` cron (the `schedule` trigger in
-   `.github/workflows/registry-verify.yml`, removed for the private
-   alpha) and re-run the verification workflow once (see "Verification
-   pipeline"); it carries no long-lived token to re-issue - each run
-   mints its own through the trusted-publishing exchange.
+5. Re-enable the `registry-verify` workflow if the final wipe disabled
+   it, and dispatch it once (see "Verification pipeline"); it carries no
+   long-lived token to re-issue - each run mints its own through the
+   trusted-publishing exchange.
 
 **Post-launch staging is intentionally not maintained.** There is no
 standing second environment: with a single maintainer there is nothing to
@@ -991,10 +997,11 @@ The external verifier is the `registry-verify` GitHub Actions workflow
 `cabin-registry-verify` from the root workspace and runs
 `cargo registry-verify`, which lists pending versions through the
 admin API, inspects each archive with that binary, and PATCHes the
-verdict back. During the private alpha the workflow is
-`workflow_dispatch`-only - verification runs when an operator
-dispatches it; the 5-minute cron returns at launch (see "Launch
-checklist"). The checks and reason codes are
+verdict back. It runs a normal pass every 5 minutes, the private alpha
+included - a verdict makes a revision resolvable only to the accounts
+the allowlist admits - and when an operator dispatches it (a plain
+dispatch is a normal pass too). The
+checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
 The verifier addresses scoped names throughout: the artifact download
 nests the directory (`artifacts/<scope>/<name>/`) and flattens the
@@ -1017,8 +1024,7 @@ authenticates exactly one request (its `jti` is consumed on use).
 Fail-safe: a failed or skipped run leaves versions pending, which only
 keeps content unexposed. The breaker cron's stuck-pending webhook
 alert ("N revision(s) have been pending verification for over an hour")
-is the detection mechanism, never "the workflow ran recently" - during
-the private alpha there is no schedule at all, and post-launch GitHub
+is the detection mechanism, never "the workflow ran recently" - GitHub
 cron schedules are **best-effort** and can be delayed or dropped under
 load. On the alert, dispatch a run:
 
@@ -1083,7 +1089,9 @@ with the verify token does not authenticate - so resolution is a
 
 A resolution dispatch touches exactly the named version - every other
 pending version waits for a normal pass - and a version the listing
-no longer reports fails the run without a verdict. If two revisions of
+no longer reports fails the run without a verdict. A dispatch still
+queued behind a running pass is superseded when the next scheduled pass
+queues (`cancelled` in `gh run list`); dispatch it again. If two revisions of
 the same version are pending at once (a `new-revision` republish while
 the first still pends), the run refuses rather than pick one; re-dispatch
 with the revision selector, `-f resolve='<scope>/<name>@<version>#<revision>'`,

@@ -157,9 +157,10 @@ pub fn run(mode: Mode) -> Result<()> {
         // trusted-publishing exchange, and the post-wipe governor wipe
         // refuses while any live publish token exists.
         println!(
-            "before wiping: gh workflow disable publish.yml -R cabin-ports/ports, cancel any \
-             in-flight ports publish or registry-verify run, and stay clear of the 03:00 UTC \
-             nightly dump (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
+            "before wiping: gh workflow disable publish.yml -R cabin-ports/ports and gh \
+             workflow disable registry-verify.yml, cancel every queued or in-flight run of \
+             either, and stay clear of the 03:00 UTC nightly dump (registry/docs/runbook.md, \
+             \"Post-wipe re-provisioning\")"
         );
         or_fail(confirm());
     }
@@ -317,10 +318,13 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, \"Post-wipe re-provisioning
      writes first, wait out the in-flight window (~5 min), then run under
      writes_blocked - the gate clears on that path; the ports publish
      workflow stays disabled until the next step
-  5. re-enable it (gh workflow enable publish.yml -R cabin-ports/ports),
-     prove the binding with an exchange-check dispatch, then dispatch
-     it plainly from main to republish the set - no publish token or
-     secret to mint: each run's OIDC exchange is the credential
+  5. start the ports receipts log over while publishing is still
+     disabled (its README, \"Automatic publishing\"), re-enable it (gh
+     workflow enable publish.yml -R cabin-ports/ports), prove the
+     binding with an exchange-check dispatch, then dispatch it plainly
+     from main to republish the set - no publish token or secret to
+     mint: each run's OIDC exchange is the credential; then re-enable
+     the verifier (gh workflow enable registry-verify.yml)
   6. rerun whatever main CI went red against the old registry
      (gh run rerun <id> --failed)
 "
