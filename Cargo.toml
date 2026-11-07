@@ -25,6 +25,7 @@ members = [
   "crates/cabin-registry-file",
   "crates/cabin-registry-verify",
   "crates/cabin-resolver",
+  "crates/cabin-sandbox",
   "crates/cabin-source-discovery",
   "crates/cabin-system-deps",
   "crates/cabin-test",
