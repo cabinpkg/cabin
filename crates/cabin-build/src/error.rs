@@ -194,6 +194,13 @@ pub enum BuildError {
     )]
     MissingCCompiler { target: String, path: Utf8PathBuf },
 
+    /// A target carries a C++ source but no C++ compiler is
+    /// available.
+    #[error(
+        "target {target:?} has C++ source `{path}` but no C++ compiler is available; set the `CXX` environment variable, pass `--cxx <path>`, or add `cxx = ...` under [toolchain]"
+    )]
+    MissingCxxCompiler { target: String, path: Utf8PathBuf },
+
     /// A planned compile has no effective language standard: the
     /// target compiles sources of a language neither its
     /// `[target.<name>]` table nor its `[package]` declares a

@@ -28,11 +28,11 @@ fn host() -> Host {
     ))
     .unwrap();
     let report = detect_toolchain(&toolchain, &ProcessRunner).unwrap();
-    let dialect = Dialect::from_compiler_kind(report.cxx.identity.kind);
+    let dialect = Dialect::from_compiler_kind(report.cxx.as_ref().unwrap().identity.kind);
     Host {
         dialect,
         cc: toolchain.cc.expect("a C compiler").path,
-        cxx: toolchain.cxx.path,
+        cxx: toolchain.cxx.expect("a C++ compiler").path,
         env: msvc_environment(dialect == Dialect::Msvc),
     }
 }

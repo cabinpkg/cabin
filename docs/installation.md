@@ -49,7 +49,7 @@ it backs:
 
 | Tool | Required by | Override |
 | --- | --- | --- |
-| C++ compiler - GCC/Clang (`c++`, `clang++`, `g++`) on Unix; MSVC (`cl`) on Windows | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` / `cabin metadata` / `cabin explain build-config` | `CXX` |
+| C++ compiler - GCC/Clang (`c++`, `clang++`, `g++`) on Unix; MSVC (`cl`) on Windows | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` when the selected targets contain C++ sources | `CXX` |
 | C compiler - GCC/Clang (`cc`, `clang`, `gcc`) on Unix; MSVC (`cl`) on Windows | the same commands when the selected targets contain `.c` sources | `CC` |
 | Static-library archiver - `ar` on Unix; `lib` on Windows | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` / `cabin metadata` / `cabin explain build-config` | `AR` |
 | Ninja (≥ 1.10) | `cabin build` / `cabin run` / `cabin test` | `NINJA` |
@@ -70,9 +70,9 @@ out to `clang-format` / `run-clang-tidy` from an LLVM install, exactly as on Uni
 `cabin resolve`, `cabin update`, `cabin tree`, and the graph-only `cabin explain` subcommands
 (`package`, `target`, `source`, and `feature`) do not require a compiler, archiver, or Ninja.
 
-The C++ compiler and archiver are resolved when Cabin renders or plans a build configuration.  The C
-compiler is resolved opportunistically and becomes required when the selected targets contain `.c`
-sources.  `cabin metadata` and `cabin explain build-config` report toolchain details, so they need
+The archiver and at least one compiler (C or C++) are resolved when Cabin renders or plans a build
+configuration.  Each compiler becomes required only when a build compiles sources of its language,
+so a C-only project needs no C++ compiler.  `cabin metadata` and `cabin explain build-config` report toolchain details, so they need
 the required tool slots for that build configuration to be resolvable; their `--version` capability
 probes are fail-soft after resolution succeeds.  Ninja is only invoked by commands that run the
 Ninja backend.  See [toolchains.md](toolchains.md) for compiler selection precedence and capability

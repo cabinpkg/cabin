@@ -58,10 +58,9 @@ pub(super) fn build(
         "cabin: build dir = {}",
         prepared.build_dir.display()
     ));
-    reporter.verbose(format_args!(
-        "cabin: c++ compiler = {}",
-        prepared.toolchain.cxx.path
-    ));
+    if let Some(cxx) = &prepared.toolchain.cxx {
+        reporter.verbose(format_args!("cabin: c++ compiler = {}", cxx.path));
+    }
     if let Some(cc) = &prepared.toolchain.cc {
         reporter.very_verbose(format_args!("cabin: c compiler = {}", cc.path));
     }

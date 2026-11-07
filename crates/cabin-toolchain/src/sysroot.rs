@@ -35,8 +35,9 @@ pub fn explicit_sysroot(
     report: Option<&ToolchainDetectionReport>,
 ) -> Result<Sysroot, SysrootDialectError> {
     if let Some(report) = report {
-        let compilers =
-            std::iter::once(("C++", &report.cxx)).chain(report.cc.as_ref().map(|cc| ("C", cc)));
+        let compilers = (report.cxx.as_ref().map(|cxx| ("C++", cxx)))
+            .into_iter()
+            .chain(report.cc.as_ref().map(|cc| ("C", cc)));
         for (slot, detection) in compilers {
             let kind = detection.identity.kind;
             if kind.speaks_msvc_dialect() {
@@ -79,11 +80,11 @@ pub fn detect_toolchain_and_apple_sdk(
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
         let apple_clang = |kind| kind == CompilerKind::AppleClang;
-        let applies = apple_clang(report.cxx.identity.kind)
-            && report
-                .cc
-                .as_ref()
-                .is_none_or(|cc| apple_clang(cc.identity.kind));
+        let applies = report
+            .cxx
+            .iter()
+            .chain(&report.cc)
+            .all(|compiler| apple_clang(compiler.identity.kind));
         Ok((report, sdk.filter(|_| applies)))
     })
 }
@@ -160,7 +161,7 @@ mod tests {
             raw_version_line: String::new(),
         };
         ToolchainDetectionReport {
-            cxx: compiler(cxx),
+            cxx: Some(compiler(cxx)),
             cc: cc.map(compiler),
             ar: ToolDetection {
                 path: "/usr/bin/ar".into(),
@@ -223,7 +224,7 @@ mod tests {
             source: ToolSource::Default,
         };
         let toolchain = ResolvedToolchain {
-            cxx: tool(ToolKind::CxxCompiler, "/bin/c++"),
+            cxx: Some(tool(ToolKind::CxxCompiler, "/bin/c++")),
             cc: Some(tool(ToolKind::CCompiler, "/bin/cc")),
             ar: tool(ToolKind::Archiver, "/bin/ar"),
         };

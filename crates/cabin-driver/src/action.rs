@@ -148,7 +148,7 @@ pub struct CompileArguments {
 /// C/C++ compiler arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembleAction {
-    /// Assembler executable: the C++ compiler driver on the GNU/Clang
+    /// Assembler executable: the lead (C++, else C) compiler driver on the GNU/Clang
     /// dialect, `ml64.exe` on MSVC.
     pub assembler: Utf8PathBuf,
     /// Platform triple a Clang-family driver builds for, spelled

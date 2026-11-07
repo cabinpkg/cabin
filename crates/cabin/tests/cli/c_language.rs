@@ -144,6 +144,40 @@ fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
     );
 }
 
+/// A C-only project builds and runs on a `PATH` that holds no C++
+/// compiler: only the C compiler, the archiver, Ninja, and the tools
+/// the C driver itself invokes.
+#[cfg(unix)]
+#[test]
+fn c_only_project_builds_and_runs_without_a_cxx_compiler() {
+    assert!(
+        ninja_available() && c_compiler_available(),
+        "ninja and a C compiler are required for this test"
+    );
+    let bin = TempDir::new().unwrap();
+    let cc = ["cc", "clang", "gcc"]
+        .into_iter()
+        .find_map(|name| which::which(name).ok())
+        .unwrap();
+    std::os::unix::fs::symlink(cc, bin.path().join("cc")).unwrap();
+    // `as`/`ld`: GNU drivers look them up on PATH; `xcrun`: Apple SDK lookup.
+    for tool in ["ar", "ninja", "as", "ld", "xcrun"] {
+        if let Ok(path) = which::which(tool) {
+            std::os::unix::fs::symlink(path, bin.path().join(tool)).unwrap();
+        }
+    }
+    let dir = TempDir::new().unwrap();
+    write_c_only_library(dir.path());
+    cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .env("PATH", bin.path())
+        .assert()
+        .success();
+}
+
 #[test]
 fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
     require_c_and_cxx_build_tools();
@@ -548,11 +582,9 @@ sources = ["tests/aa_c.c"]
 
 #[test]
 fn missing_c_compiler_yields_actionable_diagnostic() {
-    // Cabin's toolchain resolver requires a C++ compiler
-    // unconditionally; this test points `--cc` at a path
-    // that does not exist so we can observe the
-    // user-visible diagnostic without depending on the
-    // host's `cc` / `clang` / `gcc` PATH state.
+    // This test points `--cc` at a path that does not exist so
+    // we can observe the user-visible diagnostic without
+    // depending on the host's `cc` / `clang` / `gcc` PATH state.
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

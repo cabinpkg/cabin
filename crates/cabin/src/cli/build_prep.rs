@@ -747,7 +747,7 @@ pub(crate) fn prepare_workspace(
         &graph,
         &platform,
         &dev_for,
-        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+        cabin_build::Dialect::from_compiler_kind(detection_report.lead().identity.kind),
         selected_closure,
     )?;
     let system_targets = super::system_provided::probe_provided(
@@ -756,7 +756,7 @@ pub(crate) fn prepare_workspace(
         &build_features.included,
         &system.reaches,
         &platform,
-        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+        cabin_build::Dialect::from_compiler_kind(detection_report.lead().identity.kind),
         reporter,
     )?;
     let prep = resolve_build_prep(BuildConfigInputs {
@@ -990,7 +990,7 @@ pub(crate) fn plan_prepared(
         selected_packages: Some(&prepared.resolved_selection.packages),
         compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(
-            prepared.detection_report.cxx.identity.kind,
+            prepared.detection_report.lead().identity.kind,
         ),
         archiver_windows_rsp_quoting: prepared.detection_report.ar.identity.windows_rsp_quoting(),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
@@ -1091,7 +1091,7 @@ fn plan_build_context(
         selected_packages: Some(&context.roots),
         compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(
-            context.detection_report.cxx.identity.kind,
+            context.detection_report.lead().identity.kind,
         ),
         archiver_windows_rsp_quoting: context.detection_report.ar.identity.windows_rsp_quoting(),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
@@ -1111,7 +1111,13 @@ fn plan_build_context(
         sysroot: None,
         build_context: true,
     })
-    .context("cannot plan the `[build-dependencies]` for the build machine")
+    .with_context(|| {
+        if context.cross {
+            "cannot plan the `[build-dependencies]` for the build machine (HOST_CC, HOST_CXX, and HOST_AR choose its tools)"
+        } else {
+            "cannot plan the `[build-dependencies]` for the build machine"
+        }
+    })
 }
 
 /// Render the optimization / debuginfo descriptor that follows
@@ -1238,7 +1244,7 @@ fn ensure_toolchain_may_run(
 ) -> Result<()> {
     use cabin_core::{ToolKind, ToolSource};
     for tool in [
-        Some(&toolchain.cxx),
+        toolchain.cxx.as_ref(),
         Some(&toolchain.ar),
         toolchain.cc.as_ref(),
     ]
@@ -1434,7 +1440,7 @@ pub(crate) fn resolve_per_package_build_flags(
     let (cc_identity, cxx_identity) = match detection {
         Some(report) => (
             report.cc.as_ref().map(|tool| &tool.identity),
-            Some(&report.cxx.identity),
+            report.cxx.as_ref().map(|tool| &tool.identity),
         ),
         None => (None, None),
     };

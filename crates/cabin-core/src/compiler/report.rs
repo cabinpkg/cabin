@@ -10,7 +10,9 @@ use super::identity::{ArchiverIdentity, CompilerIdentity};
 /// and the metadata view.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolchainDetectionReport {
-    pub cxx: ToolDetection<CompilerIdentity, CompilerCapabilities>,
+    /// Optional because `ResolvedToolchain.cxx` is itself optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cxx: Option<ToolDetection<CompilerIdentity, CompilerCapabilities>>,
     /// Optional because `ResolvedToolchain.cc` is itself optional.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cc: Option<ToolDetection<CompilerIdentity, CompilerCapabilities>>,
@@ -18,6 +20,19 @@ pub struct ToolchainDetectionReport {
 }
 
 impl ToolchainDetectionReport {
+    /// The detection of [`crate::ResolvedToolchain::lead`]: the C++
+    /// compiler when there is one, else the C compiler.
+    ///
+    /// # Panics
+    /// When the report has neither compiler, which detection of a
+    /// resolved toolchain never produces.
+    pub fn lead(&self) -> &ToolDetection<CompilerIdentity, CompilerCapabilities> {
+        self.cxx
+            .as_ref()
+            .or(self.cc.as_ref())
+            .expect("a detected toolchain has a C or C++ compiler")
+    }
+
     /// What a build's outputs depend on: each tool's
     /// [`CompilerIdentity::build_identity`], and the archiver's
     /// identity.  No paths: a used tool's path is already in its
@@ -25,24 +40,26 @@ impl ToolchainDetectionReport {
     pub fn build_identity(&self) -> serde_json::Value {
         serde_json::json!({
             "cc": self.cc.as_ref().map(|cc| cc.identity.build_identity()),
-            "cxx": self.cxx.identity.build_identity(),
+            "cxx": self.cxx.as_ref().map(|cxx| cxx.identity.build_identity()),
             "ar": self.ar.identity.as_json(),
         })
     }
 
     /// Compact, deterministic JSON view used by `cabin metadata`.
     /// Each tool block carries `path` / `identity` / `capabilities`;
-    /// an absent C compiler omits the `cc` block.
+    /// an absent C or C++ compiler omits its block.
     pub fn as_json(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
-        obj.insert(
-            "cxx".to_owned(),
-            serde_json::json!({
-                "path": self.cxx.path.as_str().to_owned(),
-                "identity": self.cxx.identity.as_json(),
-                "capabilities": cxx_capabilities_as_json(&self.cxx.capabilities),
-            }),
-        );
+        if let Some(cxx) = &self.cxx {
+            obj.insert(
+                "cxx".to_owned(),
+                serde_json::json!({
+                    "path": cxx.path.as_str().to_owned(),
+                    "identity": cxx.identity.as_json(),
+                    "capabilities": cxx_capabilities_as_json(&cxx.capabilities),
+                }),
+            );
+        }
         if let Some(cc) = &self.cc {
             obj.insert(
                 "cc".to_owned(),

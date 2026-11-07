@@ -211,7 +211,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let dialect = detection_report
         .as_ref()
         .map_or_else(cabin_build::Dialect::host_default, |report| {
-            cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind)
+            cabin_build::Dialect::from_compiler_kind(report.lead().identity.kind)
         });
 
     let language_standards = crate::cli::resolve_per_package_language_standards(&graph);

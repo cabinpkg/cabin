@@ -66,7 +66,7 @@ pub fn check_compiler_targets(
     runner: &dyn ToolRunner,
 ) -> Result<CompilerTargets, CompilerTargetError> {
     let compilers: Vec<&ToolDetection<CompilerIdentity, CompilerCapabilities>> =
-        std::iter::once(&report.cxx).chain(&report.cc).collect();
+        report.cxx.iter().chain(&report.cc).collect();
     let is_clang = |kind| matches!(kind, CompilerKind::Clang | CompilerKind::AppleClang);
     if !cross {
         let warnings = compilers
@@ -88,15 +88,15 @@ pub fn check_compiler_targets(
             warnings,
         });
     }
-    if let Some(cc) = &report.cc
-        && is_clang(cc.identity.kind) != is_clang(report.cxx.identity.kind)
+    if let (Some(cc), Some(cxx)) = (&report.cc, &report.cxx)
+        && is_clang(cc.identity.kind) != is_clang(cxx.identity.kind)
     {
         return Err(CompilerTargetError::MixedFamilies {
             cc: cc.identity.kind,
-            cxx: report.cxx.identity.kind,
+            cxx: cxx.identity.kind,
         });
     }
-    if is_clang(report.cxx.identity.kind) {
+    if is_clang(report.lead().identity.kind) {
         return Ok(CompilerTargets {
             clang_target: Some(platform.target.clone()),
             warnings: Vec::new(),
@@ -164,14 +164,14 @@ pub enum BuildMachineToolchainError {
 ///
 /// # Errors
 /// Returns [`BuildMachineToolchainError::SharedLib`] when `target`'s
-/// C++ compiler speaks the MSVC dialect and `platform` is another
+/// lead compiler speaks the MSVC dialect and `platform` is another
 /// machine than `build_machine`.
 pub fn check_build_machine_beside(
     target: &ToolchainDetectionReport,
     platform: &TargetPlatform,
     build_machine: &TargetPlatform,
 ) -> Result<(), BuildMachineToolchainError> {
-    if target.cxx.identity.kind.speaks_msvc_dialect()
+    if target.lead().identity.kind.speaks_msvc_dialect()
         && (platform.arch != build_machine.arch || platform.os != build_machine.os)
     {
         return Err(BuildMachineToolchainError::SharedLib {
@@ -200,15 +200,15 @@ pub fn check_build_machine_compilers(
     build_machine: &TargetPlatform,
     runner: &dyn ToolRunner,
 ) -> Result<(), BuildMachineToolchainError> {
-    if report.cxx.identity.kind.speaks_msvc_dialect()
-        != target.cxx.identity.kind.speaks_msvc_dialect()
+    if report.lead().identity.kind.speaks_msvc_dialect()
+        != target.lead().identity.kind.speaks_msvc_dialect()
     {
         return Err(BuildMachineToolchainError::MixedDialects {
-            compiler: report.cxx.path.to_string(),
-            target_compiler: target.cxx.path.to_string(),
+            compiler: report.lead().path.to_string(),
+            target_compiler: target.lead().path.to_string(),
         });
     }
-    for compiler in std::iter::once(&report.cxx).chain(&report.cc) {
+    for compiler in report.cxx.iter().chain(&report.cc) {
         let name = compiler.path.to_string();
         let actual = reported_target(compiler, runner).map_err(|source| {
             BuildMachineToolchainError::Probe {
@@ -282,7 +282,7 @@ mod tests {
             raw_version_line: String::new(),
         };
         ToolchainDetectionReport {
-            cxx,
+            cxx: Some(cxx),
             cc,
             ar: ToolDetection {
                 path: "/bin/ar".into(),

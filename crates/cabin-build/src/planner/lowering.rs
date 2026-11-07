@@ -512,6 +512,7 @@ pub(super) struct CompileDispatch<'a> {
 /// context via [`CompileDispatchError::attach_target_path`].
 pub(super) enum CompileDispatchError {
     MissingCCompiler,
+    MissingCxxCompiler,
 }
 
 impl CompileDispatchError {
@@ -526,6 +527,10 @@ impl CompileDispatchError {
                 target: format_target_id(tid, graph),
                 path: path.to_path_buf(),
             },
+            Self::MissingCxxCompiler => BuildError::MissingCxxCompiler {
+                target: format_target_id(tid, graph),
+                path: path.to_path_buf(),
+            },
         }
     }
 }
@@ -537,10 +542,17 @@ pub(super) fn compile_dispatch<'a>(
     req: &'a PlanRequest<'a>,
 ) -> Result<CompileDispatch<'a>, CompileDispatchError> {
     match language {
-        SourceLanguage::Cxx => Ok(CompileDispatch {
-            driver: req.toolchain.cxx.path(),
-            description_tag: "CXX",
-        }),
+        SourceLanguage::Cxx => {
+            let cxx = req
+                .toolchain
+                .cxx
+                .as_ref()
+                .ok_or(CompileDispatchError::MissingCxxCompiler)?;
+            Ok(CompileDispatch {
+                driver: cxx.path(),
+                description_tag: "CXX",
+            })
+        }
         SourceLanguage::C => {
             let cc = req
                 .toolchain

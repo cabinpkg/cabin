@@ -330,10 +330,13 @@ pub(crate) fn tool_source_label(source: ToolSource) -> &'static str {
 /// The build planner reads `cxx`, `cc`, and `ar` directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedToolchain {
-    /// C++ compiler.  Always populated.  Used for `.cc` / `.cpp` /
-    /// `.cxx` / `.c++` / `.C` compiles and for linking any target
-    /// whose object set contains a C++ translation unit.
-    pub cxx: ResolvedTool,
+    /// C++ compiler.  Used for `.cc` / `.cpp` / `.cxx` / `.c++` /
+    /// `.C` compiles and for linking any target whose object set
+    /// contains a C++ translation unit.  Optional like `cc`, so a
+    /// C-only build needs no C++ compiler: the planner errors with
+    /// `MissingCxxCompiler` only when something needs it.  At least
+    /// one of `cc` and `cxx` is populated.
+    pub cxx: Option<ResolvedTool>,
     /// Static-library archiver.  Always populated.
     pub ar: ResolvedTool,
     /// C compiler.  Used for `.c` compiles and as the link driver
@@ -347,13 +350,25 @@ pub struct ResolvedToolchain {
 }
 
 impl ResolvedToolchain {
+    /// The compiler that speaks for the toolchain as a whole (its
+    /// command dialect and family): the C++ compiler when there is
+    /// one, else the C compiler.
+    ///
+    /// # Panics
+    /// When the toolchain has neither compiler, which
+    /// `resolve_toolchain` never returns.
+    pub fn lead(&self) -> &ResolvedTool {
+        self.cxx
+            .as_ref()
+            .or(self.cc.as_ref())
+            .expect("a resolved toolchain has a C or C++ compiler")
+    }
+
     /// Iterator over every populated tool, sorted by [`ToolKind`].
     pub fn iter(&self) -> impl Iterator<Item = &ResolvedTool> {
         let mut entries: Vec<&ResolvedTool> = Vec::with_capacity(3);
-        if let Some(cc) = &self.cc {
-            entries.push(cc);
-        }
-        entries.push(&self.cxx);
+        entries.extend(&self.cc);
+        entries.extend(&self.cxx);
         entries.push(&self.ar);
         entries.sort_by_key(|t| t.kind);
         entries.into_iter()
@@ -392,6 +407,12 @@ pub enum ToolchainResolutionError {
         key = kind.as_key()
     )]
     NoDefault { kind: ToolKind },
+    /// Neither a C nor a C++ compiler was specified, and neither
+    /// fallback list resolved.
+    #[error(
+        "no usable C or C++ compiler found on PATH; set CC or CXX, or add `cc = ...` or `cxx = ...` under [toolchain]"
+    )]
+    NoCompiler,
     /// A compiler slot names `link` or `lib` (the MSVC linker and
     /// archiver) rather than a compiler driver.
     #[error(
@@ -480,7 +501,11 @@ mod tests {
             spec: ToolSpec::Name("ar".into()),
             source: ToolSource::Default,
         };
-        let resolved = ResolvedToolchain { cxx, ar, cc: None };
+        let resolved = ResolvedToolchain {
+            cxx: Some(cxx),
+            ar,
+            cc: None,
+        };
         let kinds: Vec<ToolKind> = resolved.iter().map(|t| t.kind).collect();
         assert_eq!(kinds, vec![ToolKind::CxxCompiler, ToolKind::Archiver]);
     }

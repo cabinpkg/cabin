@@ -40,20 +40,28 @@ driver per source language.  The build planner classifies each source file by it
 (`.c` is C; `.cc` / `.cpp` / `.cxx` / `.c++` / `.C` are C++) and dispatches each compile through the
 matching driver.
 
+A C-only build needs no C++ compiler.  A compiler slot left to the defaults may stay empty:
+resolution fails when neither compiler resolves (`no usable C or C++ compiler found on PATH`), while
+an explicitly selected compiler and the archiver must resolve as before.  A target that compiles a
+source whose compiler did not resolve fails planning with an error naming the target and the
+source.  Every compiler that does resolve is still probed, and under `--target` checked against the
+target, even when no compile uses it.  The **lead** compiler is the C++ compiler, or the C compiler when no
+C++ compiler resolves.
+
 The link driver is *also* selected per target: every linked executable inspects its own objects plus
 every transitively reachable library object, picks **C++** if any of those are C++ or none are C
-(assembly only), and otherwise picks **C**.  There is no separate `--linker` selection; the C/C++ driver decision is what controls
+(assembly only - linked by the lead compiler), and otherwise picks **C**.  There is no separate `--linker` selection; the C/C++ driver decision is what controls
 whether the C++ runtime (libstdc++ / libc++) is pulled in.
 
 A linker-style env variable (`LD`) is intentionally not honored - adding linker selection would
-require a linker-command abstraction the backend lacks.  The C++ compiler drives linking via MSVC
+require a linker-command abstraction the backend lacks.  The compiler drives linking via MSVC
 `cl` with `/Fe<exe> /link ...` or via the GCC/Clang driver, so `link.exe` is never selected
 directly.
 
 Cabin drives **two** command-line dialects: GCC/Clang style (`-std=c++17`, `-c`, `-o <file>`,
-`-MD`) and MSVC style (`cl /std:c++17 /c /Fo<obj> /showIncludes`, `lib /OUT:<lib>`).  The C++
+`-MD`) and MSVC style (`cl /std:c++17 /c /Fo<obj> /showIncludes`, `lib /OUT:<lib>`).  The lead
 compiler picks the dialect - `cl.exe` selects MSVC, every other recognized family selects
-GCC/Clang - and the archiver and optional C compiler must agree (see
+GCC/Clang - and the archiver and the other compiler must agree (see
 [Validation](#validation-against-the-c-backend)).
 
 ## System include directories
@@ -471,7 +479,7 @@ Archiver detection records a smaller [`ArchiverCapabilities`] set:
 Before any Ninja file is written, `cabin build` runs the detection report through
 `cabin_build::validate_toolchain_for_backend`.  The validator surfaces clear errors when:
 
-- the C++ compiler is `unknown`; every recognized compiler fits the GCC/Clang or the MSVC dialect.
+- the lead compiler is `unknown`; every recognized compiler fits the GCC/Clang or the MSVC dialect.
   The C compiler, when a C compile is planned, must likewise be recognized;
 - a compiler does not accept the flag spelling for one of the *requested* language standards (the
   effective standards of the planned compiles), so e.g. a too-old `cl` or GCC is rejected up front
@@ -482,14 +490,15 @@ Before any Ninja file is written, `cabin build` runs the detection report throug
 - the resolved tools span **both** dialects - an MSVC `cl` paired with a GNU `ar`, or a GCC/Clang
   `c++` paired with `lib` (`MixedToolchainDialects`).
 
-The C-compiler checks (its dialect contract, dialect coherence with the C++ compiler, and its
-requested C standards) run after planning, gated on the compiles the plan emits: a `cc` slot no
-planned compile uses - even when an unrelated target in a dependency package carries `.c` sources -
-never gates the build.
+When a C++ compiler resolves, the C-compiler checks (its dialect contract, dialect coherence with the
+lead compiler, and its requested C standards) run after planning, gated on the compiles the plan
+emits: a `cc` slot no planned compile uses - even when an unrelated target in a dependency package
+carries `.c` sources - never gates the build.  Without a C++ compiler, the C compiler is the lead and
+is checked before planning.
 
 `cabin metadata` is fail-soft after toolchain resolution succeeds: detection failures, including
 version-probe timeouts, are logged to stderr and the JSON view's `toolchain.detected` field becomes
-`null`.  Missing required tools are still resolution errors; set `CXX`, `AR`, or `[toolchain]` when
+`null`.  Missing required tools are still resolution errors; set `CC` or `CXX`, `AR`, or `[toolchain]` when
 metadata needs to report a build configuration on a machine without the default tool names.
 
 ### Determinism and network access
