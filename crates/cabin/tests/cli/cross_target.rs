@@ -522,3 +522,78 @@ cxxapp = ["src/aarch64.c"]
         assert!(lines[4].ends_with(&format!("{built}smoke")), "{log}");
     }
 }
+
+#[cfg(target_os = "linux")]
+mod linux_clang {
+    use super::*;
+
+    /// ELF `e_machine` of `path` (both machines are little-endian).
+    fn elf_machine(path: &Path) -> u16 {
+        let bytes = fs::read(path).unwrap();
+        assert_eq!(&bytes[..4], b"\x7fELF", "{}", path.display());
+        u16::from_le_bytes([bytes[18], bytes[19]])
+    }
+
+    fn objects_under(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                objects_under(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "o") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// Clang builds a C and C++ library for the other Linux architecture while
+    /// the build dependency's generator is built for the build machine.
+    #[test]
+    fn a_clang_cross_build_keeps_the_build_machine_tool_native() {
+        require_c_and_cxx_build_tools();
+        require_external_tool("clang");
+        require_external_tool("clang++");
+        // EM_X86_64 = 62, EM_AARCH64 = 183.
+        let (triple, native, foreign) = match std::env::consts::ARCH {
+            "x86_64" => ("aarch64-unknown-linux-gnu", 62, 183),
+            "aarch64" => ("x86_64-unknown-linux-gnu", 183, 62),
+            other => panic!("no cross triple for {other}"),
+        };
+        let dir = TempDir::new().unwrap();
+        let root = assert_fs::fixture::ChildPath::new(dir.path());
+        root.child("tools/cabin.toml")
+            .write_str("[package]\nname = \"tools\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[target.gen]\ntype = \"executable\"\nsources = [\"src/gen.c\"]\n")
+            .unwrap();
+        root.child("tools/src/gen.c")
+            .write_str("int main(void) { return 0; }\n")
+            .unwrap();
+        root.child("app/cabin.toml")
+            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\ncxx-standard = \"c++17\"\n\n[build-dependencies]\ntools = { path = \"../tools\" }\n\n[target.applib]\ntype = \"library\"\nsources = [\"src/lib.c\", \"src/lib.cc\"]\n")
+            .unwrap();
+        root.child("app/src/lib.c")
+            .write_str("int applib(void) { return 42; }\n")
+            .unwrap();
+        root.child("app/src/lib.cc")
+            .write_str("int applib_cxx() { return 42; }\n")
+            .unwrap();
+        let app = dir.path().join("app");
+        cabin()
+            .current_dir(&app)
+            .env("CC", "clang")
+            .env("CXX", "clang++")
+            .args(["build", "--target", triple])
+            .assert()
+            .success();
+
+        let build_root = app.join("build/.targets").join(triple).join("dev");
+        assert_eq!(
+            elf_machine(&build_root.join("build-machine/packages/tools/gen")),
+            native
+        );
+        let mut objects = Vec::new();
+        objects_under(&build_root.join("packages/app"), &mut objects);
+        assert_eq!(objects.len(), 2, "{objects:?}");
+        for object in &objects {
+            assert_eq!(elf_machine(object), foreign, "{}", object.display());
+        }
+    }
+}
