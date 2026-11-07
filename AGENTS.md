@@ -71,6 +71,12 @@ evidence of current behavior, not proof that the behavior is correct.
 - Comments state non-obvious contracts, preconditions, invariants,
   compatibility requirements, or design rationale. Do not restate
   mechanics already clear from the code.
+- Prefer raw string literals for multi-line embedded text in Rust,
+  especially TOML, JSON, and C/C++ source code in tests. Avoid long
+  escaped strings with repeated `\n` and `\"` sequences. Keep small
+  fixtures inline; use separate files when size or reuse justifies them.
+  Preserve exact string contents, including whitespace and trailing
+  newlines, when converting existing strings.
 - For non-obvious correctness or safety claims, state the premises,
   relevant cases, and why the conclusion follows. A proof may be written
   in prose and be as long as needed; never omit necessary steps for brevity.
