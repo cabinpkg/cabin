@@ -17,11 +17,11 @@
 //! finished `BuildGraph` and its `PackageGraph` to [`plan_tests`],
 //! then the plan to [`run_tests`].
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, mpsc};
@@ -29,8 +29,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use cabin_build::BuildGraph;
-use cabin_core::{ExitStatusKind, TargetKind, TargetPlatform, exit_status_kind};
-use cabin_workspace::{PackageGraph, WorkspacePackage};
+use cabin_core::{ExitStatusKind, TargetKind, exit_status_kind};
+use cabin_workspace::PackageGraph;
 use quick_junit::{NonSuccessKind, Report, TestCase, TestCaseStatus, TestSuite};
 use shared_child::SharedChild;
 use thiserror::Error;
@@ -94,8 +94,8 @@ impl TestPlan {
 /// Build a [`TestPlan`] from a finished [`BuildGraph`] plus the
 /// originating [`PackageGraph`].
 ///
-/// The plan holds every `test` target whose linked executable
-/// appears in `build_graph.default_outputs`.  Callers select which
+/// The plan holds every selected `test` target the build graph
+/// links (`build_graph.target_outputs`).  Callers select which
 /// test targets to build (typically through the planner's
 /// manifest-target selector list); a `test` target the planner did
 /// not build is absent from the plan.
@@ -111,15 +111,8 @@ impl TestPlan {
 pub fn plan_tests(
     package_graph: &PackageGraph,
     build_graph: &BuildGraph,
-    platform: &TargetPlatform,
     selected_packages: Option<&[usize]>,
 ) -> TestPlan {
-    let outputs: BTreeSet<&Path> = build_graph
-        .default_outputs
-        .iter()
-        .map(|p| p.as_std_path())
-        .collect();
-
     let pkg_indices: Vec<usize> = match selected_packages {
         Some(s) => s.to_vec(),
         None => package_graph.primary_packages.clone(),
@@ -132,16 +125,16 @@ pub fn plan_tests(
             if target.kind != TargetKind::Test {
                 continue;
             }
-            let exe_name = build_graph
-                .dialect
-                .executable_name(target.name.as_str(), platform);
-            let Some(exe) = expected_executable(package, &exe_name, &outputs) else {
+            let Some(exe) = build_graph.target_outputs.get(&(
+                package.package.name.as_str().to_owned(),
+                target.name.as_str().to_owned(),
+            )) else {
                 continue;
             };
             entries.push(TestExecutable {
                 package: package.package.name.to_string(),
                 target: target.name.to_string(),
-                executable: exe.to_path_buf(),
+                executable: exe.clone().into_std_path_buf(),
                 working_dir: package.manifest_dir.clone(),
                 env: BTreeMap::new(),
             });
@@ -156,27 +149,6 @@ pub fn plan_tests(
     TestPlan {
         executables: entries,
     }
-}
-
-fn expected_executable<'a>(
-    package: &WorkspacePackage,
-    exe_name: &str,
-    outputs: &BTreeSet<&'a Path>,
-) -> Option<&'a Path> {
-    // The planner names every `test` executable
-    // `<build_dir>/<profile>/packages/<pkg-components>/<target>`
-    // (one directory per `path_components` element, so a scoped
-    // package nests under its scope dir) using the dialect's
-    // executable spelling - `<target>.exe` for Windows, bare
-    // elsewhere.  Only that tail, which the caller spells with the
-    // planner's own dialect from the graph, is matched against
-    // `default_outputs`, so the planner stays the single source of
-    // truth for the rest of the path.
-    let needle_tail: PathBuf = std::iter::once("packages")
-        .chain(package.package.name.path_components())
-        .chain(std::iter::once(exe_name))
-        .collect();
-    outputs.iter().copied().find(|p| p.ends_with(&needle_tail))
 }
 
 /// Result of running one test executable.
@@ -1050,39 +1022,6 @@ mod tests {
         assert_eq!(
             render_summary_line(&summary, 0),
             "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
-        );
-    }
-
-    /// A scoped package's test executable lives under
-    /// `packages/<scope>/<name>/<target>`; the discovery needle must
-    /// nest per name component, and a bare needle must not match
-    /// across the scope boundary.
-    #[test]
-    fn expected_executable_matches_scoped_package_dirs() {
-        use cabin_core::{Package, PackageName};
-        use cabin_workspace::{PackageKind, WorkspacePackage};
-        let make = |name: &str| WorkspacePackage {
-            package: Package::new(
-                PackageName::new(name).unwrap(),
-                "0.1.0".parse().unwrap(),
-                Vec::new(),
-                Vec::new(),
-            )
-            .unwrap(),
-            manifest_path: PathBuf::from("/w/cabin.toml"),
-            manifest_dir: PathBuf::from("/w"),
-            deps: Vec::new(),
-            kind: PackageKind::Local,
-        };
-        let scoped_exe = Path::new("/b/dev/packages/fmtlib/fmt/unit_test");
-        let outputs: BTreeSet<&Path> = [scoped_exe].into_iter().collect();
-        assert_eq!(
-            expected_executable(&make("fmtlib/fmt"), "unit_test", &outputs),
-            Some(scoped_exe)
-        );
-        assert_eq!(
-            expected_executable(&make("fmt"), "unit_test", &outputs),
-            None
         );
     }
 

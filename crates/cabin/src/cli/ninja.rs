@@ -847,6 +847,7 @@ mod tests {
             actions: Vec::new(),
             dialect: cabin_build::Dialect::GnuLike,
             default_outputs: Vec::new(),
+            target_outputs: std::collections::BTreeMap::new(),
             planned_packages: planned.iter().map(|name| (*name).to_owned()).collect(),
             build_context_packages: BTreeSet::new(),
             compile_commands: Vec::new(),

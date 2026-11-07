@@ -3327,6 +3327,52 @@ fn link_driver_ignores_the_own_objects_of_an_executable_dependency() {
     );
 }
 
+/// `target_outputs` keys each selected library and executable by its
+/// full package name and target name, and maps it to the archive or
+/// binary the plan produces for it.
+#[test]
+fn target_outputs_map_each_target_to_its_archive_or_binary() {
+    let lib = target("core", TargetKind::Library, &["src/core.cc"], &[]);
+    let exe = target("app", TargetKind::Executable, &["src/main.cc"], &["core"]);
+    let package = Package::new(
+        pkg_name("fmtlib/fmt"),
+        version(),
+        vec![lib, exe],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/fmt");
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/fmt/build")).unwrap();
+    let archive = bg
+        .actions
+        .iter()
+        .find_map(|a| match a {
+            BuildAction::Archive(a) => Some(a.output.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let binary = bg
+        .actions
+        .iter()
+        .find_map(|a| match a {
+            BuildAction::Link(l) => Some(l.output.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let key = |t: &str| ("fmtlib/fmt".to_owned(), t.to_owned());
+    assert_eq!(
+        bg.target_outputs,
+        BTreeMap::from([(key("core"), archive), (key("app"), binary.clone())])
+    );
+
+    // `core` is built for `app` but not selected.
+    let mut req = plan_request(&graph, &tc, "/abs/fmt/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("app")]);
+    let bg = plan(&req).unwrap();
+    assert_eq!(bg.target_outputs, BTreeMap::from([(key("app"), binary)]));
+}
+
 #[test]
 fn missing_c_compiler_yields_actionable_error_with_target_id() {
     // C source + no `cc` resolved → MissingCCompiler error
@@ -5612,8 +5658,13 @@ fn shared_inputs_and_both_contexts_do_not_conflict() {
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain_with_cc();
     let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("a")]);
     let mut bg = plan(&req).unwrap();
+    req.selected = None;
     req.build_context = true;
+    let target_outputs = bg.target_outputs.clone();
     bg.append(plan(&req).unwrap());
     crate::validate::validate_output_paths_folding(&bg, true).unwrap();
+    // A lookup by name never answers with a build-machine artifact.
+    assert_eq!(bg.target_outputs, target_outputs);
 }
