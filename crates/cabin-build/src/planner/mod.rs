@@ -936,6 +936,16 @@ fn emit_actions(
         .iter()
         .filter_map(|tid| output_for_target.get(tid).cloned())
         .collect();
+    let target_outputs = selected
+        .iter()
+        .filter_map(|tid| {
+            let package = req.graph.packages[tid.0].package.name.as_str().to_owned();
+            Some((
+                (package, tid.1.clone()),
+                output_for_target.get(tid)?.clone(),
+            ))
+        })
+        .collect();
 
     let planned_packages: BTreeSet<String> = reachable
         .iter()
@@ -946,6 +956,7 @@ fn emit_actions(
         actions,
         dialect: req.dialect,
         default_outputs,
+        target_outputs,
         planned_packages,
         build_context_packages: BTreeSet::new(),
         compile_commands,

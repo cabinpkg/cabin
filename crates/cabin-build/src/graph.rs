@@ -22,6 +22,12 @@ pub struct BuildGraph {
     pub dialect: Dialect,
     /// Output paths that should be marked as default targets.
     pub default_outputs: Vec<Utf8PathBuf>,
+    /// The final output of every selected library, executable, test,
+    /// and example target in this graph's own context - an archive or
+    /// a linked binary - keyed by `(package name, target name)`.  A
+    /// target built only because a selected one depends on it is
+    /// absent, so `cabin test --test a` never runs a test `a` depends on.
+    pub target_outputs: std::collections::BTreeMap<(String, String), Utf8PathBuf>,
     /// Full names of every package with at least one planned target
     /// in this graph's own context.  Consumers that map build paths
     /// back to packages (progress banners, link diagnostics) restrict
@@ -63,6 +69,8 @@ impl BuildGraph {
     /// one Ninja file builds both.  The two plans' outputs live under
     /// different directories, and no target action consumes a build
     /// context output yet, so concatenation keeps topological order.
+    /// `target_outputs` keeps the target context's only, so a lookup
+    /// by name never answers with a build-machine artifact.
     pub fn append(&mut self, other: BuildGraph) {
         debug_assert_eq!(self.dialect, other.dialect);
         self.actions.extend(other.actions);

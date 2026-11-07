@@ -789,6 +789,7 @@ fn plan_products_lists_every_product_and_depfile() {
         ],
         dialect: Dialect::GnuLike,
         default_outputs: vec![],
+        target_outputs: std::collections::BTreeMap::new(),
         planned_packages: BTreeSet::new(),
         build_context_packages: BTreeSet::new(),
         compile_commands: vec![],
