@@ -116,7 +116,12 @@ fn add_path_dependency_writes_path_entry_and_local_status() {
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     dir.child("mylib/cabin.toml")
-        .write_str("[package]\nname = \"mylib\"\nversion = \"0.2.0\"\n")
+        .write_str(
+            r#"[package]
+name = "mylib"
+version = "0.2.0"
+"#,
+        )
         .unwrap();
 
     cabin()
@@ -142,7 +147,12 @@ fn add_path_rejects_an_explicit_name() {
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     dir.child("mylib/cabin.toml")
-        .write_str("[package]\nname = \"mylib\"\nversion = \"0.2.0\"\n")
+        .write_str(
+            r#"[package]
+name = "mylib"
+version = "0.2.0"
+"#,
+        )
         .unwrap();
 
     cabin()
@@ -262,7 +272,12 @@ fn add_into_workspace_without_package_selection_fails() {
         .write_str("[workspace]\nmembers = [\"packages/*\"]\n")
         .unwrap();
     dir.child("packages/app/cabin.toml")
-        .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
 
     cabin()
@@ -281,7 +296,12 @@ fn add_targets_selected_workspace_member() {
         .write_str("[workspace]\nmembers = [\"packages/*\"]\n")
         .unwrap();
     dir.child("packages/app/cabin.toml")
-        .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
 
     cabin()
@@ -317,7 +337,11 @@ fn add_preserves_existing_comments() {
     let manifest = dir.path().join("cabin.toml");
     dir.child("cabin.toml")
         .write_str(&format!(
-            "{PACKAGE_MANIFEST}\n[dependencies]\n# keep this note\n\"cabin-ports/xxhash\" = \"=0.8.3\"\n"
+            r#"{PACKAGE_MANIFEST}
+[dependencies]
+# keep this note
+"cabin-ports/xxhash" = "=0.8.3"
+"#
         ))
         .unwrap();
 

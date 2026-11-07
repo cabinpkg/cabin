@@ -11,8 +11,10 @@ sources = ["src/fmt.cc"]
 include-dirs = ["include"]
 "#;
 const FMT_HEADER: &str = "#pragma once\nvoid say_hello();\n";
-const FMT_SRC: &str =
-    "#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello\\n\"; }\n";
+const FMT_SRC: &str = r#"#include <iostream>
+#include "fmt.h"
+void say_hello() { std::cout << "hello\n"; }
+"#;
 const APP_MAIN_USING_FMT: &str = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
 
 /// Selection-aware fixture: `app` (which declares a versioned
@@ -236,10 +238,16 @@ version = "0.1.0"
 fn unsafe_dep_name_in_manifest_rejected_before_http_url() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
 
-            .write_str("[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"foo#bar\" = \"1.0.0\"\n")
-
-            .unwrap();
+[dependencies]
+"foo#bar" = "1.0.0"
+"#,
+        )
+        .unwrap();
     let assertion = cabin()
         .args(["metadata", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -328,21 +336,43 @@ fn member_scoped_resolve_keeps_a_patched_name_an_unselected_member_pins() {
     let root = parent.path().join("ws");
     assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
         .write_str(
-            "[workspace]\nmembers = [\"app\", \"other\"]\n\n[patch]\nfmt = { path = \"../fmt\" }\n",
+            r#"[workspace]
+members = ["app", "other"]
+
+[patch]
+fmt = { path = "../fmt" }
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(root.join("app/cabin.toml"))
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nextra = \"^1\"\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+extra = "^1"
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(root.join("other/cabin.toml"))
         .write_str(
-            "[package]\nname = \"other\"\nversion = \"0.1.0\"\n\n[dependencies]\nalpha = \"^1\"\n",
+            r#"[package]
+name = "other"
+version = "0.1.0"
+
+[dependencies]
+alpha = "^1"
+"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(parent.path().join("fmt/cabin.toml"))
-        .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.0\"\n")
+        .write_str(
+            r#"[package]
+name = "fmt"
+version = "10.2.0"
+"#,
+        )
         .unwrap();
     let index = root.join("index");
     write_index_entry_no_source(&index, "extra", "1.0.0", &"a".repeat(64));

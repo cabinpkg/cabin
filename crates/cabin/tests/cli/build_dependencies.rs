@@ -35,7 +35,13 @@ defines = ["UTIL_LOUD=1"]
         .unwrap();
     root.child("util/src/util.c")
         .write_str(
-            "#include <util.h>\n#ifdef UTIL_LOUD\nconst char *util_greeting(void) { return \"HELLO\"; }\n#else\nconst char *util_greeting(void) { return \"hello\"; }\n#endif\n",
+            r#"#include <util.h>
+#ifdef UTIL_LOUD
+const char *util_greeting(void) { return "HELLO"; }
+#else
+const char *util_greeting(void) { return "hello"; }
+#endif
+"#,
         )
         .unwrap();
     root.child("gen/cabin.toml")
@@ -57,7 +63,15 @@ deps = ["util:util"]
         .unwrap();
     root.child("gen/src/main.c")
         .write_str(
-            "#include <stdio.h>\n#include <util.h>\nint main(int argc, char **argv) {\n    FILE *out;\n    if (argc != 2 || !(out = fopen(argv[1], \"w\"))) return 1;\n    fprintf(out, \"const char *generated(void) { return \\\"%s\\\"; }\\n\", util_greeting());\n    return fclose(out) != 0;\n}\n",
+            r#"#include <stdio.h>
+#include <util.h>
+int main(int argc, char **argv) {
+    FILE *out;
+    if (argc != 2 || !(out = fopen(argv[1], "w"))) return 1;
+    fprintf(out, "const char *generated(void) { return \"%s\"; }\n", util_greeting());
+    return fclose(out) != 0;
+}
+"#,
         )
         .unwrap();
     root.child("app/cabin.toml")
@@ -92,12 +106,23 @@ required-features = ["generated"]
         .unwrap();
     root.child("app/src/main.cc")
         .write_str(
-            "#include <cstdio>\nextern \"C\" {\n#include <util.h>\n}\nint main() { std::puts(util_greeting()); }\n",
+            r#"#include <cstdio>
+extern "C" {
+#include <util.h>
+}
+int main() { std::puts(util_greeting()); }
+"#,
         )
         .unwrap();
     root.child("app/src/generated_main.cc")
         .write_str(
-            "#include <cstdio>\nextern \"C\" const char *generated(void);\nextern \"C\" {\n#include <util.h>\n}\nint main() { std::printf(\"%s %s\\n\", generated(), util_greeting()); }\n",
+            r#"#include <cstdio>
+extern "C" const char *generated(void);
+extern "C" {
+#include <util.h>
+}
+int main() { std::printf("%s %s\n", generated(), util_greeting()); }
+"#,
         )
         .unwrap();
 }
@@ -222,7 +247,18 @@ deps = ["helper"]
         .unwrap();
     root.child("app/cabin.toml")
         .write_str(&format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ntools = {{ path = \"../tools\", targets = {targets} }}\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+tools = {{ path = "../tools", targets = {targets} }}
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+"#
         ))
         .unwrap();
     root.child("app/src/main.c")
@@ -265,7 +301,12 @@ fn build_dependency_targets_union_across_edges() {
         let tools = std::fs::read_to_string(root.child("tools/cabin.toml").path()).unwrap();
         root.child("tools/cabin.toml")
             .write_str(&format!(
-                "{tools}\n[target.gen2]\ntype = \"executable\"\nsources = [\"src/gen2.cc\"]\ncxx-standard = \"c++17\"\n"
+                r#"{tools}
+[target.gen2]
+type = "executable"
+sources = ["src/gen2.cc"]
+cxx-standard = "c++17"
+"#
             ))
             .unwrap();
         root.child("tools/src/gen2.cc")
@@ -277,7 +318,18 @@ fn build_dependency_targets_union_across_edges() {
             .unwrap();
         root.child("mid/cabin.toml")
             .write_str(&format!(
-                "[package]\nname = \"mid\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ntools = {{ path = \"../tools\"{mid_targets} }}\n\n[target.mid]\ntype = \"library\"\nsources = [\"src/mid.c\"]\n"
+                r#"[package]
+name = "mid"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+tools = {{ path = "../tools"{mid_targets} }}
+
+[target.mid]
+type = "library"
+sources = ["src/mid.c"]
+"#
             ))
             .unwrap();
         root.child("mid/src/mid.c")
@@ -293,7 +345,10 @@ fn build_dependency_targets_union_across_edges() {
             app_manifest
                 .replace(
                     "[build-dependencies]",
-                    "[dependencies]\nmid = { path = \"../mid\" }\n\n[build-dependencies]",
+                    r#"[dependencies]
+mid = { path = "../mid" }
+
+[build-dependencies]"#,
                 )
                 .replace(
                     "sources = [\"src/main.c\"]",
@@ -379,7 +434,15 @@ fn two_projects_build_two_versions_of_one_build_tool() {
                 (
                     "cabin.toml",
                     &format!(
-                        "[package]\nname = \"gen\"\nversion = \"{version}\"\nc-standard = \"c11\"\n\n[target.gen]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n"
+                        r#"[package]
+name = "gen"
+version = "{version}"
+c-standard = "c11"
+
+[target.gen]
+type = "executable"
+sources = ["src/main.c"]
+"#
                     ),
                 ),
                 (
@@ -405,7 +468,18 @@ fn two_projects_build_two_versions_of_one_build_tool() {
         let proj = assert_fs::fixture::ChildPath::new(dir.path().join(format!("proj{major}")));
         proj.child("cabin.toml")
             .write_str(&format!(
-                "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ngen = \"{major}.0.0\"\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n"
+                r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+gen = "{major}.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+"#
             ))
             .unwrap();
         proj.child("src/main.c")
@@ -439,16 +513,42 @@ fn links_uniqueness_applies_per_context() {
     for name in ["za", "zb"] {
         root.child(format!("{name}/cabin.toml"))
             .write_str(&format!(
-                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[target.{name}]\ntype = \"library\"\nsources = [\"src/z.c\"]\nlinks = \"z\"\n"
+                r#"[package]
+name = "{name}"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.{name}]
+type = "library"
+sources = ["src/z.c"]
+links = "z"
+"#
             ))
             .unwrap();
     }
     root.child("gen/cabin.toml")
-        .write_str("[package]\nname = \"gen\"\nversion = \"0.1.0\"\n\n[dependencies]\nzb = { path = \"../zb\" }\n")
+        .write_str(
+            r#"[package]
+name = "gen"
+version = "0.1.0"
+
+[dependencies]
+zb = { path = "../zb" }
+"#,
+        )
         .unwrap();
     let app_manifest = |extra: &str| {
         format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nza = {{ path = \"../za\" }}\n{extra}\n[build-dependencies]\ngen = {{ path = \"../gen\" }}\n"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+za = {{ path = "../za" }}
+{extra}
+[build-dependencies]
+gen = {{ path = "../gen" }}
+"#
         )
     };
     root.child("app/cabin.toml")
@@ -507,7 +607,16 @@ fn registry_build_dependencies_claim_links_in_their_own_context() {
     }
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \">=1\"\n\n[build-dependencies]\ngen = \">=1\"\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+zlib = ">=1"
+
+[build-dependencies]
+gen = ">=1"
+"#,
         )
         .unwrap();
     cabin()
@@ -535,7 +644,15 @@ fn registry_build_dependencies_are_locked_vendored_and_built_offline() {
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"gen\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n[target.gen]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n",
+                r#"[package]
+name = "gen"
+version = "1.0.0"
+c-standard = "c11"
+
+[target.gen]
+type = "executable"
+sources = ["src/main.c"]
+"#,
             ),
             ("src/main.c", "int main(void) { return 0; }\n"),
         ],
@@ -549,7 +666,18 @@ fn registry_build_dependencies_are_locked_vendored_and_built_offline() {
     let proj = assert_fs::fixture::ChildPath::new(dir.path().join("proj"));
     proj.child("cabin.toml")
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ngen = \"1.0.0\"\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+gen = "1.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+"#,
         )
         .unwrap();
     proj.child("src/main.c")
@@ -590,7 +718,18 @@ fn packaging_refuses_build_dependencies() {
     let root = assert_fs::fixture::ChildPath::new(dir.path());
     root.child("cabin.toml")
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ngen = \"1\"\n\n[target.app]\ntype = \"library\"\nsources = [\"src/app.c\"]\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+gen = "1"
+
+[target.app]
+type = "library"
+sources = ["src/app.c"]
+"#,
         )
         .unwrap();
     root.child("src/app.c").write_str("int app;\n").unwrap();
@@ -732,7 +871,15 @@ fn a_build_machine_compile_failure_fails_the_build() {
     let root = assert_fs::fixture::ChildPath::new(dir.path());
     root.child("gen/cabin.toml")
         .write_str(
-            "[package]\nname = \"gen\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[target.gen]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n",
+            r#"[package]
+name = "gen"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.gen]
+type = "executable"
+sources = ["src/main.c"]
+"#,
         )
         .unwrap();
     root.child("gen/src/main.c")
@@ -740,7 +887,18 @@ fn a_build_machine_compile_failure_fails_the_build() {
         .unwrap();
     root.child("app/cabin.toml")
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ngen = { path = \"../gen\" }\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+gen = { path = "../gen" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+"#,
         )
         .unwrap();
     root.child("app/src/main.c")

@@ -221,7 +221,16 @@ fn an_untrusted_project_cannot_run_a_build_machine_tool_it_names_by_path() {
     write_executable(&shim, "#!/bin/sh\n: >\"$0.ran\"\n");
     let manifest = dir.path().join("app/cabin.toml");
     let text = fs::read_to_string(&manifest).unwrap();
-    fs::write(&manifest, format!("{text}\n[toolchain]\ncxx = {shim:?}\n")).unwrap();
+    fs::write(
+        &manifest,
+        format!(
+            r"{text}
+[toolchain]
+cxx = {shim:?}
+"
+        ),
+    )
+    .unwrap();
     let bin = TempDir::new().unwrap();
     let fake_gcc = |name: &str, machine: &str| {
         let path = bin.path().join(name);
@@ -315,10 +324,20 @@ cxxapp = ["src/aarch64.c"]
             )
             .unwrap();
         root.child("src/main.c")
-            .write_str("#include <stdio.h>\nconst char *picked(void);\nint main(void) { puts(picked()); return 0; }\n")
+            .write_str(
+                r"#include <stdio.h>
+const char *picked(void);
+int main(void) { puts(picked()); return 0; }
+",
+            )
             .unwrap();
         root.child("src/main.cc")
-            .write_str("#include <cstdio>\nextern \"C\" const char *picked(void);\nint main() { std::puts(picked()); }\n")
+            .write_str(
+                r#"#include <cstdio>
+extern "C" const char *picked(void);
+int main() { std::puts(picked()); }
+"#,
+            )
             .unwrap();
         for arch in ["x86_64", "aarch64"] {
             root.child(format!("src/{arch}.c"))
@@ -561,13 +580,37 @@ mod linux_clang {
         let dir = TempDir::new().unwrap();
         let root = assert_fs::fixture::ChildPath::new(dir.path());
         root.child("tools/cabin.toml")
-            .write_str("[package]\nname = \"tools\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[target.gen]\ntype = \"executable\"\nsources = [\"src/gen.c\"]\n")
+            .write_str(
+                r#"[package]
+name = "tools"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.gen]
+type = "executable"
+sources = ["src/gen.c"]
+"#,
+            )
             .unwrap();
         root.child("tools/src/gen.c")
             .write_str("int main(void) { return 0; }\n")
             .unwrap();
         root.child("app/cabin.toml")
-            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\ncxx-standard = \"c++17\"\n\n[build-dependencies]\ntools = { path = \"../tools\" }\n\n[target.applib]\ntype = \"library\"\nsources = [\"src/lib.c\", \"src/lib.cc\"]\n")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[build-dependencies]
+tools = { path = "../tools" }
+
+[target.applib]
+type = "library"
+sources = ["src/lib.c", "src/lib.cc"]
+"#,
+            )
             .unwrap();
         root.child("app/src/lib.c")
             .write_str("int applib(void) { return 42; }\n")

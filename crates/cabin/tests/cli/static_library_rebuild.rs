@@ -60,7 +60,10 @@ fn removing_a_library_source_drops_its_member() {
     write(
         dir,
         "src/main.c",
-        "int keep_fn(void);\nint gone_fn(void);\nint main(void) { return keep_fn() + gone_fn() == 3 ? 0 : 1; }\n",
+        r"int keep_fn(void);
+int gone_fn(void);
+int main(void) { return keep_fn() + gone_fn() == 3 ? 0 : 1; }
+",
     );
     cabin_in(dir, "build", &["build"]).success();
 
@@ -99,7 +102,10 @@ fn a_build_dir_through_a_symlink_and_dot_dot_keeps_one_identity() {
     write(
         dir,
         "src/main.c",
-        "int keep_fn(void);\nint gone_fn(void);\nint main(void) { return keep_fn() + gone_fn() == 3 ? 0 : 1; }\n",
+        r"int keep_fn(void);
+int gone_fn(void);
+int main(void) { return keep_fn() + gone_fn() == 3 ? 0 : 1; }
+",
     );
     let build_dir = "../link/missing/../../build";
     cabin_in(dir, build_dir, &["build"]).success();
@@ -148,7 +154,11 @@ deps = ["ver"]
     write(
         dir,
         "src/main.cc",
-        "#include <cstdio>\nint keep_fn();\nint version();\nint main() { std::printf(\"value=%d\\n\", keep_fn() + version()); }\n",
+        r#"#include <cstdio>
+int keep_fn();
+int version();
+int main() { std::printf("value=%d\n", keep_fn() + version()); }
+"#,
     );
     cabin_in(dir, "build", &["run"])
         .success()

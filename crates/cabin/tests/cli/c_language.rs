@@ -62,8 +62,19 @@ deps = ["mixedlib"]
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.join("include/mixed.h"))
-            .write_str("#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint c_value(void);\n#ifdef __cplusplus\n}\n#endif\nint cpp_value();\n")
-            .unwrap();
+        .write_str(
+            r#"#pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
+int c_value(void);
+#ifdef __cplusplus
+}
+#endif
+int cpp_value();
+"#,
+        )
+        .unwrap();
     assert_fs::fixture::ChildPath::new(dir.join("src/c_part.c"))
         .write_str("#include \"mixed.h\"\nint c_value(void) { return 21; }\n")
         .unwrap();
@@ -439,10 +450,18 @@ deps = ["clib"]
         )
         .unwrap();
     dir.child("include/clib.h")
-
-            .write_str("#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint c_value(void);\n#ifdef __cplusplus\n}\n#endif\n")
-
-            .unwrap();
+        .write_str(
+            r#"#pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
+int c_value(void);
+#ifdef __cplusplus
+}
+#endif
+"#,
+        )
+        .unwrap();
     dir.child("src/clib.c")
         .write_str("#include \"clib.h\"\nint c_value(void) { return 99; }\n")
         .unwrap();
@@ -513,7 +532,10 @@ deps = ["entry"]
         .unwrap();
     dir.child("src/entry.c")
         .write_str(
-            "#include <stdio.h>\nint app_value(void);\nint main(void) { printf(\"app %d\\n\", app_value()); return 0; }\n",
+            r#"#include <stdio.h>
+int app_value(void);
+int main(void) { printf("app %d\n", app_value()); return 0; }
+"#,
         )
         .unwrap();
     dir.child("src/app.cc")
@@ -683,7 +705,16 @@ deps = ["cgreet"]
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"cgreet\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n[target.cgreet]\ntype = \"library\"\nsources = [\"src/cgreet.c\"]\ninclude-dirs = [\"include\"]\n",
+                r#"[package]
+name = "cgreet"
+version = "1.0.0"
+c-standard = "c11"
+
+[target.cgreet]
+type = "library"
+sources = ["src/cgreet.c"]
+include-dirs = ["include"]
+"#,
             ),
             ("include/cgreet.h", "#pragma once\nint cgreet(void);\n"),
             (

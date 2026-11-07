@@ -566,8 +566,14 @@ fn an_index_without_the_pinned_version_fails_instead_of_moving_it() {
     let consumer = dir.child("consumer/cabin.toml");
     consumer
         .write_str(
-            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n\
-             [dependencies]\n\"fmtlib/fmt\" = \"^10.2\"\n",
+            r#"[package]
+name = "consumer"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"fmtlib/fmt" = "^10.2"
+"#,
         )
         .unwrap();
     cabin()
@@ -616,8 +622,14 @@ fn an_index_without_the_pinned_revision_fails_even_when_resolution_moves_on() {
     let consumer = dir.child("consumer/cabin.toml");
     consumer
         .write_str(
-            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n\
-             [dependencies]\n\"fmtlib/fmt\" = \"^10.2\"\n",
+            r#"[package]
+name = "consumer"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"fmtlib/fmt" = "^10.2"
+"#,
         )
         .unwrap();
     cabin()

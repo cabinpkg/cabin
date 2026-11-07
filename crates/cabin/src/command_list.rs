@@ -147,7 +147,11 @@ mod tests {
     fn formats_sorted_complete_rows() {
         assert_eq!(
             format_command_list(&fixture_cmd()),
-            "Installed Commands:\n    build, b  Build a thing\n    clean     Clean output\n    compgen   Generate completions (advanced)\n"
+            r"Installed Commands:
+    build, b  Build a thing
+    clean     Clean output
+    compgen   Generate completions (advanced)
+"
         );
     }
 

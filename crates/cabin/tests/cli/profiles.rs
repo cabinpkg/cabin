@@ -218,7 +218,12 @@ version = "0.1.0"
 fn profile_names_windows_would_alias_are_rejected_from_cli_and_config() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
-        .write_str("[package]\nname = \"demo\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     // The rules themselves are unit-tested in `cabin-core`; this pins
     // that both CLI entry points apply them.
@@ -289,7 +294,13 @@ fn mixed_case_profile_with_internal_dots_is_selectable() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[profile.'RelWithDebInfo.ci']\ninherits = \"release\"\n",
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[profile.'RelWithDebInfo.ci']
+inherits = "release"
+"#,
         )
         .unwrap();
     let value = metadata_for_profile(dir.path(), "RelWithDebInfo.ci");

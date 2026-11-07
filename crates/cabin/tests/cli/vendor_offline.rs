@@ -17,7 +17,16 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
 
             .unwrap();
     let archive = index.join("artifacts/fmt/fmt-10.2.1.zip");
-    let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\ncxx-standard = \"c++17\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\ninclude-dirs = [\"include\"]\n";
+    let manifest = r#"[package]
+name = "fmt"
+version = "10.2.1"
+cxx-standard = "c++17"
+
+[target.fmt]
+type = "library"
+sources = ["src/fmt.cc"]
+include-dirs = ["include"]
+"#;
     let header = "#pragma once\nint fmt_value();\n";
     let body = "#include \"fmt.h\"\nint fmt_value() { return 42; }\n";
     let checksum = make_archive(
@@ -30,7 +39,25 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
     );
     let revision = &checksum[..16];
     let entry = format!(
-        "{{\n  \"schema\": 1,\n  \"name\": \"fmt\",\n  \"versions\": {{\n    \"10.2.1\": {{\n      \"dependencies\": {{}},\n      \"yanked\": false,\n      \"revision\": \"{revision}\",\n      \"revisions\": {{\n        \"{revision}\": {{\n          \"checksum\": \"sha256:{checksum}\",\n          \"published-at\": \"2026-01-01T00:00:00Z\",\n          \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/fmt/fmt-10.2.1.zip\", \"format\": \"zip\"}}\n        }}\n      }}\n    }}\n  }}\n}}\n",
+        r#"{{
+  "schema": 1,
+  "name": "fmt",
+  "versions": {{
+    "10.2.1": {{
+      "dependencies": {{}},
+      "yanked": false,
+      "revision": "{revision}",
+      "revisions": {{
+        "{revision}": {{
+          "checksum": "sha256:{checksum}",
+          "published-at": "2026-01-01T00:00:00Z",
+          "source": {{"type": "archive", "path": "../artifacts/fmt/fmt-10.2.1.zip", "format": "zip"}}
+        }}
+      }}
+    }}
+  }}
+}}
+"#,
     );
     assert_fs::fixture::ChildPath::new(index.join("packages/fmt.json"))
         .write_str(&entry)
@@ -385,7 +412,12 @@ fn vendor_requires_a_local_terminal_after_source_replacement() {
     let vendor = |config: &str, offline: bool| {
         assert_fs::fixture::ChildPath::new(home.join("config.toml"))
             .write_str(&format!(
-                "[registry]\nindex-url = \"{url}/index\"\n\n[source-replacement]\n{config}\n"
+                r#"[registry]
+index-url = "{url}/index"
+
+[source-replacement]
+{config}
+"#
             ))
             .unwrap();
         let mut cmd = cabin_with_config();
@@ -437,9 +469,16 @@ fn vendor_reads_the_configured_packages_directory() {
     for (path, body) in [
         (
             "cabin.toml",
-            "[package]\nname = \"acme/greet\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n\
-             [target.greet]\ntype = \"library\"\nsources = [\"src/greet.c\"]\n\
-             include-dirs = [\"include\"]\n",
+            r#"[package]
+name = "acme/greet"
+version = "1.0.0"
+c-standard = "c11"
+
+[target.greet]
+type = "library"
+sources = ["src/greet.c"]
+include-dirs = ["include"]
+"#,
         ),
         ("include/greet.h", "#pragma once\nint greet(void);\n"),
         (
@@ -470,10 +509,19 @@ fn vendor_reads_the_configured_packages_directory() {
     for (path, body) in [
         (
             "cabin.toml",
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n\
-             [dependencies]\n\"acme/greet\" = \"1.0.0\"\n\n\
-             [target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n\
-             deps = [\"acme/greet\"]\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/greet" = "1.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["acme/greet"]
+"#,
         ),
         (
             "src/main.c",

@@ -96,8 +96,13 @@ include-dirs = ["include"]
         .write_str("#pragma once\nvoid say_hello();\n")
         .unwrap();
     assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
-            .write_str("#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n")
-            .unwrap();
+        .write_str(
+            r#"#include <iostream>
+#include "fmt.h"
+void say_hello() { std::cout << "hello from fmt\n"; }
+"#,
+        )
+        .unwrap();
     let registry = dir.join("registry");
     cabin()
         .args(["publish", "--manifest-path"])
@@ -133,8 +138,13 @@ include-dirs = ["include"]
         .write_str("#pragma once\nvoid say_hello();\n")
         .unwrap();
     assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
-            .write_str("#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n")
-            .unwrap();
+        .write_str(
+            r#"#include <iostream>
+#include "fmt.h"
+void say_hello() { std::cout << "hello from fmt\n"; }
+"#,
+        )
+        .unwrap();
     let dist = dir.join("dist");
     cabin()
         .args(["package", "--manifest-path"])

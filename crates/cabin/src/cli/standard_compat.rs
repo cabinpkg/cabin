@@ -534,14 +534,28 @@ mod tests {
         let libb_manifest = dir.path().join("libb/cabin.toml");
         std::fs::write(
             &app_manifest,
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[target.app]\ntype = \
-             \"executable\"\nsources = [\"src/main.cc\"]\ncxx-standard = \"c++17\"\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+cxx-standard = "c++17"
+"#,
         )
         .unwrap();
         std::fs::write(
             &libb_manifest,
-            "[package]\nname = \"libb\"\nversion = \"0.1.0\"\n\n[target.libb]\ntype = \
-             \"library\"\nsources = [\"src/b.cc\"]\ninterface-cxx-standard = \"c++20\"\n",
+            r#"[package]
+name = "libb"
+version = "0.1.0"
+
+[target.libb]
+type = "library"
+sources = ["src/b.cc"]
+interface-cxx-standard = "c++20"
+"#,
         )
         .unwrap();
         let mut violation = min_violation();

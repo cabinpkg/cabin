@@ -58,12 +58,21 @@ fn shim_and_app(dir: &Path, shim_extra: &str, app_extra: &str) {
         .unwrap();
     app.child("src/main.c")
         .write_str(
-            "#include <stdint.h>\n#ifndef SHIM_STDINT\n#error \"<stdint.h> is the standard one\"\n#endif\nint main(void) { return 0; }\n",
+            r#"#include <stdint.h>
+#ifndef SHIM_STDINT
+#error "<stdint.h> is the standard one"
+#endif
+int main(void) { return 0; }
+"#,
         )
         .unwrap();
     app.child("src/other.cpp")
         .write_str(
-            "#include <version>\n#ifndef SHIM_VERSION\n#error \"<version> is the standard one\"\n#endif\n",
+            r#"#include <version>
+#ifndef SHIM_VERSION
+#error "<version> is the standard one"
+#endif
+"#,
         )
         .unwrap();
 }

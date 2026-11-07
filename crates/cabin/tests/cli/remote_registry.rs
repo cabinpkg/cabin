@@ -244,8 +244,11 @@ fn write_session_credentials_full(home: &Path, origin: &str, token: &str, expire
     fs::write(
         &credentials_path,
         format!(
-            "[registries.\"{origin}\"]\ntoken = \"{token}\"\nexpires-at = \"{expires_at}\"\n\
-             api-url = \"{origin}\"\n"
+            r#"[registries."{origin}"]
+token = "{token}"
+expires-at = "{expires_at}"
+api-url = "{origin}"
+"#
         ),
     )
     .unwrap();
@@ -786,7 +789,12 @@ fn login_ignores_project_config_when_choosing_the_registry() {
     // The "hostile checkout": a project whose workspace config points
     // the registry at the attacker's server.
     assert_fs::fixture::ChildPath::new(dir.path().join("proj/cabin.toml"))
-        .write_str("[package]\nname = \"proj\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "proj"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("proj/.cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{attacker_url}\"\n"))
@@ -865,8 +873,11 @@ fn login_stores_the_session_keyed_by_normalized_origin() {
     assert_eq!(
         body,
         format!(
-            "[registries.\"{base}\"]\ntoken = \"{MINTED_SESSION}\"\n\
-             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"{base}\"\n"
+            r#"[registries."{base}"]
+token = "{MINTED_SESSION}"
+expires-at = "{TEST_EXPIRES_AT}"
+api-url = "{base}"
+"#
         )
     );
     #[cfg(unix)]
@@ -1070,8 +1081,9 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     let mirror = mirror_registry.url.clone();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!(
-            "[source-replacement]\n\"https://registry.cabinpkg.com\" = \
-             {{ index-url = \"{mirror}/index\" }}\n",
+            r#"[source-replacement]
+"https://registry.cabinpkg.com" = {{ index-url = "{mirror}/index" }}
+"#,
         ))
         .unwrap();
     cabin_with_config()
@@ -1096,10 +1108,15 @@ fn logout_removes_the_entry_and_reports_absence() {
     fs::write(
         &credentials_path,
         format!(
-            "[registries.\"https://keep.example.com\"]\ntoken = \"{TEST_TOKEN}\"\n\
-             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"https://keep.example.com\"\n\
-             [registries.\"https://registry.example.com\"]\ntoken = \"{TEST_TOKEN}\"\n\
-             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"https://registry.example.com\"\n"
+            r#"[registries."https://keep.example.com"]
+token = "{TEST_TOKEN}"
+expires-at = "{TEST_EXPIRES_AT}"
+api-url = "https://keep.example.com"
+[registries."https://registry.example.com"]
+token = "{TEST_TOKEN}"
+expires-at = "{TEST_EXPIRES_AT}"
+api-url = "https://registry.example.com"
+"#
         ),
     )
     .unwrap();
@@ -1387,8 +1404,11 @@ fn login_replaces_an_unreadable_legacy_credentials_file() {
     assert_eq!(
         body,
         format!(
-            "[registries.\"{base}\"]\ntoken = \"{MINTED_SESSION}\"\n\
-             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"{base}\"\n"
+            r#"[registries."{base}"]
+token = "{MINTED_SESSION}"
+expires-at = "{TEST_EXPIRES_AT}"
+api-url = "{base}"
+"#
         )
     );
 }
@@ -1701,8 +1721,12 @@ fn a_user_config_source_replacement_hop_loses_the_env_token() {
     let home = dir.path().join("config-home");
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!(
-            "[registry]\nindex-url = \"{declared}\"\n\n[source-replacement]\n\"{declared}\" = \
-             {{ index-url = \"{}\" }}\n",
+            r#"[registry]
+index-url = "{declared}"
+
+[source-replacement]
+"{declared}" = {{ index-url = "{}" }}
+"#,
             server.url()
         ))
         .unwrap();
@@ -2972,9 +2996,12 @@ fn login_applies_source_replacement_to_the_config_registry() {
     let mirror = mirror_registry.url.clone();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!(
-            "[registry]\nindex-url = \"https://upstream.example.com/index\"\n\n\
-             [source-replacement]\n\"https://upstream.example.com/index\" = \
-             {{ index-url = \"{mirror}/index\" }}\n",
+            r#"[registry]
+index-url = "https://upstream.example.com/index"
+
+[source-replacement]
+"https://upstream.example.com/index" = {{ index-url = "{mirror}/index" }}
+"#,
         ))
         .unwrap();
     cabin_with_config()
@@ -3854,7 +3881,9 @@ fn an_agreeing_batch_is_only_as_credential_eligible_as_its_least_member() {
     let home = dir.path().join("config-home");
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!(
-            "[registry]\nindex-url = \"{}\"\n{}",
+            r#"[registry]
+index-url = "{}"
+{}"#,
             server.url,
             trust_table(&demo)
         ))
@@ -3983,7 +4012,9 @@ fn a_source_replacement_hop_splitting_the_batch_is_refused() {
     let home = dir.path().join("config-home");
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!(
-            "[registry]\nindex-url = \"{declared}\"\n{}",
+            r#"[registry]
+index-url = "{declared}"
+{}"#,
             trust_table(&demo)
         ))
         .unwrap();

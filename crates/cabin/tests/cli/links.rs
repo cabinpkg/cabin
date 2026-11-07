@@ -865,7 +865,9 @@ fn transitively_reached_patch_activates_deps_and_claims() {
             // package; the loader requires a `standards` row per
             // claiming target.
             format!(
-                ",\n      \"standards\": {{ \"targets\": {{ \"{name}\": {{}} }} }},\n      \"links\": {links}"
+                r#",
+      "standards": {{ "targets": {{ "{name}": {{}} }} }},
+      "links": {links}"#
             )
         };
         assert_fs::fixture::ChildPath::new(index.join(format!("{name}.json")))
@@ -1275,7 +1277,9 @@ fn activated_fork_path_dep_claims_participate() {
             // package; the loader requires a `standards` row per
             // claiming target.
             format!(
-                ",\n      \"standards\": {{ \"targets\": {{ \"{name}\": {{}} }} }},\n      \"links\": {links}"
+                r#",
+      "standards": {{ "targets": {{ "{name}": {{}} }} }},
+      "links": {links}"#
             )
         };
         assert_fs::fixture::ChildPath::new(index.join(format!("{name}.json")))
@@ -1370,7 +1374,9 @@ fn write_fork_optional_claim_fixture(root: &std::path::Path, default_enables: bo
             // package; the loader requires a `standards` row per
             // claiming target.
             format!(
-                ",\n      \"standards\": {{ \"targets\": {{ \"{name}\": {{}} }} }},\n      \"links\": {links}"
+                r#",
+      "standards": {{ "targets": {{ "{name}": {{}} }} }},
+      "links": {links}"#
             )
         };
         assert_fs::fixture::ChildPath::new(index.join(format!("{name}.json")))

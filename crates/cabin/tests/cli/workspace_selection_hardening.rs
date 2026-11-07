@@ -301,10 +301,20 @@ members = ["packages/*"]
         )
         .unwrap();
     dir.child("packages/a/cabin.toml")
-        .write_str("[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "a"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     dir.child("packages/b/cabin.toml")
-        .write_str("[package]\nname = \"b\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "b"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     cabin()
         .args(["metadata", "--manifest-path"])

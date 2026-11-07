@@ -734,7 +734,10 @@ fn locked_names(lockfile: &Path) -> Vec<String> {
 fn workspace_update_after_a_patch_covers_a_members_dependencies() {
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("ws");
-    let workspace = "[workspace]\nmembers = [\"app\", \"other\"]\ndefault-members = [\"app\"]\n";
+    let workspace = r#"[workspace]
+members = ["app", "other"]
+default-members = ["app"]
+"#;
     let write_workspace_manifest = |patches: &str| {
         assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
             .write_str(&format!("{workspace}{patches}"))
@@ -743,11 +746,23 @@ fn workspace_update_after_a_patch_covers_a_members_dependencies() {
     write_workspace_manifest("");
     write_root_manifest(
         &root.join("app"),
-        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = \">=10.0.0 <11.0.0\"\n",
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#,
     );
     write_root_manifest(
         &root.join("other"),
-        "[package]\nname = \"other\"\nversion = \"0.1.0\"\n\n[dependencies]\nspdlog = \"^1\"\n",
+        r#"[package]
+name = "other"
+version = "0.1.0"
+
+[dependencies]
+spdlog = "^1"
+"#,
     );
     let index = parent.path().join("index");
     assert_fs::fixture::ChildPath::new(index.join("fmt.json"))
@@ -776,7 +791,10 @@ fn workspace_update_after_a_patch_covers_a_members_dependencies() {
     write_patched_fork(
         parent.path(),
         "fmt",
-        "[package]\nname = \"fmt\"\nversion = \"10.2.0\"\n",
+        r#"[package]
+name = "fmt"
+version = "10.2.0"
+"#,
     );
     run(&["update", "--default-members"]).success();
     let scoped = parse_lock(&lockfile);
@@ -814,12 +832,19 @@ fn workspace_update_after_a_patch_covers_a_members_dependencies() {
     // whole-workspace update has nothing to resolve either and
     // reconciles the record only.
     write_workspace_manifest(
-        "\n[patch]\nfmt = { path = \"../fmt\" }\nspdlog = { path = \"../spdlog\" }\n",
+        r#"
+[patch]
+fmt = { path = "../fmt" }
+spdlog = { path = "../spdlog" }
+"#,
     );
     write_patched_fork(
         parent.path(),
         "spdlog",
-        "[package]\nname = \"spdlog\"\nversion = \"1.13.0\"\n",
+        r#"[package]
+name = "spdlog"
+version = "1.13.0"
+"#,
     );
     run(&["update", "--workspace"]).success();
     let all_patched = parse_lock(&lockfile);
@@ -1744,7 +1769,12 @@ wdep = {{ path = "../wdep", optional = true }}
         ))
         .unwrap();
     dir.child("wdep/cabin.toml")
-        .write_str("[package]\nname = \"wdep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "wdep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     dir.child("app/cabin.toml")
         .write_str(
@@ -1783,7 +1813,12 @@ fn registry_edge_onto_an_unpatched_local_package_is_refused() {
         )
         .unwrap();
     dir.child("zlib/cabin.toml")
-        .write_str("[package]\nname = \"zlib\"\nversion = \"1.2.11\"\n")
+        .write_str(
+            r#"[package]
+name = "zlib"
+version = "1.2.11"
+"#,
+        )
         .unwrap();
     dir.child("app/cabin.toml")
         .write_str(

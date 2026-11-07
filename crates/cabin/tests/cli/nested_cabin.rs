@@ -31,7 +31,14 @@ sources = ["src/main.c"]
         .unwrap();
     root.child("src/main.c")
         .write_str(
-            "#include <stdio.h>\n#include <stdlib.h>\nint main(void) {\n  const char *nested = getenv(\"NESTED_CABIN\");\n  fflush(stdout);\n  return nested != NULL && system(nested) == 0 ? 0 : 1;\n}\n",
+            r#"#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+  const char *nested = getenv("NESTED_CABIN");
+  fflush(stdout);
+  return nested != NULL && system(nested) == 0 ? 0 : 1;
+}
+"#,
         )
         .unwrap();
 }

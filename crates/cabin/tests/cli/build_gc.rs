@@ -46,7 +46,13 @@ sources = ["src/{cxx}", "src/{c}"]
     write(
         dir,
         &format!("src/{cxx}"),
-        "#include <cstdio>\nextern \"C\" int helper(void);\nint main() {\n  std::puts(\"demo-ran\");\n  return helper();\n}\n",
+        r#"#include <cstdio>
+extern "C" int helper(void);
+int main() {
+  std::puts("demo-ran");
+  return helper();
+}
+"#,
     );
     write(dir, &format!("src/{c}"), "int helper(void) { return 0; }\n");
 }
@@ -294,7 +300,14 @@ sources = ["src/main.c"]
     write(
         dir,
         "src/main.c",
-        "#include <stdio.h>\nint main(void) {\n  puts(\"ready\");\n  fflush(stdout);\n  while (getchar() != EOF) {}\n  return 0;\n}\n",
+        r#"#include <stdio.h>
+int main(void) {
+  puts("ready");
+  fflush(stdout);
+  while (getchar() != EOF) {}
+  return 0;
+}
+"#,
     );
     let mut run = spawn_cabin(dir, &["run"]);
     let mut stdout = BufReader::new(run.stdout.take().unwrap());

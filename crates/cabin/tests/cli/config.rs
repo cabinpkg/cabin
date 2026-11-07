@@ -96,7 +96,10 @@ fn metadata_reports_runners_with_the_winning_source() {
     let user_home = TempDir::new().unwrap();
     write_user_config(
         user_home.path(),
-        "[runner]\naarch64-unknown-linux-gnu = [\"user-qemu\"]\nriscv64gc-unknown-linux-gnu = [\"qemu-riscv64\"]\n",
+        r#"[runner]
+aarch64-unknown-linux-gnu = ["user-qemu"]
+riscv64gc-unknown-linux-gnu = ["qemu-riscv64"]
+"#,
     );
     write_workspace_config(
         dir.path(),
@@ -127,7 +130,13 @@ fn metadata_reports_runners_with_the_winning_source() {
 #[test]
 fn metadata_reports_gc_policy_with_its_sources() {
     let dir = project_dir(MINIMAL_PROJECT);
-    write_workspace_config(dir.path(), "[gc]\nmax-age = 7\nmax-size = \"2 GiB\"\n");
+    write_workspace_config(
+        dir.path(),
+        r#"[gc]
+max-age = 7
+max-size = "2 GiB"
+"#,
+    );
     let user_home = TempDir::new().unwrap();
     let assertion = cabin_with_config()
         .args(["metadata", "--manifest-path"])
@@ -181,10 +190,22 @@ fn metadata_reports_layered_jobs_and_user_terminal_settings() {
     let user_home = TempDir::new().unwrap();
     write_user_config(
         user_home.path(),
-        "[build]\njobs = 2\n\n[term]\ncolor = \"never\"\nverbose = true\n",
+        r#"[build]
+jobs = 2
+
+[term]
+color = "never"
+verbose = true
+"#,
     );
     // The package file's `jobs` wins over the user file's.
-    write_workspace_config(dir.path(), "[build]\nprofile = \"release\"\njobs = 6\n");
+    write_workspace_config(
+        dir.path(),
+        r#"[build]
+profile = "release"
+jobs = 6
+"#,
+    );
     let config = metadata_config(
         cabin_with_config()
             .env("CABIN_CONFIG_HOME", user_home.path())
@@ -247,7 +268,13 @@ fn metadata_reports_env_and_cli_overrides_of_jobs_and_terminal_settings() {
     let user_home = TempDir::new().unwrap();
     write_user_config(
         user_home.path(),
-        "[build]\njobs = 2\n\n[term]\ncolor = \"never\"\nverbose = true\n",
+        r#"[build]
+jobs = 2
+
+[term]
+color = "never"
+verbose = true
+"#,
     );
     let with_config = || {
         let mut cmd = cabin_with_config();

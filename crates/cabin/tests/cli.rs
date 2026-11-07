@@ -97,7 +97,13 @@ type = "executable"
 sources = ["src/main.cc"]
 "#;
 
-const HELLO_MAIN_CC: &str = "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from Cabin\\n\";\n    return 0;\n}\n";
+const HELLO_MAIN_CC: &str = r#"#include <iostream>
+
+int main() {
+    std::cout << "Hello from Cabin\n";
+    return 0;
+}
+"#;
 
 /// Write the canonical single-package hello fixture at `root`:
 /// `VALID_MANIFEST` plus the greeting `src/main.cc`.  The shared
@@ -193,7 +199,11 @@ fn fake_tool_with_output(
     write_executable(
         &path,
         &format!(
-            "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
+            r"#!/bin/sh
+printf '%s' '{escaped_stdout}'
+printf '%s' '{escaped_stderr}' >&2
+exit {status}
+"
         ),
     );
     path
@@ -590,7 +600,12 @@ fn invalid_manifest_fails_with_useful_error() {
     let dir = TempDir::new().expect("tempdir should be created");
     let manifest_path = dir.path().join("cabin.toml");
     assert_fs::fixture::ChildPath::new(&manifest_path)
-        .write_str("[package]\nname = \"x\"\nversion = [\n")
+        .write_str(
+            r#"[package]
+name = "x"
+version = [
+"#,
+        )
         .unwrap();
 
     cabin()
@@ -994,7 +1009,10 @@ sources = ["src/main.cc"]
 deps = ["greet"]
 "#;
     let header = "#pragma once\nvoid greet();\n";
-    let lib_src = "#include <iostream>\n#include \"greet.h\"\nvoid greet() { std::cout << \"hello from greet\\n\"; }\n";
+    let lib_src = r#"#include <iostream>
+#include "greet.h"
+void greet() { std::cout << "hello from greet\n"; }
+"#;
     let main_src = "#include \"greet.h\"\nint main() { greet(); return 0; }\n";
 
     dir.child("cabin.toml").write_str(manifest).unwrap();
@@ -1092,7 +1110,10 @@ deps = ["a"]
 // ---------------------------------------------------------------------------
 
 const GREET_HEADER: &str = "#pragma once\nvoid greet();\n";
-const GREET_SRC: &str = "#include <iostream>\n#include \"greet.h\"\nvoid greet() { std::cout << \"hello from greet\\n\"; }\n";
+const GREET_SRC: &str = r#"#include <iostream>
+#include "greet.h"
+void greet() { std::cout << "hello from greet\n"; }
+"#;
 const APP_MAIN: &str = "#include \"greet.h\"\nint main() { greet(); return 0; }\n";
 
 /// Build the canonical app-depends-on-greet layout in `root`.

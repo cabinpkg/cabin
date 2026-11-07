@@ -41,15 +41,28 @@ const LIBPNG_MAIN_C: &str = include_str!("../fixtures/fake-libpng-transitive/con
 
 // The fake stb port carries its own manifest, inline like the header
 // it ships, under the scoped published name like every committed port.
-const STB_MANIFEST: &str = "[package]\nname = \"cabin-ports/stb\"\nversion = \"2026.4.15\"\n\n\
-[target.stb]\ntype = \"header-only\"\ninclude-dirs = [\".\"]\n\
-interface-c-standard = \"c89\"\n";
+const STB_MANIFEST: &str = r#"[package]
+name = "cabin-ports/stb"
+version = "2026.4.15"
+
+[target.stb]
+type = "header-only"
+include-dirs = ["."]
+interface-c-standard = "c89"
+"#;
 // The fake stb archive carries one single-file header in the
 // upstream pattern (declaration-only unless the consumer TU defines
 // the implementation macro), so the consumer proves the header-only
 // include propagation.  `c89` is the oldest C standard, so no consumer
 // falls below this interface floor; its enforcement is not exercised.
-const FAKE_STB_H: &str = "#ifndef FAKE_STB_ANSWER_H\n#define FAKE_STB_ANSWER_H\nint stb_answer(void);\n#ifdef STB_ANSWER_IMPLEMENTATION\nint stb_answer(void) { return 42; }\n#endif\n#endif\n";
+const FAKE_STB_H: &str = r"#ifndef FAKE_STB_ANSWER_H
+#define FAKE_STB_ANSWER_H
+int stb_answer(void);
+#ifdef STB_ANSWER_IMPLEMENTATION
+int stb_answer(void) { return 42; }
+#endif
+#endif
+";
 
 // Only the multi-library scenario has no committed port shaped for
 // it, so it alone uses a synthetic manifest.
@@ -157,7 +170,11 @@ fn stage_fixture_ports() -> StagedPorts {
         .archive_prefix("toolbox-1.2.3")
         .file(
             "alpha.h",
-            "#ifndef FAKE_ALPHA_H\n#define FAKE_ALPHA_H\nint alpha_value(void);\n#endif\n",
+            r"#ifndef FAKE_ALPHA_H
+#define FAKE_ALPHA_H
+int alpha_value(void);
+#endif
+",
         )
         .file(
             "alpha.c",
@@ -165,7 +182,11 @@ fn stage_fixture_ports() -> StagedPorts {
         )
         .file(
             "beta.h",
-            "#ifndef FAKE_BETA_H\n#define FAKE_BETA_H\nint beta_value(void);\n#endif\n",
+            r"#ifndef FAKE_BETA_H
+#define FAKE_BETA_H
+int beta_value(void);
+#endif
+",
         )
         .file(
             "beta.c",
@@ -275,7 +296,11 @@ fn header_only_package_builds_and_runs() {
         target_deps: &["cabin-ports/stb"],
         standard: r#"c-standard = "c11""#,
         source_name: "main.c",
-        source: "#include <stdio.h>\n#define STB_ANSWER_IMPLEMENTATION\n#include \"stb_answer.h\"\nint main(void) { printf(\"stb answer: %d\\n\", stb_answer()); return 0; }\n",
+        source: r#"#include <stdio.h>
+#define STB_ANSWER_IMPLEMENTATION
+#include "stb_answer.h"
+int main(void) { printf("stb answer: %d\n", stb_answer()); return 0; }
+"#,
     }
     .write(staged.consumer_root());
 
@@ -587,7 +612,11 @@ fn explicit_target_selectors_link_a_multi_library_package() {
         target_deps: &["cabin-ports/toolbox:alpha", "cabin-ports/toolbox:beta"],
         standard: r#"c-standard = "c11""#,
         source_name: "main.c",
-        source: "#include <stdio.h>\n#include \"alpha.h\"\n#include \"beta.h\"\nint main(void) { printf(\"toolbox sum: %d\\n\", alpha_value() + beta_value()); return 0; }\n",
+        source: r#"#include <stdio.h>
+#include "alpha.h"
+#include "beta.h"
+int main(void) { printf("toolbox sum: %d\n", alpha_value() + beta_value()); return 0; }
+"#,
     }
     .write(staged.consumer_root());
     let stdout = build_and_run(
@@ -606,11 +635,12 @@ fn patched_port_round_trips_through_the_staged_registry() {
     let root = TempDir::new().unwrap();
     let cache = root.path().join("cache");
     let repo = FakePortRepo::new(root.path());
-    let patch = "--- a/zutil.c\n\
-                 +++ b/zutil.c\n\
-                 @@ -1,1 +1,1 @@\n\
-                 -int fake_zlib_marker(void) { return 1; }\n\
-                 +int fake_zlib_marker(void) { return 2; }\n";
+    let patch = r"--- a/zutil.c
++++ b/zutil.c
+@@ -1,1 +1,1 @@
+-int fake_zlib_marker(void) { return 1; }
++int fake_zlib_marker(void) { return 2; }
+";
     let zlib = repo
         .port("zlib", "1.3.1")
         .archive_prefix("zlib-1.3.1")

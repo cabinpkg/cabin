@@ -277,7 +277,11 @@ fn publish_c_lib(root: &Path, short: &str, extra: &str, body: &str) {
     let pkg_root = root.join(format!("src-{short}"));
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
         .write_str(&format!(
-            "[package]\nname = \"acme/{short}\"\nversion = \"1.0.0\"\n{extra}\n"
+            r#"[package]
+name = "acme/{short}"
+version = "1.0.0"
+{extra}
+"#
         ))
         .unwrap();
     assert_fs::fixture::ChildPath::new(pkg_root.join(format!("include/{short}.h")))
@@ -304,8 +308,12 @@ fn write_registry_feature_chain(root: &Path, aaa_edge: &str, app_extra: &str) ->
     publish_c_lib(
         root,
         "ccc",
-        "\n[target.ccc]\ntype = \"library\"\nsources = [\"src/ccc.c\"]\n\
-         include-dirs = [\"include\"]\nc-standard = \"c11\"",
+        r#"
+[target.ccc]
+type = "library"
+sources = ["src/ccc.c"]
+include-dirs = ["include"]
+c-standard = "c11""#,
         "int ccc_value(void) { return 7; }\n",
     );
     publish_c_lib(
@@ -331,9 +339,16 @@ required-features = ["withc"]"#,
         root,
         "aaa",
         &format!(
-            "\n[dependencies]\n{aaa_edge}\n\n[target.aaa]\ntype = \"library\"\n\
-             sources = [\"src/aaa.c\"]\ninclude-dirs = [\"include\"]\nc-standard = \"c11\"\n\
-             deps = [\"acme/bbb\"]"
+            r#"
+[dependencies]
+{aaa_edge}
+
+[target.aaa]
+type = "library"
+sources = ["src/aaa.c"]
+include-dirs = ["include"]
+c-standard = "c11"
+deps = ["acme/bbb"]"#
         ),
         "#include \"bbb.h\"\nint aaa_value(void) { return bbb_value(); }\n",
     );
@@ -447,8 +462,12 @@ fn disabled_optional_path_dependency_needs_none_of_its_registry_dependencies() {
         publish_c_lib(
             dir.path(),
             "ccc",
-            "\n[target.ccc]\ntype = \"library\"\nsources = [\"src/ccc.c\"]\n\
-             include-dirs = [\"include\"]\nc-standard = \"c11\"",
+            r#"
+[target.ccc]
+type = "library"
+sources = ["src/ccc.c"]
+include-dirs = ["include"]
+c-standard = "c11""#,
             "int ccc_value(void) { return 7; }\n",
         );
         dir.child("app/cabin.toml")
@@ -475,7 +494,15 @@ deps = ["acme/ccc"]
             .write_str("#include \"ccc.h\"\nint main(void) { return ccc_value() == 7 ? 0 : 1; }\n")
             .unwrap();
         dir.child("helper/cabin.toml")
-            .write_str("[package]\nname = \"helper\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \"^1\"\n")
+            .write_str(
+                r#"[package]
+name = "helper"
+version = "0.1.0"
+
+[dependencies]
+zlib = "^1"
+"#,
+            )
             .unwrap();
         chain_cmd(dir.path(), "build", &dir.path().join("app/cabin.toml"))
             .assert()
