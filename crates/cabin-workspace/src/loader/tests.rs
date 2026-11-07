@@ -140,6 +140,40 @@ a = { path = "../a" }
     }
 }
 
+/// A build dependency is a package edge too: `a -build-> b -> a` is
+/// a cycle even though the build machine builds `b`.
+#[test]
+fn detects_package_cycle_through_a_build_dependency() {
+    let dir = TempDir::new().unwrap();
+    dir.child("a/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "a"
+version = "0.1.0"
+
+[build-dependencies]
+b = { path = "../b" }
+"#,
+        )
+        .unwrap();
+    dir.child("b/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "b"
+version = "0.1.0"
+
+[dependencies]
+a = { path = "../a" }
+"#,
+        )
+        .unwrap();
+    let err = load_workspace(dir.path().join("a/cabin.toml")).unwrap_err();
+    assert!(
+        matches!(err, WorkspaceError::PackageDependencyCycle(_)),
+        "{err:?}"
+    );
+}
+
 #[test]
 fn loads_workspace_with_exact_member_path() {
     let dir = TempDir::new().unwrap();

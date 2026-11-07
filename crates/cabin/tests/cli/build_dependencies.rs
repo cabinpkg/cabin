@@ -342,3 +342,166 @@ fn packaging_refuses_build_dependencies() {
             "cannot package build dependency `gen`",
         ));
 }
+
+/// The command of the link edge whose output path ends with `tail`.
+fn link_program(ninja: &str, tail: &str) -> String {
+    let needle = format!("{}: link_executable ", host_path(tail));
+    let mut lines = ninja.lines();
+    lines
+        .find(|line| line.starts_with("build ") && line.contains(&needle))
+        .unwrap_or_else(|| panic!("no link edge for {tail}: {ninja}"));
+    let command = lines
+        .take_while(|line| !line.is_empty())
+        .find_map(|line| line.strip_prefix("  command = "))
+        .unwrap();
+    program_from_command(command)
+}
+
+/// Each build-machine executable links with the driver its own closure
+/// needs - a C tool with the C driver, a C tool that links a C++
+/// library with the C++ driver - and the C program stays on the C
+/// driver.  The project and build directories contain spaces.
+#[test]
+fn build_machine_executables_pick_the_link_driver_their_closure_needs() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let root = assert_fs::fixture::ChildPath::new(dir.path().join("a project"));
+    root.child("tools/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "tools"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.chelp]
+type = "library"
+sources = ["src/chelp.c"]
+
+[target.cgen]
+type = "executable"
+sources = ["src/cgen.c"]
+deps = ["chelp"]
+
+[target.cxxhelp]
+type = "library"
+sources = ["src/cxxhelp.cc"]
+interface-c-standard = "c11"
+
+[target.cxxgen]
+type = "executable"
+sources = ["src/cxxgen.c"]
+deps = ["cxxhelp"]
+"#,
+        )
+        .unwrap();
+    root.child("tools/src/chelp.c")
+        .write_str("int chelp(void) { return 0; }\n")
+        .unwrap();
+    root.child("tools/src/cgen.c")
+        .write_str("int chelp(void);\nint main(void) { return chelp(); }\n")
+        .unwrap();
+    root.child("tools/src/cxxhelp.cc")
+        .write_str("#include <string>\nextern \"C\" int cxxhelp(void) { return static_cast<int>(std::string(\"x\").size()) - 1; }\n")
+        .unwrap();
+    root.child("tools/src/cxxgen.c")
+        .write_str("int cxxhelp(void);\nint main(void) { return cxxhelp(); }\n")
+        .unwrap();
+    root.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+tools = { path = "../tools" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        )
+        .unwrap();
+    root.child("app/src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    let manifest = root.path().join("app/cabin.toml");
+    let build_dir = root.path().join("build dir");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(&build_dir)
+        .assert()
+        .success();
+
+    let detected = &run_metadata(&manifest)["toolchain"]["detected"];
+    let cc = detected["cc"]["path"].as_str().unwrap();
+    let cxx = detected["cxx"]["path"].as_str().unwrap();
+    let ninja = fs::read_to_string(build_dir.join("dev/build.ninja")).unwrap();
+    let tools = "build-machine/packages/tools";
+    assert_eq!(
+        link_program(&ninja, &format!("{tools}/{}", host_exe("cgen"))),
+        cc
+    );
+    assert_eq!(
+        link_program(&ninja, &format!("{tools}/{}", host_exe("cxxgen"))),
+        cxx
+    );
+    assert_eq!(
+        link_program(&ninja, &format!("packages/app/{}", host_exe("app"))),
+        cc
+    );
+    for exe in ["cgen", "cxxgen"] {
+        let status =
+            std::process::Command::new(build_dir.join("dev").join(tools).join(host_exe(exe)))
+                .status()
+                .unwrap();
+        assert!(status.success(), "{exe}");
+    }
+}
+
+/// A build tool that fails to compile fails the build, and the
+/// failure names the build-machine unit.
+#[test]
+fn a_build_machine_compile_failure_fails_the_build() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let root = assert_fs::fixture::ChildPath::new(dir.path());
+    root.child("gen/cabin.toml")
+        .write_str(
+            "[package]\nname = \"gen\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[target.gen]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n",
+        )
+        .unwrap();
+    root.child("gen/src/main.c")
+        .write_str("this is not C\n")
+        .unwrap();
+    root.child("app/cabin.toml")
+        .write_str(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ngen = { path = \"../gen\" }\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n",
+        )
+        .unwrap();
+    root.child("app/src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    let output = cabin()
+        .current_dir(dir.path().join("app"))
+        .arg("build")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let shown = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Ninja may print the `FAILED:` output with either separator.
+    assert!(
+        shown
+            .replace('\\', "/")
+            .contains("build-machine/packages/gen"),
+        "{shown}"
+    );
+}
