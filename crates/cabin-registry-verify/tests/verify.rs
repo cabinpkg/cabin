@@ -186,30 +186,31 @@ fn benign(dir: &TempDir) -> (PathBuf, PendingVersion) {
 fn benign_staged(dir: &TempDir) -> cabin_package::StagedPackage {
     dir.child("pkg/cabin.toml")
         .write_str(
-            "[package]\n\
-             name = \"demo\"\n\
-             version = \"1.2.3\"\n\
-             cxx-standard = \"c++20\"\n\
-             \n\
-             [dependencies]\n\
-             fmt = \"1.2\"\n\
-             ssl = { version = \"^3\", optional = true, default-features = false }\n\
-             \n\
-             [target.'cfg(os = \"windows\")'.dependencies]\n\
-             winonly = \"^1\"\n\
-             \n\
-             [dev-dependencies]\n\
-             catch2 = { version = \"^3\", features = [\"main\"] }\n\
-             \n\
-             [features]\n\
-             default = []\n\
-             tls = [\"dep:ssl\"]\n\
-             \n\
-             [target.demo]\n\
-             type = \"library\"\n\
-             sources = [\"src/lib.cc\"]\n\
-             interface-cxx-standard = \"c++17\"\n\
-             links = \"demo-native\"\n",
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[dependencies]
+fmt = "1.2"
+ssl = { version = "^3", optional = true, default-features = false }
+
+[target.'cfg(os = "windows")'.dependencies]
+winonly = "^1"
+
+[dev-dependencies]
+catch2 = { version = "^3", features = ["main"] }
+
+[features]
+default = []
+tls = ["dep:ssl"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+links = "demo-native"
+"#,
         )
         .unwrap();
     dir.child("pkg/src/lib.cc").write_str("int f();\n").unwrap();
@@ -317,7 +318,10 @@ fn hostile_one(dir: &TempDir, entry: Entry) -> (PathBuf, PendingVersion) {
     hostile_pending(dir, &assemble(&[entry]))
 }
 
-const MINIMAL_MANIFEST: &str = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n";
+const MINIMAL_MANIFEST: &str = r#"[package]
+name = "demo"
+version = "1.2.3"
+"#;
 
 // ---------------------------------------------------------------------------
 // Benign round-trips through the real packager.
@@ -365,14 +369,15 @@ fn scoped_archive_verifies() {
     let dir = TempDir::new().unwrap();
     dir.child("pkg/cabin.toml")
         .write_str(
-            "[package]\n\
-             name = \"acme/demo\"\n\
-             version = \"1.2.3\"\n\
-             cxx-standard = \"c++20\"\n\
-             \n\
-             [target.demo]\n\
-             type = \"library\"\n\
-             sources = [\"src/lib.cc\"]\n",
+            r#"[package]
+name = "acme/demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
         )
         .unwrap();
     dir.child("pkg/src/lib.cc").write_str("int f();\n").unwrap();
@@ -403,7 +408,12 @@ fn long_paths_within_the_cap_verify() {
     let dir = TempDir::new().unwrap();
     let long = format!("src/{}.cc", "a".repeat(120));
     dir.child("pkg/cabin.toml")
-        .write_str("[package]\nname = \"demo\"\nversion = \"1.2.3\"\n")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+"#,
+        )
         .unwrap();
     dir.child(format!("pkg/{long}"))
         .write_str("int f();\n")
@@ -428,8 +438,15 @@ fn source_with_an_internal_parent_component_verifies() {
     let dir = TempDir::new().unwrap();
     dir.child("pkg/cabin.toml")
         .write_str(
-            "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-             [target.demo]\ntype = \"library\"\nsources = [\"src/../lib.cc\"]\n",
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[target.demo]
+type = "library"
+sources = ["src/../lib.cc"]
+"#,
         )
         .unwrap();
     dir.child("pkg/lib.cc").write_str("int f();\n").unwrap();
@@ -877,8 +894,15 @@ fn trailing_bytes_after_the_eocd_are_rejected() {
 #[test]
 fn manifest_declaring_an_absent_source_is_rejected() {
     let dir = TempDir::new().unwrap();
-    let manifest = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-                    [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n";
+    let manifest = r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+"#;
     let (archive, pending) = hostile_one(&dir, Entry::deflated("cabin.toml", manifest.as_bytes()));
     assert_rejected(&archive, &pending, Reason::MissingSource);
 }
@@ -889,9 +913,18 @@ fn manifest_declaring_an_absent_source_is_rejected() {
 #[test]
 fn manifest_missing_a_platform_conditional_source_is_rejected() {
     let dir = TempDir::new().unwrap();
-    let manifest = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-                    [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\n\
-                    [target.'cfg(os = \"windows\")'.sources]\ndemo = [\"src/win.cc\"]\n";
+    let manifest = r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+
+[target.'cfg(os = "windows")'.sources]
+demo = ["src/win.cc"]
+"#;
     let bytes = assemble(&[
         Entry::deflated("cabin.toml", manifest.as_bytes()),
         Entry::deflated("src/lib.cc", b"int demo() { return 0; }\n"),
@@ -922,11 +955,31 @@ fn unpublishable_manifests_are_rejected() {
     let dir = TempDir::new().unwrap();
     for manifest in [
         // A [patch] table leaks local override state.
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n\n[patch]\nfmt = { path = \"../fmt\" }\n",
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+
+[patch]
+fmt = { path = "../fmt" }
+"#,
         // A target source escaping the package root.
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++17\"\n\n[target.demo]\ntype = \"library\"\nsources = [\"../outside.cc\"]\n",
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++17"
+
+[target.demo]
+type = "library"
+sources = ["../outside.cc"]
+"#,
         // A path dependency is not publishable.
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n\n[dependencies]\nlocal = { path = \"../local\" }\n",
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+
+[dependencies]
+local = { path = "../local" }
+"#,
     ] {
         let (archive, pending) =
             hostile_one(&dir, Entry::deflated("cabin.toml", manifest.as_bytes()));
@@ -1059,7 +1112,10 @@ fn a_build_metadata_version_is_rejected_as_unpublishable() {
     // build metadata (`+cabin.N`) is not publishable and an archive
     // carrying one can never verify.
     let dir = TempDir::new().unwrap();
-    let manifest = "[package]\nname = \"demo\"\nversion = \"1.2.3+cabin.1\"\n";
+    let manifest = r#"[package]
+name = "demo"
+version = "1.2.3+cabin.1"
+"#;
     let entries = [Entry::deflated("cabin.toml", manifest.as_bytes())];
     let (archive, pending) = hand_pending(&dir, &entries, manifest);
     assert_rejected(&archive, &pending, Reason::ManifestInvalid);
@@ -1294,25 +1350,26 @@ fn provenance_staged_with(
 ) -> cabin_package::StagedPackage {
     dir.child("pkg/cabin.toml")
         .write_str(&format!(
-            "[package]\n\
-             name = \"demo\"\n\
-             version = \"1.2.3\"\n\
-             cxx-standard = \"c++20\"\n\
-             \n\
-             [package.upstream]\n\
-             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-             checksum = \"sha256:{upstream_sha}\"\n\
-             format = \"tar.gz\"\n\
-             strip-prefix = \"{strip_prefix}\"\n\
-             \n\
-             [[package.upstream.copy]]\n\
-             from = \"{copy_from}\"\n\
-             to = \"config.h\"\n\
-             \n\
-             [target.demo]\n\
-             type = \"library\"\n\
-             sources = [\"src/lib.cc\"]\n\
-             interface-cxx-standard = \"c++17\"\n",
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{upstream_sha}"
+format = "tar.gz"
+strip-prefix = "{strip_prefix}"
+
+[[package.upstream.copy]]
+from = "{copy_from}"
+to = "config.h"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#,
         ))
         .unwrap();
     dir.child("pkg/src/lib.cc")
@@ -1372,20 +1429,21 @@ fn provenance_zip_package_verifies() {
 
     dir.child("pkg/cabin.toml")
         .write_str(&format!(
-            "[package]\n\
-             name = \"demo\"\n\
-             version = \"1.2.3\"\n\
-             cxx-standard = \"c++20\"\n\
-             \n\
-             [package.upstream]\n\
-             url = \"https://upstream.invalid/lib-1.0.zip\"\n\
-             checksum = \"sha256:{hex}\"\n\
-             format = \"zip\"\n\
-             \n\
-             [target.demo]\n\
-             type = \"library\"\n\
-             sources = [\"src/lib.cc\"]\n\
-             interface-cxx-standard = \"c++17\"\n",
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.zip"
+checksum = "sha256:{hex}"
+format = "zip"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#,
         ))
         .unwrap();
     dir.child("pkg/src/lib.cc")
@@ -1430,23 +1488,24 @@ fn upstream_files_outside_include_are_not_expected() {
     );
     dir.child("pkg/cabin.toml")
         .write_str(&format!(
-            "[package]\n\
-             name = \"demo\"\n\
-             version = \"1.2.3\"\n\
-             cxx-standard = \"c++20\"\n\
-             include = [\"include\", \"patches\", \"src\"]\n\
-             \n\
-             [package.upstream]\n\
-             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-             checksum = \"sha256:{hex}\"\n\
-             format = \"tar.gz\"\n\
-             strip-prefix = \"lib-1.0\"\n\
-             patches = [\"patches/0001-fix.patch\"]\n\
-             \n\
-             [target.demo]\n\
-             type = \"library\"\n\
-             sources = [\"src/lib.cc\"]\n\
-             interface-cxx-standard = \"c++17\"\n",
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+include = ["include", "patches", "src"]
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{hex}"
+format = "tar.gz"
+strip-prefix = "lib-1.0"
+patches = ["patches/0001-fix.patch"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#,
         ))
         .unwrap();
     dir.child("pkg/src/lib.cc")
@@ -1688,20 +1747,21 @@ fn unmaterializable_upstream_filename_is_rejected() {
 
     dir.child("pkg/cabin.toml")
         .write_str(&format!(
-            "[package]\n\
-             name = \"demo\"\n\
-             version = \"1.2.3\"\n\
-             cxx-standard = \"c++20\"\n\
-             \n\
-             [package.upstream]\n\
-             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-             checksum = \"sha256:{hex}\"\n\
-             format = \"tar.gz\"\n\
-             \n\
-             [target.demo]\n\
-             type = \"library\"\n\
-             sources = [\"src/lib.cc\"]\n\
-             interface-cxx-standard = \"c++17\"\n",
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{hex}"
+format = "tar.gz"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#,
         ))
         .unwrap();
     dir.child("pkg/src/lib.cc")
@@ -1771,11 +1831,12 @@ fn stored_upstream_divergence_is_rejected_as_upstream_mismatch() {
 // upstream archive with the declared patches applied on top, using
 // the patch bytes shipped inside the published archive itself.
 
-const UPSTREAM_PATCH: &str = "--- a/src/lib.cc\n\
-                              +++ b/src/lib.cc\n\
-                              @@ -1,1 +1,1 @@\n\
-                              -int lib() { return 42; }\n\
-                              +int lib() { return 43; }\n";
+const UPSTREAM_PATCH: &str = r"--- a/src/lib.cc
++++ b/src/lib.cc
+@@ -1,1 +1,1 @@
+-int lib() { return 42; }
++int lib() { return 43; }
+";
 
 const PATCHED_LIB_CC: &str = "int lib() { return 43; }\n";
 
@@ -1784,22 +1845,23 @@ const PATCHED_LIB_CC: &str = "int lib() { return 43; }\n";
 fn patched_staged(dir: &TempDir, upstream_sha: &str, lib_cc: &str) -> cabin_package::StagedPackage {
     dir.child("pkg/cabin.toml")
         .write_str(&format!(
-            "[package]\n\
-             name = \"demo\"\n\
-             version = \"1.2.3\"\n\
-             cxx-standard = \"c++20\"\n\
-             \n\
-             [package.upstream]\n\
-             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-             checksum = \"sha256:{upstream_sha}\"\n\
-             format = \"tar.gz\"\n\
-             strip-prefix = \"lib-1.0\"\n\
-             patches = [\"patches/0001-fix.patch\"]\n\
-             \n\
-             [target.demo]\n\
-             type = \"library\"\n\
-             sources = [\"src/lib.cc\"]\n\
-             interface-cxx-standard = \"c++17\"\n",
+            r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{upstream_sha}"
+format = "tar.gz"
+strip-prefix = "lib-1.0"
+patches = ["patches/0001-fix.patch"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#,
         ))
         .unwrap();
     dir.child("pkg/src/lib.cc").write_str(lib_cc).unwrap();
@@ -1890,12 +1952,23 @@ fn declared_patch_missing_from_the_archive_is_rejected() {
     let dir = TempDir::new().unwrap();
     let (upstream, hex) = patched_upstream(&dir);
     let manifest = format!(
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
-         patches = [\"patches/0001-fix.patch\"]\n\n\
-         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
-         interface-cxx-standard = \"c++17\"\n"
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{hex}"
+format = "tar.gz"
+strip-prefix = "lib-1.0"
+patches = ["patches/0001-fix.patch"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#
     );
     let (archive, pending) = hand_pending(
         &dir,
@@ -1921,12 +1994,23 @@ fn malformed_patch_bytes_are_rejected() {
     // Hand-assemble the published archive so it ships garbage patch
     // bytes; `cabin package` would refuse to stage this shape.
     let manifest = format!(
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
-         patches = [\"patches/0001-fix.patch\"]\n\n\
-         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
-         interface-cxx-standard = \"c++17\"\n"
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{hex}"
+format = "tar.gz"
+strip-prefix = "lib-1.0"
+patches = ["patches/0001-fix.patch"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#
     );
     let (archive, pending) = hand_pending(
         &dir,
@@ -1956,17 +2040,32 @@ fn a_patch_path_shadowing_an_upstream_file_is_rejected() {
     let dir = TempDir::new().unwrap();
     let (upstream, hex) = patched_upstream(&dir);
     let manifest = format!(
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
-         patches = [\"src/lib.cc\"]\n\n\
-         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
-         interface-cxx-standard = \"c++17\"\n"
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{hex}"
+format = "tar.gz"
+strip-prefix = "lib-1.0"
+patches = ["src/lib.cc"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#
     );
     // A no-op modify diff against include/lib.h.  Free text around it
     // would reject as `malformed` first (the C/diff-polyglot guard).
-    let backdoor_diff = "--- a/include/lib.h\n+++ b/include/lib.h\n@@ -1,2 +1,2 @@\n \
-         #pragma once\n int lib();\n";
+    let backdoor_diff = r"--- a/include/lib.h
++++ b/include/lib.h
+@@ -1,2 +1,2 @@
+ #pragma once
+ int lib();
+";
     let (archive, pending) = hand_pending(
         &dir,
         &[
@@ -1998,16 +2097,33 @@ fn a_polyglot_patch_doubling_as_a_build_input_is_rejected() {
     let dir = TempDir::new().unwrap();
     let (upstream, hex) = patched_upstream(&dir);
     let manifest = format!(
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
-         patches = [\"src/extra.cc\"]\n\n\
-         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\", \"src/extra.cc\"]\n\
-         interface-cxx-standard = \"c++17\"\n"
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{hex}"
+format = "tar.gz"
+strip-prefix = "lib-1.0"
+patches = ["src/extra.cc"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc", "src/extra.cc"]
+interface-cxx-standard = "c++17"
+"#
     );
-    let polyglot = "int evil(void) { return 0; }\n/*\n\
-         --- a/include/lib.h\n+++ b/include/lib.h\n@@ -1,2 +1,2 @@\n \
-         #pragma once\n int lib();\n*/\n";
+    let polyglot = r"int evil(void) { return 0; }
+/*
+--- a/include/lib.h
++++ b/include/lib.h
+@@ -1,2 +1,2 @@
+ #pragma once
+ int lib();
+*/
+";
     let (archive, pending) = hand_pending(
         &dir,
         &[
@@ -2036,12 +2152,23 @@ fn an_oversized_declared_patch_is_rejected() {
     let dir = TempDir::new().unwrap();
     let (upstream, hex) = patched_upstream(&dir);
     let manifest = format!(
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
-         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
-         patches = [\"patches/0001-fix.patch\"]\n\n\
-         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
-         interface-cxx-standard = \"c++17\"\n"
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+cxx-standard = "c++20"
+
+[package.upstream]
+url = "https://upstream.invalid/lib-1.0.tar.gz"
+checksum = "sha256:{hex}"
+format = "tar.gz"
+strip-prefix = "lib-1.0"
+patches = ["patches/0001-fix.patch"]
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+interface-cxx-standard = "c++17"
+"#
     );
     let oversized = vec![b'x'; cabin_core::MAX_PATCH_BYTES + 1];
     let (archive, pending) = hand_pending(

@@ -253,7 +253,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let registry = dir.child("registry");
         let report = publish_to_file_registry(RegistryPublishWorkflow {
@@ -286,7 +291,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let registry = dir.child("registry");
         let report = dry_run_against_file_registry(RegistryPublishWorkflow {
@@ -312,7 +322,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let registry = dir.child("registry");
         let workflow = || RegistryPublishWorkflow {
@@ -350,8 +365,12 @@ mod tests {
                 new_revision: false,
             }
         };
-        let body = "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
-                    [dependencies]\nzlib = \"^1.3\"\n";
+        let body = r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+[dependencies]
+zlib = "^1.3"
+"#;
         let err = publish_to_file_registry(workflow(body)).unwrap_err();
         assert!(
             matches!(
@@ -364,8 +383,12 @@ mod tests {
         let err = dry_run_against_file_registry(workflow(body)).unwrap_err();
         assert!(matches!(err, PublishError::InvalidDependencyName { .. }));
         let err = publish_to_file_registry(workflow(
-            "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
-             [dev-dependencies]\ncatch2 = \"^3\"\n",
+            r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+[dev-dependencies]
+catch2 = "^3"
+"#,
         ))
         .unwrap_err();
         assert!(matches!(
@@ -383,9 +406,13 @@ mod tests {
         // both publish fine: a `system = true` entry lands in the
         // metadata's exempt `system-dependencies` map.
         let report = publish_to_file_registry(workflow(
-            "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
-             [dependencies]\n\"madler/zlib\" = \"^1.3\"\n\
-             openssl = { system = true, version = \">=3\" }\n",
+            r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+[dependencies]
+"madler/zlib" = "^1.3"
+openssl = { system = true, version = ">=3" }
+"#,
         ))
         .unwrap();
         assert!(report.registry_modified);

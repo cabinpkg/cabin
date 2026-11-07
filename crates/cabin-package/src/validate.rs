@@ -239,7 +239,12 @@ mod tests {
     fn accepts_simple_package() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let validated = load_and_validate(&dir.path().join("cabin.toml")).unwrap();
         assert_eq!(validated.package.name.as_str(), "fmt");

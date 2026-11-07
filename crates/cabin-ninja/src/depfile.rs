@@ -144,9 +144,14 @@ mod tests {
     fn keeps_the_bytes_ninja_would_split_on() {
         // GCC 16 output for headers whose directory names carry the bytes
         // Ninja's depfile lexer ends a path at; GCC escapes none of them.
-        let gcc = "/b/main.o: /p/main.c \\\n /p/semi;c/h.h \\\n /p/apo's/h.h \\\n \
-                   /p/dq\"x/h.h \\\n /p/pi|pe/h.h \\\n /p/amp&x/h.h /p/q?x/h.h \\\n \
-                   /p/st*x/h.h /p/lt<x/h.h /p/gt>x/h.h /p/car^x/h.h /p/bt`x/h.h\n";
+        let gcc = r#"/b/main.o: /p/main.c \
+ /p/semi;c/h.h \
+ /p/apo's/h.h \
+ /p/dq"x/h.h \
+ /p/pi|pe/h.h \
+ /p/amp&x/h.h /p/q?x/h.h \
+ /p/st*x/h.h /p/lt<x/h.h /p/gt>x/h.h /p/car^x/h.h /p/bt`x/h.h
+"#;
         assert_eq!(
             parse(gcc),
             [

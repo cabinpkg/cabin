@@ -537,9 +537,13 @@ fmt = { workspace = true, features = ["color"] }
     /// tree carrying (or missing) the declared file.
     fn write_patched_upstream_package(dir: &TempDir, with_patch_file: bool) {
         let manifest = format!(
-            "{VALID_MANIFEST}\n[package.upstream]\nurl = \"https://upstream.invalid/demo-0.1.0.tar.gz\"\n\
-             checksum = \"sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"\n\
-             format = \"tar.gz\"\npatches = [\"patches/0001-fix.patch\"]\n"
+            r#"{VALID_MANIFEST}
+[package.upstream]
+url = "https://upstream.invalid/demo-0.1.0.tar.gz"
+checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+format = "tar.gz"
+patches = ["patches/0001-fix.patch"]
+"#
         );
         dir.child("cabin.toml").write_str(&manifest).unwrap();
         dir.child("src/lib.cc")
@@ -547,7 +551,14 @@ fmt = { workspace = true, features = ["color"] }
             .unwrap();
         if with_patch_file {
             dir.child("patches/0001-fix.patch")
-                .write_str("--- a/src/lib.cc\n+++ b/src/lib.cc\n@@ -1,1 +1,1 @@\n-x\n+y\n")
+                .write_str(
+                    r"--- a/src/lib.cc
++++ b/src/lib.cc
+@@ -1,1 +1,1 @@
+-x
++y
+",
+                )
                 .unwrap();
         }
     }
@@ -569,8 +580,15 @@ fmt = { workspace = true, features = ["color"] }
             let stage = |source: &str| {
                 dir.child("cabin.toml")
                     .write_str(&format!(
-                        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n{standard}\n\n\
-                         [target.demo]\ntype = \"library\"\nsources = [\"{source}\"]\n"
+                        r#"[package]
+name = "demo"
+version = "0.1.0"
+{standard}
+
+[target.demo]
+type = "library"
+sources = ["{source}"]
+"#
                     ))
                     .unwrap();
                 stage_with_project(
@@ -601,9 +619,18 @@ fmt = { workspace = true, features = ["color"] }
             .unwrap();
         dir.child("cabin.toml")
             .write_str(
-                "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nc-standard = \"c17\"\n\n\
-                 [target.demo]\ntype = \"library\"\nsources = [\"src/lib.c\"]\n\n\
-                 [target.'cfg(os = \"windows\")'.sources]\ndemo = [\"src/win32.c\"]\n",
+                r#"[package]
+name = "demo"
+version = "0.1.0"
+c-standard = "c17"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.c"]
+
+[target.'cfg(os = "windows")'.sources]
+demo = ["src/win32.c"]
+"#,
             )
             .unwrap();
         match stage_with_project(

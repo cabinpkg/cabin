@@ -547,10 +547,23 @@ mod tests {
     fn fixture(parent: &TempDir, dep_block: &str) -> PackageGraph {
         parent
             .child("fmt/cabin.toml")
-            .write_str("[package]\nname = \"fmt\"\nversion = \"0.1.0\"\n")
+            .write_str(
+                r#"[package]
+name = "fmt"
+version = "0.1.0"
+"#,
+            )
             .unwrap();
         let manifest = format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n{dep_block}\n\n[patch]\nfmt = {{ path = \"../fmt\" }}\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+{dep_block}
+
+[patch]
+fmt = {{ path = "../fmt" }}
+"#,
         );
         parent.child("app/cabin.toml").write_str(&manifest).unwrap();
         load_workspace(parent.path().join("app/cabin.toml")).unwrap()

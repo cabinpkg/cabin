@@ -535,7 +535,12 @@ zlib = "1"
         )
         .unwrap();
     dir.child("registry/fmt/cabin.toml")
-        .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+        .write_str(
+            r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
+        )
         .unwrap();
     let registry = vec![RegistryPackageSource {
         name: pkg("fmt"),
@@ -955,10 +960,20 @@ exclude = ["packages/skipme"]
         )
         .unwrap();
     dir.child("packages/keep/cabin.toml")
-        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "keep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     dir.child("packages/skipme/cabin.toml")
-        .write_str("[package]\nname = \"skipme\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "skipme"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
     let names: Vec<&str> = graph
@@ -992,12 +1007,22 @@ exclude = ["packages/linked"]
         )
         .unwrap();
     dir.child("packages/keep/cabin.toml")
-        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "keep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let external = TempDir::new().unwrap();
     external
         .child("cabin.toml")
-        .write_str("[package]\nname = \"linked\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "linked"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     std::os::unix::fs::symlink(external.path(), dir.path().join("packages/linked")).unwrap();
     let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
@@ -1019,7 +1044,12 @@ exclude = ["packages/missing"]
         )
         .unwrap();
     dir.child("packages/keep/cabin.toml")
-        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "keep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
     match err {
@@ -1042,7 +1072,12 @@ default-members = ["packages/missing"]
         )
         .unwrap();
     dir.child("packages/keep/cabin.toml")
-        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "keep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
     match err {
@@ -1065,10 +1100,20 @@ default-members = ["packages/a"]
         )
         .unwrap();
     dir.child("packages/a/cabin.toml")
-        .write_str("[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "a"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     dir.child("packages/b/cabin.toml")
-        .write_str("[package]\nname = \"b\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "b"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
     assert_eq!(graph.default_members.len(), 1);
@@ -1817,7 +1862,10 @@ members = ["packages/*"]
     for name in ["zeta", "alpha", "mu", "kappa"] {
         dir.child(format!("packages/{name}/cabin.toml"))
             .write_str(&format!(
-                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"
+                r#"[package]
+name = "{name}"
+version = "0.1.0"
+"#
             ))
             .unwrap();
     }
@@ -1882,7 +1930,12 @@ members = ["../outside"]
         .unwrap();
     outside_dir
         .child("cabin.toml")
-        .write_str("[package]\nname = \"sneaky\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "sneaky"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let err = load_workspace(workspace_dir.path().join("cabin.toml")).unwrap_err();
     match err {
@@ -1906,7 +1959,12 @@ exclude = ["../outside"]
         )
         .unwrap();
     dir.child("packages/keep/cabin.toml")
-        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "keep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
     match err {
@@ -1930,7 +1988,12 @@ default-members = ["../outside"]
         )
         .unwrap();
     dir.child("packages/keep/cabin.toml")
-        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .write_str(
+            r#"[package]
+name = "keep"
+version = "0.1.0"
+"#,
+        )
         .unwrap();
     let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
     match err {
@@ -1983,7 +2046,12 @@ spdlog = "^1"
         .unwrap();
     // Pretend we already extracted fmt 10.2.1 somewhere on disk.
     dir.child("registry/fmt/cabin.toml")
-        .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+        .write_str(
+            r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
+        )
         .unwrap();
     let registry = vec![RegistryPackageSource {
         name: PackageName::new("fmt").unwrap(),
@@ -2042,7 +2110,12 @@ fmt = ">=10 <11"
     // instead of skipping them; the sham `other` entry populates the
     // name lookup without `fmt`.
     dir.child("registry/other/cabin.toml")
-        .write_str("[package]\nname = \"other\"\nversion = \"1.0.0\"\n")
+        .write_str(
+            r#"[package]
+name = "other"
+version = "1.0.0"
+"#,
+        )
         .unwrap();
     let registry = vec![RegistryPackageSource {
         name: PackageName::new("other").unwrap(),

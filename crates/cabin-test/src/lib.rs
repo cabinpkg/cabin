@@ -1137,7 +1137,11 @@ mod tests {
         };
         assert_eq!(
             render_epilogue(&summary, 0),
-            "\nfailures:\n    demo:fail_test\n\ntest result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+            r"
+failures:
+    demo:fail_test
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
         );
     }
 
@@ -1337,7 +1341,14 @@ exit 42
                 &dir,
                 &format!("{me}_test"),
                 &format!(
-                    "touch {me}.started\ni=0\nwhile [ ! -f {other}.started ]; do\n  i=$((i + 1))\n  [ \"$i\" -gt 200 ] && exit 3\n  sleep 0.05\ndone\n"
+                    r#"touch {me}.started
+i=0
+while [ ! -f {other}.started ]; do
+  i=$((i + 1))
+  [ "$i" -gt 200 ] && exit 3
+  sleep 0.05
+done
+"#
                 ),
             )
         };
@@ -1447,7 +1458,11 @@ exit 42
             executables: vec![script(
                 &dir,
                 "quick_test",
-                "echo $$ > test.pid\necho hi\nwhile [ ! -f seen ]; do sleep 0.01; done\nexit 3\n",
+                r"echo $$ > test.pid
+echo hi
+while [ ! -f seen ]; do sleep 0.01; done
+exit 3
+",
             )],
         };
         let mut sink = StallingSink(dir.path().to_path_buf());
@@ -1511,8 +1526,10 @@ exit 42
             executables: vec![script(
                 &dir,
                 "late_test",
-                "echo before\nwhile [ ! -f seen ]; do sleep 0.01; done\n\
-                 (sleep 0.3; echo after; sleep 30) &\n",
+                r"echo before
+while [ ! -f seen ]; do sleep 0.01; done
+(sleep 0.3; echo after; sleep 30) &
+",
             )],
         };
         let mut sink = StallingSink(dir.path().to_path_buf());
@@ -1658,7 +1675,10 @@ exit 42
         // UTF-8.
         let body = |byte: char| {
             format!(
-                "head -c {MIB} /dev/zero | tr '\\0' '{byte}'\nprintf '\\377'\nhead -c {MIB} /dev/zero | tr '\\0' '{byte}' >&2\n"
+                r"head -c {MIB} /dev/zero | tr '\0' '{byte}'
+printf '\377'
+head -c {MIB} /dev/zero | tr '\0' '{byte}' >&2
+"
             )
         };
         let plan = TestPlan {

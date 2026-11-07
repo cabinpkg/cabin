@@ -437,15 +437,30 @@ mod tests {
             (&b"this is not a diff\n"[..], "malformed"),
             (&b"Binary files a/t.txt and b/t.txt differ\n"[..], "binary"),
             (
-                &b"--- a/../escape.txt\n+++ b/../escape.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n"[..],
+                &br"--- a/../escape.txt
++++ b/../escape.txt
+@@ -1,1 +1,1 @@
+-x
++y
+"[..],
                 "unsafe path",
             ),
             (
-                &b"--- a/absent.txt\n+++ b/absent.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n"[..],
+                &br"--- a/absent.txt
++++ b/absent.txt
+@@ -1,1 +1,1 @@
+-x
++y
+"[..],
                 "missing target",
             ),
             (
-                &b"--- a/t.txt\n+++ b/t.txt\n@@ -1,1 +1,1 @@\n-nope\n+y\n"[..],
+                &br"--- a/t.txt
++++ b/t.txt
+@@ -1,1 +1,1 @@
+-nope
++y
+"[..],
                 "context mismatch",
             ),
         ] {
@@ -518,7 +533,12 @@ mod tests {
         let dest = dir.path().join("tree");
         fs::create_dir_all(&dest).unwrap();
         let declared = provenance(&digest, &["patches/p.patch"]);
-        let patch = b"--- /dev/null\n+++ b/T.TXT\n@@ -0,0 +1,1 @@\n+new\n".to_vec();
+        let patch = br"--- /dev/null
++++ b/T.TXT
+@@ -0,0 +1,1 @@
++new
+"
+        .to_vec();
         let mut fetch = |_: &Utf8Path| Ok(PatchFetch::Found(patch.clone()));
         let err = materialize_upstream(&declared, &archive, &dest, &mut fetch).unwrap_err();
         assert!(
@@ -538,7 +558,13 @@ mod tests {
         let dest = dir.path().join("tree");
         fs::create_dir_all(&dest).unwrap();
         let declared = provenance(&digest, &["patches/p.patch"]);
-        let patch = b"--- a/big.txt\n+++ b/big.txt\n@@ -1,1 +1,1 @@\n-\n+x\n".to_vec();
+        let patch = br"--- a/big.txt
++++ b/big.txt
+@@ -1,1 +1,1 @@
+-
++x
+"
+        .to_vec();
         let mut fetch = |_: &Utf8Path| Ok(PatchFetch::Found(patch.clone()));
         let err = materialize_upstream(&declared, &archive, &dest, &mut fetch).unwrap_err();
         assert!(
@@ -569,7 +595,14 @@ mod tests {
         let mut many = String::new();
         for i in 0..=crate::patch::MAX_PATCH_FILE_ENTRIES {
             use std::fmt::Write as _;
-            writeln!(many, "--- /dev/null\n+++ b/f{i}.txt\n@@ -0,0 +1,1 @@\n+x").unwrap();
+            writeln!(
+                many,
+                r"--- /dev/null
++++ b/f{i}.txt
+@@ -0,0 +1,1 @@
++x"
+            )
+            .unwrap();
         }
         let patch = many.into_bytes();
         let mut fetch = |_: &Utf8Path| Ok(PatchFetch::Found(patch.clone()));
@@ -616,7 +649,12 @@ mod tests {
         let dest = dir.path().join("tree");
         fs::create_dir_all(&dest).unwrap();
         let declared = provenance(&digest, &["README"]);
-        let patch = b"--- /dev/null\n+++ b/other.txt\n@@ -0,0 +1,1 @@\n+x\n".to_vec();
+        let patch = br"--- /dev/null
++++ b/other.txt
+@@ -0,0 +1,1 @@
++x
+"
+        .to_vec();
         let mut fetch = |_: &Utf8Path| Ok(PatchFetch::Found(patch.clone()));
         let err = materialize_upstream(&declared, &archive, &dest, &mut fetch).unwrap_err();
         assert!(
@@ -639,8 +677,13 @@ mod tests {
         let dest = dir.path().join("tree");
         fs::create_dir_all(&dest).unwrap();
         let declared = provenance(&digest, &["shadow.txt"]);
-        let patch =
-            b"--- a/shadow.txt\n+++ b/shadow.txt\n@@ -1,1 +1,1 @@\n-upstream\n+patched\n".to_vec();
+        let patch = br"--- a/shadow.txt
++++ b/shadow.txt
+@@ -1,1 +1,1 @@
+-upstream
++patched
+"
+        .to_vec();
         let mut fetch = |_: &Utf8Path| Ok(PatchFetch::Found(patch.clone()));
         let err = materialize_upstream(&declared, &archive, &dest, &mut fetch).unwrap_err();
         assert!(

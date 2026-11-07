@@ -83,7 +83,10 @@ impl Check {
             // and a function type.  MSVC's C compiler gives that `sizeof`
             // 0 instead, which the negative bound refuses.
             Check::Type { name, includes } => format!(
-                "{}typedef {name} cabin_probe_type;\ntypedef char cabin_probe_size[sizeof(cabin_probe_type[1]) ? 1 : -1];\nint main(void) {{ return 0; }}\n",
+                r"{}typedef {name} cabin_probe_type;
+typedef char cabin_probe_size[sizeof(cabin_probe_type[1]) ? 1 : -1];
+int main(void) {{ return 0; }}
+",
                 include_lines(includes)
             ),
             // Taking the address makes the linker resolve a function or
@@ -93,13 +96,21 @@ impl Check {
                 let reference = format!("  return ((int *)(&{name}))[argc];\n");
                 let body = if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                     format!(
-                        "#ifndef {name}\n{reference}#else\n  (void)argc;\n  return 0;\n#endif\n"
+                        r"#ifndef {name}
+{reference}#else
+  (void)argc;
+  return 0;
+#endif
+"
                     )
                 } else {
                     reference
                 };
                 format!(
-                    "{}int main(int argc, char **argv) {{\n  (void)argv;\n{body}}}\n",
+                    r"{}int main(int argc, char **argv) {{
+  (void)argv;
+{body}}}
+",
                     include_lines(includes)
                 )
             }

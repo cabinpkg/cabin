@@ -1270,7 +1270,13 @@ mod tests {
 
     #[test]
     fn term_verbose_and_quiet_both_true_is_rejected() {
-        let err = parse_config_str("[term]\nverbose = true\nquiet = true\n").unwrap_err();
+        let err = parse_config_str(
+            r"[term]
+verbose = true
+quiet = true
+",
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             ConfigParseError::InvalidTermVerbosityCombination
@@ -1279,7 +1285,13 @@ mod tests {
 
     #[test]
     fn term_verbose_false_falls_back_to_unset() {
-        let parsed = parse_config_str("[term]\nverbose = false\nquiet = false\n").unwrap();
+        let parsed = parse_config_str(
+            r"[term]
+verbose = false
+quiet = false
+",
+        )
+        .unwrap();
         assert_eq!(parsed.term.unwrap().verbosity, None);
     }
 
@@ -1336,8 +1348,14 @@ mod tests {
 
     #[test]
     fn gc_table_parses_and_validates() {
-        let parsed =
-            parse_config_str("[gc]\nauto = false\nmax-age = 7\nmax-size = \"2 GiB\"\n").unwrap();
+        let parsed = parse_config_str(
+            r#"[gc]
+auto = false
+max-age = 7
+max-size = "2 GiB"
+"#,
+        )
+        .unwrap();
         assert_eq!(
             parsed.gc,
             ParsedGc {

@@ -403,7 +403,12 @@ mod tests {
     }
 
     fn manifest(name: &str, version: &str) -> String {
-        format!("[package]\nname = \"{name}\"\nversion = \"{version}\"\n")
+        format!(
+            r#"[package]
+name = "{name}"
+version = "{version}"
+"#
+        )
     }
 
     fn cache_root(dir: &std::path::Path) -> ArtifactCache {

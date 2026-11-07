@@ -104,7 +104,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let out = dir.child("dist");
         let report = dry_run(DryRunRequest {
@@ -127,7 +132,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let out = dir.child("dist");
         let first = dry_run(DryRunRequest {
@@ -155,7 +165,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str(
+                r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
+            )
             .unwrap();
         let out = dir.child("dist");
         let err = dry_run(DryRunRequest {
@@ -185,8 +200,12 @@ mod tests {
         let manifest = dir.child("cabin.toml");
         manifest
             .write_str(
-                "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
-                 [dependencies]\nzlib = \"^1.3\"\n",
+                r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+[dependencies]
+zlib = "^1.3"
+"#,
             )
             .unwrap();
         let out = dir.child("dist");

@@ -425,7 +425,10 @@ fn dependency_value(dep: &NewDependency) -> Value {
 mod tests {
     use super::*;
 
-    const PACKAGE_ONLY: &str = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n";
+    const PACKAGE_ONLY: &str = r#"[package]
+name = "demo"
+version = "0.1.0"
+"#;
 
     fn registry_dep(name: &str, version: &str) -> NewDependency {
         NewDependency {
@@ -506,7 +509,13 @@ mod tests {
 
     #[test]
     fn keeps_sorted_table_sorted() {
-        let src = format!("{PACKAGE_ONLY}\n[dependencies]\nalpha = \"^1\"\ncharlie = \"^3\"\n");
+        let src = format!(
+            r#"{PACKAGE_ONLY}
+[dependencies]
+alpha = "^1"
+charlie = "^3"
+"#
+        );
         let mut doc = parse_document(&src).unwrap();
         upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("bravo", "^2")).unwrap();
         let out = doc.to_string();
@@ -521,7 +530,13 @@ mod tests {
 
     #[test]
     fn appends_to_unsorted_table() {
-        let src = format!("{PACKAGE_ONLY}\n[dependencies]\ncharlie = \"^3\"\nalpha = \"^1\"\n");
+        let src = format!(
+            r#"{PACKAGE_ONLY}
+[dependencies]
+charlie = "^3"
+alpha = "^1"
+"#
+        );
         let mut doc = parse_document(&src).unwrap();
         upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("bravo", "^2")).unwrap();
         let out = doc.to_string();
@@ -536,7 +551,12 @@ mod tests {
 
     #[test]
     fn updates_existing_entry_in_place() {
-        let src = format!("{PACKAGE_ONLY}\n[dependencies]\nzlib = \"^1.0\"\n");
+        let src = format!(
+            r#"{PACKAGE_ONLY}
+[dependencies]
+zlib = "^1.0"
+"#
+        );
         let mut doc = parse_document(&src).unwrap();
         upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("zlib", "^2.0")).unwrap();
         let out = doc.to_string();
@@ -554,7 +574,13 @@ mod tests {
 
     #[test]
     fn preserves_surrounding_comments() {
-        let src = format!("{PACKAGE_ONLY}\n[dependencies]\n# keep me\nalpha = \"^1\"\n");
+        let src = format!(
+            r#"{PACKAGE_ONLY}
+[dependencies]
+# keep me
+alpha = "^1"
+"#
+        );
         let mut doc = parse_document(&src).unwrap();
         upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("bravo", "^2")).unwrap();
         assert!(doc.to_string().contains("# keep me"), "got:\n{doc}");
@@ -572,7 +598,13 @@ mod tests {
 
     #[test]
     fn remove_existing_returns_true() {
-        let src = format!("{PACKAGE_ONLY}\n[dependencies]\nzlib = \"^1\"\nfmt = \"^10\"\n");
+        let src = format!(
+            r#"{PACKAGE_ONLY}
+[dependencies]
+zlib = "^1"
+fmt = "^10"
+"#
+        );
         let mut doc = parse_document(&src).unwrap();
         assert!(remove_dependency(&mut doc, DepTable::Normal, "zlib"));
         let out = doc.to_string();
@@ -582,14 +614,24 @@ mod tests {
 
     #[test]
     fn remove_missing_returns_false() {
-        let src = format!("{PACKAGE_ONLY}\n[dependencies]\nfmt = \"^10\"\n");
+        let src = format!(
+            r#"{PACKAGE_ONLY}
+[dependencies]
+fmt = "^10"
+"#
+        );
         let mut doc = parse_document(&src).unwrap();
         assert!(!remove_dependency(&mut doc, DepTable::Normal, "zlib"));
     }
 
     #[test]
     fn remove_last_entry_drops_empty_table() {
-        let src = format!("{PACKAGE_ONLY}\n[dependencies]\nzlib = \"^1\"\n");
+        let src = format!(
+            r#"{PACKAGE_ONLY}
+[dependencies]
+zlib = "^1"
+"#
+        );
         let mut doc = parse_document(&src).unwrap();
         assert!(remove_dependency(&mut doc, DepTable::Normal, "zlib"));
         assert!(
@@ -606,9 +648,14 @@ mod tests {
 
     #[test]
     fn upsert_errors_when_table_key_is_not_a_table() {
-        let mut doc =
-            parse_document("dependencies = 5\n[package]\nname = \"demo\"\nversion = \"0.1.0\"\n")
-                .unwrap();
+        let mut doc = parse_document(
+            r#"dependencies = 5
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
         let err =
             upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("zlib", "^1")).unwrap_err();
         assert!(
@@ -670,7 +717,16 @@ sources = ["src/core.cc"]
 
     #[test]
     fn substitute_standard_markers_bakes_bounded_interface_ranges() {
-        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++14\"\ninterface-cxx-standard = { workspace = true }\n\n[target.core]\ntype = \"library\"\nsources = [\"src/core.cc\"]\n";
+        let text = r#"[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = "c++14"
+interface-cxx-standard = { workspace = true }
+
+[target.core]
+type = "library"
+sources = ["src/core.cc"]
+"#;
         let resolved = cabin_core::LanguageStandardSettings {
             cxx_standard: Some(cabin_core::StandardDeclaration::Declared(
                 cabin_core::CxxStandard::Cxx14,
@@ -711,7 +767,13 @@ sources = ["src/core.cc"]
 
     #[test]
     fn substitute_standard_markers_rewrites_header_table_marker_spelling() {
-        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\n\n[package.cxx-standard]\nworkspace = true\n";
+        let text = r#"[package]
+name = "core"
+version = "0.1.0"
+
+[package.cxx-standard]
+workspace = true
+"#;
         let resolved = cabin_core::LanguageStandardSettings {
             cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
                 cabin_core::CxxStandard::Cxx20,
@@ -745,7 +807,11 @@ sources = ["src/core.cc"]
             ..Default::default()
         };
         // Inline marker: only the marker line's value is replaced.
-        let inline = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n";
+        let inline = r#"[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+"#;
         assert_eq!(
             normalize_workspace_markers(
                 inline,
@@ -754,11 +820,21 @@ sources = ["src/core.cc"]
             )
             .unwrap()
             .unwrap(),
-            "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n"
+            r#"[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = "c++20"
+"#
         );
         // Header-table marker: the key re-renders as `key = "value"`
         // at the end of `[package]`'s value entries.
-        let header = "[package]\nname = \"core\"\nversion = \"0.1.0\"\n\n[package.cxx-standard]\nworkspace = true\n";
+        let header = r#"[package]
+name = "core"
+version = "0.1.0"
+
+[package.cxx-standard]
+workspace = true
+"#;
         assert_eq!(
             normalize_workspace_markers(
                 header,
@@ -767,7 +843,11 @@ sources = ["src/core.cc"]
             )
             .unwrap()
             .unwrap(),
-            "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n"
+            r#"[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = "c++20"
+"#
         );
     }
 
@@ -799,8 +879,11 @@ sources = ["src/core.cc"]
 
     #[test]
     fn substitute_standard_markers_rewrites_dotted_key_marker_spelling() {
-        let text =
-            "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard.workspace = true\n";
+        let text = r#"[package]
+name = "core"
+version = "0.1.0"
+cxx-standard.workspace = true
+"#;
         let resolved = cabin_core::LanguageStandardSettings {
             cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
                 cabin_core::CxxStandard::Cxx20,
@@ -826,7 +909,11 @@ sources = ["src/core.cc"]
 
     #[test]
     fn substitute_standard_markers_without_markers_returns_none() {
-        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n";
+        let text = r#"[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = "c++20"
+"#;
         let resolved = cabin_core::LanguageStandardSettings::default();
         assert_eq!(
             normalize_workspace_markers(
@@ -841,7 +928,11 @@ sources = ["src/core.cc"]
 
     #[test]
     fn substitute_standard_markers_without_resolved_value_errors() {
-        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n";
+        let text = r#"[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+"#;
         let resolved = cabin_core::LanguageStandardSettings::default();
         let err = normalize_workspace_markers(
             text,
@@ -859,7 +950,10 @@ sources = ["src/core.cc"]
 
     #[test]
     fn substitute_standard_markers_without_package_table_returns_none() {
-        let text = "[workspace]\nmembers = [\"packages/*\"]\ncxx-standard = \"c++20\"\n";
+        let text = r#"[workspace]
+members = ["packages/*"]
+cxx-standard = "c++20"
+"#;
         let resolved = cabin_core::LanguageStandardSettings::default();
         assert_eq!(
             normalize_workspace_markers(
@@ -884,7 +978,13 @@ sources = ["src/core.cc"]
 
     #[test]
     fn normalize_collapses_marker_only_dependency_to_bare_string() {
-        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = { workspace = true }\n";
+        let text = r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = { workspace = true }
+"#;
         let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
         let out = normalize_workspace_markers(
             text,
@@ -895,7 +995,13 @@ sources = ["src/core.cc"]
         .unwrap();
         assert_eq!(
             out,
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = \"0.2\"\n"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = "0.2"
+"#
         );
         // Idempotent: no markers remain.
         assert_eq!(
@@ -911,7 +1017,13 @@ sources = ["src/core.cc"]
 
     #[test]
     fn normalize_swaps_workspace_key_in_place_preserving_siblings() {
-        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = { workspace = true, features = [\"color\"] }\n";
+        let text = r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = { workspace = true, features = ["color"] }
+"#;
         let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", ">=10 <11")]);
         let out = normalize_workspace_markers(
             text,
@@ -931,7 +1043,13 @@ sources = ["src/core.cc"]
 
     #[test]
     fn normalize_dev_dependency_lookup_is_kind_specific() {
-        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dev-dependencies]\ngtest = { workspace = true }\n";
+        let text = r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dev-dependencies]
+gtest = { workspace = true }
+"#;
         let wrong_kind = dep_requirements(&[(cabin_core::DependencyKind::Normal, "gtest", "^1")]);
         let err = normalize_workspace_markers(
             text,
@@ -958,8 +1076,20 @@ sources = ["src/core.cc"]
     fn normalize_handles_dotted_and_header_table_dep_marker_spellings() {
         let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
         for text in [
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt.workspace = true\n",
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies.fmt]\nworkspace = true\n",
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt.workspace = true
+"#,
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.fmt]
+workspace = true
+"#,
         ] {
             let out = normalize_workspace_markers(
                 text,
@@ -984,7 +1114,12 @@ sources = ["src/core.cc"]
     fn normalize_rewrites_marker_in_inline_dependencies_table() {
         // The inline parent spelling is only TOML-legal at the
         // document root, before the first `[header]`.
-        let text = "dependencies = { fmt = { workspace = true } }\n\n[package]\nname = \"app\"\nversion = \"0.1.0\"\n";
+        let text = r#"dependencies = { fmt = { workspace = true } }
+
+[package]
+name = "app"
+version = "0.1.0"
+"#;
         let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
         let out = normalize_workspace_markers(
             text,
@@ -1008,7 +1143,13 @@ sources = ["src/core.cc"]
     fn normalize_leaves_workspace_false_beside_version_untouched() {
         // `{ version = "1", workspace = false }` is legal and parses
         // as a plain version dependency; the rewrite must not touch it.
-        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = { version = \"1\", workspace = false }\n";
+        let text = r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = { version = "1", workspace = false }
+"#;
         let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
         assert_eq!(
             normalize_workspace_markers(
@@ -1023,7 +1164,14 @@ sources = ["src/core.cc"]
 
     #[test]
     fn normalize_handles_standards_and_deps_in_one_pass() {
-        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n\n[dependencies]\nfmt = { workspace = true }\n";
+        let text = r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+
+[dependencies]
+fmt = { workspace = true }
+"#;
         let resolved = cabin_core::LanguageStandardSettings {
             cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
                 cabin_core::CxxStandard::Cxx20,
@@ -1036,7 +1184,14 @@ sources = ["src/core.cc"]
             .unwrap();
         assert_eq!(
             out,
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n\n[dependencies]\nfmt = \"0.2\"\n"
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++20"
+
+[dependencies]
+fmt = "0.2"
+"#
         );
     }
 }
