@@ -210,7 +210,14 @@ mod tests {
 
     #[test]
     fn filter_entries_reads_only_the_named_section() {
-        let text = "# comment\n\nregistry:\n  - \"registry/**\"\n  - \"Cargo.toml\"\nports:\n  - \"ports/**\"\n";
+        let text = r#"# comment
+
+registry:
+  - "registry/**"
+  - "Cargo.toml"
+ports:
+  - "ports/**"
+"#;
         assert_eq!(
             filter_entries(text, "ports").unwrap(),
             vec!["ports/**".to_owned()]
@@ -241,7 +248,14 @@ mod tests {
 
     #[test]
     fn other_sections_are_not_held_to_the_grammar() {
-        let text = "docs:\n  - 'docs/**'\n  - \"site/**\" # trailing\nports: # note\n  - p/**\nregistry:\n  - \"r/**\"\n";
+        let text = r#"docs:
+  - 'docs/**'
+  - "site/**" # trailing
+ports: # note
+  - p/**
+registry:
+  - "r/**"
+"#;
         assert_eq!(
             filter_entries(text, "registry").unwrap(),
             vec!["r/**".to_owned()]

@@ -92,7 +92,11 @@ pub fn write_project(dir: &Path, name: &str, shape: ProjectShape) -> Result<()> 
     let ext = shape.lang.source_ext();
     let hdr = shape.lang.header_ext();
     let mut manifest = format!(
-        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n{}\n",
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+{}
+"#,
         shape.lang.standards()
     );
     let core_sources = (0..shape.sources)
@@ -101,13 +105,26 @@ pub fn write_project(dir: &Path, name: &str, shape: ProjectShape) -> Result<()> 
         .join(", ");
     write!(
         manifest,
-        "[target.core]\ntype = \"library\"\nsources = [{core_sources}]\ninclude-dirs = [\"include\"]\n\n\
-         [target.app]\ntype = \"executable\"\nsources = [\"src/main.{ext}\"]\ndeps = [\"core\"]\n"
+        r#"[target.core]
+type = "library"
+sources = [{core_sources}]
+include-dirs = ["include"]
+
+[target.app]
+type = "executable"
+sources = ["src/main.{ext}"]
+deps = ["core"]
+"#
     )?;
     for t in 0..shape.tests {
         write!(
             manifest,
-            "\n[target.t{t}]\ntype = \"test\"\nsources = [\"tests/t{t}.{ext}\"]\ndeps = [\"core\"]\n"
+            r#"
+[target.t{t}]
+type = "test"
+sources = ["tests/t{t}.{ext}"]
+deps = ["core"]
+"#
         )?;
     }
     write(dir, "cabin.toml", &manifest)?;
@@ -144,7 +161,10 @@ pub fn write_project(dir: &Path, name: &str, shape: ProjectShape) -> Result<()> 
             dir,
             &format!("src/core/f{i}.{ext}"),
             &format!(
-                "{}#include \"bench/api.{hdr}\"\n{common}\nint bench_f{i}(int x) {{ return {body} * {}; }}\n",
+                r#"{}#include "bench/api.{hdr}"
+{common}
+int bench_f{i}(int x) {{ return {body} * {}; }}
+"#,
                 shape.lang.system_includes(),
                 i + 1
             ),
@@ -188,7 +208,10 @@ pub fn write_workspace(dir: &Path, members: usize) -> Result<()> {
         };
         let ext = lang.source_ext();
         let mut manifest = format!(
-            "[package]\nname = \"m{i:03}\"\nversion = \"0.1.0\"\n{}",
+            r#"[package]
+name = "m{i:03}"
+version = "0.1.0"
+{}"#,
             Lang::C.standards()
         );
         if lang == Lang::Cxx {
@@ -205,8 +228,12 @@ pub fn write_workspace(dir: &Path, members: usize) -> Result<()> {
         }
         write!(
             manifest,
-            "\n[target.m{i:03}]\ntype = \"library\"\nsources = [\"src/a.{ext}\", \"src/b.{ext}\"]\n\
-             include-dirs = [\"include\"]\n{deps}"
+            r#"
+[target.m{i:03}]
+type = "library"
+sources = ["src/a.{ext}", "src/b.{ext}"]
+include-dirs = ["include"]
+{deps}"#
         )?;
         let pkg = dir.join(format!("packages/m{i:03}"));
         write(&pkg, "cabin.toml", &manifest)?;
@@ -351,7 +378,10 @@ fn write_registry_package(
     let ext = lang.source_ext();
     let ident = format!("{}{index:03}", family.prefix);
     let mut manifest = format!(
-        "[package]\nname = \"{}\"\nversion = \"1.{minor}.0\"\n{}",
+        r#"[package]
+name = "{}"
+version = "1.{minor}.0"
+{}"#,
         family.name(index),
         lang.standards()
     );
@@ -393,7 +423,12 @@ fn write_registry_package(
     sources.extend((0..family.payload_files).map(|p| format!("\"src/payload{p}.{ext}\"")));
     write!(
         manifest,
-        "\n[target.{ident}]\ntype = \"library\"\nsources = [{}]\ninclude-dirs = [\"include\"]\n",
+        r#"
+[target.{ident}]
+type = "library"
+sources = [{}]
+include-dirs = ["include"]
+"#,
         sources.join(", ")
     )?;
     write(dir, "cabin.toml", &manifest)?;
@@ -439,7 +474,12 @@ pub fn write_consumer(
 ) -> Result<()> {
     let ext = lang.source_ext();
     let mut manifest = format!(
-        "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\n{}\n[dependencies]\n",
+        r#"[package]
+name = "consumer"
+version = "0.1.0"
+{}
+[dependencies]
+"#,
         lang.standards()
     );
     for (name, req, features) in dependencies {
@@ -459,7 +499,11 @@ pub fn write_consumer(
     }
     write!(
         manifest,
-        "\n[target.consumer]\ntype = \"executable\"\nsources = [\"src/main.{ext}\"]\n"
+        r#"
+[target.consumer]
+type = "executable"
+sources = ["src/main.{ext}"]
+"#
     )?;
     write(dir, "cabin.toml", &manifest)?;
     write(
@@ -520,8 +564,20 @@ pub fn cached(dir: &Path, generate: impl FnOnce(&Path) -> Result<()>) -> Result<
 /// define and call each other's functions.
 fn guarded(tag: &str, body: &str) -> String {
     format!(
-        "#ifndef BENCH_{tag}_H\n#define BENCH_{tag}_H\n\n#ifdef __cplusplus\nextern \"C\" {{\n#endif\n\n{body}\n\
-         #ifdef __cplusplus\n}}\n#endif\n\n#endif\n"
+        r#"#ifndef BENCH_{tag}_H
+#define BENCH_{tag}_H
+
+#ifdef __cplusplus
+extern "C" {{
+#endif
+
+{body}
+#ifdef __cplusplus
+}}
+#endif
+
+#endif
+"#
     )
 }
 

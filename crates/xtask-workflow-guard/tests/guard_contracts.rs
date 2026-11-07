@@ -212,7 +212,11 @@ fn superseded_scoping_reads_the_shared_filter_file() {
     fs::create_dir_all(work.join(".github")).unwrap();
     fs::write(
         work.join(".github/path-filters.yml"),
-        "# fixture copy of the shared filter file\nregistry:\n  - \"registry/**\"\n  - \"Cargo.toml\"\n",
+        r#"# fixture copy of the shared filter file
+registry:
+  - "registry/**"
+  - "Cargo.toml"
+"#,
     )
     .unwrap();
     let first = push_commit(&work, "registry/src/lib.rs", "first");

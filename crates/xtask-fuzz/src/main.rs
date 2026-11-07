@@ -30,7 +30,10 @@ const SEED_ARCHIVE: &str = "registry/tests/fixtures/smoke-withdep-0.2.0.zip";
 
 /// The fuzz harness's `FALLBACK_MANIFEST` (`fuzz/src/lib.rs`), staged
 /// into a seed archive of its own; the harness's test checks the copy.
-const FALLBACK_MANIFEST: &str = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n";
+const FALLBACK_MANIFEST: &str = r#"[package]
+name = "demo"
+version = "1.2.3"
+"#;
 
 /// The top directory the extraction seeds nest every file under, as
 /// an upstream release archive does; the harness's `SEED_PREFIX`,
@@ -45,16 +48,29 @@ const CAMPAIGN_SECONDS: u32 = 300;
 const PATCH_TREE: &[(&str, &str)] = &[
     (
         "cabin.toml",
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n",
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+"#,
     ),
     ("include/demo.h", "#pragma once\nint demo(void);"),
     (
         "src/demo.c",
-        "#include \"demo.h\"\n\nint demo(void) {\n    return 0;\n}\n",
+        r#"#include "demo.h"
+
+int demo(void) {
+    return 0;
+}
+"#,
     ),
     (
         "src/main.cpp",
-        "#include \"demo.h\"\n\nint main() {\n    return demo();\n}\n",
+        r#"#include "demo.h"
+
+int main() {
+    return demo();
+}
+"#,
     ),
 ];
 
@@ -68,14 +84,25 @@ const PATCH_SEEDS: &[(&str, &[Edit])] = &[
         "modify-c",
         &[(
             "src/demo.c",
-            Some("#include \"demo.h\"\n\nint demo(void) {\n    return 1;\n}\n"),
+            Some(
+                r#"#include "demo.h"
+
+int demo(void) {
+    return 1;
+}
+"#,
+            ),
         )],
     ),
     (
         "modify-no-newline",
         &[(
             "include/demo.h",
-            Some("#pragma once\nint demo(void);\nint other(void);"),
+            Some(
+                r"#pragma once
+int demo(void);
+int other(void);",
+            ),
         )],
     ),
     (
@@ -95,10 +122,25 @@ const PATCH_SEEDS: &[(&str, &[Edit])] = &[
     (
         "two-files",
         &[
-            ("src/demo.c", Some("int demo(void) {\n    return 0;\n}\n")),
+            (
+                "src/demo.c",
+                Some(
+                    r"int demo(void) {
+    return 0;
+}
+",
+                ),
+            ),
             (
                 "src/main.cpp",
-                Some("#include \"demo.h\"\n\nint main() {\n    return demo() + 1;\n}\n"),
+                Some(
+                    r#"#include "demo.h"
+
+int main() {
+    return demo() + 1;
+}
+"#,
+                ),
             ),
         ],
     ),

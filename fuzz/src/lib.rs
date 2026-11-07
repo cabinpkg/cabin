@@ -22,7 +22,10 @@ use tempfile::TempDir;
 /// divergence the deep target exists to catch - when its manifest, as
 /// the verifier reads it, is this one. `seeds/inspect_zip` holds an
 /// archive of it.
-pub const FALLBACK_MANIFEST: &str = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n";
+pub const FALLBACK_MANIFEST: &str = r#"[package]
+name = "demo"
+version = "1.2.3"
+"#;
 
 /// Inspect `archive` against the listing entry a publish that passed
 /// the server's synchronous checks would produce, with `checksum` as
@@ -354,16 +357,29 @@ fn assert_files_and_dirs(dir: &Path) {
 pub const PATCH_TREE: &[(&str, &str)] = &[
     (
         "cabin.toml",
-        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n",
+        r#"[package]
+name = "demo"
+version = "1.2.3"
+"#,
     ),
     ("include/demo.h", "#pragma once\nint demo(void);"),
     (
         "src/demo.c",
-        "#include \"demo.h\"\n\nint demo(void) {\n    return 0;\n}\n",
+        r#"#include "demo.h"
+
+int demo(void) {
+    return 0;
+}
+"#,
     ),
     (
         "src/main.cpp",
-        "#include \"demo.h\"\n\nint main() {\n    return demo();\n}\n",
+        r#"#include "demo.h"
+
+int main() {
+    return demo();
+}
+"#,
     ),
 ];
 

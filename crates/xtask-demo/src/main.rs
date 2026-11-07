@@ -345,7 +345,13 @@ mod tests {
     fn a_recording_whose_final_screen_lacks_the_tree_fails() {
         let earlier = passing_output();
         let rule = "─".repeat(20);
-        let screen = format!("{earlier}{rule}\n❯ cabin tree -p cli\n{rule}\n\n");
+        let screen = format!(
+            r"{earlier}{rule}
+❯ cabin tree -p cli
+{rule}
+
+"
+        );
         assert!(final_frame(&screen).starts_with("❯ cabin tree"));
         assert!(validate(&passing_log(), &screen, &final_frame(&screen), VERSION).is_err());
     }
