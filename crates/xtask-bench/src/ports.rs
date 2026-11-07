@@ -55,9 +55,18 @@ pub fn write_consumer(dir: &Path) -> Result<()> {
     std::fs::write(
         dir.join("cabin.toml"),
         format!(
-            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n\
-             [dependencies]\n{deps}\n[target.consumer]\ntype = \"executable\"\n\
-             sources = [\"src/main.cc\"]\ndeps = [{links}]\n"
+            r#"[package]
+name = "consumer"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+{deps}
+[target.consumer]
+type = "executable"
+sources = ["src/main.cc"]
+deps = [{links}]
+"#
         ),
     )?;
     std::fs::write(dir.join("src/main.cc"), "int main() { return 0; }\n")?;

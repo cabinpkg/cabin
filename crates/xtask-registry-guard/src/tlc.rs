@@ -116,9 +116,24 @@ mod tests {
 
     #[test]
     fn each_trap_keeps_its_section_and_the_shared_head() {
-        let config = "SPECIFICATION Spec\nCONSTANTS\n    N = 2\nINVARIANTS\n    NoA\n    NoB\n\\* a note\nPROPERTIES\n    NoC\n";
+        let config = r"SPECIFICATION Spec
+CONSTANTS
+    N = 2
+INVARIANTS
+    NoA
+    NoB
+\* a note
+PROPERTIES
+    NoC
+";
         let (head, traps) = split(config).unwrap();
-        assert_eq!(head, "SPECIFICATION Spec\nCONSTANTS\n    N = 2\n");
+        assert_eq!(
+            head,
+            r"SPECIFICATION Spec
+CONSTANTS
+    N = 2
+"
+        );
         assert_eq!(
             traps,
             [
@@ -131,7 +146,11 @@ mod tests {
 
     #[test]
     fn a_trap_on_its_header_line_or_after_a_comment_is_split_out() {
-        let config = "SPECIFICATION Spec\nINVARIANT NoA\nINVARIANT \\* a note\n    NoB\n";
+        let config = r"SPECIFICATION Spec
+INVARIANT NoA
+INVARIANT \* a note
+    NoB
+";
         let (head, traps) = split(config).unwrap();
         assert_eq!(head, "SPECIFICATION Spec\n");
         assert_eq!(traps, [("INVARIANT", "NoA"), ("INVARIANT", "NoB")]);

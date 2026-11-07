@@ -64,21 +64,20 @@ const DRIVER_REJECTED_VERSION: &str = "0.13.0";
 
 /// The fixture's `cabin.toml` (`cargo gen-fixtures`, `withdep`) and
 /// source, which the stored repack carries at another version.
-const WITHDEP_MANIFEST: &str = "\
-[package]
-name = \"smoke/withdep\"
-version = \"0.2.0\"
-cxx-standard = \"c++20\"
+const WITHDEP_MANIFEST: &str = r#"[package]
+name = "smoke/withdep"
+version = "0.2.0"
+cxx-standard = "c++20"
 
 [dependencies]
-\"smoke/nodep\" = \"^0.1\"
+"smoke/nodep" = "^0.1"
 
 [target.withdep]
-type = \"library\"
-sources = [\"src/withdep.cc\"]
-interface-cxx-standard = \"c++17\"
-links = \"withdep-native\"
-";
+type = "library"
+sources = ["src/withdep.cc"]
+interface-cxx-standard = "c++17"
+links = "withdep-native"
+"#;
 const WITHDEP_SOURCE: &[u8] = b"void withdep() {}\n";
 
 /// The hidden first argument that makes the smoke binary the
@@ -543,9 +542,10 @@ fn restart_on_tiny_pools(inputs: &mut FinaleInputs<'_>) -> Result<()> {
     step("restarting wrangler dev with tiny governor pools");
     inputs.servers.stop_dev_servers();
     inputs.servers.append_dev_vars(
-        "GOVERNOR_R2_CLASS_B_ORDINARY_MONTH=\"1\"\n\
-         GOVERNOR_STORAGE_PRIMARY_BYTES=\"1\"\n\
-         GOVERNOR_R2_CLASS_B_SOURCE_MONTH=\"0\"\n",
+        r#"GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="1"
+GOVERNOR_STORAGE_PRIMARY_BYTES="1"
+GOVERNOR_R2_CLASS_B_SOURCE_MONTH="0"
+"#,
     )?;
     inputs.servers.start_registry_dev()?;
     inputs.servers.start_web_dev()

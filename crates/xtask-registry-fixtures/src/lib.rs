@@ -26,62 +26,59 @@ struct Package {
 const PACKAGES: &[Package] = &[
     Package {
         name: "nodep",
-        manifest: "\
-[package]
-name = \"smoke/nodep\"
-version = \"0.1.0\"
-c-standard = \"c11\"
+        manifest: r#"[package]
+name = "smoke/nodep"
+version = "0.1.0"
+c-standard = "c11"
 
 [target.nodep]
-type = \"library\"
-sources = [\"src/nodep.c\"]
-",
+type = "library"
+sources = ["src/nodep.c"]
+"#,
         source: "src/nodep.c",
         code: "int nodep(void) { return 0; }\n",
     },
     Package {
         name: "withdep",
-        manifest: "\
-[package]
-name = \"smoke/withdep\"
-version = \"0.2.0\"
-cxx-standard = \"c++20\"
+        manifest: r#"[package]
+name = "smoke/withdep"
+version = "0.2.0"
+cxx-standard = "c++20"
 
 [dependencies]
-\"smoke/nodep\" = \"^0.1\"
+"smoke/nodep" = "^0.1"
 
 [target.withdep]
-type = \"library\"
-sources = [\"src/withdep.cc\"]
-interface-cxx-standard = \"c++17\"
-links = \"withdep-native\"
-",
+type = "library"
+sources = ["src/withdep.cc"]
+interface-cxx-standard = "c++17"
+links = "withdep-native"
+"#,
         source: "src/withdep.cc",
         code: "void withdep() {}\n",
     },
     Package {
         name: "withupstream",
-        manifest: "\
-[package]
-name = \"smoke/withupstream\"
-version = \"0.3.0\"
-c-standard = \"c11\"
+        manifest: r#"[package]
+name = "smoke/withupstream"
+version = "0.3.0"
+c-standard = "c11"
 
 [package.upstream]
-url = \"https://example.com/withupstream-0.3.0.tar.gz\"
-checksum = \"sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"
-format = \"tar.gz\"
-strip-prefix = \"withupstream-0.3.0\"
-patches = [\"patches/0001-fix.patch\"]
+url = "https://example.com/withupstream-0.3.0.tar.gz"
+checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+format = "tar.gz"
+strip-prefix = "withupstream-0.3.0"
+patches = ["patches/0001-fix.patch"]
 
 [[package.upstream.copy]]
-from = \"scripts/config.h.prebuilt\"
-to = \"config.h\"
+from = "scripts/config.h.prebuilt"
+to = "config.h"
 
 [target.withupstream]
-type = \"library\"
-sources = [\"src/withupstream.c\"]
-",
+type = "library"
+sources = ["src/withupstream.c"]
+"#,
         source: "src/withupstream.c",
         code: "int withupstream(void) { return 0; }\n",
     },
@@ -90,8 +87,7 @@ sources = [\"src/withupstream.c\"]
 /// The declared patch must exist in the tree: `cabin package` refuses to
 /// stage a manifest whose declared patch file is absent, and the
 /// conformance leg proves the Worker accepts patches-bearing metadata.
-const UPSTREAM_PATCH: &str = "\
---- a/src/withupstream.c
+const UPSTREAM_PATCH: &str = r"--- a/src/withupstream.c
 +++ b/src/withupstream.c
 @@ -1,1 +1,1 @@
 -int withupstream(void) { return 1; }

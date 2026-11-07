@@ -101,7 +101,12 @@ fn unsanctioned_acquisitions_are_caught() {
         (
             // A line-oriented match would miss this.
             "comment_between_name_and_paren_across_lines",
-            "fn f(env: &Env) {\n    let b = env.\n/* explanation */\nbucket\n(\"BLOBS\");\n}",
+            r#"fn f(env: &Env) {
+    let b = env.
+/* explanation */
+bucket
+("BLOBS");
+}"#,
         ),
         (
             // A `//` inside a string starts no comment: the call after

@@ -59,7 +59,11 @@ fn the_canonical_call_site_passes() {
         "fn take<'a>(sql: &'a str) -> &'a str { sql }\n",
         // A wrapped call whose argument carries a comment is still
         // the canonical call.
-        "db.prepare(\n    // One meta row.\n    sql::META_VALUE,\n)\n",
+        r"db.prepare(
+    // One meta row.
+    sql::META_VALUE,
+)
+",
         "    .first(None)\n    .await?;\n",
     ));
     assert!(accepted, "the guard rejected the canonical call site");
@@ -86,7 +90,11 @@ fn executed_sql_outside_the_sql_module_is_caught() {
         ),
         (
             "multi_line_argument",
-            "db.prepare(\n    dynamic_sql,\n)\n.run()\n.await?;",
+            r"db.prepare(
+    dynamic_sql,
+)
+.run()
+.await?;",
         ),
         ("raw_identifier", "db.r#prepare(dynamic_sql).run().await?;"),
         (
@@ -104,7 +112,11 @@ fn executed_sql_outside_the_sql_module_is_caught() {
         (
             // A line-oriented match would miss this.
             "comment_between_receiver_and_name_across_lines",
-            "db.\n/* explanation */\nprepare(dynamic_sql)\n.run()\n.await?;",
+            r"db.
+/* explanation */
+prepare(dynamic_sql)
+.run()
+.await?;",
         ),
         ("exec", "db.exec(\"DROP TABLE users\").await?;"),
         ("exec_dynamic", "db.exec(&dynamic_sql).await?;"),
@@ -261,7 +273,13 @@ fn a_violation_names_its_call_site() {
 /// wraps.
 #[test]
 fn a_wrapped_call_is_reported_on_its_own_line() {
-    let dir = scratch("glue.rs", "db.prepare(\n    dynamic_sql,\n)\n.run();");
+    let dir = scratch(
+        "glue.rs",
+        r"db.prepare(
+    dynamic_sql,
+)
+.run();",
+    );
     let violations = sql::check(dir.path()).expect("run the guard");
     assert_eq!(
         violations,

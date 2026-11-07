@@ -164,7 +164,7 @@ pub fn seed_tokens(
 /// 'ghost'.
 fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &str) -> String {
     format!(
-        "
+        r#"
     INSERT OR IGNORE INTO users (id, created_at)
       VALUES (2, '1970-01-01T00:00:00.000Z');
     INSERT OR IGNORE INTO users (id, created_at)
@@ -229,7 +229,7 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
     -- The deletes above bypass the publish batches that keep the quota
-    -- tallies exact, so recompute them (registry/docs/runbook.md, \"Quota tallies\").
+    -- tallies exact, so recompute them (registry/docs/runbook.md, "Quota tallies").
     UPDATE users SET
       package_count = (SELECT COUNT(*) FROM packages WHERE created_by = users.id),
       stored_bytes = (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
@@ -250,7 +250,7 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     DELETE FROM backup_pending;
     -- A prior run that failed inside a breaker leg leaves its pinned
     -- mode behind; normalize so re-runs never start blocked.
-    UPDATE meta SET value = 'normal' WHERE key = 'service_mode';"
+    UPDATE meta SET value = 'normal' WHERE key = 'service_mode';"#
     )
 }
 
@@ -732,20 +732,20 @@ impl Drop for DevServers {
 fn render_dev_vars(ports: &Ports) -> String {
     let Ports { mock, github, .. } = ports;
     format!(
-        "CF_API_BASE=\"http://127.0.0.1:{mock}\"
-D1_EXPORT_API_TOKEN=\"smoke-placeholder\"
-SESSION_SECRET=\"smoke-session-secret-not-for-production\"
-ALLOWED_GITHUB_IDS=\"0,1,3,4\"
-SERVICE_MODE_TTL_SECS=\"0\"
-STATS_CACHE_TTL_SECS=\"0\"
-PACKAGE_CACHE_TTL_SECS=\"0\"
-DOWNLOAD_FLUSH_INTERVAL_MS=\"0\"
-GITHUB_OAUTH_BASE=\"http://127.0.0.1:{github}\"
-GITHUB_API_BASE=\"http://127.0.0.1:{github}\"
-GITHUB_JWKS_URL=\"http://127.0.0.1:{github}/.well-known/jwks\"
-GITHUB_CLIENT_SECRET=\"smoke-client-secret\"
-VERIFIER_BACKING_ACCOUNT_ID=\"0\"
-"
+        r#"CF_API_BASE="http://127.0.0.1:{mock}"
+D1_EXPORT_API_TOKEN="smoke-placeholder"
+SESSION_SECRET="smoke-session-secret-not-for-production"
+ALLOWED_GITHUB_IDS="0,1,3,4"
+SERVICE_MODE_TTL_SECS="0"
+STATS_CACHE_TTL_SECS="0"
+PACKAGE_CACHE_TTL_SECS="0"
+DOWNLOAD_FLUSH_INTERVAL_MS="0"
+GITHUB_OAUTH_BASE="http://127.0.0.1:{github}"
+GITHUB_API_BASE="http://127.0.0.1:{github}"
+GITHUB_JWKS_URL="http://127.0.0.1:{github}/.well-known/jwks"
+GITHUB_CLIENT_SECRET="smoke-client-secret"
+VERIFIER_BACKING_ACCOUNT_ID="0"
+"#
     )
 }
 
@@ -938,9 +938,10 @@ mod tests {
 
         append(
             &vars,
-            "GOVERNOR_R2_CLASS_B_ORDINARY_MONTH=\"1\"\n\
-             GOVERNOR_STORAGE_PRIMARY_BYTES=\"1\"\n\
-             GOVERNOR_R2_CLASS_B_SOURCE_MONTH=\"0\"\n",
+            r#"GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="1"
+GOVERNOR_STORAGE_PRIMARY_BYTES="1"
+GOVERNOR_R2_CLASS_B_SOURCE_MONTH="0"
+"#,
         )
         .unwrap();
         rewrite_key(

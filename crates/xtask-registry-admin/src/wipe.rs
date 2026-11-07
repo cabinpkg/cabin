@@ -293,9 +293,9 @@ fn remote(old: &str, new: i64) -> Result<()> {
     wrangler_run(&["deploy"], Show::Stdout)?;
 
     print!(
-        "wipe OK (generation {old} -> {new}; {primary} primary and {backup} backup object(s) deleted)
+        r#"wipe OK (generation {old} -> {new}; {primary} primary and {backup} backup object(s) deleted)
 
-Follow-ups, IN THIS ORDER (registry/docs/runbook.md, \"Post-wipe re-provisioning\"):
+Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"):
   1. commit the wrangler.jsonc database-id change and the refreshed
      migrations-applied stamp to the pull request that changes the
      migrations (to one of their own when main already carries them)
@@ -319,7 +319,7 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, \"Post-wipe re-provisioning
      writes_blocked - the gate clears on that path; the ports publish
      workflow stays disabled until the next step
   5. start the ports receipts log over while publishing is still
-     disabled (its README, \"Automatic publishing\"), re-enable it (gh
+     disabled (its README, "Automatic publishing"), re-enable it (gh
      workflow enable publish.yml -R cabin-ports/ports), prove the
      binding with an exchange-check dispatch, then dispatch it plainly
      from main to republish the set - no publish token or secret to
@@ -327,7 +327,7 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, \"Post-wipe re-provisioning
      the verifier (gh workflow enable registry-verify.yml)
   6. rerun whatever main CI went red against the old registry
      (gh run rerun <id> --failed)
-"
+"#
     );
     Ok(())
 }
@@ -744,8 +744,15 @@ mod tests {
     #[test]
     fn the_rewrite_lands_on_the_first_binding_of_each_name() {
         let config = format!(
-            "{{\n  \"d1_databases\": [\n    {{ \"database_id\": \"{OLD}\" }}\n  ],\n  \
-             \"vars\": {{\n    \"D1_DATABASE_ID\": \"{OLD}\"\n  }}\n}}\n"
+            r#"{{
+  "d1_databases": [
+    {{ "database_id": "{OLD}" }}
+  ],
+  "vars": {{
+    "D1_DATABASE_ID": "{OLD}"
+  }}
+}}
+"#
         );
         let baked = bake(&config, NEW);
         assert_eq!(lines_holding(&baked, NEW), 2);

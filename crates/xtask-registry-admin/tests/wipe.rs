@@ -53,9 +53,16 @@ impl World {
         fs::write(
             dir.path().join("root/wrangler.jsonc"),
             format!(
-                "{{\n  \"vars\": {{\n    \"CF_ACCOUNT_ID\": \"{}\",\n    \
-                 \"D1_DATABASE_ID\": \"{OLD_ID}\"\n  }},\n  \"d1_databases\": [\n    \
-                 {{ \"binding\": \"DB\", \"database_id\": \"{OLD_ID}\" }}\n  ]\n}}\n",
+                r#"{{
+  "vars": {{
+    "CF_ACCOUNT_ID": "{}",
+    "D1_DATABASE_ID": "{OLD_ID}"
+  }},
+  "d1_databases": [
+    {{ "binding": "DB", "database_id": "{OLD_ID}" }}
+  ]
+}}
+"#,
                 "0123456789abcdef".repeat(2)
             ),
         )
@@ -69,16 +76,17 @@ impl World {
         fs::write(
             &script,
             format!(
-                "#!/usr/bin/env bash\n\
-                 printf '%s\\n' \"$*\" >>\"{log}\"\n\
-                 case \"$*\" in\n\
-                 *\"d1 list\"*) if [[ -e \"{created}\" ]]; then id={NEW_ID}; else id={OLD_ID}; fi\n\
-                 echo \"[{{\\\"name\\\":\\\"cabin-registry\\\",\\\"uuid\\\":\\\"$id\\\"}}]\" ;;\n\
-                 *\"d1 create\"*) touch \"{created}\" ;;\n\
-                 *\"SELECT value\"*launched*) echo '[{{\"results\":{rows},\"success\":true}}]' ;;\n\
-                 *\"SELECT value\"*registry_generation*) echo '[{{\"results\":[{{\"value\":\"7\"}}],\"success\":true}}]' ;;\n\
-                 *) echo '[{{\"results\":[],\"success\":true}}]' ;;\n\
-                 esac\n",
+                r#"#!/usr/bin/env bash
+printf '%s\n' "$*" >>"{log}"
+case "$*" in
+*"d1 list"*) if [[ -e "{created}" ]]; then id={NEW_ID}; else id={OLD_ID}; fi
+echo "[{{\"name\":\"cabin-registry\",\"uuid\":\"$id\"}}]" ;;
+*"d1 create"*) touch "{created}" ;;
+*"SELECT value"*launched*) echo '[{{"results":{rows},"success":true}}]' ;;
+*"SELECT value"*registry_generation*) echo '[{{"results":[{{"value":"7"}}],"success":true}}]' ;;
+*) echo '[{{"results":[],"success":true}}]' ;;
+esac
+"#,
                 log = dir.path().join("log").display(),
                 created = created.display(),
             ),

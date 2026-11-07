@@ -72,11 +72,12 @@ impl Shim {
         fs::write(
             &script,
             format!(
-                "#!/usr/bin/env bash\n\
-                 printf '%s\\n' \"$*\" >>\"{log}\"\n\
-                 if [[ \"$*\" == *\" d1 list \"* || \"$*\" == *\" d1 list\" ]]; then cat \"{list}\"; exit 0; fi\n\
-                 if [[ -n \"{fail}\" ]]; then echo 'fake wrangler: boom' >&2; exit 1; fi\n\
-                 cat \"{response}\"\n",
+                r#"#!/usr/bin/env bash
+printf '%s\n' "$*" >>"{log}"
+if [[ "$*" == *" d1 list "* || "$*" == *" d1 list" ]]; then cat "{list}"; exit 0; fi
+if [[ -n "{fail}" ]]; then echo 'fake wrangler: boom' >&2; exit 1; fi
+cat "{response}"
+"#,
                 log = dir.join("log").display(),
                 list = dir.join("response-list").display(),
                 fail = fail,
