@@ -732,6 +732,7 @@ fn resolve_dep_paths(
             kind: dep.kind,
             condition: dep.condition.clone(),
             ignore_interface_standard: dep.ignore_interface_standard,
+            targets: dep.targets.clone(),
         });
     }
     Ok(dep_paths)
@@ -877,6 +878,7 @@ fn link_workspace_packages(
                 kind: dep.kind,
                 condition: dep.condition.clone(),
                 ignore_interface_standard: dep.ignore_interface_standard,
+                targets: dep.targets.clone(),
             });
         }
         let kind = if registry.is_registry(&pkg.manifest_path) {
@@ -998,6 +1000,7 @@ struct DepPath {
     /// carried onto the graph edge for the standard-compatibility
     /// check.
     ignore_interface_standard: bool,
+    targets: BTreeSet<cabin_core::TargetName>,
 }
 
 fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {

@@ -1154,6 +1154,7 @@ mod tests {
                     default_features: true,
                     condition: None,
                     ignore_interface_standard: false,
+                    targets: BTreeSet::new(),
                 })
                 .collect(),
         )
@@ -1178,12 +1179,14 @@ mod tests {
             kind: DependencyKind::Normal,
             condition: None,
             ignore_interface_standard: false,
+            targets: BTreeSet::new(),
         }];
         lib.deps = vec![DependencyEdge {
             index: 2,
             kind: DependencyKind::Normal,
             condition: None,
             ignore_interface_standard: false,
+            targets: BTreeSet::new(),
         }];
         let packages = vec![app, lib, util];
         PackageGraph {
@@ -1292,6 +1295,7 @@ mod tests {
             kind: DependencyKind::Normal,
             condition: Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap()),
             ignore_interface_standard: false,
+            targets: BTreeSet::new(),
         });
         let host = TargetPlatform::current();
         let forest = build_tree(&TreeInputs {
@@ -1326,6 +1330,7 @@ mod tests {
                 kind: DependencyKind::Build,
                 condition: Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap()),
                 ignore_interface_standard: false,
+                targets: BTreeSet::new(),
             },
         );
         let host = TargetPlatform::current();
@@ -1375,6 +1380,7 @@ mod tests {
                             kind: DependencyKind::Normal,
                             condition: None,
                             ignore_interface_standard: false,
+                            targets: BTreeSet::new(),
                         })
                         .to_vec();
                 }

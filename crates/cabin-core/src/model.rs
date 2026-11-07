@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use cabin_fs::path::PortabilityViolation;
 use camino::Utf8PathBuf;
@@ -892,6 +892,11 @@ pub struct Dependency {
     /// variant).
     #[serde(default, skip_serializing_if = "is_false")]
     pub ignore_interface_standard: bool,
+    /// A build dependency's `targets`: the targets the build machine
+    /// builds instead of the dependency's default targets.  Empty
+    /// means the default targets; always empty on other kinds.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub targets: BTreeSet<TargetName>,
 }
 
 fn is_false<T>(value: &T) -> bool
@@ -2270,6 +2275,7 @@ mod tests {
             default_features: true,
             condition: None,
             ignore_interface_standard: false,
+            targets: BTreeSet::new(),
         }
     }
 

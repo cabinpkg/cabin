@@ -551,6 +551,7 @@ zlib = "1"
         default_features: true,
         condition: None,
         ignore_interface_standard: false,
+        targets: std::collections::BTreeSet::new(),
     };
     let zlib_with = |deps: &[&str]| {
         cabin_core::Package::new(

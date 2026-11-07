@@ -222,8 +222,9 @@ Each entry declares a package-level dependency.  The dependency value is either:
 
 - a **string** - interpreted as a SemVer requirement;
 - a **table** - must specify exactly one source: `path`, `version`, `workspace = true`, or
-  `system = true`.  The source may be combined with `features`, `default-features`, `optional`, or
-  `ignore-interface-standard` (subject to per-source rules below).  Unknown keys are rejected by
+  `system = true`.  The source may be combined with `features`, `default-features`, `optional`,
+  `ignore-interface-standard`, or, on build dependencies, `targets` (see
+  [Dependency kinds](dependency-kinds.md#build-dependencies)), subject to per-source rules below.  Unknown keys are rejected by
   the manifest parser.
 
 [Foundation ports](foundation-ports.md) have no dependency form of their own: they are published

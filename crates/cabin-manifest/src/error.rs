@@ -174,6 +174,20 @@ pub enum ManifestError {
     )]
     EmptyDependencyFeatureName { name: String },
 
+    #[error(
+        "`targets` is only valid on build dependencies; {section} entry {name:?} declares it",
+        section = kind.manifest_section(),
+    )]
+    TargetsNotSupportedForKind {
+        name: String,
+        kind: cabin_core::DependencyKind,
+    },
+
+    #[error(
+        "build dependency {name:?} declares an empty `targets` list; omit `targets` to build its default targets"
+    )]
+    EmptyDependencyTargets { name: String },
+
     #[error("invalid target cfg expression in `[target.{raw}]`: {source}")]
     InvalidTargetCfg {
         raw: String,

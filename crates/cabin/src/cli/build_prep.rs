@@ -371,9 +371,13 @@ impl PreparedWorkspace {
 /// The build context's plan inputs: tools for the build machine,
 /// with features and flags of their own.
 pub(crate) struct BuildContextPrep {
-    /// Packages a build edge reaches; the plan builds their default
-    /// targets and what those link.
+    /// Packages a build edge reaches; the plan builds their targets
+    /// (see `selected`) and what those link.
     pub roots: Vec<usize>,
+    /// The targets to build when some edge lists `targets`: those
+    /// targets, plus the default targets of each root an edge reaches
+    /// without `targets`.  `None` builds every root's default targets.
+    pub selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
     pub included: BTreeSet<usize>,
     /// Whether `--target` was given: the build machine then has a
     /// toolchain of its own.
@@ -891,7 +895,9 @@ fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep
             inputs.reporter,
         )?
     };
+    let enabled_features = super::enabled_features_by_package(inputs.features);
     let mut roots = BTreeSet::new();
+    let mut edges = Vec::new();
     for (features, platform) in [
         (inputs.target_features, inputs.platform),
         (inputs.features, &inputs.build_machine),
@@ -901,15 +907,18 @@ fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep
                 if edge.kind == cabin_core::DependencyKind::Build && edge.matches_platform(platform)
                 {
                     roots.insert(edge.index);
+                    edges.push((idx, edge));
                 }
             }
         }
     }
+    let selected = cabin_build::select_build_dependency_targets(graph, &edges, &enabled_features)?;
     Ok(BuildContextPrep {
         roots: roots.into_iter().collect(),
+        selected,
         included: inputs.features.included.clone(),
         cross: inputs.cross,
-        enabled_features: super::enabled_features_by_package(inputs.features),
+        enabled_features,
         build_flags,
         standard_flag_conflicts,
         platform: inputs.build_machine,
@@ -1064,7 +1073,7 @@ pub(crate) fn plan_prepared(
     Ok(plan_graph)
 }
 
-/// Plan the build context: the build dependencies' default targets,
+/// Plan the build context: the build dependencies' selected targets,
 /// built for the build machine with its toolchain.
 fn plan_build_context(
     prepared: &PreparedWorkspace,
@@ -1087,7 +1096,7 @@ fn plan_build_context(
         build_dir: prepared.build_dir.clone(),
         platform: context.platform.clone(),
         profile: prepared.profile.clone(),
-        selected: None,
+        selected: context.selected.clone(),
         selected_packages: Some(&context.roots),
         compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(

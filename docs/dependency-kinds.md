@@ -87,8 +87,9 @@ A build dependency is a tool for the build machine, such as a code generator.  C
 package in the **build context**, apart from the packages it links for the platform it builds for
 (the **target context**):
 
-- The build dependency's default targets (libraries and executables) and the packages they link
-  are built for the build machine, under `<build-dir>/<profile>/build-machine/packages/<pkg>/`.
+- The build dependency's default targets (libraries and executables), or the targets its entry
+  lists in `targets`, and the packages they link are built for the build machine, under
+  `<build-dir>/<profile>/build-machine/packages/<pkg>/`.
   A package both contexts use is built twice, once per context, and the two never share objects.
 - Features unify per package within a context, never across: an edge in one context cannot turn on
   a feature of the other context's copy.
@@ -100,6 +101,22 @@ package in the **build context**, apart from the packages it links for the platf
   (`CFLAGS` and friends).  With `--target`, it uses the build machine's own toolchain, chosen by
   `HOST_CC`, `HOST_CXX`, and `HOST_AR`, and no environment flags.  See
   [toolchains](toolchains.md#building-for-another-platform).
+
+A build-dependency entry may name the targets to build with `targets`:
+
+```toml
+[build-dependencies]
+gen = { path = "../gen", targets = ["gen"] }
+```
+
+The build machine then builds the listed targets, and the libraries a listed executable links,
+instead of the dependency's other targets.  Each name must be a library, header-only, or executable target of that dependency;
+an unknown name, a test or example target, or a target whose `required-features` the build context
+leaves off is an error.  When several edges reach one dependency, the build machine builds every
+listed target, plus the default targets if any edge omits `targets`.  A member's
+`{ workspace = true }` entry may add `targets`.  `targets` is rejected on `[dependencies]` and
+`[dev-dependencies]`, and an empty list is an error.  `cabin metadata` reports the list as the
+dependency's `targets`.
 
 `cabin build`, `run`, and `test` build build dependencies but run nothing: a build step that runs
 the tool is not part of Cabin yet, so a project runs its generator itself, between builds.  `cabin

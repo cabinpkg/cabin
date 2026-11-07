@@ -2,7 +2,9 @@ use camino::Utf8PathBuf;
 
 use super::target::parse_target_kind;
 use super::*;
-use cabin_core::{DependencyKind, DependencySource, InstructionSet, TargetKind, ValidationError};
+use cabin_core::{
+    DependencyKind, DependencySource, InstructionSet, TargetKind, TargetName, ValidationError,
+};
 
 fn parse_project(input: &str) -> Package {
     parse_manifest_str(input)
@@ -2316,6 +2318,40 @@ fn optional_dependency_is_parsed_with_optional_flag() {
     assert_eq!(dep.kind, DependencyKind::Normal);
     assert!(dep.features.is_empty());
     assert!(dep.default_features);
+}
+
+#[test]
+fn build_dependency_targets_parse_and_are_rejected_elsewhere() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [build-dependencies]
+            gen = { path = "../gen", targets = ["gen", "codegen", "gen"] }
+        "#,
+    );
+    let build = deps_of_kind(&package, DependencyKind::Build);
+    let names: Vec<&str> = build[0].targets.iter().map(TargetName::as_str).collect();
+    assert_eq!(names, ["codegen", "gen"]);
+
+    for section in ["dependencies", "dev-dependencies"] {
+        let err = parse_project_err(&format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[{section}]\ngen = {{ path = \"../gen\", targets = [\"gen\"] }}\n"
+        ));
+        assert!(
+            matches!(err, ManifestError::TargetsNotSupportedForKind { .. }),
+            "{section}: {err:?}"
+        );
+    }
+    let err = parse_project_err(
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build-dependencies]\ngen = { path = \"../gen\", targets = [] }\n",
+    );
+    assert!(
+        matches!(err, ManifestError::EmptyDependencyTargets { .. }),
+        "{err:?}"
+    );
 }
 
 #[test]

@@ -169,6 +169,197 @@ fn build_dependencies_build_for_the_build_machine_with_their_own_features() {
     );
 }
 
+/// `tools` has a helper library, the generator `gen` that links it,
+/// an executable `broken` that does not compile, a feature-gated
+/// executable `gated`, and a test.  `app`'s build-dependency entry on
+/// `tools` lists `targets`.
+fn write_targeted_tools_project(root: &Path, targets: &str) {
+    let root = assert_fs::fixture::ChildPath::new(root);
+    root.child("tools/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "tools"
+version = "0.1.0"
+c-standard = "c11"
+
+[features]
+extra = []
+
+[target.helper]
+type = "library"
+sources = ["src/helper.c"]
+
+[target.gen]
+type = "executable"
+sources = ["src/gen.c"]
+deps = ["helper"]
+
+[target.broken]
+type = "executable"
+sources = ["src/broken.c"]
+
+[target.gated]
+type = "executable"
+sources = ["src/gen.c"]
+deps = ["helper"]
+required-features = ["extra"]
+
+[target.tools_test]
+type = "test"
+sources = ["src/gen.c"]
+deps = ["helper"]
+"#,
+        )
+        .unwrap();
+    root.child("tools/src/helper.c")
+        .write_str("int helper(void) { return 0; }\n")
+        .unwrap();
+    root.child("tools/src/gen.c")
+        .write_str("int helper(void);\nint main(void) { return helper(); }\n")
+        .unwrap();
+    root.child("tools/src/broken.c")
+        .write_str("this is not C\n")
+        .unwrap();
+    root.child("app/cabin.toml")
+        .write_str(&format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ntools = {{ path = \"../tools\", targets = {targets} }}\n\n[target.app]\ntype = \"executable\"\nsources = [\"src/main.c\"]\n"
+        ))
+        .unwrap();
+    root.child("app/src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+}
+
+/// `targets` narrows the build machine to the listed targets and what
+/// they link: `broken` would fail the build if it were built.
+#[test]
+fn build_dependency_targets_select_what_the_build_machine_builds() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_targeted_tools_project(dir.path(), r#"["gen"]"#);
+    let app = dir.path().join("app");
+    cabin().current_dir(&app).arg("build").assert().success();
+    let tools = app.join("build/dev/build-machine/packages/tools");
+    assert!(tools.join(host_exe("gen")).is_file());
+    assert!(tools.join(host_static_lib("helper")).is_file());
+    assert!(!tools.join(host_exe("broken")).exists());
+}
+
+/// `app` reaches `mid` through a normal edge (target context) or a
+/// build edge (build context), and both reach `tools` as a build
+/// dependency: `app` lists `gen`, `mid` lists the C++ tool `gen2` or
+/// omits `targets`.  The build machine builds the union, plus the
+/// default targets when an edge omits `targets`.
+#[test]
+fn build_dependency_targets_union_across_edges() {
+    require_c_and_cxx_build_tools();
+    for (via_build_edge, mid_targets, defaults) in [
+        (false, r#", targets = ["gen2"]"#, false),
+        (false, "", true),
+        (true, r#", targets = ["gen2"]"#, false),
+        (true, "", true),
+    ] {
+        let dir = TempDir::new().unwrap();
+        write_targeted_tools_project(dir.path(), r#"["gen"]"#);
+        let root = assert_fs::fixture::ChildPath::new(dir.path());
+        let tools = std::fs::read_to_string(root.child("tools/cabin.toml").path()).unwrap();
+        root.child("tools/cabin.toml")
+            .write_str(&format!(
+                "{tools}\n[target.gen2]\ntype = \"executable\"\nsources = [\"src/gen2.cc\"]\ncxx-standard = \"c++17\"\n"
+            ))
+            .unwrap();
+        root.child("tools/src/gen2.cc")
+            .write_str("#include <string>\nint main() { return std::string(\"x\").size() == 1 ? 0 : 1; }\n")
+            .unwrap();
+        // The default targets include `broken`: make it build.
+        root.child("tools/src/broken.c")
+            .write_str("int main(void) { return 0; }\n")
+            .unwrap();
+        root.child("mid/cabin.toml")
+            .write_str(&format!(
+                "[package]\nname = \"mid\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[build-dependencies]\ntools = {{ path = \"../tools\"{mid_targets} }}\n\n[target.mid]\ntype = \"library\"\nsources = [\"src/mid.c\"]\n"
+            ))
+            .unwrap();
+        root.child("mid/src/mid.c")
+            .write_str("int mid(void) { return 0; }\n")
+            .unwrap();
+        let app_manifest = std::fs::read_to_string(root.child("app/cabin.toml").path()).unwrap();
+        let app_manifest = if via_build_edge {
+            app_manifest.replace(
+                "[build-dependencies]",
+                "[build-dependencies]\nmid = { path = \"../mid\" }",
+            )
+        } else {
+            app_manifest
+                .replace(
+                    "[build-dependencies]",
+                    "[dependencies]\nmid = { path = \"../mid\" }\n\n[build-dependencies]",
+                )
+                .replace(
+                    "sources = [\"src/main.c\"]",
+                    "sources = [\"src/main.c\"]\ndeps = [\"mid\"]",
+                )
+        };
+        root.child("app/cabin.toml")
+            .write_str(&app_manifest)
+            .unwrap();
+        let app = dir.path().join("app");
+        cabin().current_dir(&app).arg("build").assert().success();
+        let built = app.join("build/dev/build-machine/packages/tools");
+        assert!(built.join(host_exe("gen")).is_file());
+        assert!(built.join(host_exe("gen2")).is_file());
+        assert_eq!(
+            built.join(host_exe("broken")).exists(),
+            defaults,
+            "{via_build_edge} {mid_targets:?}"
+        );
+    }
+}
+
+/// `cabin metadata` reports a build-dependency entry's `targets`.
+#[test]
+fn metadata_reports_build_dependency_targets() {
+    let dir = TempDir::new().unwrap();
+    write_targeted_tools_project(dir.path(), r#"["gen", "helper"]"#);
+    let output = cabin()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let app = value["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "app")
+        .unwrap();
+    assert_eq!(
+        app["dependencies"][0]["targets"],
+        serde_json::json!(["gen", "helper"])
+    );
+}
+
+#[test]
+fn build_dependency_targets_reject_targets_the_build_machine_cannot_build() {
+    require_c_and_cxx_build_tools();
+    for (targets, expected) in [
+        (r#"["nope"]"#, "has no target `nope`"),
+        (r#"["tools_test"]"#, "names the test target `tools_test`"),
+        (r#"["gated"]"#, "requires the features [extra]"),
+    ] {
+        let dir = TempDir::new().unwrap();
+        write_targeted_tools_project(dir.path(), targets);
+        let assertion = cabin()
+            .current_dir(dir.path().join("app"))
+            .arg("build")
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+        assert!(stderr.contains(expected), "{targets}: {stderr}");
+    }
+}
+
 /// A build tool and the target program are separate link/runtime
 /// domains: each may contain a native identity once.
 #[test]

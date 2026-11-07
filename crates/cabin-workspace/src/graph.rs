@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use cabin_core::standard_compatibility::{ConsumerStandards, dependency_attributes};
 use cabin_core::{
     CStandard, CompilerWrapperRequest, Condition, ConditionContext, CxxStandard, DependencyKind,
-    Package, PackageName, PatchManifestSettings, ProfileDefinition, ProfileName, TargetPlatform,
-    ToolchainSettings, resolve_language_standards,
+    Package, PackageName, PatchManifestSettings, ProfileDefinition, ProfileName, TargetName,
+    TargetPlatform, ToolchainSettings, resolve_language_standards,
 };
 
 /// Root-manifest policy settings that apply workspace-wide even
@@ -244,6 +244,8 @@ pub struct DependencyEdge {
     /// `ignore-interface-standard = true`.  Per-edge by design;
     /// inert unless the check runs.
     pub ignore_interface_standard: bool,
+    /// A build edge's `targets` (see [`cabin_core::Dependency::targets`]).
+    pub targets: BTreeSet<TargetName>,
 }
 
 impl DependencyEdge {

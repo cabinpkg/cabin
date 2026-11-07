@@ -97,6 +97,45 @@ pub enum BuildError {
         missing: Vec<String>,
     },
 
+    /// A `[build-dependencies]` entry's `targets` names no target of
+    /// the dependency.  `candidates` are the dependency's library,
+    /// header-only, and executable targets.
+    #[error(
+        "build dependency `{dependency}` of `{dependent}` has no target `{target}` named in `targets`; its targets are `{}`",
+        .candidates.join("`, `")
+    )]
+    UnknownBuildDependencyTarget {
+        dependency: String,
+        dependent: String,
+        target: String,
+        candidates: Vec<String>,
+    },
+
+    /// A `[build-dependencies]` entry's `targets` names a test or
+    /// example target, which the build machine never builds.
+    #[error(
+        "build dependency `{dependency}` of `{dependent}` names the {kind} target `{target}` in `targets`; only library, header-only, and executable targets are built for the build machine"
+    )]
+    BuildDependencyTargetKind {
+        dependency: String,
+        dependent: String,
+        target: String,
+        kind: String,
+    },
+
+    /// A `[build-dependencies]` entry's `targets` names a target whose
+    /// `required-features` the build context leaves off.
+    #[error(
+        "build dependency `{dependency}` of `{dependent}` names `{target}` in `targets`, which requires the features [{}]; add them to `features` on the build-dependency entry",
+        .missing.join(", ")
+    )]
+    BuildDependencyTargetRequiresFeatures {
+        dependency: String,
+        dependent: String,
+        target: String,
+        missing: Vec<String>,
+    },
+
     /// A `deps` entry resolves to a target whose
     /// `required-features` are not all enabled on the providing
     /// package.  The attached [`FeatureGateFix`] names the place

@@ -39,8 +39,8 @@ pub use check::into_check_graph;
 pub use error::{BuildError, FeatureGateFix, PlannedStandardError};
 pub use graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
 pub use planner::{
-    ManifestTargetSelector, PlanRequest, SystemTargetInterface, plan, select_targets_of_kind,
-    selector_required_features_met,
+    ManifestTargetSelector, PlanRequest, SystemTargetInterface, plan,
+    select_build_dependency_targets, select_targets_of_kind, selector_required_features_met,
 };
 pub use standard_compat::{
     ClashingBound, DeclScope, DeclSite, EdgeRequirement, RequirementOrigin, StandardCompatViolation,

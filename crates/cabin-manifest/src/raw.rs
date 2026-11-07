@@ -445,6 +445,11 @@ pub(crate) struct RawDependencyTable {
     /// with `system` (system deps never enter the check).
     #[serde(default, rename = "ignore-interface-standard")]
     pub(crate) ignore_interface_standard: Option<bool>,
+    /// `targets = [...]` on a build dependency: the dependency's
+    /// targets to build for the build machine instead of its default
+    /// targets.
+    #[serde(default)]
+    pub(crate) targets: Option<Vec<String>>,
 }
 
 /// One language-standard field value in `[package]`,
