@@ -146,8 +146,6 @@ mod enforced {
                     confine("fd:200", &[], &[]).unwrap().outcome("fd")
                 );
             }
-            // Stand in for Cabin, with this process's `HOME`.
-            #[cfg(target_os = "linux")]
             "fd" => {
                 // SAFETY: only queries the descriptor.
                 let open = unsafe { libc::fcntl(arg.parse().unwrap(), libc::F_GETFD) } != -1;
