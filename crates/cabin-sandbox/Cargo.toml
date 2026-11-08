@@ -1,0 +1,26 @@
+[package]
+name = "cabinpkg-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Operating-system confinement for programs Cabin runs on a package's behalf"
+
+[lib]
+name = "cabin_sandbox"
+
+[dependencies]
+thiserror = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4.7"
+
+[dev-dependencies]
+assert_fs = { workspace = true }
+
+[lints]
+workspace = true
