@@ -189,6 +189,8 @@ const NATIVE_ARCH: u32 = 0xC000_00B7;
 #[cfg(target_arch = "x86_64")]
 const X32_SYSCALL_BIT: u32 = 0x4000_0000;
 
+/// Built by hand: seccompiler checks the arch value only, so x32 calls
+/// would pass its deny rules, and it takes one action per filter.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // BPF fields are fixed-width
 fn seccomp_filter() -> Vec<libc::sock_filter> {
     let errno = libc::SECCOMP_RET_ERRNO | libc::EPERM as u32;
