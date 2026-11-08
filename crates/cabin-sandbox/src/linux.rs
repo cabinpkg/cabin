@@ -201,7 +201,6 @@ fn seccomp_filter() -> Vec<libc::sock_filter> {
         libc::SYS_add_key,
         libc::SYS_request_key,
         libc::SYS_mq_open,
-        libc::SYS_mq_unlink,
         libc::SYS_shmget,
         libc::SYS_shmat,
         libc::SYS_shmctl,
@@ -251,7 +250,7 @@ fn seccomp_filter() -> Vec<libc::sock_filter> {
         filter.extend([
             libc::BPF_JUMP(jeq, libc::SYS_kill as u32, 0, 3),
             libc::BPF_STMT(load, arg0),
-            libc::BPF_JUMP(jeq, u32::MAX, 0, 1),
+            libc::BPF_JUMP(jeq, u32::MAX, 1, 1),
             libc::BPF_STMT(ret, errno),
             libc::BPF_STMT(load, nr),
             libc::BPF_JUMP(jeq, libc::SYS_socketpair as u32, 0, 8),

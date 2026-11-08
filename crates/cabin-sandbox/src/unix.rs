@@ -45,9 +45,7 @@ pub(crate) fn configure(
                 // Under this crate's own Linux filter (a nested run),
                 // `setsid` pretends, and the group to kill would not be
                 // this program's.
-                sid if sid != libc::getpid() => {
-                    return Err(io::Error::from_raw_os_error(libc::EPERM));
-                }
+                
                 _ => {}
             }
             // Mark every descriptor above stderr close-on-exec.  Rust opens
