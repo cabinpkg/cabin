@@ -22,7 +22,7 @@ mod enforced {
     use cabin_sandbox::{Confinement, SandboxError};
 
     /// The action the confined copy of this binary performs.
-    const PROBE: &str = "CABIN_SANDBOX_TEST_PROBE";
+    const PROBE: &str = "SANDBOX_TEST_PROBE";
     const PROBE_ARGS: [&str; 4] = [
         "--exact",
         "enforced::probe",
