@@ -78,14 +78,14 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         program: program.clone(),
         source,
     })?;
-    // The system grants leave out the user's home should it lie under one
-    // (`/home` linked to `/usr/home`); the caller's grants are kept.
-    let home = std::env::home_dir().and_then(|home| home.canonicalize().ok());
-    let system = without_hidden(
+    let read = read_grants(
         resolved(SYSTEM_READ.iter().map(PathBuf::from).collect()),
-        &[&hidden[..], home.as_slice()].concat(),
+        resolved(read),
+        &hidden,
+        std::env::home_dir()
+            .and_then(|home| home.canonicalize().ok())
+            .as_slice(),
     );
-    let read = [system, without_hidden(resolved(read), &hidden)].concat();
     let ruleset = ruleset(&read, &write).map_err(|err| {
         SandboxError::Unavailable(format!(
             "Landlock ABI 3 (Linux 6.2) or newer is required: {err}"
@@ -132,6 +132,19 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         });
     }
     unix::run(command, &program)
+}
+
+/// The system grants and the caller's, without the hidden paths.  The
+/// system grants also leave out the user's home should it lie under one
+/// (`/home` linked to `/usr/home`); the caller's grants are kept.
+fn read_grants(
+    system: Vec<PathBuf>,
+    read: Vec<PathBuf>,
+    hidden: &[PathBuf],
+    home: &[PathBuf],
+) -> Vec<PathBuf> {
+    let system = without_hidden(system, &[hidden, home].concat());
+    [system, without_hidden(read, hidden)].concat()
 }
 
 /// `read` with each grant that contains a hidden path replaced by its
@@ -270,5 +283,33 @@ fn seccomp_filter() -> Vec<libc::sock_filter> {
             libc::BPF_STMT(ret, libc::SECCOMP_RET_ALLOW),
         ]);
         filter
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_fs::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn a_home_under_a_system_directory_is_not_granted() {
+        let dir = TempDir::new().unwrap();
+        let system = dir.path();
+        let home = system.join("home/user");
+        std::fs::create_dir_all(home.join("package")).unwrap();
+        std::fs::create_dir(system.join("share")).unwrap();
+        let granted = read_grants(
+            vec![system.to_path_buf()],
+            vec![home.join("package")],
+            &[],
+            std::slice::from_ref(&home),
+        );
+        assert!(granted.contains(&system.join("share")), "{granted:?}");
+        assert!(granted.contains(&home.join("package")), "{granted:?}");
+        assert!(
+            !granted.iter().any(|path| home.starts_with(path)),
+            "{granted:?}"
+        );
     }
 }

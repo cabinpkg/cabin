@@ -148,10 +148,6 @@ mod enforced {
             }
             // Stand in for Cabin, with this process's `HOME`.
             #[cfg(target_os = "linux")]
-            "home-read" => {
-                let probed = confine(&format!("read:{arg}"), &[], &[]).unwrap();
-                println!("home-read: {}", probed.outcome("read"));
-            }
             "fd" => {
                 // SAFETY: only queries the descriptor.
                 let open = unsafe { libc::fcntl(arg.parse().unwrap(), libc::F_GETFD) } != -1;
@@ -578,35 +574,6 @@ mod enforced {
             .unwrap();
             assert_eq!(probed.outcome("read"), "PermissionDenied", "{denied:?}");
         }
-    }
-
-    /// The system directories are granted, but not a home inside one.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn a_home_under_a_system_directory_stays_unreadable() {
-        // Any readable file (not a symlink, which could lead elsewhere) one
-        // directory down `/usr/share`, if there is one.
-        let Some(file) = std::fs::read_dir("/usr/share")
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|dir| std::fs::read_dir(dir.path()).ok())
-            .flatten()
-            .flatten()
-            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-            .map(|entry| entry.path())
-            .find(|path| File::open(path).is_ok())
-        else {
-            return;
-        };
-        let read = |home: &Path| {
-            let action = format!("home-read:{}", arg(&file));
-            let output = probe_command(&action).env("HOME", home).output().unwrap();
-            String::from_utf8_lossy(&output.stdout).into_owned()
-        };
-        assert!(read(Path::new("/nonexistent")).contains("home-read: ok"));
-        let denied = read(file.parent().unwrap());
-        assert!(denied.contains("home-read: PermissionDenied"), "{denied}");
     }
 
     #[test]
