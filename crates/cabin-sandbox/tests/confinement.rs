@@ -389,17 +389,17 @@ mod enforced {
 
     #[test]
     fn reads_are_limited_to_the_granted_paths() {
-        let secret_dir = TempDir::new().unwrap();
-        let secret = secret_dir.path().join("secret");
-        std::fs::write(&secret, "token").unwrap();
-        let read = format!("read:{}", arg(&secret));
+        let forbidden_dir = TempDir::new().unwrap();
+        let forbidden = forbidden_dir.path().join("secret");
+        std::fs::write(&forbidden, "token").unwrap();
+        let read = format!("read:{}", arg(&forbidden));
 
         assert_eq!(
             confine(&read, &[], &[]).unwrap().outcome("read"),
             "PermissionDenied"
         );
         assert_eq!(
-            confine(&read, &[secret_dir.path()], &[])
+            confine(&read, &[forbidden_dir.path()], &[])
                 .unwrap()
                 .outcome("read"),
             "ok"
@@ -490,10 +490,10 @@ mod enforced {
     fn a_hidden_path_created_later_stays_hidden() {
         let package = TempDir::new().unwrap();
         let private = package.path().join("private");
-        let secret = private.join("secret");
-        let outcome = read_created_later(package.path(), &secret, &secret, || {
+        let forbidden = private.join("secret");
+        let outcome = read_created_later(package.path(), &forbidden, &forbidden, || {
             std::fs::create_dir(&private).unwrap();
-            std::fs::write(&secret, "token").unwrap();
+            std::fs::write(&forbidden, "token").unwrap();
         });
         assert_eq!(outcome, "PermissionDenied");
     }
@@ -695,10 +695,10 @@ mod enforced {
     #[test]
     fn descriptors_cabin_inherited_are_not_passed_on() {
         use std::os::fd::AsRawFd as _;
-        let secret_dir = TempDir::new().unwrap();
-        let secret = secret_dir.path().join("secret");
-        std::fs::write(&secret, "token").unwrap();
-        let file = File::open(&secret).unwrap();
+        let forbidden_dir = TempDir::new().unwrap();
+        let forbidden = forbidden_dir.path().join("secret");
+        std::fs::write(&forbidden, "token").unwrap();
+        let file = File::open(&forbidden).unwrap();
         // As if Cabin's parent had left it open for Cabin.
         // SAFETY: plain system call on a descriptor this test owns.
         assert_eq!(
@@ -712,7 +712,7 @@ mod enforced {
 
         // A descriptor above the current soft limit, as when a parent
         // lowered the limit after opening it.
-        let high = probe_command(&format!("high-fd:{}", arg(&secret)))
+        let high = probe_command(&format!("high-fd:{}", arg(&forbidden)))
             .output()
             .unwrap();
         assert!(
@@ -723,10 +723,10 @@ mod enforced {
 
     #[test]
     fn child_processes_inherit_the_confinement() {
-        let secret_dir = TempDir::new().unwrap();
-        let secret = secret_dir.path().join("secret");
-        std::fs::write(&secret, "token").unwrap();
-        let probed = confine(&format!("child:read:{}", arg(&secret)), &[], &[]).unwrap();
+        let forbidden_dir = TempDir::new().unwrap();
+        let forbidden = forbidden_dir.path().join("secret");
+        std::fs::write(&forbidden, "token").unwrap();
+        let probed = confine(&format!("child:read:{}", arg(&forbidden)), &[], &[]).unwrap();
         assert_eq!(probed.outcome("read"), "PermissionDenied");
     }
 
@@ -909,9 +909,9 @@ mod enforced {
     fn shared_temporary_files_are_not_readable() {
         for dir in ["/private/tmp", "/private/var/tmp"] {
             let shared = TempDir::new_in(dir).unwrap();
-            let secret = shared.path().join("secret");
-            std::fs::write(&secret, "token").unwrap();
-            let probed = confine(&format!("read:{}", arg(&secret)), &[], &[]).unwrap();
+            let forbidden = shared.path().join("secret");
+            std::fs::write(&forbidden, "token").unwrap();
+            let probed = confine(&format!("read:{}", arg(&forbidden)), &[], &[]).unwrap();
             assert_eq!(probed.outcome("read"), "PermissionDenied", "{dir}");
         }
     }
