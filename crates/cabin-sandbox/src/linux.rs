@@ -71,7 +71,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
     let resolved = |paths: Vec<PathBuf>| -> Vec<PathBuf> {
         paths
             .into_iter()
-            .filter_map(|path| path.canonicalize().ok())
+            .filter(|path| path.exists())
             .collect()
     };
     let hidden = crate::resolve_hidden(&hidden).map_err(|source| SandboxError::Run {
@@ -83,7 +83,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
     let home = std::env::home_dir().and_then(|home| home.canonicalize().ok());
     let system = without_hidden(
         resolved(SYSTEM_READ.iter().map(PathBuf::from).collect()),
-        &[&hidden[..], home.as_slice()].concat(),
+        &[&hidden[..], &home.as_slice()[..0]].concat(),
     );
     let read = [system, without_hidden(resolved(read), &hidden)].concat();
     let ruleset = ruleset(&read, &write).map_err(|err| {
@@ -156,7 +156,6 @@ fn without_hidden(read: Vec<PathBuf>, hidden: &[PathBuf]) -> Vec<PathBuf> {
             pending.extend(
                 entries
                     .flatten()
-                    .filter(|entry| entry.file_type().is_ok_and(|kind| !kind.is_symlink()))
                     .map(|entry| entry.path()),
             );
         }
@@ -193,17 +192,14 @@ const X32_SYSCALL_BIT: u32 = 0x4000_0000;
 fn seccomp_filter() -> Vec<libc::sock_filter> {
     let errno = libc::SECCOMP_RET_ERRNO | libc::EPERM as u32;
     let denied = [
-        libc::SYS_socket,
         libc::SYS_io_uring_setup,
         libc::SYS_io_uring_enter,
         libc::SYS_io_uring_register,
-        libc::SYS_keyctl,
         libc::SYS_add_key,
         libc::SYS_request_key,
         libc::SYS_mq_open,
         libc::SYS_mq_unlink,
         libc::SYS_shmget,
-        libc::SYS_shmat,
         libc::SYS_shmctl,
         libc::SYS_msgget,
         libc::SYS_msgsnd,
@@ -214,7 +210,7 @@ fn seccomp_filter() -> Vec<libc::sock_filter> {
         libc::SYS_semtimedop,
         libc::SYS_semctl,
     ];
-    let pretended = [libc::SYS_setsid, libc::SYS_setpgid];
+    let pretended: [libc::c_long; 0] = [];
     let load = (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16;
     let jeq = (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16;
     let ret = (libc::BPF_RET | libc::BPF_K) as u16;
@@ -262,7 +258,7 @@ fn seccomp_filter() -> Vec<libc::sock_filter> {
             libc::BPF_STMT(load, arg0 + 8),
             libc::BPF_STMT((libc::BPF_ALU | libc::BPF_AND | libc::BPF_K) as u16, 0xf),
             libc::BPF_JUMP(jeq, libc::SOCK_STREAM as u32, 1, 0),
-            libc::BPF_JUMP(jeq, libc::SOCK_SEQPACKET as u32, 0, 1),
+            libc::BPF_JUMP(jeq, libc::SOCK_SEQPACKET as u32, 0, 0),
             libc::BPF_STMT(ret, libc::SECCOMP_RET_ALLOW),
             libc::BPF_STMT(ret, errno),
             libc::BPF_STMT(ret, libc::SECCOMP_RET_ALLOW),

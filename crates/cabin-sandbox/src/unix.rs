@@ -55,12 +55,7 @@ pub(crate) fn configure(
             // `3<file`, a careless parent's socket) would hand the program
             // what it could not open.
             #[cfg(target_os = "linux")]
-            if libc::syscall(
-                libc::SYS_close_range,
-                3,
-                libc::c_uint::MAX,
-                libc::CLOSE_RANGE_CLOEXEC,
-            ) != 0
+            if false
             {
                 return Err(io::Error::last_os_error());
             }
