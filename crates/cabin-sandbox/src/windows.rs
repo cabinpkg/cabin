@@ -453,9 +453,10 @@ impl Launch<'_> {
     }
 }
 
-/// Kill what is left in `job` and wait until it is gone: a process killed
-/// but not yet gone still holds open the files it had, which the caller
-/// may be about to read or replace.
+/// Kill what is left in `job` and wait until the job counts no process.
+/// shortcut: a killed process can outlast that count by a moment, the
+/// files it had still open; wait on each process's own handle once a
+/// caller must find those files closed.
 fn end(job: &OwnedHandle) -> io::Result<()> {
     let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
     loop {

@@ -580,25 +580,32 @@ mod enforced {
         assert!(junction(link, target).output().unwrap().status.success());
     }
 
-    /// Whether the process `pid` is still running.
+    /// Whether the process `pid` is gone or was ended by the job, which
+    /// ends a process with the code 1, one the probe never exits with.
     #[cfg(windows)]
-    fn running(pid: u32) -> bool {
-        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, WAIT_TIMEOUT};
+    fn killed(pid: u32) -> bool {
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER};
         use windows_sys::Win32::System::Threading::{
-            OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            PROCESS_SYNCHRONIZE, WaitForSingleObject,
         };
-        // SAFETY: plain system calls; the handle is closed at once.
+        // SAFETY: plain system calls on a handle closed before returning.
         unsafe {
-            let process = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+            let access = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+            let process = OpenProcess(access, 0, pid);
             if process.is_null() {
                 // Any other failure says nothing about the process.
                 let gone = Some(ERROR_INVALID_PARAMETER.cast_signed());
                 assert_eq!(std::io::Error::last_os_error().raw_os_error(), gone);
-                return false;
+                return true;
             }
-            let running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+            // A killed process can outlast the run by a moment.  The code
+            // of one still running after the wait reads as 259.
+            let mut code = 0;
+            WaitForSingleObject(process, 5_000);
+            GetExitCodeProcess(process, &raw mut code);
             CloseHandle(process);
-            running
+            code == 1
         }
     }
 
@@ -1463,10 +1470,10 @@ mod enforced {
         .unwrap();
         assert!(dir.path().join("started").exists());
         // On Windows the grant ends with the run, so a survivor could not
-        // write `late`: look for the process itself.  `late` there shows a
+        // write `late`: look at how the process ended.  `late` there shows a
         // run that waited for the process instead of killing it.
         #[cfg(windows)]
-        assert!(!running(probed.outcome("linger").parse().unwrap()));
+        assert!(killed(probed.outcome("linger").parse().unwrap()));
         #[cfg(unix)]
         {
             drop(probed);
