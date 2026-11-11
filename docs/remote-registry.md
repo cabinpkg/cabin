@@ -426,6 +426,11 @@ A `new-revision` query parameter accepts only the value `true` (any other value 
 typo can never silently drop the opt-in); other query parameters are ignored.  It is the opt-in
 described under **Revisions** below.
 
+Cabin names each upload with a `Cabin-Upload-Id` request header: 32 lower-case hex digits,
+random for each package it publishes and the same on every attempt of that upload, so a registry
+can count a retried upload once.  The header is not a credential.  The hosted registry does not
+read it yet.
+
 Server-side behavior is part of the contract:
 
 - **Validation.**  The server validates the framing (the whole body is capped at 64 MiB and the
@@ -551,7 +556,8 @@ Client-side behavior:
   attempts) rather than failing the batch - a serial batch can outrun the user's publish bucket,
   and every attempt charges it; a single-package publish keeps its fail-fast `429` unless
   `--retry-rate-limits` opts it into the same pacing (automation whose reruns hit the same
-  drained bucket).  Later batch members see the versions published earlier in the same
+  drained bucket).  Only a rate limit is waited out: a `429` whose code names a spent upload
+  allowance (`daily_upload_limit_exceeded`, `pending_limit_exceeded`) fails at once.  Later batch members see the versions published earlier in the same
   invocation as part of their lint baseline, exactly as sequential publishes would.  With
   `--format json` each package's report is one compact JSON object on its own line (JSON
   Lines), in publish order - the per-receipt streaming that keeps a mid-batch failure from
@@ -1035,7 +1041,7 @@ a repeated `DELETE` idempotent - the same contract as the
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; a revival that lost a race or whose timestamp is not later than the rejected revision's; or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
-| `429` | A rate limit: the publish token bucket is empty, or the per-client admission budget of the [trusted-publishing](#trusted-publishing) exchange, the verdict route, and the [login-session](#login-sessions) mint is spent (both code `rate_limited`); or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets. |
+| `429` | A rate limit: the publish token bucket is empty, or the per-client admission budget of the [trusted-publishing](#trusted-publishing) exchange, the verdict route, and the [login-session](#login-sessions) mint is spent (both code `rate_limited`); or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets.  A publish may also be refused because an upload allowance is spent (codes `daily_upload_limit_exceeded`, `pending_limit_exceeded`); the hosted registry does not send those yet. |
 | `503` | The registry is protecting its own infrastructure budget (the hosted service blocks itself before provider limits or real spend are reached): its service-wide breaker tripped, or its per-request cost governor refused - or could not be reached - for the specific resource the request needed.  Writes refuse first; archive downloads refuse when the registry's read allowance for fresh storage reads is exhausted (recently downloaded archives can keep serving from the registry's edge cache through that), or service-wide when the registry's operator has paused reads outright.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`.  The refusal is operator-side and temporary, so it is a `503` rather than a `402`: nothing the caller can pay clears it, and `503` has explicit `Retry-After` semantics where `402` has none. |
 
 ## Error envelope
@@ -1059,6 +1065,8 @@ before.  The defined codes:
 | --- | --- | --- |
 | `rate_limited` | `429` | The publish token bucket is empty, or the per-client admission budget of the exchange, verdict, and login-session mint routes is spent; `Retry-After` says when it refills. |
 | `read_rate_limited` | `429` | The caller's daily allowance of registry-side archive reads is spent; `Retry-After` reaches the next UTC day.  Cached downloads are unaffected. |
+| `daily_upload_limit_exceeded` | `429` | The day's upload allowance is spent.  The hosted registry does not send this code yet. |
+| `pending_limit_exceeded` | `429` | Too many of the caller's uploads await verification.  The hosted registry does not send this code yet. |
 | `archive_too_large` | `413` | The archive exceeds the per-archive size limit. |
 | `quota_storage` | `403` | The publish would exceed the total stored-bytes quota. |
 | `quota_packages_daily` | `403` | The daily new-package quota is exhausted. |
@@ -1081,5 +1089,6 @@ registry's infrastructure budget, and the `429` reports the rate limit - each ec
 archive as too large, appending the server's `detail`; and a `403` whose `code` starts with
 `quota_` surfaces the server's `detail` verbatim - the detail itself embeds the registry's
 usage-dashboard URL (`https://cabinpkg.com/dashboard` on the hosted registry), so the client
-never derives a web URL from the index origin.  Unknown codes fall back to the plain detail
-string.
+never derives a web URL from the index origin.  A `429` coded `daily_upload_limit_exceeded` or
+`pending_limit_exceeded` surfaces the server's `detail` verbatim too, and is not a rate limit to
+wait out.  Unknown codes fall back to the plain detail string.
