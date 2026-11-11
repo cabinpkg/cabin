@@ -129,6 +129,7 @@ fn published_member_with_workspace_dep_resolves_at_foreign_consumer() {
             r#"[package]
 name = "acme/core"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.core]
@@ -167,6 +168,7 @@ include-dirs = ["include"]
             r#"[package]
 name = "acme/app"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]

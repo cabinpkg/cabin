@@ -521,32 +521,21 @@ Launch contains **no infrastructure work** - the Worker, domain, database,
 buckets, crons, secrets, WAF rule, and verifier are already the production
 ones. Launch is a data and policy event, in order:
 
-1. Require license metadata on publish - a code change, deployed
-   before the final wipe. During the private alpha `cabin publish` and
-   the registry accept a package whose manifest declares no
-   `[package] license`; a launched registry must not. The change makes
-   `cabin publish` (hosted and file registries, `--dry-run` included)
-   refuse such a manifest, while local commands keep accepting it, and
-   makes publish validation require `license` (`src/publish.rs`
-   `VersionMetadata`), so the registry refuses what any other client
-   sends. Before it lands, every port that will be republished declares
-   a license (`cabinpkg/cabin-ports`); one that does not cannot be
-   republished.
-2. Final wipe: `cargo registry-wipe` (the guard still passes -
+1. Final wipe: `cargo registry-wipe` (the guard still passes -
    `meta.launched` is `'false'`), so the registry starts empty of
    pre-launch test data.
-3. Require license metadata on read - a second code change, after the
-   wipe and before the flag flips, so strict readers never meet an
-   entry published without a license. Index readers still accept a
-   version entry without `license` (`crates/cabin-index` `RawVersion`);
-   make the field mandatory there and remove the private-alpha
-   allowances from `docs/manifest.md`, `docs/package-format.md`,
-   `docs/package-index.md`, and `docs/remote-registry.md`.
-   `cabin vendor` must then write a superseded revision's own license
-   instead of dropping the field, and a file registry written by an
-   older Cabin is republished, not read. Each lenient site carries a
-   `Private-alpha leniency` comment.
-4. Flip the launch flag - once, by hand:
+2. Require license metadata on read - a code change, after the wipe
+   and before the flag flips. `cabin publish` and publish validation
+   already refuse a package without a license, so after the wipe no
+   entry lacks one and strict readers never meet a legacy entry. Index
+   readers still accept a version entry without `license`
+   (`crates/cabin-index` `RawVersion`, marked `Private-alpha
+   leniency`); make the field mandatory there and remove the
+   private-alpha allowance from `docs/manifest.md` and
+   `docs/package-index.md`. `cabin vendor` must then write a superseded
+   revision's own license instead of dropping the field, and a file
+   registry written by an older Cabin is republished, not read.
+3. Flip the launch flag - once, by hand:
 
    ```sh
    node_modules/.bin/wrangler d1 execute DB --remote --command \
@@ -558,17 +547,17 @@ ones. Launch is a data and policy event, in order:
    lives in `meta`, so restoring the database to a point before launch
    would reset it - re-running this `UPDATE` is part of any such
    restore (see "Disaster recovery").
-5. Remove the private-alpha labels from the website (the `private α`
+4. Remove the private-alpha labels from the website (the `private α`
    badges on the sign-in affordance and the account-page shell, and the
    private-alpha copy on `/login/denied` - see `website/`).
-6. Decide and apply the access policy: expand `ALLOWED_GITHUB_IDS` or
+5. Decide and apply the access policy: expand `ALLOWED_GITHUB_IDS` or
    open sign-up. During the private alpha the allowlist also gates every
    read except `config.json`, plus the stats, checked on each Bearer use
    (`src/glue/mod.rs` `authenticate`), and `config.json` declares
    `auth-required: true` (`src/documents.rs`): reopening public reads is
    a code change, not a data flip (`docs/remote-registry.md`, "Read
    routes").
-7. Re-enable the `registry-verify` workflow if the final wipe disabled
+6. Re-enable the `registry-verify` workflow if the final wipe disabled
    it, and dispatch it once (see "Verification pipeline"); it carries no
    long-lived token to re-issue - each run mints its own through the
    trusted-publishing exchange.

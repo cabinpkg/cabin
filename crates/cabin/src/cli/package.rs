@@ -362,12 +362,13 @@ fn publish_batch_to_remote_registry(
             None,
             &package.workspace_dep_requirements,
         )?;
-        // Registry packages are always `<scope>/<name>`, and so are
-        // the keys of their registry dependency maps: fail a bare
-        // name here, before credentials, index reads, or the API
-        // call.
+        // Registry packages are always `<scope>/<name>`, so are the
+        // keys of their registry dependency maps, and each declares
+        // a license: fail a bare name or a missing license here,
+        // before credentials, index reads, or the API call.
         cabin_publish::require_scoped_name(&staged.name, &package.manifest_path)?;
         cabin_publish::require_scoped_dependency_names(&staged.metadata, &package.manifest_path)?;
+        cabin_publish::require_license(&staged.metadata, &package.manifest_path)?;
         all_staged.push(staged);
     }
 

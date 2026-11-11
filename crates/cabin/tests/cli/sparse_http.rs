@@ -83,6 +83,7 @@ fn publish_scoped_fmt_to_registry(dir: &Path) -> PathBuf {
             r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.fmt]

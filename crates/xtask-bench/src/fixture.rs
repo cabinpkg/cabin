@@ -381,6 +381,7 @@ fn write_registry_package(
         r#"[package]
 name = "{}"
 version = "1.{minor}.0"
+license = "MIT"
 {}"#,
         family.name(index),
         lang.standards()

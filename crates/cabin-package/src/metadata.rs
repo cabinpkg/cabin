@@ -120,10 +120,9 @@ pub struct PackageMetadata {
     /// as written, so registry consumers can read a version's
     /// declared license without downloading its archive.
     ///
-    /// Private-alpha leniency: omitted when the manifest declares
-    /// none.  A local package may always omit it, but publishing one
-    /// without it is refused from the public launch on
-    /// (`registry/docs/runbook.md`, "Launch checklist").
+    /// Omitted when the manifest declares none, which only local
+    /// staging (`cabin package`) allows: every publish workflow
+    /// refuses a package without one (`cabin_publish::require_license`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<cabin_core::LicenseExpression>,
     pub yanked: bool,

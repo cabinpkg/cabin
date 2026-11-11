@@ -114,10 +114,11 @@ current identifiers.  An identifier added to the SPDX lists after a Cabin releas
 release, which rejects a manifest declaring it, a dependency's included, until Cabin is upgraded.
 Cabin keeps the expression exactly as written and never normalizes it.
 
-A package that is only built locally may omit the field.  A published package must declare it.
-During the hosted registry's private alpha, `cabin publish` and the registry still accept a package
-without a license; before the public launch both refuse one, and every version entry in a registry
-index carries a license.
+A package that is only built locally may omit the field.  A published package must declare it:
+`cabin publish`, including `--dry-run`, refuses a manifest without one before any registry work,
+and the hosted registry refuses an upload without one.  A version entry published before this
+requirement may lack a license; index readers still load such entries during the hosted registry's
+private alpha and require the field before the public launch.
 
 The field is a declaration, and Cabin treats it as metadata only:
 
@@ -141,7 +142,8 @@ Tools can read the declaration without unpacking a source archive:
   is how to read the license of a registry dependency, on a file registry and on the hosted
   registry alike.
 
-In each place the key is absent when the package declares no license.
+`cabin metadata` and `cabin package` omit the key for a package that declares no license, and so
+does an index entry published before a license was required.
 
 ### `[package.upstream]`
 

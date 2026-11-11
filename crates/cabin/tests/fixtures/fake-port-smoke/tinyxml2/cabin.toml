@@ -6,6 +6,7 @@
 [package]
 name = "cabin-ports/tinyxml2"
 version = "11.0.0"
+license = "Zlib"
 
 [target.tinyxml2]
 type = "library"

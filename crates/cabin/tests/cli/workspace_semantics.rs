@@ -491,6 +491,7 @@ fn publish_in_workspace_requires_explicit_selection() {
             r#"[package]
 name = "acme/alpha"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.alpha]

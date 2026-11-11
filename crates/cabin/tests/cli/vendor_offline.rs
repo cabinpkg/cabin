@@ -472,6 +472,7 @@ fn vendor_reads_the_configured_packages_directory() {
             r#"[package]
 name = "acme/greet"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.greet]

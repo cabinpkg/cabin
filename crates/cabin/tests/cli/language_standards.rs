@@ -375,6 +375,7 @@ fn published_index_preserves_language_standards() {
             r#"[package]
 name = "acme/fmt"
 version = "10.2.1"
+license = "MIT"
 cxx-standard = "c++20"
 interface-cxx-standard = "c++17"
 
@@ -422,6 +423,7 @@ fn published_index_preserves_bounded_interface_requirements() {
             r#"[package]
 name = "acme/legacy"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++14"
 interface-cxx-standard = { min = "c++11", max = "c++14" }
 
@@ -480,6 +482,7 @@ fn registry_package_standards_apply_at_the_consumer() {
             r#"[package]
 name = "acme/fmt"
 version = "10.2.1"
+license = "MIT"
 cxx-standard = "c++14"
 
 [target.fmt]
@@ -1381,6 +1384,7 @@ fn registry_target_level_standard_applies_at_the_consumer() {
             r#"[package]
 name = "acme/fmt"
 version = "10.2.1"
+license = "MIT"
 
 [target.fmt]
 type = "library"
