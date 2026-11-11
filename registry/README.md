@@ -119,10 +119,6 @@ installs: every `wrangler dev` and `wrangler deploy` runs
 `worker-build --release` from `PATH` (except with `CABIN_WORKER_PREBUILT`
 set, which CI's deploy uses).
 
-Before its servers start, the smoke also restores its local D1 export into a
-scratch database and requires the same schema and rows: the backup cron leg
-proves the stored backup is that export, and this proves it restores.
-
 `cargo gen-fixtures <dir>`, run from the repository root (the alias names a
 root-workspace package), builds the in-tree `cabin` binary and
 packages real archive + canonical-metadata pairs; the `#[ignore]`d

@@ -2,7 +2,7 @@
 //! authenticated operator and two live buckets, which no test has.
 
 use xtask_registry_admin::backfill::is_checksum;
-use xtask_registry_admin::{Nullish, column_lines};
+use xtask_registry_admin::column_lines;
 
 /// The backfill refuses any non-canonical checksum: the value becomes
 /// an R2 key it writes to, so an unexpected answer must stop the run
@@ -34,13 +34,8 @@ fn the_backfill_takes_only_lower_case_sha256() {
 /// run - are the behavior.
 #[test]
 fn the_enumeration_splits_the_rendered_rows_into_lines() {
-    let lines = |json: &str| {
-        column_lines(
-            &xtask_registry_admin::results(json).unwrap(),
-            "checksum",
-            Nullish::Printed,
-        )
-    };
+    let lines =
+        |json: &str| column_lines(&xtask_registry_admin::results(json).unwrap(), "checksum");
 
     assert_eq!(
         lines(r#"[{"results":[{"checksum":"a"},{"checksum":"b"}],"success":true}]"#),

@@ -73,9 +73,6 @@ enum Command {
         #[command(flatten)]
         target: Target,
     },
-    /// Restore the latest dump into a scratch database and compare it
-    /// against the live one (`cargo registry-restore-drill`).
-    RestoreDrill,
     /// Inspect pending versions and PATCH the verdicts
     /// (`cargo registry-verify`).
     Verify {
@@ -117,7 +114,6 @@ fn run(cli: Cli) -> Result<()> {
         Command::Governor { rest } => governor(&rest),
         Command::LaunchGuard { target } => xtask_registry_admin::launch_guard::run(target.mode()),
         Command::Migrate { target } => xtask_registry_admin::migrate::run(target.mode()),
-        Command::RestoreDrill => xtask_registry_admin::restore_drill::run(),
         Command::Verify { check_oidc } => {
             // GitHub renders a boolean dispatch input as the string
             // "true"/"false", so only the exact "true" opts in.

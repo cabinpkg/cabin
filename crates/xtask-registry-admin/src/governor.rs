@@ -687,7 +687,7 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
                  re-ledgers it"
             ),
             Pool::Dump => eprintln!(
-                "the nightly dump job re-commits its objects; audit with \
+                "nothing in the service writes dump keys; audit with \
                  cargo registry-backup-audit from the repository root"
             ),
         }
@@ -870,8 +870,7 @@ mod tests {
             }
         }
         assert!(Pool::Dump.admits("d1/2026-08-04.sql"));
-        // The sidecar is admitted here, unlike the restore drill's
-        // near-identical grammar, which deliberately refuses it.
+        // The sidecar is admitted too.
         assert!(Pool::Dump.admits("d1/2026-08-04.sql.sha256"));
         for refused in [
             "d1/2026-8-4.sql",

@@ -26,9 +26,9 @@
     // Secrets, set via `wrangler secret put <NAME>` (never in this file):
     // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account
     // Analytics Read; the budget cron degrades gracefully without it),
-    // D1_EXPORT_API_TOKEN (D1 only; the nightly dump job), and optionally
-    // NOTIFY_WEBHOOK_URL (POSTed a JSON summary on service-mode changes,
-    // backup-freshness alerts, and stuck-verifier alerts) and
+    // and optionally NOTIFY_WEBHOOK_URL (POSTed a JSON summary on
+    // service-mode changes, backup-replication alerts, and
+    // stuck-verifier alerts) and
     // WEBSITE_DEPLOY_HOOK (the website's Workers Builds deploy hook, POSTed
     // when its package pages fall behind the catalog).
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
@@ -66,12 +66,10 @@
         { "pattern": "cabinpkg.com/callback*", "zone_name": "cabinpkg.com" },
         { "pattern": "cabinpkg.com/claim/*", "zone_name": "cabinpkg.com" }
     ],
-    // The budget-breaker evaluation plus the nightly D1 dump
-    // (src/glue/mod.rs `scheduled` routes on the expression: the
-    // breaker's `*/15 * * * *` exactly, any other schedule runs
-    // the backup job); ~100 invocations/day, negligible against
-    // the free limits.
-    "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
+    // The budget-breaker evaluation (src/glue/mod.rs `scheduled`
+    // runs it on exactly this expression and nothing on any other);
+    // ~100 invocations/day, negligible against the free limits.
+    "triggers": { "crons": ["*/15 * * * *"] },
     "vars": {
         // The website origin: config.json's `api` field, the
         // WWW-Authenticate login_url, OAuth redirects, and the
@@ -95,12 +93,6 @@
         // Account tag for the GraphQL Analytics queries. Not a
         // secret (it is in every dashboard URL).
         "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f",
-        // The bound database's id, for the nightly dump's D1
-        // export REST call (bindings do not expose it). Must
-        // mirror d1_databases[0].database_id - a wipe that
-        // recreates the database changes both (docs/runbook.md,
-        // "Wipe procedure (pre-launch only)").
-        "D1_DATABASE_ID": "b8955438-a9a4-4eb9-8739-ff33d874421c",
         // The one workflow allowed to deliver verdicts and to mint the
         // verify-scoped exchange token: both take only a GitHub
         // Actions OIDC JWT whose claims match all four pins

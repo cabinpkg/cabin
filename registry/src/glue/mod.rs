@@ -440,31 +440,29 @@ const BREAKER_CRON: &str = "*/15 * * * *";
 /// queries leave their metric unset, which can escalate but never
 /// unblock writes, [`breaker::next_mode`]), then the governor
 /// reconciliation pass, the website catalog refresh, and a backup-queue
-/// drain. Any other trigger -
-/// the nightly `0 3 * * *`, or a temporary schedule added for an ops
-/// rehearsal - runs the D1 dump job, so exercising the backup path
-/// never needs a recompile.
+/// drain. A schedule no job is registered for runs nothing.
 #[event(scheduled)]
 pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    if event.cron() == BREAKER_CRON {
-        if let Err(err) = evaluate_budgets(&env).await {
-            console_error!("budget evaluation failed; keeping the last service mode: {err}");
-        }
-        match env.d1("DB") {
-            Ok(db) => {
-                reconcile_governor(&env, &db).await;
-                refresh_website(&env, &db).await;
-            }
-            Err(err) => console_error!("governor reconciliation: no DB binding: {err}"),
-        }
-        crate::backup_glue::drain_backup_queue(&env).await;
-    } else if let Err(err) = crate::backup_glue::run_nightly_dump(&env).await {
-        console_error!("nightly backup failed: {err}");
+    let cron = event.cron();
+    if cron != BREAKER_CRON {
+        console_error!("no job is registered for the schedule {cron}");
+        return;
     }
+    if let Err(err) = evaluate_budgets(&env).await {
+        console_error!("budget evaluation failed; keeping the last service mode: {err}");
+    }
+    match env.d1("DB") {
+        Ok(db) => {
+            reconcile_governor(&env, &db).await;
+            refresh_website(&env, &db).await;
+        }
+        Err(err) => console_error!("governor reconciliation: no DB binding: {err}"),
+    }
+    crate::backup_glue::drain_backup_queue(&env).await;
 }
 
 /// A JSON POST, optionally with a bearer token; used for the analytics
-/// queries, the state-change webhook, and the D1 export calls.
+/// queries and the state-change webhook.
 pub(crate) async fn post_json(
     url: &str,
     body: &str,

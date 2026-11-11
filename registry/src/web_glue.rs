@@ -319,8 +319,7 @@ fn claim_callback_url(env: &Env) -> worker::Result<String> {
 }
 
 /// GitHub's OAuth and API endpoints, overridable for the local smoke
-/// test only (the `CF_API_BASE` pattern); deployed environments use the
-/// real hosts.
+/// test only; deployed environments use the real hosts.
 fn github_oauth_base(env: &Env) -> String {
     env.var("GITHUB_OAUTH_BASE")
         .map_or_else(|_| "https://github.com".to_owned(), |var| var.to_string())

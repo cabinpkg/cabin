@@ -30,7 +30,6 @@ pub mod diagnose;
 pub mod governor;
 pub mod launch_guard;
 pub mod migrate;
-pub mod restore_drill;
 pub mod verify;
 pub mod wipe;
 
@@ -43,8 +42,8 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 /// The BACKUP bucket, which more than one command reaches: the
-/// backfill writes to it, the audit, the governor's evidence checks and
-/// the restore drill read it, and the pre-launch wipe empties it.
+/// backfill writes to it, the audit and the governor's evidence checks
+/// read it, and the pre-launch wipe empties it.
 /// Outside that wipe its `blobs/` namespace is append-only
 /// (`registry/docs/runbook.md`, "Disaster recovery"), so nothing else
 /// here deletes from it.
@@ -263,52 +262,26 @@ pub fn key_value(row: &serde_json::Map<String, serde_json::Value>) -> Result<(St
     Ok((display(key), display(value)))
 }
 
-/// What [`column_text`] prints for a column that is JSON `null` or
-/// absent.
-#[derive(Clone, Copy)]
-pub enum Nullish {
-    /// `null` and a missing key print themselves, as `null` and
-    /// `undefined`.
-    Printed,
-    /// Both become a blank line, and so does an empty string - the
-    /// three are indistinguishable downstream, which is what lets a
-    /// NULL in a `||` concatenation take the same branch as no rows at
-    /// all.
-    Empty,
-}
-
-/// Each row's rendered value plus a newline; a value's own newlines
-/// stay, so one row can span several lines.
-#[must_use]
-pub fn column_text(
-    rows: &[serde_json::Map<String, serde_json::Value>],
-    column: &str,
-    nullish: Nullish,
-) -> String {
-    let mut text = String::new();
-    for row in rows {
-        match (row.get(column), nullish) {
-            (Some(serde_json::Value::String(value)), _) => text.push_str(value),
-            (None | Some(serde_json::Value::Null), Nullish::Empty) => {}
-            (Some(other), _) => text.push_str(&other.to_string()),
-            (None, Nullish::Printed) => text.push_str("undefined"),
-        }
-        text.push('\n');
-    }
-    text
-}
-
-/// [`column_text`] as lines, trailing newlines stripped.
+/// Each row's rendered value as lines, trailing newlines stripped; a
+/// value's own newlines stay, so one row can span several lines.  A
+/// JSON `null` and a missing key print themselves, as `null` and
+/// `undefined`.
 #[must_use]
 pub fn column_lines(
     rows: &[serde_json::Map<String, serde_json::Value>],
     column: &str,
-    nullish: Nullish,
 ) -> Vec<String> {
-    let mut text = column_text(rows, column, nullish);
+    let mut text = String::new();
+    for row in rows {
+        match row.get(column) {
+            Some(serde_json::Value::String(value)) => text.push_str(value),
+            Some(other) => text.push_str(&other.to_string()),
+            None => text.push_str("undefined"),
+        }
+        text.push('\n');
+    }
     // NULs are dropped, so `sha256:<32 hex>\0<32 hex>` reaches the caller as
-    // 64 hex digits and passes the backfill's grammar; `column_text`
-    // keeps them.
+    // 64 hex digits and passes the backfill's grammar.
     text.retain(|character| character != '\0');
     // An empty enumeration still yields a single blank line, and a
     // value carrying a newline becomes two lines.

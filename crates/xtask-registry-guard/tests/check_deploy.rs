@@ -40,8 +40,8 @@ fn the_shipped_config_passes() {
     let config = real_config();
     assert!(guard_accepts(&config, Some(BUNDLE_WITH_GOVERNOR), true));
     assert!(guard_accepts(&config, None, false));
-    // The D1_DATABASE_ID mirror check follows the DB binding, not
-    // array position: a second binding ahead of it must not confuse it.
+    // The database checks follow the DB binding, not array position:
+    // a second binding ahead of it must not confuse them.
     let decoy = config.replace(
         r#""d1_databases": ["#,
         r#""d1_databases": [
@@ -152,13 +152,7 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""VERIFIER_WORKFLOW_FILENAME": "registry-verify.yml""#,
         r#""VERIFIER_WORKFLOW_FILENAME": ".github/workflows/registry-verify.yml""#,
     ),
-    ("lost_breaker_cron", r#""*/15 * * * *", "#, ""),
-    (
-        "lost_dump_cron",
-        r#""crons": ["*/15 * * * *", "0 3 * * *"]"#,
-        r#""crons": ["*/15 * * * *"]"#,
-    ),
-    // (the stale-D1_DATABASE_ID case is `a_stale_dump_database_id_is_caught`)
+    ("lost_breaker_cron", r#""*/15 * * * *""#, ""),
     (
         "drifted_migrations_dir",
         r#""migrations_dir": "migrations""#,
@@ -175,7 +169,6 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
                 { "tag": "v2", "renamed_classes": [{ "from": "Governor", "to": "Retired" }] },
                 { "tag": "v3", "deleted_classes": ["Retired"], "new_sqlite_classes": ["Governor"] }]"#,
     ),
-    ("replaced_dump_cron", r#""0 3 * * *""#, r#""0 3 1 * *""#),
     (
         // A tag the platform cannot tell apart from another one.
         "duplicate_migration_tags",
@@ -270,27 +263,6 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""bindings": [{ "name": "OTHER", "class_name": "Other" },"#,
     ),
 ];
-
-/// The `D1_DATABASE_ID` mirror breakage, built against whatever id the
-/// config currently carries (a wipe changes it, so no fixture may
-/// hardcode it).
-#[test]
-fn a_stale_dump_database_id_is_caught() {
-    let config = real_config();
-    let marker = r#""D1_DATABASE_ID": ""#;
-    let start = config
-        .find(marker)
-        .expect("the config carries D1_DATABASE_ID")
-        + marker.len();
-    let id = &config[start..start + 36];
-    let stale = config.replacen(
-        &format!("{marker}{id}"),
-        r#""D1_DATABASE_ID": "00000000-0000-0000-0000-000000000000"#,
-        1,
-    );
-    assert_ne!(stale, config, "the stale-id mutation matched nothing");
-    assert!(!guard_accepts(&stale, Some(BUNDLE_WITH_GOVERNOR), true));
-}
 
 #[test]
 fn config_breakage_is_caught() {

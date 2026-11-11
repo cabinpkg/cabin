@@ -55,8 +55,7 @@ impl World {
             format!(
                 r#"{{
   "vars": {{
-    "CF_ACCOUNT_ID": "{}",
-    "D1_DATABASE_ID": "{OLD_ID}"
+    "CF_ACCOUNT_ID": "{}"
   }},
   "d1_databases": [
     {{ "binding": "DB", "database_id": "{OLD_ID}" }}
@@ -314,7 +313,7 @@ fn a_remote_wipe_sweeps_both_buckets_before_recreating_the_database() {
         assert!(call.contains(fragment), "expected {fragment:?} in {call:?}");
     }
     let config = world.config();
-    assert_eq!(config.matches(NEW_ID).count(), 2, "{config}");
+    assert_eq!(config.matches(NEW_ID).count(), 1, "{config}");
     assert!(!config.contains(OLD_ID), "{config}");
     // `printf one | shasum -a 256`.
     assert_eq!(

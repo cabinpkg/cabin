@@ -1,12 +1,13 @@
 //! Read-only audit of the BACKUP bucket (`registry/docs/runbook.md`,
 //! "Disaster recovery"): verified-only coverage (every verified
-//! checksum has its backup copy), the dump/sidecar pairing, and - when
-//! a registry token is available - the governor's backup and dump
+//! checksum has its backup copy), keys outside the known layouts, and -
+//! when a registry token is available - the governor's backup and dump
 //! pools against the bucket's actual contents.
 //!
 //! It never deletes anything: the deployed BACKUP bucket's `blobs/`
-//! namespace is append-only outside the pre-launch wipe (the nightly
-//! job prunes its own `d1/` dumps), and an object the current verified
+//! namespace is append-only outside the pre-launch wipe (which also
+//! removes the `d1/` dumps the retired nightly job left behind;
+//! nothing writes or prunes those any more), and an object the current verified
 //! set does not name may be legitimate history (an older restore's
 //! blobs), so cleanup is an operator decision made per object with
 //! `wrangler r2 object delete` plus `cargo registry-governor release`,
@@ -392,68 +393,25 @@ fn by_key<'a>(listing: &'a [Object], prefix: &str) -> Vec<(&'a str, u64)> {
     order.into_iter().map(|key| (key, sizes[key])).collect()
 }
 
-/// The bucket's own layout, independent of what D1 records: the
-/// dump/sidecar pairing (the sidecar is written strictly after
-/// validation, so a dump without one is an unvalidated leftover the
-/// nightly job normally deletes; a sidecar without its dump means the
-/// dump object was lost) and anything outside both namespaces.
+/// The bucket's own layout, independent of what D1 records: anything
+/// outside the `blobs/` namespace and the `d1/` dumps the retired
+/// nightly job left behind.
 fn layout(report: &mut Report, listing: &[Object]) {
-    let dumps: Vec<&Object> = listing
-        .iter()
-        .filter(|object| is_dump(&object.key))
-        .collect();
-    // A `Set`, so a key listed twice is one sidecar in first-seen
-    // order, not two orphans.
-    let mut seen = HashSet::new();
-    let sidecars: Vec<&str> = listing
-        .iter()
-        .map(|object| object.key.as_str())
-        .filter(|key| key.ends_with(".sql.sha256") && seen.insert(*key))
-        .collect();
+    let dumps = listing.iter().filter(|object| is_dump(&object.key)).count();
     let strays: Vec<String> = listing
         .iter()
         .filter(|object| !object.key.starts_with(BLOBS) && !is_dump_or_sidecar(&object.key))
         .map(|object| object.key.clone())
         .collect();
-
-    let unvalidated: Vec<String> = dumps
-        .iter()
-        .map(|dump| dump.key.clone())
-        .filter(|key| !sidecars.contains(&format!("{key}.sha256").as_str()))
-        .collect();
-    report.section(
-        "dumps without a validating sidecar",
-        &unvalidated,
-        "unvalidated leftovers; the next nightly pass deletes or replaces them",
-        true,
-    );
-
-    let orphans: Vec<String> = sidecars
-        .iter()
-        .filter(|sidecar| {
-            !dumps
-                .iter()
-                .any(|dump| format!("{}.sha256", dump.key) == **sidecar)
-        })
-        .map(|sidecar| (*sidecar).to_owned())
-        .collect();
-    report.section(
-        "sidecars without their dump",
-        &orphans,
-        "the dump object is gone; investigate before trusting that date",
-        true,
-    );
-
     report.section(
         "keys outside the blobs/ and d1/ layouts",
         &strays,
         "nothing in the service writes these; investigate",
         true,
     );
-    report.lines.push(format!(
-        "dumps retained: {} (retention keeps 30 dailies + 12 monthly firsts)",
-        dumps.len()
-    ));
+    report
+        .lines
+        .push(format!("dumps left by the retired nightly job: {dumps}"));
 }
 
 /// The governor's backup and dump pools against the bucket's actual
@@ -467,14 +425,13 @@ fn layout(report: &mut Report, listing: &[Object]) {
 /// generously the other rows' byte counts cover the total.
 ///
 /// The listing precedes the snapshot, and every Worker write reserves
-/// before its put, so an in-flight drain copy or dump is already in the
+/// before its put, so an in-flight drain copy is already in the
 /// ledger the snapshot reads.  A pool can still read short honestly,
 /// so each shortfall's remedy says to rerun before investigating: a
 /// `cargo registry-backup-backfill` copy reaches the backup pool only
 /// when the drain retires its queue row, and an operator release
-/// (either pool) or a dump-job delete (prune or invalid-dump removal)
-/// between the two reads drops a row whose object the listing still
-/// saw.  The totals are aggregate, so a pass is not per-key proof: a
+/// (either pool) between the two reads drops a row whose object the
+/// listing still saw.  The totals are aggregate, so a pass is not per-key proof: a
 /// leaked reservation can offset an object no row names.
 fn ledger(
     report: &mut Report,
@@ -500,9 +457,8 @@ fn ledger(
             "dump",
             "d1/",
             dumps,
-            "a dump-job delete or an operator release between the listing and the snapshot \
-             reads short honestly, so rerun once none is in flight; a gap that outlasts it is \
-             real: investigate"
+            "an operator release between the listing and the snapshot reads short honestly, \
+             so rerun once none is in flight; a gap that outlasts it is real: investigate"
                 .to_owned(),
         ),
     ] {
@@ -571,7 +527,7 @@ fn pool(snapshot: &Snapshot, name: &str) -> (u64, u64) {
         })
 }
 
-/// `^d1/\d{4}-\d{2}-\d{2}\.sql$`, the layout the nightly job writes.
+/// `^d1/\d{4}-\d{2}-\d{2}\.sql$`, the layout the retired nightly job wrote.
 fn is_dump(key: &str) -> bool {
     let Some(date) = key
         .strip_prefix("d1/")
@@ -656,10 +612,8 @@ mod tests {
                 "verified blobs missing from the backup: 0",
                 "backup copies whose size disagrees with the recorded archive: 0",
                 "backup blobs beyond the current verified set: 0",
-                "dumps without a validating sidecar: 0",
-                "sidecars without their dump: 0",
                 "keys outside the blobs/ and d1/ layouts: 0",
-                "dumps retained: 1 (retention keeps 30 dailies + 12 monthly firsts)",
+                "dumps left by the retired nightly job: 1",
                 "backup pool ledger: 1000 B / 5 object(s); bucket blobs/: 100 B / 1 object(s)",
                 "dump pool ledger:   1000 B / 5 object(s); bucket d1/:    84 B / 2 object(s)",
             ]
@@ -704,17 +658,10 @@ mod tests {
                     .to_owned(),
                 format!("        blobs/sha256/{held} (backup 99 B, recorded 100 B)"),
                 "backup blobs beyond the current verified set: 0".to_owned(),
-                "dumps without a validating sidecar: 1".to_owned(),
-                "    unvalidated leftovers; the next nightly pass deletes or replaces them"
-                    .to_owned(),
-                "        d1/2026-01-01.sql".to_owned(),
-                "sidecars without their dump: 1".to_owned(),
-                "    the dump object is gone; investigate before trusting that date".to_owned(),
-                "        d1/2026-02-01.sql.sha256".to_owned(),
                 "keys outside the blobs/ and d1/ layouts: 1".to_owned(),
                 "    nothing in the service writes these; investigate".to_owned(),
                 "        stray".to_owned(),
-                "dumps retained: 1 (retention keeps 30 dailies + 12 monthly firsts)".to_owned(),
+                "dumps left by the retired nightly job: 1".to_owned(),
             ]
         );
     }
@@ -823,7 +770,7 @@ mod tests {
         };
         for (pool, causes) in [
             ("backup", ["queue depth is 3", "an operator release"]),
-            ("dump", ["a dump-job delete", "an operator release"]),
+            ("dump", ["an operator release", "a gap that outlasts it"]),
         ] {
             let line = line(pool);
             for cause in causes {
@@ -837,11 +784,9 @@ mod tests {
     }
 
     /// A key the listing repeats is one object, carrying the last size
-    /// listed for it, in the `blobs/` and `d1/` views and the sidecar
-    /// set; only the dump retention count is a plain filter that counts
-    /// the repeat.  Nothing in R2 lists a key twice today; this is what
-    /// keeps a paging quirk from inventing an orphan sidecar or failing
-    /// an exact ledger.
+    /// listed for it, in the `blobs/` and `d1/` views.  Nothing in R2
+    /// lists a key twice today; this is what keeps a paging quirk from
+    /// failing an exact ledger.
     #[test]
     fn a_repeated_key_is_one_object_carrying_its_last_size() {
         let checksum = "0123456789abcdef".repeat(4);
@@ -878,10 +823,8 @@ mod tests {
                  cargo registry-backup-backfill (repository root) after deleting it",
                 "backup blobs beyond the current verified set: 1",
                 "    append-only history (such as older restores); only the pre-launch wipe deletes it",
-                "dumps without a validating sidecar: 0",
-                "sidecars without their dump: 0",
                 "keys outside the blobs/ and d1/ layouts: 0",
-                "dumps retained: 1 (retention keeps 30 dailies + 12 monthly firsts)",
+                "dumps left by the retired nightly job: 1",
                 "backup pool ledger: 1000 B / 5 object(s); bucket blobs/: 57 B / 2 object(s)",
                 "dump pool ledger:   1000 B / 5 object(s); bucket d1/:    84 B / 2 object(s)",
             ]
@@ -930,16 +873,11 @@ mod tests {
                 "        ",
             ]
         );
-        // `notes.sql.sha256` is both a stray and a sidecar with no dump:
-        // the sidecar set is every `.sql.sha256` key, wherever it sits.
         assert!(
             report
                 .lines
-                .contains(&"sidecars without their dump: 1".to_owned())
+                .contains(&"dumps left by the retired nightly job: 1".to_owned())
         );
-        assert!(report.lines.contains(
-            &"dumps retained: 1 (retention keeps 30 dailies + 12 monthly firsts)".to_owned()
-        ));
     }
 
     /// A page that claims more without saying where, or carries metadata

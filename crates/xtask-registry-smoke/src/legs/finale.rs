@@ -1,4 +1,4 @@
-//! The run's tail: the backup and breaker cron legs, the strict
+//! The run's tail: the breaker cron leg, the strict
 //! zip-container profile, the governor's hard limits across two mid-run
 //! dev-server restarts, the admin governor endpoint, the real
 //! verification driver's pass over two fresh versions (`driver_pass`),
@@ -10,33 +10,31 @@
 //! for children the teardown must kill, it holds eight, and wave two
 //! alone wants ten.
 
-use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Barrier};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 use xtask_registry_admin::verify::{Endpoints, run_with};
-use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, wrangler};
+use xtask_registry_admin::{BLOBS_BUCKET, display, wrangler};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::uniform_401_with;
 use crate::legs::session;
-use crate::servers::{DevServers, d1, d1_quiet, d1_rows};
+use crate::servers::{DevServers, d1, d1_quiet};
 use crate::step;
 use crate::text::{capture, contains, grep_anywhere, grep_lines, read, write};
 
 const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
 
-/// The two cron expressions `wrangler dev --test-scheduled` routes.
+/// The cron expression `wrangler dev --test-scheduled` routes.
 /// The `+` are the expression's spaces and must reach the query string
 /// as `+`: percent-encoding them to `%2B` names a different cron.
-const DUMP_CRON: &str = "/__scheduled?cron=0+3+*+*+*";
 const BREAKER_CRON: &str = "/__scheduled?cron=*/15+*+*+*+*";
 
 const PENDING_LISTING: &str = "/api/v1/admin/versions?status=pending";
@@ -101,14 +99,11 @@ const HEADROOM: i64 = 3;
 /// the load threads carry.  Everything is borrowed - the tail owns
 /// nothing the run started with.
 pub struct FinaleInputs<'a> {
-    /// The four children, for the two mid-run restarts and for the
+    /// The three children, for the two mid-run restarts and for the
     /// `.dev.vars` mutations between them.
     pub servers: &'a mut DevServers,
     /// The run's scratch directory.
     pub work: &'a Path,
-    /// The mock directory, whose `dump.sql` the stored backup must
-    /// equal.
-    pub mock_dir: &'a Path,
     /// The verifier binary, next to this tool's own binary.
     pub verifier_bin: &'a Path,
     /// The fixture's package.
@@ -148,12 +143,6 @@ struct Fixtures {
 ///
 /// The first failed check.
 pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
-    let today = utc_today()?;
-    let dump_key = format!("d1/{today}.sql");
-    backup_cron(smoke, inputs, &dump_key)?;
-    dump_sidecar(inputs, &today, &dump_key)?;
-    let last_backup_at = meta_records_backup(&dump_key)?;
-    same_day_rerun(smoke, &last_backup_at)?;
     breaker_cron(smoke, inputs)?;
     zip_profile(smoke, inputs)?;
     driver_pass(smoke, inputs)?;
@@ -171,86 +160,9 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     Ok(())
 }
 
-/// The `/__scheduled` route invokes the cron handler; any non-breaker
-/// expression routes to the dump job, which talks to the export-API
-/// mock.
-fn backup_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>, dump_key: &str) -> Result<()> {
-    step("the backup cron stores a validated dump in the BACKUP bucket");
-    smoke.check(DUMP_CRON, &[200])?;
-    let stored = inputs.work.join("stored-dump.sql");
-    let mut appeared = false;
-    for _ in 0..POLLS {
-        if r2_get(&format!("{BACKUP_BUCKET}/{dump_key}"), &stored)? {
-            appeared = true;
-            break;
-        }
-        std::thread::sleep(HALF_SECOND);
-    }
-    if !appeared {
-        bail!("dump {dump_key} never appeared in the BACKUP bucket");
-    }
-    if read(&stored)? != read(&inputs.mock_dir.join("dump.sql"))? {
-        bail!("stored dump differs from the mock's exported dump");
-    }
-    Ok(())
-}
-
-/// The sidecar names the dump by its date, so the copy it is checked
-/// against has to carry that name.
-fn dump_sidecar(inputs: &FinaleInputs<'_>, today: &str, dump_key: &str) -> Result<()> {
-    step("the dump's sha256 sidecar verifies with shasum -c");
-    let sidecar = inputs.work.join(format!("{today}.sql.sha256"));
-    if !r2_get(&format!("{BACKUP_BUCKET}/{dump_key}.sha256"), &sidecar)? {
-        bail!("sidecar {dump_key}.sha256 is missing");
-    }
-    let dump = inputs.work.join("stored-dump.sql");
-    fs::copy(&dump, inputs.work.join(format!("{today}.sql")))
-        .with_context(|| format!("copy {}", dump.display()))?;
-    let listing = String::from_utf8_lossy(&read(&sidecar)?).into_owned();
-    if !checksums_verify(inputs.work, &listing) {
-        bail!(
-            "shasum -c rejected the sidecar: {}",
-            listing.trim_end_matches('\n')
-        );
-    }
-    Ok(())
-}
-
-fn meta_records_backup(dump_key: &str) -> Result<String> {
-    step("meta records the backup");
-    let rows =
-        d1_rows("SELECT key, value FROM meta WHERE key IN ('last_backup_at', 'last_backup_key')")?;
-    let recorded = key_values(&rows);
-    let last_backup_at = recorded.get("last_backup_at").cloned().unwrap_or_default();
-    if recorded.get("last_backup_key").map(String::as_str) != Some(dump_key)
-        || !is_timestamp(&last_backup_at)
-    {
-        bail!("meta.last_backup_at / last_backup_key not recorded");
-    }
-    println!("    last_backup_at = {last_backup_at}");
-    Ok(last_backup_at)
-}
-
-/// One validated dump per date: a same-day re-run must skip instead of
-/// re-exporting, because a failed re-export would overwrite the
-/// verified copy.
-fn same_day_rerun(smoke: &mut Smoke, last_backup_at: &str) -> Result<()> {
-    step("a same-day re-run of the dump job is a no-op");
-    smoke.check(DUMP_CRON, &[200])?;
-    let rows = d1_rows("SELECT value FROM meta WHERE key = 'last_backup_at'")?;
-    let rerun_at = rows
-        .first()
-        .and_then(|row| row.get("value"))
-        .map(display)
-        .context("meta lost last_backup_at")?;
-    if rerun_at != last_backup_at {
-        bail!("same-day re-run rewrote last_backup_at: {rerun_at} (was {last_backup_at})");
-    }
-    Ok(())
-}
-
-/// The breaker expression additionally runs the governor
-/// reconciliation, and the usage log line proves the ledger answered.
+/// The `/__scheduled` route invokes the cron handler; the breaker
+/// expression runs the governor reconciliation, and the usage log line
+/// proves the ledger answered.
 fn breaker_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("the breaker cron reconciles the governor ledger");
     smoke.check(BREAKER_CRON, &[200])?;
@@ -1278,17 +1190,9 @@ fn json_bytes(value: &Value) -> Result<Vec<u8>> {
     serde_json::to_vec(value).context("serialize a request body")
 }
 
-/// The rows of a key/value read as a map: a later row for the same key
-/// wins.
-fn key_values(rows: &[Map<String, Value>]) -> std::collections::HashMap<String, String> {
-    rows.iter()
-        .filter_map(|row| Some((display(row.get("key")?), display(row.get("value")?))))
-        .collect()
-}
-
 /// `wrangler r2 object get … --file <path> --local`, both streams
-/// discarded: every caller words its own miss, and the backup poll and
-/// the refused-publish check expect one.
+/// discarded: the caller words its own miss, and the refused-publish
+/// check expects one.
 fn r2_get(key: &str, file: &Path) -> Result<bool> {
     let path = file.to_str().context("an R2 destination is not UTF-8")?;
     let status = wrangler(&["r2", "object", "get", key, "--file", path, "--local"])
@@ -1297,45 +1201,6 @@ fn r2_get(key: &str, file: &Path) -> Result<bool> {
         .status()
         .context("run wrangler r2 object get")?;
     Ok(status.success())
-}
-
-/// `/^\d{4}-\d{2}-\d{2}T/`.
-fn is_timestamp(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() >= 11
-        && bytes[..11]
-            .iter()
-            .zip("dddd-dd-ddT".bytes())
-            .all(|(byte, shape)| match shape {
-                b'd' => byte.is_ascii_digit(),
-                other => *byte == other,
-            })
-}
-
-/// `shasum -a 256 -c <listing>` run from `dir`: every listed file must
-/// hash to the digest beside it, and a listing with no usable line is a
-/// failure, as `shasum` reports one.
-///
-/// Only the two formats `shasum` writes are read (`<hex>  <name>`
-/// and the binary-mode `<hex> *<name>`); its BSD `SHA256 (name) = hex`
-/// tag form is not, and the worker writes the first of the two
-/// (`registry/src/backup_glue.rs`).
-fn checksums_verify(dir: &Path, listing: &str) -> bool {
-    let mut checked = 0;
-    for line in listing.lines().filter(|line| !line.trim().is_empty()) {
-        let Some((digest, rest)) = line.split_once(' ') else {
-            return false;
-        };
-        let name = rest.strip_prefix([' ', '*']).unwrap_or(rest);
-        let Ok(contents) = fs::read(dir.join(name)) else {
-            return false;
-        };
-        if !sha256_hex(&contents).eq_ignore_ascii_case(digest) {
-            return false;
-        }
-        checked += 1;
-    }
-    checked > 0
 }
 
 /// `wc -l <log>` + 1: the line the next `tail -n +N` starts at, which
@@ -1371,46 +1236,10 @@ fn tail(log: &Path, from: usize) -> Result<String> {
     Ok(rest.to_owned())
 }
 
-/// `date -u +%F`.  UTC, not local: the backup key and the sidecar's
-/// name read this, and a local date crosses midnight at the wrong
-/// moment.
-fn utc_today() -> Result<String> {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("the system clock is before the epoch")?
-        .as_secs();
-    let days = i64::try_from(seconds / 86_400).unwrap_or(i64::MAX);
-    let (year, month, day) = civil_from_days(days);
-    Ok(format!("{year:04}-{month:02}-{day:02}"))
-}
-
-/// Days since 1970-01-01 to a proleptic Gregorian date, by the shift-
-/// the-era method: March-based years make the leap day the last day of
-/// the year, so the month-length table becomes arithmetic.
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let shifted = days + 719_468;
-    let era = if shifted >= 0 {
-        shifted
-    } else {
-        shifted - 146_096
-    } / 146_097;
-    let day_of_era = shifted - era * 146_097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_index = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 {
-        month_index + 3
-    } else {
-        month_index - 9
-    };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    (year, month, day)
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     fn hex(bytes: &[u8]) -> String {
@@ -1464,51 +1293,6 @@ mod tests {
         revisions.sort();
         revisions.dedup();
         assert_eq!(revisions.len(), LOAD_VERSIONS.len());
-    }
-
-    #[test]
-    fn the_sidecar_is_checked_against_the_named_file() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("2026-08-05.sql"), b"dump\n").unwrap();
-        let digest = sha256_hex(b"dump\n");
-
-        let listing = format!("{digest}  2026-08-05.sql\n");
-        assert!(checksums_verify(dir.path(), &listing));
-        // Binary mode, which shasum also writes and also accepts.
-        assert!(checksums_verify(
-            dir.path(),
-            &format!("{digest} *2026-08-05.sql\n")
-        ));
-        // A digest that does not match, a file that is not there, and a
-        // listing with nothing in it all fail.
-        assert!(!checksums_verify(
-            dir.path(),
-            &listing.replace(&digest[..1], "0")
-        ));
-        assert!(!checksums_verify(
-            dir.path(),
-            &format!("{digest}  absent.sql\n")
-        ));
-        assert!(!checksums_verify(dir.path(), "\n"));
-    }
-
-    #[test]
-    fn the_timestamp_shape_is_the_iso_date_prefix() {
-        assert!(is_timestamp("2026-08-05T03:00:00Z"));
-        assert!(!is_timestamp("2026-08-05 03:00:00Z"));
-        assert!(!is_timestamp("2026-8-05T03:00:00Z"));
-        assert!(!is_timestamp(""));
-    }
-
-    #[test]
-    fn the_utc_date_reads_the_civil_calendar() {
-        assert_eq!(civil_from_days(0), (1970, 1, 1));
-        assert_eq!(civil_from_days(-1), (1969, 12, 31));
-        // A leap day, and the century that is not one.
-        assert_eq!(civil_from_days(11_016), (2000, 2, 29));
-        assert_eq!(civil_from_days(-25_508), (1900, 3, 1));
-        assert_eq!(civil_from_days(20_634), (2026, 6, 30));
-        assert_eq!(civil_from_days(20_670), (2026, 8, 5));
     }
 
     #[test]
@@ -1672,21 +1456,5 @@ mod tests {
             "attempts exceeded the budget yet nothing answered the budget envelope"
         );
         verdicts(4, 4, 3, 3, 1).unwrap();
-    }
-
-    #[test]
-    fn the_key_value_rows_collapse_to_the_recorded_pairs() {
-        let rows = vec![
-            serde_json::from_str(r#"{"key":"last_backup_key","value":"d1/2026-08-05.sql"}"#)
-                .unwrap(),
-            serde_json::from_str(r#"{"key":"last_backup_at","value":"2026-08-05T03:00:00Z"}"#)
-                .unwrap(),
-        ];
-        let recorded = key_values(&rows);
-        assert_eq!(
-            recorded.get("last_backup_key").map(String::as_str),
-            Some("d1/2026-08-05.sql")
-        );
-        assert!(is_timestamp(recorded.get("last_backup_at").unwrap()));
     }
 }

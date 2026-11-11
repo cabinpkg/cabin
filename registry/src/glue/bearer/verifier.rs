@@ -541,8 +541,7 @@ async fn delete_blob_if_unreferenced(
     // if it crashed before its own settle. Reconciliation reports the
     // entry as unreferenced, and releasing it is the operator's
     // explicit, evidence-backed action (`docs/runbook.md`, "The cost
-    // governor"). The dump pool differs: its keys are cron-unique and
-    // never concurrently recreated, so the dump jobs release their own.
+    // governor").
     if let Err(err) = env.bucket("BLOBS")?.delete(&key).await {
         console_error!("reclaiming blob {key} failed (left as an orphan): {err}");
     }

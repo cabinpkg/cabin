@@ -283,16 +283,15 @@ public and lives in `wrangler.jsonc` (`vars.GITHUB_CLIENT_ID`), next to
 `ALLOWED_GITHUB_IDS` (the numeric GitHub user ids allowed to sign in and,
 during the private alpha, to use the registry at all - every Bearer token
 is re-checked against it on use);
-the wrangler secrets are the client secret, the session secret,
-`ANALYTICS_API_TOKEN` for the budget cron, and `D1_EXPORT_API_TOKEN` for
-the nightly dump (plus the optional `NOTIFY_WEBHOOK_URL` and
-`WEBSITE_DEPLOY_HOOK`; see "Budget breaker and service mode",
-"Disaster recovery", and "Integrated topology and route management").
+the wrangler secrets are the client secret, the session secret, and
+`ANALYTICS_API_TOKEN` for the budget cron (plus the optional
+`NOTIFY_WEBHOOK_URL` and `WEBSITE_DEPLOY_HOOK`; see "Budget breaker and
+service mode", "Disaster recovery", and "Integrated topology and route
+management").
 
 ```sh
 node_modules/.bin/wrangler d1 create cabin-registry
-# copy the printed database_id into d1_databases AND vars.D1_DATABASE_ID
-# in wrangler.jsonc
+# copy the printed database_id into d1_databases in wrangler.jsonc
 node_modules/.bin/wrangler r2 bucket create cabin-registry-blobs
 node_modules/.bin/wrangler r2 bucket create cabin-registry-backup
 node_modules/.bin/wrangler d1 migrations apply DB --remote
@@ -303,7 +302,6 @@ node_modules/.bin/wrangler deploy
 printf '%s' "$GITHUB_CLIENT_SECRET" | node_modules/.bin/wrangler secret put GITHUB_CLIENT_SECRET
 openssl rand -base64 32 | node_modules/.bin/wrangler secret put SESSION_SECRET
 printf '%s' "$ANALYTICS_API_TOKEN" | node_modules/.bin/wrangler secret put ANALYTICS_API_TOKEN
-printf '%s' "$D1_EXPORT_API_TOKEN" | node_modules/.bin/wrangler secret put D1_EXPORT_API_TOKEN
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
@@ -349,8 +347,9 @@ smoke test). What it does, in order:
    `meta.launched` through the binding.
 2. Empties both buckets through the R2 REST API, before the database
    goes: every `blobs/`-prefixed object in `cabin-registry-blobs`, then
-   every object in `cabin-registry-backup` - archived blobs, D1 dumps,
-   sidecars, and anything else the dedicated bucket holds (list, delete
+   every object in `cabin-registry-backup` - archived blobs, the D1
+   dumps a retired nightly job left, and anything else the dedicated
+   bucket holds (list, delete
    per key, and list again until a listing comes back empty;
    `wrangler r2 object delete` removes exactly one object and has no
    prefix or bulk mode, which is why the wipe drives the API directly).
@@ -366,13 +365,10 @@ smoke test). What it does, in order:
    it ("Disaster recovery").
 3. Deletes and recreates the database
    (`wrangler d1 delete cabin-registry -y` / `wrangler d1 create
-   cabin-registry`) and bakes the new id into BOTH the `DB` binding's
-   `database_id` and `vars.D1_DATABASE_ID` in `wrangler.jsonc`
-   (refusing if more than one D1 binding exists - the rewrite targets
-   the only one), verifying the file now carries it exactly twice
-   (the nightly dump exports whatever database `D1_DATABASE_ID` names -
-   a stale value backs up the wrong, deleted database). Commit that
-   change.
+   cabin-registry`) and bakes the new id into the `DB` binding's
+   `database_id` in `wrangler.jsonc` (refusing if more than one D1
+   binding exists - the rewrite targets the only one), verifying the
+   file now carries it exactly once. Commit that change.
 4. Applies all migrations from zero
    (`wrangler d1 migrations apply DB --remote`) and refreshes the
    `migrations-applied` deploy-gate stamp - the recreated database now
@@ -396,8 +392,8 @@ smoke test). What it does, in order:
    confirmation it re-runs the launch guard, proves the primary bucket
    carries no `blobs/` object and the backup bucket no object at all,
    posts the wipe, and proves both empty again - an object left by an
-   interrupted sweep, or written since by a stale writer or the nightly
-   dump, would keep billing while the fresh ledger no longer counts it,
+   interrupted sweep, or written since by a stale writer, would keep
+   billing while the fresh ledger no longer counts it,
    so the command refuses before the wipe and fails loudly after it.
    The endpoint refuses on its own unless `meta.launched` reads exactly
    `'false'`, mirroring this command's guard. The wipe clears the
@@ -451,13 +447,10 @@ registry-verify.yml`, which stops its schedule but not the runs it
 already queued), cancel its queued runs, and let a running one finish
 (a verdict queues a backup copy); once `gh run list --workflow
 registry-verify.yml` shows none queued or in progress, confirm the queue
-is drained (`SELECT COUNT(*) FROM backup_pending` answers 0), and keep
-the window clear of the 03:00 UTC nightly dump, which the Worker's cron
-writes into the bucket on its own - from the wipe through step 4, which
-must run before the next dump lands in the emptied bucket. Anything a
-writer slips in anyway - the dump, or a publish landing between the
-wipe's sweeps and its database drop, while the old Worker still
-serves - makes step 4 refuse rather than undercount.
+is drained (`SELECT COUNT(*) FROM backup_pending` answers 0). Anything
+a writer slips in anyway - a publish landing between the wipe's sweeps
+and its database drop, while the old Worker still serves - makes step 4
+refuse rather than undercount.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp to the pull request that changes the
@@ -549,7 +542,7 @@ ones. Launch is a data and policy event, in order:
 
    From this moment the data policy is binding (no wipes, no deletes,
    real migrations only) and `cargo registry-wipe` refuses to run. The flag
-   lives in `meta`, so a disaster-recovery restore of a pre-launch dump
+   lives in `meta`, so restoring the database to a point before launch
    would reset it - re-running this `UPDATE` is part of any such
    restore (see "Disaster recovery").
 5. Remove the private-alpha labels from the website (the `private α`
@@ -573,10 +566,7 @@ coexist with, and a permanently-running staging copy would immediately go
 stale. Risky changes (migrations, storage-format work, breaker changes)
 are rehearsed against a temporary scratch deployment recreated from this
 directory's `wrangler.jsonc` and `migrations/` - deploy under scratch
-names (worker, database, buckets), run the rehearsal, tear it down. The
-restore drill's scratch database (`cargo registry-restore-drill`, run
-from the repository root) is the
-existing example of the pattern.
+names (worker, database, buckets), run the rehearsal, tear it down.
 
 ## Budget breaker and service mode
 
@@ -637,9 +627,8 @@ fetches keep working). Do not set it before
 the activation procedure below.
 
 The storage budget counts primary (BLOBS) bytes only, but every blob is
-stored a second time in the backup bucket and the nightly dumps add
-metadata copies there (see "Disaster recovery"), so its default stays
-under half the account-wide free limit.
+stored a second time in the backup bucket (see "Disaster recovery"), so
+its default stays under half the account-wide free limit.
 
 Overrides are ordinary `vars` entries in `wrangler.jsonc` and take effect
 on the next deploy.
@@ -681,14 +670,14 @@ in-code defaults (`src/governor.rs`):
 | --- | --- | --- |
 | `GOVERNOR_STORAGE_PRIMARY_BYTES` | 4 GiB | `primary` - BLOBS archive bytes |
 | `GOVERNOR_STORAGE_BACKUP_BYTES` | 4 GiB | `backup` - BACKUP verified copies |
-| `GOVERNOR_STORAGE_DUMP_BYTES` | 512 MiB | `dump` - BACKUP `d1/` dumps + sidecars |
+| `GOVERNOR_STORAGE_DUMP_BYTES` | 512 MiB | `dump` - the `d1/` dumps a retired nightly job left in BACKUP |
 | `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | `a_publish` - publish-path puts |
-| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - replication/dump puts, lists |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - replication puts |
 | `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | `b_ordinary` - artifact cache misses |
 | `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | `b_source` - source-viewer ranged reads |
 | `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | `b_verifier` - pending-artifact fetches |
 | `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | `b_publish` - publish-path heads |
-| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - replication/dump reads |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - replication reads |
 
 A limit var only takes effect through `wrangler.jsonc` `vars` and a
 deploy; `cargo check-deploy` (also a CI step) refuses a var whose
@@ -793,9 +782,9 @@ observation, not a transaction - the endpoint cannot inspect R2
 atomically - and the residual window (a Worker frozen mid-request
 across the whole drain wait, then crashing between its put and its D1
 rows) is accepted pre-launch; if the registry ever has open sign-ups,
-the upgrade path is a two-phase release inside the governor itself. `release dump d1/<date>.sql` covers the
-dump-retry conflict below the same way (the nightly job is the only
-writer of dated dump keys, so no mode flip is needed); `release
+the upgrade path is a two-phase release inside the governor itself. `release dump d1/<date>.sql` releases a
+leftover dump's entry the same way once its object is gone (nothing
+writes dated dump keys, so no mode flip is needed); `release
 backup <key>` exists for the incident case only and demands its own
 typed confirmation (the backup blobs are append-only, so a gone
 backup object is an incident, not maintenance). Never drive the raw
@@ -844,12 +833,6 @@ releasing it is the operator's action above. Expect the primary ledger
 to accumulate a small tail of rejected/orphaned entries between
 sweeps; each entry only ever holds allowance, never spends.
 
-**Dump-retry conflicts.** A same-date dump retry whose export size
-changed is refused (`KeyConflict`) instead of admitted past the cap;
-the job fails, the freshness alert fires, and the next day's fresh key
-(or an operator release of the stale `d1/<date>.sql` entry after
-confirming the object) recovers.
-
 **Known ceilings.** Two residual windows are documented rather than
 engineered around: a
 spurious FORWARD platform-clock jump across a month boundary would
@@ -869,10 +852,9 @@ rather than waiting up to
 15 minutes for the breaker cron's pass; `cargo
 registry-backup-backfill` (from the repository root) re-ledgers the
 **backup** pool (its queue rows walk every verified
-blob through the drain); and the **dump** entries regrow only as
-nightly dumps land - `cargo registry-backup-audit` (from the
-repository root) audits the `d1/` prefix against the usage snapshot if
-the gap matters before retention cycles it out. On a launched registry, hold publishes until that
+blob through the drain); and the **dump** entries do not rebuild
+(nothing writes dumps) - `cargo registry-backup-audit` (from the
+repository root) audits the `d1/` prefix against the usage snapshot. On a launched registry, hold publishes until that
 reconcile lands, so the empty ledger cannot admit a write past the
 true R2 cap in the interim.
 
@@ -883,9 +865,8 @@ deploy token's Workers Scripts:Edit scope covers Durable Object
 migrations; if the API refuses a deploy that carries a new migration,
 fall back to a manual `node_modules/.bin/wrangler deploy`. A wiped or
 reinitialized object recreates its schema idempotently; reconciliation
-then rebuilds the **primary** rows conservatively from D1, the backfill script re-ledgers the **backup**
-pool, and dump entries regrow with the nightly job ("Known ceilings"
-above). The schema is applied with `CREATE TABLE IF NOT EXISTS` only,
+then rebuilds the **primary** rows conservatively from D1, and the backfill script re-ledgers the **backup**
+pool ("Known ceilings" above). The schema is applied with `CREATE TABLE IF NOT EXISTS` only,
 so any future column change to a governor table needs an explicit
 migration (an `ALTER TABLE`, not a silent no-op), and the `Governor`
 class must only ever be migrated by `renamed_classes`/
@@ -1167,10 +1148,9 @@ origin. Set both variables together when targeting a different deployment.
 
 ## Disaster recovery
 
-Backups run entirely inside Cloudflare - R2/D1 bindings and one
-D1-scoped API token, no second vendor holding credentials. Post-launch
-registry data is a permanent commitment, so this machinery exists and
-is rehearsed (see "Rehearsal" below).
+The registry keeps one backup of its own - a second copy of every
+verified archive blob, inside the same Cloudflare account, through
+R2/D1 bindings alone. It runs no backup of D1.
 
 **What is backed up, and how.**
 
@@ -1189,9 +1169,7 @@ is rehearsed (see "Rehearsal" below).
   paths do not propagate, and only the pre-launch registry wipe
   empties the bucket - so the replicated blobs are append-only,
   and a malicious or accidental deletion in the primary cannot reach
-  them. (The `d1/` namespace is different: the nightly job itself
-  deletes invalid dumps and prunes past retention - that is its own
-  bookkeeping, not a reclaim path.) Queue rows older than an hour raise the
+  them. Queue rows older than an hour raise the
   breaker's backup-health alert;
   `cargo registry-backup-backfill`, run from the repository root, is
   the manual recovery path (it copies
@@ -1205,142 +1183,57 @@ is rehearsed (see "Rehearsal" below).
   restore's blobs - reported because each holds backup-pool allowance;
   no tooling but the pre-launch wipe deletes them, and removing one is
   a per-object operator decision paired with `cargo registry-governor
-  release`), dumps without a
-  validating sidecar, sidecars without their dump, and - given
+  release`), keys outside the `blobs/` and `d1/` layouts, and - given
   `CABIN_REGISTRY_TOKEN` - the governor's backup and dump pools
   against the bucket's actual contents. The ledger keeps one row per
   object, so each pool must cover the bucket in bytes and, separately,
   in object count; a shortfall in either measure of either pool fails
   the audit and names itself. The listing is read before the ledger
-  snapshot, so an in-flight drain copy or dump is already reserved by
+  snapshot, so an in-flight drain copy is already reserved by
   then. Two shortfalls can still be honest, so rerun before
   investigating: a `cargo registry-backup-backfill` copy reaches the
   backup pool only when the drain retires its queue row (up to 50 per
   breaker pass; the audit prints the queue depth), and an operator
-  `registry-governor release` (either pool) or a dump-job delete (the
-  nightly prune or an invalid-dump removal) landing between the two
+  `registry-governor release` (either pool) landing between the two
   reads makes the pool read short of an object the listing still saw.
   The totals are aggregate, so a pass is not per-key proof.
-- **D1 metadata (RPO <= 24 h).** A second cron schedule (`0 3 * * *`)
-  runs a nightly logical dump from the Worker itself: it drives the D1
-  REST export endpoint (the same API `wrangler d1 export --remote`
-  uses) with the `D1_EXPORT_API_TOKEN` secret, follows the returned
-  signed URL, and streams the official `.sql` dump into the backup
-  bucket at `d1/<YYYY-MM-DD>.sql` with a `.sha256` sidecar (hash
-  computed while streaming). A download without a valid `Content-Length`
-  fails the job rather than falling back to an unbounded Worker buffer.
-  Success requires validation: non-empty,
-  every expected `CREATE TABLE` present, and the re-read object matching
-  the checksum; only then are `meta.last_backup_at` and
-  `meta.last_backup_key` updated. Retention, pruned in the same job: the
-  30 most recent daily dumps plus the first dump of each month for 12
-  months. The cron handler routes on the expression - the breaker's
-  `*/15 * * * *` exactly; anything else runs the dump job - so a
-  temporary extra schedule in `wrangler.jsonc` is all it takes to force
-  a dump for a rehearsal. One validated dump per date: a re-run on a
-  date whose dump is already recorded skips instead of re-exporting, so
-  a failed re-export can never overwrite the day's verified copy (a
-  failed attempt never records itself, and is overwritten by the next
-  try).
-- **Freshness alerting.** A backup system's classic failure is stopping
+- **Alerting.** A backup system's classic failure is stopping
   silently, so every breaker pass evaluates backup health: it logs an
-  error and POSTs to `NOTIFY_WEBHOOK_URL` (when configured) while
-  `meta.last_backup_at` is older than 36 h (or missing) or any
-  `backup_pending` queue row is older than an hour; the webhook payload
-  always carries a `backup` block with `last_backup_at`, `freshness`,
-  and the overdue-backup count. Note the alert also fires between
-  provisioning and the
-  first nightly pass - that is the "no dump recorded yet" state working
-  as intended.
+  error and POSTs to `NOTIFY_WEBHOOK_URL` (when configured) while any
+  `backup_pending` queue row is older than an hour, or while that count
+  cannot be read; the webhook payload always carries a `backup` block
+  with the overdue-backup count.
 
-**The `D1_EXPORT_API_TOKEN` secret** is a custom API token whose only
-permission is Account | D1 | Edit, scoped to this single account: it can
-export (and at worst rewrite) D1 databases, nothing else - no Workers,
-R2, or zone access, so the Worker holding it cannot escalate. Rotate it
-like `ANALYTICS_API_TOKEN`: create the replacement token first, `wrangler
-secret put D1_EXPORT_API_TOKEN` with the new value, then delete the old
-token in the dashboard. While the token is broken or absent the nightly
-job fails, which the freshness alert surfaces within 36 h.
+**D1 metadata.** The database's recovery path is D1 Time Travel, the
+platform's point-in-time restore. Its retention and commands are
+Cloudflare's to document: read the current D1 documentation when a
+restore is needed. A deleted database, or damage older than that
+retention, has no recovery path; that loss is an accepted risk. A
+restore moves D1 alone, so afterwards check the
+restored rows against the buckets, and after restoring to a point that
+predates launch, immediately re-run the launch-checklist `UPDATE` that
+sets `meta.launched = 'true'`, or the launch guard would treat the
+restored registry as pre-launch and let a wipe through.
 
-**The three loss scenarios, and the recovery order.** Work down the
-list; each later option covers a case the earlier one cannot.
+**Primary-bucket data loss** (bucket deleted or objects destroyed): the
+backup bucket is the archive store of last resort. Recreate the primary
+bucket, then copy `blobs/sha256/*` back (the inverse of
+`cargo registry-backup-backfill` - same loop with source and
+destination swapped, driven by the checksums in D1). Because blobs are
+content-addressed and never mutated, the copied-back objects are
+byte-identical to what clients pinned in lockfiles.
 
-1. **Bad deploy or migration** (data mangled in place, storage intact):
-   use **D1 Time Travel** first. It is always on for production-version
-   D1 databases with point-in-time restore at one-minute granularity -
-   retention 7 days on the Workers free plan, 30 days on paid (verified
-   against the Cloudflare docs 2026-07-10; re-check retention when
-   planning an incident response). Restore is destructive and in-place:
-
-   ```sh
-   node_modules/.bin/wrangler d1 time-travel info cabin-registry
-   node_modules/.bin/wrangler d1 time-travel restore cabin-registry --timestamp=<unix-ts>
-   ```
-
-   Blobs need nothing - R2 is untouched by a bad deploy, and archives
-   are immutable and content-addressed.
-2. **Accidental database loss** (database deleted, or overwritten beyond
-   Time Travel's window): create a fresh database, import the newest
-   dump, re-point the config, redeploy - exactly what
-   `cargo registry-restore-drill` (from the repository root) rehearses
-   against a scratch database:
-   download `meta.last_backup_key`... except after a real loss that
-   meta row is gone too; list the backup bucket's `d1/` prefix and take
-   the newest date **whose `.sha256` sidecar exists and verifies**. The
-   sidecar is written strictly after validation and the job deletes an
-   invalid dump object again, so a failed export attempt cannot
-   masquerade as a good dump. Then `wrangler d1 execute <db> --remote
-   --file <dump>.sql`, update `database_id` + `D1_DATABASE_ID` in
-   `wrangler.jsonc`, `wrangler deploy`. Loss bounded by the nightly
-   cadence: at most 24 h of metadata. Blobs are still in both buckets.
-   The restored `meta` rows are whatever the dump carried - after
-   restoring any dump (or Time Travel point) that predates launch,
-   immediately re-run the launch-checklist `UPDATE` that sets
-   `meta.launched = 'true'`, or the launch guard would treat the
-   restored registry as pre-launch and let a wipe through.
-3. **Primary-bucket data loss** (bucket deleted or objects destroyed):
-   the backup bucket is the artifact store of last resort. Recreate the
-   primary bucket, then copy `blobs/sha256/*` back (the inverse of
-   `cargo registry-backup-backfill` - same loop with source and
-   destination swapped, driven by the checksums in D1), and restore D1 from Time
-   Travel or the newest dump as above. Because blobs are
-   content-addressed and never mutated, the copied-back objects are
-   byte-identical to what clients pinned in lockfiles.
-
-**RPO / recovery time.** Blobs: RPO ~0 from the verified transition
-(the durable queue drains on the verdict itself; the stale-row alert
-plus backfill close the gaps; a pending upload's recovery path is
-republishing). Metadata: RPO <= 24 h from
-the nightly dump, and effectively minutes when Time Travel applies.
-Recovery time is dominated
-by operator response, not data volume, at today's scale: a Time Travel
-restore is minutes; a dump import plus redeploy is well under an hour
-(the drill's import of the dump takes seconds); copying blobs back
-is bounded by object count - budget roughly an hour per few thousand
-blobs with the wrangler loop, less with an S3-compatible bulk tool.
-
-**Rehearsal.** `cargo registry-restore-drill`, run from the repository
-root, downloads the latest
-dump, verifies the sidecar checksum, imports it into a scratch D1
-database (`cabin-registry-drill`), compares per-table row counts against
-the live database, spot-checks one revision's `metadata_json`
-byte-for-byte, and deletes the scratch database. Run it after enabling
-backups, after changing the dump machinery, and periodically before
-launch milestones. Row counts legitimately drift on
-an active database (the dump is nightly) - investigate only differences
-the timeline cannot explain. `cargo registry-smoke` restores its own local export
-into a scratch database on every registry pull request and requires the same schema and
-rows, so the import path is checked continuously; only the drill exercises a production
-dump.
+**Leftover dumps.** The backup bucket's `d1/` prefix still holds the
+`.sql` dumps (and `.sha256` sidecars) of a retired nightly job, and the
+governor's `dump` pool still accounts for them. Nothing writes,
+validates, or prunes them; the pre-launch wipe removes them with the
+rest of the bucket.
 
 **Known limitation - account-level compromise.** Everything above lives
-in one Cloudflare account, and no in-account (or in-account-targeting)
-pipeline can defend against losing the account itself: a compromised
-operator account or a hostile account closure takes primary and backup
-alike. The future hedge is an off-Cloudflare copy of the backup bucket -
-e.g. an `rclone` sync to Backblaze B2's free tier or to local disk,
-pulling with read-only credentials from outside - accepted as a
-follow-up before the registry carries data that cannot be re-published.
+in one Cloudflare account, and no in-account pipeline can defend against
+losing the account itself: a compromised operator account or a hostile
+account closure takes primary and backup alike. This is an accepted
+risk; no off-account copy is kept.
 
 ## Orphaned R2 blobs
 
@@ -1436,6 +1329,5 @@ the repository root, gathers
 the shareable aggregate state in one pass - config and stamp status,
 service mode, corpus and queue counts, the governor snapshot (with
 `CABIN_REGISTRY_TOKEN`), and the deployment list - and deliberately
-prints no tokens, content checksums, package names, or user data. The
-one object key it carries is `meta.last_backup_key`, which the backup
-job writes as `d1/<date>.sql` and nothing else writes at all.
+prints no tokens, object keys, content checksums, package names, or
+user data.

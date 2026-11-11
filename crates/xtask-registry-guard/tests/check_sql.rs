@@ -41,7 +41,7 @@ fn the_canonical_call_site_passes() {
         "    .bind(&[key.into(), value.into()])?;\n",
         // R2's builder ends in execute(), not exec().
         "bucket.put(&key, bytes).execute().await?;\n",
-        // The dump scanner's expectations are not executed SQL.
+        // A formatted DDL string is not executed SQL.
         "let expected = format!(\"CREATE TABLE {table}\");\n",
         // Neighboring identifiers the guard must not mistake for a
         // D1 call, and a comment describing one.

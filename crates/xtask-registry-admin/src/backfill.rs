@@ -35,8 +35,7 @@ use std::process::Stdio;
 use anyhow::{Context, Result, bail};
 
 use crate::{
-    BACKUP_BUCKET as BACKUP, BLOBS_BUCKET as PRIMARY, Nullish, column_lines, output, results, step,
-    wrangler,
+    BACKUP_BUCKET as BACKUP, BLOBS_BUCKET as PRIMARY, column_lines, output, results, step, wrangler,
 };
 
 // The queue rows make the drain visit (and ledger) every verified blob,
@@ -107,7 +106,7 @@ pub fn run() -> Result<()> {
     ]))?;
     let mut copied = 0_u32;
     let mut present = 0_u32;
-    for checksum in column_lines(&results(&answer)?, "checksum", Nullish::Printed) {
+    for checksum in column_lines(&results(&answer)?, "checksum") {
         // An empty enumeration arrives as one blank line; anything else
         // unexpected refuses.
         if checksum.is_empty() {
