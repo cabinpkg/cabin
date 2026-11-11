@@ -268,10 +268,7 @@ fn build_script_header_builds_and_runs() {
 #[cfg(unix)]
 #[test]
 fn build_script_header_builds_without_a_cxx_compiler() {
-    assert!(
-        ninja_available() && c_compiler_available(),
-        "ninja and a C compiler are required for this test"
-    );
+    require_c_and_cxx_build_tools();
     let bin = TempDir::new().unwrap();
     let cc = ["cc", "clang", "gcc"]
         .into_iter()
