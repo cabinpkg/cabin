@@ -139,6 +139,10 @@ struct WorkspaceView<'a> {
 pub(crate) struct PackageView<'a> {
     pub(crate) name: &'a str,
     pub(crate) version: String,
+    /// Declared `[package] license` SPDX expression.  Omitted when
+    /// the manifest declares none (unspecified).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    license: Option<&'a str>,
     manifest_path: &'a Path,
     /// Cabin package dependencies (`[dependencies]`,
     /// `[dev-dependencies]`).
@@ -369,6 +373,10 @@ fn build_package_view<'a>(
     PackageView {
         name: package.name.as_str(),
         version: package.version.to_string(),
+        license: package
+            .license
+            .as_ref()
+            .map(cabin_core::LicenseExpression::as_str),
         manifest_path: &pkg.manifest_path,
         dependencies,
         system_dependencies,

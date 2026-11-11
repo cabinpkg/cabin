@@ -490,6 +490,23 @@ mod tests {
         );
     }
 
+    /// The served version entry carries the stored `license`, so a
+    /// client reads it without downloading the archive.
+    #[test]
+    fn package_json_serves_the_stored_license() {
+        let license = "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)";
+        let stored = format!(r#"{{"dependencies":{{}},"license":"{license}"}}"#);
+        let body = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_A, &stored, false)],
+            &[revision("1.0.0", REV_A, 'a')],
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["versions"]["1.0.0"]["license"], license);
+    }
+
     /// A superseded revision whose resolution fields differ from the
     /// served revision's carries its own, and the document becomes
     /// schema 2; a revision that agrees carries none.

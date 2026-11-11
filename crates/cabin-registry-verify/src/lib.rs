@@ -182,8 +182,9 @@ pub enum Reason {
     /// recorded.
     ChecksumMismatch,
     /// Any other canonical-metadata field (schema, features,
-    /// profiles, toolchain, build, compiler wrapper, links, yanked
-    /// flag, source block) disagrees with what the manifest derives.
+    /// profiles, toolchain, build, compiler wrapper, links, license,
+    /// yanked flag, source block) disagrees with what the manifest
+    /// derives.
     MetadataMismatch,
     /// The bytes are not a well-formed zip container in the strict
     /// profile: a bad or misplaced EOCD, a non-contiguous layout, or

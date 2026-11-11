@@ -655,6 +655,11 @@ fn rewrite_vendored_revision(
         "path".to_owned(),
         serde_json::Value::String(relative.to_owned()),
     );
+    // The entry's `license` is the current revision's; a superseded
+    // revision's is recorded only in its own archive's manifest.
+    if obj.get("revision").and_then(serde_json::Value::as_str) != Some(revision) {
+        obj.shift_remove("license");
+    }
     obj.insert(
         "revision".to_owned(),
         serde_json::Value::String(revision.to_owned()),
@@ -766,6 +771,31 @@ mod tests {
             revisions[revision]["source"]["path"],
             "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
         );
+    }
+
+    /// The entry's `license` is the current revision's, so it survives
+    /// only when that is the revision vendored.
+    #[test]
+    fn rewrite_keeps_the_license_only_for_the_current_revision() {
+        let (current, superseded) = ("bbbbbbbbbbbbbbbb", "aaaaaaaaaaaaaaaa");
+        for (vendored, expected) in [(current, Some("MIT")), (superseded, None)] {
+            let source = serde_json::json!({
+                "source": {"type": "archive", "path": "/leak.zip", "format": "zip"},
+            });
+            let mut value = serde_json::json!({
+                "dependencies": {},
+                "license": "MIT",
+                "revision": current,
+                "revisions": { current: source, superseded: source },
+            });
+            rewrite_vendored_revision(&mut value, vendored, "a.zip", &pkg("fmt"), &ver("10.2.1"))
+                .unwrap();
+            assert_eq!(
+                value.get("license").and_then(serde_json::Value::as_str),
+                expected,
+                "vendored {vendored}"
+            );
+        }
     }
 
     /// A vendored superseded revision resolves from the vendor

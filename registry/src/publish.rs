@@ -160,6 +160,15 @@ pub struct VersionMetadata {
     /// authoritative deep validation stays with the client parser and
     /// the external verifier's metadata-equality pass.
     pub upstream: Option<UpstreamMetadata>,
+    /// `[package] license` SPDX expression, stored and served back
+    /// verbatim.  Only its JSON type is checked here: the verifier's
+    /// metadata-equality pass requires it to equal what the archived
+    /// manifest's SPDX-validated field derives.
+    ///
+    /// Private-alpha leniency: a publish without it is accepted.  It
+    /// becomes required before the public launch (`docs/runbook.md`,
+    /// "Launch checklist").
+    pub license: Option<String>,
     pub yanked: bool,
     pub checksum: String,
     pub source: SourceMetadata,
@@ -738,6 +747,7 @@ mod tests {
   "language": {"cxx-standard": "c++20"},
   "standards": {"targets": {"fmt": {"interface": {"c++": {"min": "c++17"}}}}},
   "links": {"fmt": "fmt"},
+  "license": "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)",
   "yanked": false,
   "checksum": "sha256:bb",
   "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}
@@ -746,6 +756,27 @@ mod tests {
         assert!(parsed.standards.is_some());
         assert!(parsed.features.is_some());
         assert_eq!(parsed.links["fmt"], "fmt");
+        assert_eq!(
+            parsed.license.as_deref(),
+            Some("Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)")
+        );
+    }
+
+    /// The canonical document without a `license` stays valid and
+    /// means unspecified; a `license` that is not a JSON string is not
+    /// the canonical shape.
+    #[test]
+    fn validate_metadata_types_the_optional_license() {
+        let body = metadata_json("fmtlib", "fmt", "10.2.1");
+        let parsed = validate_metadata("fmtlib", "fmt", "10.2.1", REV, body.as_bytes()).unwrap();
+        assert_eq!(parsed.license, None);
+
+        let listed = body.replace("\"yanked\"", "\"license\": [\"MIT\"], \"yanked\"");
+        assert_ne!(listed, body);
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "10.2.1", REV, listed.as_bytes()).unwrap_err(),
+            METADATA_NOT_CANONICAL
+        );
     }
 
     #[test]

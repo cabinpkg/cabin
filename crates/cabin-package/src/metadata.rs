@@ -110,6 +110,16 @@ pub struct PackageMetadata {
     /// manifest declares none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream: Option<cabin_core::UpstreamProvenance>,
+    /// Manifest-declared `[package] license` SPDX expression, exactly
+    /// as written, so registry consumers can read a version's
+    /// declared license without downloading its archive.
+    ///
+    /// Private-alpha leniency: omitted when the manifest declares
+    /// none.  A local package may always omit it, but publishing one
+    /// without it is refused from the public launch on
+    /// (`registry/docs/runbook.md`, "Launch checklist").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<cabin_core::LicenseExpression>,
     pub yanked: bool,
     pub checksum: cabin_core::Checksum,
     pub source: SourceMetadata,
@@ -295,6 +305,7 @@ pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) ->
         standards: StandardsMetadata::from_package(package),
         links: links_from_package(package),
         upstream: package.upstream.clone(),
+        license: package.license.clone(),
         yanked: false,
         checksum: checksum.clone(),
         source: SourceMetadata {
@@ -598,6 +609,20 @@ mod tests {
         let proj = package("fmt", "10.2.1", Vec::new());
         let body = render_canonical_json(&canonical_metadata(&proj, &test_checksum())).unwrap();
         assert!(!body.contains("\"upstream\""));
+    }
+
+    #[test]
+    fn metadata_carries_the_declared_license_and_omits_an_absent_one() {
+        let license = "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)";
+        let proj = package("fmt", "10.2.1", Vec::new())
+            .with_license(Some(cabin_core::LicenseExpression::new(license).unwrap()));
+        let body = render_canonical_json(&canonical_metadata(&proj, &test_checksum())).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["license"], license);
+
+        let bare = package("fmt", "10.2.1", Vec::new());
+        let body = render_canonical_json(&canonical_metadata(&bare, &test_checksum())).unwrap();
+        assert!(!body.contains("\"license\""));
     }
 
     #[test]

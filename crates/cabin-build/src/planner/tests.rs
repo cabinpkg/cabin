@@ -3107,6 +3107,7 @@ fn target_dep_cycle_within_package_is_reported() {
         patches: Default::default(),
         system_provided: Default::default(),
         upstream: None,
+        license: None,
         include: Vec::new(),
     };
     let graph = single_package_graph(package, "/abs/proj");

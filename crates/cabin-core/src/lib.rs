@@ -25,6 +25,7 @@ pub mod experimental;
 pub mod hash;
 pub mod index_standards;
 pub mod language_standard;
+pub mod license;
 pub mod model;
 pub mod patch;
 pub mod process;
@@ -83,6 +84,7 @@ pub use language_standard::{
     find_interface_standard_contradictions, find_standard_flag_conflicts, imposes_requirement,
     interface_c, interface_cxx, parse_interface_c, parse_interface_cxx, resolve_language_standards,
 };
+pub use license::{LicenseError, LicenseExpression};
 pub use model::{
     ConditionalSources, Dependency, DependencyKind, DependencySource, InstructionSet, Package,
     PackageConfigInput, PackageName, SystemDependency, Target, TargetDep, TargetKind, TargetName,

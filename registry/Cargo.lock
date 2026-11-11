@@ -104,6 +104,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "spdx",
  "thiserror",
  "url",
 ]
@@ -920,6 +921,15 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+
+[[package]]
+name = "spdx"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "646c5a367da914e3babcb9cd8e91c37ccaac42325b8f86f036513ad103f2a716"
+dependencies = [
+ "smallvec",
+]
 
 [[package]]
 name = "sqlite-wasm-rs"

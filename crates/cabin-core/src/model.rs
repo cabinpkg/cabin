@@ -1208,6 +1208,11 @@ pub struct Package {
     /// the pinned upstream archive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream: Option<crate::UpstreamProvenance>,
+    /// `[package] license` - the SPDX license expression the package
+    /// declares.  `None` means unspecified, never "no license".
+    /// Metadata only: nothing in resolution or building reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<crate::LicenseExpression>,
     /// `[package] include` - the package-root-relative files and
     /// directories `cabin package` archives, besides the root
     /// manifest.  Empty archives the whole tree.
@@ -1301,6 +1306,7 @@ impl Package {
             patches: PatchManifestSettings::default(),
             system_provided: crate::SystemProvidedSettings::default(),
             upstream: None,
+            license: None,
             include: Vec::new(),
         })
     }
@@ -1399,6 +1405,13 @@ impl Package {
     #[must_use]
     pub fn with_upstream(mut self, upstream: Option<crate::UpstreamProvenance>) -> Self {
         self.upstream = upstream;
+        self
+    }
+
+    /// Attach the manifest-declared `[package] license` expression.
+    #[must_use]
+    pub fn with_license(mut self, license: Option<crate::LicenseExpression>) -> Self {
+        self.license = license;
         self
     }
 

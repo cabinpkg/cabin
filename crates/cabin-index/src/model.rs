@@ -121,6 +121,12 @@ pub struct VersionMetadata {
     /// URL; the registry's external verifier consumes it.  `None`
     /// for entries that declare none.
     pub upstream: Option<cabin_core::UpstreamProvenance>,
+    /// Declared `[package] license` SPDX expression of the current
+    /// revision, as published and not validated by this reader.
+    /// Metadata only - resolution never reads it.  `None` only for an
+    /// entry published without one, which is accepted until the
+    /// public launch.
+    pub license: Option<String>,
 }
 
 impl VersionMetadata {

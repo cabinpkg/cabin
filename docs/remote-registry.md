@@ -436,7 +436,10 @@ Server-side behavior is part of the contract:
   entries distinct from copy paths and the root manifest - the server never fetches the
   URL), requires a declared `links` map to pass a lexical mirror of the manifest's rules (valid
   target-name keys, identities of ASCII letters, digits, `.`, `_`, `+`, and `-`, each identity
-  claimed at most once), and verifies the archive
+  claimed at most once), rejects a `license` that is neither a JSON string nor `null` (the
+  [verifier](#the-verifiers-checks)'s consistency check holds the value to the archived manifest's
+  SPDX-validated field; a publish without a license is accepted only during the private alpha), and
+  verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
   Two name-level rules join the same `400` family: a reserved package name
   (`package name is reserved` - the DOS device stems plus a short project vocabulary), and, for a
@@ -706,8 +709,8 @@ checks, in order:
    extract but fail to build), and must reproduce the
    entire stored canonical metadata document through the same derivation publish used - name,
    version, the three dependency tables, language-standard fields and the per-target standards
-   table, the per-target links claims, features, profiles, toolchain, build settings, the upstream
-   provenance block, and the
+   table, the per-target links claims, features, profiles, toolchain, build settings, the declared
+   license, the upstream provenance block, and the
    source block - and the archive
    bytes must hash to the recorded checksum (defense in depth; the server already checked at
    publish).

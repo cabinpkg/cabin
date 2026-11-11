@@ -65,6 +65,7 @@ deps = ["greet", "fmt"]
 | --- | --- | --- | --- |
 | `name` | string | yes | Package name: a bare `<name>` or a scoped `<scope>/<name>` with exactly one `/`.  `<name>` matches `[a-z0-9][a-z0-9_-]*`: lowercase ASCII letters, digits, `_`, and `-`, starting with a letter or digit.  The scope has its own grammar: lowercase letters, digits, and interior `-` only, at most 39 characters (a claimable GitHub login).  Uppercase and `.` are rejected, and names are compared exactly, never case-folded.  Each part names a build directory, so neither may be a Windows device name (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, or `lpt1` to `lpt9`); the registry refuses the same names.  Registry packages are always scoped; bare names are local-only and rejected by `cabin publish`. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
+| `license` | string | no | [SPDX license expression](#license) describing the package's licensing, such as `"MIT OR Apache-2.0"`.  Omitted means unspecified.  A package that is published must declare it; see [`license`](#license). |
 | `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`; `c90` is an alias of `c89`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++26`; `c++03` is an alias of `c++98`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
 | `interface-c-standard` | string or `{ min, max }` table | no | Package-wide default C interface requirement for `library` / `header-only` targets: a string minimum (`"c11"`), a bounded inclusive range (`{ min = "c99", max = "c17" }`, `max` optional), or `"none"` (headers not consumable from C). |
@@ -79,6 +80,68 @@ form, inheriting the literal declared on the workspace root's `[workspace]` tabl
 Source-language *classification* stays per-file (target kinds, `.c` vs `.cc` extensions - see
 [Targets](targets.md)); the standard each language compiles with is governed by the fields above and
 their per-target overrides ([Language standards](language-standards.md)).
+
+### `license`
+
+An optional
+[SPDX license expression](https://spdx.github.io/spdx-spec/v3.0.1/annexes/spdx-license-expressions/)
+describing the licensing of the package's contents.
+
+```toml
+[package]
+name = "acme/coro"
+version = "1.0.0"
+license = "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)"
+```
+
+| Form | Meaning |
+| --- | --- |
+| `MIT` | One license from the [SPDX License List](https://spdx.org/licenses/).  Identifiers are matched case-sensitively. |
+| `Apache-2.0+` | That version of the license or any later one.  GNU licenses have dedicated identifiers for this (`GPL-3.0-only`, `GPL-3.0-or-later`); prefer them to the deprecated `GPL-3.0+` spelling, which is still accepted. |
+| `MIT OR Apache-2.0` | Either license, at the recipient's choice. |
+| `MIT AND BSD-3-Clause` | Both licenses apply. |
+| `GPL-3.0-or-later WITH GCC-exception-3.1` | A license modified by an exception from the [SPDX exceptions list](https://spdx.org/licenses/exceptions-index.html). |
+| `LicenseRef-<id>`, `AdditionRef-<id>` | A license, or an exception after `WITH`, that is on neither SPDX list.  `<id>` consists of ASCII letters, digits, `-`, and `.`; either form may carry a `DocumentRef-<id>:` prefix. |
+
+`WITH` binds tighter than `AND`, which binds tighter than `OR`; parentheses group explicitly.
+
+Cabin validates the expression whenever it loads the manifest, against the SPDX lists bundled with
+that Cabin release.  A malformed expression, or an identifier that is on neither list, fails the
+load with a diagnostic that names the offending term.  Terms are separated by plain spaces; tabs,
+line breaks, and other whitespace are rejected.  Identifiers the SPDX list has deprecated (such as
+`GPL-2.0`) are still accepted, so a deprecation never invalidates a published package; prefer the
+current identifiers.  An identifier added to the SPDX lists after a Cabin release is unknown to that
+release, which rejects a manifest declaring it, a dependency's included, until Cabin is upgraded.
+Cabin keeps the expression exactly as written and never normalizes it.
+
+A package that is only built locally may omit the field.  A published package must declare it.
+During the hosted registry's private alpha, `cabin publish` and the registry still accept a package
+without a license; before the public launch both refuse one, and every version entry in a registry
+index carries a license.
+
+The field is a declaration, and Cabin treats it as metadata only:
+
+- An omitted `license` means *unspecified*.  It does not mean the package is in the public domain
+  or free of license terms, and Cabin never infers a value from source files or dependencies.
+- The expression describes the licensing of what the package ships.  Cabin checks its syntax and
+  identifiers, not its accuracy.  It never accepts, rejects, or prefers a package because of its
+  license, and it does not evaluate license compatibility across a dependency graph.
+- Declaring a license does not satisfy the license's conditions.  License texts, copyright notices,
+  and attribution files must still be distributed as their licenses require; the field does not
+  replace them.
+
+Tools can read the declaration without unpacking a source archive:
+
+- `cabin metadata` reports it as `license` on each package in `packages` (the workspace's members
+  and local-path dependencies).
+- `cabin package` and `cabin publish --dry-run` write it to the canonical metadata document
+  ([`package-format.md`](package-format.md#canonical-metadata)).
+- A registry's package index carries it on each version entry, as `versions.<version>.license` in
+  the package's index document ([`package-index.md`](package-index.md#package-file-shape)).  This
+  is how to read the license of a registry dependency, on a file registry and on the hosted
+  registry alike.
+
+In each place the key is absent when the package declares no license.
 
 ### `[package.upstream]`
 
@@ -439,6 +502,7 @@ The parser and downstream tools reject manifests when:
   and `-`
 - a `links` key appears on a non-`library` target
 - two targets of one package claim the same `links` value
+- `[package].license` is not a valid SPDX license expression (see [`license`](#license))
 - the same dependency key appears twice
 - a dependency entry has neither `path`, `version`, `workspace`, nor `system = true`
 - a dependency entry combines mutually exclusive source forms

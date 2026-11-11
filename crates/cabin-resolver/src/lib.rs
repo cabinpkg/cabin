@@ -655,6 +655,7 @@ mod tests {
                     standards: cabin_index::StandardsMetadata::default(),
                     links: BTreeMap::new(),
                     upstream: None,
+                    license: None,
                 },
             );
         }
@@ -1226,6 +1227,7 @@ mod tests {
                 standards: cabin_index::StandardsMetadata::default(),
                 links: BTreeMap::new(),
                 upstream: None,
+                license: None,
             },
         );
         IndexEntry {
@@ -1751,6 +1753,7 @@ mod tests {
                 standards: cabin_index::StandardsMetadata::default(),
                 links: BTreeMap::new(),
                 upstream: None,
+                license: None,
             },
         );
         IndexEntry {

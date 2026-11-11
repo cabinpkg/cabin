@@ -446,6 +446,7 @@ struct ProjectFromRawInput {
     system_provided: cabin_core::SystemProvidedSettings,
 }
 
+#[allow(clippy::too_many_lines)] // one independent validation per `[package]` field
 fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError> {
     let ProjectFromRawInput {
         package,
@@ -469,6 +470,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         interface_cxx_standard,
         gnu_extensions,
         upstream,
+        license,
         include,
     } = package;
 
@@ -529,6 +531,10 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         conditional: conditional_build_flags,
     };
     let upstream_model = upstream_from_raw(upstream)?;
+    let license = license
+        .map(cabin_core::LicenseExpression::new)
+        .transpose()
+        .map_err(|source| ManifestError::License { source })?;
     // The same canonical relative spelling archive entries use, so an
     // entry compares against walked paths byte for byte.
     if let Some(value) = include
@@ -555,6 +561,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_patches(patches)
     .with_system_provided(system_provided)
     .with_upstream(upstream_model)
+    .with_license(license)
     .with_include(include.into_iter().map(camino::Utf8PathBuf::from).collect()))
 }
 
