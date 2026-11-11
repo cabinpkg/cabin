@@ -495,16 +495,6 @@ mod enforced {
     /// lies in the directory named after its container.
     fn late(dir: &Path) {
         let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
-        #[cfg(windows)]
-        let _held = {
-            use std::os::windows::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .share_mode(0)
-                .open(dir.join("held"))
-                .unwrap()
-        };
         std::fs::write(dir.join("started"), local).unwrap();
         std::thread::sleep(Duration::from_secs(1));
         std::fs::write(dir.join("late"), "").unwrap();
@@ -590,25 +580,33 @@ mod enforced {
         assert!(junction(link, target).output().unwrap().status.success());
     }
 
-    /// Whether the process `pid` is still running.
+    /// Whether the process `pid` is gone or was ended by the job, which
+    /// ends a process with the code 1, one the probe never exits with.
     #[cfg(windows)]
-    fn running(pid: u32) -> bool {
-        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, WAIT_TIMEOUT};
+    fn killed(pid: u32) -> bool {
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER};
         use windows_sys::Win32::System::Threading::{
-            OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            PROCESS_SYNCHRONIZE, WaitForSingleObject,
         };
-        // SAFETY: plain system calls; the handle is closed at once.
+        // SAFETY: plain system calls on a handle closed before returning.
         unsafe {
-            let process = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+            let access = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+            let process = OpenProcess(access, 0, pid);
             if process.is_null() {
                 // Any other failure says nothing about the process.
                 let gone = Some(ERROR_INVALID_PARAMETER.cast_signed());
                 assert_eq!(std::io::Error::last_os_error().raw_os_error(), gone);
-                return false;
+                return true;
             }
-            let running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+            // A killed process can outlast the run by a moment.  The code
+            // of one still running after the wait reads as 259.
+            let mut code = 0;
+            WaitForSingleObject(process, 5_000);
+            GetExitCodeProcess(process, &raw mut code);
             CloseHandle(process);
-            running
+            eprintln!("PROBE killed: pid={pid} code={code}");
+            code == 1
         }
     }
 
@@ -1462,88 +1460,6 @@ mod enforced {
         assert!(matches!(result, Err(SandboxError::Run { .. })));
     }
 
-    /// PROBE (temporary): what is left of a killed process when the run
-    /// returns.
-    #[cfg(windows)]
-    #[test]
-    fn probe_kill_race() {
-        use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
-        use windows_sys::Win32::System::Threading::{
-            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-            PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW, WaitForSingleObject,
-        };
-        // The mechanism: a file held without sharing cannot be opened.
-        let scratch = TempDir::new().unwrap();
-        let path = scratch.path().join("x");
-        let holder = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .share_mode(0)
-            .open(&path)
-            .unwrap();
-        let double = std::fs::File::open(&path).map(drop);
-        drop(holder);
-        let after = std::fs::File::open(&path).map(drop);
-
-        let (mut gone, mut signaled, mut pending, mut held_busy) = (0, 0, 0, 0);
-        let mut notes = Vec::new();
-        for turn in 0..300 {
-            let dir = TempDir::new().unwrap();
-            let probed = confine(
-                &format!("linger:late:{}", arg(dir.path())),
-                &[],
-                &[dir.path()],
-            )
-            .unwrap();
-            let held = std::fs::File::open(dir.path().join("held")).map(drop);
-            let pid: u32 = probed.outcome("linger").parse().unwrap();
-            // SAFETY: plain system calls; the handle is closed at once.
-            unsafe {
-                let access = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
-                let process = OpenProcess(access, 0, pid);
-                if process.is_null() {
-                    gone += 1;
-                    let error = std::io::Error::last_os_error().raw_os_error();
-                    if error != Some(87) {
-                        notes.push(format!("turn {turn}: open failed {error:?}"));
-                    }
-                } else {
-                    let first = WaitForSingleObject(process, 0);
-                    let mut name = [0u16; 600];
-                    let mut len = 600u32;
-                    let named =
-                        QueryFullProcessImageNameW(process, 0, name.as_mut_ptr(), &raw mut len);
-                    let image = if named == 0 {
-                        format!("{:?}", std::io::Error::last_os_error().raw_os_error())
-                    } else {
-                        String::from_utf16_lossy(&name[..len as usize])
-                    };
-                    let later = WaitForSingleObject(process, 5000);
-                    let mut code = 0;
-                    let got = GetExitCodeProcess(process, &raw mut code);
-                    CloseHandle(process);
-                    if first == WAIT_TIMEOUT {
-                        pending += 1;
-                    } else {
-                        signaled += 1;
-                    }
-                    notes.push(format!(
-                        "turn {turn}: pid {pid} first={first} later={later} got={got} code={code} image={image}"
-                    ));
-                }
-            }
-            if let Err(error) = held {
-                held_busy += 1;
-                notes.push(format!("turn {turn}: held {error}"));
-            }
-            assert!(!dir.path().join("late").exists());
-        }
-        panic!(
-            "PROBE double={double:?} after={after:?} gone={gone} signaled={signaled} pending={pending} held_busy={held_busy} notes={notes:#?}"
-        );
-    }
-
     #[test]
     fn processes_left_running_are_killed() {
         let dir = TempDir::new().unwrap();
@@ -1555,10 +1471,10 @@ mod enforced {
         .unwrap();
         assert!(dir.path().join("started").exists());
         // On Windows the grant ends with the run, so a survivor could not
-        // write `late`: look for the process itself.  `late` there shows a
+        // write `late`: look at how the process ended.  `late` there shows a
         // run that waited for the process instead of killing it.
         #[cfg(windows)]
-        assert!(!running(probed.outcome("linger").parse().unwrap()));
+        assert!(killed(probed.outcome("linger").parse().unwrap()));
         #[cfg(unix)]
         {
             drop(probed);
