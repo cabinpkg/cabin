@@ -316,6 +316,12 @@ cannot name it.  The token never appears in logs, error messages,
 or debug output; the GitHub Actions flow emits each secret exactly once as an `::add-mask::`
 workflow command on stderr, which is what keeps it out of the rendered log.
 
+## Client identification
+
+Every HTTP request Cabin sends carries `User-Agent: cabin/<version>`, naming the running
+Cabin's version.  A registry may use it to tell Cabin's downloads from other traffic in its
+statistics.  It is not a credential: any client may send it.
+
 ## Read routes
 
 The read routes are the same shapes as the sparse HTTP index in

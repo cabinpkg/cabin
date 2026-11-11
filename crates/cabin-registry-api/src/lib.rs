@@ -140,13 +140,7 @@ impl RegistryApi {
             base.set_path(&path);
         }
         Ok(Self {
-            // Redirects are refused so a mutation can never be
-            // bounced to a different origin than the one the
-            // registry's `config.json` declared.
-            agent: ureq::AgentBuilder::new()
-                .timeout(DEFAULT_TIMEOUT)
-                .redirects(0)
-                .build(),
+            agent: agent(),
             base,
             origin,
             token,
@@ -919,10 +913,18 @@ fn github_oauth_agent(github_url: &str) -> Result<ureq::Agent, RegistryApiError>
             message: "the GitHub OAuth endpoint is not an https URL".to_owned(),
         });
     }
-    Ok(ureq::AgentBuilder::new()
+    Ok(agent())
+}
+
+/// The agent behind every request of this crate.  Redirects are
+/// refused so a request - a mutation, or one carrying a secret - can
+/// never be bounced to an origin other than the one it was built for.
+fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .user_agent(cabin_core::registry::USER_AGENT)
         .timeout(DEFAULT_TIMEOUT)
         .redirects(0)
-        .build())
+        .build()
 }
 
 /// Fetch the workflow run's OIDC JWT from the GitHub Actions runner:
@@ -954,10 +956,7 @@ pub fn fetch_github_actions_jwt(
             message: "the runner's OIDC endpoint is not an https URL".to_owned(),
         });
     }
-    let agent = ureq::AgentBuilder::new()
-        .timeout(DEFAULT_TIMEOUT)
-        .redirects(0)
-        .build();
+    let agent = agent();
     let url = format!("{request_url}&audience={audience}");
     // The runner's token service is known-flaky under load: GitHub's
     // own OIDC client retries this exact GET on 5xx.  A short bounded
@@ -1423,6 +1422,7 @@ mod tests {
         method: String,
         path: String,
         authorization: Option<String>,
+        user_agent: Option<String>,
         body: Vec<u8>,
     }
 
@@ -1479,6 +1479,11 @@ mod tests {
                             .headers()
                             .iter()
                             .find(|h| h.field.equiv("Authorization"))
+                            .map(|h| h.value.to_string()),
+                        user_agent: req
+                            .headers()
+                            .iter()
+                            .find(|h| h.field.equiv("User-Agent"))
                             .map(|h| h.value.to_string()),
                         body: body_bytes,
                     });
@@ -1542,6 +1547,10 @@ mod tests {
         assert_eq!(
             captured.authorization.as_deref(),
             Some(format!("Bearer {TEST_TOKEN}").as_str())
+        );
+        assert_eq!(
+            captured.user_agent.as_deref(),
+            Some(cabin_core::registry::USER_AGENT)
         );
         assert_eq!(
             &captured.body[0..4],

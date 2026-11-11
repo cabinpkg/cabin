@@ -37,6 +37,10 @@ pub fn is_valid_packaging_revision(value: &str) -> bool {
 /// Required `config.json` `kind` discriminant for a file registry.
 pub const REGISTRY_KIND: &str = "file-registry";
 
+/// `User-Agent` of every HTTP request Cabin sends.  It labels traffic
+/// for a registry's statistics and is not a credential.
+pub const USER_AGENT: &str = concat!("cabin/", env!("CARGO_PKG_VERSION"));
+
 /// Cabin's default hosted-registry index origin: the sparse HTTP
 /// index a command falls back to when it needs an index and neither
 /// the CLI (`--index-path` / `--index-url`) nor the config
