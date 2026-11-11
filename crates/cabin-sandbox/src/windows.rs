@@ -278,7 +278,7 @@ fn set_entry(
     // The list is read, then written whole: a run doing the same in
     // between would lose its entry, or drop this one.
     let lock = File::create(lock)?;
-    let _ = &lock;
+    lock.lock()?;
     let name = wide(path.as_os_str());
     let mut acl = null_mut();
     let mut descriptor = null_mut();
@@ -738,7 +738,7 @@ mod tests {
                     &raw mut descriptor,
                 );
                 assert_eq!(error, 0);
-                let count = (*acl).AceCount;
+                let count = acl.as_ref().expect("a file has a list").AceCount;
                 LocalFree(descriptor);
                 count
             }
