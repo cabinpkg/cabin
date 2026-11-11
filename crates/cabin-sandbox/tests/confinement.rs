@@ -240,6 +240,7 @@ mod enforced {
                 report(verb, std::fs::read(path).map(drop));
             }
             // The same, then make a symlink at `<link>`.
+            #[cfg(unix)]
             "wait-symlink" => {
                 let (signal, link) = arg.split_once(',').unwrap();
                 wait_for_go(Path::new(signal));
@@ -974,6 +975,7 @@ mod enforced {
 
     /// Nor may the program put one where the directory was, once Cabin
     /// or the user has removed it under a process the program left.
+    #[cfg(unix)]
     #[test]
     fn a_removed_write_grant_is_not_replaced() {
         // Whether the program reported making the symlink.
