@@ -136,7 +136,9 @@ impl Fixture {
 
     /// The same package, built in the entry `build_dir` of its root.
     fn built_in(self, build_dir: &str) -> Self {
-        let build_dir = self.root.join(build_dir);
+        // Collected from its components, so spelled as the platform
+        // spells the paths a script is told.
+        let build_dir: Utf8PathBuf = self.root.join(build_dir).components().collect();
         let dir = build_dir.join(".build-script");
         fs::create_dir_all(&dir).unwrap();
         Self {
