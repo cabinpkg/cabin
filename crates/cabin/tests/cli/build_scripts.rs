@@ -519,10 +519,10 @@ fn a_registry_packages_build_script_is_not_run() {
     let dir = TempDir::new().unwrap();
     let index = dir.path().join("index");
     assert_fs::fixture::ChildPath::new(index.join("config.json"))
-        .write_str("{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n")
+        .write_str("{\"schema\":2,\"kind\":\"file-registry\",\"packages\":\"packages\",\"archives\":\"archives\"}\n")
         .unwrap();
     let checksum = make_archive(
-        &index.join("artifacts/dep/dep-1.0.0.zip"),
+        &index.join("archives/dep/dep-1.0.0.zip"),
         &[
             (
                 "cabin.toml",
@@ -543,7 +543,7 @@ sources = ["src/dep.c"]
     let revision = &checksum[..16];
     assert_fs::fixture::ChildPath::new(index.join("packages/dep.json"))
         .write_str(&format!(
-            "{{\"schema\": 1, \"name\": \"dep\", \"versions\": {{\"1.0.0\": {{\"dependencies\": {{}}, \"yanked\": false, \"standards\": {{\"targets\": {{\"dep\": {{\"interface\": {{\"c\": {{\"min\": \"c11\"}}}}}}}}}}, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/dep/dep-1.0.0.zip\", \"format\": \"zip\"}}}}}}}}}}}}\n"
+            "{{\"schema\": 1, \"name\": \"dep\", \"versions\": {{\"1.0.0\": {{\"dependencies\": {{}}, \"yanked\": false, \"standards\": {{\"targets\": {{\"dep\": {{\"interface\": {{\"c\": {{\"min\": \"c11\"}}}}}}}}}}, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../archives/dep/dep-1.0.0.zip\", \"format\": \"zip\"}}}}}}}}}}}}\n"
         ))
         .unwrap();
     let proj = assert_fs::fixture::ChildPath::new(dir.path().join("proj"));

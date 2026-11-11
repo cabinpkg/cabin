@@ -1,117 +1,122 @@
-// Temporary probe: how a confined build script can start its tool on Windows.
+// Temporary probe, round 2: which ways of starting its tool work for a
+// confined build script on Windows.  `probe_tool.c` is the tool.
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 
-#include <direct.h>
 #include <errno.h>
+#include <io.h>
 #include <process.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static void start(const char *label, const char *program, const char *arguments, BOOL inherit,
-                  DWORD flags) {
-    STARTUPINFOA startup = {sizeof startup};
+static const char *tool;
+
+static void label(const char *name) {
+    _putenv_s("DIAG_LABEL", name);
+}
+
+static void create(const char *name, const char *arguments, STARTUPINFOA *startup) {
     PROCESS_INFORMATION process;
-    char command[256];
+    char command[1024];
     DWORD code = 0;
+    label(name);
     strcpy(command, arguments);
-    if (!CreateProcessA(program, command, NULL, NULL, inherit, flags, NULL, NULL, &startup,
-                        &process)) {
-        fprintf(stderr, "%s: CreateProcess error %lu\n", label, GetLastError());
+    if (!CreateProcessA(tool, command, NULL, NULL, TRUE, 0, NULL, NULL, startup, &process)) {
+        fprintf(stderr, "%s: CreateProcess error %lu\n", name, GetLastError());
         return;
     }
     WaitForSingleObject(process.hProcess, INFINITE);
     GetExitCodeProcess(process.hProcess, &code);
-    fprintf(stderr, "%s: exit code 0x%lx\n", label, code);
+    fprintf(stderr, "%s: exit code 0x%lx\n", name, code);
     CloseHandle(process.hProcess);
     CloseHandle(process.hThread);
 }
 
-static void try_open(const char *label, const char *path, DWORD access, DWORD flags) {
-    HANDLE handle =
-        CreateFileA(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
-                    OPEN_EXISTING, flags, NULL);
-    if (handle == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "%s: error %lu\n", label, GetLastError());
-    } else {
-        fprintf(stderr, "%s: ok\n", label);
-        CloseHandle(handle);
-    }
-}
-
-static void spawn(const char *label, const char *tool) {
-    intptr_t spawned;
-    int error;
-    unsigned long os_error;
-    errno = 0;
-    _doserrno = 0;
-    spawned = _spawnl(_P_WAIT, tool, "embed", "assets/banner.txt", NULL);
-    error = errno;
-    os_error = _doserrno;
-    fprintf(stderr, "%s: %lld errno %d doserrno %lu\n", label, (long long)spawned, error,
-            os_error);
+static void spawned(const char *name, intptr_t code) {
+    int error = errno;
+    fprintf(stderr, "%s: 0x%llx errno %d\n", name, (unsigned long long)code, error);
 }
 
 int main(void) {
-    const char *tool = getenv("CABIN_BIN_EMBED");
     const char *out_dir = getenv("CABIN_OUT_DIR");
     const char *system_root = getenv("SystemRoot");
-    char path[4096];
-    char cwd[4096];
-    char *separator;
-    DWORD attributes;
-    DWORD error;
-    int closed;
+    const char *shell = getenv("COMSPEC");
+    STARTUPINFOA plain = {sizeof plain};
+    STARTUPINFOA reserved = {sizeof reserved};
+    STARTUPINFOA empty = {sizeof empty};
+    STARTUPINFOA redirected = {sizeof redirected};
+    SECURITY_ATTRIBUTES inheritable = {sizeof inheritable, NULL, TRUE};
+    unsigned char block[4 + 3 + 3 * sizeof(intptr_t)];
+    unsigned char none[4] = {0};
+    char path[1024];
+    char command[2048];
+    LARGE_INTEGER size;
+    int count = 3;
+    int descriptor;
+    int status;
+    int error;
 
-    fprintf(stderr, "tool: %s\n", tool);
-    fprintf(stderr, "cwd: %s\n", _getcwd(cwd, sizeof cwd));
-    fprintf(stderr, "console window: %p\n", (void *)GetConsoleWindow());
-    fprintf(stderr, "console code page: %u\n", GetConsoleCP());
-    SetLastError(0);
-    attributes = GetFileAttributesA(tool);
-    error = GetLastError();
-    fprintf(stderr, "attributes: 0x%lx error %lu\n", attributes, error);
-
-    try_open("open read", tool, GENERIC_READ, 0);
-    try_open("open execute", tool,
-             FILE_EXECUTE | FILE_READ_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE, 0);
-    strcpy(path, tool);
-    separator = strrchr(path, '\\');
-    if (separator) {
-        *separator = 0;
+    tool = getenv("CABIN_BIN_EMBED");
+    fprintf(stderr, "COMSPEC: %s\n", shell ? shell : "(unset)");
+    for (descriptor = 0; descriptor < 3; descriptor++) {
+        fprintf(stderr, "fd %d: handle %p tty %d\n", descriptor,
+                (void *)_get_osfhandle(descriptor), _isatty(descriptor));
     }
-    try_open("dir traverse", path, FILE_TRAVERSE | SYNCHRONIZE, FILE_FLAG_BACKUP_SEMANTICS);
-    try_open("dir list", path, FILE_LIST_DIRECTORY | SYNCHRONIZE, FILE_FLAG_BACKUP_SEMANTICS);
-    try_open("dir attributes", path, FILE_READ_ATTRIBUTES, FILE_FLAG_BACKUP_SEMANTICS);
+
+    create("create-plain", "embed assets/banner.txt", &plain);
+
+    label("spawn-close");
+    errno = 0;
+    spawned("spawn-close", _spawnl(_P_WAIT, tool, "embed", "assets/banner.txt", NULL));
+    label("spawn-noclose");
+    errno = 0;
+    spawned("spawn-noclose",
+            _spawnl(_P_WAIT, tool, "embed", "assets/banner.txt", "noclose", NULL));
+    snprintf(path, sizeof path, "%s\\spawned.h", out_dir);
+    label("spawn-out");
+    errno = 0;
+    spawned("spawn-out", _spawnl(_P_WAIT, tool, "embed", "assets/banner.txt", "out", path, NULL));
 
     snprintf(path, sizeof path, "%s\\System32\\cmd.exe", system_root ? system_root : "C:\\Windows");
-    start("cmd", path, "cmd /c exit 7", FALSE, 0);
-
-    start("inherit", tool, "embed assets/banner.txt", TRUE, 0);
-    start("no inherit", tool, "embed assets/banner.txt", FALSE, 0);
-    start("no window", tool, "embed assets/banner.txt", FALSE, CREATE_NO_WINDOW);
-    start("detached", tool, "embed assets/banner.txt", FALSE, DETACHED_PROCESS);
-    spawn("_spawnl", tool);
-
-    snprintf(path, sizeof path, "%s\\embed.exe", out_dir);
-    if (!CopyFileA(tool, path, FALSE)) {
-        fprintf(stderr, "copy: error %lu\n", GetLastError());
-    } else {
-        start("copied inherit", path, "embed assets/banner.txt", TRUE, 0);
-        start("copied no inherit", path, "embed assets/banner.txt", FALSE, 0);
-        spawn("copied _spawnl", path);
-    }
-
-    // The example's own steps.
-    snprintf(path, sizeof path, "%s/banner.h", out_dir);
-    if (!freopen(path, "w", stdout)) {
-        perror("freopen");
-        return 1;
-    }
-    spawn("redirected _spawnl", tool);
     errno = 0;
-    closed = fclose(stdout);
-    fprintf(stderr, "fclose: %d errno %d\n", closed, errno);
+    spawned("spawn-cmd", _spawnl(_P_WAIT, path, "cmd", "/c", "exit", "7", NULL));
+
+    label("system");
+    snprintf(command, sizeof command, "%s assets/banner.txt out %s\\system.h", tool, out_dir);
+    errno = 0;
+    status = system(command);
+    error = errno;
+    fprintf(stderr, "system: %d errno %d\n", status, error);
+
+    // What the C runtime passes for its three open descriptors.
+    memcpy(block, &count, sizeof count);
+    for (descriptor = 0; descriptor < 3; descriptor++) {
+        intptr_t handle = _get_osfhandle(descriptor);
+        block[4 + descriptor] = (unsigned char)(_isatty(descriptor) ? 0xC1 : 0x81);
+        memcpy(block + 7 + descriptor * sizeof handle, &handle, sizeof handle);
+    }
+    reserved.cbReserved2 = (WORD)sizeof block;
+    reserved.lpReserved2 = block;
+    create("create-reserved", "embed assets/banner.txt", &reserved);
+    empty.cbReserved2 = (WORD)sizeof none;
+    empty.lpReserved2 = none;
+    create("create-reserved-empty", "embed assets/banner.txt", &empty);
+
+    snprintf(path, sizeof path, "%s\\banner.h", out_dir);
+    redirected.dwFlags = STARTF_USESTDHANDLES;
+    redirected.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    redirected.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    redirected.hStdOutput = CreateFileA(path, GENERIC_WRITE, 0, &inheritable, CREATE_ALWAYS,
+                                        FILE_ATTRIBUTE_NORMAL, NULL);
+    if (redirected.hStdOutput == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "create-redirected: open error %lu\n", GetLastError());
+    } else {
+        create("create-redirected", "embed assets/banner.txt", &redirected);
+        size.QuadPart = 0;
+        GetFileSizeEx(redirected.hStdOutput, &size);
+        fprintf(stderr, "create-redirected: %lld bytes\n", (long long)size.QuadPart);
+        CloseHandle(redirected.hStdOutput);
+    }
     return 1;
 }

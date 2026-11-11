@@ -332,19 +332,28 @@ fn build_script_generator_builds_and_runs() {
         .stdout(predicates::str::contains("Hello from an embedded file"));
 }
 
-/// Temporary probe: see `probe_build.c`.
+/// Temporary probe: see `probe_build.c` and `probe_tool.c`.
 #[cfg(windows)]
 #[test]
 fn probe_windows_tool_start() {
-    fn files(dir: &Path, seen: &mut Vec<String>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                files(&path, seen);
+    fn reports(dir: &Path) -> String {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return "(no directory)\n".to_owned();
+        };
+        let mut paths: Vec<_> = entries.map(|entry| entry.unwrap().path()).collect();
+        paths.sort();
+        let mut seen = String::new();
+        for path in paths {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if name.starts_with("diag-") {
+                let text = std::fs::read(&path).unwrap();
+                seen += &format!("--- {name}\n{}", String::from_utf8_lossy(&text));
             } else {
-                seen.push(path.display().to_string());
+                let len = std::fs::metadata(&path).unwrap().len();
+                seen += &format!("--- {name}: {len} bytes\n");
             }
         }
+        seen
     }
     require_c_and_cxx_build_tools();
     let dir = copy_example("build-script-generator");
@@ -353,19 +362,82 @@ fn probe_windows_tool_start() {
         include_str!("probe_build.c"),
     )
     .unwrap();
-    let output = run_example(&dir).output().unwrap();
+    std::fs::write(
+        dir.path().join("packages/embed/src/main.c"),
+        include_str!("probe_tool.c"),
+    )
+    .unwrap();
+    let output = run_example(&dir).env("LDFLAGS", "/MAP").output().unwrap();
+    let machine = dir.path().join("build/dev/build-machine/packages");
+    let tool = machine.join("embed/embed.exe");
+    let script = machine.join("app/.build-script/target/build.exe");
     let log = dir.path().join("build/dev/packages/app/.build-script");
-    let mut seen = Vec::new();
-    files(&dir.path().join("build"), &mut seen);
-    seen.sort();
-    panic!(
-        "PROBE status {:?}\nPROBE stderr file:\n{}\nPROBE stdout file: {} bytes\nPROBE cabin stderr:\n{}\nPROBE files:\n{}",
+    let confined = format!(
+        "PROBE confined status {:?}\n{}\nPROBE confined stderr file:\n{}{}",
         output.status,
-        std::fs::read_to_string(log.join("stderr")).unwrap_or_default(),
-        std::fs::read(log.join("stdout")).unwrap_or_default().len(),
         String::from_utf8_lossy(&output.stderr),
-        seen.join("\n"),
+        std::fs::read_to_string(log.join("stderr")).unwrap_or_default(),
+        reports(&log.join("out")),
     );
+
+    // The same script and tool with no confinement.
+    let free = TempDir::new().unwrap();
+    let [stdout, stderr] =
+        ["stdout", "stderr"].map(|name| std::fs::File::create(free.path().join(name)).unwrap());
+    let status = std::process::Command::new(&script)
+        .current_dir(dir.path().join("packages/app"))
+        .env("CABIN_BIN_EMBED", &tool)
+        .env("CABIN_OUT_DIR", free.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .status();
+    let unconfined = format!(
+        "PROBE unconfined status {status:?}\nPROBE unconfined stderr file:\n{}{}",
+        std::fs::read_to_string(free.path().join("stderr")).unwrap_or_default(),
+        reports(free.path()),
+    );
+
+    // Name the tool's own code by the linker's map.
+    let map = std::fs::read_to_string(tool.with_extension("map")).unwrap_or_default();
+    let base = map
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Preferred load address is "))
+        .and_then(|base| u64::from_str_radix(base.trim(), 16).ok())
+        .unwrap_or(0);
+    let mut symbols: Vec<(u64, &str)> = map
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let (_, name, address) = (fields.next()?, fields.next()?, fields.next()?);
+            if address.len() != 16 {
+                return None;
+            }
+            Some((u64::from_str_radix(address, 16).ok()?, name))
+        })
+        .collect();
+    symbols.sort_unstable();
+    let mut named = format!(
+        "PROBE map: {} bytes, base {base:#x}, {} symbols\n",
+        map.len(),
+        symbols.len()
+    );
+    for line in confined.lines().chain(unconfined.lines()) {
+        let Some((_, offset)) = line.split_once("embed.exe + 0x") else {
+            continue;
+        };
+        let Ok(offset) = u64::from_str_radix(offset.trim(), 16) else {
+            continue;
+        };
+        let at = symbols.partition_point(|&(address, _)| address <= base + offset);
+        if let Some(&(address, name)) = at.checked_sub(1).and_then(|at| symbols.get(at)) {
+            named += &format!(
+                "embed.exe + {offset:#x} = {name} + {:#x}\n",
+                base + offset - address
+            );
+        }
+    }
+    panic!("{confined}\n{unconfined}\n{named}");
 }
 
 #[test]
