@@ -39,7 +39,9 @@ use windows_sys::Win32::Security::Authorization::{
 use windows_sys::Win32::Security::Cryptography::{
     BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom,
 };
-use windows_sys::Win32::Security::Isolation::DeriveAppContainerSidFromAppContainerName;
+use windows_sys::Win32::Security::Isolation::{
+    CreateAppContainerProfile, DeleteAppContainerProfile,
+};
 use windows_sys::Win32::Security::{
     ACE_FLAGS, DACL_SECURITY_INFORMATION, FreeSid, NO_INHERITANCE, PSID, SECURITY_CAPABILITIES,
     SUB_CONTAINERS_AND_OBJECTS_INHERIT,
@@ -88,8 +90,9 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         source,
     };
     let hidden = crate::resolve_hidden(&hidden).map_err(failed)?;
-    let container = Container::new()
-        .map_err(|err| SandboxError::Unavailable(format!("cannot name an AppContainer: {err}")))?;
+    let container = Container::new().map_err(|err| {
+        SandboxError::Unavailable(format!("cannot register an AppContainer: {err}"))
+    })?;
     let mut grants = Grants {
         sid: container.sid,
         paths: Vec::new(),
@@ -124,8 +127,10 @@ fn wide(text: &OsStr) -> Vec<u16> {
     text.encode_wide().chain(iter::once(0)).collect()
 }
 
-/// The SID of an `AppContainer` with a fresh random name.
+/// An `AppContainer` registered under a fresh random name, and removed
+/// on drop.
 struct Container {
+    name: Vec<u16>,
     sid: PSID,
 }
 
@@ -149,26 +154,35 @@ impl Container {
         let name: String = iter::once("cabin.".to_owned())
             .chain(bytes.iter().map(|byte| format!("{byte:02x}")))
             .collect();
+        let name = wide(OsStr::new(&name));
         let mut sid = null_mut();
-        // SAFETY: a NUL-terminated name and an out-pointer; the SID is freed
-        // on drop.
+        // SAFETY: NUL-terminated strings and an out-pointer; the SID is
+        // freed on drop.
         let result = unsafe {
-            DeriveAppContainerSidFromAppContainerName(
-                wide(OsStr::new(&name)).as_ptr(),
+            CreateAppContainerProfile(
+                name.as_ptr(),
+                name.as_ptr(),
+                name.as_ptr(),
+                null(),
+                0,
                 &raw mut sid,
             )
         };
         if result < 0 {
             return Err(io::Error::from_raw_os_error(result));
         }
-        Ok(Self { sid })
+        Ok(Self { name, sid })
     }
 }
 
 impl Drop for Container {
     fn drop(&mut self) {
-        // SAFETY: allocated by `DeriveAppContainerSidFromAppContainerName`.
-        unsafe { FreeSid(self.sid) };
+        // SAFETY: the SID `CreateAppContainerProfile` allocated, and the
+        // NUL-terminated name it registered.
+        unsafe {
+            FreeSid(self.sid);
+            DeleteAppContainerProfile(self.name.as_ptr());
+        }
     }
 }
 
