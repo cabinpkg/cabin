@@ -370,6 +370,24 @@ mod enforced {
                 report(verb, result);
             }
             #[cfg(windows)]
+            "console" => {
+                use windows_sys::Win32::System::Console::{AttachConsole, FreeConsole};
+                // SAFETY: plain system calls.
+                let attached = unsafe {
+                    FreeConsole();
+                    AttachConsole(arg.parse().unwrap()) != 0
+                };
+                report(verb, last_error(attached));
+                report(
+                    "conin",
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open("CONIN$")
+                        .map(drop),
+                );
+            }
+            #[cfg(windows)]
             "atom" => {
                 use windows_sys::Win32::System::DataExchange::GlobalFindAtomW;
                 // SAFETY: a NUL-terminated name.
@@ -1036,6 +1054,108 @@ mod enforced {
         assert_eq!(lists(), before);
     }
 
+    /// TEMPORARY: evidence for the Windows design, printed by failing.
+    #[test]
+    #[cfg(windows)]
+    fn probe_windows_evidence() {
+        use windows_sys::Win32::System::Console::AllocConsole;
+        let mut evidence = Vec::new();
+
+        let forbidden_dir = TempDir::new().unwrap();
+        std::fs::write(forbidden_dir.path().join("secret"), "token").unwrap();
+        for name in ["secret", "missing"] {
+            let read = format!("read:{}", arg(&forbidden_dir.path().join(name)));
+            let probed = confine(&read, &[], &[]).map(|probed| probed.stdout);
+            evidence.push(format!("oracle {name}: {probed:?}"));
+        }
+        let listed = confine("env", &[], &[]).map(|probed| probed.stdout);
+        evidence.push(format!("env: {listed:?}"));
+
+        // SAFETY: plain system call.
+        let allocated = unsafe { AllocConsole() };
+        evidence.push(format!("AllocConsole in the test: {allocated}"));
+        let console = format!("console:{}", std::process::id());
+        let unconfined = probe_command(&console).output().unwrap();
+        evidence.push(format!(
+            "console unconfined: {:?}",
+            String::from_utf8_lossy(&unconfined.stdout)
+        ));
+        match confine(&console, &[], &[]) {
+            Ok(probed) => evidence.push(format!("console confined: {:?}", probed.stdout)),
+            Err(err) => evidence.push(format!("console confined: error {err}")),
+        }
+
+        let package = TempDir::new().unwrap();
+        let source = package.path().join("build.c");
+        std::fs::write(
+            &source,
+            r##"#include <stdio.h>
+int main(void) {
+    FILE *f = fopen("generated.h", "w");
+    if (!f) { perror("fopen"); return 1; }
+    fputs("#define GENERATED 1\n", f);
+    fclose(f);
+    puts("built");
+    return 0;
+}
+"##,
+        )
+        .unwrap();
+        let cl = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|dir| dir.join("cl.exe"))
+            .find(|path| path.is_file());
+        evidence.push(format!("cl.exe: {cl:?}"));
+        if let Some(cl) = cl {
+            for (label, flags) in [("plain", vec![]), ("debug", vec!["/Zi"])] {
+                let out = TempDir::new().unwrap();
+                let mut env: Vec<(OsString, OsString)> = ["PATH", "INCLUDE", "LIB", "SystemRoot"]
+                    .into_iter()
+                    .filter_map(|key| Some((key.into(), std::env::var_os(key)?)))
+                    .collect();
+                env.extend(["TMP", "TEMP"].map(|key| (key.into(), out.path().into())));
+                let run = |program: &Path, args: Vec<OsString>| {
+                    let logs = TempDir::new().unwrap();
+                    let (stdout, stderr) = (logs.path().join("o"), logs.path().join("e"));
+                    let started = std::time::Instant::now();
+                    let result = cabin_sandbox::run(Confinement {
+                        program: program.to_owned(),
+                        args,
+                        current_dir: out.path().to_owned(),
+                        env: env.clone(),
+                        read: vec![package.path().to_owned()],
+                        write: vec![out.path().to_owned()],
+                        hidden: Vec::new(),
+                        stdout: File::create(&stdout).unwrap(),
+                        stderr: File::create(&stderr).unwrap(),
+                    });
+                    format!(
+                        "{result:?} in {:?}\nstdout: {}\nstderr: {}",
+                        started.elapsed(),
+                        std::fs::read_to_string(stdout).unwrap(),
+                        std::fs::read_to_string(stderr).unwrap()
+                    )
+                };
+                let mut args: Vec<OsString> = vec!["/nologo".into(), "/Fe:build.exe".into()];
+                args.extend(flags.iter().map(OsString::from));
+                args.push(source.clone().into());
+                evidence.push(format!("cl {label}: {}", run(&cl, args)));
+                evidence.push(format!(
+                    "build.exe {label}: {}",
+                    run(&out.path().join("build.exe"), Vec::new())
+                ));
+                evidence.push(format!(
+                    "generated.h {label}: {:?}; out holds {:?}",
+                    std::fs::read_to_string(out.path().join("generated.h")),
+                    std::fs::read_dir(out.path())
+                        .unwrap()
+                        .map(|entry| entry.unwrap().file_name())
+                        .collect::<Vec<_>>()
+                ));
+            }
+        }
+        panic!("EVIDENCE\n{}", evidence.join("\n"));
+    }
+
     #[test]
     #[cfg(windows)]
     fn handles_cabin_inherited_are_not_passed_on() {
@@ -1125,7 +1245,7 @@ mod enforced {
             assert_ne!(CredWriteW(&raw const credential, 0), 0);
             GlobalAddAtomW(target.as_ptr())
         };
-        assert_ne!(atom, 0);
+        assert_ne!(atom, 0, "PROBE atom: {}", std::io::Error::last_os_error());
 
         let denials: Vec<String> = [
             format!("process:{}", std::process::id()),

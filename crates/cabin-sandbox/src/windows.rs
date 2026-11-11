@@ -356,7 +356,11 @@ impl Launch<'_> {
             )
         };
         if created == 0 {
-            return Err(io::Error::last_os_error());
+            let err = io::Error::last_os_error();
+            return Err(io::Error::new(
+                err.kind(),
+                format!("PROBE CreateProcessW: {err}"),
+            ));
         }
         drop(inherited);
         // SAFETY: `CreateProcessW` handed these handles to us.
@@ -628,6 +632,70 @@ mod tests {
         unsafe { LocalFree(array.cast()) };
         let expected: Vec<OsString> = iter::once(program.into_os_string()).chain(args).collect();
         assert_eq!(parsed, expected);
+    }
+
+    /// TEMPORARY: what a launch needs of the container, printed by failing.
+    #[test]
+    fn probe_launch_matrix() {
+        use windows_sys::Win32::Security::Isolation::DeriveAppContainerSidFromAppContainerName;
+        let root = std::env::var_os("SystemRoot").unwrap();
+        let system = PathBuf::from(&root).join("System32");
+        let cmd = system.join("cmd.exe");
+        let mut derived = null_mut();
+        // SAFETY: a NUL-terminated name and an out-pointer.
+        let result = unsafe {
+            DeriveAppContainerSidFromAppContainerName(
+                wide(OsStr::new("cabin.probe.derived")).as_ptr(),
+                &raw mut derived,
+            )
+        };
+        assert!(result >= 0);
+        let registered = Container::new().unwrap();
+        let mut evidence = Vec::new();
+        let session = std::process::Command::new("tasklist")
+            .args([
+                "/FI",
+                &format!("PID eq {}", std::process::id()),
+                "/FO",
+                "CSV",
+                "/NH",
+            ])
+            .output()
+            .unwrap();
+        evidence.push(format!(
+            "tasklist: {}",
+            String::from_utf8_lossy(&session.stdout)
+        ));
+        let groups = std::process::Command::new("whoami")
+            .arg("/groups")
+            .output()
+            .unwrap();
+        evidence.push(
+            String::from_utf8_lossy(&groups.stdout)
+                .lines()
+                .filter(|line| line.contains("Mandatory") || line.contains("S-1-5-32-544"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        for (label, sid) in [("derived", derived), ("registered", registered.sid)] {
+            let log = std::env::temp_dir().join(format!("cabin-probe-{label}.txt"));
+            let out = File::create(&log).unwrap();
+            let result = Launch {
+                sid,
+                program: &cmd,
+                args: &["/C".into(), "set".into()],
+                current_dir: &system,
+                env: &[("SystemRoot".into(), root.clone())],
+                stdout: &out,
+                stderr: &out,
+            }
+            .run();
+            evidence.push(format!(
+                "{label}: {result:?}\n{}",
+                String::from_utf8_lossy(&std::fs::read(&log).unwrap())
+            ));
+        }
+        panic!("EVIDENCE\n{}", evidence.join("\n"));
     }
 
     #[test]
