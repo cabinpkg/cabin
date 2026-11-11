@@ -125,6 +125,15 @@ pub enum ArtifactError {
     )]
     FrozenCacheMiss { name: String, version: String },
 
+    /// The message leaves the cause to the CLI's error-chain rendering.
+    #[error("failed to download source archive for `{name} {version}`")]
+    Download {
+        name: String,
+        version: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     #[error("failed to read {}: {source}", escape(&path.display().to_string()))]
     Io {
         path: PathBuf,

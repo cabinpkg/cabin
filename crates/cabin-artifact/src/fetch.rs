@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
@@ -26,24 +27,41 @@ pub struct FetchEntry {
     pub checksum: cabin_core::Checksum,
     /// Where the archive lives at fetch time.  Local file index sources
     /// hand in a [`FetchSource::LocalArchive`]; the HTTP index source
-    /// pre-downloads the archive bytes and hands in a
-    /// [`FetchSource::InMemoryArchive`].
+    /// hands in a [`FetchSource::Remote`] that downloads it.
     pub source: FetchSource,
 }
 
+/// Opens a remote archive's bytes as a stream.
+pub type OpenArchive =
+    dyn Fn() -> Result<Box<dyn Read>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync;
+
 /// Where to read archive bytes from. `cabin-artifact` stays
-/// HTTP-free: callers handle any download themselves and pass the
-/// resulting bytes via [`FetchSource::InMemoryArchive`].
-#[derive(Debug, Clone)]
+/// HTTP-free: callers supply the download as a
+/// [`FetchSource::Remote`] opener.
+#[derive(Clone)]
 pub enum FetchSource {
     /// An archive a local file index names: `path` as the index
     /// resolved it, and the `root` directory the index was opened at.
     /// The path is read only when it names a regular file inside
     /// `root`, reached without a symlink.
     LocalArchive { root: PathBuf, path: PathBuf },
-    /// Archive bytes already in memory (HTTP downloads, custom
-    /// fetchers, tests).
-    InMemoryArchive(Vec<u8>),
+    /// An archive fetched on demand (an HTTP download).  The opener is
+    /// called only when the cache lacks the archive, and its stream is
+    /// copied to the cache as it is read, never held in memory whole.
+    Remote(Arc<OpenArchive>),
+}
+
+impl std::fmt::Debug for FetchSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LocalArchive { root, path } => f
+                .debug_struct("LocalArchive")
+                .field("root", root)
+                .field("path", path)
+                .finish(),
+            Self::Remote(_) => f.write_str("Remote"),
+        }
+    }
 }
 
 /// Caller-controlled knobs that change how `fetch` interacts with the
@@ -82,7 +100,8 @@ pub struct FetchedPackage {
 /// is set and the archive or extracted tree is not already cached and
 /// valid; [`ArtifactError::MissingArchive`] when a
 /// [`FetchSource::LocalArchive`] path is not a regular file inside its
-/// root;
+/// root; [`ArtifactError::Download`] when a [`FetchSource::Remote`]
+/// cannot be opened or its stream fails;
 /// [`ArtifactError::ChecksumMismatch`] when fetched bytes do not hash to
 /// the expected digest; [`ArtifactError::Io`] for filesystem failures;
 /// any extraction error from [`crate::safe_extract_zip`] (such as
@@ -133,6 +152,17 @@ fn frozen_cache_miss(entry: &FetchEntry) -> ArtifactError {
     }
 }
 
+fn download_error(
+    entry: &FetchEntry,
+    source: Box<dyn std::error::Error + Send + Sync>,
+) -> ArtifactError {
+    ArtifactError::Download {
+        name: entry.name.as_str().to_owned(),
+        version: entry.version.to_string(),
+        source,
+    }
+}
+
 /// Make sure the cache archive file exists and matches `expected_hex`.
 ///
 /// Behavior:
@@ -166,7 +196,7 @@ fn ensure_archive(
         FetchSource::LocalArchive { root, path } => {
             Box::new(open_local_archive(entry, root, path)?)
         }
-        FetchSource::InMemoryArchive(bytes) => Box::new(&bytes[..]),
+        FetchSource::Remote(open) => open().map_err(|source| download_error(entry, source))?,
     };
 
     if let Some(parent) = archive_path.parent() {
@@ -261,10 +291,16 @@ fn populate_archive(
         source,
     };
     let mut staged = AtomicWriteFile::open(final_target).map_err(io_error)?;
-    // Errors map to the cache target: a mid-stream failure is far more
-    // likely to be a write there than an opened local source going
-    // unreadable.
-    let actual = cabin_core::hash::hash_copy(&mut src, &mut staged).map_err(io_error)?;
+    // A mid-stream failure is blamed on the likelier side: the network
+    // for a download, and for an opened local source the cache target
+    // being written.
+    let actual =
+        cabin_core::hash::hash_copy(&mut src, &mut staged).map_err(|source| {
+            match entry.source {
+                FetchSource::Remote(_) => download_error(entry, source.into()),
+                FetchSource::LocalArchive { .. } => io_error(source),
+            }
+        })?;
 
     if actual != expected_hex {
         let _ = staged.discard();
@@ -415,6 +451,31 @@ version = "{version}"
         ArtifactCache::new(dir.join("cache"))
     }
 
+    /// A remote source that serves `bytes` and then fails with `error`
+    /// if one is given, counting how often it is opened.
+    fn remote(
+        bytes: &[u8],
+        error: Option<&'static str>,
+        opened: &Arc<std::sync::atomic::AtomicUsize>,
+    ) -> FetchSource {
+        struct Broken(&'static str);
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other(self.0))
+            }
+        }
+
+        let (bytes, opened) = (bytes.to_vec(), Arc::clone(opened));
+        FetchSource::Remote(Arc::new(move || {
+            opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let served = std::io::Cursor::new(bytes.clone());
+            Ok(match error {
+                Some(error) => Box::new(served.chain(Broken(error))),
+                None => Box::new(served),
+            })
+        }))
+    }
+
     /// `archive` as a local index rooted at `dir` names it.
     fn local(dir: &TempDir, archive: &ChildPath) -> FetchSource {
         FetchSource::LocalArchive {
@@ -478,7 +539,7 @@ version = "{version}"
             source,
         };
         let honest = entry(local(&dir, &archive));
-        let hostile = entry(FetchSource::InMemoryArchive(b"not the archive".to_vec()));
+        let hostile = entry(remote(b"not the archive", None, &Arc::default()));
 
         let done = AtomicBool::new(false);
         // Rendezvous so the hostile writer is running before the
@@ -520,6 +581,64 @@ version = "{version}"
         fs::remove_file(archive.path()).unwrap();
         let r2 = fetch(&plan, &cache, FetchOptions::default()).unwrap();
         assert!(r2.packages[0].archive_path.is_file());
+    }
+
+    #[test]
+    fn a_remote_archive_is_opened_only_when_the_cache_lacks_it() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("served/fmt.zip");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
+        let cache = cache_root(dir.path());
+        let opened = Arc::default();
+        let plan = FetchPlan {
+            entries: vec![FetchEntry {
+                name: pkg("fmt"),
+                version: ver("10.2.1"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
+                source: remote(&fs::read(archive.path()).unwrap(), None, &opened),
+            }],
+        };
+
+        let first = fetch(&plan, &cache, FetchOptions::default()).unwrap();
+        assert!(first.packages[0].source_dir.join("cabin.toml").is_file());
+        fetch(&plan, &cache, FetchOptions::default()).unwrap();
+
+        assert_eq!(opened.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    /// A download that dies part-way is an error naming the package,
+    /// and neither the archive nor its staging file stays in the cache.
+    #[test]
+    fn a_remote_stream_that_fails_leaves_nothing_in_the_cache() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("served/fmt.zip");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
+        let cache = cache_root(dir.path());
+        let bytes = fs::read(archive.path()).unwrap();
+        let plan = FetchPlan {
+            entries: vec![FetchEntry {
+                name: pkg("fmt"),
+                version: ver("10.2.1"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
+                source: remote(&bytes[..bytes.len() / 2], Some("reset"), &Arc::default()),
+            }],
+        };
+
+        let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
+
+        match &err {
+            ArtifactError::Download { name, source, .. } => {
+                assert_eq!(name, "fmt");
+                assert_eq!(source.to_string(), "reset");
+            }
+            other => panic!("expected Download, got {other:?}"),
+        }
+        let archives = cache.archive_path(&hex);
+        let left: Vec<_> = fs::read_dir(archives.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert!(left.is_empty(), "left in the cache: {left:?}");
     }
 
     #[test]

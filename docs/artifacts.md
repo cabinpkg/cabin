@@ -5,8 +5,8 @@ archives.  It verifies SHA-256 checksums, copies archives into a checksum-addres
 extracts them, validates the extracted manifests, and feeds the result into the build planner.
 
 `cabin-artifact` itself is transport-neutral: local indexes provide a filesystem path, and the
-sparse HTTP client downloads bytes before handing them to the same verifier and extractor.  OCI /
-Git transports are deferred.
+sparse HTTP client streams the archive into the same verifier and extractor.  OCI / Git transports
+are deferred.
 
 ## Source archive format
 
@@ -134,17 +134,18 @@ differs only in how archive bytes arrive at `cabin-artifact`:
 1. The HTTP index loader resolves each version's `source.path` into an absolute URL and rejects the
    result unless it stays on the same origin as the package metadata URL and contains no `userinfo`
    credentials.
-2. `cabin` calls `cabin_index_http::HttpClient::download` to fetch the archive bytes once per
-   `(name, version, revision)` triple that the resolved set requires.
-3. The bytes are handed to `cabin-artifact` as a [`FetchSource::InMemoryArchive`].  From there, the
-   existing artifact path verifies SHA-256, atomic-renames the bytes into
-   `<cache>/archives/sha256/<hex>.zip`, and safely extracts into `<cache>/sources/sha256/<hex>/`.
+2. `cabin` hands `cabin-artifact` a [`FetchSource::Remote`] for each `(name, version, revision)`
+   triple that the resolved set requires: an opener around
+   `cabin_index_http::HttpClient::download_stream`.
+3. `cabin-artifact` calls the opener only when the cache lacks the archive.  The response is
+   written to a staging file beside `<cache>/archives/sha256/<hex>.zip` while its SHA-256 is
+   computed, so memory use does not grow with the archive, and the file is renamed into place
+   only when the digest matches.  A download that is cut off, exceeds 64 MiB, or does not hash to
+   the indexed checksum is an error and leaves nothing in the cache.  Extraction into
+   `<cache>/sources/sha256/<hex>/` then follows the local path.
 
-For local archive sources, an archive whose SHA-256 is already present in the artifact cache is
-not read again from the source path.  For HTTP sources, Cabin
-currently downloads the archive bytes before `cabin-artifact` can observe the cache hit; the
-existing cache entry is still verified and reused, but the HTTP archive request still happens once
-per resolved package in that run.
+An archive whose SHA-256 is already present in the artifact cache is verified and reused; it is
+neither read again from a local source path nor requested again over HTTP.
 
 ## Checksum verification
 
@@ -243,8 +244,8 @@ frozen HTTP index URLs usable.
 
 `cabin-artifact` deliberately does **not** implement any of the following:
 
-- HTTP downloads itself - the HTTP read path lives in `cabin-index-http` and hands archive bytes to
-  this crate as `FetchSource::InMemoryArchive`;
+- HTTP downloads itself - the HTTP read path lives in `cabin-index-http` and reaches this crate
+  as a `FetchSource::Remote` opener;
 - Git / OCI / GHCR transports;
 - network publish or non-local registry write paths;
 - package publishing (`cabin package`, `cabin publish`);

@@ -509,6 +509,27 @@ fn cross_origin_http_artifact_url_is_rejected() {
         .stderr(predicate::str::contains("same origin"));
 }
 
+/// The transport's own account of a failed archive request reaches the
+/// user through the fetch error that wraps it.
+#[test]
+fn http_artifact_not_found_names_the_cause() {
+    let dir = TempDir::new().unwrap();
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    fs::remove_dir_all(registry.join("artifacts")).unwrap();
+    write_app_using_scoped_fmt(dir.path(), None);
+    let server = TestServer::serve(registry);
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("artifact not found (404)"));
+}
+
 #[test]
 fn http_artifact_checksum_mismatch_fails() {
     let dir = TempDir::new().unwrap();
