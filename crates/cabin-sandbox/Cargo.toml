@@ -19,8 +19,28 @@ libc = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4.7"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_Security_Authorization",
+  "Win32_Security_Cryptography",
+  "Win32_Security_Isolation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 assert_fs = { workspace = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = [
+  "Win32_Security_Credentials",
+  "Win32_System_Pipes",
+  "Win32_System_Registry",
+  "Win32_UI_Shell",
+] }
 
 [lints]
 workspace = true
