@@ -209,6 +209,167 @@ mod enforced {
                 let open = unsafe { libc::fcntl(arg.parse().unwrap(), libc::F_GETFD) } != -1;
                 println!("fd: {}", if open { "open" } else { "closed" });
             }
+            // PROBE
+            "cwd" => {
+                println!("cwd: {:?}", std::env::current_dir());
+                println!("rel: {:?}", std::fs::read(arg).map(|bytes| bytes.len()));
+                println!(
+                    "dot: {:?}",
+                    std::fs::read_dir(".").map(std::iter::Iterator::count)
+                );
+            }
+            // PROBE
+            "lookup" => {
+                use std::net::ToSocketAddrs as _;
+                println!(
+                    "lookup: {:?}",
+                    (arg, 80).to_socket_addrs().map(std::iter::Iterator::count)
+                );
+            }
+            // PROBE
+            "probe-rmdir" => report(verb, std::fs::remove_dir(arg)),
+            // PROBE
+            "probe-rename" => {
+                let (from, to) = arg.split_once(',').unwrap();
+                report(verb, std::fs::rename(from, to));
+            }
+            // PROBE: files and directories made with a list of the program's
+            // choosing, and a list set on a file of its own afterwards.
+            #[cfg(windows)]
+            "acl" => {
+                use windows_sys::Win32::Foundation::{
+                    CloseHandle, GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree,
+                };
+                use windows_sys::Win32::Security::Authorization::{
+                    ConvertStringSecurityDescriptorToSecurityDescriptorW, SE_FILE_OBJECT,
+                    SetNamedSecurityInfoW,
+                };
+                use windows_sys::Win32::Security::{
+                    DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+                    SECURITY_ATTRIBUTES,
+                };
+                use windows_sys::Win32::Storage::FileSystem::{
+                    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL,
+                };
+                let dir = Path::new(arg);
+                let error = || std::io::Error::last_os_error();
+                for (name, sddl) in [
+                    ("open", "D:P(A;;FA;;;WD)(A;;FA;;;AC)"),
+                    ("locked", "D:P(D;;FA;;;WD)"),
+                ] {
+                    let mut descriptor = std::ptr::null_mut();
+                    // SAFETY: probe only.
+                    unsafe {
+                        let converted = ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                            wide(sddl).as_ptr(),
+                            1,
+                            &raw mut descriptor,
+                            std::ptr::null_mut(),
+                        );
+                        println!("acl: convert {name} {converted} {}", error());
+                        let attributes = SECURITY_ATTRIBUTES {
+                            nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>()).unwrap(),
+                            lpSecurityDescriptor: descriptor,
+                            bInheritHandle: 0,
+                        };
+                        let file = CreateFileW(
+                            wide(&crate::enforced::arg(&dir.join(name))).as_ptr(),
+                            GENERIC_WRITE,
+                            0,
+                            &raw const attributes,
+                            CREATE_NEW,
+                            FILE_ATTRIBUTE_NORMAL,
+                            std::ptr::null_mut(),
+                        );
+                        println!(
+                            "acl: create {name} {} {}",
+                            file != INVALID_HANDLE_VALUE,
+                            error()
+                        );
+                        if file != INVALID_HANDLE_VALUE {
+                            CloseHandle(file);
+                        }
+                        let sub = dir.join(format!("{name}-dir"));
+                        let made = CreateDirectoryW(
+                            wide(&crate::enforced::arg(&sub)).as_ptr(),
+                            &raw const attributes,
+                        );
+                        println!("acl: mkdir {name} {made} {}", error());
+                        LocalFree(descriptor);
+                    }
+                }
+                let own = dir.join("own");
+                std::fs::write(&own, "x").unwrap();
+                // SAFETY: probe only; no list is a list one can set.
+                let set = unsafe {
+                    SetNamedSecurityInfoW(
+                        wide(&crate::enforced::arg(&own)).as_ptr(),
+                        SE_FILE_OBJECT,
+                        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null(),
+                        std::ptr::null(),
+                    )
+                };
+                println!("acl: set-own {set}");
+            }
+            // PROBE: what the token says of its container and capabilities.
+            #[cfg(windows)]
+            "capabilities" => {
+                use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+                use windows_sys::Win32::Security::{
+                    GetTokenInformation, TOKEN_GROUPS, TOKEN_QUERY, TokenCapabilities,
+                    TokenIsAppContainer,
+                };
+                use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+                let mut token = std::ptr::null_mut();
+                let mut buffer = vec![0_u64; 512];
+                let mut length = 0;
+                let mut contained = 0_u32;
+                // SAFETY: probe only.
+                unsafe {
+                    assert_ne!(
+                        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token),
+                        0
+                    );
+                    let got = GetTokenInformation(
+                        token,
+                        TokenIsAppContainer,
+                        (&raw mut contained).cast(),
+                        4,
+                        &raw mut length,
+                    );
+                    println!("capabilities: container {got} {contained}");
+                    let got = GetTokenInformation(
+                        token,
+                        TokenCapabilities,
+                        buffer.as_mut_ptr().cast(),
+                        4096,
+                        &raw mut length,
+                    );
+                    println!("capabilities: got {got} length {length}");
+                    let groups = &*buffer.as_ptr().cast::<TOKEN_GROUPS>();
+                    println!("capabilities: count {}", groups.GroupCount);
+                    let list = std::slice::from_raw_parts(
+                        groups.Groups.as_ptr(),
+                        groups.GroupCount as usize,
+                    );
+                    for group in list {
+                        let mut text: *mut u16 = std::ptr::null_mut();
+                        ConvertSidToStringSidW(group.Sid, &raw mut text);
+                        let mut len = 0;
+                        while *text.add(len) != 0 {
+                            len += 1;
+                        }
+                        println!(
+                            "capabilities: sid {} {:#x}",
+                            String::from_utf16_lossy(std::slice::from_raw_parts(text, len)),
+                            group.Attributes
+                        );
+                    }
+                }
+            }
             "env" => {
                 for (key, _) in std::env::vars_os() {
                     println!("env: {}", key.to_string_lossy());
@@ -1368,6 +1529,282 @@ mod enforced {
             assert!(control, "{action} unconfined");
             assert_eq!(outcome, "PermissionDenied", "{action}");
         }
+    }
+
+    // PROBE: round 6 evidence; removed before merge.
+    #[test]
+    #[cfg(windows)]
+    #[allow(clippy::too_many_lines)]
+    fn probe_windows_r6() {
+        use std::ffi::OsStr;
+        use std::fmt::Write as _;
+
+        let mut log = String::new();
+        let exe_dir = TempDir::new().unwrap();
+        let exe = exe_dir.path().join("probe.exe");
+        std::fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+        let root = std::env::var_os("SystemRoot").unwrap();
+        // Run `program` confined, never panicking, and describe the result.
+        let run = |program: &Path,
+                   args: &[&str],
+                   dir: &Path,
+                   env: &[(&str, &OsStr)],
+                   read: &[&Path],
+                   write: &[&Path],
+                   hidden: &[&Path]| {
+            let logs = TempDir::new().unwrap();
+            let (stdout, stderr) = (logs.path().join("stdout"), logs.path().join("stderr"));
+            let started = std::time::Instant::now();
+            let result = cabin_sandbox::run(Confinement {
+                program: program.to_owned(),
+                args: args.iter().map(OsString::from).collect(),
+                current_dir: dir.to_owned(),
+                env: env
+                    .iter()
+                    .map(|(key, value)| (OsString::from(key), value.to_os_string()))
+                    .collect(),
+                read: read.iter().map(|p| p.to_path_buf()).collect(),
+                write: write.iter().map(|p| p.to_path_buf()).collect(),
+                hidden: hidden.iter().map(|p| p.to_path_buf()).collect(),
+                stdout: File::create(&stdout).unwrap(),
+                stderr: File::create(&stderr).unwrap(),
+            });
+            let elapsed = started.elapsed();
+            let read = |path| String::from_utf8_lossy(&std::fs::read(path).unwrap()).into_owned();
+            format!(
+                "{result:?} in {elapsed:?}\n  stdout: {:?}\n  stderr: {:?}",
+                read(stdout),
+                read(stderr)
+            )
+        };
+        let probe = |action: &str,
+                     dir: Option<&Path>,
+                     extra: &[(&str, &OsStr)],
+                     read: &[&Path],
+                     write: &[&Path],
+                     hidden: &[&Path]| {
+            let mut env = vec![
+                (PROBE, OsStr::new(action)),
+                ("SystemRoot", root.as_os_str()),
+            ];
+            env.extend_from_slice(extra);
+            let read: Vec<&Path> = std::iter::once(exe_dir.path())
+                .chain(read.iter().copied())
+                .collect();
+            let dir = dir.unwrap_or(exe_dir.path());
+            run(&exe, &PROBE_ARGS, dir, &env, &read, write, hidden)
+        };
+        let icacls = |path: &Path| {
+            let out = Command::new("icacls").arg(path).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        let unconfined = |action: &str| {
+            let out = probe_command(action).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        let none: &[(&str, &OsStr)] = &[];
+
+        // 1. The working directory.
+        let package = TempDir::new().unwrap();
+        let ungranted = TempDir::new().unwrap();
+        for dir in [package.path(), ungranted.path()] {
+            std::fs::create_dir(dir.join("src")).unwrap();
+            std::fs::write(dir.join("src").join("file"), "kept").unwrap();
+        }
+        let git = package.path().join(".git");
+        std::fs::create_dir(&git).unwrap();
+        std::fs::write(git.join("config"), "token").unwrap();
+        let entry1: &[(&str, &OsStr)] = &[("CABIN_PROBE_CWDENTRY", OsStr::new("1"))];
+        let entry2: &[(&str, &OsStr)] = &[("CABIN_PROBE_CWDENTRY", OsStr::new("2"))];
+        let cwd = r"cwd:src\file";
+        let secret = format!("read:{}", arg(&git.join("config")));
+        let (here, away) = (Some(package.path()), Some(ungranted.path()));
+        for (label, extra) in [("plain", none), ("entry1", entry1), ("entry2", entry2)] {
+            let hidden = probe(cwd, here, extra, &[package.path()], &[], &[&git]);
+            writeln!(log, "cwd hidden {label}: {hidden}").unwrap();
+            let secret = probe(&secret, here, extra, &[package.path()], &[], &[&git]);
+            writeln!(log, "cwd hidden secret {label}: {secret}").unwrap();
+            let outside = probe(cwd, away, extra, &[], &[], &[]);
+            writeln!(log, "cwd ungranted {label}: {outside}").unwrap();
+            writeln!(log, "cwd after {label}: {}", icacls(package.path())).unwrap();
+        }
+        let whole = probe(cwd, here, none, &[package.path()], &[], &[]);
+        writeln!(log, "cwd whole: {whole}").unwrap();
+
+        // 2. Lists the program chooses.
+        let out = TempDir::new().unwrap();
+        let acl = format!("acl:{}", arg(out.path()));
+        writeln!(
+            log,
+            "acl: {}",
+            probe(&acl, None, none, &[], &[out.path()], &[])
+        )
+        .unwrap();
+        for name in ["open", "locked", "own", "open-dir", "locked-dir"] {
+            let path = out.path().join(name);
+            writeln!(log, "acl {name} list: {}", icacls(&path)).unwrap();
+            let read = format!("read:{}", arg(&path));
+            let later = probe(&read, None, none, &[], &[], &[]);
+            writeln!(log, "acl {name} read by a later run: {later}").unwrap();
+            let write = format!("overwrite:{}", arg(&path));
+            let later = probe(&write, None, none, &[], &[], &[]);
+            writeln!(log, "acl {name} written by a later run: {later}").unwrap();
+            writeln!(
+                log,
+                "acl {name} cabin: read {:?} remove {:?} rmdir {:?}",
+                std::fs::read(&path).map(|bytes| bytes.len()),
+                std::fs::remove_file(&path),
+                std::fs::remove_dir(&path),
+            )
+            .unwrap();
+        }
+        writeln!(
+            log,
+            "acl remove all: {:?}",
+            std::fs::remove_dir_all(out.path())
+        )
+        .unwrap();
+
+        // 3. The token.
+        let token = probe("capabilities", None, none, &[], &[], &[]);
+        writeln!(log, "capabilities: {token}").unwrap();
+        writeln!(
+            log,
+            "capabilities unconfined: {}",
+            unconfined("capabilities")
+        )
+        .unwrap();
+
+        // 4. The network beyond loopback.
+        let lan = std::net::UdpSocket::bind("0.0.0.0:0").and_then(|socket| {
+            socket.connect("1.1.1.1:80")?;
+            socket.local_addr()
+        });
+        writeln!(log, "lan: {lan:?}").unwrap();
+        let listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut targets = vec![
+            "connect:1.1.1.1:443".to_owned(),
+            "lookup:example.com".to_owned(),
+        ];
+        if let Ok(lan) = lan {
+            targets.push(format!("connect:{}:{port}", lan.ip()));
+        }
+        for action in &targets {
+            writeln!(log, "{action} unconfined: {}", unconfined(action)).unwrap();
+            writeln!(log, "{action} arrived: {}", listener.accept().is_ok()).unwrap();
+            let confined = probe(action, None, none, &[], &[], &[]);
+            writeln!(log, "{action}: {confined}").unwrap();
+            writeln!(log, "{action} arrived: {}", listener.accept().is_ok()).unwrap();
+        }
+
+        // 5. The write grant itself, with and without `DELETE`.
+        let delete: &[(&str, &OsStr)] = &[("CABIN_PROBE_DELETE", OsStr::new("1"))];
+        for (label, extra) in [("narrow", none), ("delete", delete)] {
+            let grant = TempDir::new().unwrap();
+            let (first, second, other) = (
+                grant.path().join("first"),
+                grant.path().join("second"),
+                grant.path().join("other"),
+            );
+            for dir in [&first, &second, &other] {
+                std::fs::create_dir(dir).unwrap();
+            }
+            let write = [first.as_path(), second.as_path(), other.as_path()];
+            let rmdir = format!("probe-rmdir:{}", arg(&first));
+            let removed = probe(&rmdir, None, extra, &[], &write, &[]);
+            writeln!(log, "root rmdir {label}: {removed} left={}", first.is_dir()).unwrap();
+            let rename = format!(
+                "probe-rename:{},{}",
+                arg(&second),
+                arg(&other.join("moved"))
+            );
+            let renamed = probe(&rename, None, extra, &[], &write, &[]);
+            writeln!(
+                log,
+                "root rename {label}: {renamed} left={}",
+                second.is_dir()
+            )
+            .unwrap();
+            let churn = format!("churn:{}", arg(&other));
+            let churned = probe(&churn, None, extra, &[], &write, &[]);
+            writeln!(log, "churn {label}: {churned}").unwrap();
+        }
+
+        // 6. The compiler under the narrower write grant.
+        let cl = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|dir| dir.join("cl.exe"))
+            .find(|path| path.is_file());
+        writeln!(log, "cl: {cl:?}").unwrap();
+        if let Some(cl) = cl {
+            let tools: Vec<(&str, OsString)> = ["PATH", "INCLUDE", "LIB", "SystemRoot"]
+                .into_iter()
+                .filter_map(|key| Some((key, std::env::var_os(key)?)))
+                .collect();
+            for (label, flags) in [
+                ("plain", &["/nologo", "build.c"][..]),
+                ("debug", &["/nologo", "/Zi", "build.c"][..]),
+            ] {
+                let work = TempDir::new().unwrap();
+                std::fs::write(
+                    work.path().join("build.c"),
+                    r#"#include <stdio.h>
+int main(void) { puts("hello from build.exe"); return 0; }
+"#,
+                )
+                .unwrap();
+                let env: Vec<(&str, &OsStr)> = tools
+                    .iter()
+                    .map(|(key, value)| (*key, value.as_os_str()))
+                    .collect();
+                for round in ["first", "again"] {
+                    let compiled = run(&cl, flags, work.path(), &env, &[], &[work.path()], &[]);
+                    writeln!(log, "cl {label} {round}: {compiled}").unwrap();
+                }
+                let built = work.path().join("build.exe");
+                let ran = run(&built, &[], work.path(), &env, &[], &[work.path()], &[]);
+                writeln!(log, "build.exe {label}: {ran}").unwrap();
+                let left: Vec<_> = std::fs::read_dir(work.path())
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name())
+                    .collect();
+                writeln!(log, "work {label}: {left:?}").unwrap();
+            }
+        }
+
+        // 7. Tests that must notice a run that waits instead of killing.
+        let passes = |mutation: &str, test: &str| {
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &format!("enforced::{test}"), "--test-threads=1"])
+                .env("CABIN_SANDBOX_MUTATE", mutation)
+                .output()
+                .unwrap();
+            let ran = String::from_utf8_lossy(&out.stdout).contains("running 1 test");
+            assert!(ran, "{test} did not run");
+            out.status.success()
+        };
+        for (mutation, test) in [
+            ("none", "processes_left_running_are_killed"),
+            ("waitonly", "processes_left_running_are_killed"),
+            ("none", "killing_the_parent_kills_the_confined_program"),
+        ] {
+            let verdict = if passes(mutation, test) {
+                "PASSES"
+            } else {
+                "fails"
+            };
+            writeln!(log, "mutation {mutation:10} {verdict}  {test}").unwrap();
+        }
+        let packages = Path::new(&std::env::var_os("LOCALAPPDATA").unwrap()).join("Packages");
+        let left = std::fs::read_dir(&packages).map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("cabin."))
+                .count()
+        });
+        writeln!(log, "cabin.* under {}: {left:?}", packages.display()).unwrap();
+        panic!("PROBE evidence:\n{log}");
     }
 
     #[test]
