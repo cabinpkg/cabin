@@ -328,6 +328,10 @@ fn set_entry(
     if error != 0 {
         return Err(io::Error::from_raw_os_error(error.cast_signed()));
     }
+    // Windows now rebuilds every list beneath `path` from what its
+    // directory passes down, and one that was absent stays rebuilt once
+    // the entry is removed.  Refusing those as the absent list above is
+    // refused would take reading every list beneath each grant first.
     // SAFETY: a NUL-terminated name and the list built above, freed after.
     let error = unsafe {
         SetNamedSecurityInfoW(
