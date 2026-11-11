@@ -75,6 +75,8 @@
 //!   a later run granted that path is granted where the junction leads,
 //!   or nothing once that is gone: a caller makes a write grant anew
 //!   before granting it again.
+//! - Windows: a process killed as a run ends can take a moment longer to
+//!   go, and holds the files it had open until then.
 //!
 //! Choosing what to grant (and which environment variables are safe to
 //! pass) is the caller's policy; this crate only enforces it.
