@@ -82,6 +82,11 @@ const LOCAL: &str = "LOCALAPPDATA";
 const READ: u32 = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
 const WRITE: u32 = READ | FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD;
 
+// PROBE: mutations, to prove the tests notice each guard's absence.
+fn mutated(name: &str) -> bool {
+    std::env::var("CABIN_SANDBOX_MUTATE").is_ok_and(|all| all.split(',').any(|one| one == name))
+}
+
 pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> {
     let Confinement {
         program,
@@ -117,7 +122,11 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         sid: container.sid,
         paths: Vec::new(),
     };
-    let read = crate::without_hidden(canonical(&read), &hidden);
+    let read = if mutated("hidden") {
+        canonical(&read)
+    } else {
+        crate::without_hidden(canonical(&read), &hidden)
+    };
     for (paths, access) in [(read, READ), (canonical(&write), WRITE)] {
         for path in paths {
             grants.add(path, access).map_err(failed)?;
@@ -201,7 +210,9 @@ impl Drop for Container {
         // NUL-terminated name it registered.
         unsafe {
             FreeSid(self.sid);
-            DeleteAppContainerProfile(self.name.as_ptr());
+            if !mutated("profile") {
+                DeleteAppContainerProfile(self.name.as_ptr());
+            }
         }
     }
 }
@@ -232,6 +243,9 @@ impl Grants {
 
 impl Drop for Grants {
     fn drop(&mut self) {
+        if mutated("revoke") {
+            return;
+        }
         for path in &self.paths {
             // An entry left behind names a container no process runs in.
             let _ = set_entry(path, self.sid, REVOKE_ACCESS, 0, NO_INHERITANCE);
@@ -281,7 +295,7 @@ fn set_entry(
     let mut updated = null_mut();
     // No list at all admits everyone; one made for the entry would admit
     // nobody else.
-    let error = if acl.is_null() {
+    let error = if acl.is_null() && !mutated("nulldacl") {
         ERROR_INVALID_ACL
     } else {
         // SAFETY: one valid entry, the list read above, and an out-pointer.
@@ -329,7 +343,7 @@ impl Launch<'_> {
         let strings = iter::once(self.program.as_os_str())
             .chain(self.args.iter().map(OsString::as_os_str))
             .chain(self.env.iter().flat_map(|(key, value)| [&**key, &**value]));
-        if strings.flat_map(OsStr::encode_wide).any(|unit| unit == 0) {
+        if !mutated("nul") && strings.flat_map(OsStr::encode_wide).any(|unit| unit == 0) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "a NUL in the program, an argument, or the environment",
@@ -352,23 +366,29 @@ impl Launch<'_> {
         let jobs = [job.as_raw_handle()];
         // Declared after the values it points to, so dropped before them.
         let attributes = Attributes::new(3)?;
-        attributes.set(
-            PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-            (&raw const capabilities).cast(),
-            size_of_val(&capabilities),
-        )?;
-        attributes.set(
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-            handles.as_ptr().cast(),
-            size_of_val(&handles),
-        )?;
+        if !mutated("container") {
+            attributes.set(
+                PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+                (&raw const capabilities).cast(),
+                size_of_val(&capabilities),
+            )?;
+        }
+        if !mutated("handles") {
+            attributes.set(
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                handles.as_ptr().cast(),
+                size_of_val(&handles),
+            )?;
+        }
         // In the job from the start: were Cabin to put it there afterwards
         // and die first, the program would be left outside any job.
-        attributes.set(
-            PROC_THREAD_ATTRIBUTE_JOB_LIST,
-            jobs.as_ptr().cast(),
-            size_of_val(&jobs),
-        )?;
+        if !mutated("job") {
+            attributes.set(
+                PROC_THREAD_ATTRIBUTE_JOB_LIST,
+                jobs.as_ptr().cast(),
+                size_of_val(&jobs),
+            )?;
+        }
         let mut info = STARTUPINFOEXW::default();
         info.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>()).unwrap();
         info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -417,7 +437,9 @@ impl Launch<'_> {
         if !exited {
             return Err(io::Error::last_os_error());
         }
-        end(&job)?;
+        if !mutated("end") {
+            end(&job)?;
+        }
         Ok(ExitStatus::from_raw(code))
     }
 }
@@ -486,8 +508,11 @@ fn job() -> io::Result<OwnedHandle> {
     // SAFETY: `CreateJobObjectW` handed this handle to us.
     let job = unsafe { OwnedHandle::from_raw_handle(job) };
     let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-    limits.BasicLimitInformation.LimitFlags =
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
+    limits.BasicLimitInformation.LimitFlags = if mutated("kill") {
+        JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION
+    } else {
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION
+    };
     set_job_information(&job, JobObjectExtendedLimitInformation, &limits)?;
     let restrictions = JOBOBJECT_BASIC_UI_RESTRICTIONS {
         UIRestrictionsClass: JOB_OBJECT_UILIMIT_DESKTOP
@@ -499,7 +524,9 @@ fn job() -> io::Result<OwnedHandle> {
             | JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS
             | JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
     };
-    set_job_information(&job, JobObjectBasicUIRestrictions, &restrictions)?;
+    if !mutated("ui") {
+        set_job_information(&job, JobObjectBasicUIRestrictions, &restrictions)?;
+    }
     Ok(job)
 }
 
