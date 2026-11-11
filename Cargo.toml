@@ -4,6 +4,7 @@ members = [
   "crates/cabin",
   "crates/cabin-artifact",
   "crates/cabin-build",
+  "crates/cabin-build-script",
   "crates/cabin-config",
   "crates/cabin-core",
   "crates/cabin-credentials",
@@ -122,6 +123,7 @@ zip = { version = "9.1", default-features = false, features = [
 
 cabin-artifact = { package = "cabinpkg-artifact", path = "crates/cabin-artifact", version = "0.18.0" }
 cabin-build = { package = "cabinpkg-build", path = "crates/cabin-build", version = "0.18.0" }
+cabin-build-script = { package = "cabinpkg-build-script", path = "crates/cabin-build-script", version = "0.18.0" }
 cabin-config = { package = "cabinpkg-config", path = "crates/cabin-config", version = "0.18.0" }
 cabin-core = { package = "cabinpkg-core", path = "crates/cabin-core", version = "0.18.0" }
 cabin-credentials = { package = "cabinpkg-credentials", path = "crates/cabin-credentials", version = "0.18.0" }
@@ -142,6 +144,7 @@ cabin-publish = { package = "cabinpkg-publish", path = "crates/cabin-publish", v
 cabin-registry-api = { package = "cabinpkg-registry-api", path = "crates/cabin-registry-api", version = "0.18.0" }
 cabin-registry-file = { package = "cabinpkg-registry-file", path = "crates/cabin-registry-file", version = "0.18.0" }
 cabin-resolver = { package = "cabinpkg-resolver", path = "crates/cabin-resolver", version = "0.18.0" }
+cabin-sandbox = { package = "cabinpkg-sandbox", path = "crates/cabin-sandbox", version = "0.18.0" }
 cabin-source-discovery = { package = "cabinpkg-source-discovery", path = "crates/cabin-source-discovery", version = "0.18.0" }
 cabin-system-deps = { package = "cabinpkg-system-deps", path = "crates/cabin-system-deps", version = "0.18.0" }
 cabin-test = { package = "cabinpkg-test", path = "crates/cabin-test", version = "0.18.0" }
