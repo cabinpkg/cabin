@@ -4,19 +4,23 @@
 //! An `AppContainer` process opens an object only when both its user and
 //! its container may.  Every container may read the system directories
 //! and Program Files; none may reach the user's profile, registry hive,
-//! or credentials, another process, or a named pipe (an SSH agent's)
-//! that does not admit containers.  With no capabilities it has no
-//! network, loopback included.  Each run uses a container of its own,
-//! named at random: its SID is granted the read and write paths, through
-//! an access-control entry their contents inherit, for that run only, so
-//! no other run's program reaches them.  Should Cabin be killed before it
-//! removes them, the entries stay behind for a container no process will
-//! run in again.
+//! or credentials, another process, Cabin's console, or a named pipe (an
+//! SSH agent's) that does not admit containers.  With no capabilities it
+//! has no network, loopback included.
 //!
-//! The job kills the program and everything it started once the program
-//! exits, or as soon as Cabin's handle to the job closes, which Cabin's
-//! exit does however it exits.  The program gets a console of its own,
-//! without a window, and inherits only the three standard handles.
+//! Windows starts a program only in a container registered for the
+//! user, so each run registers one under a fresh random name and removes
+//! it afterwards, along with the directory Windows gives it and points
+//! the program's `LOCALAPPDATA`, `TEMP`, and `TMP` at.  The container's
+//! SID is granted the read and write paths, through an access-control
+//! entry their contents inherit, for that run only, so no other run's
+//! program reaches them.  Should Cabin be killed first, the container and
+//! the entries stay behind, for no process to run in again.
+//!
+//! The job holds the program from its start, and kills it and everything
+//! it started once the program exits, or as soon as Cabin's handle to the
+//! job closes, which Cabin's exit does however it exits.  The program
+//! inherits only the three standard handles.
 
 use std::ffi::{OsStr, OsString, c_void};
 use std::fs::File;
@@ -28,9 +32,10 @@ use std::os::windows::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::ptr::{null, null_mut};
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
-    DUPLICATE_SAME_ACCESS, DuplicateHandle, LocalFree, WAIT_OBJECT_0,
+    DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_INVALID_ACL, LocalFree, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Security::Authorization::{
     ACCESS_MODE, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, REVOKE_ACCESS,
@@ -50,26 +55,28 @@ use windows_sys::Win32::Storage::FileSystem::{
     DELETE, FILE_DELETE_CHILD, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
 };
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
+    CreateJobObjectW, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_UILIMIT_DESKTOP,
     JOB_OBJECT_UILIMIT_DISPLAYSETTINGS, JOB_OBJECT_UILIMIT_EXITWINDOWS,
     JOB_OBJECT_UILIMIT_GLOBALATOMS, JOB_OBJECT_UILIMIT_HANDLES, JOB_OBJECT_UILIMIT_READCLIPBOARD,
     JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS, JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
-    JOBOBJECT_BASIC_UI_RESTRICTIONS, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOBOBJECTINFOCLASS,
-    JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation, SetInformationJobObject,
-    TerminateJobObject,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_BASIC_UI_RESTRICTIONS,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOBOBJECTINFOCLASS, JobObjectBasicAccountingInformation,
+    JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
-    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
-    GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-    PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess,
-    UpdateProcThreadAttribute, WaitForSingleObject,
+    CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
+    EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, INFINITE,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
+    STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 
 use crate::{Confinement, SandboxError};
 
+const LOCAL: &str = "LOCALAPPDATA";
 const READ: u32 = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
 const WRITE: u32 = READ | FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD;
 
@@ -90,6 +97,17 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         source,
     };
     let hidden = crate::resolve_hidden(&hidden).map_err(failed)?;
+    // Windows starts nothing in a container without this variable, from
+    // which it derives the three it sets for the program.
+    let Some(local) = std::env::var_os(LOCAL) else {
+        let reason = format!("{LOCAL} is not set");
+        return Err(SandboxError::Unavailable(reason));
+    };
+    let env: Vec<_> = env
+        .into_iter()
+        .filter(|(key, _)| !key.eq_ignore_ascii_case(LOCAL))
+        .chain([(LOCAL.into(), local)])
+        .collect();
     let container = Container::new().map_err(|err| {
         SandboxError::Unavailable(format!("cannot register an AppContainer: {err}"))
     })?;
@@ -259,8 +277,14 @@ fn set_entry(
         },
     };
     let mut updated = null_mut();
-    // SAFETY: one valid entry, the list read above, and an out-pointer.
-    let error = unsafe { SetEntriesInAclW(1, &raw const entry, acl, &raw mut updated) };
+    // No list at all admits everyone; one made for the entry would admit
+    // nobody else.
+    let error = if acl.is_null() {
+        ERROR_INVALID_ACL
+    } else {
+        // SAFETY: one valid entry, the list read above, and an out-pointer.
+        unsafe { SetEntriesInAclW(1, &raw const entry, acl, &raw mut updated) }
+    };
     // SAFETY: allocated by `GetNamedSecurityInfoW`.
     unsafe { LocalFree(descriptor) };
     if error != 0 {
@@ -298,8 +322,17 @@ struct Launch<'a> {
 }
 
 impl Launch<'_> {
-    /// Start the program suspended, put it in a job, resume it, and wait.
+    /// Start the program in a job, wait for it, and end the job.
     fn run(&self) -> io::Result<ExitStatus> {
+        let strings = iter::once(self.program.as_os_str())
+            .chain(self.args.iter().map(OsString::as_os_str))
+            .chain(self.env.iter().flat_map(|(key, value)| [&**key, &**value]));
+        if strings.flat_map(OsStr::encode_wide).any(|unit| unit == 0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a NUL in the program, an argument, or the environment",
+            ));
+        }
         let stdin = File::open("NUL")?;
         let inherited = [
             inheritable(&stdin)?,
@@ -313,8 +346,10 @@ impl Launch<'_> {
             AppContainerSid: self.sid,
             ..SECURITY_CAPABILITIES::default()
         };
+        let job = job()?;
+        let jobs = [job.as_raw_handle()];
         // Declared after the values it points to, so dropped before them.
-        let attributes = Attributes::new(2)?;
+        let attributes = Attributes::new(3)?;
         attributes.set(
             PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
             (&raw const capabilities).cast(),
@@ -324,6 +359,13 @@ impl Launch<'_> {
             PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
             handles.as_ptr().cast(),
             size_of_val(&handles),
+        )?;
+        // In the job from the start: were Cabin to put it there afterwards
+        // and die first, the program would be left outside any job.
+        attributes.set(
+            PROC_THREAD_ATTRIBUTE_JOB_LIST,
+            jobs.as_ptr().cast(),
+            size_of_val(&jobs),
         )?;
         let mut info = STARTUPINFOEXW::default();
         info.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>()).unwrap();
@@ -345,10 +387,7 @@ impl Launch<'_> {
                 null(),
                 null(),
                 1,
-                EXTENDED_STARTUPINFO_PRESENT
-                    | CREATE_SUSPENDED
-                    | CREATE_UNICODE_ENVIRONMENT
-                    | CREATE_NO_WINDOW,
+                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
                 environment.as_ptr().cast(),
                 wide(self.current_dir.as_os_str()).as_ptr(),
                 &raw const info.StartupInfo,
@@ -356,33 +395,17 @@ impl Launch<'_> {
             )
         };
         if created == 0 {
-            let err = io::Error::last_os_error();
-            return Err(io::Error::new(
-                err.kind(),
-                format!("PROBE CreateProcessW: {err}"),
-            ));
+            return Err(io::Error::last_os_error());
         }
         drop(inherited);
         // SAFETY: `CreateProcessW` handed these handles to us.
-        let (child, thread) = unsafe {
+        let (child, _thread) = unsafe {
             (
                 OwnedHandle::from_raw_handle(process.hProcess),
                 OwnedHandle::from_raw_handle(process.hThread),
             )
         };
-        let job = match job_for(&child) {
-            Ok(job) => job,
-            Err(err) => {
-                // SAFETY: a process handle we own; it has not run yet.
-                unsafe { TerminateProcess(child.as_raw_handle(), 1) };
-                return Err(err);
-            }
-        };
         // On an error below, dropping `job` kills the program.
-        // SAFETY: a thread handle we own.
-        if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
-            return Err(io::Error::last_os_error());
-        }
         let mut code = 0;
         // SAFETY: a process handle we own and an out-pointer.
         let exited = unsafe {
@@ -392,9 +415,38 @@ impl Launch<'_> {
         if !exited {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: a job handle we own.
-        unsafe { TerminateJobObject(job.as_raw_handle(), 1) };
+        end(&job)?;
         Ok(ExitStatus::from_raw(code))
+    }
+}
+
+/// Kill what is left in `job` and wait until it is gone: a process killed
+/// but not yet gone still holds open the files it had, which the caller
+/// may be about to read or replace.
+fn end(job: &OwnedHandle) -> io::Result<()> {
+    let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+    // SAFETY: a job handle we own.
+    if unsafe { TerminateJobObject(job.as_raw_handle(), 1) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    loop {
+        // SAFETY: a job handle we own and the structure the class names.
+        let queried = unsafe {
+            QueryInformationJobObject(
+                job.as_raw_handle(),
+                JobObjectBasicAccountingInformation,
+                (&raw mut accounting).cast(),
+                u32::try_from(size_of_val(&accounting)).unwrap(),
+                null_mut(),
+            )
+        };
+        if queried == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if accounting.ActiveProcesses == 0 {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -420,10 +472,10 @@ fn inheritable(file: &File) -> io::Result<OwnedHandle> {
     Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
 }
 
-/// A job that kills `child`'s whole tree once its handle closes, which
-/// no process in it can leave, and that keeps it off the user's desktop
-/// and clipboard.
-fn job_for(child: &OwnedHandle) -> io::Result<OwnedHandle> {
+/// A job that kills all in it once its handle closes, which no process
+/// in it can leave, and that keeps them off the user's desktop and
+/// clipboard.
+fn job() -> io::Result<OwnedHandle> {
     // SAFETY: no attributes, no name.
     let job = unsafe { CreateJobObjectW(null(), null()) };
     if job.is_null() {
@@ -446,34 +498,8 @@ fn job_for(child: &OwnedHandle) -> io::Result<OwnedHandle> {
             | JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
     };
     set_job_information(&job, JobObjectBasicUIRestrictions, &restrictions)?;
-    // SAFETY: handles we own.
-    if unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) } == 0 {
-        // PROBE: record the refusal and go on without the UI restrictions.
-        let refused = io::Error::last_os_error().raw_os_error().unwrap_or(-1);
-        UI_LIMITS_REFUSED.store(refused, std::sync::atomic::Ordering::Relaxed);
-        // SAFETY: no attributes, no name.
-        let plain = unsafe { CreateJobObjectW(null(), null()) };
-        if plain.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: `CreateJobObjectW` handed this handle to us.
-        let plain = unsafe { OwnedHandle::from_raw_handle(plain) };
-        set_job_information(&plain, JobObjectExtendedLimitInformation, &limits)?;
-        // SAFETY: handles we own.
-        if unsafe { AssignProcessToJobObject(plain.as_raw_handle(), child.as_raw_handle()) } == 0 {
-            let err = io::Error::last_os_error();
-            return Err(io::Error::new(
-                err.kind(),
-                format!("PROBE plain job: {err}"),
-            ));
-        }
-        return Ok(plain);
-    }
     Ok(job)
 }
-
-/// PROBE: the error that refused a job with UI restrictions, if any did.
-static UI_LIMITS_REFUSED: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// `information` must be the structure `class` names.
 fn set_job_information<T>(
@@ -654,88 +680,6 @@ mod tests {
         unsafe { LocalFree(array.cast()) };
         let expected: Vec<OsString> = iter::once(program.into_os_string()).chain(args).collect();
         assert_eq!(parsed, expected);
-    }
-
-    /// TEMPORARY: what a launch needs of the environment, printed by failing.
-    #[test]
-    fn probe_launch_matrix() {
-        use windows_sys::Win32::System::JobObjects::{IsProcessInJob, QueryInformationJobObject};
-        let root = std::env::var_os("SystemRoot").unwrap();
-        let system = PathBuf::from(&root).join("System32");
-        let cmd = system.join("cmd.exe");
-        let mut evidence = Vec::new();
-
-        let mut in_job = 0;
-        let mut enclosing = JOBOBJECT_BASIC_UI_RESTRICTIONS::default();
-        // SAFETY: out-pointers of the sizes passed; a null job is the
-        // caller's own.
-        let queried = unsafe {
-            IsProcessInJob(GetCurrentProcess(), null_mut(), &raw mut in_job);
-            QueryInformationJobObject(
-                null_mut(),
-                JobObjectBasicUIRestrictions,
-                (&raw mut enclosing).cast(),
-                u32::try_from(size_of_val(&enclosing)).unwrap(),
-                null_mut(),
-            )
-        };
-        evidence.push(format!(
-            "in a job: {in_job}; enclosing UI restrictions: {queried} {:#x}",
-            enclosing.UIRestrictionsClass
-        ));
-
-        let registered = Container::new().unwrap();
-        let log = std::env::temp_dir().join(format!("cabin-probe-{}.txt", std::process::id()));
-        let launch = |env: &[(OsString, OsString)]| {
-            let out = File::create(&log).unwrap();
-            let result = Launch {
-                sid: registered.sid,
-                program: &cmd,
-                args: &["/C".into(), "set".into()],
-                current_dir: &system,
-                env,
-                stdout: &out,
-                stderr: &out,
-            }
-            .run();
-            let printed = String::from_utf8_lossy(&std::fs::read(&log).unwrap()).into_owned();
-            (result, printed)
-        };
-        let parent: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-        let (full, _) = launch(&parent);
-        evidence.push(format!("full environment: {full:?}"));
-        evidence.push(format!(
-            "UI limits refused with: {}",
-            UI_LIMITS_REFUSED.load(std::sync::atomic::Ordering::Relaxed)
-        ));
-        let mut needed = Vec::new();
-        for index in 0..parent.len() {
-            let mut env = parent.clone();
-            let (key, value) = env.remove(index);
-            if let Err(err) = launch(&env).0 {
-                evidence.push(format!("without {}: {err}", key.display()));
-                needed.push((key, value));
-            }
-        }
-        let (minimal, printed) = launch(&needed);
-        evidence.push(format!(
-            "only the needed, as the parent has them: {minimal:?}\n{printed}"
-        ));
-        let placeholders: Vec<_> = needed
-            .iter()
-            .map(|(key, _)| (key.clone(), OsString::from(r"X:\nowhere")))
-            .collect();
-        let (placed, printed) = launch(&placeholders);
-        evidence.push(format!(
-            "only the needed, as placeholders: {placed:?}\n{printed}"
-        ));
-        let emptied: Vec<_> = needed
-            .iter()
-            .map(|(key, _)| (key.clone(), OsString::new()))
-            .collect();
-        let (empty, printed) = launch(&emptied);
-        evidence.push(format!("only the needed, empty: {empty:?}\n{printed}"));
-        panic!("EVIDENCE\n{}", evidence.join("\n"));
     }
 
     #[test]
