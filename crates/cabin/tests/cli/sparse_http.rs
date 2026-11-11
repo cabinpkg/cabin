@@ -335,6 +335,65 @@ fn fetch_via_index_url_extracts_archive_into_cache() {
     );
 }
 
+/// A registry that declares `dl` hands out its archives from there:
+/// the fetch succeeds with the archives on the `dl` server alone, and
+/// the credential the index demands never reaches that other origin.
+#[test]
+fn fetch_downloads_archives_from_dl_without_the_index_credential() {
+    const TOKEN: &str = "cabin_integrationTok1";
+    let dir = TempDir::new().unwrap();
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
+
+    let downloads = dir.path().join("downloads");
+    fs::create_dir(&downloads).unwrap();
+    fs::rename(registry.join("artifacts"), downloads.join("artifacts")).unwrap();
+    let dl = tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback");
+    let dl_url = format!(
+        "http://{}",
+        dl.server_addr().to_ip().expect("loopback addr")
+    );
+    fs::write(
+        registry.join("config.json"),
+        format!(
+            r#"{{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"dl":"{dl_url}"}}"#
+        ),
+    )
+    .unwrap();
+    let index = super::remote_registry::AuthRegistryServer::serve(registry, TOKEN);
+
+    std::thread::scope(|scope| {
+        let served = scope.spawn(|| {
+            let request = dl
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .unwrap()
+                .expect("an archive request reaches the dl server");
+            let credentialed = request
+                .headers()
+                .iter()
+                .any(|header| header.field.equiv("Authorization"));
+            let archive = fs::read(downloads.join(request.url().trim_start_matches('/')))
+                .expect("the request names the moved archive");
+            let _ = request.respond(tiny_http::Response::from_data(archive));
+            credentialed
+        });
+        cabin()
+            .args(["fetch", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-url")
+            .arg(index.url())
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .env("CABIN_REGISTRY_TOKEN", TOKEN)
+            .assert()
+            .success();
+        assert!(
+            !served.join().unwrap(),
+            "the index credential reached the dl origin"
+        );
+    });
+}
+
 #[test]
 fn build_via_index_url_builds_executable() {
     require_cxx_build_tools();

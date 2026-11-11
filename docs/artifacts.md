@@ -133,7 +133,8 @@ differs only in how archive bytes arrive at `cabin-artifact`:
 
 1. The HTTP index loader resolves each version's `source.path` into an absolute URL and rejects the
    result unless it stays on the same origin as the package metadata URL and contains no `userinfo`
-   credentials.
+   credentials.  A registry that declares `dl` then serves that path from its `dl` host
+   ([`package-index.md`](package-index.md#sparse-http-index)).
 2. `cabin` hands `cabin-artifact` a [`FetchSource::Remote`] for each `(name, version, revision)`
    triple that the resolved set requires: an opener around
    `cabin_index_http::HttpClient::download_stream`.
