@@ -83,7 +83,10 @@ pub struct Confinement {
     /// paths are skipped, here and in [`Self::write`].
     pub read: Vec<PathBuf>,
     /// Directories (recursively) the program may read, write, create in,
-    /// and delete from.
+    /// and delete from.  The directory itself it can neither remove nor
+    /// move away, nor make anything in its place.  No path granted to
+    /// this or a later run may lie inside one, where the program could
+    /// put a symlink in its way.
     pub write: Vec<PathBuf>,
     /// Paths beneath a [`Self::read`] grant that stay unreadable, such as
     /// a package's `.git`.  None may contain a granted path or lie inside

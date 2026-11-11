@@ -3,14 +3,17 @@
 //!
 //! The profile allows by default, then denies the network, reads under
 //! the places user data lives (`/Users`, `/Volumes`, the per-user and
-//! shared temporary directories, and `$HOME`), every write, signals to
-//! and task ports of processes outside the sandbox (a program signed to
-//! debug would read their memory), and what reaches outside it: shared
-//! memory and semaphores, launchd jobs, Apple events, `open`, and every
-//! Mach service but logging, notifications, and user lookup (daemons such
-//! as the keychain's or the DNS resolver would otherwise act on the
-//! program's behalf).  It then re-allows the granted paths, and finally
-//! denies the hidden ones inside them.  Later rules win.  Paths are
+//! shared temporary directories, and `$HOME`), every write, mounting and
+//! unmounting (a user may mount `devfs` over a directory they own and
+//! unmount what they mounted), signals to and task ports of processes
+//! outside the sandbox (a program signed to debug would read their
+//! memory), and what reaches outside it: shared memory and semaphores,
+//! launchd jobs, Apple events, `open`, and every Mach service but
+//! logging, notifications, and user lookup (daemons such as the
+//! keychain's or the DNS resolver would otherwise act on the program's
+//! behalf).  It then re-allows the granted paths, and finally denies the
+//! hidden ones inside them, and removing, renaming, or making anything in
+//! place of a writable directory itself.  Later rules win.  Paths are
 //! passed as `-D` parameters, never spliced into the profile text.
 
 use std::ffi::OsString;
@@ -89,9 +92,9 @@ fn canonical(paths: &[PathBuf]) -> Vec<PathBuf> {
 /// granted write paths (`W0`..), and `hidden` paths (`H0`..) inside the
 /// grants, denying reads under `HOME` when set.
 fn profile(home: bool, reads: usize, writes: usize, hidden: usize) -> String {
-    let params = |prefix: &str, count: usize| -> String {
+    let params = |filter: &str, prefix: &str, count: usize| -> String {
         (0..count).fold(String::new(), |mut out, i| {
-            let _ = write!(out, " (subpath (param \"{prefix}{i}\"))");
+            let _ = write!(out, " ({filter} (param \"{prefix}{i}\"))");
             out
         })
     };
@@ -123,17 +126,26 @@ fn profile(home: bool, reads: usize, writes: usize, hidden: usize) -> String {
   (global-name "com.apple.system.opendirectoryd.membership"))
 (deny file-read*{denied})
 (deny file-write*)
+(deny file-mount)
+(deny file-unmount)
 (allow file-write* (literal "/dev/null"))
 "#
     );
-    let (read, write) = (params("R", reads), params("W", writes));
+    let (read, write) = (
+        params("subpath", "R", reads),
+        params("subpath", "W", writes),
+    );
     if !read.is_empty() {
         let _ = writeln!(profile, "(allow file-read*{read})");
     }
     if !write.is_empty() {
         let _ = writeln!(profile, "(allow file-read* file-write*{write})");
+        // A symlink the program put in a directory's place would lead the
+        // next run's grant elsewhere.
+        let roots = params("literal", "W", writes);
+        let _ = writeln!(profile, "(deny file-write-create file-write-unlink{roots})");
     }
-    let hidden = params("H", hidden);
+    let hidden = params("subpath", "H", hidden);
     if !hidden.is_empty() {
         let _ = writeln!(profile, "(deny file-read*{hidden})");
     }
