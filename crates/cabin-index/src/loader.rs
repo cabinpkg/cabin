@@ -924,6 +924,11 @@ struct RawRegistryConfig {
     /// path.
     #[serde(default, deserialize_with = "present_field")]
     api: Option<String>,
+    /// `dl`: base URL of the host serving the archives over HTTP.
+    /// Accepted so a mirrored copy of such a registry loads; a local
+    /// index reads its archives from the directory.
+    #[serde(default, rename = "dl", deserialize_with = "present_field")]
+    _dl: Option<String>,
 }
 
 /// Deserialize a *present* optional field as a required `T`, so an
@@ -2033,7 +2038,7 @@ mod tests {
         dir.child("packages").create_dir_all().unwrap();
     }
 
-    /// The hosted-registry fields (`auth-required` / `api`) are
+    /// The hosted-registry fields (`auth-required` / `api` / `dl`) are
     /// ordinary config: a local mirror or vendored copy of a hosted
     /// registry loads without any experimental flag.
     #[test]
@@ -2041,7 +2046,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_registry_with_config_fields(
             &dir,
-            r#", "auth-required": true, "api": "https://registry.cabinpkg.com""#,
+            r#", "auth-required": true, "api": "https://registry.cabinpkg.com", "dl": "https://static.cabinpkg.com""#,
         );
         let index = load(dir.path(), &[]).unwrap();
         assert!(index.packages.is_empty());

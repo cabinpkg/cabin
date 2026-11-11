@@ -26,6 +26,10 @@ pub struct RegistryConfig {
     pub kind: String,
     pub packages: String,
     pub artifacts: String,
+    /// Where an HTTP copy of this registry serves `artifacts` from.
+    /// Unused here: read so that publishing into such a registry works.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dl: Option<String>,
 }
 
 impl RegistryConfig {
@@ -37,6 +41,7 @@ impl RegistryConfig {
             kind: REGISTRY_KIND.to_owned(),
             packages: DEFAULT_PACKAGES_DIR.to_owned(),
             artifacts: DEFAULT_ARTIFACTS_DIR.to_owned(),
+            dl: None,
         }
     }
 
@@ -345,6 +350,19 @@ mod tests {
             }
             other => panic!("expected InvalidConfig, got {other:?}"),
         }
+    }
+
+    /// A registry served over HTTP with its archives on another host
+    /// declares `dl`; publishing into it must still work.
+    #[test]
+    fn opens_a_config_that_declares_dl() {
+        let dir = TempDir::new().unwrap();
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","dl":"https://static.example.com"}"#,
+            )
+            .unwrap();
+        FileRegistry::open(dir.path()).unwrap();
     }
 
     #[test]

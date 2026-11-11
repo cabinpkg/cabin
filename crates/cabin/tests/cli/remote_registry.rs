@@ -155,14 +155,14 @@ const TEST_TOKEN: &str = "cabin_integrationTok1";
 /// envelope) every request not carrying `Authorization: Bearer
 /// <token>` - the shape of an `auth-required` registry.  `config.json`
 /// alone is served to anyone, the protocol's login-bootstrap rule.
-struct AuthRegistryServer {
+pub(crate) struct AuthRegistryServer {
     server: std::sync::Arc<tiny_http::Server>,
     thread: Option<std::thread::JoinHandle<()>>,
     url: String,
 }
 
 impl AuthRegistryServer {
-    fn serve(root: PathBuf, token: &'static str) -> Self {
+    pub(crate) fn serve(root: PathBuf, token: &'static str) -> Self {
         let server = std::sync::Arc::new(
             tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
         );
@@ -206,7 +206,7 @@ impl AuthRegistryServer {
         }
     }
 
-    fn url(&self) -> &str {
+    pub(crate) fn url(&self) -> &str {
         &self.url
     }
 }

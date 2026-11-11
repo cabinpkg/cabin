@@ -35,6 +35,35 @@ struct HttpIndexConfig {
     /// `api`: absolute base URL of the registry web/API origin.
     /// Validated (http(s), no userinfo).
     api: Option<String>,
+    /// `dl`: base URL of the host that serves the `artifacts`
+    /// directory, held to the index URL's own rules.
+    dl: Option<url::Url>,
+}
+
+/// Where a registry that declares `dl` serves its archives: the
+/// `artifacts` directory of the index, at the same path below `dl`.
+#[derive(Debug, Clone)]
+struct Download {
+    /// The `dl` base URL, with a trailing `/`.
+    base: url::Url,
+    /// Path of the index base URL, which `dl` stands in for.
+    index_path: String,
+    /// Path of `<index base>/<config.artifacts>/`.  Only archives
+    /// below it move to `dl`.
+    artifacts_path: String,
+}
+
+impl Download {
+    fn new(index_base: &url::Url, artifacts: &str, dl: url::Url) -> Result<Self, url::ParseError> {
+        Ok(Self {
+            base: dl,
+            index_path: index_base.path().to_owned(),
+            artifacts_path: index_base
+                .join(&format!("{}/", artifacts.trim_end_matches('/')))?
+                .path()
+                .to_owned(),
+        })
+    }
 }
 
 /// HTTP-backed sparse index source.
@@ -55,6 +84,8 @@ pub struct HttpIndex {
     /// [`HttpIndexConfig::from_raw`].  `None` when the registry
     /// declares no API origin.
     api: Option<String>,
+    /// Set when the registry declares `dl`.
+    download: Option<Download>,
     client: HttpClient,
 }
 
@@ -70,7 +101,7 @@ impl HttpIndex {
     /// the `config.json` path.  Returns
     /// [`IndexHttpError::InvalidConfig`] when `config.json` is not
     /// valid JSON or its `schema`/`kind`/`packages`/`artifacts`/
-    /// `auth-required`/`api` fields fail validation.  Propagates the
+    /// `auth-required`/`api`/`dl` fields fail validation.  Propagates the
     /// fetch errors of [`HttpClient::get_bytes`].
     #[tracing::instrument(name = "open_http_index", level = "info", skip_all)]
     pub fn open(base_url: &str, client: HttpClient) -> Result<Self, IndexHttpError> {
@@ -97,10 +128,20 @@ impl HttpIndex {
             }
         })?;
 
+        let download = config
+            .dl
+            .map(|dl| Download::new(&base, &config.artifacts, dl))
+            .transpose()
+            .map_err(|err| IndexHttpError::InvalidConfig {
+                base_url: base.to_string(),
+                message: format!("`artifacts` produces an invalid URL: {err}"),
+            })?;
+
         Ok(Self {
             base,
             packages_base,
             api: config.api,
+            download,
             client,
         })
     }
@@ -141,7 +182,7 @@ impl HttpIndex {
                 message: format!("response body is not valid UTF-8: {err}"),
             })?;
 
-        let resolver = make_source_resolver(package_url);
+        let resolver = make_source_resolver(package_url, self.download.as_ref());
         let context = SourceContext::HttpUrl(&resolver);
         let entry = cabin_index::parse_package_entry(body_str, Some(name.as_str()), &context, None)
             .map_err(|err| match err {
@@ -282,8 +323,9 @@ fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
 ///
 /// Plain `http` is refused beyond loopback because the index decides
 /// which bytes a fresh resolution pins: a network attacker able to
-/// rewrite it chooses the dependencies.  Every artifact URL must share
-/// the index's origin, so this one check covers downloads too.
+/// rewrite it chooses the dependencies.  An artifact URL shares the
+/// index's origin or sits below a `dl` held to this check, so it
+/// covers downloads too.
 pub(crate) fn parse_base_url(input: &str) -> Result<url::Url, IndexHttpError> {
     let mut parsed = url::Url::parse(input).map_err(|err| IndexHttpError::InvalidUrl {
         url: input.to_owned(),
@@ -336,8 +378,14 @@ fn redact_url_userinfo(parsed: &url::Url) -> String {
 /// `..` segments work as expected.  Absolute and scheme-relative URLs
 /// are accepted only when their final resolved URL stays on the same
 /// origin as the package metadata URL and carries no `userinfo`.
-pub(crate) fn resolve_source_url(
+///
+/// A registry that declares `dl` serves that URL from there instead:
+/// the URL must sit in the index's `artifacts` directory, and its
+/// path below the index base is appended to `dl` unchanged, so `dl`
+/// names the root the directory hangs from, not the directory.
+fn resolve_source_url(
     package_url: &url::Url,
+    download: Option<&Download>,
     raw: &str,
 ) -> Result<String, IndexHttpError> {
     let resolved = package_url
@@ -351,7 +399,30 @@ pub(crate) fn resolve_source_url(
             ),
         })?;
     validate_source_url(package_url, &resolved)?;
-    Ok(resolved.into())
+    let Some(download) = download else {
+        return Ok(resolved.into());
+    };
+    if !resolved.path().starts_with(&download.artifacts_path)
+        || resolved.query().is_some()
+        || resolved.fragment().is_some()
+    {
+        return Err(IndexHttpError::InvalidMetadata {
+            name: "<source>".to_owned(),
+            message: format!(
+                "source URL `{resolved}` is not a file in the registry's `artifacts` directory, \
+                 which is all its `dl` host serves"
+            ),
+        });
+    }
+    // The path is appended as text: `Url::join` would read a first
+    // segment holding `:` as a scheme.
+    let mut url = download.base.clone();
+    url.set_path(&format!(
+        "{}{}",
+        download.base.path(),
+        &resolved.path()[download.index_path.len()..]
+    ));
+    Ok(url.into())
 }
 
 fn validate_source_url(package_url: &url::Url, resolved: &url::Url) -> Result<(), IndexHttpError> {
@@ -419,18 +490,23 @@ pub(crate) fn redact_raw_url_userinfo(raw: &str) -> String {
 }
 
 /// Build a closure suitable for [`SourceContext::HttpUrl`].
-fn make_source_resolver(package_url: url::Url) -> impl Fn(&str) -> Result<String, IndexError> {
+fn make_source_resolver(
+    package_url: url::Url,
+    download: Option<&Download>,
+) -> impl Fn(&str) -> Result<String, IndexError> {
     move |raw: &str| {
-        resolve_source_url(&package_url, raw).map_err(|err| IndexError::InvalidPackageName {
-            // `IndexError` has no variant for a bad source URL; this
-            // reuses `InvalidPackageName`, which `fetch_package`
-            // surfaces wrapped as `IndexHttpError::Index`.
-            package: "<source>".to_owned(),
-            // `InvalidPackageName` renders `message` raw, so this
-            // relies on `resolve_source_url` returning an
-            // already-escaped `IndexHttpError`: keep that escape if
-            // its variants are ever reworked.
-            message: err.to_string(),
+        resolve_source_url(&package_url, download, raw).map_err(|err| {
+            IndexError::InvalidPackageName {
+                // `IndexError` has no variant for a bad source URL; this
+                // reuses `InvalidPackageName`, which `fetch_package`
+                // surfaces wrapped as `IndexHttpError::Index`.
+                package: "<source>".to_owned(),
+                // `InvalidPackageName` renders `message` raw, so this
+                // relies on `resolve_source_url` returning an
+                // already-escaped `IndexHttpError`: keep that escape if
+                // its variants are ever reworked.
+                message: err.to_string(),
+            }
         })
     }
 }
@@ -447,6 +523,9 @@ struct RawRegistryConfig {
     /// Absolute base URL of the registry web/API origin.
     #[serde(default, deserialize_with = "present_field")]
     api: Option<String>,
+    /// Absolute base URL of the host serving the archives.
+    #[serde(default, deserialize_with = "present_field")]
+    dl: Option<String>,
 }
 
 /// Deserialize a *present* optional field as a required `T`, so an
@@ -491,6 +570,30 @@ impl HttpIndexConfig {
                 message,
             });
         }
+        // The archives a fresh resolution builds come from `dl`, so it
+        // is held to the index URL's rules, and names a directory: no
+        // query or fragment.  Cleartext is for an index that is itself
+        // cleartext, so loopback: an `https` index must not aim
+        // cleartext requests at services on the user's machine.
+        let dl = raw
+            .dl
+            .as_deref()
+            .map(|dl| match parse_base_url(dl) {
+                Ok(url) if url.query().is_some() || url.fragment().is_some() => {
+                    Err("URL must not carry a query or a fragment".to_owned())
+                }
+                Ok(url) if url.scheme() != "https" && base.scheme() == "https" => {
+                    Err("an `https` index needs an `https` URL".to_owned())
+                }
+                Ok(url) => Ok(url),
+                Err(IndexHttpError::InvalidUrl { message, .. }) => Err(message),
+                Err(other) => Err(other.to_string()),
+            })
+            .transpose()
+            .map_err(|message| IndexHttpError::InvalidConfig {
+                base_url: base.to_string(),
+                message: format!("`dl` is not a usable URL: {message}"),
+            })?;
         Ok(Self {
             schema: raw.schema,
             kind: raw.kind,
@@ -498,6 +601,7 @@ impl HttpIndexConfig {
             artifacts: raw.artifacts,
             auth_required: raw.auth_required.unwrap_or(false),
             api: raw.api,
+            dl,
         })
     }
 }
@@ -630,7 +734,7 @@ mod tests {
     #[test]
     fn resolve_source_url_handles_relative_dot_dot() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmt.json");
-        let resolved = resolve_source_url(&pkg, "../artifacts/fmt/fmt-10.2.1.zip").unwrap();
+        let resolved = resolve_source_url(&pkg, None, "../artifacts/fmt/fmt-10.2.1.zip").unwrap();
         assert_eq!(
             resolved,
             "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.zip"
@@ -644,8 +748,12 @@ mod tests {
     #[test]
     fn resolve_source_url_handles_the_scoped_extra_depth() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmtlib/fmt.json");
-        let resolved =
-            resolve_source_url(&pkg, "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip").unwrap();
+        let resolved = resolve_source_url(
+            &pkg,
+            None,
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+        )
+        .unwrap();
         assert_eq!(
             resolved,
             "http://localhost:8080/registry/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
@@ -656,7 +764,7 @@ mod tests {
     fn resolve_source_url_accepts_same_origin_absolute_url() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmt.json");
         let absolute = "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.zip";
-        let resolved = resolve_source_url(&pkg, absolute).unwrap();
+        let resolved = resolve_source_url(&pkg, None, absolute).unwrap();
         assert_eq!(resolved, absolute);
     }
 
@@ -670,7 +778,7 @@ mod tests {
             "http://127.0.0.1/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
             "//evil.example.net/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
         ] {
-            let err = resolve_source_url(&pkg, raw).unwrap_err();
+            let err = resolve_source_url(&pkg, None, raw).unwrap_err();
             let message = err.to_string();
             assert!(
                 message.contains("same origin"),
@@ -682,7 +790,7 @@ mod tests {
     #[test]
     fn resolve_source_url_rejects_cross_origin_absolute_url() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
-        let err = resolve_source_url(&pkg, "http://127.0.0.1/artifacts/fmt.zip").unwrap_err();
+        let err = resolve_source_url(&pkg, None, "http://127.0.0.1/artifacts/fmt.zip").unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("same origin"),
@@ -693,7 +801,8 @@ mod tests {
     #[test]
     fn resolve_source_url_rejects_scheme_relative_cross_origin_url() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
-        let err = resolve_source_url(&pkg, "//evil.example.net/artifacts/fmt.zip").unwrap_err();
+        let err =
+            resolve_source_url(&pkg, None, "//evil.example.net/artifacts/fmt.zip").unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("same origin"),
@@ -706,6 +815,7 @@ mod tests {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
         let err = resolve_source_url(
             &pkg,
+            None,
             "https://user:pw@registry.example.com/registry/artifacts/fmt.zip",
         )
         .unwrap_err();
@@ -723,14 +833,14 @@ mod tests {
     #[test]
     fn resolve_source_url_rejects_garbage_absolute_url() {
         let pkg = package_url("http://localhost/registry/packages/fmt.json");
-        let err = resolve_source_url(&pkg, "https://[::not::a::url::").unwrap_err();
+        let err = resolve_source_url(&pkg, None, "https://[::not::a::url::").unwrap_err();
         assert!(matches!(err, IndexHttpError::InvalidMetadata { .. }));
     }
 
     #[test]
     fn resolve_source_url_redacts_userinfo_when_resolution_fails() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
-        let err = resolve_source_url(&pkg, "https://user:pw@[::not::a::url::").unwrap_err();
+        let err = resolve_source_url(&pkg, None, "https://user:pw@[::not::a::url::").unwrap_err();
         let message = err.to_string();
         assert!(
             !message.contains("user:pw"),
@@ -859,6 +969,113 @@ mod tests {
 
     fn example_base() -> url::Url {
         url::Url::parse("https://registry.example.com/").unwrap()
+    }
+
+    /// The download mapping of a registry at `index` declaring `dl`.
+    fn download(index: &str, dl: &str) -> Download {
+        let base = parse_base_url(index).unwrap();
+        let config =
+            HttpIndexConfig::from_raw(raw_config(&format!(r#", "dl": "{dl}""#)), &base).unwrap();
+        Download::new(&base, &config.artifacts, config.dl.unwrap()).unwrap()
+    }
+
+    /// `dl` names the root the `artifacts` directory hangs from: the
+    /// directory is appended once, below any path `dl` carries, and a
+    /// path prefix of the index URL is left behind.
+    #[test]
+    fn dl_serves_the_artifacts_directory_from_another_origin() {
+        for (index, document, source, dl, expected) in [
+            (
+                "https://index.example.com",
+                "https://index.example.com/packages/fmtlib/fmt.json",
+                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+                "https://static.example.com",
+                "https://static.example.com/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+            ),
+            (
+                "https://index.example.com",
+                "https://index.example.com/packages/fmtlib/fmt.json",
+                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+                "https://static.example.com/mirror/",
+                "https://static.example.com/mirror/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+            ),
+            (
+                "https://example.com/registry",
+                "https://example.com/registry/packages/fmt.json",
+                "../artifacts/fmt/fmt-10.2.1.zip",
+                "https://static.example.com",
+                "https://static.example.com/artifacts/fmt/fmt-10.2.1.zip",
+            ),
+        ] {
+            let resolved =
+                resolve_source_url(&package_url(document), Some(&download(index, dl)), source)
+                    .unwrap();
+            assert_eq!(resolved, expected);
+        }
+    }
+
+    /// `"artifacts": "artifacts/"` names the same directory.
+    #[test]
+    fn dl_serves_an_artifacts_directory_written_with_a_trailing_slash() {
+        let base = parse_base_url("https://index.example.com").unwrap();
+        let dl = parse_base_url("https://static.example.com").unwrap();
+        let resolved = resolve_source_url(
+            &package_url("https://index.example.com/packages/fmtlib/fmt.json"),
+            Some(&Download::new(&base, "artifacts/", dl).unwrap()),
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+        )
+        .unwrap();
+        assert_eq!(
+            resolved,
+            "https://static.example.com/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
+        );
+    }
+
+    /// Only the `artifacts` directory moves to `dl`, so a source that
+    /// resolves anywhere else on the index is refused, not fetched
+    /// from a host that does not serve it.
+    #[test]
+    fn dl_refuses_a_source_outside_the_artifacts_directory() {
+        let pkg = package_url("https://index.example.com/packages/fmtlib/fmt.json");
+        let download = download("https://index.example.com", "https://static.example.com");
+        for source in [
+            "../../config.json",
+            "../../artifacts",
+            "../../artifacts-other/a.zip",
+            "../../artifacts/../packages/fmtlib/fmt.json",
+            "../../artifacts/a.zip?x=1",
+            "../../artifacts/a.zip#top",
+        ] {
+            let err = resolve_source_url(&pkg, Some(&download), source).unwrap_err();
+            assert!(
+                err.to_string().contains("`artifacts` directory"),
+                "{source}: {err}"
+            );
+        }
+    }
+
+    /// `dl` chooses where the archives come from, so it is held to
+    /// the index URL's rules, and a refusal never echoes a credential.
+    #[test]
+    fn dl_is_held_to_the_index_url_rules() {
+        for (dl, expected) in [
+            ("http://static.example.com", "loopback"),
+            ("ftp://static.example.com", "unsupported URL scheme"),
+            ("https://user:pw@static.example.com", "credentials"),
+            ("https://static.example.com/?x=1", "query"),
+            ("https://static.example.com/#top", "fragment"),
+            (
+                "http://127.0.0.1:8000",
+                "an `https` index needs an `https` URL",
+            ),
+            ("static.example.com", "`dl` is not a usable URL"),
+        ] {
+            let raw = raw_config(&format!(r#", "dl": "{dl}""#));
+            let err = HttpIndexConfig::from_raw(raw, &example_base()).unwrap_err();
+            let message = err.to_string();
+            assert!(message.contains(expected), "{dl}: {message}");
+            assert!(!message.contains("user:pw"), "{message}");
+        }
     }
 
     #[test]
@@ -1042,6 +1259,7 @@ mod tests {
             base,
             packages_base,
             api: None,
+            download: None,
             client: HttpClient::new(),
         };
         let url = idx.package_url("fmt").unwrap();

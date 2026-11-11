@@ -82,18 +82,21 @@ reads `config.json` and the metadata files as it finds them, symlinks included.
 `config.json` itself must satisfy `schema = 1`, `kind = "file-registry"`, and reject `..` or
 absolute paths in the configured subdirectories.  Over the sparse HTTP index the subdirectories must
 additionally resolve, once joined onto the index URL, to the same origin as that URL, at or below its
-path, and with no `userinfo` - so a `config.json` cannot move metadata or artifact fetches to another
-host.  A subdirectory containing `%`, `\`, `?`, or `#` is rejected outright, because a URL parser and
+path, and with no `userinfo` - so a subdirectory cannot move metadata or artifact fetches to another
+host; only `dl` names another host, and only for artifacts.  A subdirectory containing `%`, `\`, `?`, or `#` is rejected outright, because a URL parser and
 a filesystem path disagree about what those characters mean.  See
 [`registry-design.md`](registry-design.md) for the full layout contract.
 
-`config.json` may also carry two optional fields belonging to the remote-registry protocol:
+`config.json` may also carry three optional fields belonging to the remote-registry protocol:
 `auth-required` (bool; every request to the registry except the always-public `config.json`
-itself must carry `Authorization: Bearer <token>`) and `api` (string; absolute `http(s)` base URL of the registry
-web/API origin, rejecting non-`http(s)` schemes and `userinfo` credentials).  Both index loaders -
+itself must carry `Authorization: Bearer <token>`), `api` (string; absolute `http(s)` base URL of the registry
+web/API origin, rejecting non-`http(s)` schemes and `userinfo` credentials), and `dl` (string;
+absolute base URL of the host that serves the artifacts over HTTP, see
+[Sparse HTTP index](#sparse-http-index)).  Both index loaders -
 this local loader and the sparse HTTP client - recognize the fields unconditionally, so a
 vendored or mirrored copy of a hosted registry loads like any other file registry; the read
-routes never consult `api` (only the experimental mutation commands do).  See
+routes never consult `api` (only the experimental mutation commands do), and this local loader
+reads artifacts from the directory whatever `dl` says.  See
 [`remote-registry.md`](remote-registry.md) for the full protocol.
 
 In both layouts the filename stem (`fmt` for `fmt.json`) must equal the package's declared `name`
@@ -412,8 +415,8 @@ URL may include or omit a trailing slash; the loader normalizes it.  It must be 
 `http` to a loopback host (`localhost`, `127.0.0.0/8`, `::1`) for local testing: the index decides
 which bytes a fresh resolution pins, so a cleartext index beyond the local machine would let the
 network choose the dependencies.  The rule covers every entry point - `--index-url`, `[registry]
-index-url`, and a `[source-replacement]` URL - and, since artifacts share the index origin, every
-download.
+index-url`, and a `[source-replacement]` URL - and every download: artifacts come from the index
+origin, or from a `dl` the same rule covers.
 
 Request shape:
 
@@ -423,9 +426,10 @@ Request shape:
 | 2 | `GET <url>/<config.packages>/<name>.json` (bare name) or `GET <url>/<config.packages>/<scope>/<name>.json` (scoped name) | One request per package referenced by the manifest's versioned dependencies and their transitive non-optional dependencies; an optional dependency's metadata is requested only once resolution enables it. |
 | 3 | `GET <artifact-url>` | Source-archive download for each `(name, version, revision)` triple `cabin fetch` / `cabin build` needs. |
 
-The `config.json` fetched in step 1 recognizes the same optional `auth-required` / `api` fields
-as the local loader (see [Registry-root layout](#registry-root-layout)); whenever a credential
-is stored for the index origin, every request in the table carries it - and the hosted
+The `config.json` fetched in step 1 recognizes the same optional `auth-required` / `api` / `dl`
+fields as the local loader (see [Registry-root layout](#registry-root-layout)); whenever a credential
+is stored for the index origin, every request in the table to that origin carries it, so an
+artifact served from a `dl` on another origin is requested without it - and the hosted
 registry's reads work with no credential at all
 ([`remote-registry.md`](remote-registry.md#client-side-token-handling)).
 
@@ -442,6 +446,17 @@ Source-path resolution for each revision:
   artifact URL has the same origin (scheme, host, and effective port) as the package metadata URL.
   Cross-origin artifact URLs and URLs containing `userinfo` credentials are rejected before any
   download is attempted.
+- A registry whose `config.json` declares `dl` serves its artifacts from that host instead.  The
+  URL resolved above must name a file in the index's `artifacts` directory and carry no query or
+  fragment; its path below the index URL is then appended to `dl`.  With the index at
+  `https://index.example.com` and `"dl": "https://static.example.com"`, the canonical scoped path
+  downloads from
+  `https://static.example.com/artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`:
+  `dl` names the root the directory hangs from, so the directory name is not repeated in it.
+  `dl` must be `https`; only an index that is itself a plain-`http` loopback URL may name a
+  plain-`http` loopback `dl`, so a remote index cannot aim cleartext requests at services on the
+  local machine.  It carries no `userinfo`, and may carry a path but no query or fragment.  A credential
+  stored for the index origin is not sent to a `dl` on another origin.
 
 Error mapping:
 

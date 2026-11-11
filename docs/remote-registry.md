@@ -50,7 +50,9 @@ private alpha, a project that needs the default registry fails with the
 ## Registry configuration
 
 A remote registry serves the same registry-root layout as the sparse HTTP index documented in
-[`package-index.md`](package-index.md).  Its `config.json` may carry two additional fields:
+[`package-index.md`](package-index.md).  Its `config.json` may carry three additional fields,
+the two below and [`dl`](package-index.md#sparse-http-index), which names a separate host for
+the archives:
 
 ```json
 {
@@ -65,7 +67,7 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `auth-required` | bool | `false` | When `true`, every request to this registry **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `true` during its private alpha (see [Read routes](#read-routes)); the declaration informs clients, and the server enforces it. |
+| `auth-required` | bool | `false` | When `true`, every request to this registry's index origin **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  Artifacts served from a `dl` on another origin are requested without it.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `true` during its private alpha (see [Read routes](#read-routes)); the declaration informs clients, and the server enforces it. |
 | `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, and `cabin publish` and `cabin login` refuse plain `http` for a host other than loopback, as the sparse HTTP client does for the index URL.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) recognize the
@@ -80,7 +82,7 @@ UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
 
 | Hostname | Role |
 | --- | --- |
-| `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, the [catalog](#the-catalog), artifact downloads, and `/healthz`.  During the private alpha only `config.json` and the bodyless `/healthz` answer without an admitted credential.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
+| `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, the [catalog](#the-catalog), artifact downloads, and `/healthz`.  During the private alpha only `config.json` and the bodyless `/healthz` answer without an admitted credential.  The hosted registry keeps artifacts on the index host and declares no `dl`, so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
 | `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, and `GET /api/v1/stats`, aggregate download/package totals (service-local; not part of the client protocol; during the private alpha a Bearer route like the others).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
 
 On the index host, every path outside the read plane - the mutation routes included - answers
@@ -292,7 +294,8 @@ With a credential available, every request to the registry - `config.json`, pack
 artifact downloads - carries `Authorization: Bearer <token>`.  A stored token is sent to exactly
 two destinations: (a) the index origin it is stored under, and (b) the
 [`api`](#registry-configuration) origin declared by that index's authenticated `config.json`,
-where the mutation routes live - and nowhere else.  This mirrors Cargo, whose tokens go to the
+where the mutation routes live - and nowhere else: a `dl` host on another origin serves its
+archives without it.  This mirrors Cargo, whose tokens go to the
 api host named in `config.json`.  The client follows no redirects: a `3xx` response fails the
 request.  Neither destination ever sees the token over plain `http` except loopback hosts
 (`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.

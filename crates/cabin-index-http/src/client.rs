@@ -101,7 +101,7 @@ impl HttpClient {
     /// Build a client with a 30 s timeout, body reads capped at
     /// 64 MiB, the default `ureq` TLS configuration, and redirects
     /// disabled.  Disabling redirects keeps fetches pinned to the
-    /// operator-configured registry origin.
+    /// origins the registry's own configuration names.
     pub fn new() -> Self {
         Self::with_redirect_budget(0)
     }
