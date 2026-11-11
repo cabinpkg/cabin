@@ -114,6 +114,7 @@ impl HttpClient {
     /// redirect metadata fetches to a different origin.
     pub fn with_redirect_budget(max_redirects: u32) -> Self {
         let agent = ureq::AgentBuilder::new()
+            .user_agent(cabin_core::registry::USER_AGENT)
             .timeout(DEFAULT_TIMEOUT)
             .redirects(max_redirects)
             // Each parallel index fetch keeps its connection for the next wave.
@@ -564,9 +565,10 @@ mod tests {
 
     const TEST_TOKEN: &str = "cabin_testToken12345";
 
-    /// Tiny server for the auth tests: `/echo-auth` answers 200 with
-    /// the request's `Authorization` header value (or `none`),
-    /// `/needs-auth` answers 401, and `/needs-scope` answers 403.
+    /// Tiny server for the auth tests: `/echo-auth` and `/echo-agent`
+    /// answer 200 with the request's `Authorization` and `User-Agent`
+    /// header value (or `none`), `/needs-auth` answers 401, and
+    /// `/needs-scope` answers 403.
     struct AuthServer {
         server: Arc<tiny_http::Server>,
         thread: Option<JoinHandle<()>>,
@@ -584,11 +586,16 @@ mod tests {
             let thread = std::thread::spawn(move || {
                 while let Ok(req) = server_for_thread.recv() {
                     let path = req.url().to_string();
-                    if path == "/echo-auth" {
+                    let echoed = match path.as_str() {
+                        "/echo-auth" => Some("Authorization"),
+                        "/echo-agent" => Some("User-Agent"),
+                        _ => None,
+                    };
+                    if let Some(field) = echoed {
                         let value = req
                             .headers()
                             .iter()
-                            .find(|h| h.field.equiv("Authorization"))
+                            .find(|h| h.field.equiv(field))
                             .map_or_else(|| "none".to_owned(), |h| h.value.to_string());
                         let _ = req.respond(tiny_http::Response::from_string(value));
                     } else if path == "/needs-auth" {
@@ -637,6 +644,20 @@ mod tests {
         let client = HttpClient::new().with_auth(auth_for(&server.url));
         let body = client.get_bytes(&url, "pkg").unwrap();
         assert_eq!(body, format!("Bearer {TEST_TOKEN}").as_bytes());
+    }
+
+    /// A registry's download statistics tell Cabin from other clients
+    /// by this header.
+    #[test]
+    fn requests_name_cabin_and_its_version() {
+        let server = AuthServer::start();
+        let body = HttpClient::new()
+            .get_bytes(&format!("{}/echo-agent", server.url), "pkg")
+            .unwrap();
+        assert_eq!(
+            body,
+            format!("cabin/{}", env!("CARGO_PKG_VERSION")).as_bytes()
+        );
     }
 
     /// A credential scoped to a different origin is never attached,
