@@ -234,6 +234,8 @@ fn plan_request<'a>(
         LazyLock::new(HashMap::new);
     static NO_SYSTEM_TARGETS: LazyLock<HashMap<(usize, String), crate::SystemTargetInterface>> =
         LazyLock::new(HashMap::new);
+    static NO_SCRIPT_OUTPUTS: LazyLock<HashMap<(usize, String), crate::BuildScriptOutput>> =
+        LazyLock::new(HashMap::new);
     PlanRequest {
         graph,
         toolchain: tc,
@@ -241,6 +243,8 @@ fn plan_request<'a>(
         language_standards: &NO_LANGUAGE_STANDARDS,
         standard_flag_conflicts: &NO_FLAG_CONFLICTS,
         system_targets: &NO_SYSTEM_TARGETS,
+        build_scripts: &[],
+        build_script_outputs: &NO_SCRIPT_OUTPUTS,
         build_dir: PathBuf::from(build_dir),
         platform: cabin_core::TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap(),
         clang_target: None,
@@ -5729,4 +5733,512 @@ fn shared_inputs_and_both_contexts_do_not_conflict() {
     crate::validate::validate_output_paths_folding(&bg, true).unwrap();
     // A lookup by name never answers with a build-machine artifact.
     assert_eq!(bg.target_outputs, target_outputs);
+}
+
+fn build_script(package: usize, source: &str, libraries: &[(usize, &str)]) -> BuildScript {
+    BuildScript {
+        package,
+        build_context: false,
+        source: Utf8PathBuf::from(source),
+        libraries: libraries
+            .iter()
+            .map(|(index, name)| (*index, (*name).to_owned()))
+            .collect(),
+        flags: ResolvedProfileFlags::default(),
+    }
+}
+
+/// `app`, package 1, and the `helper` library of package 0, which
+/// `app`'s manifest does not depend on.
+fn script_graph(helper: CoreTarget) -> PackageGraph {
+    let helper = Package::new(pkg_name("helper"), version(), vec![helper], Vec::new()).unwrap();
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target("app", TargetKind::Executable, &["src/main.c"], &[])],
+        Vec::new(),
+    )
+    .unwrap()
+    .with_language(cabin_core::LanguageStandardSettings {
+        gnu_extensions: Some(true),
+        ..Default::default()
+    });
+    graph_with(
+        vec![
+            make_pkg("helper", "/abs/helper", helper, vec![]),
+            make_pkg("app", "/abs/app", app, vec![]),
+        ],
+        vec![1],
+        Some(1),
+    )
+}
+
+/// A build script is an executable of the build context.  It links the
+/// libraries it names and takes its own flags: its package's describe
+/// the package's targets.
+#[test]
+fn a_build_script_is_an_executable_of_the_build_context() {
+    let graph = script_graph(target_with_includes(
+        "helper",
+        TargetKind::Library,
+        &["src/helper.cc"],
+        &["include"],
+        &[],
+    ));
+    let build_flags = HashMap::from([
+        (
+            0,
+            ResolvedProfileFlags {
+                link_libs: vec!["m".to_owned()],
+                ..Default::default()
+            },
+        ),
+        (
+            1,
+            ResolvedProfileFlags {
+                defines: vec!["APP".to_owned()],
+                cxxflags: vec!["-fapp".to_owned()],
+                ldflags: vec!["-Lapp".to_owned()],
+                link_libs: vec!["app".to_owned()],
+                ..Default::default()
+            },
+        ),
+    ]);
+    let mut for_target = build_script(1, "build.cpp", &[(0, "helper")]);
+    for_target.flags.cxxflags = vec!["-fenv".to_owned()];
+    for_target.flags.ldflags = vec!["-Lenv".to_owned()];
+    for_target.flags.link_libs = vec!["env".to_owned()];
+    let mut for_build_machine = build_script(1, "build.cpp", &[]);
+    for_build_machine.build_context = true;
+    let scripts = [for_target, for_build_machine];
+    // A flag of `app`'s own that sets a standard is no flag of the script.
+    let conflicts = HashMap::from([(
+        1,
+        vec![cabin_core::StandardFlagConflict {
+            package: "app".to_owned(),
+            language: SourceLanguage::Cxx,
+            field: "cxx-standard",
+            flag_list: "cxxflags",
+            flag: "-std=c++20".to_owned(),
+            target: None,
+        }],
+    )]);
+    let tc = toolchain();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_context = true;
+    req.selected_packages = Some(&[]);
+    req.build_flags = &build_flags;
+    req.standard_flag_conflicts = &conflicts;
+    req.standard_compat = true;
+    req.build_scripts = &scripts;
+    let bg = plan(&req).unwrap();
+    assert!(bg.standard_violations.is_empty());
+
+    let packages = "/abs/build/dev/build-machine/packages";
+    let dir = format!("{packages}/app/.build-script");
+    let executable = |name: &str| &bg.target_outputs[&("app".to_owned(), name.to_owned())];
+    assert_eq!(
+        *executable("build script"),
+        Utf8PathBuf::from(format!("{dir}/target/build"))
+    );
+    assert_eq!(
+        *executable("build script (build machine)"),
+        Utf8PathBuf::from(format!("{dir}/build-machine/build"))
+    );
+
+    let compile = compile_for(&bg, "/.build-script/target/");
+    assert_eq!(compile.source, Utf8PathBuf::from("/abs/app/build.cpp"));
+    assert_eq!(
+        compile.object,
+        Utf8PathBuf::from(format!("{dir}/target/obj/build/build.cpp.o"))
+    );
+    assert_eq!(
+        compile.arguments.include_dirs,
+        [Utf8PathBuf::from("/abs/helper/include")]
+    );
+    assert!(compile.arguments.defines.is_empty());
+    assert_eq!(compile.arguments.extra_flags, ["-fenv"]);
+    let command = bg
+        .compile_commands
+        .iter()
+        .find(|command| command.output == compile.object)
+        .unwrap();
+    assert_eq!(command.arguments[1], "-std=c++17");
+
+    let link = bg
+        .actions
+        .iter()
+        .find_map(|action| match action {
+            BuildAction::Link(link) if link.output == *executable("build script") => Some(link),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        link.inputs,
+        [
+            compile.object.clone(),
+            Utf8PathBuf::from(format!("{packages}/helper/libhelper.a"))
+        ]
+    );
+    assert_eq!(link.arguments, ["-Lenv"]);
+    assert_eq!(link.link_libs, ["env", "m"]);
+
+    // Naming targets leaves the scripts planned.
+    req.selected = Some(vec![ManifestTargetSelector::parse("helper:helper")]);
+    let named = plan(&req).unwrap();
+    assert!(
+        named
+            .target_outputs
+            .contains_key(&("app".to_owned(), "build script".to_owned()))
+    );
+}
+
+/// A build-context plan asked for nothing but gated targets fails as it
+/// does without a script.
+#[test]
+fn a_build_script_does_not_stand_in_for_gated_targets() {
+    let tool = gated_target(
+        "tool",
+        TargetKind::Executable,
+        &["src/main.c"],
+        &[],
+        &["extra"],
+    );
+    let tools = package_with_features("tools", vec![tool], Vec::new(), &["extra"]);
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target("app", TargetKind::Executable, &["src/main.c"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("tools", "/abs/tools", tools, vec![]),
+            make_pkg("app", "/abs/app", app, vec![]),
+        ],
+        vec![1],
+        Some(1),
+    );
+    let scripts = [build_script(1, "build.c", &[])];
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_context = true;
+    req.selected_packages = Some(&[0]);
+    req.build_scripts = &scripts;
+    assert!(matches!(
+        plan(&req),
+        Err(BuildError::AllDefaultTargetsRequireFeatures { .. })
+    ));
+}
+
+/// No manifest field sets a script's standard, so it follows the
+/// libraries the script sees.
+#[test]
+fn a_build_script_compiles_within_the_standards_its_libraries_accept() {
+    use cabin_core::{
+        CStandard, CxxStandard, InterfaceRequirement, LanguageStandardSettings,
+        StandardDeclaration, StandardRequirement,
+    };
+    let planned = |graph: &PackageGraph, script: BuildScript| {
+        let tc = toolchain_with_cc();
+        let scripts = [script];
+        let mut req = plan_request(graph, &tc, "/abs/build");
+        req.build_context = true;
+        req.selected_packages = Some(&[]);
+        req.build_scripts = &scripts;
+        let bg = plan(&req).unwrap();
+        assert!(bg.standard_violations.is_empty());
+        compile_for(&bg, "/.build-script/").standard
+    };
+    let linking = |standard, interface: Option<StandardRequirement<CxxStandard>>| {
+        let language = LanguageStandardSettings {
+            cxx_standard: Some(StandardDeclaration::Declared(standard)),
+            interface_cxx_standard: interface.map(|required| {
+                StandardDeclaration::Declared(InterfaceRequirement::Requirement(required))
+            }),
+            ..Default::default()
+        };
+        let helper = target_with_language(
+            "helper",
+            TargetKind::Library,
+            &["src/helper.cc"],
+            &[],
+            language,
+        );
+        planned(
+            &script_graph(helper),
+            build_script(1, "build.cpp", &[(0, "helper")]),
+        )
+    };
+    let up_to_cxx14 =
+        StandardRequirement::bounded(CxxStandard::Cxx11, Some(CxxStandard::Cxx14)).unwrap();
+    for (standard, interface, expected) in [
+        (CxxStandard::Cxx11, None, CxxStandard::Cxx17),
+        (CxxStandard::Cxx20, None, CxxStandard::Cxx20),
+        (CxxStandard::Cxx14, Some(up_to_cxx14), CxxStandard::Cxx14),
+    ] {
+        assert_eq!(
+            linking(standard, interface),
+            LanguageStandard::Cxx(expected)
+        );
+    }
+
+    let alone = script_graph(target("helper", TargetKind::Library, &["src/h.c"], &[]));
+    assert_eq!(
+        planned(&alone, build_script(1, "build.c", &[])),
+        LanguageStandard::C(CStandard::C11)
+    );
+    let c17 = LanguageStandardSettings {
+        c_standard: Some(StandardDeclaration::Declared(CStandard::C17)),
+        ..Default::default()
+    };
+    let in_c = target_with_language("helper", TargetKind::Library, &["src/h.c"], &[], c17);
+    assert_eq!(
+        planned(
+            &script_graph(in_c),
+            build_script(1, "build.c", &[(0, "helper")])
+        ),
+        LanguageStandard::C(CStandard::C17)
+    );
+
+    // No standard is inside both libraries' ranges, which the plan
+    // records against the script's compile.
+    let library = |name: &str, language| {
+        let library =
+            target_with_language(name, TargetKind::Library, &["src/lib.cc"], &[], language);
+        let package = Package::new(pkg_name(name), version(), vec![library], Vec::new()).unwrap();
+        make_pkg(name, &format!("/abs/{name}"), package, vec![])
+    };
+    let cxx =
+        |standard, interface: Option<StandardRequirement<CxxStandard>>| LanguageStandardSettings {
+            cxx_standard: Some(StandardDeclaration::Declared(standard)),
+            interface_cxx_standard: interface.map(|required| {
+                StandardDeclaration::Declared(InterfaceRequirement::Requirement(required))
+            }),
+            ..Default::default()
+        };
+    let app = target("app", TargetKind::Executable, &["src/main.c"], &[]);
+    let app = Package::new(pkg_name("app"), version(), vec![app], Vec::new()).unwrap();
+    let graph = graph_with(
+        vec![
+            library("old", cxx(CxxStandard::Cxx14, Some(up_to_cxx14))),
+            library("new", cxx(CxxStandard::Cxx20, None)),
+            make_pkg("app", "/abs/app", app, vec![]),
+        ],
+        vec![2],
+        Some(2),
+    );
+    let scripts = [build_script(2, "build.cpp", &[(0, "old"), (1, "new")])];
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_context = true;
+    req.selected_packages = Some(&[]);
+    req.build_scripts = &scripts;
+    let bg = plan(&req).unwrap();
+    let [violation] = bg.standard_violations.as_slice() else {
+        panic!("one violation: {:?}", bg.standard_violations);
+    };
+    assert_eq!(violation.object, compile_for(&bg, "/.build-script/").object);
+}
+
+/// What a build script reported joins what the manifest declares for
+/// the target.  A generated source compiles after the declared ones,
+/// its object apart from that of a declared source at the same path.
+#[test]
+fn what_a_build_script_reported_applies_to_its_target() {
+    let mut codec = target("codec", TargetKind::Library, &["src/codec.c"], &[]);
+    let avx2 = vec![cabin_core::InstructionSet::Avx2];
+    codec.instruction_sets = [(Utf8PathBuf::from("src/codec.c"), avx2.clone())].into();
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            codec,
+            target("app", TargetKind::Executable, &["src/main.c"], &["codec"]),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/demo");
+    let build_flags = HashMap::from([(
+        0,
+        ResolvedProfileFlags {
+            defines: vec!["CODEC_IMPL=0".to_owned()],
+            ..Default::default()
+        },
+    )]);
+    let demo = "/abs/build/dev/packages/demo";
+    let include = Utf8PathBuf::from(format!("{demo}/.build-script/out/include"));
+    let outputs = HashMap::from([(
+        (0, "codec".to_owned()),
+        BuildScriptOutput {
+            include_dirs: vec![include.clone()],
+            defines: vec!["CODEC_IMPL".to_owned()],
+            interface_defines: vec!["CODEC_API=2".to_owned()],
+            sources: vec![
+                Utf8PathBuf::from("src/codec.c"),
+                Utf8PathBuf::from("table.c"),
+            ],
+        },
+    )]);
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_flags = &build_flags;
+    req.build_script_outputs = &outputs;
+    let bg = plan(&req).unwrap();
+
+    let compiles = compile_actions(&bg);
+    let (codec, app): (Vec<_>, Vec<_>) = compiles
+        .into_iter()
+        .partition(|compile| compile.arguments.defines == ["CODEC_IMPL"]);
+    let paths = |source: &str, object: &str| (Utf8PathBuf::from(source), Utf8PathBuf::from(object));
+    assert_eq!(
+        codec
+            .iter()
+            .map(|compile| (compile.source.clone(), compile.object.clone()))
+            .collect::<Vec<_>>(),
+        [
+            paths(
+                "/abs/demo/src/codec.c",
+                &format!("{demo}/obj/codec/src/codec.c.o")
+            ),
+            paths(
+                &format!("{demo}/.build-script/out/src/codec.c"),
+                &format!("{demo}/.build-script/obj/codec/src/codec.c.o")
+            ),
+            paths(
+                &format!("{demo}/.build-script/out/table.c"),
+                &format!("{demo}/.build-script/obj/codec/table.c.o")
+            ),
+        ]
+    );
+    assert_eq!(
+        codec
+            .iter()
+            .map(|compile| compile.arguments.instruction_sets.clone())
+            .collect::<Vec<_>>(),
+        [avx2, Vec::new(), Vec::new()]
+    );
+    let [app] = app.as_slice() else {
+        panic!("one compile for `app`: {app:?}");
+    };
+    assert_eq!(app.arguments.defines, ["CODEC_IMPL=0", "CODEC_API=2"]);
+    for compile in codec.iter().chain([app]) {
+        assert_eq!(
+            compile.arguments.include_dirs,
+            std::slice::from_ref(&include)
+        );
+    }
+    let archived = bg
+        .actions
+        .iter()
+        .find_map(|action| match action {
+            BuildAction::Archive(archive) => Some(&archive.inputs),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        *archived,
+        codec
+            .iter()
+            .map(|compile| compile.object.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// A build script links a build dependency's library when there is one
+/// to pick and may run its executables; `targets` names them otherwise.
+#[test]
+fn a_build_script_takes_what_its_build_dependencies_select() {
+    let package = |name: &str, targets: Vec<CoreTarget>| {
+        let package = package_with_features(name, targets, Vec::new(), &["extra"]);
+        make_pkg(name, &format!("/abs/{name}"), package, vec![])
+    };
+    let library = |name: &str| target(name, TargetKind::Library, &["src/lib.c"], &[]);
+    let executable = |name: &str| target(name, TargetKind::Executable, &["src/main.c"], &[]);
+    let gated = gated_target(
+        "extra",
+        TargetKind::Library,
+        &["src/extra.c"],
+        &[],
+        &["extra"],
+    );
+    let mut graph = graph_with(
+        vec![
+            package(
+                "one",
+                vec![
+                    library("one"),
+                    gated,
+                    executable("generate"),
+                    target("check", TargetKind::Test, &["tests/check.c"], &[]),
+                ],
+            ),
+            package("tools", vec![executable("tool")]),
+            package(
+                "two",
+                vec![library("a"), target("b", TargetKind::HeaderOnly, &[], &[])],
+            ),
+            package("app", vec![executable("app")]),
+        ],
+        vec![3],
+        Some(3),
+    );
+    let build = |index: usize, targets: &[&str]| cabin_workspace::DependencyEdge {
+        index,
+        kind: cabin_core::DependencyKind::Build,
+        condition: None,
+        ignore_interface_standard: false,
+        targets: targets.iter().map(|name| target_name(name)).collect(),
+    };
+    let linux = cabin_core::TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap();
+    let inputs_with = |graph: &PackageGraph, features: &[(usize, &str)]| {
+        let features = features
+            .iter()
+            .map(|(index, feature)| (*index, BTreeSet::from([(*feature).to_owned()])))
+            .collect();
+        build_script_inputs(graph, 3, &linux, &features)
+    };
+    let inputs = |graph: &PackageGraph| inputs_with(graph, &[]);
+    let ids = |ids: &[(usize, &str)]| -> Vec<(usize, String)> {
+        ids.iter()
+            .map(|(index, name)| (*index, (*name).to_owned()))
+            .collect()
+    };
+
+    graph.packages[3].deps = vec![build(0, &[]), build(1, &["tool"]), build(2, &["b"])];
+    assert_eq!(
+        inputs(&graph).unwrap(),
+        BuildScriptInputs {
+            libraries: ids(&[(0, "one"), (2, "b")]),
+            tools: ids(&[(0, "generate"), (1, "tool")]),
+        }
+    );
+    // The dependency's features decide what it offers, not the script's
+    // package's.
+    match inputs_with(&graph, &[(0, "extra")]) {
+        Err(BuildError::AmbiguousBuildDependencyLibrary { candidates, .. }) => {
+            assert_eq!(candidates, ["one", "extra"]);
+        }
+        other => panic!("expected AmbiguousBuildDependencyLibrary, got {other:?}"),
+    }
+    assert!(inputs_with(&graph, &[(3, "extra")]).is_ok());
+
+    graph.packages[3].deps = vec![build(2, &[])];
+    match inputs(&graph) {
+        Err(BuildError::AmbiguousBuildDependencyLibrary { candidates, .. }) => {
+            assert_eq!(candidates, ["a", "b"]);
+        }
+        other => panic!("expected AmbiguousBuildDependencyLibrary, got {other:?}"),
+    }
+
+    // Neither an entry of another kind nor one for another platform
+    // reaches the script.
+    let mut normal = build(2, &[]);
+    normal.kind = cabin_core::DependencyKind::Normal;
+    let mut elsewhere = build(2, &[]);
+    elsewhere.condition = Some(cabin_core::Condition::parse_cfg(r#"cfg(os = "plan9")"#).unwrap());
+    graph.packages[3].deps = vec![normal, elsewhere];
+    assert_eq!(inputs(&graph).unwrap(), BuildScriptInputs::default());
 }

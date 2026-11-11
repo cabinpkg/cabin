@@ -1,9 +1,9 @@
-//! The build machine's target selection for `[build-dependencies]`
-//! entries that list `targets`.
+//! What `[build-dependencies]` entries select: the targets the build
+//! machine builds, and of those, what a package's build script takes.
 
 use std::collections::{BTreeSet, HashMap};
 
-use cabin_core::TargetName;
+use cabin_core::{DependencyKind, Target, TargetKind, TargetName, TargetPlatform};
 use cabin_workspace::{DependencyEdge, PackageGraph};
 
 use super::{ManifestTargetSelector, TargetId, default_selection};
@@ -58,13 +58,99 @@ pub fn select_build_dependency_targets(
     ))
 }
 
-fn check_listed_target(
+/// What a package's build script takes from the package's
+/// `[build-dependencies]`, each target by `graph.packages` index and
+/// name, in the entries' order.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct BuildScriptInputs {
+    /// The library and header-only targets the script links.
+    pub libraries: Vec<(usize, String)>,
+    /// The executables the script may run.
+    pub tools: Vec<(usize, String)>,
+}
+
+/// What the build script of `package` takes from the package's
+/// `[build-dependencies]` entries active on `platform`, the platform of
+/// the context the script prepares.  An entry's `targets` name them.
+/// Without `targets` they are among what the build machine builds for
+/// the entry by default: the dependency's executables, and its library
+/// when it has exactly one.  `enabled_features` are the build context's.
+///
+/// # Errors
+///
+/// What [`select_build_dependency_targets`] returns for a listed
+/// target, and [`BuildError::AmbiguousBuildDependencyLibrary`] for an
+/// entry without `targets` whose dependency builds several libraries.
+#[allow(clippy::implicit_hasher)]
+pub fn build_script_inputs(
     graph: &PackageGraph,
+    package: usize,
+    platform: &TargetPlatform,
+    enabled_features: &HashMap<usize, BTreeSet<String>>,
+) -> Result<BuildScriptInputs, BuildError> {
+    let empty = BTreeSet::new();
+    let mut inputs = BuildScriptInputs::default();
+    for edge in &graph.packages[package].deps {
+        if edge.kind != DependencyKind::Build || !edge.matches_platform(platform) {
+            continue;
+        }
+        let dependency = &graph.packages[edge.index].package;
+        let mut selected: Vec<&Target> = Vec::new();
+        for name in &edge.targets {
+            selected.push(check_listed_target(
+                graph,
+                package,
+                edge.index,
+                name,
+                enabled_features,
+            )?);
+        }
+        if edge.targets.is_empty() {
+            let enabled = enabled_features.get(&edge.index).unwrap_or(&empty);
+            let built = |target: &&Target| target.missing_required_features(enabled).is_empty();
+            let (libraries, tools): (Vec<&Target>, Vec<&Target>) = dependency
+                .targets
+                .iter()
+                .filter(|target| {
+                    target.kind.is_library_like() || target.kind == TargetKind::Executable
+                })
+                .filter(built)
+                .partition(|target| target.kind.is_library_like());
+            if libraries.len() > 1 {
+                return Err(BuildError::AmbiguousBuildDependencyLibrary {
+                    dependency: dependency.name.as_str().to_owned(),
+                    dependent: graph.packages[package].package.name.as_str().to_owned(),
+                    candidates: libraries
+                        .iter()
+                        .map(|target| target.name.as_str().to_owned())
+                        .collect(),
+                });
+            }
+            selected.extend(libraries);
+            selected.extend(tools);
+        }
+        for target in selected {
+            let id = (edge.index, target.name.as_str().to_owned());
+            let set = if target.kind.is_library_like() {
+                &mut inputs.libraries
+            } else {
+                &mut inputs.tools
+            };
+            if !set.contains(&id) {
+                set.push(id);
+            }
+        }
+    }
+    Ok(inputs)
+}
+
+fn check_listed_target<'a>(
+    graph: &'a PackageGraph,
     dependent: usize,
     dep: usize,
     name: &TargetName,
     enabled_features: &HashMap<usize, BTreeSet<String>>,
-) -> Result<(), BuildError> {
+) -> Result<&'a Target, BuildError> {
     let dependent = graph.packages[dependent].package.name.as_str().to_owned();
     let package = &graph.packages[dep].package;
     let dependency = package.name.as_str().to_owned();
@@ -100,5 +186,5 @@ fn check_listed_target(
             missing,
         });
     }
-    Ok(())
+    Ok(target)
 }

@@ -12,6 +12,7 @@
 //! <profile-dir>/.cabin-build.lock            the tree's lock (crate::gc::BuildDirLock)
 //! <profile-dir>/packages/<pkg>/              the target context's units
 //! <profile-dir>/build-machine/packages/<pkg>/   the build context's units
+//! .../packages/<pkg>/.build-script/          a build script and what it generates
 //! ```
 //!
 //! Profile names cannot start with `.`, so no profile directory is
@@ -31,6 +32,17 @@ pub const TARGETS_DIR: &str = ".targets";
 /// The directory under a profile directory that holds the build
 /// context's units.
 pub const BUILD_CONTEXT_DIR: &str = "build-machine";
+
+/// The entry of a package's output directory holding what its build
+/// script takes part in: the script's own executable, built in the
+/// build context, and what the script writes for the package's units of
+/// either context.  A target name cannot start with `.`, so no target
+/// output is named like it.
+pub const BUILD_SCRIPT_DIR: &str = ".build-script";
+
+/// The entry of [`BUILD_SCRIPT_DIR`] a build script writes its outputs
+/// to: the generated sources and headers the package's targets take in.
+pub const BUILD_SCRIPT_OUT_DIR: &str = "out";
 
 /// The directory holding one platform's profile directories:
 /// `build_dir` itself for the build machine, `.targets/<triple>` under

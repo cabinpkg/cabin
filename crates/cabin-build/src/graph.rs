@@ -27,6 +27,8 @@ pub struct BuildGraph {
     /// a linked binary - keyed by `(package name, target name)`.  A
     /// target built only because a selected one depends on it is
     /// absent, so `cabin test --test a` never runs a test `a` depends on.
+    /// A build script's executable is here too, under
+    /// [`crate::BuildScript::name`].
     pub target_outputs: std::collections::BTreeMap<(String, String), Utf8PathBuf>,
     /// Full names of every package with at least one planned target
     /// in this graph's own context.  Consumers that map build paths
