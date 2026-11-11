@@ -35,13 +35,21 @@
 //! [`package_env`].  The overlay is layered on top of the
 //! inherited environment; it never clears the user's `PATH`,
 //! `LANG`, etc.
+//!
+//! ## Build-script environment
+//!
+//! A package's build script gets the opposite: [`build_script_env`]
+//! builds its whole environment, and of the inherited one keeps
+//! only the variables [`build_script`] names.
 
 pub mod build_flags;
+pub mod build_script;
 
 pub use build_flags::{
     CFLAGS, CPPFLAGS, CXXFLAGS, EnvBuildFlags, EnvBuildFlagsError, LDFLAGS, parse_env_build_flags,
     split_flag_text,
 };
+pub use build_script::{BuildScriptEnvError, BuildScriptEnvInputs, build_script_env};
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};

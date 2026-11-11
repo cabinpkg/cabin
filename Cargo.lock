@@ -338,6 +338,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabinpkg-build-script"
+version = "0.18.0"
+dependencies = [
+ "assert_fs",
+ "cabinpkg-build",
+ "cabinpkg-core",
+ "cabinpkg-env",
+ "cabinpkg-fs",
+ "cabinpkg-manifest",
+ "cabinpkg-package",
+ "cabinpkg-sandbox",
+ "camino",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "cabinpkg-config"
 version = "0.18.0"
 dependencies = [
