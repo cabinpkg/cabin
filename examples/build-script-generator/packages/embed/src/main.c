@@ -14,5 +14,7 @@ int main(int argc, char **argv) {
         printf("%d,", byte);
     }
     puts("0};");
-    return ferror(input) || fclose(stdout) != 0;
+    // Flushed, not closed: started by a build script on Windows, a program
+    // that has closed its standard output fails as it exits.
+    return ferror(input) || fflush(stdout) != 0;
 }

@@ -210,6 +210,10 @@ Limits to know:
   refused.
 - On Windows, `TEMP` and `TMP` name the directory Windows makes for the run, as `LOCALAPPDATA`
   does, not the one `TMPDIR` names.
+- On Windows, a script runs a `CABIN_BIN_*` program directly (`_spawnl`, `CreateProcess`), not
+  through `system`: the command interpreter answers `Access is denied`.  A program started with
+  `_spawnl` that closes its standard output fails as it exits (`0xC0000005`), its work done; one
+  that only flushes it does not.
 - Cabin is not meant to run as root or as an administrator: a script run with those privileges can
   reach past the confinement.
 - The build directory must not hold the package: a build script does not read the build directory,
