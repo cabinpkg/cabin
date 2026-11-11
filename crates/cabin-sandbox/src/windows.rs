@@ -131,34 +131,10 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         paths: Vec::new(),
     };
     let read = crate::without_hidden(canonical(&read), &hidden);
-    // PROBE: switches asked for through the environment, so that one
-    // test's run does not change another's.
-    let asked = |name: &str| {
-        env.iter()
-            .find(|(key, _)| key == name)
-            .map(|(_, value)| value)
-    };
-    let write_access = if asked("CABIN_PROBE_DELETE").is_some() {
-        WRITE | windows_sys::Win32::Storage::FileSystem::DELETE
-    } else {
-        WRITE
-    };
-    for (paths, access) in [(read, READ), (canonical(&write), write_access)] {
+    for (paths, access) in [(read, READ), (canonical(&write), WRITE)] {
         for path in paths {
             grants.add(path, access).map_err(failed)?;
         }
-    }
-    // PROBE: an entry for the working directory alone.
-    if let Some(level) = asked("CABIN_PROBE_CWDENTRY") {
-        use windows_sys::Win32::Storage::FileSystem::{FILE_TRAVERSE, SYNCHRONIZE};
-        let access = if level == "2" {
-            FILE_GENERIC_EXECUTE
-        } else {
-            FILE_TRAVERSE | SYNCHRONIZE
-        };
-        let dir = current_dir.canonicalize().map_err(failed)?;
-        grants.paths.push(dir.clone());
-        set_entry(&dir, grants.sid, GRANT_ACCESS, access, NO_INHERITANCE).map_err(failed)?;
     }
     let launched = Launch {
         sid: container.sid,
@@ -462,9 +438,7 @@ fn end(job: &OwnedHandle) -> io::Result<()> {
         // Each turn: this ends the processes in the job at that moment,
         // and one whose start was under way joins it after them.
         // SAFETY: a job handle we own.
-        // PROBE: a run that waits for the processes instead.
-        let waits = std::env::var("CABIN_SANDBOX_MUTATE").is_ok_and(|name| name == "waitonly");
-        if !waits && unsafe { TerminateJobObject(job.as_raw_handle(), 1) } == 0 {
+        if unsafe { TerminateJobObject(job.as_raw_handle(), 1) } == 0 {
             return Err(io::Error::last_os_error());
         }
         // SAFETY: a job handle we own and the structure the class names.
