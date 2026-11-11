@@ -66,9 +66,9 @@
 //!   granting one path at once can drop each other's entry.  As after any
 //!   change made with the system's own tools, the lists beneath the path
 //!   then match what their directories pass down, which a file moved in
-//!   with a narrower list did not.  Killed during a run, Ctrl-C included,
-//!   Cabin leaves the entries and the run's container behind; the program
-//!   dies with it.
+//!   with a narrower list, or holding none, did not.  Killed during a run,
+//!   Ctrl-C included, Cabin leaves the entries and the run's container
+//!   behind; the program dies with it.
 //! - Windows: the program can turn an empty directory it may write into
 //!   a junction, though only to a directory it may write, the one made
 //!   for the run included.  Cabin's entry then stays on the junction, and

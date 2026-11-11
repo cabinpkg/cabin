@@ -266,7 +266,9 @@ impl Drop for Grants {
 }
 
 /// Apply `mode` for `sid` to `path`'s access-control list, which Windows
-/// then passes on to what the directory holds.
+/// then passes on to what the directory holds.  A list beneath `path`
+/// comes out as its directory passes down, whatever it was before: one
+/// narrower than that, or absent, is not kept.
 fn set_entry(
     lock: &Path,
     path: &Path,
