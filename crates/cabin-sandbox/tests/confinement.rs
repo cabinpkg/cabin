@@ -551,11 +551,14 @@ mod enforced {
     /// What a confined probe is given: its action, and on Windows the
     /// `SystemRoot` without which no socket can be created.
     fn probe_env(action: &str) -> Vec<(OsString, OsString)> {
-        Vec::from([
-            (PROBE.into(), action.into()),
-            #[cfg(windows)]
-            ("SystemRoot".into(), std::env::var_os("SystemRoot").unwrap()),
-        ])
+        // PROBE: the whole parent environment, until what a launch needs is known.
+        #[cfg(windows)]
+        return std::env::vars_os()
+            .filter(|(key, _)| key != PROBE)
+            .chain([(PROBE.into(), action.into())])
+            .collect();
+        #[cfg(not(windows))]
+        Vec::from([(PROBE.into(), action.into())])
     }
 
     /// [`confine_hiding`] with `exe`, a copy of this test binary.

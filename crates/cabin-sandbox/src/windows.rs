@@ -448,10 +448,32 @@ fn job_for(child: &OwnedHandle) -> io::Result<OwnedHandle> {
     set_job_information(&job, JobObjectBasicUIRestrictions, &restrictions)?;
     // SAFETY: handles we own.
     if unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) } == 0 {
-        return Err(io::Error::last_os_error());
+        // PROBE: record the refusal and go on without the UI restrictions.
+        let refused = io::Error::last_os_error().raw_os_error().unwrap_or(-1);
+        UI_LIMITS_REFUSED.store(refused, std::sync::atomic::Ordering::Relaxed);
+        // SAFETY: no attributes, no name.
+        let plain = unsafe { CreateJobObjectW(null(), null()) };
+        if plain.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `CreateJobObjectW` handed this handle to us.
+        let plain = unsafe { OwnedHandle::from_raw_handle(plain) };
+        set_job_information(&plain, JobObjectExtendedLimitInformation, &limits)?;
+        // SAFETY: handles we own.
+        if unsafe { AssignProcessToJobObject(plain.as_raw_handle(), child.as_raw_handle()) } == 0 {
+            let err = io::Error::last_os_error();
+            return Err(io::Error::new(
+                err.kind(),
+                format!("PROBE plain job: {err}"),
+            ));
+        }
+        return Ok(plain);
     }
     Ok(job)
 }
+
+/// PROBE: the error that refused a job with UI restrictions, if any did.
+static UI_LIMITS_REFUSED: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// `information` must be the structure `class` names.
 fn set_job_information<T>(
@@ -634,67 +656,85 @@ mod tests {
         assert_eq!(parsed, expected);
     }
 
-    /// TEMPORARY: what a launch needs of the container, printed by failing.
+    /// TEMPORARY: what a launch needs of the environment, printed by failing.
     #[test]
     fn probe_launch_matrix() {
-        use windows_sys::Win32::Security::Isolation::DeriveAppContainerSidFromAppContainerName;
+        use windows_sys::Win32::System::JobObjects::{IsProcessInJob, QueryInformationJobObject};
         let root = std::env::var_os("SystemRoot").unwrap();
         let system = PathBuf::from(&root).join("System32");
         let cmd = system.join("cmd.exe");
-        let mut derived = null_mut();
-        // SAFETY: a NUL-terminated name and an out-pointer.
-        let result = unsafe {
-            DeriveAppContainerSidFromAppContainerName(
-                wide(OsStr::new("cabin.probe.derived")).as_ptr(),
-                &raw mut derived,
+        let mut evidence = Vec::new();
+
+        let mut in_job = 0;
+        let mut enclosing = JOBOBJECT_BASIC_UI_RESTRICTIONS::default();
+        // SAFETY: out-pointers of the sizes passed; a null job is the
+        // caller's own.
+        let queried = unsafe {
+            IsProcessInJob(GetCurrentProcess(), null_mut(), &raw mut in_job);
+            QueryInformationJobObject(
+                null_mut(),
+                JobObjectBasicUIRestrictions,
+                (&raw mut enclosing).cast(),
+                u32::try_from(size_of_val(&enclosing)).unwrap(),
+                null_mut(),
             )
         };
-        assert!(result >= 0);
-        let registered = Container::new().unwrap();
-        let mut evidence = Vec::new();
-        let session = std::process::Command::new("tasklist")
-            .args([
-                "/FI",
-                &format!("PID eq {}", std::process::id()),
-                "/FO",
-                "CSV",
-                "/NH",
-            ])
-            .output()
-            .unwrap();
         evidence.push(format!(
-            "tasklist: {}",
-            String::from_utf8_lossy(&session.stdout)
+            "in a job: {in_job}; enclosing UI restrictions: {queried} {:#x}",
+            enclosing.UIRestrictionsClass
         ));
-        let groups = std::process::Command::new("whoami")
-            .arg("/groups")
-            .output()
-            .unwrap();
-        evidence.push(
-            String::from_utf8_lossy(&groups.stdout)
-                .lines()
-                .filter(|line| line.contains("Mandatory") || line.contains("S-1-5-32-544"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        );
-        for (label, sid) in [("derived", derived), ("registered", registered.sid)] {
-            let log = std::env::temp_dir().join(format!("cabin-probe-{label}.txt"));
+
+        let registered = Container::new().unwrap();
+        let log = std::env::temp_dir().join(format!("cabin-probe-{}.txt", std::process::id()));
+        let launch = |env: &[(OsString, OsString)]| {
             let out = File::create(&log).unwrap();
             let result = Launch {
-                sid,
+                sid: registered.sid,
                 program: &cmd,
                 args: &["/C".into(), "set".into()],
                 current_dir: &system,
-                env: &[("SystemRoot".into(), root.clone())],
+                env,
                 stdout: &out,
                 stderr: &out,
             }
             .run();
-            evidence.push(format!(
-                "{label}: {result:?}\n{}",
-                String::from_utf8_lossy(&std::fs::read(&log).unwrap())
-            ));
+            let printed = String::from_utf8_lossy(&std::fs::read(&log).unwrap()).into_owned();
+            (result, printed)
+        };
+        let parent: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        let (full, _) = launch(&parent);
+        evidence.push(format!("full environment: {full:?}"));
+        evidence.push(format!(
+            "UI limits refused with: {}",
+            UI_LIMITS_REFUSED.load(std::sync::atomic::Ordering::Relaxed)
+        ));
+        let mut needed = Vec::new();
+        for index in 0..parent.len() {
+            let mut env = parent.clone();
+            let (key, value) = env.remove(index);
+            if let Err(err) = launch(&env).0 {
+                evidence.push(format!("without {}: {err}", key.display()));
+                needed.push((key, value));
+            }
         }
+        let (minimal, printed) = launch(&needed);
+        evidence.push(format!(
+            "only the needed, as the parent has them: {minimal:?}\n{printed}"
+        ));
+        let placeholders: Vec<_> = needed
+            .iter()
+            .map(|(key, _)| (key.clone(), OsString::from(r"X:\nowhere")))
+            .collect();
+        let (placed, printed) = launch(&placeholders);
+        evidence.push(format!(
+            "only the needed, as placeholders: {placed:?}\n{printed}"
+        ));
+        let emptied: Vec<_> = needed
+            .iter()
+            .map(|(key, _)| (key.clone(), OsString::new()))
+            .collect();
+        let (empty, printed) = launch(&emptied);
+        evidence.push(format!("only the needed, empty: {empty:?}\n{printed}"));
         panic!("EVIDENCE\n{}", evidence.join("\n"));
     }
 
