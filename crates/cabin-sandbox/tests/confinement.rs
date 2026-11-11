@@ -198,12 +198,6 @@ mod enforced {
                 let open = unsafe { libc::fcntl(arg.parse().unwrap(), libc::F_GETFD) } != -1;
                 println!("fd: {}", if open { "open" } else { "closed" });
             }
-            // PROBE
-            "envv" => {
-                for (key, value) in std::env::vars_os() {
-                    println!("envv: {}={}", key.display(), value.display());
-                }
-            }
             "env" => {
                 for (key, _) in std::env::vars_os() {
                     println!("env: {}", key.to_string_lossy());
@@ -400,7 +394,10 @@ mod enforced {
             #[cfg(windows)]
             "junction" => {
                 let (link, target) = arg.split_once(',').unwrap();
-                let made = junction(Path::new(link), Path::new(target));
+                // The standard streams are inherited: a container's program
+                // cannot open the null device on every Windows.
+                let made = junction(Path::new(link), Path::new(target)).status();
+                let made = made.unwrap().success();
                 println!("junction: {}", if made { "ok" } else { "failed" });
             }
             // What this process's job keeps it from on the desktop.
@@ -501,19 +498,20 @@ mod enforced {
         text.encode_utf16().chain([0]).collect()
     }
 
-    /// Whether `mklink` made the junction `link` to the directory `target`.
+    /// `mklink`, to make the junction `link` to the directory `target`.
     #[cfg(windows)]
-    fn junction(link: &Path, target: &Path) -> bool {
+    fn junction(link: &Path, target: &Path) -> Command {
         use std::os::windows::process::CommandExt as _;
         // Quoted as a whole and in its parts, which keeps a path's space or
         // `&` out of `cmd`'s own syntax.
-        let command = format!(
+        let quoted = format!(
             r#"/C "mklink /J "{}" "{}"""#,
             link.display(),
             target.display()
         );
-        let made = Command::new("cmd").raw_arg(command).output().unwrap();
-        made.status.success()
+        let mut mklink = Command::new("cmd");
+        mklink.raw_arg(quoted);
+        mklink
     }
 
     /// A symlink at `link` to the directory `target`: on Windows a
@@ -522,7 +520,7 @@ mod enforced {
         #[cfg(unix)]
         std::os::unix::fs::symlink(target, link).unwrap();
         #[cfg(windows)]
-        assert!(junction(link, target));
+        assert!(junction(link, target).output().unwrap().status.success());
     }
 
     /// Whether the process `pid` is still running.
@@ -1336,310 +1334,9 @@ mod enforced {
                 "process: PermissionDenied",
                 "pipe: PermissionDenied",
                 "registry: PermissionDenied",
-                "credential: NotFound",
+                "credential: PermissionDenied",
             ]
         );
-    }
-
-    // PROBE: evidence for the open Windows questions; removed before merge.
-    #[test]
-    #[cfg(windows)]
-    #[allow(clippy::too_many_lines)]
-    fn probe_windows_evidence() {
-        use std::ffi::OsStr;
-        use std::fmt::Write as _;
-        use std::os::windows::io::AsRawHandle as _;
-        use windows_sys::Win32::Security::Authorization::{
-            ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SE_KERNEL_OBJECT,
-        };
-        use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
-
-        let mut log = String::new();
-        let exe_dir = TempDir::new().unwrap();
-        let exe = exe_dir.path().join("probe.exe");
-        std::fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
-        let root = std::env::var_os("SystemRoot").unwrap();
-        // Run `program` confined, never panicking, and describe the result.
-        let run = |program: &Path,
-                   args: &[&str],
-                   dir: &Path,
-                   env: &[(&str, &OsStr)],
-                   read: &[&Path],
-                   write: &[&Path]| {
-            let logs = TempDir::new().unwrap();
-            let (stdout, stderr) = (logs.path().join("stdout"), logs.path().join("stderr"));
-            let started = std::time::Instant::now();
-            let result = cabin_sandbox::run(Confinement {
-                program: program.to_owned(),
-                args: args.iter().map(OsString::from).collect(),
-                current_dir: dir.to_owned(),
-                env: env
-                    .iter()
-                    .map(|(key, value)| (OsString::from(key), value.to_os_string()))
-                    .collect(),
-                read: read.iter().map(|p| p.to_path_buf()).collect(),
-                write: write.iter().map(|p| p.to_path_buf()).collect(),
-                hidden: Vec::new(),
-                stdout: File::create(&stdout).unwrap(),
-                stderr: File::create(&stderr).unwrap(),
-            });
-            let elapsed = started.elapsed();
-            let read = |path| String::from_utf8_lossy(&std::fs::read(path).unwrap()).into_owned();
-            format!(
-                "{result:?} in {elapsed:?}\n  stdout: {:?}\n  stderr: {:?}",
-                read(stdout),
-                read(stderr)
-            )
-        };
-        let probe = |action: &str, extra: &[(&str, &OsStr)], read: &[&Path], write: &[&Path]| {
-            let mut env = vec![
-                (PROBE, OsStr::new(action)),
-                ("SystemRoot", root.as_os_str()),
-            ];
-            env.extend_from_slice(extra);
-            let read: Vec<&Path> = std::iter::once(exe_dir.path())
-                .chain(read.iter().copied())
-                .collect();
-            run(&exe, &PROBE_ARGS, exe_dir.path(), &env, &read, write)
-        };
-        let shell = |line: &str| {
-            use std::os::windows::process::CommandExt as _;
-            let out = Command::new("cmd")
-                .raw_arg(format!("/C \"{line}\""))
-                .output()
-                .unwrap();
-            format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            )
-        };
-        let lpac: &[(&str, &OsStr)] = &[("CABIN_PROBE_LPAC", OsStr::new("1"))];
-
-        writeln!(log, "ver: {}", shell("ver")).unwrap();
-        for _ in 0..3 {
-            writeln!(log, "timing exit:0: {}", probe("exit:0", &[], &[], &[])).unwrap();
-        }
-
-        // The null device.
-        for action in [
-            "write:NUL",
-            "overwrite:NUL",
-            "read:NUL",
-            r"overwrite:\\.\NUL",
-        ] {
-            writeln!(log, "{action}: {}", probe(action, &[], &[], &[])).unwrap();
-            writeln!(log, "{action} lpac: {}", probe(action, lpac, &[], &[])).unwrap();
-        }
-        let nul = File::open(r"\\.\NUL").unwrap();
-        let mut descriptor = std::ptr::null_mut();
-        let mut sddl: *mut u16 = std::ptr::null_mut();
-        // SAFETY: probe only; out-pointers, and a string read to its NUL.
-        let sddl = unsafe {
-            let error = GetSecurityInfo(
-                nul.as_raw_handle(),
-                SE_KERNEL_OBJECT,
-                DACL_SECURITY_INFORMATION,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut descriptor,
-            );
-            if error == 0
-                && ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                    descriptor,
-                    1,
-                    DACL_SECURITY_INFORMATION,
-                    &raw mut sddl,
-                    std::ptr::null_mut(),
-                ) != 0
-            {
-                let mut len = 0;
-                while *sddl.add(len) != 0 {
-                    len += 1;
-                }
-                String::from_utf16_lossy(std::slice::from_raw_parts(sddl, len))
-            } else {
-                format!("error {error} / {}", std::io::Error::last_os_error())
-            }
-        };
-        writeln!(log, "NUL sddl: {sddl}").unwrap();
-
-        // The network.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let receiver = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        receiver.set_nonblocking(true).unwrap();
-        let tcp = format!("connect:{}", listener.local_addr().unwrap());
-        let udp = format!("udp:{}", receiver.local_addr().unwrap());
-        writeln!(log, "tcp: {}", probe(&tcp, &[], &[], &[])).unwrap();
-        writeln!(log, "tcp arrived: {}", listener.accept().is_ok()).unwrap();
-        writeln!(log, "udp: {}", probe(&udp, &[], &[], &[])).unwrap();
-        std::thread::sleep(Duration::from_secs(1));
-        writeln!(log, "udp arrived: {}", receiver.recv(&mut [0]).is_ok()).unwrap();
-
-        // The environment Windows hands over, and whether given values win.
-        writeln!(log, "envv: {}", probe("envv", &[], &[], &[])).unwrap();
-        let given: &[(&str, &OsStr)] = &[
-            ("TEMP", OsStr::new(r"C:\given-temp")),
-            ("TMP", OsStr::new(r"C:\given-tmp")),
-            ("LOCALAPPDATA", OsStr::new(r"C:\given-local")),
-            ("USERPROFILE", OsStr::new(r"C:\given-profile")),
-        ];
-        writeln!(log, "envv given: {}", probe("envv", given, &[], &[])).unwrap();
-        writeln!(log, "envv lpac: {}", probe("envv", lpac, &[], &[])).unwrap();
-
-        // The container's own directory.
-        let temp = probe("temp", &[], &[], &[]);
-        writeln!(log, "temp: {temp}").unwrap();
-        if let Some(path) = temp
-            .split("temp: ")
-            .nth(1)
-            .and_then(|rest| rest.split("\\n").next())
-        {
-            let path = path.replace("\\\\", "\\");
-            for ancestor in Path::new(&path).ancestors().take(5) {
-                writeln!(
-                    log,
-                    "  after: {} exists={}",
-                    ancestor.display(),
-                    ancestor.exists()
-                )
-                .unwrap();
-            }
-        }
-        let packages = Path::new(&std::env::var_os("LOCALAPPDATA").unwrap()).join("Packages");
-        let left = std::fs::read_dir(&packages).map(|entries| {
-            entries
-                .flatten()
-                .filter(|entry| entry.file_name().to_string_lossy().starts_with("cabin."))
-                .count()
-        });
-        writeln!(log, "cabin.* under {}: {left:?}", packages.display()).unwrap();
-
-        // What every container may already read.
-        for path in [
-            r"C:\Program Files",
-            r"C:\Windows\System32",
-            r"C:\ProgramData",
-            r"C:\",
-        ] {
-            writeln!(
-                log,
-                "icacls {path}: {}",
-                shell(&format!("icacls \"{path}\""))
-            )
-            .unwrap();
-        }
-        writeln!(
-            log,
-            "icacls packages: {}",
-            shell(&format!("icacls \"{}\"", packages.display()))
-        )
-        .unwrap();
-        for action in [
-            r"list:C:\Program Files",
-            r"list:C:\ProgramData",
-            r"list:C:\",
-            r"list:C:\Users",
-        ] {
-            writeln!(log, "{action}: {}", probe(action, &[], &[], &[])).unwrap();
-            writeln!(log, "{action} lpac: {}", probe(action, lpac, &[], &[])).unwrap();
-        }
-
-        // Links out of a write grant.
-        let out = TempDir::new().unwrap();
-        let readable = TempDir::new().unwrap();
-        let ungranted = TempDir::new().unwrap();
-        std::fs::create_dir(out.path().join("inner")).unwrap();
-        std::fs::write(out.path().join("own"), "kept").unwrap();
-        std::fs::write(readable.path().join("file"), "kept").unwrap();
-        for (name, target) in [
-            ("to-inner", out.path().join("inner")),
-            ("to-readable", readable.path().to_owned()),
-            ("to-ungranted", ungranted.path().to_owned()),
-        ] {
-            let action = format!("junction:{},{}", arg(&out.path().join(name)), arg(&target));
-            let result = probe(&action, &[], &[readable.path()], &[out.path()]);
-            writeln!(log, "junction {name}: {result}").unwrap();
-        }
-        for (name, target) in [
-            ("link-own", out.path().join("own")),
-            ("link-readable", readable.path().join("file")),
-        ] {
-            let action = format!("link:{},{}", arg(&out.path().join(name)), arg(&target));
-            let result = probe(&action, &[], &[readable.path()], &[out.path()]);
-            writeln!(log, "hard {name}: {result}").unwrap();
-        }
-        writeln!(
-            log,
-            "out after: {}",
-            shell(&format!("dir /A \"{}\"", out.path().display()))
-        )
-        .unwrap();
-
-        // The job's limits, and a less-privileged container.
-        writeln!(log, "ui: {}", probe("ui", &[], &[], &[])).unwrap();
-        writeln!(
-            log,
-            "ui unconfined: {:?}",
-            probe_command("ui").output().unwrap()
-        )
-        .unwrap();
-        writeln!(log, "exit:0 lpac: {}", probe("exit:0", lpac, &[], &[])).unwrap();
-        let child = format!("child:read:{}", arg(&readable.path().join("file")));
-        writeln!(
-            log,
-            "child lpac: {}",
-            probe(&child, lpac, &[readable.path()], &[])
-        )
-        .unwrap();
-
-        // The compiler, confined.
-        let cl = std::env::split_paths(&std::env::var_os("PATH").unwrap())
-            .map(|dir| dir.join("cl.exe"))
-            .find(|path| path.is_file());
-        writeln!(log, "cl: {cl:?}").unwrap();
-        if let Some(cl) = cl {
-            let tools: Vec<(&str, OsString)> = ["PATH", "INCLUDE", "LIB", "SystemRoot"]
-                .into_iter()
-                .filter_map(|key| Some((key, std::env::var_os(key)?)))
-                .collect();
-            for (label, flags, lpac) in [
-                ("plain", &["/nologo", "build.c"][..], false),
-                ("debug", &["/nologo", "/Zi", "build.c"][..], false),
-                ("plain lpac", &["/nologo", "build.c"][..], true),
-            ] {
-                let work = TempDir::new().unwrap();
-                std::fs::write(
-                    work.path().join("build.c"),
-                    r#"#include <stdio.h>
-int main(void) { puts("hello from build.exe"); return 0; }
-"#,
-                )
-                .unwrap();
-                let mut env: Vec<(&str, &OsStr)> = tools
-                    .iter()
-                    .map(|(key, value)| (*key, value.as_os_str()))
-                    .collect();
-                if lpac {
-                    env.push(("CABIN_PROBE_LPAC", OsStr::new("1")));
-                }
-                let compiled = run(&cl, flags, work.path(), &env, &[], &[work.path()]);
-                writeln!(log, "cl {label}: {compiled}").unwrap();
-                let built = work.path().join("build.exe");
-                let ran = run(&built, &[], work.path(), &env, &[], &[work.path()]);
-                writeln!(log, "build.exe {label}: {ran}").unwrap();
-                writeln!(
-                    log,
-                    "work {label}: {}",
-                    shell(&format!("dir /B \"{}\"", work.path().display()))
-                )
-                .unwrap();
-            }
-        }
-        panic!("PROBE evidence:\n{log}");
     }
 
     #[test]
@@ -1655,13 +1352,23 @@ int main(void) { puts("hello from build.exe"); return 0; }
     fn the_environment_is_exactly_the_given_one() {
         let probed = confine("env", &[], &[]).unwrap();
         let mut given: Vec<_> = probe_env("env").into_iter().map(|(key, _)| key).collect();
-        // Windows points the program at its container's own directory.
+        // Windows points the program at its container's own directory,
+        // and on Arm names the processor.
         #[cfg(windows)]
         given.extend(["LOCALAPPDATA", "TEMP", "TMP"].map(OsString::from));
+        #[cfg(all(windows, target_arch = "aarch64"))]
+        given.push("PROCESSOR_ARCHITECTURE".into());
         given.sort();
         let mut seen = probed.outcomes("env");
         seen.sort_unstable();
         assert_eq!(seen, given);
+    }
+
+    /// A NUL would end a variable early and start another.
+    #[test]
+    fn a_nul_in_the_environment_fails_the_run() {
+        let result = confine("exit:0\0SMUGGLED=1", &[], &[]);
+        assert!(matches!(result, Err(SandboxError::Run { .. })));
     }
 
     #[test]

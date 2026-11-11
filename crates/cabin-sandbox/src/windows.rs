@@ -6,7 +6,9 @@
 //! and Program Files; none may reach the user's profile, registry hive,
 //! or credentials, another process, Cabin's console, or a named pipe (an
 //! SSH agent's) that does not admit containers.  With no capabilities it
-//! has no network, loopback included.
+//! has no network, loopback included.  A less-privileged container (one
+//! outside `ALL APPLICATION PACKAGES`) is not used: the Microsoft
+//! compiler does not run in one.
 //!
 //! Windows starts a program only in a container registered for the
 //! user, so each run registers one under a fresh random name and removes
@@ -349,17 +351,7 @@ impl Launch<'_> {
         let job = job()?;
         let jobs = [job.as_raw_handle()];
         // Declared after the values it points to, so dropped before them.
-        let attributes = Attributes::new(4)?;
-        // PROBE: a less-privileged container, asked for through the
-        // environment so that one test's run does not change another's.
-        let opt_out = 1_u32;
-        if self.env.iter().any(|(key, _)| key == "CABIN_PROBE_LPAC") {
-            attributes.set(
-                windows_sys::Win32::System::Threading::PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
-                (&raw const opt_out).cast(),
-                size_of_val(&opt_out),
-            )?;
-        }
+        let attributes = Attributes::new(3)?;
         attributes.set(
             PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
             (&raw const capabilities).cast(),
