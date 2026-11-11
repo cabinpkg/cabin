@@ -44,6 +44,39 @@ mod enforced {
             "read" => report(verb, std::fs::read(arg).map(drop)),
             "list" => report(verb, std::fs::read_dir(arg).map(drop)),
             "write" => report(verb, std::fs::write(arg, "x")),
+            "rmdir" => report(verb, std::fs::remove_dir(arg)),
+            // Mount `devfs` on `arg`, change that mount, or end it.
+            #[cfg(target_os = "macos")]
+            "mount" | "remount" | "unmount" => {
+                let path = std::ffi::CString::new(arg).unwrap();
+                let mount = |flags| {
+                    let data = std::ptr::null_mut();
+                    // SAFETY: valid C strings; the file system takes no data.
+                    unsafe { libc::mount(c"devfs".as_ptr(), path.as_ptr(), flags, data) }
+                };
+                let rc = match verb {
+                    "mount" => mount(0),
+                    "remount" => mount(libc::MNT_UPDATE),
+                    // SAFETY: valid C string.
+                    _ => unsafe { libc::unmount(path.as_ptr(), 0) },
+                };
+                report(verb, errno(rc));
+            }
+            "rename" => {
+                let (from, to) = arg.split_once(',').unwrap();
+                report(verb, std::fs::rename(from, to));
+            }
+            // Exchange the directory `<dir>` with a symlink made at `<link>`.
+            #[cfg(target_os = "macos")]
+            "swap" => {
+                let (dir, link) = arg.split_once(',').unwrap();
+                std::os::unix::fs::symlink("elsewhere", link).unwrap();
+                let [dir, link] = [dir, link].map(|path| std::ffi::CString::new(path).unwrap());
+                // SAFETY: valid C strings.
+                let rc =
+                    unsafe { libc::renamex_np(link.as_ptr(), dir.as_ptr(), libc::RENAME_SWAP) };
+                report(verb, errno(rc));
+            }
             "overwrite" => report(
                 verb,
                 std::fs::OpenOptions::new()
@@ -177,11 +210,14 @@ mod enforced {
             // Write `<signal>/started`, wait for `<signal>/go`, then read.
             "wait-read" => {
                 let (signal, path) = arg.split_once(',').unwrap();
-                std::fs::write(Path::new(signal).join("started"), "").unwrap();
-                while !Path::new(signal).join("go").exists() {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
+                wait_for_go(Path::new(signal));
                 report(verb, std::fs::read(path).map(drop));
+            }
+            // The same, then make a symlink at `<link>`.
+            "wait-symlink" => {
+                let (signal, link) = arg.split_once(',').unwrap();
+                wait_for_go(Path::new(signal));
+                report(verb, std::os::unix::fs::symlink("elsewhere", link));
             }
             // Leave the process group first; report whether that seemed to
             // work.
@@ -238,6 +274,14 @@ mod enforced {
             other => panic!("unknown probe {other}"),
         }
         std::process::exit(0);
+    }
+
+    /// Write `<signal>/started`, then wait for `<signal>/go`.
+    fn wait_for_go(signal: &Path) {
+        std::fs::write(signal.join("started"), "").unwrap();
+        while !signal.join("go").exists() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn late(dir: &Path) {
@@ -435,6 +479,41 @@ mod enforced {
         }
     }
 
+    /// A symlink where a directory the program may write was would lead
+    /// the next run's grant elsewhere.
+    #[test]
+    fn a_write_grant_stays_where_it_is() {
+        for verb in [
+            "rmdir",
+            "rename",
+            #[cfg(target_os = "macos")]
+            "swap",
+        ] {
+            // Whether the program reported success, and whether the
+            // directory is still there.
+            let attempt = |confined: bool| {
+                let dir = TempDir::new().unwrap();
+                let (out, other) = (dir.path().join("out"), dir.path().join("other"));
+                std::fs::create_dir(&out).unwrap();
+                std::fs::create_dir(&other).unwrap();
+                let action = match verb {
+                    "rmdir" => format!("rmdir:{}", arg(&out)),
+                    _ => format!("{verb}:{},{}", arg(&out), arg(&other.join("new"))),
+                };
+                let stdout = if confined {
+                    confine(&action, &[], &[&out, &other]).unwrap().stdout
+                } else {
+                    let unconfined = probe_command(&action).output().unwrap();
+                    String::from_utf8(unconfined.stdout).unwrap()
+                };
+                let done = stdout.contains(&format!("{verb}: ok"));
+                (done, out.is_dir() && !out.is_symlink())
+            };
+            assert_eq!(attempt(false), (true, false), "{verb} unconfined");
+            assert_eq!(attempt(true), (false, true), "{verb}");
+        }
+    }
+
     #[test]
     fn a_grant_through_a_symlink_keeps_hidden_paths_hidden() {
         let package = TempDir::new().unwrap();
@@ -571,6 +650,74 @@ mod enforced {
             )
             .unwrap();
             assert_eq!(probed.outcome("read"), "PermissionDenied", "{denied:?}");
+        }
+    }
+
+    /// Nor may the program put one where the directory was, once Cabin
+    /// or the user has removed it under a process the program left.
+    #[test]
+    fn a_removed_write_grant_is_not_replaced() {
+        // Whether the program reported making the symlink.
+        let attempt = |confined: bool| {
+            let (dir, signal) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            let out = dir.path().join("out");
+            std::fs::create_dir(&out).unwrap();
+            let action = format!("wait-symlink:{},{}", arg(signal.path()), arg(&out));
+            std::thread::scope(|scope| {
+                let probe = scope.spawn(|| {
+                    if confined {
+                        confine(&action, &[], &[&out, signal.path()])
+                            .unwrap()
+                            .stdout
+                    } else {
+                        let unconfined = probe_command(&action).output().unwrap();
+                        String::from_utf8(unconfined.stdout).unwrap()
+                    }
+                });
+                while !signal.path().join("started").exists() {
+                    assert!(!probe.is_finished(), "the probe failed");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                std::fs::remove_dir(&out).unwrap();
+                std::fs::write(signal.path().join("go"), "").unwrap();
+                probe.join().unwrap().contains("wait-symlink: ok")
+            })
+        };
+        assert!(attempt(false));
+        assert!(!attempt(true));
+    }
+
+    /// A mount hides what a directory held, and the end of one shows what
+    /// its mount point held before: either way paths lead elsewhere.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn volumes_are_neither_mounted_nor_unmounted() {
+        /// Ends the mount at its path, whatever the test came to.
+        struct Unmount<'a>(&'a Path);
+        impl Drop for Unmount<'_> {
+            fn drop(&mut self) {
+                let path = std::ffi::CString::new(arg(self.0)).unwrap();
+                // SAFETY: valid C string.
+                unsafe { libc::unmount(path.as_ptr(), libc::MNT_FORCE) };
+            }
+        }
+        let dir = TempDir::new().unwrap();
+        let _unmount = Unmount(dir.path());
+        // Each control follows its attempt: the first makes the mount the
+        // later attempts are at, and the last ends it.
+        let attempts = ["mount", "remount", "unmount"].map(|verb| {
+            let action = format!("{verb}:{}", arg(dir.path()));
+            let confined = confine(&action, &[], &[dir.path()]).unwrap();
+            let unconfined = probe_command(&action).output().unwrap();
+            let control = String::from_utf8_lossy(&unconfined.stdout).into_owned();
+            (verb, confined.outcome(verb).to_owned(), control)
+        });
+        for (verb, outcome, control) in attempts {
+            assert_eq!(outcome, "PermissionDenied", "{verb}");
+            assert!(
+                control.contains(&format!("{verb}: ok")),
+                "{verb}: {control}"
+            );
         }
     }
 
