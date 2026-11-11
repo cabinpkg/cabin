@@ -408,6 +408,64 @@ mod enforced {
                 }
                 report(verb, result);
             }
+            // TEMPORARY probe: turn the empty directory into a junction.
+            #[cfg(windows)]
+            "reparse" => {
+                use std::os::windows::fs::OpenOptionsExt as _;
+                use std::os::windows::io::AsRawHandle as _;
+                #[link(name = "kernel32")]
+                unsafe extern "system" {
+                    fn DeviceIoControl(
+                        handle: *mut std::ffi::c_void,
+                        code: u32,
+                        input: *const std::ffi::c_void,
+                        input_len: u32,
+                        output: *mut std::ffi::c_void,
+                        output_len: u32,
+                        returned: *mut u32,
+                        overlapped: *mut std::ffi::c_void,
+                    ) -> i32;
+                }
+                let mut parts = arg.split(',');
+                let access: u32 = parts.next().unwrap().parse().unwrap();
+                let (dir, target) = (parts.next().unwrap(), parts.next().unwrap());
+                let name: Vec<u16> = format!(r"\??\{target}").encode_utf16().collect();
+                let bytes = u16::try_from(name.len() * 2).unwrap();
+                // IO_REPARSE_TAG_MOUNT_POINT, the data's length, then the
+                // substitute and print names' offsets and lengths.
+                let mut buffer: Vec<u16> =
+                    vec![0x0003, 0xA000, bytes + 12, 0, 0, bytes, bytes + 2, 0];
+                buffer.extend(&name);
+                buffer.extend([0, 0]);
+                let result = std::fs::OpenOptions::new()
+                    .access_mode(access)
+                    // FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
+                    .custom_flags(0x0220_0000)
+                    .open(dir)
+                    .map_err(|err| format!("open {:?}", err.raw_os_error()))
+                    .and_then(|handle| {
+                        let mut returned = 0u32;
+                        // SAFETY: `buffer` outlives the call, which writes
+                        // only `returned`.  FSCTL_SET_REPARSE_POINT.
+                        let set = unsafe {
+                            DeviceIoControl(
+                                handle.as_raw_handle().cast(),
+                                0x0009_00A4,
+                                buffer.as_ptr().cast(),
+                                u32::try_from(buffer.len() * 2).unwrap(),
+                                std::ptr::null_mut(),
+                                0,
+                                &raw mut returned,
+                                std::ptr::null_mut(),
+                            )
+                        };
+                        last_error(set != 0).map_err(|err| format!("set {:?}", err.raw_os_error()))
+                    });
+                println!(
+                    "reparse: {}",
+                    result.err().unwrap_or_else(|| "ok".to_owned())
+                );
+            }
             #[cfg(windows)]
             "junction" => {
                 let (link, target) = arg.split_once(',').unwrap();
@@ -1108,6 +1166,46 @@ mod enforced {
         let probed = confine(&action, &[readable.path()], &[writable.path()]).unwrap();
         assert_ne!(probed.outcome("link"), "ok");
         assert_eq!(std::fs::read_to_string(file).unwrap(), "kept");
+    }
+
+    /// TEMPORARY probe.
+    #[test]
+    #[cfg(windows)]
+    fn probe_reparse() {
+        let mut seen = Vec::new();
+        for (label, access) in [("data", 0x2_u32), ("attributes", 0x100), ("both", 0x102)] {
+            for confined in [false, true] {
+                for to in ["write", "read", "none"] {
+                    let dir = TempDir::new().unwrap();
+                    let names = ["out", "write", "read", "none"];
+                    let [out, write, read, none] = names.map(|name| dir.path().join(name));
+                    for made in [&out, &write, &read, &none] {
+                        std::fs::create_dir(made).unwrap();
+                    }
+                    let target = match to {
+                        "write" => &write,
+                        "read" => &read,
+                        _ => &none,
+                    };
+                    let action = format!("reparse:{access},{},{}", arg(&out), arg(target));
+                    let stdout = if confined {
+                        confine(&action, &[&read], &[&out, &write]).unwrap().stdout
+                    } else {
+                        let unconfined = probe_command(&action).output().unwrap();
+                        String::from_utf8(unconfined.stdout).unwrap()
+                    };
+                    let line = stdout
+                        .lines()
+                        .find(|line| line.starts_with("reparse:"))
+                        .unwrap_or("no line");
+                    seen.push(format!(
+                        "{label} confined={confined} to={to}: {line} link={}",
+                        out.is_symlink()
+                    ));
+                }
+            }
+        }
+        panic!("PROBE {seen:#?}");
     }
 
     /// Cabin, and a later run's grants, follow a junction in a write
