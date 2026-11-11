@@ -35,9 +35,9 @@ const PIN_SITE: &str = "crates/xtask-registry-guard/src/r2.rs";
 /// `glue/`: the four request-path acquisitions are each immediately
 /// preceded by a governor decide (artifact/read/publish paths), the
 /// reclaim delete is R2's one free operation, and the heal helper admits
-/// per call inside.  `web_glue`'s source viewer and `backup_glue`'s jobs
-/// (the dump job, and the queue drain that acquires both buckets once
-/// per pass) admit before every billable call.
+/// per call inside.  `web_glue`'s source viewer and `backup_glue`'s
+/// queue drain (which acquires both buckets once per pass) admit before
+/// every billable call.
 const SANCTIONED: [(&str, &[(&str, usize)]); 5] = [
     (
         "src/glue/read.rs",
@@ -56,10 +56,7 @@ const SANCTIONED: [(&str, &[(&str, usize)]); 5] = [
         &[("delete_blob_if_unreferenced", 1)],
     ),
     ("src/web_glue.rs", &[("package_source", 1)]),
-    (
-        "src/backup_glue.rs",
-        &[("run_nightly_dump", 1), ("drain_backup_queue", 2)],
-    ),
+    ("src/backup_glue.rs", &[("drain_backup_queue", 2)]),
 ];
 
 /// The generic accessors that can produce a bucket handle without the

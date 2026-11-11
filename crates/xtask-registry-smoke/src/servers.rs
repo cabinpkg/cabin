@@ -1,7 +1,7 @@
-//! The run's local state and its four long-running children: the
-//! migrations and token seeding, the export-API and GitHub mocks, the
-//! `.dev.vars` the worker reads, and the two `wrangler dev`
-//! instances - plus the teardown they all hang off.
+//! The run's local state and its three long-running children: the
+//! migrations and token seeding, the GitHub mock, the `.dev.vars` the
+//! worker reads, and the two `wrangler dev` instances - plus the
+//! teardown they all hang off.
 //!
 //! Signal path.  `Drop` does not run on SIGINT, so [`DevServers`]
 //! splits the teardown: `xtask_ci::arm_teardown` kills the process
@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use tempfile::{NamedTempFile, TempDir, TempPath};
 use xtask_registry_admin::{output, registry_dir, results, status, wrangler};
@@ -26,9 +26,8 @@ use xtask_registry_admin::{output, registry_dir, results, status, wrangler};
 use crate::bytes::sha256_hex;
 use crate::step;
 
-/// The mock servers, in JavaScript: they are test doubles of the D1
-/// export API and of GitHub, not repository automation.
-const MOCK_JS: &str = include_str!("../assets/mock.js");
+/// The mock server, in JavaScript: it is a test double of GitHub, not
+/// repository automation.
 const GITHUB_MOCK_JS: &str = include_str!("../assets/github-mock.js");
 
 const DEV_POLLS: u32 = 300;
@@ -41,13 +40,12 @@ const HALF_SECOND: Duration = Duration::from_millis(500);
 /// (`await_log` polls for the same reason).
 const LOG_SETTLE: Duration = Duration::from_secs(2);
 
-/// The four ports, as strings: they go into URLs and into `.dev.vars`
+/// The three ports, as strings: they go into URLs and into `.dev.vars`
 /// unparsed, so a junk value reaches wrangler and fails there.
 #[derive(Clone)]
 pub struct Ports {
     pub registry: String,
     pub web: String,
-    pub mock: String,
     pub github: String,
 }
 
@@ -56,7 +54,6 @@ impl Ports {
         Self {
             registry: var("SMOKE_PORT", "8787"),
             web: var("SMOKE_WEB_PORT", "8789"),
-            mock: var("SMOKE_MOCK_PORT", "8788"),
             github: var("SMOKE_GITHUB_PORT", "8790"),
         }
     }
@@ -246,114 +243,11 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     DELETE FROM scope_claims WHERE scope_name IN
       ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
        'core', 'sm0keorg');
-    DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
     DELETE FROM backup_pending;
     -- A prior run that failed inside a breaker leg leaves its pinned
     -- mode behind; normalize so re-runs never start blocked.
     UPDATE meta SET value = 'normal' WHERE key = 'service_mode';"#
     )
-}
-
-/// The backup-cron leg drives the worker's dump job against
-/// a local mock of the D1 export API serving a dump exported from the
-/// local database right here, so the job's polling, streaming,
-/// validation and bookkeeping all run for real without touching
-/// Cloudflare.
-///
-/// # Errors
-///
-/// If wrangler cannot be run, or the export fails.
-pub fn export_dump(mock_dir: &Path) -> Result<()> {
-    step("exporting a local dump for the export-API mock");
-    let dump = mock_dir.join("dump.sql");
-    let dump = dump.to_str().context("the mock directory is not UTF-8")?;
-    status(&mut wrangler(&[
-        "d1", "export", "DB", "--local", "--output", dump,
-    ]))
-}
-
-/// Restores that dump into a scratch database and requires the schema
-/// and every table's rows to match the database it was exported from:
-/// the backup cron leg proves the stored backup is this dump, and this
-/// proves the dump restores.  Nothing writes in between - the servers
-/// are not up yet.  Rows compare as wrangler's JSON renders them, which
-/// cannot tell a BLOB from the TEXT spelling its bytes, or integers past
-/// 2^53 apart; the registry stores neither.
-///
-/// # Errors
-///
-/// If wrangler cannot be run, or the restored database differs.
-pub fn rehearse_restore(mock_dir: &Path) -> Result<()> {
-    step("restoring the exported dump into a scratch database");
-    let scratch = tempfile::tempdir().context("creating the scratch database directory")?;
-    let persist = scratch
-        .path()
-        .to_str()
-        .context("the scratch directory is not UTF-8")?;
-    let dump = mock_dir.join("dump.sql");
-    let dump = dump.to_str().context("the mock directory is not UTF-8")?;
-    output(&mut d1_execute(&["--persist-to", persist, "--file", dump]))?;
-
-    // `sqlite_sequence` included: the export restores its rows too.
-    let tables = d1_rows(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB '_cf_*' ORDER BY name",
-    )?;
-    let tables = tables
-        .iter()
-        .map(|row| {
-            row.get("name")
-                .and_then(Value::as_str)
-                .context("a table row has no name")
-        })
-        .collect::<Result<Vec<_>>>()?;
-    // SQLite's own objects and D1's are rebuilt, not restored.
-    let mut statements = vec![
-        "SELECT type, name, sql FROM sqlite_master \
-         WHERE name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*' ORDER BY type, name"
-            .to_owned(),
-    ];
-    statements.extend(
-        tables
-            .iter()
-            .map(|table| format!("SELECT * FROM \"{table}\"")),
-    );
-    let query = statements.join("; ");
-    let live = result_sets(&d1_json(&query)?)?;
-    let restored = result_sets(&output(&mut d1_execute(&[
-        "--persist-to",
-        persist,
-        "--json",
-        "--command",
-        &query,
-    ]))?)?;
-    ensure!(
-        live.len() == statements.len() && restored.len() == statements.len(),
-        "wrangler answered {} and {} of {} statements",
-        live.len(),
-        restored.len(),
-        statements.len(),
-    );
-    let labels = std::iter::once("the schema").chain(tables.iter().copied());
-    for (label, (live, restored)) in labels.zip(live.iter().zip(&restored)) {
-        ensure!(
-            live == restored,
-            "the restored dump differs from its database in {label}"
-        );
-    }
-    Ok(())
-}
-
-/// Every statement's `results`, where [`results`] reads the first.
-fn result_sets(json: &str) -> Result<Vec<Value>> {
-    let parsed: Vec<Value> = serde_json::from_str(json).context("parse wrangler output")?;
-    parsed
-        .into_iter()
-        .map(|set| {
-            set.get("results")
-                .cloned()
-                .context("wrangler output has no results array")
-        })
-        .collect()
 }
 
 /// The website role's worker.  One deployed Worker serves both
@@ -388,7 +282,6 @@ pub struct DevServers {
     /// nothing may signal it again.
     registry: Option<std::process::Child>,
     web: Option<std::process::Child>,
-    mock: Option<std::process::Child>,
     github: Option<std::process::Child>,
     /// Real files, not pipes: later legs take `wc -l` watermarks of
     /// these and `tail -n +N` them while wrangler is still appending.
@@ -409,7 +302,7 @@ pub struct DevServers {
 }
 
 impl DevServers {
-    /// Starts both mocks, writes `.dev.vars`, refuses a stale server on
+    /// Starts the GitHub mock, writes `.dev.vars`, refuses a stale server on
     /// either dev port, then starts both `wrangler dev` instances.
     ///
     /// # Errors
@@ -427,7 +320,6 @@ impl DevServers {
             ports: ports.clone(),
             registry: None,
             web: None,
-            mock: None,
             github: None,
             dev_log: NamedTempFile::new().context("create the dev-server log")?,
             web_log: NamedTempFile::new().context("create the website-role log")?,
@@ -438,7 +330,7 @@ impl DevServers {
             dev_registry: TempDir::new().context("create the wrangler dev registry")?,
         };
         // Every `?` from here drops `servers`, which is the teardown.
-        servers.start_mocks(mock_dir)?;
+        servers.start_github_mock(mock_dir)?;
         servers.write_dev_vars()?;
         write_web_worker(servers.web_worker.path())?;
         servers.refuse_stale_ports()?;
@@ -583,29 +475,7 @@ impl DevServers {
         }
     }
 
-    fn start_mocks(&mut self, mock_dir: &Path) -> Result<()> {
-        step(&format!(
-            "starting the export-API mock on port {}",
-            self.ports.mock
-        ));
-        let script = mock_dir.join("mock.js");
-        fs::write(&script, MOCK_JS).context("write the export-API mock")?;
-        let log = mock_dir.join("mock.log");
-        let mut command = Command::new("node");
-        command
-            .arg(&script)
-            .arg(&self.ports.mock)
-            .arg(mock_dir.join("dump.sql"));
-        log_to(&mut command, &log)?;
-        self.mock = Some(xtask_ci::spawn_tracked(&mut command).context("start the export mock")?);
-        let url = format!("http://127.0.0.1:{}/dump.sql", self.ports.mock);
-        await_mock(
-            &mut self.mock,
-            &log,
-            "the export-API mock exited early",
-            || alive(&url),
-        )?;
-
+    fn start_github_mock(&mut self, mock_dir: &Path) -> Result<()> {
         step(&format!(
             "starting the GitHub mock on port {}",
             self.ports.github
@@ -674,8 +544,8 @@ impl DevServers {
     }
 
     /// A stale server on either port would silently answer the checks
-    /// below in place of the instances started here.  The mock ports
-    /// deliberately get no such guard.
+    /// below in place of the instances started here.  The mock port
+    /// deliberately gets no such guard.
     fn refuse_stale_ports(&self) -> Result<()> {
         for port in [&self.ports.registry, &self.ports.web] {
             if alive(&format!("http://127.0.0.1:{port}/healthz")) {
@@ -706,16 +576,11 @@ impl Drop for DevServers {
         .status();
         // The whole process group: killing the direct child alone
         // would orphan wrangler/workerd and leave the port bound.
-        // The mocks are single-process groups, which kill identically.
+        // The mock is a single-process group, which kills identically.
         xtask_ci::terminate(
-            [
-                &mut self.registry,
-                &mut self.web,
-                &mut self.mock,
-                &mut self.github,
-            ]
-            .into_iter()
-            .filter_map(Option::as_mut),
+            [&mut self.registry, &mut self.web, &mut self.github]
+                .into_iter()
+                .filter_map(Option::as_mut),
         );
         if self.dev_vars_created {
             let _ = fs::remove_file(&self.dev_vars);
@@ -730,11 +595,9 @@ impl Drop for DevServers {
 }
 
 fn render_dev_vars(ports: &Ports) -> String {
-    let Ports { mock, github, .. } = ports;
+    let Ports { github, .. } = ports;
     format!(
-        r#"CF_API_BASE="http://127.0.0.1:{mock}"
-D1_EXPORT_API_TOKEN="smoke-placeholder"
-SESSION_SECRET="smoke-session-secret-not-for-production"
+        r#"SESSION_SECRET="smoke-session-secret-not-for-production"
 ALLOWED_GITHUB_IDS="0,1,3,4"
 SERVICE_MODE_TTL_SECS="0"
 STATS_CACHE_TTL_SECS="0"
@@ -922,7 +785,6 @@ mod tests {
         Ports {
             registry: "8787".into(),
             web: "8789".into(),
-            mock: "8788".into(),
             github: "8790".into(),
         }
     }
@@ -957,7 +819,7 @@ GOVERNOR_R2_CLASS_B_SOURCE_MONTH="0"
             .filter(|line| line.starts_with("GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="))
             .collect();
         assert_eq!(governor, ["GOVERNOR_R2_CLASS_B_ORDINARY_MONTH=\"42\""]);
-        assert!(written.starts_with("CF_API_BASE=\"http://127.0.0.1:8788\"\n"));
+        assert!(written.starts_with("SESSION_SECRET="));
         assert!(written.contains("GOVERNOR_STORAGE_PRIMARY_BYTES=\"1\"\n"));
         assert!(written.ends_with("GOVERNOR_R2_CLASS_B_ORDINARY_MONTH=\"42\"\n"));
         assert!(!dir.path().join(".dev.vars.next").exists());

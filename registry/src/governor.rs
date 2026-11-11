@@ -38,7 +38,8 @@ pub enum StoragePool {
     Primary,
     /// Verified-artifact backup blobs (`BACKUP`, same keys).
     Backup,
-    /// Nightly D1 dumps and their sidecars (`BACKUP`, `d1/...`).
+    /// The D1 dumps and sidecars a retired nightly job left (`BACKUP`,
+    /// `d1/...`).
     Dump,
 }
 
@@ -56,7 +57,7 @@ impl StoragePool {
 /// each billable R2 call. Split so abuse of one channel can exhaust
 /// only its own allowance: the publish path, the read plane, the source
 /// viewer, the verifier, and the operator-side infrastructure jobs
-/// (backup replication, nightly dumps, reconciliation) each draw from
+/// (backup replication, reconciliation) each draw from
 /// their own pool, and nothing reachable with an ordinary credential
 /// can touch the infrastructure pools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,8 +65,7 @@ impl StoragePool {
 pub enum OpPool {
     /// Class A (writes/lists) on the publish path: blob puts.
     APublish,
-    /// Class A for infrastructure: backup replication puts, dump puts,
-    /// retention lists.
+    /// Class A for infrastructure: backup replication puts.
     AInfra,
     /// Class B (reads) for ordinary artifact downloads (cache misses).
     BOrdinary,
@@ -75,8 +75,7 @@ pub enum OpPool {
     BVerifier,
     /// Class B on the publish path: existence heads.
     BPublish,
-    /// Class B for infrastructure: replication heads and source reads,
-    /// dump re-read verification.
+    /// Class B for infrastructure: replication heads and source reads.
     BInfra,
 }
 
@@ -614,8 +613,7 @@ fn validate(decision: &Decision) -> Result<(), Refusal> {
         // reserve of the same content-addressed key. The upper bound
         // keeps the admission arithmetic overflow-free (the same clamp
         // the limits get); anything a configured pool could actually
-        // admit passes. An artifact-sized cap would refuse nightly dumps
-        // once the database outgrows it.
+        // admit passes.
         if bytes == 0 || bytes > LIMIT_CLAMP {
             return Err(invalid("object bytes out of range"));
         }
@@ -2096,8 +2094,8 @@ mod tests {
         let mut store = Sqlite::new();
         let limits = small_limits(); // dump limit 30
         // RELEASE_OBJECT is state-agnostic; the operator's evidence-
-        // backed release and the dump self-release both free COMMITTED
-        // rows, not just reserved ones. A "safety" refactor to delete
+        // backed release frees COMMITTED rows, not just reserved ones.
+        // A "safety" refactor to delete
         // only reserved rows would silently leak the dump/backup pools.
         allowed(&mut store, &limits, &commit(StoragePool::Dump, "d/x", 30));
         refused(&mut store, &limits, &reserve(StoragePool::Dump, "d/y", 1));

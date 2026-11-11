@@ -1,8 +1,7 @@
 //! The registry smoke test against local `wrangler dev`: two dev
 //! instances (the registry role on the default host, the website role
 //! via `--host cabinpkg.com`) over one local D1/R2 state, plus a local
-//! export-API mock and a local GitHub mock, driven through a fixed
-//! step sequence.
+//! GitHub mock, driven through a fixed step sequence.
 //!
 //!   `cargo registry-smoke`                                   the unauthenticated legs only
 //!   `CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke`   full run
@@ -55,11 +54,9 @@ pub fn run() -> Result<()> {
             &format!("{token}-outsider"),
         )?;
     }
-    // Declared before the servers so it outlives them: the mocks are
-    // reading files from it right up until they are killed.
+    // Declared before the servers so it outlives them: the mock is
+    // reading its script from it right up until it is killed.
     let mock_dir = TempDir::new().context("creating the mock directory")?;
-    servers::export_dump(mock_dir.path())?;
-    servers::rehearse_restore(mock_dir.path())?;
     let mut servers = DevServers::start(&ports, mock_dir.path())?;
 
     let github_port = port("SMOKE_GITHUB_PORT", &ports.github)?;
@@ -69,15 +66,8 @@ pub fn run() -> Result<()> {
         github_port,
         token.clone(),
     );
-    legs(
-        &mut smoke,
-        &mut servers,
-        &registry,
-        mock_dir.path(),
-        &token,
-        github_port,
-    )
-    .inspect_err(|_| servers.dump_log_tails())
+    legs(&mut smoke, &mut servers, &registry, &token, github_port)
+        .inspect_err(|_| servers.dump_log_tails())
 }
 
 /// Every leg, so that `run` still holds the servers when one fails: a
@@ -87,7 +77,6 @@ fn legs(
     smoke: &mut Smoke,
     servers: &mut DevServers,
     registry: &Path,
-    mock_dir: &Path,
     token: &str,
     github_port: u16,
 ) -> Result<()> {
@@ -99,7 +88,7 @@ fn legs(
         println!("smoke OK");
         return Ok(());
     }
-    tokened(smoke, servers, registry, mock_dir, token, github_port)
+    tokened(smoke, servers, registry, token, github_port)
 }
 
 /// Every leg that only a seeded token reaches.
@@ -107,7 +96,6 @@ fn tokened(
     smoke: &mut Smoke,
     servers: &mut DevServers,
     registry: &Path,
-    mock_dir: &Path,
     token: &str,
     github_port: u16,
 ) -> Result<()> {
@@ -192,7 +180,6 @@ fn tokened(
         &mut finale::FinaleInputs {
             servers,
             work,
-            mock_dir,
             verifier_bin: &setup.verifier_bin,
             scope: session::SCOPE,
             name: session::NAME,

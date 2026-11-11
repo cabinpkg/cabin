@@ -81,26 +81,3 @@ fn an_empty_result_reaches_the_caller_to_judge() {
     let empty = results(r#"[{"results":[],"success":true}]"#).unwrap();
     assert!(empty.is_empty(), "the counts section refuses this");
 }
-
-/// The drill takes no arguments, so an environment argument refuses
-/// rather than being ignored while the drill acts on the sole
-/// deployment.
-#[test]
-fn the_restore_drill_takes_no_arguments() {
-    let admin = || Command::cargo_bin("xtask-registry-admin").unwrap();
-    admin()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("cargo registry-restore-drill"));
-    for refused in [
-        vec!["restore-drill", "production"],
-        vec!["restore-drill", "--keys"],
-    ] {
-        admin()
-            .args(&refused)
-            .assert()
-            .failure()
-            .stderr(predicates::str::contains("unexpected argument"));
-    }
-}

@@ -510,8 +510,8 @@ pub struct GithubJwks {
 #[cfg(target_arch = "wasm32")]
 impl GithubJwks {
     /// [`GITHUB_JWKS_URL`], unless the `GITHUB_JWKS_URL` var overrides
-    /// it - overridable for the local smoke test only (the `CF_API_BASE`
-    /// pattern); deployed environments use the real host.
+    /// it - overridable for the local smoke test only; deployed
+    /// environments use the real host.
     #[must_use]
     pub fn from_env(env: &worker::Env) -> Self {
         Self {

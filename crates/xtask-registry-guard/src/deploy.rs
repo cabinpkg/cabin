@@ -35,13 +35,9 @@ const DATABASE: &str = "cabin-registry";
 const BLOBS_BUCKET: &str = "cabin-registry-blobs";
 const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
-/// The scheduled handler routes on the exact breaker expression; any
-/// other schedule runs the nightly dump (`src/glue/mod.rs`). The daily dump
-/// cadence is pinned literally - a monthly rehearsal schedule may be
-/// ADDED, but replacing it would quietly stretch the documented <= 24 h
-/// metadata RPO.
+/// The scheduled handler runs its jobs on the exact breaker expression
+/// and nothing on any other schedule (`src/glue/mod.rs`).
 const BREAKER_CRON: &str = "*/15 * * * *";
-const DUMP_CRON: &str = "0 3 * * *";
 
 /// Applied Durable Object migrations are immutable on the platform:
 /// editing an already-deployed tag passes any graph check but never
@@ -224,8 +220,8 @@ fn require_array_valued(migrations: &[Value], failures: &mut Vec<String>) {
     }
 }
 
-/// The D1, R2, and Durable Object bindings, plus the dump's mirror of
-/// the bound database id. Returns the bound `DB` entry.
+/// The D1, R2, and Durable Object bindings. Returns the bound `DB`
+/// entry.
 fn validate_bindings<'a>(config: &'a Value, failures: &mut Vec<String>) -> Option<&'a Value> {
     let bound = array(config, "d1_databases")
         .iter()
@@ -260,18 +256,6 @@ fn validate_bindings<'a>(config: &'a Value, failures: &mut Vec<String>) -> Optio
                 && entry.get("class_name") == Some(&Value::from("Governor"))
         }),
         "durable_objects must bind GOVERNOR to class Governor",
-        failures,
-    );
-
-    // The nightly dump exports whatever database D1_DATABASE_ID names; a
-    // value diverging from the DB-bound database backs up the wrong one.
-    require(
-        bound.is_some()
-            && config
-                .get("vars")
-                .and_then(|vars| vars.get("D1_DATABASE_ID"))
-                == bound.and_then(|db| db.get("database_id")),
-        "vars.D1_DATABASE_ID must mirror the DB binding's database_id",
         failures,
     );
     bound
@@ -333,13 +317,13 @@ fn validate_crons(config: &Value, failures: &mut Vec<String>) {
     let crons = config
         .get("triggers")
         .map_or(&[][..], |triggers| array(triggers, "crons"));
-    for (cron, what) in [(BREAKER_CRON, "breaker's"), (DUMP_CRON, "nightly dump's")] {
-        require(
-            crons.iter().any(|entry| entry == &Value::from(cron)),
-            &format!("triggers.crons must contain the {what} exact {cron}"),
-            failures,
-        );
-    }
+    require(
+        crons
+            .iter()
+            .any(|entry| entry == &Value::from(BREAKER_CRON)),
+        &format!("triggers.crons must contain the breaker's exact {BREAKER_CRON}"),
+        failures,
+    );
 }
 
 fn durable_object_bindings(config: &Value) -> &[Value] {

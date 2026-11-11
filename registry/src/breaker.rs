@@ -91,9 +91,8 @@ pub const GOVERNOR_UNAVAILABLE_RETRY_AFTER_SECS: u64 = 60;
 pub struct Budgets {
     /// `BUDGET_R2_STORAGE_BYTES`; free limit 10 GB-month across the
     /// account. The metric counts primary (BLOBS) bytes only, but
-    /// replication stores every verified blob a second time in BACKUP
-    /// and the nightly D1 dumps add metadata copies there, so the
-    /// default budget stays under half the free limit.
+    /// replication stores every verified blob a second time in BACKUP,
+    /// so the default budget stays under half the free limit.
     pub r2_storage_bytes: u64,
     /// `BUDGET_R2_CLASS_A_MONTH`; free limit 1 million/month.
     pub r2_class_a_month: u64,

@@ -79,9 +79,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use xtask_workflow_guard::migrations_pending::{self, digest, migration_files};
 
 use crate::launch_guard::Mode;
-use crate::{
-    Nullish, column_lines, display, output, registry_root, results, status, step, wrangler,
-};
+use crate::{column_lines, display, output, registry_root, results, status, step, wrangler};
 
 /// Is there anything to read the applied names out of?  A first
 /// provisioning has no `d1_migrations` table, which is the one absence
@@ -200,7 +198,7 @@ fn applied_names() -> Result<Vec<String>> {
     let names = || anyhow!("could not read the live database's applied-migration names");
     let answer = d1(APPLIED_NAMES).map_err(|_| names())?;
     let rows = results(&answer).map_err(|_| names())?;
-    Ok(column_lines(&rows, "name", Nullish::Printed))
+    Ok(column_lines(&rows, "name"))
 }
 
 /// Whether the count is zero, which only the number or the string zero

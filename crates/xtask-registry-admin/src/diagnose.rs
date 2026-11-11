@@ -19,17 +19,10 @@ use xtask_workflow_guard::migrations_pending;
 
 use crate::{display, key_value, output, registry_dir, repo_root, results, step, wrangler};
 
-// `last_backup_key` is the one object key the disclosure rule in
-// `registry/docs/runbook.md` allows out. What makes it safe is the
-// write path, not a check here: `backup_glue` is the only writer and
-// stores `backup::dump_object_key`'s `d1/<date>.sql`, built from the
-// same timestamp `last_backup_at` already prints. Re-deriving it to
-// compare would only restate what a D1 writer could have edited
-// anyway, and withholding it would cost the operator a cross-check.
 const SERVICE_STATE: &str = "
   SELECT key, value FROM meta WHERE key IN
     ('service_mode', 'service_mode_reason', 'registry_generation',
-     'launched', 'last_backup_at', 'last_backup_key', 'total_stored_bytes')
+     'launched', 'total_stored_bytes')
   ORDER BY key";
 
 const COUNTS: &str = "

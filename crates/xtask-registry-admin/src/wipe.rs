@@ -54,7 +54,7 @@
 //! - **The textual `wrangler.jsonc` rewrite targets the FIRST
 //!   `database_id`**, which is only the `DB` binding's while it is the
 //!   only one - so a count guards it beforehand, and a second count
-//!   confirms the new id landed on both sites.
+//!   confirms the new id landed.
 //! - **The R2 sweeps run before the database is dropped**, so a sweep
 //!   that fails partway - a token that cannot list or delete, a refused
 //!   key - leaves the launch guard's flag readable and a re-run of this
@@ -83,11 +83,8 @@
 //!   swept: the run names it and stops before sending its delete.  No
 //!   registry writer produces such a key, so one is an incident, and
 //!   `wrangler r2 object delete` builds the same URL;
-//! - the base of that API is `CF_API_BASE`, defaulting to Cloudflare's.
-//!   It is the same variable the Worker reads
-//!   (`registry/src/backup_glue.rs`) and the smoke run points at a local
-//!   mock, so the environment names where `CLOUDFLARE_API_TOKEN` is
-//!   sent;
+//! - the base of that API is `CF_API_BASE`, defaulting to Cloudflare's,
+//!   so the environment names where `CLOUDFLARE_API_TOKEN` is sent;
 //! - the comment in `registry/migrations/0001_init.sql` still names the
 //!   deleted `scripts/wipe.sh`.  Applied migrations are byte-frozen: the
 //!   deploy gate compares `migrations-applied` against the files'
@@ -158,9 +155,8 @@ pub fn run(mode: Mode) -> Result<()> {
         // refuses while any live publish token exists.
         println!(
             "before wiping: gh workflow disable publish.yml -R cabin-ports/ports and gh \
-             workflow disable registry-verify.yml, cancel every queued or in-flight run of \
-             either, and stay clear of the 03:00 UTC nightly dump (registry/docs/runbook.md, \
-             \"Post-wipe re-provisioning\")"
+             workflow disable registry-verify.yml, and cancel every queued or in-flight run of \
+             either (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
         );
         or_fail(confirm());
     }
@@ -245,14 +241,13 @@ fn remote(old: &str, new: i64) -> Result<()> {
         fail(&format!("unexpected database id: '{new_id}'"));
     }
 
-    // The nightly dump exports whatever `D1_DATABASE_ID` names, and the
-    // binding deploys whatever `database_id` names - both must be the
-    // recreated id before migrating and deploying
+    // The binding deploys whatever `database_id` names, which must be
+    // the recreated id before migrating and deploying
     // (`registry/docs/runbook.md`).
     let path = root.join("wrangler.jsonc");
     let config =
         std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    if lines_holding(&config, "\"database_id\"") != 1 {
+    if config.matches("\"database_id\"").count() != 1 {
         fail(
             "wrangler.jsonc carries more than one d1 binding; bake the DB binding's new id in by \
              hand",
@@ -261,16 +256,14 @@ fn remote(old: &str, new: i64) -> Result<()> {
     step(&format!(
         "baking the new database id into wrangler.jsonc ({new_id})"
     ));
-    let baked = bake(&config, &new_id);
+    let baked = replace_id(&config, "database_id", &new_id);
     std::fs::write(&path, &baked).with_context(|| format!("write {}", path.display()))?;
-    // Re-read the file this just wrote, and count LINES: a config
-    // binding both ids on one line counts once and refuses. The
-    // re-read matters - the disk bytes, not this process's copy, are
-    // what every wrangler call below consumes.
+    // Re-read the file this just wrote: the disk bytes, not this
+    // process's copy, are what every wrangler call below consumes.
     let written =
         std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    if lines_holding(&written, &new_id) != 2 {
-        fail("wrangler.jsonc does not carry the new id exactly twice; fix it by hand");
+    if written.matches(new_id.as_str()).count() != 1 {
+        fail("wrangler.jsonc does not carry the new id exactly once; fix it by hand");
     }
 
     step("applying all migrations from zero");
@@ -310,9 +303,8 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"
      secret of its own -
      each run mints its own through the trusted-publishing exchange, and
      the baseline migration seeds the backing identity it resolves
-  4. run cargo registry-governor wipe (from the repository root) before
-     the next nightly dump (03:00 UTC) lands in the emptied backup bucket:
-     it resets every storage pool only while both buckets are still
+  4. run cargo registry-governor wipe (from the repository root): it
+     resets every storage pool only while both buckets are still
      empty.  Its no-delayed-publisher evidence gate requires zero live
      publish tokens and a login-session token carries publish, so block
      writes first, wait out the in-flight window (~5 min), then run under
@@ -495,18 +487,6 @@ fn database_id(text: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) || byte == b'-')
 }
 
-/// The number of LINES holding `needle`, not of occurrences.  Both
-/// counts the wipe takes are of lines.
-fn lines_holding(text: &str, needle: &str) -> usize {
-    text.lines().filter(|line| line.contains(needle)).count()
-}
-
-/// The two textual replaces.
-fn bake(config: &str, id: &str) -> String {
-    let baked = replace_id(config, "database_id", id);
-    replace_id(&baked, "D1_DATABASE_ID", id)
-}
-
 /// ``text.replace(/("<key>": ")[0-9a-f-]{36}(")/, `$1<id>$2`)``: the
 /// FIRST occurrence that fits the shape, and no error when there is
 /// none, which is what the counts around the call are for.  The
@@ -566,8 +546,7 @@ fn sweep(buckets: &Buckets, bucket: &str, prefix: &str) -> Result<u64> {
     }
 }
 
-/// The Cloudflare API base.  `CF_API_BASE` is the seam the Worker
-/// (`registry/src/backup_glue.rs`) and the smoke run already use to point
+/// The Cloudflare API base.  `CF_API_BASE` is the seam that points
 /// Cloudflare API calls at a local server.
 fn api_base() -> String {
     std::env::var("CF_API_BASE")
@@ -742,32 +721,30 @@ mod tests {
     }
 
     #[test]
-    fn the_rewrite_lands_on_the_first_binding_of_each_name() {
+    fn the_rewrite_lands_on_the_first_binding() {
+        let bake = |config: &str, id: &str| replace_id(config, "database_id", id);
         let config = format!(
             r#"{{
   "d1_databases": [
     {{ "database_id": "{OLD}" }}
-  ],
-  "vars": {{
-    "D1_DATABASE_ID": "{OLD}"
-  }}
+  ]
 }}
 "#
         );
         let baked = bake(&config, NEW);
-        assert_eq!(lines_holding(&baked, NEW), 2);
-        assert_eq!(lines_holding(&baked, OLD), 0);
+        assert_eq!(baked.matches(NEW).count(), 1);
+        assert_eq!(baked.matches(OLD).count(), 0);
 
         // A second `database_id` is left alone - the count guard before
         // the rewrite is what refuses that config in the first place.
         let two = format!("\"database_id\": \"{OLD}\"\n\"database_id\": \"{OLD}\"\n");
         let baked = bake(&two, NEW);
-        assert_eq!(lines_holding(&baked, NEW), 1);
-        assert_eq!(lines_holding(&baked, OLD), 1);
+        assert_eq!(baked.matches(NEW).count(), 1);
+        assert_eq!(baked.matches(OLD).count(), 1);
 
         // The separator is the literal `": "` the regex spelled, and the
         // value must fit the shape: none of these is a match, and the
-        // twice-present count is what catches it.
+        // once-present count is what catches it.
         for missed in [
             format!("\"database_id\":\"{OLD}\""),
             format!("\"database_id\":  \"{OLD}\""),
@@ -779,21 +756,7 @@ mod tests {
         // A candidate that does not fit is skipped, not fatal, so a later
         // one still wins.
         let late = format!("\"database_id\": \"short\"\n\"database_id\": \"{OLD}\"\n");
-        assert_eq!(lines_holding(&bake(&late, NEW), NEW), 1);
-    }
-
-    #[test]
-    fn the_counts_are_of_lines() {
-        // The counts are of lines, so two bindings on one line count once,
-        // which is what makes the twice-present check refuse a config it
-        // could not have baked correctly.
-        let one_line = format!("\"database_id\": \"{NEW}\" \"D1_DATABASE_ID\": \"{NEW}\"");
-        assert_eq!(lines_holding(&one_line, "\"database_id\""), 1);
-        assert_eq!(lines_holding(&one_line, NEW), 1);
-        assert_eq!(lines_holding("a\na\na", "a"), 3);
-        // A file without a trailing newline still ends a line.
-        assert_eq!(lines_holding("a\nb", "b"), 1);
-        assert_eq!(lines_holding("", "a"), 0);
+        assert_eq!(bake(&late, NEW).matches(NEW).count(), 1);
     }
 
     /// Both sweeps, over pages of two: the primary loses its `blobs/`

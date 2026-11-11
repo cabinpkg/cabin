@@ -338,11 +338,9 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     // recovery"): an unhealthy backup logs and notifies on every pass
     // until resolved - a backup system's classic failure mode is
     // stopping silently - while mode changes notify once.
-    let health = match read_backup_health(&db, &now).await {
-        Ok(health) => health,
-        Err(_) => BackupHealth::unreadable(),
-    };
-    if let Some(alert) = &health.alert {
+    let overdue_backups = read_overdue_backups(&db).await.ok();
+    let backup_alert = backup::alert(overdue_backups);
+    if let Some(alert) = &backup_alert {
         console_error!("backup health: {alert}");
     }
     // Verification health rides every pass too: revisions pending for
@@ -361,14 +359,15 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
             next.as_str()
         );
     }
-    if next != current || health.alert.is_some() || verification_alert.is_some() {
+    if next != current || backup_alert.is_some() || verification_alert.is_some() {
         notify_webhook(
             env,
             current,
             next,
             &reason,
             &usage,
-            &health,
+            overdue_backups,
+            backup_alert.as_deref(),
             stale_pending,
             verification_alert.as_deref(),
         )
@@ -390,43 +389,15 @@ async fn read_stale_pending(db: &D1Database) -> worker::Result<u64> {
     Ok(non_negative(record.n))
 }
 
-/// One breaker pass's view of backup health, for the log line and the
-/// webhook payload.
-struct BackupHealth {
-    last_backup_at: Option<String>,
-    freshness: backup::Freshness,
-    overdue_backups: Option<u64>,
-    alert: Option<String>,
-}
-
-impl BackupHealth {
-    /// Fail closed when D1 would not answer: alert rather than report
-    /// an unknown state as healthy.
-    fn unreadable() -> BackupHealth {
-        BackupHealth {
-            last_backup_at: None,
-            freshness: backup::Freshness::Never,
-            overdue_backups: None,
-            alert: Some("backup health could not be read from d1".to_owned()),
-        }
-    }
-}
-
-async fn read_backup_health(db: &D1Database, now: &str) -> worker::Result<BackupHealth> {
-    let last_backup_at = read_meta(db, "last_backup_at").await?;
-    let overdue: CountRecord = db
+/// How many verified-archive backups have sat in the replication queue
+/// for over an hour.
+async fn read_overdue_backups(db: &D1Database) -> worker::Result<u64> {
+    let record: CountRecord = db
         .prepare(sql::COUNT_STALE_BACKUP_PENDING)
         .first(None)
         .await?
         .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
-    let overdue_backups = non_negative(overdue.n);
-    let freshness = backup::freshness(now, last_backup_at.as_deref());
-    Ok(BackupHealth {
-        last_backup_at,
-        freshness,
-        overdue_backups: Some(overdue_backups),
-        alert: backup::alert(freshness, overdue_backups),
-    })
+    Ok(non_negative(record.n))
 }
 
 fn env_budget(env: &Env, name: &str, default: u64) -> u64 {
@@ -482,7 +453,8 @@ async fn notify_webhook(
     to: breaker::Mode,
     reason: &str,
     usage: &breaker::Usage,
-    health: &BackupHealth,
+    overdue_backups: Option<u64>,
+    backup_alert: Option<&str>,
     stale_pending: Option<u64>,
     verification_alert: Option<&str>,
 ) {
@@ -500,10 +472,8 @@ async fn notify_webhook(
         "d1_rows_read_today": usage.d1_rows_read_today,
         "r2_class_b_month": usage.r2_class_b_month,
         "backup": {
-            "last_backup_at": health.last_backup_at,
-            "freshness": health.freshness.as_str(),
-            "overdue_backups": health.overdue_backups,
-            "alert": health.alert,
+            "overdue_backups": overdue_backups,
+            "alert": backup_alert,
         },
         "verification": {
             "stale_pending": stale_pending,
