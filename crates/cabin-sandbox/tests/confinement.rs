@@ -85,6 +85,17 @@ mod enforced {
                     .open(arg)
                     .and_then(|mut file| std::io::Write::write_all(&mut file, b"x")),
             ),
+            // Make, rename, and remove a directory and a file in `arg`.
+            "churn" => {
+                let (made, moved) = (Path::new(arg).join("made"), Path::new(arg).join("moved"));
+                let churned = std::fs::create_dir(&made)
+                    .and_then(|()| std::fs::write(made.join("file"), "x"))
+                    .and_then(|()| std::fs::rename(made.join("file"), made.join("renamed")))
+                    .and_then(|()| std::fs::rename(&made, &moved))
+                    .and_then(|()| std::fs::remove_file(moved.join("renamed")))
+                    .and_then(|()| std::fs::remove_dir(&moved));
+                report(verb, churned);
+            }
             #[cfg(unix)]
             "truncate" => {
                 let path = std::ffi::CString::new(arg).unwrap();
@@ -246,7 +257,12 @@ mod enforced {
             // Stand in for Cabin: confined, run `late:<arg>` in a child, which
             // the parent-death signal does not reach, and wait.
             "supervise" => {
-                confine(&format!("child:late:{arg}"), &[], &[Path::new(arg)]).unwrap();
+                // As it is: on Windows `supervisor` started a copy the test
+                // removes, which one made here, by a process about to be
+                // killed, would not be.
+                let exe = std::env::current_exe().unwrap();
+                let action = format!("child:late:{arg}");
+                confine_as(&exe, &action, &[], &[Path::new(arg)], &[]).unwrap();
             }
             "exit" => std::process::exit(arg.parse().unwrap()),
             // Give the file `<file>` the second name `<link>`, and write to
@@ -437,8 +453,11 @@ mod enforced {
         }
     }
 
+    /// `started` holds the program's `LOCALAPPDATA`, which on Windows
+    /// lies in the directory named after its container.
     fn late(dir: &Path) {
-        std::fs::write(dir.join("started"), "").unwrap();
+        let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        std::fs::write(dir.join("started"), local).unwrap();
         std::thread::sleep(Duration::from_secs(1));
         std::fs::write(dir.join("late"), "").unwrap();
     }
@@ -526,7 +545,7 @@ mod enforced {
     /// Whether the process `pid` is still running.
     #[cfg(windows)]
     fn running(pid: u32) -> bool {
-        use windows_sys::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, WAIT_TIMEOUT};
         use windows_sys::Win32::System::Threading::{
             OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
         };
@@ -534,6 +553,9 @@ mod enforced {
         unsafe {
             let process = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
             if process.is_null() {
+                // Any other failure says nothing about the process.
+                let gone = Some(ERROR_INVALID_PARAMETER.cast_signed());
+                assert_eq!(std::io::Error::last_os_error().raw_os_error(), gone);
                 return false;
             }
             let running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
@@ -591,18 +613,22 @@ mod enforced {
         write: &[&Path],
         hidden: &[&Path],
     ) -> Result<Probed, SandboxError> {
+        #[cfg(unix)]
         let exe = std::env::current_exe().unwrap();
-        // A grant on Windows rewrites the access-control list of all the
-        // directory holds, so the one every test binary shares is not
-        // granted.
         #[cfg(windows)]
-        let (_dir, exe) = {
-            let dir = TempDir::new().unwrap();
-            let copy = dir.path().join("probe.exe");
-            std::fs::copy(&exe, &copy).unwrap();
-            (dir, copy)
-        };
+        let (_dir, exe) = copied_exe();
         confine_as(&exe, action, read, write, hidden)
+    }
+
+    /// A copy of this test binary in a directory of its own: a grant on
+    /// Windows rewrites the access-control list of all the directory
+    /// holds, so the one every test binary shares is not granted.
+    #[cfg(windows)]
+    fn copied_exe() -> (TempDir, std::path::PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let copy = dir.path().join("probe.exe");
+        std::fs::copy(std::env::current_exe().unwrap(), &copy).unwrap();
+        (dir, copy)
     }
 
     /// What a confined probe is given: its action, and on Windows the
@@ -1012,6 +1038,9 @@ mod enforced {
         .unwrap();
         assert_eq!(allowed.outcome("write"), "ok");
         assert!(writable.path().join("out").is_file());
+        let churn = format!("churn:{}", arg(writable.path()));
+        let churned = confine(&churn, &[], &[writable.path()]).unwrap();
+        assert_eq!(churned.outcome("churn"), "ok");
 
         #[cfg(unix)]
         {
@@ -1082,9 +1111,14 @@ mod enforced {
             );
             assert!(arrived(), "{action} unconfined");
             let probed = confine(&action, &[], &[]).unwrap();
-            // Windows drops a container's packets without telling it.
-            #[cfg(unix)]
-            assert_eq!(probed.outcome(verb), "PermissionDenied", "{action}");
+            // Windows drops a container's packets without telling it: a
+            // connection times out, and a datagram seems sent.
+            let refused = match verb {
+                _ if cfg!(unix) => "PermissionDenied",
+                "connect" => "TimedOut",
+                _ => "ok",
+            };
+            assert_eq!(probed.outcome(verb), refused, "{action}");
             assert!(!arrived(), "{action}: {}", probed.stdout);
         }
     }
@@ -1296,47 +1330,44 @@ mod enforced {
         // SAFETY: NUL-terminated names, a credential whose pointers are
         // valid, and an out-pointer; the key and credential are removed
         // below.
-        unsafe {
+        let stored = unsafe {
             assert_eq!(
                 RegCreateKeyW(HKEY_CURRENT_USER, wide(&key).as_ptr(), &raw mut created),
                 0
             );
             RegCloseKey(created);
-            assert_ne!(CredWriteW(&raw const credential, 0), 0);
-        }
-
-        let denials: Vec<String> = [
+            CredWriteW(&raw const credential, 0) != 0
+        };
+        let mut actions = vec![
             format!("process:{}", std::process::id()),
             format!("pipe:{pipe}"),
             format!("registry:{key}"),
-            format!("credential:{name}"),
-        ]
-        .iter()
-        .map(|action| {
-            let verb = action.split_once(':').unwrap().0;
-            let unconfined = probe_command(action).output().unwrap();
-            assert!(
-                String::from_utf8_lossy(&unconfined.stdout).contains(&format!("{verb}: ok")),
-                "{action} unconfined"
-            );
-            let probed = confine(action, &[], &[]).unwrap();
-            format!("{verb}: {}", probed.outcome(verb))
-        })
-        .collect();
+        ];
+        // A session logged on over the network can store no credential.
+        if stored {
+            actions.push(format!("credential:{name}"));
+        }
+        // Asserted once the key and credential are gone again.
+        let attempts: Vec<_> = actions
+            .iter()
+            .map(|action| {
+                let verb = action.split_once(':').unwrap().0;
+                let unconfined = probe_command(action).output().unwrap();
+                let control =
+                    String::from_utf8_lossy(&unconfined.stdout).contains(&format!("{verb}: ok"));
+                let probed = confine(action, &[], &[]).unwrap();
+                (control, probed.outcome(verb).to_owned())
+            })
+            .collect();
         // SAFETY: the key and credential from above.
         unsafe {
             RegDeleteKeyW(HKEY_CURRENT_USER, wide(&key).as_ptr());
             CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0);
         }
-        assert_eq!(
-            denials,
-            [
-                "process: PermissionDenied",
-                "pipe: PermissionDenied",
-                "registry: PermissionDenied",
-                "credential: PermissionDenied",
-            ]
-        );
+        for (action, (control, outcome)) in actions.iter().zip(attempts) {
+            assert!(control, "{action} unconfined");
+            assert_eq!(outcome, "PermissionDenied", "{action}");
+        }
     }
 
     #[test]
@@ -1353,13 +1384,13 @@ mod enforced {
         let probed = confine("env", &[], &[]).unwrap();
         let mut given: Vec<_> = probe_env("env").into_iter().map(|(key, _)| key).collect();
         // Windows points the program at its container's own directory,
-        // and on Arm names the processor.
+        // and on Arm hardware names the processor.
         #[cfg(windows)]
         given.extend(["LOCALAPPDATA", "TEMP", "TMP"].map(OsString::from));
-        #[cfg(all(windows, target_arch = "aarch64"))]
-        given.push("PROCESSOR_ARCHITECTURE".into());
         given.sort();
         let mut seen = probed.outcomes("env");
+        #[cfg(windows)]
+        seen.retain(|key| *key != "PROCESSOR_ARCHITECTURE");
         seen.sort_unstable();
         assert_eq!(seen, given);
     }
@@ -1381,16 +1412,17 @@ mod enforced {
         )
         .unwrap();
         assert!(dir.path().join("started").exists());
-        // The grant ended with the run, so a survivor could not write
-        // `late` either: look for the process itself.
+        // On Windows the grant ends with the run, so a survivor could not
+        // write `late`: look for the process itself.  `late` there shows a
+        // run that waited for the process instead of killing it.
         #[cfg(windows)]
         assert!(!running(probed.outcome("linger").parse().unwrap()));
         #[cfg(unix)]
         {
             drop(probed);
             std::thread::sleep(Duration::from_secs(2));
-            assert!(!dir.path().join("late").exists());
         }
+        assert!(!dir.path().join("late").exists());
     }
 
     /// Leaving the group appears to work, so callers such as ninja do not
@@ -1509,10 +1541,13 @@ mod enforced {
         unsafe { libc::mq_close(queue) };
     }
 
-    /// Stand in for Cabin: a process running a confined program that has
-    /// written `<dir>/started` and will write `<dir>/late`.
-    fn supervisor(dir: &Path) -> std::process::Child {
-        let mut parent = probe_command(&format!("supervise:{}", arg(dir)))
+    /// Stand in for Cabin: `exe`, this test binary, running a confined
+    /// program that has written `<dir>/started` and will write
+    /// `<dir>/late`.
+    fn supervisor(exe: &Path, dir: &Path) -> std::process::Child {
+        let mut parent = Command::new(exe)
+            .args(PROBE_ARGS)
+            .env(PROBE, format!("supervise:{}", arg(dir)))
             .stdout(std::process::Stdio::null())
             .spawn()
             .unwrap();
@@ -1530,12 +1565,21 @@ mod enforced {
     #[test]
     #[cfg(windows)]
     fn killing_the_parent_kills_the_confined_program() {
+        use windows_sys::Win32::Security::Isolation::DeleteAppContainerProfile;
         let dir = TempDir::new().unwrap();
-        let mut parent = supervisor(dir.path());
+        let (_exe_dir, exe) = copied_exe();
+        let mut parent = supervisor(&exe, dir.path());
         parent.kill().unwrap();
         parent.wait().unwrap();
         std::thread::sleep(Duration::from_secs(2));
         assert!(!dir.path().join("late").exists());
+        // The killed supervisor left its run's container registered.
+        let local = std::fs::read_to_string(dir.path().join("started")).unwrap();
+        let container = Path::new(&local).parent().unwrap();
+        let name = wide(container.file_name().unwrap().to_str().unwrap());
+        // SAFETY: a NUL-terminated name.
+        unsafe { DeleteAppContainerProfile(name.as_ptr()) };
+        assert!(!container.exists());
     }
 
     /// The confined program leads its own process group, so the
@@ -1544,7 +1588,7 @@ mod enforced {
     #[cfg(unix)]
     fn interrupting_the_parent_kills_the_confined_program() {
         let dir = TempDir::new().unwrap();
-        let mut parent = supervisor(dir.path());
+        let mut parent = supervisor(&std::env::current_exe().unwrap(), dir.path());
         let pid = libc::pid_t::try_from(parent.id()).unwrap();
         // SAFETY: plain system call on our own child.
         assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);

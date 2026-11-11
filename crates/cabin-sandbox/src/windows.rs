@@ -39,6 +39,7 @@ use std::time::Duration;
 use windows_sys::Win32::Foundation::{
     DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_INVALID_ACL, LocalFree, WAIT_OBJECT_0,
 };
+use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
 use windows_sys::Win32::Security::Authorization::{
     ACCESS_MODE, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, REVOKE_ACCESS,
     SE_FILE_OBJECT, SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_W,
@@ -54,7 +55,7 @@ use windows_sys::Win32::Security::{
     SUB_CONTAINERS_AND_OBJECTS_INHERIT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    DELETE, FILE_DELETE_CHILD, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    FILE_DELETE_CHILD, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
 };
 use windows_sys::Win32::System::JobObjects::{
     CreateJobObjectW, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
@@ -80,7 +81,9 @@ use crate::{Confinement, SandboxError};
 
 const LOCAL: &str = "LOCALAPPDATA";
 const READ: u32 = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
-const WRITE: u32 = READ | FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD;
+/// Without `DELETE`: the program removes and renames what a granted
+/// directory holds, not the directory itself.
+const WRITE: u32 = READ | FILE_GENERIC_WRITE | FILE_DELETE_CHILD;
 
 pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> {
     let Confinement {
@@ -98,6 +101,16 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         program: program.clone(),
         source,
     };
+    let strings = [program.as_os_str(), current_dir.as_os_str()]
+        .into_iter()
+        .chain(args.iter().map(OsString::as_os_str))
+        .chain(env.iter().flat_map(|(key, value)| [&**key, &**value]));
+    if strings.flat_map(OsStr::encode_wide).any(|unit| unit == 0) {
+        return Err(failed(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a NUL in the program, an argument, the working directory, or the environment",
+        )));
+    }
     let hidden = crate::resolve_hidden(&hidden).map_err(failed)?;
     // Windows starts nothing in a container without this variable, from
     // which it derives the three it sets for the program.
@@ -221,12 +234,15 @@ impl Grants {
         } else {
             NO_INHERITANCE
         };
-        set_entry(&path, self.sid, GRANT_ACCESS, access, inheritance).map_err(|err| {
-            let path = path.display();
-            io::Error::new(err.kind(), format!("cannot grant access to {path}: {err}"))
-        })?;
+        let granted =
+            set_entry(&path, self.sid, GRANT_ACCESS, access, inheritance).map_err(|err| {
+                let path = path.display();
+                io::Error::new(err.kind(), format!("cannot grant access to {path}: {err}"))
+            });
+        // Revoked even if it failed: Windows may have reached part of what
+        // the directory holds.
         self.paths.push(path);
-        Ok(())
+        granted
     }
 }
 
@@ -326,15 +342,6 @@ struct Launch<'a> {
 impl Launch<'_> {
     /// Start the program in a job, wait for it, and end the job.
     fn run(&self) -> io::Result<ExitStatus> {
-        let strings = iter::once(self.program.as_os_str())
-            .chain(self.args.iter().map(OsString::as_os_str))
-            .chain(self.env.iter().flat_map(|(key, value)| [&**key, &**value]));
-        if strings.flat_map(OsStr::encode_wide).any(|unit| unit == 0) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "a NUL in the program, an argument, or the environment",
-            ));
-        }
         let stdin = File::open("NUL")?;
         let inherited = [
             inheritable(&stdin)?,
@@ -427,11 +434,13 @@ impl Launch<'_> {
 /// may be about to read or replace.
 fn end(job: &OwnedHandle) -> io::Result<()> {
     let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-    // SAFETY: a job handle we own.
-    if unsafe { TerminateJobObject(job.as_raw_handle(), 1) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
     loop {
+        // Each turn: this ends the processes in the job at that moment,
+        // and one whose start was under way joins it after them.
+        // SAFETY: a job handle we own.
+        if unsafe { TerminateJobObject(job.as_raw_handle(), 1) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
         // SAFETY: a job handle we own and the structure the class names.
         let queried = unsafe {
             QueryInformationJobObject(
@@ -475,8 +484,9 @@ fn inheritable(file: &File) -> io::Result<OwnedHandle> {
 }
 
 /// A job that kills all in it once its handle closes, which no process
-/// in it can leave, and that keeps them off the user's desktop and
-/// clipboard.
+/// in it can leave, that keeps them off the user's desktop and
+/// clipboard, and where a crash ends the process instead of waiting on
+/// an error box.
 fn job() -> io::Result<OwnedHandle> {
     // SAFETY: no attributes, no name.
     let job = unsafe { CreateJobObjectW(null(), null()) };
@@ -614,21 +624,21 @@ fn command_line(program: &Path, args: &[OsString]) -> Vec<u16> {
     line
 }
 
-/// `KEY=VALUE` strings sorted by key, ignoring case, as Windows keeps
-/// them.
+/// `KEY=VALUE` strings sorted by key as Windows keeps them: by code
+/// unit, ignoring case.  `env` is never empty.
 fn environment(env: &[(OsString, OsString)]) -> Vec<u16> {
-    let mut env: Vec<_> = env.iter().collect();
-    env.sort_by_cached_key(|(key, _)| key.to_ascii_uppercase());
-    let mut block: Vec<u16> = env
-        .iter()
-        .flat_map(|(key, value)| {
-            key.encode_wide()
-                .chain(iter::once(u16::from(b'=')))
-                .chain(value.encode_wide())
-                .chain(iter::once(0))
-        })
-        .collect();
-    if block.is_empty() {
+    let mut env: Vec<_> = env.iter().map(|(key, value)| (wide(key), value)).collect();
+    env.sort_by(|(a, _), (b, _)| {
+        // SAFETY: two NUL-terminated strings.
+        let order = unsafe { CompareStringOrdinal(a.as_ptr(), -1, b.as_ptr(), -1, 1) };
+        order.cmp(&CSTR_EQUAL)
+    });
+    let mut block = Vec::new();
+    for (mut key, value) in env {
+        key.pop();
+        block.extend(key);
+        block.push(u16::from(b'='));
+        block.extend(value.encode_wide());
         block.push(0);
     }
     block.push(0);
@@ -686,8 +696,9 @@ mod tests {
 
     #[test]
     fn the_environment_block_is_sorted_and_terminated() {
-        let env = [("b", "2"), ("A", "1")].map(|(k, v)| (OsString::from(k), OsString::from(v)));
-        assert_eq!(parsed(&environment(&env)), "A=1\0b=2\0");
-        assert_eq!(environment(&[]), [0, 0]);
+        // `ä` sorts as `Ä`, before `Æ`.
+        let env = [("b", "2"), ("Æ", "4"), ("A", "1"), ("ä", "3")]
+            .map(|(k, v)| (OsString::from(k), OsString::from(v)));
+        assert_eq!(parsed(&environment(&env)), "A=1\0b=2\0ä=3\0Æ=4\0");
     }
 }

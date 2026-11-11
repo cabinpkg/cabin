@@ -22,6 +22,7 @@ landlock = "0.4.7"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
   "Win32_Foundation",
+  "Win32_Globalization",
   "Win32_Security_Authorization",
   "Win32_Security_Cryptography",
   "Win32_Security_Isolation",
