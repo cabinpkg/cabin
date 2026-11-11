@@ -47,13 +47,17 @@
 //!   a write grant, for one).  Cabin is not meant to run as root.
 //! - Windows: whatever an access-control list already opens to every
 //!   `AppContainer` stays open, the system directories and Program Files
-//!   for reading among them.  The program can see whether any path
-//!   exists.  Its packets are dropped, not refused, so a connection it
-//!   attempts waits out its timeout.  Where the null device admits no
-//!   `AppContainer` (seen on Windows Server 2025), it cannot open `NUL`.
-//!   Windows sets its `LOCALAPPDATA`, `TEMP`, and `TMP`, whatever
+//!   for reading among them.  The program chooses the list of what it
+//!   creates: what it leaves open to every `AppContainer`, a later run's
+//!   program reads and writes without a grant, and a directory it closes
+//!   to everyone, Cabin's user cannot remove before resetting the list.
+//!   The program can see whether any path exists.  What it sends to the
+//!   machine's own addresses is dropped, not refused, so a connection it
+//!   attempts there waits out its timeout.  Where the null device admits
+//!   no `AppContainer` (seen on Windows Server 2025), it cannot open
+//!   `NUL`.  Windows sets its `LOCALAPPDATA`, `TEMP`, and `TMP`, whatever
 //!   [`Confinement::env`] says, to the directory it makes for the run,
-//!   and on Arm adds `PROCESSOR_ARCHITECTURE`.
+//!   and on Arm hardware adds `PROCESSOR_ARCHITECTURE`.
 //! - Windows: a grant is an entry Cabin adds to the access-control list
 //!   of the path and of all beneath it, and removes after the run.  The
 //!   cost grows with what the path holds, a path whose list Cabin's user

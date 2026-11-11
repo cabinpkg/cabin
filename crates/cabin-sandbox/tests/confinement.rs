@@ -416,6 +416,43 @@ mod enforced {
                 let made = made.unwrap().success();
                 println!("junction: {}", if made { "ok" } else { "failed" });
             }
+            // Whether this process runs in a container, and how many
+            // capabilities its token holds.
+            #[cfg(windows)]
+            "capabilities" => {
+                use windows_sys::Win32::Security::{
+                    GetTokenInformation, TOKEN_GROUPS, TOKEN_QUERY, TokenCapabilities,
+                    TokenIsAppContainer,
+                };
+                use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+                let mut token = std::ptr::null_mut();
+                let (mut contained, mut length) = (0_u32, 0);
+                // Aligned for, and far larger than, a list of no capabilities.
+                let mut list = [0_u64; 512];
+                // SAFETY: out-pointers valid for the sizes given; the token's
+                // handle ends with the probe.
+                let queried = unsafe {
+                    OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token) != 0
+                        && GetTokenInformation(
+                            token,
+                            TokenIsAppContainer,
+                            (&raw mut contained).cast(),
+                            4,
+                            &raw mut length,
+                        ) != 0
+                        && GetTokenInformation(
+                            token,
+                            TokenCapabilities,
+                            list.as_mut_ptr().cast(),
+                            4096,
+                            &raw mut length,
+                        ) != 0
+                };
+                assert!(queried, "{}", std::io::Error::last_os_error());
+                // SAFETY: `GetTokenInformation` wrote the list's header.
+                let count = unsafe { (*list.as_ptr().cast::<TOKEN_GROUPS>()).GroupCount };
+                println!("capabilities: {contained} {count}");
+            }
             // What this process's job keeps it from on the desktop.
             #[cfg(windows)]
             "ui" => {
@@ -1121,6 +1158,17 @@ mod enforced {
             assert_eq!(probed.outcome(verb), refused, "{action}");
             assert!(!arrived(), "{action}: {}", probed.stdout);
         }
+    }
+
+    /// A capability is what lets a container reach other machines; the
+    /// machine's own addresses stay closed to it even then.
+    #[test]
+    #[cfg(windows)]
+    fn the_container_holds_no_capability() {
+        let unconfined = probe_command("capabilities").output().unwrap();
+        assert!(String::from_utf8_lossy(&unconfined.stdout).contains("capabilities: 0 0"));
+        let probed = confine("capabilities", &[], &[]).unwrap();
+        assert_eq!(probed.outcome("capabilities"), "1 0");
     }
 
     /// `AF_TIPC` pairs are network sockets, and a datagram end (`AF_UNIX`
