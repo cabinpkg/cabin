@@ -213,6 +213,9 @@ pub fn run(script: &Script<'_>) -> Result<Outputs, Error> {
     fs::create_dir_all(dir).map_err(failed("create", dir))?;
     let (env, regions) = script.prepare()?;
     let dir = &regions.dir;
+    // A run that fails leaves no result, whatever it leaves in `out`.
+    let stamp = dir.join(STAMP);
+    removed(&stamp, fs::remove_file(&stamp))?;
     let before = snapshot(&regions.out);
     let owned = OWNED.map(|name| dir.join(name));
     for path in &owned {
@@ -259,7 +262,6 @@ pub fn run(script: &Script<'_>) -> Result<Outputs, Error> {
         .map_err(|(line, invalid)| Error::Result { line, invalid })?;
     restore(out, &before);
     let key = key(&env, &regions, &report.inputs)?;
-    let stamp = dir.join(STAMP);
     cabin_fs::write_atomic(&stamp, [key.as_bytes(), b"\n", &text].concat())
         .map_err(failed("write", &stamp))?;
     Ok(report.targets)

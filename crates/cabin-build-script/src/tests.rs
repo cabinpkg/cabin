@@ -255,11 +255,11 @@ rerun-if-changed {table}
             fs::write(result, report.replacen('\n', "\r\n", 2)).unwrap();
         }
         "fail" => {
-            fs::write(out.join("partial.h"), "").unwrap();
             // Not `eprintln!`, which the test harness holds back.
             writeln!(std::io::stderr(), "table.def: a row is \u{1b}[31mbad").unwrap();
             std::process::exit(3);
         }
+        "nothing" => {}
         // Reports nothing, in no result file.
         "same" => {
             // Not the `dist` an archive leaves out, on any file system.
@@ -415,10 +415,14 @@ fn a_failed_run_leaves_no_result() {
         run(&script).unwrap();
     }
 
-    let fail: Vec<_> = [(ACTION.into(), "fail".into())]
-        .into_iter()
-        .chain(fixture.inherited.iter().skip(1).cloned())
-        .collect();
+    let acting = |action: &str| -> Vec<_> {
+        let rest = fixture.inherited.iter().skip(1).cloned();
+        [(ACTION.into(), action.into())]
+            .into_iter()
+            .chain(rest)
+            .collect()
+    };
+    let fail = acting("fail");
     let failing = Script {
         inherited: &fail,
         ..script
@@ -441,6 +445,17 @@ fn a_failed_run_leaves_no_result() {
     // The run before it answers no longer: its output is gone.
     assert!(load(&script).is_none());
     assert!(load(&failing).is_none());
+    // Nor does one that left no output, which a failed run leaves as it
+    // was.
+    let nothing = acting("nothing");
+    let idle = Script {
+        inherited: &nothing,
+        ..script
+    };
+    assert!(run(&idle).unwrap().is_empty());
+    assert!(load(&idle).is_some());
+    run(&failing).unwrap_err();
+    assert!(load(&idle).is_none());
 }
 
 #[test]
