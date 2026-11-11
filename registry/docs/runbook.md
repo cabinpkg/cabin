@@ -531,8 +531,9 @@ ones. Launch is a data and policy event, in order:
    readers still accept a version entry without `license`
    (`crates/cabin-index` `RawVersion`, marked `Private-alpha
    leniency`); make the field mandatory there and remove the
-   private-alpha allowance from `docs/manifest.md` and
-   `docs/package-index.md`. `cabin vendor` must then write a superseded
+   private-alpha allowance from `docs/manifest.md`,
+   `docs/package-index.md`, and `docs/remote-registry.md`
+   ("Idempotency"). `cabin vendor` must then write a superseded
    revision's own license instead of dropping the field, and a file
    registry written by an older Cabin is republished, not read.
 3. Flip the launch flag - once, by hand:
