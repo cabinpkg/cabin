@@ -266,6 +266,10 @@ pub(crate) struct RawPackage {
     /// `cabin_core::UpstreamProvenance` by the parser.
     #[serde(default)]
     pub(crate) upstream: Option<RawUpstream>,
+    /// SPDX license expression, validated into a
+    /// `cabin_core::LicenseExpression` by the parser.
+    #[serde(default)]
+    pub(crate) license: Option<String>,
     /// Archive allowlist; each entry is checked with
     /// `cabin_core::upstream::is_safe_archive_path` by the parser.
     #[serde(default)]

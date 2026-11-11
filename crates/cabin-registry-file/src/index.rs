@@ -397,6 +397,8 @@ struct IndexVersionWire<'a, D: Serialize> {
     links: Option<&'a std::collections::BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     upstream: Option<&'a cabin_core::UpstreamProvenance>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    license: Option<&'a cabin_core::LicenseExpression>,
 }
 
 #[derive(Serialize)]
@@ -450,6 +452,7 @@ fn version_value_from_metadata(
         standards: (!metadata.standards.is_empty()).then_some(&metadata.standards),
         links: (!metadata.links.is_empty()).then_some(&metadata.links),
         upstream: metadata.upstream.as_ref(),
+        license: metadata.license.as_ref(),
     };
     Ok(serde_json::to_value(&wire)?)
 }
@@ -524,6 +527,7 @@ mod tests {
             standards: Default::default(),
             links: Default::default(),
             upstream: None,
+            license: None,
             yanked: false,
             checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
             source: SourceMetadata {
@@ -891,5 +895,28 @@ mod tests {
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(value["versions"]["10.2.1"].get("upstream").is_none());
+    }
+
+    /// `license` is version-level metadata of the current revision,
+    /// not something resolution reads: a respin that changes only it
+    /// replaces the entry's value, records no `resolution` on the
+    /// superseded revision, and leaves the document at schema 1.  A
+    /// version that declares none omits the field.
+    #[test]
+    fn a_respin_replaces_the_license_without_touching_resolution() {
+        let index = insert_new(None, &metadata_with_bytes("fmt", "10.2.1", 'a')).unwrap();
+        assert!(index.versions["10.2.1"].get("license").is_none());
+
+        let mut respin = metadata_with_bytes("fmt", "10.2.1", 'b');
+        respin.license = Some(cabin_core::LicenseExpression::new("MIT OR Apache-2.0").unwrap());
+        let (index, _) = insert_version(Some(index), &respin, STAMP, true).unwrap();
+        assert_eq!(index.schema, PACKAGE_INDEX_SCHEMA);
+        let entry = &index.versions["10.2.1"];
+        assert_eq!(entry["license"], "MIT OR Apache-2.0");
+        assert!(
+            entry["revisions"]["aaaaaaaaaaaaaaaa"]
+                .get("resolution")
+                .is_none()
+        );
     }
 }

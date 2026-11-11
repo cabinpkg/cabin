@@ -21,6 +21,7 @@
 "sources"
 "include-dirs"
 "links"
+"license"
 "optional"
 "default-features"
 "features"

@@ -153,6 +153,7 @@ Each version's metadata:
 | `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
 | `links` | no | omitted | Declared per-target [`links`](manifest.md#links) claims, keyed by target name.  Absence means the version claims nothing, so older entries that omit the field continue to load.  See [Links metadata](#links-metadata). |
 | `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, the algorithm-prefixed upstream `checksum` (`sha256:<hex>`, distinct from a revision's archive `checksum`), `format`, optional `strip-prefix`, optional `patches` list, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
+| `license` | no | omitted | Declared [`license`](manifest.md#license) SPDX expression of the current revision, as the publishing Cabin validated it.  Metadata only: resolution and fetching never read it, and the index reader does not validate it, so an identifier newer than the reading Cabin's SPDX lists still loads.  Absence means unspecified, so older entries that omit the field continue to load. |
 
 Unknown fields anywhere in the file are rejected.
 
@@ -186,6 +187,11 @@ Plain resolution never moves a listed pin to another revision of its version: fo
 the pinned revision's metadata is what the version declares.  When a manifest change needs what only
 a later revision declares, plain resolution chooses another version or fails, and
 `cabin update --package <name>` moves the pin.
+
+The version-level fields resolution does not read, such as `license` and `upstream`, are recorded
+for the current revision only.  A respin that changes one replaces the version's value without
+adding a `resolution`; a superseded revision's own declaration remains in its archive's
+`cabin.toml`.
 
 Yanking stays per version: a yanked version is never a new candidate, whatever its revisions.  A
 hosted registry lists only verified revisions, so a pin to one that is not listed behaves like any

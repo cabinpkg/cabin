@@ -63,6 +63,14 @@ pub enum ManifestError {
     },
 
     #[error(
+        "invalid `[package] license`: {source}; use identifiers exactly as listed at https://spdx.org/licenses/ joined by `AND`, `OR`, or `WITH` (for example \"MIT OR Apache-2.0\"), or `LicenseRef-<id>` for a license outside that list"
+    )]
+    License {
+        #[source]
+        source: cabin_core::LicenseError,
+    },
+
+    #[error(
         "unknown target type {value:?} for target {target:?} (expected one of: {})",
         supported_target_types()
     )]

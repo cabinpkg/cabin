@@ -4312,3 +4312,50 @@ fn instruction_sets_key_plain_and_conditional_sources() {
     ));
     assert!(err.to_string().contains("unknown variant"), "{err:?}");
 }
+
+fn manifest_with_license(license: &str) -> String {
+    format!(
+        r#"
+        [package]
+        name = "demo"
+        version = "1.0.0"
+        license = "{license}"
+    "#
+    )
+}
+
+#[test]
+fn package_license_is_validated_and_kept_verbatim() {
+    let license = "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)";
+    let package = parse_project(&manifest_with_license(license));
+    assert_eq!(
+        package
+            .license
+            .as_ref()
+            .map(cabin_core::LicenseExpression::as_str),
+        Some(license)
+    );
+}
+
+/// An omitted `license` is unspecified: no default is invented.
+#[test]
+fn package_without_license_is_unspecified() {
+    assert_eq!(parse_project(MINIMAL).license, None);
+}
+
+#[test]
+fn package_license_rejects_an_invalid_expression() {
+    let err = parse_project_err(&manifest_with_license("MIT OR Apache2"));
+    assert!(matches!(err, ManifestError::License { .. }), "{err:?}");
+    let rendered = err.to_string();
+    assert!(
+        rendered.starts_with(
+            r#"invalid `[package] license`: "MIT OR Apache2" is not a valid SPDX license expression: "#
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("https://spdx.org/licenses/"),
+        "{rendered}"
+    );
+}

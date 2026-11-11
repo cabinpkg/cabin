@@ -29,6 +29,7 @@ const PACKAGES: &[Package] = &[
         manifest: r#"[package]
 name = "smoke/nodep"
 version = "0.1.0"
+license = "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)"
 c-standard = "c11"
 
 [target.nodep]

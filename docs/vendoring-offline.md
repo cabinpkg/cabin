@@ -44,7 +44,9 @@ A vendor directory reproduces **exactly the [packaging revision](package-index.m
 the lockfile pins**, including one that has since been superseded upstream.  Each vendored version
 entry therefore lists only the fetched revision, as its current one, with `source.path` rewritten to
 the vendored artifact; the superseded siblings' archives are not in the directory, so nothing there
-can silently resolve to different bytes.
+can silently resolve to different bytes.  A vendored superseded revision's entry carries no
+`license`: the index records that field for the current revision only, and the superseded
+revision's own declaration is in its archive's `cabin.toml`.
 
 Every archive is re-verified against the checksum recorded in the source index; a checksum mismatch
 surfaces as an explicit error and never overwrites the destination.

@@ -2394,6 +2394,9 @@ mod standard_compat;
 #[path = "cli/links.rs"]
 mod links;
 
+#[path = "cli/license.rs"]
+mod license;
+
 #[path = "cli/vendor_offline.rs"]
 mod vendor_offline;
 

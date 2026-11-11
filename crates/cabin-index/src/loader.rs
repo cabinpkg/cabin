@@ -378,6 +378,7 @@ pub fn parse_package_entry(
                 standards: raw_ver.standards,
                 links: raw_ver.links,
                 upstream: raw_ver.upstream,
+                license: raw_ver.license,
             },
         );
     }
@@ -804,6 +805,12 @@ struct RawVersion {
     /// supported format, safe paths).
     #[serde(default)]
     upstream: Option<cabin_core::UpstreamProvenance>,
+    /// Declared `[package] license`.  Optional; older registries that
+    /// omit the field continue to load.  Carried as written and not
+    /// validated: the publishing Cabin validated it, and this
+    /// reader's SPDX lists may predate one of its identifiers.
+    #[serde(default)]
+    license: Option<String>,
 }
 
 /// On-disk shape of one packaging revision inside a version entry's
@@ -2497,6 +2504,42 @@ mod tests {
             .unwrap();
         let err = load(dir.path(), &["fmt"]).unwrap_err();
         assert!(err.to_string().contains("https"), "unexpected error: {err}");
+    }
+
+    /// A published `license` loads as written and an entry written
+    /// before the field existed loads as unspecified.  The reader does
+    /// not validate the value: an identifier newer than this build's
+    /// SPDX lists must not make the package unresolvable.
+    #[test]
+    fn loads_the_declared_license_without_validating_it() {
+        let load_with = |version_fields: &str| {
+            let dir = TempDir::new().unwrap();
+            dir.child("fmt.json")
+                .write_str(&format!(
+                    r#"{{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {{ "10.2.1": {{ "dependencies": {{}}{version_fields} }} }}
+            }}"#
+                ))
+                .unwrap();
+            load(dir.path(), &["fmt"]).map(|index| {
+                let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
+                entry.versions.values().next().unwrap().license.clone()
+            })
+        };
+        for license in [
+            "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)",
+            "Not-Yet-Listed-1.0",
+        ] {
+            assert_eq!(
+                load_with(&format!(r#", "license": "{license}""#))
+                    .unwrap()
+                    .as_deref(),
+                Some(license)
+            );
+        }
+        assert_eq!(load_with("").unwrap(), None);
     }
 
     /// A populated `max` loads as a bounded requirement; an empty

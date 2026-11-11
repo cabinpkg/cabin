@@ -189,6 +189,7 @@ fn benign_staged(dir: &TempDir) -> cabin_package::StagedPackage {
             r#"[package]
 name = "demo"
 version = "1.2.3"
+license = "MIT OR Apache-2.0"
 cxx-standard = "c++20"
 
 [dependencies]
@@ -358,6 +359,29 @@ fn tampered_links_metadata_rejects() {
         .remove("links")
         .expect("the benign package declares links");
     assert_rejected(&archive, &pending, Reason::MetadataMismatch);
+}
+
+/// The registry stores a published `license` without interpreting it,
+/// so this pass is what holds the served value to the archived
+/// manifest's SPDX-validated declaration: another expression, an
+/// explicit `null`, or an absent field is a metadata mismatch.
+#[test]
+fn tampered_license_metadata_rejects() {
+    let dir = TempDir::new().unwrap();
+    for tampered in [
+        Some(serde_json::json!("MIT")),
+        Some(serde_json::Value::Null),
+        None,
+    ] {
+        let (archive, mut pending) = benign(&dir);
+        assert_eq!(pending.metadata["license"], "MIT OR Apache-2.0");
+        let fields = pending.metadata.as_object_mut().unwrap();
+        match tampered {
+            Some(value) => fields.insert("license".to_owned(), value),
+            None => fields.remove("license"),
+        };
+        assert_rejected(&archive, &pending, Reason::MetadataMismatch);
+    }
 }
 
 /// A hosted package is always scoped: the full `<scope>/<name>` string
