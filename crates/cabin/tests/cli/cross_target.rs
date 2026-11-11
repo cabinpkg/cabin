@@ -428,6 +428,83 @@ int main() { std::puts(picked()); }
         assert!(body.windows(5).any(|w| w == b"HELLO"));
     }
 
+    /// A build script is built for and run on the build machine, is told
+    /// the platform it prepares its package for, and what it generates
+    /// is compiled for that platform, apart from the native build's.
+    #[test]
+    fn a_build_script_runs_on_the_build_machine_for_the_target() {
+        require_c_and_cxx_build_tools();
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+            )
+            .unwrap();
+        dir.child("src/main.c")
+            .write_str(
+                r#"#include <stdio.h>
+#include "arch.h"
+int main(void) { puts(PREPARED_FOR); return 0; }
+"#,
+            )
+            .unwrap();
+        dir.child("build.c")
+            .write_str(
+                r##"#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+    const char *out = getenv("CABIN_OUT_DIR");
+    char path[4096];
+    FILE *file;
+    snprintf(path, sizeof path, "%s/arch.h", out);
+    if (!(file = fopen(path, "w"))) return 1;
+    fprintf(file, "#define PREPARED_FOR \"prepared-for-%s\"\n", getenv("CABIN_TARGET_ARCH"));
+    fclose(file);
+    if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+    fprintf(file, "include-dir app %s\n", out);
+    return fclose(file) != 0;
+}
+"##,
+            )
+            .unwrap();
+        let (triple, arch, cpu_type) = cross();
+
+        cabin()
+            .current_dir(dir.path())
+            .args(["build", "--target", triple])
+            .assert()
+            .success();
+        let profile = dir.path().join("build/.targets").join(triple).join("dev");
+        let script = profile.join("build-machine/packages/app/.build-script/target/build");
+        assert_ne!(mach_o_cpu_type(&script), cpu_type);
+        let program = profile.join("packages/app/app");
+        assert_eq!(mach_o_cpu_type(&program), cpu_type);
+        let prepared = format!("prepared-for-{arch}");
+        let body = fs::read(&program).unwrap();
+        assert!(
+            body.windows(prepared.len())
+                .any(|w| w == prepared.as_bytes())
+        );
+
+        cabin()
+            .current_dir(dir.path())
+            .arg("run")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(format!(
+                "prepared-for-{}",
+                std::env::consts::ARCH
+            )));
+    }
+
     #[test]
     fn run_target_naming_the_build_machine_runs() {
         require_c_and_cxx_build_tools();

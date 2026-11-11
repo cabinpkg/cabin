@@ -14,13 +14,14 @@
 //! Scope: [`resolve_build_prep`] owns only the part *after* the
 //! caller has resolved (and, for the building commands, detected /
 //! validated) the toolchain and chosen the profile.
-//! [`prepare_workspace`] + [`plan_prepared`] extend the pipeline for
+//! [`prepare_workspace`] + [`build_prepared`] extend the pipeline for
 //! the building commands (`build` / `check` / `run` / `test`): they own
 //! the whole shared preamble - workspace resolution, the artifact
-//! pipeline, toolchain, profile, features, planning, and the
-//! post-plan standards gates - parameterized on [`DevActivation`] and
-//! whether the build context is prepared; command-specific target
-//! selection and execution stay at the call sites.  `cabin metadata` is
+//! pipeline, toolchain, profile, features, build scripts, planning, the
+//! post-plan standards gates, and the Ninja run - parameterized on
+//! [`DevActivation`] and whether the build context is prepared;
+//! command-specific target selection and execution stay at the call
+//! sites.  `cabin metadata` is
 //! intentionally not a caller of [`resolve_build_prep`]: it resolves
 //! the wrapper fail-*soft* and must keep it.  [`resolve_inspection_prep`]
 //! is the read-only commands' fail-soft profile / toolchain / detection
@@ -308,7 +309,8 @@ pub(crate) struct WorkspacePipelineArgs<'a> {
     pub toolchain: &'a super::ToolchainSelectionArgs,
     pub dev: DevActivation,
     /// Whether the command builds the build context; `cabin check`
-    /// checks only the selected packages' own sources.
+    /// checks only the selected packages' own sources, and builds it
+    /// only where a build script has to run first.
     pub build_context: bool,
 }
 
@@ -351,12 +353,23 @@ pub(crate) struct PreparedWorkspace {
     /// each executable they run; empty runs it directly.
     pub runner: Vec<String>,
     /// The build context, when the target context's packages declare
-    /// build dependencies.
+    /// build dependencies or the build runs a build script.
     pub build_context: Option<BuildContextPrep>,
     /// The interfaces of the system-provided targets the target
     /// context uses.
     pub system_targets: HashMap<(usize, String), cabin_build::SystemTargetInterface>,
+    /// The build scripts of the local packages the build reaches, never
+    /// a registry package's: each as its package's index, whether it
+    /// prepares the package's build-context units, and its file.  Those
+    /// preparing build-context units come first, and within a context a
+    /// package's dependencies come before it.
+    pub build_scripts: Vec<(usize, bool, &'static str)>,
 }
+
+/// What the build scripts that have run reported for the target
+/// context's units, and for the build context's: indexed by
+/// [`cabin_build::BuildScript::build_context`].
+pub(crate) type BuildScriptOutputs = [HashMap<(usize, String), cabin_build::BuildScriptOutput>; 2];
 
 impl PreparedWorkspace {
     /// The build context's toolchain when it is its own (`--target`).
@@ -365,6 +378,33 @@ impl PreparedWorkspace {
             .as_ref()
             .filter(|context| context.cross)
             .map(|context| &context.detection_report)
+    }
+
+    /// The Ninja run of `plan_graph`, a plan of this workspace.
+    pub(crate) fn ninja_request<'a>(
+        &'a self,
+        plan_graph: &'a cabin_build::BuildGraph,
+        jobs: Option<cabin_core::BuildJobs>,
+        reporter: Reporter,
+    ) -> super::ninja::NinjaInvocationRequest<'a> {
+        super::ninja::NinjaInvocationRequest {
+            build_dir: &self.build_dir,
+            build_root: &self.build_root,
+            profile: &self.profile,
+            plan_graph,
+            graph: &self.graph,
+            toolchain: &self.toolchain,
+            detection: &self.detection_report,
+            build_machine_detection: self.build_machine_detection(),
+            feature_resolution: &self.feature_resolution,
+            platform: &self.platform,
+            dev_for: &self.dev_for,
+            ninja: &self.ninja,
+            jobs,
+            gc: super::gc::GcSettings::from_config(&self.effective_config),
+            configured_sysroot: self.configured_sysroot,
+            reporter,
+        }
     }
 }
 
@@ -779,7 +819,16 @@ pub(crate) fn prepare_workspace(
         reporter,
     })?;
     let enabled_features = super::enabled_features_by_package(&feature_resolution);
-    let build_context = if !args.build_context || build_features.included.is_empty() {
+    let scripts = find_build_scripts(
+        &graph,
+        &feature_resolution.included,
+        &build_features.included,
+    )?;
+    // A script preparing target units needs the build context to be
+    // built in, whatever the command.
+    let build_context = if scripts.iter().all(|&(_, build_context, _)| build_context)
+        && (!args.build_context || build_features.included.is_empty())
+    {
         None
     } else {
         let cross = args.toolchain.target.is_some();
@@ -854,7 +903,87 @@ pub(crate) fn prepare_workspace(
         runner,
         build_context,
         system_targets,
+        build_scripts: scripts,
     })
+}
+
+/// The build scripts of the local packages among `target`, the target
+/// context's packages, and `build_machine`, the build context's
+/// ([`PreparedWorkspace::build_scripts`]).  A registry package's script
+/// is not run, so it is not looked for.
+fn find_build_scripts(
+    graph: &PackageGraph,
+    target: &BTreeSet<usize>,
+    build_machine: &BTreeSet<usize>,
+) -> Result<Vec<(usize, bool, &'static str)>> {
+    let mut scripts = Vec::new();
+    for (build_context, included) in [(true, build_machine), (false, target)] {
+        for &idx in included {
+            let package = &graph.packages[idx];
+            if package.kind != cabin_workspace::PackageKind::Local {
+                continue;
+            }
+            let root = <&camino::Utf8Path>::try_from(package.manifest_dir.as_path())?;
+            if let Some(script) = cabin_build_script::find(root)? {
+                scripts.push((idx, build_context, script));
+            }
+        }
+    }
+    Ok(scripts)
+}
+
+/// The build scripts a build of `selected` builds and runs, each with
+/// what it links of its package's `[build-dependencies]`.  A script
+/// preparing target units is left out when the build plans no unit of
+/// its package: a build narrowed to some targets (`cabin run --bin`),
+/// or a package whose targets all need a feature that is off.  The
+/// build context is never narrowed, nor are its scripts.  Like a
+/// build-context unit of a workspace member, a member's script takes
+/// the environment's flags unless the build is a cross build.
+fn needed_build_scripts(
+    prepared: &PreparedWorkspace,
+    selected: Option<&Vec<cabin_build::ManifestTargetSelector>>,
+) -> Result<Vec<cabin_build::BuildScript>> {
+    let Some(context) = &prepared.build_context else {
+        return Ok(Vec::new());
+    };
+    let mut found = prepared.build_scripts.clone();
+    if found.iter().any(|&(_, build_context, _)| !build_context) {
+        let planned = cabin_build::planned_packages(&target_request(
+            prepared,
+            selected.cloned(),
+            &HashMap::new(),
+        ))?;
+        found.retain(|&(package, build_context, _)| build_context || planned.contains(&package));
+    }
+    let flags = if context.cross {
+        HashMap::new()
+    } else {
+        crate::cli::env_flags::env_build_flags(&prepared.graph, |k| std::env::var_os(k))?
+    };
+    found
+        .into_iter()
+        .map(|(package, build_context, source)| {
+            let platform = if build_context {
+                &context.platform
+            } else {
+                &prepared.platform
+            };
+            let inputs = cabin_build::build_script_inputs(
+                &prepared.graph,
+                package,
+                platform,
+                &context.enabled_features,
+            )?;
+            Ok(cabin_build::BuildScript {
+                package,
+                build_context,
+                source: source.into(),
+                libraries: inputs.libraries,
+                flags: flags.get(&package).cloned().unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 /// What [`build_context_prep`] reads from the target context's
@@ -972,78 +1101,70 @@ fn build_machine_toolchain(
     Ok((toolchain, report))
 }
 
+/// Plan the prepared workspace, build it, and return the plan with the
+/// finished build: [`plan_prepared`] and
+/// [`super::ninja::invoke_ninja_and_report`], after the build scripts
+/// have run ([`super::build_script::run`]).
+pub(crate) fn build_prepared(
+    prepared: &PreparedWorkspace,
+    selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
+    check: bool,
+    color: cabin_core::ColorChoice,
+    jobs: Option<cabin_core::BuildJobs>,
+    reporter: Reporter,
+) -> Result<(cabin_build::BuildGraph, super::ninja::Built)> {
+    let started = std::time::Instant::now();
+    let scripts = needed_build_scripts(prepared, selected.as_ref())?;
+    let (outputs, locks) =
+        super::build_script::run(prepared, &scripts, selected.as_ref(), check, jobs, reporter)?;
+    let stepped = locks.is_some();
+    let plan_graph = plan_prepared(
+        prepared,
+        &scripts,
+        selected,
+        check,
+        color,
+        reporter.verbosity(),
+        &outputs,
+    )?;
+    let mut built = super::ninja::invoke_ninja_and_report(
+        &prepared.ninja_request(&plan_graph, jobs, reporter),
+        locks,
+    )?;
+    // The time a command reports covers the build scripts' steps too.
+    if stepped {
+        built.elapsed = started.elapsed();
+    }
+    Ok((plan_graph, built))
+}
+
 /// Plan the prepared workspace and run the shared post-plan
 /// standards gates.  `selected` narrows the plan to explicit
 /// manifest targets (`cabin run`'s picked executable, `cabin
 /// test`'s test selectors); `None` plans the default enumeration.
 /// `check` rewrites the planned graph into `cabin check`'s
-/// syntax-only form before the gates run.
-pub(crate) fn plan_prepared(
+/// syntax-only form before the gates run.  `reported` is what
+/// `scripts`, the build scripts the build ran, reported.
+fn plan_prepared(
     prepared: &PreparedWorkspace,
+    scripts: &[cabin_build::BuildScript],
     selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
     check: bool,
     color: cabin_core::ColorChoice,
     verbosity: cabin_core::Verbosity,
+    reported: &BuildScriptOutputs,
 ) -> Result<cabin_build::BuildGraph> {
-    let plan_graph = super::plan(&super::PlanRequest {
-        graph: &prepared.graph,
-        toolchain: &prepared.toolchain,
-        build_flags: &prepared.prep.build_flags,
-        language_standards: &prepared.language_standards,
-        standard_flag_conflicts: &prepared.prep.standard_flag_conflicts,
-        system_targets: &prepared.system_targets,
-        build_scripts: &[],
-        build_script_outputs: &HashMap::new(),
-        build_dir: prepared.build_dir.clone(),
-        platform: prepared.platform.clone(),
-        profile: prepared.profile.clone(),
-        selected,
-        selected_packages: Some(&prepared.resolved_selection.packages),
-        compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
-        dialect: cabin_build::Dialect::from_compiler_kind(
-            prepared.detection_report.lead().identity.kind,
-        ),
-        archiver_windows_rsp_quoting: prepared.detection_report.ar.identity.windows_rsp_quoting(),
-        msvc_external_includes: cabin_build::msvc_external_includes_supported(
-            &prepared.detection_report,
-            prepared.approx_standards.has_c_sources(),
-        ),
-        clang_cl: cabin_build::clang_cl_languages(&prepared.detection_report),
-        enabled_features: Some(&prepared.enabled_features),
-        standard_compat: true,
-        clang_target: prepared.clang_target.clone(),
-        sysroot: prepared.sysroot.clone(),
-        build_context: false,
-    })?;
-    // `cabin check` reuses the build graph but rewrites it into a
-    // syntax-only check (no codegen, no link) scoped to the selected
-    // workspace packages' own translation units.
-    let plan_graph = if check {
-        let profile_dir =
-            cabin_build::layout::profile_dir(&prepared.build_dir, &prepared.profile.name);
-        // The planner's own output dirs, which the check-graph filter
-        // compares against.
-        let selected_pkg_dirs: Vec<PathBuf> = prepared
-            .resolved_selection
-            .packages
-            .iter()
-            .map(|&idx| {
-                cabin_build::layout::package_dir(
-                    &profile_dir,
-                    false,
-                    &prepared.graph.packages[idx].package.name,
-                )
-            })
-            .collect();
-        cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)
-    } else {
-        plan_graph
-    };
+    let mut plan_graph = plan_target_context(prepared, selected, check, &reported[0])?;
     let target_standards = cabin_build::requested_standards_of(&plan_graph);
-    let mut plan_graph = plan_graph;
     let mut context_standards = None;
-    if let Some(context) = &prepared.build_context {
-        let context_graph = plan_build_context(prepared, context)?;
+    // A build context prepared for scripts the build then has no need
+    // of, with no build dependency, has nothing to plan.
+    let context = prepared
+        .build_context
+        .as_ref()
+        .filter(|context| !(scripts.is_empty() && context.roots.is_empty()));
+    if let Some(context) = context {
+        let context_graph = plan_build_context(prepared, context, scripts, &reported[1])?;
         context_standards = Some((context, cabin_build::requested_standards_of(&context_graph)));
         plan_graph.append(context_graph);
     }
@@ -1075,11 +1196,90 @@ pub(crate) fn plan_prepared(
     Ok(plan_graph)
 }
 
-/// Plan the build context: the build dependencies' selected targets,
-/// built for the build machine with its toolchain.
-fn plan_build_context(
+/// Plan the target context: the selected packages' targets (see
+/// [`plan_prepared`]), with what their build scripts `reported`.
+pub(crate) fn plan_target_context(
+    prepared: &PreparedWorkspace,
+    selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
+    check: bool,
+    reported: &HashMap<(usize, String), cabin_build::BuildScriptOutput>,
+) -> Result<cabin_build::BuildGraph> {
+    let plan_graph = super::plan(&target_request(prepared, selected, reported))?;
+    // `cabin check` reuses the build graph but rewrites it into a
+    // syntax-only check (no codegen, no link) scoped to the selected
+    // workspace packages' own translation units.
+    if check {
+        let profile_dir =
+            cabin_build::layout::profile_dir(&prepared.build_dir, &prepared.profile.name);
+        // The planner's own output dirs, which the check-graph filter
+        // compares against.
+        let selected_pkg_dirs: Vec<PathBuf> = prepared
+            .resolved_selection
+            .packages
+            .iter()
+            .map(|&idx| {
+                cabin_build::layout::package_dir(
+                    &profile_dir,
+                    false,
+                    &prepared.graph.packages[idx].package.name,
+                )
+            })
+            .collect();
+        Ok(cabin_build::into_check_graph(
+            plan_graph,
+            &selected_pkg_dirs,
+        ))
+    } else {
+        Ok(plan_graph)
+    }
+}
+
+/// What [`plan_target_context`] asks the planner.
+fn target_request<'a>(
+    prepared: &'a PreparedWorkspace,
+    selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
+    reported: &'a HashMap<(usize, String), cabin_build::BuildScriptOutput>,
+) -> super::PlanRequest<'a> {
+    super::PlanRequest {
+        graph: &prepared.graph,
+        toolchain: &prepared.toolchain,
+        build_flags: &prepared.prep.build_flags,
+        language_standards: &prepared.language_standards,
+        standard_flag_conflicts: &prepared.prep.standard_flag_conflicts,
+        system_targets: &prepared.system_targets,
+        build_scripts: &[],
+        build_script_outputs: reported,
+        build_dir: prepared.build_dir.clone(),
+        platform: prepared.platform.clone(),
+        profile: prepared.profile.clone(),
+        selected,
+        selected_packages: Some(&prepared.resolved_selection.packages),
+        compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
+        dialect: cabin_build::Dialect::from_compiler_kind(
+            prepared.detection_report.lead().identity.kind,
+        ),
+        archiver_windows_rsp_quoting: prepared.detection_report.ar.identity.windows_rsp_quoting(),
+        msvc_external_includes: cabin_build::msvc_external_includes_supported(
+            &prepared.detection_report,
+            prepared.approx_standards.has_c_sources(),
+        ),
+        clang_cl: cabin_build::clang_cl_languages(&prepared.detection_report),
+        enabled_features: Some(&prepared.enabled_features),
+        standard_compat: true,
+        clang_target: prepared.clang_target.clone(),
+        sysroot: prepared.sysroot.clone(),
+        build_context: false,
+    }
+}
+
+/// Plan the build context: the build dependencies' selected targets
+/// and `scripts`, built for the build machine with its toolchain, with
+/// what the scripts preparing its units `reported`.
+pub(crate) fn plan_build_context(
     prepared: &PreparedWorkspace,
     context: &BuildContextPrep,
+    scripts: &[cabin_build::BuildScript],
+    reported: &HashMap<(usize, String), cabin_build::BuildScriptOutput>,
 ) -> Result<cabin_build::BuildGraph> {
     // shortcut: build-context units get no pkg-config probe until
     // providers are per context, so a system dependency there fails here.
@@ -1095,8 +1295,8 @@ fn plan_build_context(
         language_standards: &prepared.language_standards,
         standard_flag_conflicts: &context.standard_flag_conflicts,
         system_targets: &HashMap::new(),
-        build_scripts: &[],
-        build_script_outputs: &HashMap::new(),
+        build_scripts: scripts,
+        build_script_outputs: reported,
         build_dir: prepared.build_dir.clone(),
         platform: context.platform.clone(),
         profile: prepared.profile.clone(),
@@ -1109,13 +1309,17 @@ fn plan_build_context(
         archiver_windows_rsp_quoting: context.detection_report.ar.identity.windows_rsp_quoting(),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &context.detection_report,
-            cabin_build::collect_requested_standards(
-                &prepared.graph,
-                &context.included,
-                &prepared.language_standards,
-                &BTreeSet::new(),
-            )
-            .has_c_sources(),
+            // A `build.c` is a C source no manifest lists.
+            scripts
+                .iter()
+                .any(|script| script.source.extension() == Some("c"))
+                || cabin_build::collect_requested_standards(
+                    &prepared.graph,
+                    &context.included,
+                    &prepared.language_standards,
+                    &BTreeSet::new(),
+                )
+                .has_c_sources(),
         ),
         clang_cl: cabin_build::clang_cl_languages(&context.detection_report),
         enabled_features: Some(&context.enabled_features),

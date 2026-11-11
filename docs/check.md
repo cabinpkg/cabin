@@ -39,6 +39,11 @@ Ninja can skip unchanged translation units next time.  The
 `cabin check` exits non-zero as soon as any translation unit fails to compile; the compiler's
 diagnostics are streamed through unchanged.
 
+A package's [build script](build-scripts.md) is the exception to "no binaries": the sources may need
+what it generates, so `cabin check` builds and runs the build scripts of the packages it checks
+and of their dependencies, and builds the
+[build dependencies](dependency-kinds.md#build-dependencies) with them.
+
 ### Build profiles
 
 ```text

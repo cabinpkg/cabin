@@ -167,11 +167,12 @@ pin before use, so a stale or corrupt entry is a miss, never a substitution.
 - Not a submission queue.  New foundation ports require a curated review; this directory is
   intentionally small.
 - Not a vehicle for binary distribution.  Only source archives are supported.
-- Not a workaround for missing build-script support.  Ports describe libraries whose source layout
+- Not a place for build scripts.  Ports describe libraries whose source layout
   already fits Cabin's target model (a fixed list of sources plus include directories), optionally
   placing a prebuilt file with a static `[[package.upstream.copy]]` step or correcting one with a
   declared byte-exact patch.  Libraries that need configure-time generation, CMake / Meson / Autotools
-  driving, or custom build commands cannot be ported until the build graph runs generated actions.
+  driving, or custom build commands cannot be ported: the [build script](build-scripts.md) of a
+  registry package is not run.
 - Not a variant-selection mechanism.  A published port carries whatever `[features]` its manifest
   declares (`cabin-ports/sqlite3` ships a `single-threaded` feature), but nothing in the port
   vocabulary selects a shared or static build.

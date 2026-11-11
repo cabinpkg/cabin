@@ -49,6 +49,7 @@ export const DOCS_NAV: DocsNavSection[] = [
         title: "Targets and building",
         items: [
             { label: "Targets", slug: "targets" },
+            { label: "Build scripts", slug: "build-scripts" },
             { label: "Checking", slug: "check" },
             { label: "Compiler wrappers", slug: "compiler-cache" },
             { label: "Testing", slug: "testing" },

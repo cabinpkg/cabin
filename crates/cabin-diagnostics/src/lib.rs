@@ -60,6 +60,9 @@ pub mod code {
     pub const ARTIFACT_ERROR: &str = "cabin::artifact::error";
     /// Build graph planning or validation failed.
     pub const BUILD_ERROR: &str = "cabin::build::error";
+    /// A package's build script could not be found, confined, or
+    /// run, failed, or reported what Cabin refuses.
+    pub const BUILD_SCRIPT_ERROR: &str = "cabin::build_script::error";
     /// A package declares a first-class `c-standard` /
     /// `cxx-standard` while its manifest-derived `cflags` /
     /// `cxxflags` also pin one via `-std=` / `/std:`.
