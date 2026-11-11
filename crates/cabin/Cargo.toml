@@ -28,6 +28,7 @@ pkg-fmt = "zip"
 anyhow = { workspace = true }
 cabin-artifact = { workspace = true }
 cabin-build = { workspace = true }
+cabin-build-script = { workspace = true }
 cabin-config = { workspace = true }
 cabin-core = { workspace = true }
 cabin-credentials = { workspace = true }

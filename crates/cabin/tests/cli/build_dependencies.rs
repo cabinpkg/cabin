@@ -744,7 +744,7 @@ sources = ["src/app.c"]
 }
 
 /// The command of the link edge whose output path ends with `tail`.
-fn link_program(ninja: &str, tail: &str) -> String {
+pub(crate) fn link_program(ninja: &str, tail: &str) -> String {
     let needle = format!("{}: link_executable ", host_path(tail));
     let mut lines = ninja.lines();
     lines

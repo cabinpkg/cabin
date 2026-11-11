@@ -118,10 +118,10 @@ listed target, plus the default targets if any edge omits `targets`.  A member's
 `[dev-dependencies]`, and an empty list is an error.  `cabin metadata` reports the list as the
 dependency's `targets`.
 
-`cabin build`, `run`, and `test` build build dependencies but run nothing: a build step that runs
-the tool is not part of Cabin yet, so a project runs its generator itself, between builds.  `cabin
-check` checks only the selected packages' own sources and builds no build dependency.  Not yet
-supported:
+`cabin build`, `run`, and `test` build build dependencies.  What runs a build dependency's
+executable, or links its library, is the package's [build script](build-scripts.md); without one,
+the build runs nothing.  `cabin check` checks only the selected packages' own sources, and builds
+build dependencies only when a build script has to run first.  Not yet supported:
 
 - system dependencies in the build context: `system = true` under `[build-dependencies]`, and a
   workspace member built there that declares one, are rejected,

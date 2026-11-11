@@ -151,9 +151,9 @@ Cargo's `links` is a package-level key coupled to build scripts: it feeds `DEP_<
 between build scripts and gates who may wrap a native library.  Cabin's [`links`](manifest.md#links)
 is declared on the `library` target that embodies the native library (a package may carry several
 libraries) and enforces exactly one thing: no two packages in a resolution graph may claim the same
-identity.  There is no metadata passing and no build-hook integration - Cabin has no build scripts -
-so the key exists purely to turn a duplicate-symbol failure deep in the final link into a clear
-post-resolution diagnostic.
+identity.  There is no metadata passing, and Cabin's [build scripts](build-scripts.md) take no part
+in it, so the key exists purely to turn a duplicate-symbol failure deep in the final link into a
+clear post-resolution diagnostic.
 
 ## What Cabin intentionally does not have
 

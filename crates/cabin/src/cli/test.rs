@@ -25,7 +25,7 @@ use cabin_build::{ManifestTargetSelector, select_targets_of_kind};
 use cabin_core::TargetKind;
 
 use crate::cli::build_prep::{
-    DevActivation, WorkspacePipelineArgs, plan_prepared, prepare_workspace,
+    DevActivation, WorkspacePipelineArgs, build_prepared, prepare_workspace,
 };
 use crate::cli::{
     ToolchainSelectionArgs, WorkspaceSelectionArgs, build_workspace_selection,
@@ -307,38 +307,20 @@ pub(crate) fn test(
         );
     }
 
-    let plan_graph = plan_prepared(
-        &prepared,
-        Some(test_selectors),
-        false,
-        color,
-        reporter.verbosity(),
-    )?;
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
 
     // `cabin test` prints no `Finished` banner - the test summary
     // is its completion signal - so only the returned lock is kept: it
     // stays held until the tests finish, so no collection or `cabin
     // clean` removes what they run.
-    let _built =
-        crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
-            build_dir: &prepared.build_dir,
-            build_root: &prepared.build_root,
-            profile: &prepared.profile,
-            plan_graph: &plan_graph,
-            graph: &prepared.graph,
-            toolchain: &prepared.toolchain,
-            detection: &prepared.detection_report,
-            build_machine_detection: prepared.build_machine_detection(),
-            feature_resolution: &prepared.feature_resolution,
-            platform: &prepared.platform,
-            dev_for: &prepared.dev_for,
-            ninja: &prepared.ninja,
-            jobs,
-            gc: crate::cli::gc::GcSettings::from_config(&prepared.effective_config),
-            configured_sysroot: prepared.configured_sysroot,
-            reporter,
-        })?;
+    let (plan_graph, _built) = build_prepared(
+        &prepared,
+        Some(test_selectors),
+        false,
+        color,
+        jobs,
+        reporter,
+    )?;
 
     // `plan_tests` keeps only the selected `test` targets; an empty
     // plan is an error below unless `--allow-no-tests` is given.

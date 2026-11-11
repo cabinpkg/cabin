@@ -40,8 +40,8 @@ pub use error::{BuildError, FeatureGateFix, PlannedStandardError};
 pub use graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
 pub use planner::{
     BuildScript, BuildScriptInputs, BuildScriptOutput, ManifestTargetSelector, PlanRequest,
-    SystemTargetInterface, build_script_inputs, plan, select_build_dependency_targets,
-    select_targets_of_kind, selector_required_features_met,
+    SystemTargetInterface, build_script_inputs, plan, planned_packages,
+    select_build_dependency_targets, select_targets_of_kind, selector_required_features_met,
 };
 pub use standard_compat::{
     ClashingBound, DeclScope, DeclSite, EdgeRequirement, RequirementOrigin, StandardCompatViolation,

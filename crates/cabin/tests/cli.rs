@@ -2330,6 +2330,9 @@ mod dev_dependencies;
 #[path = "cli/build_dependencies.rs"]
 mod build_dependencies;
 
+#[path = "cli/build_scripts.rs"]
+mod build_scripts;
+
 #[path = "cli/optional_dependencies_and_features.rs"]
 mod optional_dependencies_and_features;
 

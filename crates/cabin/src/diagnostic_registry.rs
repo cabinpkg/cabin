@@ -104,6 +104,10 @@ pub(crate) fn downcast_diagnostic<'a>(
         ),
         (|e| e.is::<cabin_build::BuildError>(), code::BUILD_ERROR),
         (
+            |e| e.is::<cabin_build_script::Error>(),
+            code::BUILD_SCRIPT_ERROR,
+        ),
+        (
             |e| e.is::<cabin_core::StandardFlagConflict>(),
             code::LANGUAGE_STANDARD_FLAG_CONFLICT,
         ),

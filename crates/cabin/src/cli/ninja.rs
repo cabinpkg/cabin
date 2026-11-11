@@ -586,12 +586,35 @@ impl Drop for Built {
     }
 }
 
+/// The locks a build holds while it writes and runs its Ninja files:
+/// the profile directory's (see [`crate::cli::gc::lock_tree`]), released
+/// first, and the build directory's, shared.
+pub(crate) struct Locks {
+    _tree: cabin_build::gc::BuildDirLock,
+    build_dir: cabin_build::gc::BuildDirLock,
+}
+
+/// Lock the build directory and the profile directory `req` builds in.
+///
+/// # Errors
+/// What [`crate::cli::gc::lock_shared`] and
+/// [`crate::cli::gc::lock_tree`] return.
+pub(crate) fn lock(req: &NinjaInvocationRequest<'_>) -> anyhow::Result<Locks> {
+    let build_dir = crate::cli::gc::lock_shared(req.build_root, &req.graph.root_dir, req.reporter)?;
+    let profile_build_root = cabin_build::layout::profile_dir(req.build_dir, &req.profile.name);
+    Ok(Locks {
+        _tree: crate::cli::gc::lock_tree(&profile_build_root, req.reporter)?,
+        build_dir,
+    })
+}
+
 /// Write `build.ninja` + `compile_commands.json` for the planned graph
 /// in the profile directory under `build_dir`, invoke Ninja there, and
 /// surface a link-failure hint before bailing on a non-zero exit.  The
 /// build directory is locked shared and the plan's products recorded as used
-/// before Ninja runs, and the profile directory is locked (see
-/// [`crate::cli::gc::lock_tree`]) until Ninja exits; after a successful
+/// before Ninja runs, and the profile directory is locked until Ninja
+/// exits, under `locks` when the caller took them already ([`lock`]);
+/// after a successful
 /// build that starts a new active day, unused outputs are collected when
 /// the returned [`Built`] is dropped (see [`crate::cli::gc`]).  Returns
 /// the wall-clock time the Ninja invocation took, for the caller's
@@ -602,14 +625,57 @@ impl Drop for Built {
 /// its outputs cannot be recorded, the build root cannot be created,
 /// the Ninja files cannot be written, Ninja cannot be spawned, or Ninja
 /// exits non-zero.
-pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyhow::Result<Built> {
-    let lock = crate::cli::gc::lock_shared(req.build_root, &req.graph.root_dir, req.reporter)?;
+pub(crate) fn invoke_ninja_and_report(
+    req: &NinjaInvocationRequest<'_>,
+    locks: Option<Locks>,
+) -> anyhow::Result<Built> {
+    let locks = match locks {
+        Some(locks) => locks,
+        None => lock(req)?,
+    };
+    let (elapsed, collection_due) = write_and_run(req, None)?;
+    Ok(Built {
+        elapsed,
+        lock: locks.build_dir,
+        due: (req.gc.auto && collection_due).then(|| {
+            crate::cli::gc::DueCollection::new(
+                req.build_root,
+                req.graph,
+                req.gc.policy,
+                req.reporter,
+            )
+        }),
+    })
+}
+
+/// Build only `targets` of the planned graph, with what they need: a
+/// step, under the locks [`lock`] takes, of a build whose last one is
+/// [`invoke_ninja_and_report`].  `compile_commands.json` is left to that
+/// one, which plans every command.
+///
+/// # Errors
+/// As [`invoke_ninja_and_report`].
+pub(crate) fn build_targets(
+    req: &NinjaInvocationRequest<'_>,
+    targets: &[&camino::Utf8Path],
+) -> anyhow::Result<()> {
+    write_and_run(req, Some(targets)).map(drop)
+}
+
+/// Write the Ninja files and run Ninja on `targets`, or on the graph's
+/// defaults for `None`, the build's last run, which also records the
+/// plan's products as used.  Returns how long Ninja took and whether a
+/// collection is due.
+fn write_and_run(
+    req: &NinjaInvocationRequest<'_>,
+    targets: Option<&[&camino::Utf8Path]>,
+) -> anyhow::Result<(std::time::Duration, bool)> {
     let profile_build_root = cabin_build::layout::profile_dir(req.build_dir, &req.profile.name);
     // Once locked, a new build directory holds the lock file, an entry
     // to tell its filesystem's case sensitivity by.
     cabin_build::validate_output_paths(req.plan_graph, &profile_build_root)?;
-    let collection_due = crate::cli::gc::record_use(req.build_root, req.plan_graph)?;
-    let _tree = crate::cli::gc::lock_tree(&profile_build_root, req.reporter)?;
+    let collection_due =
+        targets.is_none() && crate::cli::gc::record_use(req.build_root, req.plan_graph)?;
 
     let ninja_file = profile_build_root.join("build.ninja");
     let stamp = profile_build_root.join(cabin_ninja::writer::TOOLCHAIN_STAMP);
@@ -662,9 +728,11 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     // to this thread, so the helper thread is handed its dispatcher.
     let dispatch = tracing::dispatcher::get_default(Clone::clone);
     let (ninja_changed, ccmd_changed) = std::thread::scope(|scope| {
-        let ccmd = scope.spawn(|| {
-            tracing::dispatcher::with_default(&dispatch, || {
-                cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)
+        let ccmd = targets.is_none().then(|| {
+            scope.spawn(|| {
+                tracing::dispatcher::with_default(&dispatch, || {
+                    cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)
+                })
             })
         });
         let ninja = cabin_ninja::write_build_ninja(
@@ -675,16 +743,22 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
         );
         (
             ninja,
-            ccmd.join()
-                .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            ccmd.map(|ccmd| {
+                ccmd.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            }),
         )
     });
-    let (ninja_changed, ccmd_changed) = (ninja_changed?, ccmd_changed?);
+    let written = [
+        (&ninja_file, Some(ninja_changed?)),
+        (&ccmd_file, ccmd_changed.transpose()?),
+    ];
 
     // Implementation-detail status is verbose-only: under `-v` the
     // user sees which files Cabin wrote and how Ninja was invoked,
     // alongside Ninja's own raw banner.
-    for (file, changed) in [(&ninja_file, ninja_changed), (&ccmd_file, ccmd_changed)] {
+    for (file, changed) in written {
+        let Some(changed) = changed else { continue };
         if changed {
             req.reporter
                 .verbose(format_args!("cabin: wrote {}", file.display()));
@@ -694,8 +768,13 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
         }
     }
     let ninja_verbose = req.reporter.verbosity().shows_verbose();
+    let mut named = String::new();
+    for target in targets.into_iter().flatten() {
+        named.push(' ');
+        named.push_str(target.as_str());
+    }
     req.reporter.verbose(format_args!(
-        "cabin: invoking {} {}{}-C {}",
+        "cabin: invoking {} {}{}-C {}{named}",
         req.ninja.display(),
         ninja_jobs_echo(req.jobs),
         ninja_verbose_echo(ninja_verbose),
@@ -718,8 +797,10 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
     }
     let ninja_log = crate::trace::NinjaLog::snapshot(&profile_build_root);
     let build_started = std::time::Instant::now();
+    ninja_cmd.arg("-C").arg(&profile_build_root);
+    ninja_cmd.args(targets.into_iter().flatten());
     let run = run_ninja(
-        ninja_cmd.arg("-C").arg(&profile_build_root),
+        &mut ninja_cmd,
         &profile_build_root,
         req.reporter,
         req.graph,
@@ -736,18 +817,7 @@ pub(crate) fn invoke_ninja_and_report(req: &NinjaInvocationRequest<'_>) -> anyho
         }
         anyhow::bail!("ninja exited with {}", run.status);
     }
-    Ok(Built {
-        elapsed: build_started.elapsed(),
-        lock,
-        due: (req.gc.auto && collection_due).then(|| {
-            crate::cli::gc::DueCollection::new(
-                req.build_root,
-                req.graph,
-                req.gc.policy,
-                req.reporter,
-            )
-        }),
-    })
+    Ok((build_started.elapsed(), collection_due))
 }
 
 #[cfg(test)]

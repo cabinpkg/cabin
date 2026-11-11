@@ -1,6 +1,6 @@
 use super::{BuildArgs, Reporter, Result, profile_descriptor};
 use crate::cli::build_prep::{
-    DevActivation, WorkspacePipelineArgs, plan_prepared, prepare_workspace,
+    DevActivation, WorkspacePipelineArgs, build_prepared, prepare_workspace,
 };
 
 /// Whether [`build`] produces real artifacts (`cabin build`) or only
@@ -40,16 +40,8 @@ pub(super) fn build(
         },
         reporter,
     )?;
-    let plan_graph = plan_prepared(
-        &prepared,
-        None,
-        matches!(mode, BuildMode::Check),
-        color,
-        reporter.verbosity(),
-    )?;
-
-    // `invoke_ninja_and_report` emits the shared "wrote …" /
-    // "invoking …" verbose lines.
+    // `build_prepared` emits the shared "wrote …" / "invoking …"
+    // verbose lines.
     reporter.verbose(format_args!(
         "cabin: profile = {}",
         prepared.profile.name.as_str()
@@ -70,25 +62,14 @@ pub(super) fn build(
     ));
 
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
-    let built =
-        crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
-            build_dir: &prepared.build_dir,
-            build_root: &prepared.build_root,
-            profile: &prepared.profile,
-            plan_graph: &plan_graph,
-            graph: &prepared.graph,
-            toolchain: &prepared.toolchain,
-            detection: &prepared.detection_report,
-            build_machine_detection: prepared.build_machine_detection(),
-            feature_resolution: &prepared.feature_resolution,
-            platform: &prepared.platform,
-            dev_for: &prepared.dev_for,
-            ninja: &prepared.ninja,
-            jobs,
-            gc: crate::cli::gc::GcSettings::from_config(&prepared.effective_config),
-            configured_sysroot: prepared.configured_sysroot,
-            reporter,
-        })?;
+    let (_, built) = build_prepared(
+        &prepared,
+        None,
+        matches!(mode, BuildMode::Check),
+        color,
+        jobs,
+        reporter,
+    )?;
 
     reporter.status(
         "Finished",

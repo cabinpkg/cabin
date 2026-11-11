@@ -43,6 +43,14 @@ mod enforced {
         let (verb, arg) = action.split_once(':').unwrap_or((&action, ""));
         match verb {
             "read" => report(verb, std::fs::read(arg).map(drop)),
+            // Temporary probe: start the copy `arg` of this binary.
+            "start" => {
+                let outcome = Command::new(arg)
+                    .args(PROBE_ARGS)
+                    .env(PROBE, "exit:0")
+                    .status();
+                println!("start: {outcome:?}");
+            }
             "list" => report(verb, std::fs::read_dir(arg).map(drop)),
             "write" => report(verb, std::fs::write(arg, "x")),
             "rmdir" => report(verb, std::fs::remove_dir(arg)),
@@ -1418,6 +1426,49 @@ mod enforced {
             assert!(control, "{action} unconfined");
             assert_eq!(outcome, "PermissionDenied", "{action}");
         }
+    }
+
+    /// Temporary probe: which grants let a confined program start another.
+    #[cfg(windows)]
+    #[test]
+    fn probe_child_start() {
+        let mut seen = String::new();
+        for (program_dir, tool_dir) in [(true, true), (true, false), (false, true), (false, false)]
+        {
+            let (dir, exe) = copied_exe();
+            let (other, tool) = copied_exe();
+            let logs = TempDir::new().unwrap();
+            let (stdout, stderr) = (logs.path().join("stdout"), logs.path().join("stderr"));
+            let read = vec![
+                if program_dir {
+                    dir.path().to_owned()
+                } else {
+                    exe.clone()
+                },
+                if tool_dir {
+                    other.path().to_owned()
+                } else {
+                    tool.clone()
+                },
+            ];
+            let status = cabin_sandbox::run(Confinement {
+                program: exe,
+                args: PROBE_ARGS.map(OsString::from).to_vec(),
+                current_dir: dir.path().to_owned(),
+                env: probe_env(&format!("start:{}", arg(&tool))),
+                read,
+                write: Vec::new(),
+                hidden: Vec::new(),
+                stdout: File::create(&stdout).unwrap(),
+                stderr: File::create(&stderr).unwrap(),
+            });
+            seen += &format!(
+                "PROBE program_dir={program_dir} tool_dir={tool_dir}: {status:?}\n{}\n{}\n",
+                std::fs::read_to_string(stdout).unwrap(),
+                std::fs::read_to_string(stderr).unwrap(),
+            );
+        }
+        panic!("{seen}");
     }
 
     #[test]

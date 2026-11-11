@@ -27,6 +27,11 @@ Cabin generates `build/<profile>/compile_commands.json` for the selected package
 argument hides `run-clang-tidy`'s per-file progress chatter so only real diagnostics reach stderr;
 pass `-v` / `--verbose` to drop `-quiet` and see the driver's full progress output.
 
+`cabin tidy` neither runs [build scripts](build-scripts.md) nor applies what they reported: the
+compilation database lacks the include directories, definitions, and sources a script adds, so a
+source that includes a generated header fails to compile under `clang-tidy`, and a target whose
+every source a build script generates is refused as having no sources.
+
 `cabin tidy` exits non-zero whenever `run-clang-tidy` exits non-zero, which is the standard way
 clang-tidy signals that at least one file produced a diagnostic.
 

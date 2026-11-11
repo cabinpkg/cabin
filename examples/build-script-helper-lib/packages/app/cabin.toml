@@ -1,0 +1,12 @@
+[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+# Built for the machine the build runs on; `build.cpp` links its library.
+[build-dependencies]
+tablegen = { path = "../tablegen" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
