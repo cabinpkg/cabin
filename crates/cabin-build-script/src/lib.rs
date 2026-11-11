@@ -20,7 +20,8 @@
 //!   anew for each run: `out` (`CABIN_OUT_DIR`), `result` (holding
 //!   `CABIN_RESULT_FILE`), `home`, and `tmp`;
 //! - the environment [`cabin_env::build_script_env`] builds, and the
-//!   package's root as its working directory.
+//!   package's root as its working directory.  On Windows, `TEMP` and
+//!   `TMP` name a directory Windows makes for the run instead of `tmp`.
 //!
 //! Beside those four, [`Script::dir`] holds what the script cannot
 //! reach: `stdout` and `stderr`, what the last run printed, and `stamp`,
