@@ -24,7 +24,7 @@ use cabin_build::ManifestTargetSelector;
 use cabin_core::{Package, TargetKind};
 
 use crate::cli::build_prep::{
-    DevActivation, WorkspacePipelineArgs, plan_prepared, prepare_workspace,
+    DevActivation, WorkspacePipelineArgs, build_prepared, prepare_workspace,
 };
 use crate::cli::{ToolchainSelectionArgs, WorkspaceSelectionArgs};
 
@@ -165,7 +165,10 @@ pub(crate) fn run(
         args.bin.as_deref(),
         &prepared.enabled_features,
     )?;
-    let plan_graph = plan_prepared(
+    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
+    // `built` holds the build-directory lock until the program exits,
+    // so no collection or `cabin clean` removes it while it runs.
+    let (plan_graph, built) = build_prepared(
         &prepared,
         Some(vec![ManifestTargetSelector {
             package: Some(run_target.package_name.as_str().to_owned()),
@@ -173,31 +176,9 @@ pub(crate) fn run(
         }]),
         false,
         color,
-        reporter.verbosity(),
+        jobs,
+        reporter,
     )?;
-
-    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
-    // `built` holds the build-directory lock until the program exits,
-    // so no collection or `cabin clean` removes it while it runs.
-    let built =
-        crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
-            build_dir: &prepared.build_dir,
-            build_root: &prepared.build_root,
-            profile: &prepared.profile,
-            plan_graph: &plan_graph,
-            graph: &prepared.graph,
-            toolchain: &prepared.toolchain,
-            detection: &prepared.detection_report,
-            build_machine_detection: prepared.build_machine_detection(),
-            feature_resolution: &prepared.feature_resolution,
-            platform: &prepared.platform,
-            dev_for: &prepared.dev_for,
-            ninja: &prepared.ninja,
-            jobs,
-            gc: crate::cli::gc::GcSettings::from_config(&prepared.effective_config),
-            configured_sysroot: prepared.configured_sysroot,
-            reporter,
-        })?;
 
     // Cargo-style `Finished` banner so `cabin run` shows the
     // same build summary as `cabin build` before handing off to

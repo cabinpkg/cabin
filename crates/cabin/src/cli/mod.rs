@@ -13,6 +13,7 @@ use crate::manpages::MangenArgs;
 
 pub(crate) mod add;
 pub(crate) mod build_prep;
+pub(crate) mod build_script;
 pub(crate) mod config;
 pub(crate) mod env_flags;
 pub(crate) mod explain;

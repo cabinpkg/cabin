@@ -344,6 +344,19 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     Ok(graph)
 }
 
+/// The packages [`plan`] plans a target of for `req`, by `graph.packages`
+/// index: those of its selection and of every target one depends on.
+/// It asks nothing of a target's sources, so it answers while a build
+/// script is yet to generate them.
+///
+/// # Errors
+/// The selection and dependency-resolution errors of [`plan`].
+pub fn planned_packages(req: &PlanRequest<'_>) -> Result<BTreeSet<usize>, BuildError> {
+    let selected = select_targets(req)?;
+    let resolved = resolve_dependencies(&selected, req)?;
+    Ok(resolved.reachable.into_iter().map(|tid| tid.0).collect())
+}
+
 /// Phase one: resolve the requested selection (or enumerate the
 /// default-buildable set) into concrete target IDs, hard-erroring on
 /// missing required features for explicitly named targets.

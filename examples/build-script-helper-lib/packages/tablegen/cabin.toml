@@ -1,0 +1,9 @@
+[package]
+name = "tablegen"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.tablegen]
+type = "library"
+sources = ["src/crc32.cpp"]
+include-dirs = ["include"]

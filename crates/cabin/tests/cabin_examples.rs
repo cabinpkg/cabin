@@ -240,6 +240,98 @@ fn header_only_lib_builds_and_runs() {
     }
 }
 
+/// `cabin run` on the copy `dir` of an example.
+fn run_example(dir: &TempDir) -> assert_cmd::Command {
+    let mut cmd = cabin();
+    cmd.args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"));
+    cmd
+}
+
+#[test]
+fn build_script_header_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("build-script-header");
+    run_example(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "built with the dev profile for {}",
+            std::env::consts::OS
+        )));
+}
+
+/// The example is C only, its build script included: it builds on a
+/// `PATH` that holds no C++ compiler.
+#[cfg(unix)]
+#[test]
+fn build_script_header_builds_without_a_cxx_compiler() {
+    require_c_and_cxx_build_tools();
+    let bin = TempDir::new().unwrap();
+    let cc = ["cc", "clang", "gcc"]
+        .into_iter()
+        .find_map(|name| which::which(name).ok())
+        .unwrap();
+    std::os::unix::fs::symlink(cc, bin.path().join("cc")).unwrap();
+    // `as`/`ld`: GNU drivers look them up on PATH; `xcrun`: Apple SDK lookup.
+    for tool in ["ar", "ninja", "as", "ld", "xcrun"] {
+        if let Ok(path) = which::which(tool) {
+            std::os::unix::fs::symlink(path, bin.path().join(tool)).unwrap();
+        }
+    }
+    let dir = copy_example("build-script-header");
+    run_example(&dir)
+        .env("PATH", bin.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("built with the dev profile"));
+}
+
+#[test]
+fn build_script_helper_lib_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("build-script-helper-lib");
+    run_example(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("crc32(\"cabin\") = ce4ce919"));
+}
+
+/// The build script runs the `embed` Cabin built, by the path Cabin
+/// gave it: a failing program of that name first on `PATH` changes
+/// nothing.
+#[test]
+fn build_script_generator_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("build-script-generator");
+    let decoys = TempDir::new().unwrap();
+    let decoy = decoys.child(if cfg!(windows) { "embed.bat" } else { "embed" });
+    decoy
+        .write_str(if cfg!(windows) {
+            "@exit /b 1\r\n"
+        } else {
+            "#!/bin/sh\nexit 1\n"
+        })
+        .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(decoy.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = std::env::join_paths(
+        std::iter::once(decoys.path().to_owned())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    run_example(&dir)
+        .env("PATH", path)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Hello from an embedded file"));
+}
+
 #[test]
 fn workspace_basic_builds_workspace() {
     require_cxx_build_tools();

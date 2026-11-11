@@ -212,7 +212,9 @@ cabin build --target aarch64-unknown-linux-gnu \
   Without one, a triple with the build machine's `os` and `arch` runs as usual, as does x86 on
   Windows x64; for another machine they build, then fail with an error naming what they built:
   Cabin never runs a binary built for another machine on its own.
-- **Build dependencies.**  [Build dependencies](dependency-kinds.md#build-dependencies) build for
+- **Build dependencies and build scripts.**
+  [Build dependencies](dependency-kinds.md#build-dependencies) and
+  [build scripts](build-scripts.md) build for
   the build machine under `<build-dir>/.targets/<triple>/<profile>/build-machine/`, with the build machine's
   own toolchain: `HOST_CC`, `HOST_CXX`, and `HOST_AR` in place of `CC`, `CXX`, and `AR`, then the
   manifest's `[toolchain]` tables evaluated for the build machine, then the defaults.  `--cc`,
@@ -246,8 +248,8 @@ compiler.
 Cabin honors `CC`, `CXX`, and `AR` from the running process' environment.  Values are interpreted as
 a single executable path or command name; they are not shell-split.  Empty values are ignored, so
 `CXX=` looks identical to no `CXX` at all.  Under `--target`, `HOST_CC`, `HOST_CXX`, and `HOST_AR`
-choose the build machine's tools for [build dependencies](#building-for-another-platform) the same
-way.
+choose the build machine's tools for
+[build dependencies and build scripts](#building-for-another-platform) the same way.
 
 Cabin also honors `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and `LDFLAGS` as conventional C/C++ build flag
 sources.  Each variable is parsed into argv tokens using POSIX shell-style word splitting (via the
@@ -590,8 +592,9 @@ do *not* re-read `cabin.toml`, `.cabin/config.toml`, or the environment - Ninja 
 only when the command line, an explicit input, the depfile, or the output path changes, or when
 `cabin-toolchain.json` beside `build.ninja` does.  Every edge depends on that file, which records
 each detected compiler's and the archiver's family, version, `--version` line, and target (the
-build machine's too, under `--target` with build dependencies), and the `INCLUDE` and `LIB`
-search paths the build runs with, and which `cabin build` rewrites only when one of them changes:
+build machine's too, under `--target` with build dependencies or a build script), and the
+`INCLUDE` and `LIB` search paths the build runs with, and which `cabin build` rewrites only when
+one of them changes:
 a compiler whose reported version changes rebuilds everything, even at the same path, and so does
 an `INCLUDE` or `LIB` naming other directories, which `cl`, `clang-cl`, and `link` search for
 what no command line names.  Run `cabin build` after manifest, config, or toolchain

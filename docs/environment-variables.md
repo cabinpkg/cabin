@@ -285,6 +285,13 @@ the compiler / archiver / wrapper detection probes, `clang-format`, `run-clang-t
 `cabin test` runs each executable in its owning package's manifest directory so tests can reach
 repository-relative fixture data deterministically.
 
+## Variables a build script sees
+
+A package's build script runs with an environment Cabin builds from scratch: a fixed set of
+`CABIN_*` variables, a short list of yours (`PATH` among them), and every variable whose name starts
+with `CABIN_SDK_`, which is how you point a build script at an SDK.  Nothing else of your
+environment reaches it.  See [What a script is given](build-scripts.md#what-a-script-is-given).
+
 ## Why Cabin does not auto-inject `-DCABIN_PACKAGE_*` macros
 
 Cargo's `CARGO_PKG_*` env vars are compile-time constants in Rust because `env!()` reads them during

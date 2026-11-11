@@ -78,6 +78,21 @@ where
     Ok(build_flags)
 }
 
+/// The environment's flags alone, for each primary package: what
+/// [`augment_build_flags_with_env`] adds to a package's own.
+pub(crate) fn env_build_flags<F>(
+    graph: &PackageGraph,
+    env: F,
+) -> Result<HashMap<usize, ResolvedProfileFlags>>
+where
+    F: Fn(&str) -> Option<std::ffi::OsString>,
+{
+    let parsed = parse_env_build_flags(&env).map_err(format_parse_error)?;
+    let mut flags = HashMap::new();
+    apply_to_primary_packages(graph, &mut flags, &parsed);
+    Ok(flags)
+}
+
 fn format_parse_error(err: EnvBuildFlagsError) -> anyhow::Error {
     // The error message already names the offending variable.
     anyhow::Error::new(err)

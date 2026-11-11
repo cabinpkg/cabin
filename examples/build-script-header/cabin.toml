@@ -1,0 +1,8 @@
+[package]
+name = "build-script-header"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.build-script-header]
+type = "executable"
+sources = ["src/main.c"]
