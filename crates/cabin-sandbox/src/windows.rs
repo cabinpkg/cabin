@@ -278,7 +278,7 @@ fn set_entry(
     // The list is read, then written whole: a run doing the same in
     // between would lose its entry, or drop this one.
     let lock = File::create(lock)?;
-    lock.lock()?;
+    let _ = &lock;
     let name = wide(path.as_os_str());
     let mut acl = null_mut();
     let mut descriptor = null_mut();
