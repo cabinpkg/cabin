@@ -6,18 +6,20 @@
 //!
 //! - reads nothing under the user's home directory, or any other place
 //!   user data lives, but the caller's [`Confinement::read`] paths (on
-//!   Linux, it reads only those and what starting a program needs);
-//! - writes only under [`Confinement::write`] (and to `/dev/null`);
+//!   Linux, it reads only those and what starting a program needs; on
+//!   Windows, only those and what Windows opens to every `AppContainer`);
+//! - writes only under [`Confinement::write`] (and to the null device);
 //! - opens no network connection;
 //! - sees exactly [`Confinement::env`]: the environment is cleared first,
-//!   and descriptors other than the standard streams are not inherited.
+//!   and descriptors or handles other than the standard streams are not
+//!   inherited.
 //!
-//! Before [`run`] returns, every process the program started is sent
-//! `SIGKILL`.
+//! Before [`run`] returns, every process the program started is killed.
 //!
 //! Mechanisms: Linux Landlock (ABI 3, Linux 6.2, or newer) plus a
-//! seccomp filter, on 64-bit x86 and Arm; macOS `sandbox-exec`.  Other
-//! platforms are not supported yet.  When the mechanism is missing,
+//! seccomp filter, on 64-bit x86 and Arm; macOS `sandbox-exec`; on
+//! Windows an `AppContainer` in a job object.  Other platforms are not
+//! supported yet.  When the mechanism is missing,
 //! [`run`] fails with [`SandboxError::Unavailable`]: it never starts the
 //! program unconfined.
 //!
@@ -39,9 +41,16 @@
 //!   does everything when Cabin itself is killed outright; it stays
 //!   confined.  `DYLD_*` variables never reach the program, because the
 //!   system strips them when starting `sandbox-exec`.
-//! - Both: run by root, the program keeps root's privileges, with which it
-//!   can reach past the confinement (create a device node in a write
-//!   grant, for one).  Cabin is not meant to run as root.
+//! - Linux and macOS: run by root, the program keeps root's privileges,
+//!   with which it can reach past the confinement (create a device node in
+//!   a write grant, for one).  Cabin is not meant to run as root.
+//! - Windows: what Windows opens to every `AppContainer` stays readable,
+//!   the system directories and Program Files among them.  A grant is an
+//!   entry Cabin adds to the access-control list of the path and of all
+//!   beneath it, and removes after the run: the cost grows with what the
+//!   path holds, a path whose list Cabin's user may not change fails the
+//!   run, and two runs at once must not share a granted path, or one can
+//!   drop the other's entry.
 //!
 //! Choosing what to grant (and which environment variables are safe to
 //! pass) is the caller's policy; this crate only enforces it.
@@ -67,6 +76,8 @@ mod macos;
     target_os = "macos"
 ))]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 /// One confined program run.  Every path is absolute.
 #[derive(Debug)]
@@ -91,7 +102,8 @@ pub struct Confinement {
     /// Paths beneath a [`Self::read`] grant that stay unreadable, such as
     /// a package's `.git`.  None may contain a granted path or lie inside
     /// a [`Self::write`] grant (the program could rename an ancestor).  One
-    /// with a `..` after a missing directory fails the run.  On Linux the
+    /// with a `..` after a missing directory fails the run, except on
+    /// Windows, which resolves `..` first.  On Linux and Windows the
     /// directory holding one cannot be listed.
     pub hidden: Vec<PathBuf>,
     pub stdout: File,
@@ -120,7 +132,8 @@ pub enum SandboxError {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ),
-    target_os = "macos"
+    target_os = "macos",
+    windows
 ))]
 fn resolve_hidden(hidden: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
     let mut resolved = Vec::new();
@@ -154,7 +167,8 @@ fn resolve_hidden(hidden: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ),
-    target_os = "macos"
+    target_os = "macos",
+    windows
 ))]
 fn resolve(path: &std::path::Path) -> Option<PathBuf> {
     let mut path = path.to_path_buf();
@@ -183,6 +197,44 @@ fn resolve(path: &std::path::Path) -> Option<PathBuf> {
     None
 }
 
+/// `read` with each grant that contains a hidden path replaced by its
+/// other entries, recursively: a Landlock rule can only grant, and on
+/// Windows a hidden path that does not exist yet has no access-control
+/// list to deny in.  A directory so replaced cannot be listed, and
+/// entries created in it later stay unreadable.
+#[cfg(any(
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ),
+    windows
+))]
+fn without_hidden(read: Vec<PathBuf>, hidden: &[PathBuf]) -> Vec<PathBuf> {
+    let mut granted = Vec::new();
+    let mut pending = read;
+    while let Some(path) = pending.pop() {
+        if hidden.contains(&path) {
+            continue;
+        }
+        if !hidden.iter().any(|h| h.starts_with(&path)) {
+            granted.push(path);
+            continue;
+        }
+        // A symlink's rule would grant its target, which may lie outside
+        // the grant or inside a hidden path.  Skipped, a symlink still
+        // reaches whatever its target's own rules grant.
+        if let Ok(entries) = std::fs::read_dir(&path) {
+            pending.extend(
+                entries
+                    .flatten()
+                    .filter(|entry| entry.file_type().is_ok_and(|kind| !kind.is_symlink()))
+                    .map(|entry| entry.path()),
+            );
+        }
+    }
+    granted
+}
+
 /// Run `confinement.program` confined, wait for it, kill whatever it
 /// left running, and return its exit status.  stdin is empty.
 ///
@@ -198,12 +250,15 @@ pub fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> {
     return linux::run(confinement);
     #[cfg(target_os = "macos")]
     return macos::run(confinement);
+    #[cfg(windows)]
+    return windows::run(confinement);
     #[cfg(not(any(
         all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ),
-        target_os = "macos"
+        target_os = "macos",
+        windows
     )))]
     {
         drop(confinement);

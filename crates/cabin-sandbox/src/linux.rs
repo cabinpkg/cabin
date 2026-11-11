@@ -143,38 +143,8 @@ fn read_grants(
     hidden: &[PathBuf],
     home: &[PathBuf],
 ) -> Vec<PathBuf> {
-    let system = without_hidden(system, &[hidden, home].concat());
-    [system, without_hidden(read, hidden)].concat()
-}
-
-/// `read` with each grant that contains a hidden path replaced by its
-/// other entries, recursively: Landlock rules can only grant.  A
-/// directory so replaced cannot be listed, and entries created in it
-/// later stay unreadable.
-fn without_hidden(read: Vec<PathBuf>, hidden: &[PathBuf]) -> Vec<PathBuf> {
-    let mut granted = Vec::new();
-    let mut pending = read;
-    while let Some(path) = pending.pop() {
-        if hidden.contains(&path) {
-            continue;
-        }
-        if !hidden.iter().any(|h| h.starts_with(&path)) {
-            granted.push(path);
-            continue;
-        }
-        // A symlink's rule would grant its target, which may lie outside
-        // the grant or inside a hidden path.  Skipped, a symlink still
-        // reaches whatever its target's own rules grant.
-        if let Ok(entries) = std::fs::read_dir(&path) {
-            pending.extend(
-                entries
-                    .flatten()
-                    .filter(|entry| entry.file_type().is_ok_and(|kind| !kind.is_symlink()))
-                    .map(|entry| entry.path()),
-            );
-        }
-    }
-    granted
+    let system = crate::without_hidden(system, &[hidden, home].concat());
+    [system, crate::without_hidden(read, hidden)].concat()
 }
 
 fn ruleset(read: &[PathBuf], write: &[PathBuf]) -> Result<RulesetCreated, RulesetError> {

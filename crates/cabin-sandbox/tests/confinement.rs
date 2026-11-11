@@ -9,12 +9,13 @@
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ),
-    target_os = "macos"
+    target_os = "macos",
+    windows
 ))]
 mod enforced {
     use std::ffi::OsString;
     use std::fs::File;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::process::{Command, ExitStatus};
     use std::time::Duration;
 
@@ -84,6 +85,7 @@ mod enforced {
                     .open(arg)
                     .and_then(|mut file| std::io::Write::write_all(&mut file, b"x")),
             ),
+            #[cfg(unix)]
             "truncate" => {
                 let path = std::ffi::CString::new(arg).unwrap();
                 // SAFETY: valid C string.
@@ -118,6 +120,7 @@ mod enforced {
                 report(verb, errno(if id < 0 { -1 } else { 0 }));
             }
             // Attach the System V segment `arg`.
+            #[cfg(unix)]
             "shm" => {
                 // SAFETY: plain system call; the mapping dies with the probe.
                 let at = unsafe {
@@ -125,6 +128,7 @@ mod enforced {
                 };
                 report(verb, errno(if at as isize == -1 { -1 } else { 0 }));
             }
+            #[cfg(unix)]
             "posix-shm" => {
                 let name = std::ffi::CString::new(arg).unwrap();
                 // SAFETY: valid C string; the descriptor is closed below.
@@ -135,6 +139,7 @@ mod enforced {
                     unsafe { libc::close(fd) };
                 }
             }
+            #[cfg(unix)]
             "posix-sem" => {
                 let name = std::ffi::CString::new(arg).unwrap();
                 // SAFETY: valid C string; the semaphore is closed below.
@@ -146,6 +151,7 @@ mod enforced {
                     unsafe { libc::sem_close(semaphore) };
                 }
             }
+            #[cfg(unix)]
             "dgram" => report(
                 verb,
                 std::os::unix::net::UnixDatagram::pair()
@@ -163,6 +169,7 @@ mod enforced {
             "kill-all" => report(verb, errno(unsafe { libc::kill(-1, 0) })),
             // Leave `arg` open as descriptor 200, above a lowered soft limit,
             // then report what a confined program sees of it.
+            #[cfg(unix)]
             "high-fd" => {
                 use std::os::fd::AsRawFd as _;
                 let file = File::open(arg).unwrap();
@@ -179,6 +186,7 @@ mod enforced {
                     confine("fd:200", &[], &[]).unwrap().outcome("fd")
                 );
             }
+            #[cfg(unix)]
             "fd" => {
                 // SAFETY: only queries the descriptor.
                 let open = unsafe { libc::fcntl(arg.parse().unwrap(), libc::F_GETFD) } != -1;
@@ -221,6 +229,7 @@ mod enforced {
             }
             // Leave the process group first; report whether that seemed to
             // work.
+            #[cfg(unix)]
             "detach" => {
                 // SAFETY: plain system calls.
                 let left = unsafe { libc::setsid() != -1 && libc::setpgid(0, 0) == 0 };
@@ -233,11 +242,13 @@ mod enforced {
                 confine(&format!("child:late:{arg}"), &[], &[Path::new(arg)]).unwrap();
             }
             "exit" => std::process::exit(arg.parse().unwrap()),
+            #[cfg(unix)]
             "session" => {
                 // SAFETY: plain system calls.
                 let leader = unsafe { libc::getsid(0) == libc::getpid() };
                 println!("session: {}", if leader { "leader" } else { "inherited" });
             }
+            #[cfg(unix)]
             "signal" => {
                 // SAFETY: signal 0 only checks permission.
                 report(verb, errno(unsafe { libc::kill(arg.parse().unwrap(), 0) }));
@@ -251,16 +262,17 @@ mod enforced {
                 println!("task-read-for-pid: {read}");
             }
             // Try to create `<arg>/started` from a nested sandbox.
+            #[cfg(unix)]
             "nested" => {
                 let out = || File::create("/dev/null").unwrap();
                 let exe = std::env::current_exe().unwrap();
                 let nested = cabin_sandbox::run(Confinement {
                     args: PROBE_ARGS.map(OsString::from).to_vec(),
-                    current_dir: PathBuf::from(arg),
+                    current_dir: arg.into(),
                     env: vec![(PROBE.into(), format!("late:{arg}").into())],
                     read: vec![exe.parent().unwrap().to_owned()],
                     program: exe,
-                    write: vec![PathBuf::from(arg)],
+                    write: vec![arg.into()],
                     hidden: Vec::new(),
                     stdout: out(),
                     stderr: out(),
@@ -270,6 +282,99 @@ mod enforced {
                     other => format!("{other:?}"),
                 };
                 println!("nested: {outcome}");
+            }
+            // Whether `arg` is an open handle to a file holding `token`; the
+            // value alone could be another of this process's handles.
+            #[cfg(windows)]
+            "handle" => {
+                use std::os::windows::fs::FileExt as _;
+                use std::os::windows::io::{FromRawHandle as _, RawHandle};
+                use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_DISK, GetFileType};
+                let handle = arg.parse::<usize>().unwrap() as RawHandle;
+                let mut start = [0; 5];
+                // SAFETY: only queries the handle and reads through it; the
+                // `ManuallyDrop` leaves it open.
+                let open = unsafe {
+                    GetFileType(handle) == FILE_TYPE_DISK
+                        && std::mem::ManuallyDrop::new(File::from_raw_handle(handle))
+                            .seek_read(&mut start, 0)
+                            .is_ok_and(|read| start[..read] == *b"token")
+                };
+                println!("handle: {}", if open { "open" } else { "closed" });
+            }
+            #[cfg(windows)]
+            "process" => {
+                use windows_sys::Win32::Foundation::CloseHandle;
+                use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_VM_READ};
+                // SAFETY: plain system calls; the handle is closed at once.
+                let opened = unsafe {
+                    let process = OpenProcess(PROCESS_VM_READ, 0, arg.parse().unwrap());
+                    !process.is_null() && CloseHandle(process) != 0
+                };
+                report(verb, last_error(opened));
+            }
+            #[cfg(windows)]
+            "pipe" => report(
+                verb,
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(arg)
+                    .map(drop),
+            ),
+            #[cfg(windows)]
+            "registry" => {
+                use windows_sys::Win32::System::Registry::{
+                    HKEY_CURRENT_USER, KEY_READ, RegCloseKey, RegOpenKeyExW,
+                };
+                let mut key = std::ptr::null_mut();
+                // SAFETY: a NUL-terminated name and an out-pointer; the key
+                // is closed at once.
+                let error = unsafe {
+                    let name = wide(arg);
+                    let error =
+                        RegOpenKeyExW(HKEY_CURRENT_USER, name.as_ptr(), 0, KEY_READ, &raw mut key);
+                    if error == 0 {
+                        RegCloseKey(key);
+                    }
+                    error
+                };
+                report(
+                    verb,
+                    match error {
+                        0 => Ok(()),
+                        error => Err(std::io::Error::from_raw_os_error(error.cast_signed())),
+                    },
+                );
+            }
+            #[cfg(windows)]
+            "credential" => {
+                use windows_sys::Win32::Security::Credentials::{
+                    CRED_TYPE_GENERIC, CredFree, CredReadW,
+                };
+                let mut credential = std::ptr::null_mut();
+                // SAFETY: a NUL-terminated name and an out-pointer.
+                let read = unsafe {
+                    CredReadW(
+                        wide(arg).as_ptr(),
+                        CRED_TYPE_GENERIC,
+                        0,
+                        &raw mut credential,
+                    )
+                } != 0;
+                let result = last_error(read);
+                if read {
+                    // SAFETY: allocated by `CredReadW`.
+                    unsafe { CredFree(credential.cast()) };
+                }
+                report(verb, result);
+            }
+            #[cfg(windows)]
+            "atom" => {
+                use windows_sys::Win32::System::DataExchange::GlobalFindAtomW;
+                // SAFETY: a NUL-terminated name.
+                let found = unsafe { GlobalFindAtomW(wide(arg).as_ptr()) } != 0;
+                report(verb, last_error(found));
             }
             other => panic!("unknown probe {other}"),
         }
@@ -321,12 +426,45 @@ mod enforced {
     }
 
     /// A C call's `0` or `-1` result, the latter with its `errno`.
+    #[cfg(unix)]
     fn errno(rc: libc::c_int) -> std::io::Result<()> {
         if rc == 0 {
             Ok(())
         } else {
             Err(std::io::Error::last_os_error())
         }
+    }
+
+    /// A Windows call's success, or the error it left behind.
+    #[cfg(windows)]
+    fn last_error(succeeded: bool) -> std::io::Result<()> {
+        if succeeded {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
+    #[cfg(windows)]
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain([0]).collect()
+    }
+
+    /// A symlink at `link` to the directory `target`: on Windows a
+    /// junction, which takes no privilege to create.
+    fn link_dir(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        assert!(
+            Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .args([link, target])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
     }
 
     fn report(action: &str, result: std::io::Result<()>) {
@@ -378,13 +516,28 @@ mod enforced {
         write: &[&Path],
         hidden: &[&Path],
     ) -> Result<Probed, SandboxError> {
-        confine_as(
-            &std::env::current_exe().unwrap(),
-            action,
-            read,
-            write,
-            hidden,
-        )
+        let exe = std::env::current_exe().unwrap();
+        // A grant on Windows rewrites the access-control list of all the
+        // directory holds, so the one every test binary shares is not
+        // granted.
+        #[cfg(windows)]
+        let (_dir, exe) = {
+            let dir = TempDir::new().unwrap();
+            let copy = dir.path().join("probe.exe");
+            std::fs::copy(&exe, &copy).unwrap();
+            (dir, copy)
+        };
+        confine_as(&exe, action, read, write, hidden)
+    }
+
+    /// What a confined probe is given: its action, and on Windows the
+    /// `SystemRoot` without which no socket can be created.
+    fn probe_env(action: &str) -> Vec<(OsString, OsString)> {
+        Vec::from([
+            (PROBE.into(), action.into()),
+            #[cfg(windows)]
+            ("SystemRoot".into(), std::env::var_os("SystemRoot").unwrap()),
+        ])
     }
 
     /// [`confine_hiding`] with `exe`, a copy of this test binary.
@@ -403,7 +556,7 @@ mod enforced {
             program: exe,
             args: PROBE_ARGS.map(OsString::from).to_vec(),
             current_dir: exe_dir.clone(),
-            env: vec![(PROBE.into(), action.into())],
+            env: probe_env(action),
             read: std::iter::once(exe_dir)
                 .chain(read.iter().map(|p| p.to_path_buf()))
                 .collect(),
@@ -454,8 +607,8 @@ mod enforced {
         std::fs::write(git.join("config"), "token").unwrap();
         std::fs::write(outside.path().join("secret"), "token").unwrap();
         // The package's own symlinks must not widen the grant.
-        std::os::unix::fs::symlink(&git, package.path().join("git")).unwrap();
-        std::os::unix::fs::symlink(outside.path(), package.path().join("outside")).unwrap();
+        link_dir(&git, &package.path().join("git"));
+        link_dir(outside.path(), &package.path().join("outside"));
         let read = |path: &Path| {
             confine_hiding(
                 &format!("read:{}", arg(path)),
@@ -468,8 +621,8 @@ mod enforced {
         assert_eq!(read(&visible).outcome("read"), "ok");
         for denied in [
             git.join("config"),
-            package.path().join("git/config"),
-            package.path().join("outside/secret"),
+            package.path().join("git").join("config"),
+            package.path().join("outside").join("secret"),
         ] {
             assert_eq!(
                 read(&denied).outcome("read"),
@@ -514,7 +667,29 @@ mod enforced {
         }
     }
 
+    /// A link the program left in its write grant on an earlier run leads
+    /// only where the grants already reach.
     #[test]
+    fn a_link_inside_a_grant_does_not_widen_it() {
+        let out = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let forbidden = outside.path().join("secret");
+        std::fs::write(&forbidden, "token").unwrap();
+        link_dir(outside.path(), &out.path().join("link"));
+        for action in [
+            format!("read:{}", arg(&out.path().join("link").join("secret"))),
+            format!("read:{}", arg(&forbidden)),
+            format!("write:{}", arg(&out.path().join("link").join("planted"))),
+        ] {
+            let verb = action.split_once(':').unwrap().0;
+            let probed = confine(&action, &[], &[out.path()]).unwrap();
+            assert_eq!(probed.outcome(verb), "PermissionDenied", "{action}");
+        }
+        assert!(!outside.path().join("planted").exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn a_grant_through_a_symlink_keeps_hidden_paths_hidden() {
         let package = TempDir::new().unwrap();
         let links = TempDir::new().unwrap();
@@ -573,6 +748,7 @@ mod enforced {
 
     /// Nor need a hidden symlink's target.
     #[test]
+    #[cfg(unix)]
     fn a_dangling_hidden_symlink_keeps_its_target_hidden() {
         let package = TempDir::new().unwrap();
         let git = package.path().join(".git");
@@ -589,6 +765,7 @@ mod enforced {
 
     /// A package's symlink loop or deep chain ends resolution, not Cabin.
     #[test]
+    #[cfg(unix)]
     fn a_hidden_symlink_loop_fails_the_run() {
         let package = TempDir::new().unwrap();
         let (a, b) = (package.path().join("a"), package.path().join("b"));
@@ -605,7 +782,9 @@ mod enforced {
         }
     }
 
+    /// Windows resolves `..` before it looks at the directory.
     #[test]
+    #[cfg(unix)]
     fn a_hidden_path_through_a_missing_directory_fails_the_run() {
         let package = TempDir::new().unwrap();
         let hidden = package.path().join("future/../secret");
@@ -615,6 +794,7 @@ mod enforced {
 
     /// Nor can Cabin tell where a symlink it may not read leads.
     #[test]
+    #[cfg(unix)]
     fn a_hidden_symlink_through_an_unsearchable_directory_fails_the_run() {
         use std::os::unix::fs::PermissionsExt as _;
         let package = TempDir::new().unwrap();
@@ -635,6 +815,7 @@ mod enforced {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_hidden_symlink_hides_its_target() {
         let package = TempDir::new().unwrap();
         let (git, data) = (package.path().join(".git"), package.path().join("git-data"));
@@ -738,6 +919,7 @@ mod enforced {
         for action in [
             format!("write:{}", arg(&readable.path().join("planted"))),
             format!("overwrite:{}", arg(&existing)),
+            #[cfg(unix)]
             format!("truncate:{}", arg(&existing)),
         ] {
             let verb = action.split_once(':').unwrap().0;
@@ -756,7 +938,8 @@ mod enforced {
         assert_eq!(allowed.outcome("write"), "ok");
         assert!(writable.path().join("out").is_file());
 
-        let null = confine("write:/dev/null", &[], &[]).unwrap();
+        let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+        let null = confine(&format!("write:{null}"), &[], &[]).unwrap();
         assert_eq!(null.outcome("write"), "ok");
     }
 
@@ -805,6 +988,7 @@ mod enforced {
     }
 
     #[test]
+    #[cfg(unix)]
     fn descriptors_cabin_inherited_are_not_passed_on() {
         use std::os::fd::AsRawFd as _;
         let forbidden_dir = TempDir::new().unwrap();
@@ -833,6 +1017,153 @@ mod enforced {
         );
     }
 
+    /// A grant is an entry in the path's access-control list, and in
+    /// those of what the path holds, that Cabin removes again.
+    #[test]
+    #[cfg(windows)]
+    fn grants_end_with_the_run() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("file");
+        std::fs::write(&file, "").unwrap();
+        let lists = || {
+            [dir.path(), &file]
+                .map(|path| Command::new("icacls").arg(path).output().unwrap().stdout)
+        };
+        let before = lists();
+        let write = format!("overwrite:{}", arg(&file));
+        let probed = confine(&write, &[], &[dir.path()]).unwrap();
+        assert_eq!(probed.outcome("overwrite"), "ok");
+        assert_eq!(lists(), before);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn handles_cabin_inherited_are_not_passed_on() {
+        use std::os::windows::io::AsRawHandle as _;
+        use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+        let forbidden_dir = TempDir::new().unwrap();
+        let forbidden = forbidden_dir.path().join("secret");
+        std::fs::write(&forbidden, "token").unwrap();
+        let file = File::open(&forbidden).unwrap();
+        // As if Cabin's parent had left it open for Cabin.
+        // SAFETY: plain system call on a handle this test owns.
+        let inheritable = unsafe {
+            SetHandleInformation(
+                file.as_raw_handle(),
+                HANDLE_FLAG_INHERIT,
+                HANDLE_FLAG_INHERIT,
+            )
+        };
+        assert_ne!(inheritable, 0);
+        let action = format!("handle:{}", file.as_raw_handle() as usize);
+        let unconfined = probe_command(&action).output().unwrap();
+        assert!(String::from_utf8_lossy(&unconfined.stdout).contains("handle: open"));
+        assert_eq!(
+            confine(&action, &[], &[]).unwrap().outcome("handle"),
+            "closed"
+        );
+    }
+
+    /// Another process's memory, a local service's named pipe (an SSH
+    /// agent's), the user's registry hive and stored credentials, and the
+    /// desktop's atoms, which stand for all the job keeps the program from.
+    #[test]
+    #[cfg(windows)]
+    fn other_processes_and_the_users_secrets_are_out_of_reach() {
+        use std::os::windows::io::{FromRawHandle as _, OwnedHandle};
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::Security::Credentials::{
+            CRED_PERSIST_SESSION, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredWriteW,
+        };
+        use windows_sys::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+        use windows_sys::Win32::System::DataExchange::{GlobalAddAtomW, GlobalDeleteAtom};
+        use windows_sys::Win32::System::Pipes::{CreateNamedPipeW, PIPE_UNLIMITED_INSTANCES};
+        use windows_sys::Win32::System::Registry::{
+            HKEY_CURRENT_USER, RegCloseKey, RegCreateKeyW, RegDeleteKeyW,
+        };
+
+        let name = format!("cabin-sandbox-{}", std::process::id());
+        let (pipe, key) = (format!(r"\\.\pipe\{name}"), format!(r"Software\{name}"));
+        let mut target = wide(&name);
+        // One pipe instance for each attempt to open it.
+        let _instances = [(); 2].map(|()| {
+            // SAFETY: a NUL-terminated name and the default security.
+            let instance = unsafe {
+                CreateNamedPipeW(
+                    wide(&pipe).as_ptr(),
+                    PIPE_ACCESS_DUPLEX,
+                    0,
+                    PIPE_UNLIMITED_INSTANCES,
+                    0,
+                    0,
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            assert_ne!(instance, INVALID_HANDLE_VALUE);
+            // SAFETY: `CreateNamedPipeW` handed this handle to us.
+            unsafe { OwnedHandle::from_raw_handle(instance) }
+        });
+        let mut blob = *b"token";
+        let credential = CREDENTIALW {
+            Type: CRED_TYPE_GENERIC,
+            TargetName: target.as_mut_ptr(),
+            CredentialBlobSize: 5,
+            CredentialBlob: blob.as_mut_ptr(),
+            Persist: CRED_PERSIST_SESSION,
+            ..CREDENTIALW::default()
+        };
+        let mut created = std::ptr::null_mut();
+        // SAFETY: NUL-terminated names, a credential whose pointers are
+        // valid, and an out-pointer; all three are removed below.
+        let atom = unsafe {
+            assert_eq!(
+                RegCreateKeyW(HKEY_CURRENT_USER, wide(&key).as_ptr(), &raw mut created),
+                0
+            );
+            RegCloseKey(created);
+            assert_ne!(CredWriteW(&raw const credential, 0), 0);
+            GlobalAddAtomW(target.as_ptr())
+        };
+        assert_ne!(atom, 0);
+
+        let denials: Vec<String> = [
+            format!("process:{}", std::process::id()),
+            format!("pipe:{pipe}"),
+            format!("registry:{key}"),
+            format!("credential:{name}"),
+            format!("atom:{name}"),
+        ]
+        .iter()
+        .map(|action| {
+            let verb = action.split_once(':').unwrap().0;
+            let unconfined = probe_command(action).output().unwrap();
+            assert!(
+                String::from_utf8_lossy(&unconfined.stdout).contains(&format!("{verb}: ok")),
+                "{action} unconfined"
+            );
+            let probed = confine(action, &[], &[]).unwrap();
+            format!("{verb}: {}", probed.outcome(verb))
+        })
+        .collect();
+        // SAFETY: the key, credential, and atom from above.
+        unsafe {
+            RegDeleteKeyW(HKEY_CURRENT_USER, wide(&key).as_ptr());
+            CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0);
+            GlobalDeleteAtom(atom);
+        }
+        assert_eq!(
+            denials,
+            [
+                "process: PermissionDenied",
+                "pipe: PermissionDenied",
+                "registry: PermissionDenied",
+                "credential: NotFound",
+                "atom: NotFound",
+            ]
+        );
+    }
+
     #[test]
     fn child_processes_inherit_the_confinement() {
         let forbidden_dir = TempDir::new().unwrap();
@@ -845,7 +1176,8 @@ mod enforced {
     #[test]
     fn the_environment_is_exactly_the_given_one() {
         let probed = confine("env", &[], &[]).unwrap();
-        assert_eq!(probed.outcomes("env"), [PROBE]);
+        let given: Vec<_> = probe_env("env").into_iter().map(|(key, _)| key).collect();
+        assert_eq!(probed.outcomes("env"), given);
     }
 
     #[test]
@@ -881,6 +1213,7 @@ mod enforced {
 
     /// Other processes' shared memory, semaphores, and local sockets.
     #[test]
+    #[cfg(unix)]
     fn other_processes_memory_and_sockets_are_out_of_reach() {
         let name = format!("/cabin-{}", std::process::id());
         let c_name = std::ffi::CString::new(name.clone()).unwrap();
@@ -977,22 +1310,42 @@ mod enforced {
         unsafe { libc::mq_close(queue) };
     }
 
-    /// The confined program leads its own process group, so the
-    /// terminal's Ctrl-C reaches only Cabin; Cabin must pass it on.
-    #[test]
-    fn interrupting_the_parent_kills_the_confined_program() {
-        let dir = TempDir::new().unwrap();
-        let mut parent = probe_command(&format!("supervise:{}", arg(dir.path())))
+    /// Stand in for Cabin: a process running a confined program that has
+    /// written `<dir>/started` and will write `<dir>/late`.
+    fn supervisor(dir: &Path) -> std::process::Child {
+        let mut parent = probe_command(&format!("supervise:{}", arg(dir)))
             .stdout(std::process::Stdio::null())
             .spawn()
             .unwrap();
-        while !dir.path().join("started").exists() {
+        while !dir.join("started").exists() {
             assert!(
                 parent.try_wait().unwrap().is_none(),
                 "the supervisor failed"
             );
             std::thread::sleep(Duration::from_millis(10));
         }
+        parent
+    }
+
+    /// However Cabin exits, its handle to the job closes.
+    #[test]
+    #[cfg(windows)]
+    fn killing_the_parent_kills_the_confined_program() {
+        let dir = TempDir::new().unwrap();
+        let mut parent = supervisor(dir.path());
+        parent.kill().unwrap();
+        parent.wait().unwrap();
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(!dir.path().join("late").exists());
+    }
+
+    /// The confined program leads its own process group, so the
+    /// terminal's Ctrl-C reaches only Cabin; Cabin must pass it on.
+    #[test]
+    #[cfg(unix)]
+    fn interrupting_the_parent_kills_the_confined_program() {
+        let dir = TempDir::new().unwrap();
+        let mut parent = supervisor(dir.path());
         let pid = libc::pid_t::try_from(parent.id()).unwrap();
         // SAFETY: plain system call on our own child.
         assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
@@ -1008,6 +1361,7 @@ mod enforced {
     /// Without a controlling terminal of its own the program cannot read
     /// the user's terminal or push input into it.
     #[test]
+    #[cfg(unix)]
     fn the_program_leads_a_new_session() {
         assert_eq!(
             confine("session", &[], &[]).unwrap().outcome("session"),
@@ -1106,6 +1460,7 @@ mod enforced {
     /// Linux the outer filter would keep the inner run from killing what
     /// its program leaves: a nested run must not start the program.
     #[test]
+    #[cfg(unix)]
     fn a_nested_run_does_not_start_the_program() {
         let dir = TempDir::new().unwrap();
         let probed = confine(&format!("nested:{}", arg(dir.path())), &[], &[dir.path()]).unwrap();
@@ -1122,7 +1477,8 @@ mod enforced {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ),
-    target_os = "macos"
+    target_os = "macos",
+    windows
 )))]
 #[test]
 fn confinement_is_unavailable() {
