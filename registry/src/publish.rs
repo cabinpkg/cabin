@@ -160,10 +160,14 @@ pub struct VersionMetadata {
     /// authoritative deep validation stays with the client parser and
     /// the external verifier's metadata-equality pass.
     pub upstream: Option<UpstreamMetadata>,
-    /// Optional `[package] license` SPDX expression, stored and served
-    /// back verbatim.  Only its JSON type is checked here: the
-    /// verifier's metadata-equality pass requires it to equal what the
-    /// archived manifest's SPDX-validated field derives.
+    /// `[package] license` SPDX expression, stored and served back
+    /// verbatim.  Only its JSON type is checked here: the verifier's
+    /// metadata-equality pass requires it to equal what the archived
+    /// manifest's SPDX-validated field derives.
+    ///
+    /// Private-alpha leniency: a publish without it is accepted.  It
+    /// becomes required before the public launch (`docs/runbook.md`,
+    /// "Launch checklist").
     pub license: Option<String>,
     pub yanked: bool,
     pub checksum: String,

@@ -805,10 +805,13 @@ struct RawVersion {
     /// supported format, safe paths).
     #[serde(default)]
     upstream: Option<cabin_core::UpstreamProvenance>,
-    /// Declared `[package] license`.  Optional; older registries that
-    /// omit the field continue to load.  Carried as written and not
+    /// Declared `[package] license`.  Carried as written and not
     /// validated: the publishing Cabin validated it, and this
     /// reader's SPDX lists may predate one of its identifiers.
+    ///
+    /// Private-alpha leniency: an entry published without a license
+    /// still loads.  The field becomes mandatory before the public
+    /// launch (`registry/docs/runbook.md`, "Launch checklist").
     #[serde(default)]
     license: Option<String>,
 }
@@ -2506,8 +2509,9 @@ mod tests {
         assert!(err.to_string().contains("https"), "unexpected error: {err}");
     }
 
-    /// A published `license` loads as written and an entry written
-    /// before the field existed loads as unspecified.  The reader does
+    /// A published `license` loads as written and, while the
+    /// private-alpha leniency lasts, an entry without one loads as
+    /// unspecified.  The reader does
     /// not validate the value: an identifier newer than this build's
     /// SPDX lists must not make the package unresolvable.
     #[test]

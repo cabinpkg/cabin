@@ -438,7 +438,8 @@ Server-side behavior is part of the contract:
   target-name keys, identities of ASCII letters, digits, `.`, `_`, `+`, and `-`, each identity
   claimed at most once), rejects a `license` that is neither a JSON string nor `null` (the
   [verifier](#the-verifiers-checks)'s consistency check holds the value to the archived manifest's
-  SPDX-validated field), and verifies the archive
+  SPDX-validated field; a publish without a license is accepted only during the private alpha), and
+  verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
   Two name-level rules join the same `400` family: a reserved package name
   (`package name is reserved` - the DOS device stems plus a short project vocabulary), and, for a

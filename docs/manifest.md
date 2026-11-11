@@ -65,7 +65,7 @@ deps = ["greet", "fmt"]
 | --- | --- | --- | --- |
 | `name` | string | yes | Package name: a bare `<name>` or a scoped `<scope>/<name>` with exactly one `/`.  `<name>` matches `[a-z0-9][a-z0-9_-]*`: lowercase ASCII letters, digits, `_`, and `-`, starting with a letter or digit.  The scope has its own grammar: lowercase letters, digits, and interior `-` only, at most 39 characters (a claimable GitHub login).  Uppercase and `.` are rejected, and names are compared exactly, never case-folded.  Each part names a build directory, so neither may be a Windows device name (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, or `lpt1` to `lpt9`); the registry refuses the same names.  Registry packages are always scoped; bare names are local-only and rejected by `cabin publish`. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
-| `license` | string | no | [SPDX license expression](#license) describing the package's licensing, such as `"MIT OR Apache-2.0"`.  Omitted means unspecified. |
+| `license` | string | no | [SPDX license expression](#license) describing the package's licensing, such as `"MIT OR Apache-2.0"`.  Omitted means unspecified.  A package that is published must declare it; see [`license`](#license). |
 | `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`; `c90` is an alias of `c89`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++26`; `c++03` is an alias of `c++98`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
 | `interface-c-standard` | string or `{ min, max }` table | no | Package-wide default C interface requirement for `library` / `header-only` targets: a string minimum (`"c11"`), a bounded inclusive range (`{ min = "c99", max = "c17" }`, `max` optional), or `"none"` (headers not consumable from C). |
@@ -113,6 +113,11 @@ line breaks, and other whitespace are rejected.  Identifiers the SPDX list has d
 current identifiers.  An identifier added to the SPDX lists after a Cabin release is unknown to that
 release, which rejects a manifest declaring it, a dependency's included, until Cabin is upgraded.
 Cabin keeps the expression exactly as written and never normalizes it.
+
+A package that is only built locally may omit the field.  A published package must declare it.
+During the hosted registry's private alpha, `cabin publish` and the registry still accept a package
+without a license; before the public launch both refuse one, and every version entry in a registry
+index carries a license.
 
 The field is a declaration, and Cabin treats it as metadata only:
 

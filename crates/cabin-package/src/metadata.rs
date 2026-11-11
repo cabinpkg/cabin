@@ -112,8 +112,12 @@ pub struct PackageMetadata {
     pub upstream: Option<cabin_core::UpstreamProvenance>,
     /// Manifest-declared `[package] license` SPDX expression, exactly
     /// as written, so registry consumers can read a version's
-    /// declared license without downloading its archive.  Omitted
-    /// when the manifest declares none (absence = unspecified).
+    /// declared license without downloading its archive.
+    ///
+    /// Private-alpha leniency: omitted when the manifest declares
+    /// none.  A local package may always omit it, but publishing one
+    /// without it is refused from the public launch on
+    /// (`registry/docs/runbook.md`, "Launch checklist").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<cabin_core::LicenseExpression>,
     pub yanked: bool,
