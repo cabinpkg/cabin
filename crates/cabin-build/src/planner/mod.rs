@@ -19,7 +19,9 @@ use std::path::PathBuf;
 mod build_dependencies;
 mod lowering;
 
-pub use build_dependencies::select_build_dependency_targets;
+pub use build_dependencies::{
+    BuildScriptInputs, build_script_inputs, select_build_dependency_targets,
+};
 mod shadowing;
 #[cfg(test)]
 mod tests;
@@ -90,6 +92,80 @@ pub struct SystemTargetInterface {
     pub link_args: Vec<String>,
 }
 
+/// A package's build script, which a build-context plan builds as an
+/// executable of the package.  The package's `[profile]` flags and
+/// language standards describe its targets and do not reach the script.
+/// It compiles as C11 or C++17, moved into the range the libraries it
+/// sees accept, and takes no part in the post-resolution
+/// standard-compatibility check ([`crate::standard_compat`]): no
+/// manifest field sets its standard or opts one of its edges out.  So
+/// what that check alone refuses does not stop a script: an interface
+/// `"none"`, and under a script written in C, a C++ library that
+/// declares no C interface.
+#[derive(Debug)]
+pub struct BuildScript {
+    /// Index in `graph.packages`.
+    pub package: usize,
+    /// Whether the script prepares the package's build-context units
+    /// instead of its target-context ones.  Each links what its own
+    /// context's `[build-dependencies]` select, so a package built in
+    /// both contexts has an executable for each.
+    pub build_context: bool,
+    /// `build.c` or `build.cpp`, relative to the manifest directory.
+    pub source: Utf8PathBuf,
+    /// The library targets the script links, by `graph.packages` index
+    /// and target name ([`build_script_inputs`]).
+    pub libraries: Vec<(usize, String)>,
+    /// The flags the script's compile and link take, where a target
+    /// takes its package's.
+    pub flags: ResolvedProfileFlags,
+}
+
+impl BuildScript {
+    /// What names the script beside its package: in
+    /// [`BuildGraph::target_outputs`], where its executable is, and in
+    /// diagnostics.  The space keeps it apart from every target name.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        if self.build_context {
+            "build script (build machine)"
+        } else {
+            "build script"
+        }
+    }
+
+    /// The entry of [`crate::layout::BUILD_SCRIPT_DIR`], in the package's
+    /// build-context output directory, holding the script's executable
+    /// and objects.
+    fn dir(&self) -> &'static str {
+        if self.build_context {
+            crate::layout::BUILD_CONTEXT_DIR
+        } else {
+            "target"
+        }
+    }
+}
+
+/// What a package's build script reported for one target of the
+/// package, which the planner applies as though the manifest declared
+/// it.
+#[derive(Debug, Default)]
+pub struct BuildScriptOutput {
+    /// Absolute include dirs, after the target's `include-dirs`.
+    pub include_dirs: Vec<Utf8PathBuf>,
+    /// Further `defines`.
+    pub defines: Vec<String>,
+    /// Further `interface-defines`.
+    pub interface_defines: Vec<String>,
+    /// Sources the script generated, relative to its output directory
+    /// ([`crate::layout::BUILD_SCRIPT_OUT_DIR`]) and compiled after the
+    /// target's own.  The languages a target is checked for, as a
+    /// consumer and as a dependency, stay those of the sources its
+    /// manifest lists, which is all the registry index derives a
+    /// published package's from.
+    pub sources: Vec<Utf8PathBuf>,
+}
+
 /// Inputs to the build planner.
 // Independent inputs that happen to be booleans, not a state machine.
 #[allow(clippy::struct_excessive_bools)]
@@ -124,6 +200,12 @@ pub struct PlanRequest<'a> {
     /// The interfaces of the system-provided targets this plan uses,
     /// keyed by `graph.packages` index and target name.
     pub system_targets: &'a HashMap<(usize, String), SystemTargetInterface>,
+    /// The build scripts to build.  Only a build-context plan
+    /// (`build_context`) has any: a script runs on the build machine.
+    pub build_scripts: &'a [BuildScript],
+    /// What the build scripts that have run reported for this plan's
+    /// context, keyed by `graph.packages` index and target name.
+    pub build_script_outputs: &'a HashMap<(usize, String), BuildScriptOutput>,
     /// Absolute [`crate::layout::platform_dir`] of the target context's
     /// platform, which a build-context plan shares; the profile's
     /// outputs go under it.
@@ -231,7 +313,8 @@ struct PreparedAssembly {
 /// a valid graph: [`BuildError::NonUtf8Path`] when the build directory
 /// or a package's manifest directory is not valid UTF-8 and so cannot
 /// anchor the UTF-8 build model; [`BuildError::EmptySelectedPackages`]
-/// when the default selection yields no C/C++ targets; selection
+/// when the default selection yields no C/C++ targets and the request
+/// holds no build script; selection
 /// and dependency-resolution errors ([`BuildError::UnknownTargetReference`],
 /// [`BuildError::AmbiguousTarget`], [`BuildError::UnknownPackageInTargetSelector`],
 /// [`BuildError::UnknownTargetInPackage`],
@@ -272,8 +355,12 @@ fn select_targets(req: &PlanRequest<'_>) -> Result<Vec<TargetId>, BuildError> {
             .unwrap_or(&empty_features)
     };
 
+    let scripts = req
+        .build_scripts
+        .iter()
+        .map(|script| (script.package, script.name().to_owned()));
     if let Some(sel) = &req.selected {
-        let selected = resolve_selection(sel, req.graph, req.selected_packages)?;
+        let mut selected = resolve_selection(sel, req.graph, req.selected_packages)?;
         // Explicitly named targets hard-error when their
         // `required-features` are not enabled - a silent skip here
         // would turn a typo'd feature selection into "built
@@ -289,11 +376,14 @@ fn select_targets(req: &PlanRequest<'_>) -> Result<Vec<TargetId>, BuildError> {
                 });
             }
         }
+        selected.extend(scripts);
         Ok(selected)
     } else {
-        let (chosen, gated) =
+        let (mut chosen, gated) =
             default_selection(req.graph, req.selected_packages, req.enabled_features);
-        if chosen.is_empty() {
+        // A script that links nothing leaves a build-context plan no
+        // target to select.
+        if chosen.is_empty() && (req.build_scripts.is_empty() || !gated.is_empty()) {
             if gated.is_empty() {
                 return Err(BuildError::EmptySelectedPackages);
             }
@@ -304,6 +394,7 @@ fn select_targets(req: &PlanRequest<'_>) -> Result<Vec<TargetId>, BuildError> {
                     .collect(),
             });
         }
+        chosen.extend(scripts);
         Ok(chosen)
     }
 }
@@ -336,6 +427,19 @@ fn resolve_dependencies(
 
     while let Some(tid) = to_visit.pop() {
         if !reachable.insert(tid.clone()) {
+            continue;
+        }
+        if let Some(script) = script_of(req, &tid) {
+            let edges: Vec<TargetDepEdge> = script
+                .libraries
+                .iter()
+                .map(|library| TargetDepEdge {
+                    to: library.clone(),
+                    public: false,
+                })
+                .collect();
+            to_visit.extend(edges.iter().map(|edge| edge.to.clone()));
+            resolved_deps.insert(tid, edges);
             continue;
         }
         let target = lookup_target(&tid, req.graph)?;
@@ -400,7 +504,11 @@ fn resolve_dependencies(
     // Post-resolution standard-compatibility check (D13 over
     // every resolved edge).
     let standard_compat_violations = if req.standard_compat {
-        crate::standard_compat::edge_violations(&topo, &resolved_deps, req)?
+        let mut targets = std::borrow::Cow::Borrowed(topo.as_slice());
+        if !req.build_scripts.is_empty() {
+            targets.to_mut().retain(|tid| script_of(req, tid).is_none());
+        }
+        crate::standard_compat::edge_violations(&targets, &resolved_deps, req)?
     } else {
         Vec::new()
     };
@@ -445,15 +553,28 @@ fn emit_actions(
     let mut target_languages: HashMap<TargetId, BTreeSet<SourceLanguage>> = HashMap::new();
 
     for tid in &topo {
-        let target = lookup_target(tid, req.graph)?;
+        let script = script_of(req, tid);
+        let script_target;
+        let target = if let Some(script) = script {
+            script_target = executable_of(script);
+            &script_target
+        } else {
+            lookup_target(tid, req.graph)?
+        };
+        let reported = req.build_script_outputs.get(tid);
 
         let pkg = &req.graph.packages[tid.0];
-        let pkg_build_dir = promote_dir(&crate::layout::package_dir(
+        let package_dir = promote_dir(&crate::layout::package_dir(
             profile_dir.as_std_path(),
             req.build_context,
             &pkg.package.name,
         ))?
         .to_owned();
+        let script_dir = package_dir.join(crate::layout::BUILD_SCRIPT_DIR);
+        let pkg_build_dir = match script {
+            Some(script) => script_dir.join(script.dir()),
+            None => package_dir,
+        };
         // The manifest directory is an OS-canonicalized path; promote
         // it to UTF-8 (rejecting non-UTF-8) so the source and include
         // paths it anchors enter the IR as `Utf8PathBuf`.
@@ -488,7 +609,19 @@ fn emit_actions(
         // Instruction sets mean nothing off x86, like a non-matching
         // `cfg`, so one source can serve every platform.
         let x86 = matches!(req.platform.arch.as_str(), "x86" | "x86_64");
-        for source in target.sources_for(&req.platform) {
+        let declared = target
+            .sources_for(&req.platform)
+            .map(|source| (source, false));
+        let generated = reported.into_iter().flat_map(|reported| &reported.sources);
+        let out_dir = script_dir.join(crate::layout::BUILD_SCRIPT_OUT_DIR);
+        for (source, generated) in declared.chain(generated.map(|source| (source, true))) {
+            // A generated source's object stays clear of a declared
+            // source's of the same relative path.
+            let (objects, sources) = if generated {
+                (&script_dir, out_dir.as_path())
+            } else {
+                (&pkg_build_dir, manifest_dir)
+            };
             let language = classify_source(source);
             let syntax = classify_assembly(source);
             if language.is_none() && syntax.is_none() {
@@ -497,17 +630,18 @@ fn emit_actions(
                     path: source.clone(),
                 });
             }
-            let object = object_path(&pkg_build_dir, target.name.as_str(), source, req.dialect)
-                .map_err(|reason| BuildError::InvalidSourcePath {
+            let object = object_path(objects, target.name.as_str(), source, req.dialect).map_err(
+                |reason| BuildError::InvalidSourcePath {
                     target: format_target_id(tid, req.graph),
                     path: source.clone(),
                     reason,
-                })?;
-            let abs_source = manifest_dir.join(source);
+                },
+            )?;
+            let abs_source = sources.join(source);
             if let Some(language) = language {
                 let flags = req.dialect == Dialect::GnuLike || req.clang_cl.contains(&language);
                 let instruction_sets = match target.instruction_sets.get(source) {
-                    Some(sets) if x86 && flags => sets.clone(),
+                    Some(sets) if x86 && flags && !generated => sets.clone(),
                     _ => Vec::new(),
                 };
                 prepared.push(PreparedSource {
@@ -539,16 +673,18 @@ fn emit_actions(
             tid,
             target,
             &resolved_deps,
-            req.graph,
-            req.system_targets,
+            req,
             object,
             &mut standard_violations,
         )?;
-        let pkg_standards = req
-            .language_standards
-            .get(&tid.0)
-            .copied()
-            .unwrap_or_default();
+        let pkg_standards = if script.is_some() {
+            script_standards(&collected.visible, req)?
+        } else {
+            req.language_standards
+                .get(&tid.0)
+                .copied()
+                .unwrap_or_default()
+        };
         enforce_interface_standards(
             tid,
             target,
@@ -564,7 +700,10 @@ fn emit_actions(
         // `[profile.<name>]` table, plus any `pkg-config` and
         // `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS` layers the
         // CLI applies.
-        let pkg_flags = req.build_flags.get(&tid.0);
+        let pkg_flags = match script {
+            Some(script) => Some(&script.flags),
+            None => req.build_flags.get(&tid.0),
+        };
 
         // Compose include_dirs and defines: existing target +
         // per-package build flags, partitioned into the user (`-I`)
@@ -605,15 +744,16 @@ fn emit_actions(
         // A target's own definition overrides the package's definition
         // of the same macro, as a target's setting overrides its package's.
         let mut defines: Vec<String> = target.defines.clone();
+        defines.extend(reported.into_iter().flat_map(|r| r.defines.iter().cloned()));
         if let Some(flags) = pkg_flags {
-            let target_own: HashSet<&str> = target.defines.iter().map(|d| macro_name(d)).collect();
-            defines.extend(
-                flags
-                    .defines
-                    .iter()
-                    .filter(|d| !target_own.contains(macro_name(d)))
-                    .cloned(),
-            );
+            let target_own: HashSet<&str> = defines.iter().map(|d| macro_name(d)).collect();
+            let package: Vec<String> = flags
+                .defines
+                .iter()
+                .filter(|d| !target_own.contains(macro_name(d)))
+                .cloned()
+                .collect();
+            defines.extend(package);
         }
         // The target's own definitions override an incoming interface
         // definition of the same macro.
@@ -654,10 +794,11 @@ fn emit_actions(
             extra_flags.extend(extra_compile_args.iter().cloned());
             extra_flags.extend(extra_language_compile_args.iter().cloned());
             let compiler_wrapper = req.compiler_wrapper.map(|wrapper| wrapper.path.clone());
-            // Manifest loading rejects targets that compile a
-            // language without an effective standard, so a `None`
-            // here is a package that bypassed the parser - reject it
-            // with the same actionable message.
+            // Manifest loading rejects targets whose listed sources
+            // compile a language without an effective standard, so a
+            // `None` here is a source a build script generated, or a
+            // package that bypassed the parser - reject it with the
+            // same actionable message.
             let missing_standard = |field: &'static str| BuildError::MissingLanguageStandard {
                 target: format_target_id(tid, req.graph),
                 language: ps.language.human_label(),
@@ -711,7 +852,9 @@ fn emit_actions(
             // Escape-hatch conflicts: a candidate covers this
             // compile when its language matches and its scope is the
             // whole package or this specific target.
-            if let Some(candidates) = req.standard_flag_conflicts.get(&tid.0) {
+            if script.is_none()
+                && let Some(candidates) = req.standard_flag_conflicts.get(&tid.0)
+            {
                 for candidate in candidates {
                     let covers = candidate.language == ps.language
                         && candidate
@@ -868,6 +1011,7 @@ fn emit_actions(
                 let apple = matches!(req.platform.os.as_str(), "macos" | "ios");
                 let link_libs = collect_link_names(
                     tid,
+                    script.map(|script| &script.flags),
                     &resolved_deps,
                     req.build_flags,
                     |flags| &flags.link_libs,
@@ -878,6 +1022,7 @@ fn emit_actions(
                 let frameworks = if apple {
                     collect_link_names(
                         tid,
+                        script.map(|script| &script.flags),
                         &resolved_deps,
                         req.build_flags,
                         |flags| &flags.frameworks,
@@ -1005,6 +1150,89 @@ pub(crate) fn lookup_target<'a>(
         package: pkg.package.name.as_str().to_owned(),
         target: tid.1.clone(),
     })
+}
+
+/// The build script `tid` names, when it names one and not a target.
+fn script_of<'a>(req: &PlanRequest<'a>, tid: &TargetId) -> Option<&'a BuildScript> {
+    req.build_scripts
+        .iter()
+        .find(|script| script.package == tid.0 && script.name() == tid.1)
+}
+
+/// The executable target `script` is lowered as.
+fn executable_of(script: &BuildScript) -> Target {
+    Target {
+        name: cabin_core::TargetName::new("build").expect("a valid target name"),
+        kind: TargetKind::Executable,
+        sources: vec![script.source.clone()],
+        include_dirs: Vec::new(),
+        defines: Vec::new(),
+        interface_defines: Vec::new(),
+        deps: Vec::new(),
+        required_features: Vec::new(),
+        // Not the package's `gnu-extensions`.
+        language: cabin_core::LanguageStandardSettings {
+            gnu_extensions: Some(false),
+            ..Default::default()
+        },
+        links: None,
+        conditional_sources: Vec::new(),
+        instruction_sets: std::collections::BTreeMap::new(),
+    }
+}
+
+/// The standards a script compiles with, given the library targets
+/// whose interfaces it sees.
+fn script_standards(
+    visible: &[TargetId],
+    req: &PlanRequest<'_>,
+) -> Result<ResolvedLanguageStandards, BuildError> {
+    use cabin_core::InterfaceRequirement::Requirement;
+    let (mut c, mut cxx) = (Vec::new(), Vec::new());
+    for tid in visible {
+        let package = &req.graph.packages[tid.0].package;
+        let target = lookup_target(tid, req.graph)?;
+        let standards = req
+            .language_standards
+            .get(&tid.0)
+            .copied()
+            .unwrap_or_default();
+        if cabin_core::imposes_requirement(target, &package.language, SourceLanguage::C)
+            && let Some(interface) = cabin_core::interface_c(&standards, &package.language, target)
+            && let Requirement(required) = interface.requirement
+        {
+            c.push(required);
+        }
+        if cabin_core::imposes_requirement(target, &package.language, SourceLanguage::Cxx)
+            && let Some(interface) =
+                cabin_core::interface_cxx(&standards, &package.language, target)
+            && let Requirement(required) = interface.requirement
+        {
+            cxx.push(required);
+        }
+    }
+    let source = cabin_core::LanguageStandardSource::Package;
+    Ok(ResolvedLanguageStandards {
+        c: Some(cabin_core::ResolvedStandard {
+            standard: within(cabin_core::CStandard::C11, &c),
+            source,
+        }),
+        cxx: Some(cabin_core::ResolvedStandard {
+            standard: within(cabin_core::CxxStandard::Cxx17, &cxx),
+            source,
+        }),
+    })
+}
+
+/// `default`, raised to the newest minimum in `required` and then
+/// lowered to the oldest maximum.  When no level satisfies them all,
+/// the result breaks a minimum, which the interface check reports.
+fn within<S: cabin_core::StandardLevel>(
+    default: S,
+    required: &[cabin_core::StandardRequirement<S>],
+) -> S {
+    let raised = required.iter().map(|r| r.min()).fold(default, S::max);
+    required.iter().filter_map(|r| r.max()).fold(raised, S::min)
 }
 
 pub(crate) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {

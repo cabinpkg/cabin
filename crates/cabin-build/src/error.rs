@@ -111,6 +111,19 @@ pub enum BuildError {
         candidates: Vec<String>,
     },
 
+    /// A `[build-dependencies]` entry without `targets` reaches a
+    /// dependency that builds several libraries, of which the
+    /// dependent's build script links at most one unasked.
+    #[error(
+        "build dependency `{dependency}` of `{dependent}` builds more than one library (`{}`), so the build script of `{dependent}` cannot tell which to link; name the targets it uses in `targets` on the build-dependency entry",
+        .candidates.join("`, `")
+    )]
+    AmbiguousBuildDependencyLibrary {
+        dependency: String,
+        dependent: String,
+        candidates: Vec<String>,
+    },
+
     /// A `[build-dependencies]` entry's `targets` names a test or
     /// example target, which the build machine never builds.
     #[error(
@@ -243,9 +256,10 @@ pub enum BuildError {
     /// A planned compile has no effective language standard: the
     /// target compiles sources of a language neither its
     /// `[target.<name>]` table nor its `[package]` declares a
-    /// standard for.  Manifest loading rejects this before planning,
-    /// so this fires only for packages constructed outside the
-    /// manifest parser.
+    /// standard for.  Manifest loading rejects this for the sources a
+    /// manifest lists, so this fires for a source a build script
+    /// generated, and for packages constructed outside the manifest
+    /// parser.
     #[error(
         "target `{target}` compiles {language} sources but no {language} standard is declared; add `{field} = \"<standard>\"` to its `[package]` or `[target.<name>]` table, or opt into a workspace default with `{field} = {{ workspace = true }}`"
     )]

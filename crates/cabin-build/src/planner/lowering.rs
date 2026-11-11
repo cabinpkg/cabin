@@ -240,17 +240,19 @@ pub(super) fn collect_interface(
     start: &TargetId,
     target: &Target,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
-    graph: &PackageGraph,
-    system_targets: &HashMap<TargetId, SystemTargetInterface>,
+    req: &PlanRequest<'_>,
     object: &Utf8Path,
     violations: &mut Vec<StandardViolation>,
 ) -> Result<CollectedInterface, BuildError> {
+    let (graph, system_targets) = (req.graph, req.system_targets);
     let manifest_dir = promote_dir(&graph.packages[start.0].manifest_dir)?;
+    let reported = |tid: &TargetId| req.build_script_outputs.get(tid).into_iter();
     let mut collected = CollectedInterface {
         user: target
             .include_dirs
             .iter()
             .map(|d| manifest_dir.join(d))
+            .chain(reported(start).flat_map(|r| r.include_dirs.iter().cloned()))
             .collect(),
         system: Vec::new(),
         defines: Vec::new(),
@@ -292,7 +294,9 @@ pub(super) fn collect_interface(
             let declared = dep_target
                 .include_dirs
                 .iter()
-                .map(|inc| (dep_manifest.join(inc), third_party));
+                .map(|inc| dep_manifest.join(inc))
+                .chain(reported(tid).flat_map(|r| r.include_dirs.iter().cloned()))
+                .map(|inc| (inc, third_party));
             let supplied = provided.into_iter().flat_map(|system| {
                 let plain = system.include_dirs.iter().map(|dir| (dir.clone(), false));
                 plain.chain(
@@ -315,7 +319,13 @@ pub(super) fn collect_interface(
                 collected.args.extend(system.compile_args.iter().cloned());
             }
             let supplied_defines = provided.into_iter().flat_map(|system| &system.defines);
-            for define in dep_target.interface_defines.iter().chain(supplied_defines) {
+            let reported_defines = reported(tid).flat_map(|r| &r.interface_defines);
+            for define in dep_target
+                .interface_defines
+                .iter()
+                .chain(reported_defines)
+                .chain(supplied_defines)
+            {
                 let name = macro_name(define);
                 match define_origin.get(name) {
                     None => {
@@ -428,11 +438,14 @@ fn link_closure<'a>(
 /// packages their linked targets depend on, so `start`'s own comes
 /// first.  The caller emits them after the archives, so a static
 /// library's system libraries (sqlite's `-lpthread -ldl -lm`)
-/// resolve against the archive that needs them.  `dedup` keeps only
+/// resolve against the archive that needs them.  A build script's own
+/// are `script`'s, and its package contributes only when the link
+/// reaches one of the package's targets.  `dedup` keeps only
 /// each name's first occurrence; otherwise a name two packages list
 /// repeats, as an order-sensitive linker needs.
 pub(super) fn collect_link_names(
     start: &TargetId,
+    script: Option<&cabin_core::ResolvedProfileFlags>,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
     field: fn(&cabin_core::ResolvedProfileFlags) -> &[String],
@@ -443,7 +456,13 @@ pub(super) fn collect_link_names(
         .collect();
     // Package edges come from linked targets only: a target the link
     // never reaches must not reorder its package.
-    let packages = reverse_postorder([start.0], &|pkg| {
+    let roots = if script.is_none() {
+        vec![start.0]
+    } else {
+        let direct = resolved.get(start).into_iter().flatten();
+        direct.map(|edge| edge.to.0).collect()
+    };
+    let packages = reverse_postorder(roots, &|pkg| {
         linked
             .iter()
             .filter(|tid| tid.0 == pkg)
@@ -452,9 +471,9 @@ pub(super) fn collect_link_names(
             .filter(|&to| to != pkg)
             .collect()
     });
-    let mut names: Vec<String> = packages
-        .iter()
-        .filter_map(|pkg| build_flags.get(pkg))
+    let mut names: Vec<String> = script
+        .into_iter()
+        .chain(packages.iter().filter_map(|pkg| build_flags.get(pkg)))
         .flat_map(|flags| field(flags).iter().cloned())
         .collect();
     if dedup {
