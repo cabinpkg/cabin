@@ -37,7 +37,7 @@ const ALLOW_SHIM: &str = "\n[standard-header-shadowing]\nallow = [\"shim\"]\n";
 fn shim_and_app(dir: &Path, shim_extra: &str, app_extra: &str) {
     let shim_manifest = format!("{SHIM_MANIFEST}{shim_extra}");
     let hex = make_archive(
-        &dir.join("index/artifacts/shim-1.0.0.zip"),
+        &dir.join("index/archives/shim-1.0.0.zip"),
         &[
             ("cabin.toml", &shim_manifest),
             ("include/stdint.h", "#define SHIM_STDINT 1\n"),
@@ -50,7 +50,7 @@ fn shim_and_app(dir: &Path, shim_extra: &str, app_extra: &str) {
         "1.0.0",
         "{}",
         &hex,
-        "artifacts/shim-1.0.0.zip",
+        "archives/shim-1.0.0.zip",
     );
     let app = assert_fs::fixture::ChildPath::new(dir.join("app"));
     app.child("cabin.toml")

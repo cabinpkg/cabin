@@ -25,10 +25,10 @@ fn write_registry(root: &Path, extra_config_fields: &str) {
     assert_fs::fixture::ChildPath::new(root.join("config.json"))
         .write_str(&format!(
             r#"{{
-    "schema": 1,
+    "schema": 2,
     "kind": "file-registry",
     "packages": "packages",
-    "artifacts": "artifacts"{extra_config_fields}
+    "archives": "archives"{extra_config_fields}
 }}"#
         ))
         .unwrap();
@@ -374,7 +374,7 @@ impl SessionRegistryServer {
             ""
         };
         let config = format!(
-            r#"{{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts",{auth_field}"api":"{url}"}}"#
+            r#"{{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives",{auth_field}"api":"{url}"}}"#
         );
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured_for_thread = std::sync::Arc::clone(&captured);
@@ -2174,20 +2174,20 @@ impl RemoteRegistryServer {
         let config = if include_api {
             format!(
                 r#"{{
-    "schema": 1,
+    "schema": 2,
     "kind": "file-registry",
     "packages": "packages",
-    "artifacts": "artifacts"{auth_field},
+    "archives": "archives"{auth_field},
     "api": "{api_value}"
 }}"#
             )
         } else {
             format!(
                 r#"{{
-    "schema": 1,
+    "schema": 2,
     "kind": "file-registry",
     "packages": "packages",
-    "artifacts": "artifacts"{auth_field}
+    "archives": "archives"{auth_field}
 }}"#
             )
         };
@@ -3072,10 +3072,10 @@ impl TrustpubRegistryServer {
         let api_value = api_override.map_or_else(|| url.clone(), str::to_owned);
         let config = format!(
             r#"{{
-    "schema": 1,
+    "schema": 2,
     "kind": "file-registry",
     "packages": "packages",
-    "artifacts": "artifacts",
+    "archives": "archives",
     "api": "{api_value}"
 }}"#
         );

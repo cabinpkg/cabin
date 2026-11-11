@@ -300,7 +300,7 @@ fn vendor_reproduces_the_pinned_revision_after_a_respin() {
     assert!(
         vendor_dir
             .join(format!(
-                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{first_rev}.zip"
+                "archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{first_rev}.zip"
             ))
             .is_file()
     );

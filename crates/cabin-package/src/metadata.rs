@@ -242,7 +242,7 @@ pub struct SourceMetadata {
 /// referring to a freshly-archived source tree by `checksum`.
 ///
 /// `source.path` is the file-registry relative reference
-/// (`../artifacts/<name>/<name>-<version>-<revision>.zip`, the
+/// (`../archives/<name>/<name>-<version>-<revision>.zip`, the
 /// packaging revision being the checksum's leading hex prefix).
 /// Dry-run staging records the same shape as a package-index
 /// `source` block, without publishing that path, so registry publish
@@ -282,11 +282,11 @@ pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) ->
     // verbatim at publish time.
     let source_path = match package.name.scope() {
         Some(scope) => format!(
-            "../../artifacts/{scope}/{base}/{stem}-{version}-{revision}.zip",
+            "../../archives/{scope}/{base}/{stem}-{version}-{revision}.zip",
             base = package.name.base_name(),
             stem = package.name.artifact_stem(),
         ),
-        None => format!("../artifacts/{name}/{name}-{version}-{revision}.zip"),
+        None => format!("../archives/{name}/{name}-{version}-{revision}.zip"),
     };
 
     PackageMetadata {
@@ -491,7 +491,7 @@ mod tests {
         assert_eq!(meta.source.format, "zip");
         assert_eq!(
             meta.source.path,
-            "../artifacts/fmt/fmt-10.2.1-0011223344556677.zip"
+            "../archives/fmt/fmt-10.2.1-0011223344556677.zip"
         );
     }
 
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(meta.name, "fmtlib/fmt");
         assert_eq!(
             meta.source.path,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip"
+            "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip"
         );
     }
 

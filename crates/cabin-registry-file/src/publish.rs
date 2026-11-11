@@ -339,10 +339,7 @@ mod tests {
                         let n = pkg(name);
                         let climb = if n.is_scoped() { "../../" } else { "../" };
                         let dirs = n.path_components().collect::<Vec<_>>().join("/");
-                        format!(
-                            "{climb}artifacts/{dirs}/{}-{version}.zip",
-                            n.artifact_stem()
-                        )
+                        format!("{climb}archives/{dirs}/{}-{version}.zip", n.artifact_stem())
                     },
                     format: "zip".to_owned(),
                 },
@@ -371,7 +368,7 @@ mod tests {
         assert_eq!(
             outcome.source_path,
             format!(
-                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
                 rev_of(&staged)
             )
         );
@@ -405,7 +402,7 @@ mod tests {
         }
         // Original artifact still present, unchanged.
         let body = fs::read(registry_dir.path().join(format!(
-            "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+            "archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
             rev_of(&s)
         )))
         .unwrap();
@@ -497,7 +494,7 @@ mod tests {
         // Both revisions' bytes remain fetchable.
         for (staged, bytes) in [(&first, b"first".as_slice()), (&second, b"second")] {
             let path = registry_dir.path().join(format!(
-                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                "archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
                 rev_of(staged)
             ));
             assert_eq!(fs::read(&path).unwrap(), bytes);
@@ -528,13 +525,13 @@ mod tests {
         assert!(body.contains("10.2.1"));
         registry_dir
             .child(format!(
-                "artifacts/fmtlib/fmt/fmtlib-fmt-10.1.0-{}.zip",
+                "archives/fmtlib/fmt/fmtlib-fmt-10.1.0-{}.zip",
                 rev_of(&v1)
             ))
             .assert(predicate::path::is_file());
         registry_dir
             .child(format!(
-                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                "archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
                 rev_of(&v2)
             ))
             .assert(predicate::path::is_file());
@@ -605,7 +602,7 @@ mod tests {
         let incoming = staged("fmtlib/fmt", "10.2.1", b"new bytes");
         registry_dir
             .child(format!(
-                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                "archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
                 rev_of(&incoming)
             ))
             .write_binary(b"orphan")
@@ -656,7 +653,7 @@ mod tests {
         assert_eq!(
             source["path"],
             format!(
-                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
                 rev_of(&s)
             )
         );

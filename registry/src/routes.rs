@@ -56,7 +56,7 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
         return (is_valid_scope(scope) && is_valid_name(name))
             .then_some(Route::Package { scope, name });
     }
-    if let Some(rest) = path.strip_prefix("/artifacts/") {
+    if let Some(rest) = path.strip_prefix("/archives/") {
         let (scope, rest) = rest.split_once('/')?;
         let (name, file) = rest.split_once('/')?;
         // The filename embeds the scope (a downloaded archive stays
@@ -400,7 +400,7 @@ pub fn is_stats_path(path: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     /// The machine read plane only: `/config.json`, `/packages/*`,
-    /// `/artifacts/*`, `/healthz`.
+    /// `/archives/*`, `/healthz`.
     Registry,
     /// The website origin: the OAuth routes (`/login`, `/callback*`,
     /// `/claim/*`) and `/api/*` (the Bearer mutation routes, the session
@@ -500,7 +500,7 @@ mod tests {
             })
         );
         assert_eq!(
-            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-00112233aabbccdd.zip"),
+            match_route("/archives/fmtlib/fmt/fmtlib-fmt-10.2.1-00112233aabbccdd.zip"),
             Some(Route::Artifact {
                 scope: "fmtlib",
                 name: "fmt",
@@ -514,7 +514,7 @@ mod tests {
         // hex tail.
         assert_eq!(
             match_route(
-                "/artifacts/my-org/my_pkg-2/my-org-my_pkg-2-1.0.0-rc.1-00112233aabbccdd.zip"
+                "/archives/my-org/my_pkg-2/my-org-my_pkg-2-1.0.0-rc.1-00112233aabbccdd.zip"
             ),
             Some(Route::Artifact {
                 scope: "my-org",
@@ -526,16 +526,16 @@ mod tests {
         // Build metadata never parses: registry versions are plain
         // upstream versions.
         assert_eq!(
-            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1+cabin.1-00112233aabbccdd.zip"),
+            match_route("/archives/fmtlib/fmt/fmtlib-fmt-10.2.1+cabin.1-00112233aabbccdd.zip"),
             None
         );
         // A missing or malformed revision tail never parses.
         assert_eq!(
-            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
+            match_route("/archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
             None
         );
         assert_eq!(
-            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-ABCD.zip"),
+            match_route("/archives/fmtlib/fmt/fmtlib-fmt-10.2.1-ABCD.zip"),
             None
         );
     }
@@ -551,12 +551,12 @@ mod tests {
             "/packages/fmtlib/fmt.json.json/",
             "/packages/fmtlib/.json",
             "/packages/fmtlib/extra/fmt.json",
-            "/artifacts/fmtlib",
-            "/artifacts/fmtlib/fmt",
-            "/artifacts/fmtlib/fmt/",
-            "/artifacts/fmt/fmt-10.2.1.zip",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip/extra",
+            "/archives/fmtlib",
+            "/archives/fmtlib/fmt",
+            "/archives/fmtlib/fmt/",
+            "/archives/fmt/fmt-10.2.1.zip",
+            "/archives/fmtlib/fmt/fmtlib-fmt-10.2.1.tar",
+            "/archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip/extra",
             "/index.html",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
@@ -569,11 +569,11 @@ mod tests {
         // prefix - another scope, another name, or a bare name - fails
         // parsing before any lookup.
         for path in [
-            "/artifacts/fmtlib/fmt/fmt-10.2.1.zip",
-            "/artifacts/fmtlib/fmt/other-fmt-10.2.1.zip",
-            "/artifacts/fmtlib/fmt/fmtlib-other-10.2.1.zip",
-            "/artifacts/fmtlib/fmt/fmtlibfmt-10.2.1.zip",
-            "/artifacts/my-org/pkg/my-org-2-pkg-1.0.0.zip",
+            "/archives/fmtlib/fmt/fmt-10.2.1.zip",
+            "/archives/fmtlib/fmt/other-fmt-10.2.1.zip",
+            "/archives/fmtlib/fmt/fmtlib-other-10.2.1.zip",
+            "/archives/fmtlib/fmt/fmtlibfmt-10.2.1.zip",
+            "/archives/my-org/pkg/my-org-2-pkg-1.0.0.zip",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
         }
@@ -594,13 +594,13 @@ mod tests {
             "/packages/fmtlib/..%2fescape.json",
             "/packages/..%2fescape/fmt.json",
             "/packages/fmtlib/fmt%2e.json",
-            "/artifacts/../fmt/fmt-1.0.0.zip",
-            "/artifacts/fmtlib/../fmtlib-..-1.0.0.zip",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.zip",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.0.zip",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-v1.0.0.zip",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.x.zip",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0%2f.zip",
+            "/archives/../fmt/fmt-1.0.0.zip",
+            "/archives/fmtlib/../fmtlib-..-1.0.0.zip",
+            "/archives/fmtlib/fmt/fmtlib-fmt-1.0.zip",
+            "/archives/fmtlib/fmt/fmtlib-fmt-1.0.0.0.zip",
+            "/archives/fmtlib/fmt/fmtlib-fmt-v1.0.0.zip",
+            "/archives/fmtlib/fmt/fmtlib-fmt-1.0.x.zip",
+            "/archives/fmtlib/fmt/fmtlib-fmt-1.0.0%2f.zip",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
         }

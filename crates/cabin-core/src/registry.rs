@@ -13,7 +13,7 @@
 use std::path::Path;
 
 /// Supported `config.json` `schema` version.
-pub const REGISTRY_CONFIG_SCHEMA: u32 = 1;
+pub const REGISTRY_CONFIG_SCHEMA: u32 = 2;
 
 /// Length, in lowercase hex characters, of a packaging-revision
 /// identifier: the leading prefix of the canonical archive's SHA-256.
@@ -86,7 +86,7 @@ pub fn api_url_error(value: &str) -> Option<String> {
 }
 
 /// Whether `value` is a safe relative subdirectory for a registry
-/// config field (`packages` / `artifacts`): non-empty, not absolute,
+/// config field (`packages` / `archives`): non-empty, not absolute,
 /// and composed only of normal path components (a leading / interior
 /// `.` is tolerated).  Rejects `..`, absolute paths, and OS root /
 /// prefix components so the value, joined onto the registry root,
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn accepts_simple_relative_subdirs() {
         assert!(relative_subdir_is_safe("packages"));
-        assert!(relative_subdir_is_safe("artifacts"));
+        assert!(relative_subdir_is_safe("archives"));
         assert!(relative_subdir_is_safe("a/b"));
     }
 

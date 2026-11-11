@@ -378,7 +378,7 @@ fn is_valid_publish_name(scope: &str, name: &str) -> bool {
 /// registry writes the same layout.
 #[must_use]
 pub fn source_path(scope: &str, name: &str, version: &str, revision: &str) -> String {
-    format!("../../artifacts/{scope}/{name}/{scope}-{name}-{version}-{revision}.zip")
+    format!("../../archives/{scope}/{name}/{scope}-{name}-{version}-{revision}.zip")
 }
 
 /// Validates the metadata frame against the request URL's `scope` /
@@ -669,7 +669,7 @@ mod tests {
   "checksum": "sha256:aa",
   "source": {{
     "type": "archive",
-    "path": "../../artifacts/{scope}/{name}/{scope}-{name}-{version}-{REV}.zip",
+    "path": "../../archives/{scope}/{name}/{scope}-{name}-{version}-{REV}.zip",
     "format": "zip"
   }}
 }}"#
@@ -750,7 +750,7 @@ mod tests {
   "license": "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)",
   "yanked": false,
   "checksum": "sha256:bb",
-  "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}
+  "source": {"type": "archive", "path": "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}
 }"#;
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
         assert!(parsed.standards.is_some());
@@ -831,7 +831,7 @@ mod tests {
   "links": {links},
   "yanked": false,
   "checksum": "sha256:bb",
-  "source": {{"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}}
+  "source": {{"type": "archive", "path": "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}}
 }}"#
             )
         };
@@ -926,7 +926,7 @@ mod tests {
   "checksum": "sha256:aa",
   "source": {{
     "type": "archive",
-    "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-{REV}.zip",
+    "path": "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-{REV}.zip",
     "format": "zip"
   }}
 }}"#
@@ -1314,7 +1314,7 @@ mod tests {
         );
         // A source path pointing at some other artifact.
         let moved = body.replace(
-            &format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{REV}.zip"),
+            &format!("../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{REV}.zip"),
             "../elsewhere.zip",
         );
         assert_eq!(
@@ -1324,8 +1324,8 @@ mod tests {
         // The pre-scopes source path shape (bare directory, bare
         // filename) is not the canonical path any more.
         let unscoped = body.replace(
-            &format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{REV}.zip"),
-            &format!("../artifacts/fmt/fmt-10.2.1-{REV}.zip"),
+            &format!("../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{REV}.zip"),
+            &format!("../archives/fmt/fmt-10.2.1-{REV}.zip"),
         );
         assert_eq!(
             validate_metadata("fmtlib", "fmt", "10.2.1", REV, unscoped.as_bytes()).unwrap_err(),

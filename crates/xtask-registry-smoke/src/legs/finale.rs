@@ -664,7 +664,7 @@ fn concurrency(
         base: smoke.url(Base::Registry, ""),
         token: inputs.token.to_owned(),
         prefix: format!(
-            "/artifacts/{}/{}/{}-{}-",
+            "/archives/{}/{}/{}-{}-",
             inputs.scope, inputs.name, inputs.scope, inputs.name
         ),
     };
@@ -1019,7 +1019,7 @@ fn verdict_route(inputs: &FinaleInputs<'_>, version: &str) -> String {
 
 fn artifact_route(inputs: &FinaleInputs<'_>, version: &str, archive: &[u8]) -> String {
     format!(
-        "/artifacts/{}/{}/{}-{}-{version}-{}.zip",
+        "/archives/{}/{}/{}-{}-{version}-{}.zip",
         inputs.scope,
         inputs.name,
         inputs.scope,

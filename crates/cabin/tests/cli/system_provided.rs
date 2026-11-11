@@ -122,11 +122,11 @@ version = "0.1.0"
     manifest
 }
 
-/// Move `<root>/registry/artifacts/<package>` aside, so a command that
+/// Move `<root>/registry/archives/<package>` aside, so a command that
 /// fetches the package fails.
 fn hide_archives(root: &Path, package: &str) {
     fs::rename(
-        root.join("registry/artifacts").join(package),
+        root.join("registry/archives").join(package),
         root.join(format!("hidden-{}", package.replace('/', "-"))),
     )
     .unwrap();
@@ -250,7 +250,7 @@ int main() { std::printf("%s %s %s %d\n", Z_ORIGIN, glue_origin(), png_origin(),
 
     fs::rename(
         root.join("hidden-acme-zlib"),
-        root.join("registry/artifacts/acme/zlib"),
+        root.join("registry/archives/acme/zlib"),
     )
     .unwrap();
     write_app(root, deps, "");

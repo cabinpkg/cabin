@@ -1007,7 +1007,7 @@ dispatch is a normal pass too). The
 checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
 The verifier addresses scoped names throughout: the artifact download
-nests the directory (`artifacts/<scope>/<name>/`) and flattens the
+nests the directory (`archives/<scope>/<name>/`) and flattens the
 filename (`<scope>-<name>-<version>-<revision>.zip`), and the verdict
 PATCH carries the `<scope>/<name>/<version>` triple plus the listing's
 `checksum`, which is what names the revision.

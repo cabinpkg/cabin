@@ -118,7 +118,7 @@ pub fn setup(registry: &Path) -> Result<Setup> {
     Ok(Setup {
         publish_path: format!("/api/v1/packages/{SCOPE}/{NAME}/{VERSION}"),
         package_path: format!("/packages/{SCOPE}/{NAME}.json"),
-        artifact_path: format!("/artifacts/{SCOPE}/{NAME}/{SCOPE}-{NAME}-{VERSION}-{rev}.zip"),
+        artifact_path: format!("/archives/{SCOPE}/{NAME}/{SCOPE}-{NAME}-{VERSION}-{rev}.zip"),
         work,
         verifier_bin,
         fixture_archive,

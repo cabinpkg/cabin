@@ -427,7 +427,7 @@ fn real_verification(
     // the per-version revisions map with the canonical source path.
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
     smoke.expect_body(&format!(
-        "../../artifacts/{scope}/{name}/{scope}-{name}-{version}-{rev}.zip",
+        "../../archives/{scope}/{name}/{scope}-{name}-{version}-{rev}.zip",
         scope = inputs.scope,
         name = inputs.name,
         version = inputs.version,

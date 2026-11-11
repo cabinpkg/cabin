@@ -15,9 +15,9 @@ pub const REGISTRY_CONFIG_FILENAME: &str = "config.json";
 /// Default subdirectory names. `config.json` may override them, but
 /// the defaults are the only shapes the file registry emits.
 const DEFAULT_PACKAGES_DIR: &str = "packages";
-const DEFAULT_ARTIFACTS_DIR: &str = "artifacts";
+const DEFAULT_ARCHIVES_DIR: &str = "archives";
 
-/// Parsed and validated `<registry>/config.json`.  Schema-version `1`
+/// Parsed and validated `<registry>/config.json`.  Schema-version `2`
 /// only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,8 +25,8 @@ pub struct RegistryConfig {
     pub schema: u32,
     pub kind: String,
     pub packages: String,
-    pub artifacts: String,
-    /// Where an HTTP copy of this registry serves `artifacts` from.
+    pub archives: String,
+    /// Where an HTTP copy of this registry serves `archives` from.
     /// Unused here: read so that publishing into such a registry works.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dl: Option<String>,
@@ -35,12 +35,12 @@ pub struct RegistryConfig {
 impl RegistryConfig {
     /// Default config emitted when `cabin publish --registry-dir`
     /// initializes a fresh registry.
-    pub fn default_v1() -> Self {
+    pub fn fresh() -> Self {
         Self {
             schema: REGISTRY_CONFIG_SCHEMA,
             kind: REGISTRY_KIND.to_owned(),
             packages: DEFAULT_PACKAGES_DIR.to_owned(),
-            artifacts: DEFAULT_ARTIFACTS_DIR.to_owned(),
+            archives: DEFAULT_ARCHIVES_DIR.to_owned(),
             dl: None,
         }
     }
@@ -65,7 +65,7 @@ impl RegistryConfig {
             });
         }
         validate_subdir(path, "packages", &self.packages)?;
-        validate_subdir(path, "artifacts", &self.artifacts)?;
+        validate_subdir(path, "archives", &self.archives)?;
         Ok(())
     }
 }
@@ -89,7 +89,7 @@ impl FileRegistry {
     /// # Errors
     /// Returns [`RegistryError::InvalidConfig`] when `config.json` is
     /// absent or fails validation (unsupported schema/kind, or an
-    /// empty/unsafe `packages`/`artifacts` subdir),
+    /// empty/unsafe `packages`/`archives` subdir),
     /// [`RegistryError::Io`] when the file cannot be read, and
     /// [`RegistryError::ConfigJson`] when its contents are not valid
     /// config JSON (including unknown fields).
@@ -137,7 +137,7 @@ impl FileRegistry {
             path: root.to_path_buf(),
             source,
         })?;
-        let config = RegistryConfig::default_v1();
+        let config = RegistryConfig::fresh();
         let body = serde_json::to_string_pretty(&config)?;
         let mut body = body;
         body.push('\n');
@@ -146,8 +146,8 @@ impl FileRegistry {
             path: root.join(&config.packages),
             source,
         })?;
-        fs::create_dir_all(root.join(&config.artifacts)).map_err(|source| RegistryError::Io {
-            path: root.join(&config.artifacts),
+        fs::create_dir_all(root.join(&config.archives)).map_err(|source| RegistryError::Io {
+            path: root.join(&config.archives),
             source,
         })?;
         Ok(Self {
@@ -171,7 +171,7 @@ impl FileRegistry {
         }
         Ok(Self {
             root: root.to_path_buf(),
-            config: RegistryConfig::default_v1(),
+            config: RegistryConfig::fresh(),
             initialized_now: true,
         })
     }
@@ -200,10 +200,10 @@ impl FileRegistry {
     }
 
     /// Directory containing per-package artifact directories
-    /// (`artifacts/<name>/` for a bare name,
-    /// `artifacts/<scope>/<name>/` for a scoped one).
-    pub fn artifacts_dir(&self) -> PathBuf {
-        self.root.join(&self.config.artifacts)
+    /// (`archives/<name>/` for a bare name,
+    /// `archives/<scope>/<name>/` for a scoped one).
+    pub fn archives_dir(&self) -> PathBuf {
+        self.root.join(&self.config.archives)
     }
 
     /// Absolute path of the package index file for `name`.  A scoped
@@ -222,7 +222,7 @@ impl FileRegistry {
     /// `name`.
     pub fn artifact_dir_for(&self, name: &PackageName) -> PathBuf {
         name.path_components()
-            .fold(self.artifacts_dir(), |dir, c| dir.join(c))
+            .fold(self.archives_dir(), |dir, c| dir.join(c))
     }
 
     /// Absolute path of the artifact for one immutable
@@ -255,9 +255,9 @@ impl FileRegistry {
     /// validation, so legal-but-unnormalized values (`./packages`,
     /// `packages/`, platform separators) climb and render exactly
     /// where the index document really sits.  For the default config
-    /// this yields `../artifacts/<name>/<name>-<version>-<revision>.zip`
+    /// this yields `../archives/<name>/<name>-<version>-<revision>.zip`
     /// for a bare name and
-    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
+    /// `../../archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
     /// for a scoped one; only the scoped shape is one the hosted
     /// registry accepts.
     pub fn relative_source_path(
@@ -272,7 +272,7 @@ impl FileRegistry {
         for _ in 0..climb {
             out.push_str("../");
         }
-        let descent: Vec<&str> = subdir_normal_components(&self.config.artifacts)
+        let descent: Vec<&str> = subdir_normal_components(&self.config.archives)
             .chain(name.path_components())
             .collect();
         out.push_str(&descent.join("/"));
@@ -325,10 +325,10 @@ mod tests {
         let config = dir.child(REGISTRY_CONFIG_FILENAME);
         config.assert(predicate::path::is_file());
         dir.child("packages").assert(predicate::path::is_dir());
-        dir.child("artifacts").assert(predicate::path::is_dir());
+        dir.child("archives").assert(predicate::path::is_dir());
         let body = fs::read_to_string(config.path()).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(value["schema"], 1);
+        assert_eq!(value["schema"], 2);
         assert_eq!(value["kind"], "file-registry");
     }
 
@@ -359,7 +359,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child(REGISTRY_CONFIG_FILENAME)
             .write_str(
-                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","dl":"https://static.example.com"}"#,
+                r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives","dl":"https://static.example.com"}"#,
             )
             .unwrap();
         FileRegistry::open(dir.path()).unwrap();
@@ -370,7 +370,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child(REGISTRY_CONFIG_FILENAME)
             .write_str(
-                r#"{"schema":99,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+                r#"{"schema":99,"kind":"file-registry","packages":"packages","archives":"archives"}"#,
             )
             .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
@@ -387,7 +387,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child(REGISTRY_CONFIG_FILENAME)
             .write_str(
-                r#"{"schema":1,"kind":"http-registry","packages":"packages","artifacts":"artifacts"}"#,
+                r#"{"schema":2,"kind":"http-registry","packages":"packages","archives":"archives"}"#,
             )
             .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
@@ -399,11 +399,24 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child(REGISTRY_CONFIG_FILENAME)
             .write_str(
-                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","extra":"nope"}"#,
+                r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives","extra":"nope"}"#,
             )
             .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
         assert!(matches!(err, RegistryError::ConfigJson { .. }));
+    }
+
+    /// Schema 1 named the directory field `artifacts`; it has no alias.
+    #[test]
+    fn rejects_a_schema_1_config() {
+        let dir = TempDir::new().unwrap();
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            )
+            .unwrap();
+        let rendered = FileRegistry::open(dir.path()).unwrap_err().to_string();
+        assert!(rendered.contains("`artifacts`"), "{rendered}");
     }
 
     /// serde quotes the unknown field back, so a registry directory can put
@@ -413,7 +426,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child(REGISTRY_CONFIG_FILENAME)
             .write_str(
-                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","\u001b[2Khidden":"nope"}"#,
+                r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives","\u001b[2Khidden":"nope"}"#,
             )
             .unwrap();
         let rendered = FileRegistry::open(dir.path()).unwrap_err().to_string();
@@ -429,7 +442,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child(REGISTRY_CONFIG_FILENAME)
             .write_str(
-                r#"{"schema":1,"kind":"file-registry","packages":"../escape","artifacts":"artifacts"}"#,
+                r#"{"schema":2,"kind":"file-registry","packages":"../escape","archives":"archives"}"#,
             )
             .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
@@ -454,11 +467,11 @@ mod tests {
         assert_eq!(
             registry.artifact_path(&fmt, &v, "aaaaaaaaaaaaaaaa"),
             dir.path()
-                .join("artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
+                .join("archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
         );
         assert_eq!(
             registry.relative_source_path(&fmt, &v, "aaaaaaaaaaaaaaaa"),
-            "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
+            "../archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
@@ -480,15 +493,15 @@ mod tests {
         assert_eq!(
             registry.artifact_path(&name, &v, "aaaaaaaaaaaaaaaa"),
             dir.path()
-                .join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
+                .join("archives/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
         );
         assert_eq!(
             registry.relative_source_path(&name, &v, "aaaaaaaaaaaaaaaa"),
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
+            "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
-    /// The configured `packages` / `artifacts` subdirs may be nested
+    /// The configured `packages` / `archives` subdirs may be nested
     /// (`a/b` is legal); the relative source link climbs one `..`
     /// per normal component of the packages subdir, so the emitted
     /// link resolves from the index document's real location.
@@ -497,7 +510,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child("config.json")
             .write_str(
-                r#"{"schema":1,"kind":"file-registry","packages":"meta/packages","artifacts":"blobs"}"#,
+                r#"{"schema":2,"kind":"file-registry","packages":"meta/packages","archives":"blobs"}"#,
             )
             .unwrap();
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
@@ -529,7 +542,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         dir.child("config.json")
             .write_str(
-                r#"{"schema":1,"kind":"file-registry","packages":"./packages/","artifacts":"./blobs"}"#,
+                r#"{"schema":2,"kind":"file-registry","packages":"./packages/","archives":"./blobs"}"#,
             )
             .unwrap();
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
@@ -545,7 +558,7 @@ mod tests {
 
         let dir = TempDir::new().unwrap();
         dir.child("config.json")
-            .write_str(r#"{"schema":1,"kind":"file-registry","packages":".","artifacts":"blobs"}"#)
+            .write_str(r#"{"schema":2,"kind":"file-registry","packages":".","archives":"blobs"}"#)
             .unwrap();
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
         // Index docs sit at the registry root: no climb at all for a

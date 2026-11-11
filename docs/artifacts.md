@@ -15,7 +15,7 @@ Every registry package source archive must be a `.zip` whose root contains the p
 [`package-format.md`](package-format.md) for the producer contract, including the determinism rules
 and the include / exclude policy.  `cabin publish --registry-dir` writes those archives into a local
 file registry under
-`<registry>/artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` (publish
+`<registry>/archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` (publish
 requires a scoped name; the trailing segment is the
 [packaging revision](package-index.md#packaging-revisions)), matching what the artifact fetcher
 reads back; see [`registry-design.md`](registry-design.md).
@@ -48,7 +48,7 @@ version carries a `source` block alongside its `checksum`:
 ```json
 "source": {
   "type": "archive",
-  "path": "../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip",
+  "path": "../archives/fmt/fmt-10.2.1-0123456789abcdef.zip",
   "format": "zip"
 }
 ```

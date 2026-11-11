@@ -951,7 +951,7 @@ mod tests {
 
         let (server, url, thread) = challenge_server(429, ENVELOPE, &[("Retry-After", "3600")]);
         let err = HttpClient::new()
-            .get_bytes(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .get_bytes(&format!("{url}/archives/smoke/withdep/a.zip"), "pkg")
             .unwrap_err();
         match &err {
             IndexHttpError::ReadRateLimited {
@@ -970,7 +970,7 @@ mod tests {
 
         let (server, url, thread) = challenge_server(429, ENVELOPE, &[]);
         let err = HttpClient::new()
-            .get_bytes(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .get_bytes(&format!("{url}/archives/smoke/withdep/a.zip"), "pkg")
             .unwrap_err();
         match &err {
             IndexHttpError::ReadRateLimited {
@@ -988,7 +988,7 @@ mod tests {
             &[("Retry-After", "3600")],
         );
         let err = HttpClient::new()
-            .get_bytes(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .get_bytes(&format!("{url}/archives/smoke/withdep/a.zip"), "pkg")
             .unwrap_err();
         match &err {
             IndexHttpError::ServerError { status: 429, .. } => {}
@@ -1030,7 +1030,7 @@ mod tests {
 
         let (server, url, thread) = challenge_server(503, ENVELOPE, &[]);
         let err = HttpClient::new()
-            .download(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .download(&format!("{url}/archives/smoke/withdep/a.zip"), "pkg")
             .unwrap_err();
         match &err {
             IndexHttpError::RegistryOverBudget {

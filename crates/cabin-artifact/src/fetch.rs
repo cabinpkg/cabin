@@ -487,7 +487,7 @@ version = "{version}"
     #[test]
     fn fetch_copies_archive_into_cache_and_extracts_source() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt-10.2.1.tar.gz");
+        let archive = dir.child("archives/fmt-10.2.1.tar.gz");
         let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
@@ -516,7 +516,7 @@ version = "{version}"
         use std::sync::atomic::{AtomicBool, Ordering};
 
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/big.zip");
+        let archive = dir.child("archives/big.zip");
         // Pseudo-random letters, large enough that hashing the archive
         // takes long enough for the hostile loop below to overlap it.
         let body: String = (0..6_000_000u32)
@@ -564,7 +564,7 @@ version = "{version}"
     #[test]
     fn already_cached_archive_is_reused() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt.tar.gz");
+        let archive = dir.child("archives/fmt.tar.gz");
         let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
@@ -644,7 +644,7 @@ version = "{version}"
     #[test]
     fn checksum_mismatch_is_reported() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt.tar.gz");
+        let archive = dir.child("archives/fmt.tar.gz");
         let _hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let bogus = format!("sha256:{}", "0".repeat(64));
@@ -788,7 +788,7 @@ version = "{version}"
     #[test]
     fn archive_inside_the_index_root_may_climb_through_parent_components() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/acme/fmt/fmt.zip");
+        let archive = dir.child("archives/acme/fmt/fmt.zip");
         let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         dir.child("packages/acme").create_dir_all().unwrap();
         let plan = FetchPlan {
@@ -801,7 +801,7 @@ version = "{version}"
                     root: dir.to_path_buf(),
                     path: dir
                         .path()
-                        .join("packages/acme/../../artifacts/acme/fmt/fmt.zip"),
+                        .join("packages/acme/../../archives/acme/fmt/fmt.zip"),
                 },
             }],
         };
@@ -811,7 +811,7 @@ version = "{version}"
     #[test]
     fn frozen_uses_existing_cache() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt.tar.gz");
+        let archive = dir.child("archives/fmt.tar.gz");
         let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
@@ -846,7 +846,7 @@ version = "{version}"
     #[test]
     fn re_extracts_when_existing_source_dir_is_incomplete() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt.tar.gz");
+        let archive = dir.child("archives/fmt.tar.gz");
         let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
@@ -872,7 +872,7 @@ version = "{version}"
         // cache hit, even when its `cabin.toml` validates: the next
         // fetch re-extracts it.
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt.tar.gz");
+        let archive = dir.child("archives/fmt.tar.gz");
         let hex = write_archive(
             &archive,
             &[
@@ -916,7 +916,7 @@ version = "{version}"
     fn frozen_fails_when_marker_missing_even_if_manifest_present() {
         // The marker-missing setup above, in frozen mode.
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt.tar.gz");
+        let archive = dir.child("archives/fmt.tar.gz");
         let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         // Also lay down the archive so `ensure_archive` passes
@@ -947,7 +947,7 @@ version = "{version}"
         // half-populated source tree, no completion marker, no
         // scratch directory.
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/evil.zip");
+        let archive = dir.child("archives/evil.zip");
         fs::create_dir_all(archive.path().parent().unwrap()).unwrap();
         let f = File::create(archive.path()).unwrap();
         let mut writer = zip::ZipWriter::new(f);
@@ -995,7 +995,7 @@ version = "{version}"
     #[test]
     fn rejects_archive_without_root_cabin_toml() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/fmt.tar.gz");
+        let archive = dir.child("archives/fmt.tar.gz");
         let hex = write_archive(&archive, &[("src/main.cc", "int main() { return 0; }\n")]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {

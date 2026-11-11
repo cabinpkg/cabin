@@ -464,8 +464,8 @@ fn fetch_caches_registry_archives_for_offline_reuse() {
     assert!(extracted, "no extracted source under {}", sources.display());
 
     fs::rename(
-        staged.registry().join("artifacts"),
-        staged.root.path().join("artifacts-parked"),
+        staged.registry().join("archives"),
+        staged.root.path().join("archives-parked"),
     )
     .unwrap();
     fetch(staged.cache(), &["--offline"]).assert().success();
@@ -533,14 +533,14 @@ fn vendor_reconstructs_offline_builds_from_scoped_registry() {
     assert!(
         vendor_dir
             .join(format!(
-                "artifacts/cabin-ports/zlib/cabin-ports-zlib-1.3.1-{zlib_rev}.zip"
+                "archives/cabin-ports/zlib/cabin-ports-zlib-1.3.1-{zlib_rev}.zip"
             ))
             .is_file()
     );
     assert!(
         vendor_dir
             .join(format!(
-                "artifacts/cabin-ports/libpng/cabin-ports-libpng-1.6.50-{libpng_rev}.zip"
+                "archives/cabin-ports/libpng/cabin-ports-libpng-1.6.50-{libpng_rev}.zip"
             ))
             .is_file()
     );

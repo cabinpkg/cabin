@@ -1220,7 +1220,7 @@ fn upstream_url(entry: &Value) -> Result<String> {
 /// bytes the listing entry does.
 fn artifact_url(origin: &str, name: &str, version: &str, revision: &str) -> String {
     let stem = name.replace('/', "-");
-    format!("{origin}/artifacts/{name}/{stem}-{version}-{revision}.zip")
+    format!("{origin}/archives/{name}/{stem}-{version}-{revision}.zip")
 }
 
 /// Concatenated, never percent-encoded: `name` already carries the
@@ -1588,7 +1588,7 @@ mod tests {
                 "10.2.1+cabin.1",
                 "abcdef01"
             ),
-            "https://registry.cabinpkg.com/artifacts/my-scope/pkg/\
+            "https://registry.cabinpkg.com/archives/my-scope/pkg/\
              my-scope-pkg-10.2.1+cabin.1-abcdef01.zip"
         );
         assert_eq!(
