@@ -25,7 +25,7 @@ struct HttpIndexConfig {
     schema: u32,
     kind: String,
     packages: String,
-    artifacts: String,
+    archives: String,
     /// `auth-required`: every request to this registry except
     /// `config.json` itself must carry `Authorization: Bearer
     /// <token>`.  `config.json` stays public so `cabin login` can
@@ -35,31 +35,31 @@ struct HttpIndexConfig {
     /// `api`: absolute base URL of the registry web/API origin.
     /// Validated (http(s), no userinfo).
     api: Option<String>,
-    /// `dl`: base URL of the host that serves the `artifacts`
+    /// `dl`: base URL of the host that serves the `archives`
     /// directory, held to the index URL's own rules.
     dl: Option<url::Url>,
 }
 
 /// Where a registry that declares `dl` serves its archives: the
-/// `artifacts` directory of the index, at the same path below `dl`.
+/// `archives` directory of the index, at the same path below `dl`.
 #[derive(Debug, Clone)]
 struct Download {
     /// The `dl` base URL, with a trailing `/`.
     base: url::Url,
     /// Path of the index base URL, which `dl` stands in for.
     index_path: String,
-    /// Path of `<index base>/<config.artifacts>/`.  Only archives
+    /// Path of `<index base>/<config.archives>/`.  Only archives
     /// below it move to `dl`.
-    artifacts_path: String,
+    archives_path: String,
 }
 
 impl Download {
-    fn new(index_base: &url::Url, artifacts: &str, dl: url::Url) -> Result<Self, url::ParseError> {
+    fn new(index_base: &url::Url, archives: &str, dl: url::Url) -> Result<Self, url::ParseError> {
         Ok(Self {
             base: dl,
             index_path: index_base.path().to_owned(),
-            artifacts_path: index_base
-                .join(&format!("{}/", artifacts.trim_end_matches('/')))?
+            archives_path: index_base
+                .join(&format!("{}/", archives.trim_end_matches('/')))?
                 .path()
                 .to_owned(),
         })
@@ -100,7 +100,7 @@ impl HttpIndex {
     /// host other than loopback, carries credentials, or fails to join
     /// the `config.json` path.  Returns
     /// [`IndexHttpError::InvalidConfig`] when `config.json` is not
-    /// valid JSON or its `schema`/`kind`/`packages`/`artifacts`/
+    /// valid JSON or its `schema`/`kind`/`packages`/`archives`/
     /// `auth-required`/`api`/`dl` fields fail validation.  Propagates the
     /// fetch errors of [`HttpClient::get_bytes`].
     #[tracing::instrument(name = "open_http_index", level = "info", skip_all)]
@@ -130,11 +130,11 @@ impl HttpIndex {
 
         let download = config
             .dl
-            .map(|dl| Download::new(&base, &config.artifacts, dl))
+            .map(|dl| Download::new(&base, &config.archives, dl))
             .transpose()
             .map_err(|err| IndexHttpError::InvalidConfig {
                 base_url: base.to_string(),
-                message: format!("`artifacts` produces an invalid URL: {err}"),
+                message: format!("`archives` produces an invalid URL: {err}"),
             })?;
 
         Ok(Self {
@@ -380,7 +380,7 @@ fn redact_url_userinfo(parsed: &url::Url) -> String {
 /// origin as the package metadata URL and carries no `userinfo`.
 ///
 /// A registry that declares `dl` serves that URL from there instead:
-/// the URL must sit in the index's `artifacts` directory, and its
+/// the URL must sit in the index's `archives` directory, and its
 /// path below the index base is appended to `dl` unchanged, so `dl`
 /// names the root the directory hangs from, not the directory.
 fn resolve_source_url(
@@ -402,14 +402,14 @@ fn resolve_source_url(
     let Some(download) = download else {
         return Ok(resolved.into());
     };
-    if !resolved.path().starts_with(&download.artifacts_path)
+    if !resolved.path().starts_with(&download.archives_path)
         || resolved.query().is_some()
         || resolved.fragment().is_some()
     {
         return Err(IndexHttpError::InvalidMetadata {
             name: "<source>".to_owned(),
             message: format!(
-                "source URL `{resolved}` is not a file in the registry's `artifacts` directory, \
+                "source URL `{resolved}` is not a file in the registry's `archives` directory, \
                  which is all its `dl` host serves"
             ),
         });
@@ -517,7 +517,7 @@ struct RawRegistryConfig {
     schema: u32,
     kind: String,
     packages: String,
-    artifacts: String,
+    archives: String,
     #[serde(default, rename = "auth-required", deserialize_with = "present_field")]
     auth_required: Option<bool>,
     /// Absolute base URL of the registry web/API origin.
@@ -561,7 +561,7 @@ impl HttpIndexConfig {
             });
         }
         validate_subdir(base, "packages", &raw.packages)?;
-        validate_subdir(base, "artifacts", &raw.artifacts)?;
+        validate_subdir(base, "archives", &raw.archives)?;
         if let Some(api) = raw.api.as_deref()
             && let Some(message) = api_url_error(api)
         {
@@ -598,7 +598,7 @@ impl HttpIndexConfig {
             schema: raw.schema,
             kind: raw.kind,
             packages: raw.packages,
-            artifacts: raw.artifacts,
+            archives: raw.archives,
             auth_required: raw.auth_required.unwrap_or(false),
             api: raw.api,
             dl,
@@ -606,7 +606,7 @@ impl HttpIndexConfig {
     }
 }
 
-/// Validate a registry-declared subdirectory (`packages` / `artifacts`).
+/// Validate a registry-declared subdirectory (`packages` / `archives`).
 ///
 /// `relative_subdir_is_safe` is a *filesystem* predicate, and this value
 /// becomes a URL: `Path::new("https://evil.example/pkgs")` is all-`Normal`
@@ -734,10 +734,10 @@ mod tests {
     #[test]
     fn resolve_source_url_handles_relative_dot_dot() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmt.json");
-        let resolved = resolve_source_url(&pkg, None, "../artifacts/fmt/fmt-10.2.1.zip").unwrap();
+        let resolved = resolve_source_url(&pkg, None, "../archives/fmt/fmt-10.2.1.zip").unwrap();
         assert_eq!(
             resolved,
-            "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.zip"
+            "http://localhost:8080/registry/archives/fmt/fmt-10.2.1.zip"
         );
     }
 
@@ -751,19 +751,19 @@ mod tests {
         let resolved = resolve_source_url(
             &pkg,
             None,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+            "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
         )
         .unwrap();
         assert_eq!(
             resolved,
-            "http://localhost:8080/registry/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
+            "http://localhost:8080/registry/archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
         );
     }
 
     #[test]
     fn resolve_source_url_accepts_same_origin_absolute_url() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmt.json");
-        let absolute = "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.zip";
+        let absolute = "http://localhost:8080/registry/archives/fmt/fmt-10.2.1.zip";
         let resolved = resolve_source_url(&pkg, None, absolute).unwrap();
         assert_eq!(resolved, absolute);
     }
@@ -775,8 +775,8 @@ mod tests {
     fn resolve_source_url_rejects_cross_origin_from_a_scoped_document() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmtlib/fmt.json");
         for raw in [
-            "http://127.0.0.1/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
-            "//evil.example.net/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
+            "http://127.0.0.1/archives/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
+            "//evil.example.net/archives/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
         ] {
             let err = resolve_source_url(&pkg, None, raw).unwrap_err();
             let message = err.to_string();
@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn resolve_source_url_rejects_cross_origin_absolute_url() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
-        let err = resolve_source_url(&pkg, None, "http://127.0.0.1/artifacts/fmt.zip").unwrap_err();
+        let err = resolve_source_url(&pkg, None, "http://127.0.0.1/archives/fmt.zip").unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("same origin"),
@@ -802,7 +802,7 @@ mod tests {
     fn resolve_source_url_rejects_scheme_relative_cross_origin_url() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
         let err =
-            resolve_source_url(&pkg, None, "//evil.example.net/artifacts/fmt.zip").unwrap_err();
+            resolve_source_url(&pkg, None, "//evil.example.net/archives/fmt.zip").unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("same origin"),
@@ -816,7 +816,7 @@ mod tests {
         let err = resolve_source_url(
             &pkg,
             None,
-            "https://user:pw@registry.example.com/registry/artifacts/fmt.zip",
+            "https://user:pw@registry.example.com/registry/archives/fmt.zip",
         )
         .unwrap_err();
         let message = err.to_string();
@@ -875,7 +875,7 @@ mod tests {
         }
         // Both fields route through the one guard.
         assert!(matches!(
-            validate_subdir(&base, "artifacts", "https://evil.example/a"),
+            validate_subdir(&base, "archives", "https://evil.example/a"),
             Err(IndexHttpError::InvalidConfig { .. })
         ));
         // Credentials never reach the error text, from either gate: the
@@ -958,10 +958,10 @@ mod tests {
     fn raw_config(extra: &str) -> RawRegistryConfig {
         serde_json::from_str(&format!(
             r#"{{
-                "schema": 1,
+                "schema": 2,
                 "kind": "file-registry",
                 "packages": "packages",
-                "artifacts": "artifacts"{extra}
+                "archives": "archives"{extra}
             }}"#
         ))
         .unwrap()
@@ -976,35 +976,35 @@ mod tests {
         let base = parse_base_url(index).unwrap();
         let config =
             HttpIndexConfig::from_raw(raw_config(&format!(r#", "dl": "{dl}""#)), &base).unwrap();
-        Download::new(&base, &config.artifacts, config.dl.unwrap()).unwrap()
+        Download::new(&base, &config.archives, config.dl.unwrap()).unwrap()
     }
 
-    /// `dl` names the root the `artifacts` directory hangs from: the
+    /// `dl` names the root the `archives` directory hangs from: the
     /// directory is appended once, below any path `dl` carries, and a
     /// path prefix of the index URL is left behind.
     #[test]
-    fn dl_serves_the_artifacts_directory_from_another_origin() {
+    fn dl_serves_the_archives_directory_from_another_origin() {
         for (index, document, source, dl, expected) in [
             (
                 "https://index.example.com",
                 "https://index.example.com/packages/fmtlib/fmt.json",
-                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+                "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
                 "https://static.example.com",
-                "https://static.example.com/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+                "https://static.example.com/archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
             ),
             (
                 "https://index.example.com",
                 "https://index.example.com/packages/fmtlib/fmt.json",
-                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+                "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
                 "https://static.example.com/mirror/",
-                "https://static.example.com/mirror/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+                "https://static.example.com/mirror/archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
             ),
             (
                 "https://example.com/registry",
                 "https://example.com/registry/packages/fmt.json",
-                "../artifacts/fmt/fmt-10.2.1.zip",
+                "../archives/fmt/fmt-10.2.1.zip",
                 "https://static.example.com",
-                "https://static.example.com/artifacts/fmt/fmt-10.2.1.zip",
+                "https://static.example.com/archives/fmt/fmt-10.2.1.zip",
             ),
         ] {
             let resolved =
@@ -1014,41 +1014,41 @@ mod tests {
         }
     }
 
-    /// `"artifacts": "artifacts/"` names the same directory.
+    /// `"archives": "archives/"` names the same directory.
     #[test]
-    fn dl_serves_an_artifacts_directory_written_with_a_trailing_slash() {
+    fn dl_serves_an_archives_directory_written_with_a_trailing_slash() {
         let base = parse_base_url("https://index.example.com").unwrap();
         let dl = parse_base_url("https://static.example.com").unwrap();
         let resolved = resolve_source_url(
             &package_url("https://index.example.com/packages/fmtlib/fmt.json"),
-            Some(&Download::new(&base, "artifacts/", dl).unwrap()),
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+            Some(&Download::new(&base, "archives/", dl).unwrap()),
+            "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
         )
         .unwrap();
         assert_eq!(
             resolved,
-            "https://static.example.com/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
+            "https://static.example.com/archives/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
         );
     }
 
-    /// Only the `artifacts` directory moves to `dl`, so a source that
+    /// Only the `archives` directory moves to `dl`, so a source that
     /// resolves anywhere else on the index is refused, not fetched
     /// from a host that does not serve it.
     #[test]
-    fn dl_refuses_a_source_outside_the_artifacts_directory() {
+    fn dl_refuses_a_source_outside_the_archives_directory() {
         let pkg = package_url("https://index.example.com/packages/fmtlib/fmt.json");
         let download = download("https://index.example.com", "https://static.example.com");
         for source in [
             "../../config.json",
-            "../../artifacts",
-            "../../artifacts-other/a.zip",
-            "../../artifacts/../packages/fmtlib/fmt.json",
-            "../../artifacts/a.zip?x=1",
-            "../../artifacts/a.zip#top",
+            "../../archives",
+            "../../archives-other/a.zip",
+            "../../archives/../packages/fmtlib/fmt.json",
+            "../../archives/a.zip?x=1",
+            "../../archives/a.zip#top",
         ] {
             let err = resolve_source_url(&pkg, Some(&download), source).unwrap_err();
             assert!(
-                err.to_string().contains("`artifacts` directory"),
+                err.to_string().contains("`archives` directory"),
                 "{source}: {err}"
             );
         }
@@ -1136,10 +1136,10 @@ mod tests {
         for field in ["auth-required", "api"] {
             let body = format!(
                 r#"{{
-                    "schema": 1,
+                    "schema": 2,
                     "kind": "file-registry",
                     "packages": "packages",
-                    "artifacts": "artifacts",
+                    "archives": "archives",
                     "{field}": null
                 }}"#
             );
@@ -1157,15 +1157,25 @@ mod tests {
         assert!(
             serde_json::from_str::<RawRegistryConfig>(
                 r#"{
-                "schema": 1,
+                "schema": 2,
                 "kind": "file-registry",
                 "packages": "packages",
-                "artifacts": "artifacts",
+                "archives": "archives",
                 "auth": true
             }"#
             )
             .is_err()
         );
+    }
+
+    /// Schema 1 named the directory field `artifacts`; it has no alias.
+    #[test]
+    fn schema_1_config_is_rejected() {
+        let err = serde_json::from_str::<RawRegistryConfig>(
+            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("`artifacts`"), "{err}");
     }
 
     // HTTP URL boundary path-safety.
@@ -1353,10 +1363,10 @@ mod tests {
     fn fetch_package_parses_standards_table() {
         use cabin_core::{CStandard, CxxStandard, Requirement};
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts"
+            "archives": "archives"
         }"#;
         const PACKAGE: &str = r#"{
             "schema": 1,
@@ -1401,10 +1411,10 @@ mod tests {
     #[test]
     fn fetch_package_parses_links_table() {
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts"
+            "archives": "archives"
         }"#;
         const PACKAGE: &str = r#"{
             "schema": 1,
@@ -1432,10 +1442,10 @@ mod tests {
     #[test]
     fn open_accepts_hosted_registry_config() {
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts",
+            "archives": "archives",
             "auth-required": true,
             "api": "https://registry.cabinpkg.com"
         }"#;
@@ -1456,10 +1466,10 @@ mod tests {
     #[test]
     fn open_without_api_field_reports_none() {
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts"
+            "archives": "archives"
         }"#;
         const PACKAGE: &str = r#"{ "schema": 1, "name": "fmt", "versions": {} }"#;
         let server = StaticRegistry::start(CONFIG, "fmt", PACKAGE);
@@ -1473,10 +1483,10 @@ mod tests {
     #[test]
     fn load_package_index_skips_dependencies_of_yanked_versions() {
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts"
+            "archives": "archives"
         }"#;
         // 1.0.0 is yanked and references `ghost`, which the registry
         // does not serve; 1.1.0 is the live version.
@@ -1511,10 +1521,10 @@ mod tests {
     #[test]
     fn load_package_index_records_missing_packages_and_skips_known_ones() {
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts"
+            "archives": "archives"
         }"#;
         const PACKAGE: &str = r#"{
             "schema": 1,
@@ -1553,7 +1563,7 @@ mod tests {
                 while let Ok(req) = server.recv() {
                     let response = if req.url() == "/config.json" {
                         tiny_http::Response::from_string(
-                            r#"{"schema": 1, "kind": "file-registry", "packages": "packages", "artifacts": "artifacts"}"#,
+                            r#"{"schema": 2, "kind": "file-registry", "packages": "packages", "archives": "archives"}"#,
                         )
                     } else {
                         requests.fetch_add(1, Ordering::SeqCst);
@@ -1584,10 +1594,10 @@ mod tests {
 
         const TOKEN: &str = "cabin_sourceTest1234";
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts",
+            "archives": "archives",
             "auth-required": true
         }"#;
         const PACKAGE: &str = r#"{ "schema": 1, "name": "fmt", "versions": {} }"#;
@@ -1686,15 +1696,15 @@ mod tests {
 
     /// End-to-end scoped fetch: the metadata document is requested
     /// from the nested `packages/<scope>/<name>.json` route, and its
-    /// canonical `../../artifacts/...` source path (one extra climb
+    /// canonical `../../archives/...` source path (one extra climb
     /// for the scope directory) resolves onto the registry root.
     #[test]
     fn fetch_package_reads_scoped_names_from_nested_routes() {
         const CONFIG: &str = r#"{
-            "schema": 1,
+            "schema": 2,
             "kind": "file-registry",
             "packages": "packages",
-            "artifacts": "artifacts"
+            "archives": "archives"
         }"#;
         const PACKAGE: &str = r#"{
             "schema": 1,
@@ -1709,7 +1719,7 @@ mod tests {
                             "published-at": "2026-01-01T00:00:00Z",
                             "source": {
                                 "type": "archive",
-                                "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-0000000000000000.zip",
+                                "path": "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-0000000000000000.zip",
                                 "format": "zip"
                             }
                         }
@@ -1730,7 +1740,7 @@ mod tests {
         assert_eq!(
             url,
             &format!(
-                "{}artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-0000000000000000.zip",
+                "{}archives/fmtlib/fmt/fmtlib-fmt-10.2.1-0000000000000000.zip",
                 server.url
             )
         );

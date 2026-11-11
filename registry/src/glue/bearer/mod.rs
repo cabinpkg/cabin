@@ -32,7 +32,7 @@ use verifier::{admin_packages_response, admin_versions_response, verdict_authn, 
 /// session-only `/api/v1/user` subtree, and the Bearer mutation plane.
 /// The read plane does not exist here - nothing outside those planes
 /// matches a data route, so this origin never serves `/config.json`,
-/// `/packages/*`, or `/artifacts/*`.
+/// `/packages/*`, or `/archives/*`.
 #[allow(clippy::too_many_lines)] // one dispatch ladder, one route per arm
 pub(super) async fn handle_website(
     req: &mut Request,

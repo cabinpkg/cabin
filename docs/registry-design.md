@@ -32,7 +32,7 @@ that the resolver can read back through `--index-path <dir>`.
       fmt.json
     gabime/
       spdlog.json
-  artifacts/
+  archives/
     fmtlib/
       fmt/
         fmtlib-fmt-10.2.1-0123456789abcdef.zip
@@ -42,7 +42,7 @@ that the resolver can read back through `--index-path <dir>`.
 ```
 
 `config.json` identifies the registry layout and the relative `packages`
-and `artifacts` directories.  Registry packages are always scoped
+and `archives` directories.  Registry packages are always scoped
 (`<scope>/<name>`), so each package's index file nests one scope
 directory deep and its artifact filename embeds the scope and the
 [packaging revision](package-index.md#packaging-revisions)
@@ -51,9 +51,9 @@ tree, and one file per revision).
 Each `packages/<scope>/<name>.json` file contains the deterministic
 per-package version list.  Each revision points at its source archive by
 a registry-relative path such as
-`../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-0123456789abcdef.zip`.  Legacy
+`../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-0123456789abcdef.zip`.  Legacy
 bare-name registries (`packages/<name>.json`,
-`artifacts/<name>/<name>-<version>-<revision>.zip`) remain readable and
+`archives/<name>/<name>-<version>-<revision>.zip`) remain readable and
 vendorable; only new publication requires a scope.
 
 The file-registry writer:
@@ -104,11 +104,11 @@ The sparse HTTP client reads the same file-registry shape over plain
 
 - `GET <url>/config.json`
 - `GET <url>/packages/<scope>/<name>.json`
-- `GET <url>/artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
+- `GET <url>/archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
 
 A bare name (legal only in locally-produced file registries) reads
 from the flat `packages/<name>.json` /
-`artifacts/<name>/<name>-<version>-<revision>.zip` shape; the hosted
+`archives/<name>/<name>-<version>-<revision>.zip` shape; the hosted
 registry serves scoped routes only.  Which revision a read requests
 comes from the lockfile's checksum pin, not from resolution.
 

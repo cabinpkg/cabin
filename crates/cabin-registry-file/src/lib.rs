@@ -8,7 +8,7 @@
 //! <registry>/
 //! config.json
 //! packages/<scope>/<name>.json
-//! artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip
+//! archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip
 //! ```
 //!
 //! A legacy bare name has no `<scope>/` directory and no `<scope>-`

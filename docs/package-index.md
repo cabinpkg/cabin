@@ -48,7 +48,7 @@ registry/
   packages/
     fmt.json
     spdlog.json
-  artifacts/
+  archives/
     fmt/
       fmt-10.2.1-0123456789abcdef.zip
       fmt-10.2.1-9a93b2b7dfdac77c.zip
@@ -59,15 +59,15 @@ registry/
 When a `config.json` is present at the index root the loader uses the registry-root layout:
 `config.packages` (default `"packages"`) points at the directory holding `<name>.json` files, and
 source paths in those files resolve relative to that directory - i.e.
-`"../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip"` lands at
-`registry/artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip`.  The trailing segment of every artifact
+`"../archives/fmt/fmt-10.2.1-0123456789abcdef.zip"` lands at
+`registry/archives/fmt/fmt-10.2.1-0123456789abcdef.zip`.  The trailing segment of every archive
 filename is the [packaging revision](#packaging-revisions), so each revision of a version keeps its
 own file.
 
 In both layouts a scoped package `<scope>/<name>` nests exactly one level deeper as
 `<scope>/<name>.json` (e.g. `packages/fmtlib/fmt.json`); its declared `name` must be the full
 `<scope>/<name>`, and its source paths resolve relative to the scope directory, matching the
-published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` form.  Anything
+published `"../../archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` form.  Anything
 nested deeper than one scope directory is ignored.
 
 In both layouts a source path must name a regular file inside the index root (the directory
@@ -79,24 +79,30 @@ error it gives a missing file (`is not a file inside the registry root`), so a s
 make fetch read, hash, or probe a file elsewhere.  That covers source paths only: the loader
 reads `config.json` and the metadata files as it finds them, symlinks included.
 
-`config.json` itself must satisfy `schema = 1`, `kind = "file-registry"`, and reject `..` or
+`config.json` itself must satisfy `schema = 2`, `kind = "file-registry"`, and reject `..` or
 absolute paths in the configured subdirectories.  Over the sparse HTTP index the subdirectories must
 additionally resolve, once joined onto the index URL, to the same origin as that URL, at or below its
-path, and with no `userinfo` - so a subdirectory cannot move metadata or artifact fetches to another
-host; only `dl` names another host, and only for artifacts.  A subdirectory containing `%`, `\`, `?`, or `#` is rejected outright, because a URL parser and
+path, and with no `userinfo` - so a subdirectory cannot move metadata or archive fetches to another
+host; only `dl` names another host, and only for archives.  A subdirectory containing `%`, `\`, `?`, or `#` is rejected outright, because a URL parser and
 a filesystem path disagree about what those characters mean.  See
 [`registry-design.md`](registry-design.md) for the full layout contract.
+
+Schema 1, which the Cabin 0.18.0 release and earlier read and wrote, named the `archives` field
+`artifacts`.  Neither schema is read by the other's clients, and the old field has no alias.  A
+schema 1 file registry keeps working once its `config.json` says `"schema": 2` and names the field
+`archives`: `"archives": "artifacts"` leaves the directory and every published `source.path` as
+they are.
 
 `config.json` may also carry three optional fields belonging to the remote-registry protocol:
 `auth-required` (bool; every request to the registry except the always-public `config.json`
 itself must carry `Authorization: Bearer <token>`), `api` (string; absolute `http(s)` base URL of the registry
 web/API origin, rejecting non-`http(s)` schemes and `userinfo` credentials), and `dl` (string;
-absolute base URL of the host that serves the artifacts over HTTP, see
+absolute base URL of the host that serves the archives over HTTP, see
 [Sparse HTTP index](#sparse-http-index)).  Both index loaders -
 this local loader and the sparse HTTP client - recognize the fields unconditionally, so a
 vendored or mirrored copy of a hosted registry loads like any other file registry; the read
 routes never consult `api` (only the experimental mutation commands do), and this local loader
-reads artifacts from the directory whatever `dl` says.  See
+reads archives from the directory whatever `dl` says.  See
 [`remote-registry.md`](remote-registry.md) for the full protocol.
 
 In both layouts the filename stem (`fmt` for `fmt.json`) must equal the package's declared `name`
@@ -119,7 +125,7 @@ field.  Mismatches produce a clear error.
           "published-at": "2026-01-14T09:12:33Z",
           "source": {
             "type": "archive",
-            "path": "../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip",
+            "path": "../archives/fmt/fmt-10.2.1-0123456789abcdef.zip",
             "format": "zip"
           }
         },
@@ -128,7 +134,7 @@ field.  Mismatches produce a clear error.
           "published-at": "2026-02-02T18:40:07Z",
           "source": {
             "type": "archive",
-            "path": "../artifacts/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
+            "path": "../archives/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
             "format": "zip"
           }
         }
@@ -208,7 +214,7 @@ Each entry of a version's `revisions` map takes this exact shape:
   "published-at": "2026-02-02T18:40:07Z",
   "source": {
     "type": "archive",
-    "path": "../artifacts/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
+    "path": "../archives/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
     "format": "zip"
   }
 }
@@ -233,7 +239,7 @@ Each revision's `source` block must take this exact shape:
 ```json
 "source": {
   "type": "archive",
-  "path": "../artifacts/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
+  "path": "../archives/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
   "format": "zip"
 }
 ```
@@ -326,7 +332,7 @@ claims without downloading the source archive:
           "published-at": "2026-02-02T18:40:07Z",
           "source": {
             "type": "archive",
-            "path": "../artifacts/spdlog/spdlog-1.13.0-9a93b2b7dfdac77c.zip",
+            "path": "../archives/spdlog/spdlog-1.13.0-9a93b2b7dfdac77c.zip",
             "format": "zip"
           }
         }
@@ -422,7 +428,7 @@ Request shape:
 
 | Step | URL | Purpose |
 | --- | --- | --- |
-| 1 | `GET <url>/config.json` | Validates `schema = 1`, `kind = "file-registry"`, and the configured `packages` / `artifacts` subdirectories. |
+| 1 | `GET <url>/config.json` | Validates `schema = 2`, `kind = "file-registry"`, and the configured `packages` / `archives` subdirectories. |
 | 2 | `GET <url>/<config.packages>/<name>.json` (bare name) or `GET <url>/<config.packages>/<scope>/<name>.json` (scoped name) | One request per package referenced by the manifest's versioned dependencies and their transitive non-optional dependencies; an optional dependency's metadata is requested only once resolution enables it. |
 | 3 | `GET <artifact-url>` | Source-archive download for each `(name, version, revision)` triple `cabin fetch` / `cabin build` needs. |
 
@@ -436,22 +442,22 @@ registry's reads work with no credential at all
 Source-path resolution for each revision:
 
 - `source.path` is resolved against the package metadata URL using RFC 3986 rules.  The standard
-  `"../artifacts/<name>/<name>-<version>-<revision>.zip"` therefore resolves to
-  `<url>/artifacts/<name>/<name>-<version>-<revision>.zip` - the literal path components are joined
-  per RFC 3986; the `config.artifacts` field is not substituted into the URL.  A scoped package's
+  `"../archives/<name>/<name>-<version>-<revision>.zip"` therefore resolves to
+  `<url>/archives/<name>/<name>-<version>-<revision>.zip` - the literal path components are joined
+  per RFC 3986; the `config.archives` field is not substituted into the URL.  A scoped package's
   document sits one directory deeper, so its canonical
-  `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` climbs one extra level
+  `"../../archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` climbs one extra level
   and lands on the same registry root.
 - Absolute or scheme-relative `http://` / `https://` values are accepted only when the final
   artifact URL has the same origin (scheme, host, and effective port) as the package metadata URL.
   Cross-origin artifact URLs and URLs containing `userinfo` credentials are rejected before any
   download is attempted.
-- A registry whose `config.json` declares `dl` serves its artifacts from that host instead.  The
-  URL resolved above must name a file in the index's `artifacts` directory and carry no query or
+- A registry whose `config.json` declares `dl` serves its archives from that host instead.  The
+  URL resolved above must name a file in the index's `archives` directory and carry no query or
   fragment; its path below the index URL is then appended to `dl`.  With the index at
   `https://index.example.com` and `"dl": "https://static.example.com"`, the canonical scoped path
   downloads from
-  `https://static.example.com/artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`:
+  `https://static.example.com/archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`:
   `dl` names the root the directory hangs from, so the directory name is not repeated in it.
   `dl` must be `https`; only an index that is itself a plain-`http` loopback URL may name a
   plain-`http` loopback `dl`, so a remote index cannot aim cleartext requests at services on the

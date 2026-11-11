@@ -699,7 +699,7 @@ deps = ["cgreet"]
         .write_str("#include \"cgreet.h\"\nint main(void) { return cgreet() == 7 ? 0 : 1; }\n")
         .unwrap();
 
-    let archive = dir.path().join("index/artifacts/cgreet-1.0.0.zip");
+    let archive = dir.path().join("index/archives/cgreet-1.0.0.zip");
     let hex = make_archive(
         &archive,
         &[
@@ -729,7 +729,7 @@ include-dirs = ["include"]
         "1.0.0",
         "{}",
         &hex,
-        "artifacts/cgreet-1.0.0.zip",
+        "archives/cgreet-1.0.0.zip",
     );
 
     let build_dir = dir.path().join("build");

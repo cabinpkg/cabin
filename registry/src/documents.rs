@@ -13,7 +13,7 @@ struct ConfigDoc<'a> {
     schema: u32,
     kind: &'a str,
     packages: &'a str,
-    artifacts: &'a str,
+    archives: &'a str,
     #[serde(rename = "auth-required")]
     auth_required: bool,
     api: &'a str,
@@ -26,10 +26,10 @@ struct ConfigDoc<'a> {
 #[allow(clippy::missing_panics_doc)] // serializing a `ConfigDoc` cannot fail
 pub fn config_json(api_origin: &str) -> String {
     serde_json::to_string(&ConfigDoc {
-        schema: 1,
+        schema: 2,
         kind: "file-registry",
         packages: "packages",
-        artifacts: "artifacts",
+        archives: "archives",
         // Private alpha: every read needs an admitted credential. The
         // read plane enforces that itself; this only tells clients.
         auth_required: true,
@@ -384,7 +384,7 @@ mod tests {
         // The `api` field names the website origin, not the index origin.
         assert_eq!(
             config_json("https://cabinpkg.com"),
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://cabinpkg.com"}"#
+            r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives","auth-required":true,"api":"https://cabinpkg.com"}"#
         );
     }
 
@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(rev["published-at"], "2026-01-01T00:00:0aZ");
         assert_eq!(
             rev["source"]["path"],
-            format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-{REV_A}.zip")
+            format!("../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-{REV_A}.zip")
         );
         assert_eq!(rev["source"]["type"], "archive");
         assert_eq!(rev["source"]["format"], "zip");

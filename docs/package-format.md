@@ -247,7 +247,7 @@ publishing a version the registry verifier rejects as `missing_source`.
   "checksum": "sha256:<archive-sha256>",
   "source": {
     "type": "archive",
-    "path": "../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip",
+    "path": "../archives/fmt/fmt-10.2.1-0123456789abcdef.zip",
     "format": "zip"
   }
 }
@@ -272,7 +272,7 @@ publishing a version the registry verifier rejects as `missing_source`.
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced.  Its leading 16 hex characters are the [packaging revision](package-index.md#packaging-revisions) this document describes. |
 | `source.type` | Always `"archive"`. |
 | `source.format` | Always `"zip"`. |
-| `source.path` | File-registry relative reference: `../artifacts/<name>/<name>-<version>-<revision>.zip` for a bare name, `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` for a scoped one (the index document nests one scope directory deeper, and the filename embeds the scope and the packaging revision).  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
+| `source.path` | File-registry relative reference: `../archives/<name>/<name>-<version>-<revision>.zip` for a bare name, `../../archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` for a scoped one (the index document nests one scope directory deeper, and the filename embeds the scope and the packaging revision).  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
 
 The metadata document is rendered with `serde_json::to_string_pretty` in struct-declaration order,
 dependencies sorted by name, and a trailing newline.  Repeated runs over the same input produce the

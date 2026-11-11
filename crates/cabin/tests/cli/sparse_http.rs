@@ -74,8 +74,8 @@ impl Drop for TestServer {
 /// registry through the real `cabin publish --registry-dir` flow, so
 /// the fixture served over HTTP has exactly the scoped layout the
 /// hosted registry speaks: `packages/fmtlib/fmt.json` and
-/// `artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-<revision>.zip`, linked by
-/// the canonical `../../artifacts/...` source path.
+/// `archives/fmtlib/fmt/fmtlib-fmt-10.2.1-<revision>.zip`, linked by
+/// the canonical `../../archives/...` source path.
 fn publish_scoped_fmt_to_registry(dir: &Path) -> PathBuf {
     let pkg_root = dir.join("pkg");
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
@@ -115,7 +115,7 @@ void say_hello() { std::cout << "hello from fmt\n"; }
 }
 
 /// Hand-assemble a *bare*-name registry (`packages/fmt.json`,
-/// `artifacts/fmt/fmt-10.2.1.zip`) from `cabin package` staging
+/// `archives/fmt/fmt-10.2.1.zip`) from `cabin package` staging
 /// output: `cabin publish` requires scoped names, `cabin package`
 /// does not.
 fn assemble_bare_fmt_registry(dir: &Path) -> PathBuf {
@@ -169,7 +169,7 @@ void say_hello() { std::cout << "hello from fmt\n"; }
             "published-at": "2026-01-01T00:00:00Z",
             "source": {
                 "type": "archive",
-                "path": "../artifacts/fmt/fmt-10.2.1.zip",
+                "path": "../archives/fmt/fmt-10.2.1.zip",
                 "format": "zip"
             }
         }),
@@ -194,16 +194,16 @@ void say_hello() { std::cout << "hello from fmt\n"; }
     let registry = dir.join("registry");
     assert_fs::fixture::ChildPath::new(registry.join("config.json"))
         .write_str(
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives"}"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(registry.join("packages/fmt.json"))
         .write_str(&index.to_string())
         .unwrap();
-    fs::create_dir_all(registry.join("artifacts/fmt")).unwrap();
+    fs::create_dir_all(registry.join("archives/fmt")).unwrap();
     fs::copy(
         dist.join("fmt-10.2.1.zip"),
-        registry.join("artifacts/fmt/fmt-10.2.1.zip"),
+        registry.join("archives/fmt/fmt-10.2.1.zip"),
     )
     .unwrap();
     registry
@@ -273,7 +273,7 @@ fn resolve_reuses_the_lockfile_under_locked() {
 
 /// Bare names stay legal in locally-produced file registries, and
 /// the sparse-HTTP client keeps reading their flat layout
-/// (`packages/<name>.json`, `../artifacts/<name>/...`) when one is
+/// (`packages/<name>.json`, `../archives/<name>/...`) when one is
 /// served over HTTP.
 #[test]
 fn resolve_via_index_url_reads_bare_name_layouts() {
@@ -347,7 +347,7 @@ fn fetch_downloads_archives_from_dl_without_the_index_credential() {
 
     let downloads = dir.path().join("downloads");
     fs::create_dir(&downloads).unwrap();
-    fs::rename(registry.join("artifacts"), downloads.join("artifacts")).unwrap();
+    fs::rename(registry.join("archives"), downloads.join("archives")).unwrap();
     let dl = tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback");
     let dl_url = format!(
         "http://{}",
@@ -356,7 +356,7 @@ fn fetch_downloads_archives_from_dl_without_the_index_credential() {
     fs::write(
         registry.join("config.json"),
         format!(
-            r#"{{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"dl":"{dl_url}"}}"#
+            r#"{{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives","auth-required":true,"dl":"{dl_url}"}}"#
         ),
     )
     .unwrap();
@@ -448,12 +448,12 @@ fn http_package_not_found_surfaces_clear_error() {
     assert_fs::fixture::ChildPath::new(empty_registry.join("packages"))
         .create_dir_all()
         .unwrap();
-    assert_fs::fixture::ChildPath::new(empty_registry.join("artifacts"))
+    assert_fs::fixture::ChildPath::new(empty_registry.join("archives"))
         .create_dir_all()
         .unwrap();
     assert_fs::fixture::ChildPath::new(empty_registry.join("config.json"))
         .write_str(
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives"}"#,
         )
         .unwrap();
     write_app_using_scoped_fmt(dir.path(), None);
@@ -477,12 +477,12 @@ fn http_invalid_metadata_surfaces_clear_error() {
     assert_fs::fixture::ChildPath::new(registry.join("packages"))
         .create_dir_all()
         .unwrap();
-    assert_fs::fixture::ChildPath::new(registry.join("artifacts"))
+    assert_fs::fixture::ChildPath::new(registry.join("archives"))
         .create_dir_all()
         .unwrap();
     assert_fs::fixture::ChildPath::new(registry.join("config.json"))
         .write_str(
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives"}"#,
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(registry.join("packages/fmtlib/fmt.json"))
@@ -509,12 +509,12 @@ fn http_metadata_cannot_smuggle_terminal_escapes_into_diagnostics() {
     assert_fs::fixture::ChildPath::new(registry.join("packages"))
         .create_dir_all()
         .unwrap();
-    assert_fs::fixture::ChildPath::new(registry.join("artifacts"))
+    assert_fs::fixture::ChildPath::new(registry.join("archives"))
         .create_dir_all()
         .unwrap();
     assert_fs::fixture::ChildPath::new(registry.join("config.json"))
         .write_str(
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives"}"#,
         )
         .unwrap();
     // Valid JSON whose sole key is unknown, so `deny_unknown_fields`
@@ -552,7 +552,7 @@ fn cross_origin_http_artifact_url_is_rejected() {
         .unwrap()
         .to_owned();
     value["versions"]["10.2.1"]["revisions"][&revision]["source"]["path"] =
-        serde_json::Value::String("http://127.0.0.1/artifacts/fmt.zip".into());
+        serde_json::Value::String("http://127.0.0.1/archives/fmt.zip".into());
     assert_fs::fixture::ChildPath::new(&pkg_index)
         .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
         .unwrap();
@@ -574,7 +574,7 @@ fn cross_origin_http_artifact_url_is_rejected() {
 fn http_artifact_not_found_names_the_cause() {
     let dir = TempDir::new().unwrap();
     let registry = publish_scoped_fmt_to_registry(dir.path());
-    fs::remove_dir_all(registry.join("artifacts")).unwrap();
+    fs::remove_dir_all(registry.join("archives")).unwrap();
     write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
     cabin()
@@ -625,10 +625,10 @@ fn http_artifact_checksum_mismatch_fails() {
 
 #[test]
 fn relative_artifact_path_resolves_correctly() {
-    // The scoped `../../artifacts/<scope>/<name>/...zip` source path
+    // The scoped `../../archives/<scope>/<name>/...zip` source path
     // must resolve against the package metadata URL.  The index sits
     // below `/registry/`, so the artifact exists only at
-    // `/registry/artifacts/...`; any other base (the origin root, or
+    // `/registry/archives/...`; any other base (the origin root, or
     // the metadata file treated as a directory) 404s and fails the
     // fetch.
     let dir = TempDir::new().unwrap();
@@ -723,7 +723,7 @@ fn index_url_extends_crawl_for_transitively_activated_patch_deps() {
     let registry = dir.path().join("registry");
     assert_fs::fixture::ChildPath::new(registry.join("config.json"))
         .write_str(
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives"}"#,
         )
         .unwrap();
     for (name, deps) in [

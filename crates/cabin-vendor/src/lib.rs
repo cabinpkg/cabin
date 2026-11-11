@@ -6,7 +6,7 @@
 //! materialized vendor directory is an existing
 //! [`cabin_registry_file::FileRegistry`] layout
 //! (`<vendor>/config.json`, `<vendor>/packages/<name>.json`,
-//! `<vendor>/artifacts/<name>/<name>-<version>-<revision>.zip`),
+//! `<vendor>/archives/<name>/<name>-<version>-<revision>.zip`),
 //! populated only with the versions - at exactly the lockfile-pinned
 //! packaging revisions - the build needs.
 //!
@@ -242,14 +242,14 @@ pub fn materialize(
     refuse_symlinks_below(&vendor_dir, &vendor_dir.join(REGISTRY_CONFIG_FILENAME))?;
     let layout = FileRegistry::inspect(&vendor_dir).map_err(VendorError::Registry)?;
     refuse_symlinks_below(&vendor_dir, &layout.packages_dir())?;
-    refuse_symlinks_below(&vendor_dir, &layout.artifacts_dir())?;
+    refuse_symlinks_below(&vendor_dir, &layout.archives_dir())?;
 
     // Ensure / re-use the file-registry skeleton (writes
     // `config.json` if missing).
     let registry = FileRegistry::open_or_initialize(&vendor_dir).map_err(VendorError::Registry)?;
     debug_assert_eq!(
         registry.config().schema,
-        RegistryConfig::default_v1().schema,
+        RegistryConfig::fresh().schema,
         "file-registry config schema must stay aligned with the writer"
     );
 
@@ -257,8 +257,8 @@ pub fn materialize(
         path: registry.packages_dir(),
         source,
     })?;
-    fs::create_dir_all(registry.artifacts_dir()).map_err(|source| VendorError::Io {
-        path: registry.artifacts_dir(),
+    fs::create_dir_all(registry.archives_dir()).map_err(|source| VendorError::Io {
+        path: registry.archives_dir(),
         source,
     })?;
 
@@ -377,7 +377,7 @@ pub struct VendorSummaryEntry {
     pub version: String,
     pub checksum: cabin_core::Checksum,
     /// Vendor-root-relative path to the artifact
-    /// (`artifacts/<name>/<name>-<version>-<revision>.zip`).
+    /// (`archives/<name>/<name>-<version>-<revision>.zip`).
     pub source: String,
 }
 
@@ -759,7 +759,7 @@ mod tests {
         rewrite_vendored_revision(
             &mut value,
             revision,
-            "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+            "../archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
             &pkg("fmt"),
             &ver("10.2.1"),
         )
@@ -769,7 +769,7 @@ mod tests {
         assert_eq!(revisions.len(), 1);
         assert_eq!(
             revisions[revision]["source"]["path"],
-            "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
+            "../archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
@@ -929,20 +929,20 @@ mod tests {
         assert!(
             report
                 .vendor_dir
-                .join(format!("artifacts/fmt/fmt-10.1.0-{r1}.zip"))
+                .join(format!("archives/fmt/fmt-10.1.0-{r1}.zip"))
                 .is_file()
         );
         assert!(
             report
                 .vendor_dir
-                .join(format!("artifacts/fmt/fmt-10.2.1-{r2}.zip"))
+                .join(format!("archives/fmt/fmt-10.2.1-{r2}.zip"))
                 .is_file()
         );
         assert!(report.vendor_dir.join(VENDOR_SUMMARY_FILENAME).is_file());
 
         let body = fs::read_to_string(report.vendor_dir.join("packages/fmt.json")).unwrap();
-        assert!(body.contains(&format!("../artifacts/fmt/fmt-10.1.0-{r1}.zip")));
-        assert!(body.contains(&format!("../artifacts/fmt/fmt-10.2.1-{r2}.zip")));
+        assert!(body.contains(&format!("../archives/fmt/fmt-10.1.0-{r1}.zip")));
+        assert!(body.contains(&format!("../archives/fmt/fmt-10.2.1-{r2}.zip")));
         assert!(!body.contains("/abs/host/leak"));
         let pos_old = body.find("10.1.0").unwrap();
         let pos_new = body.find("10.2.1").unwrap();
@@ -985,7 +985,7 @@ mod tests {
         assert!(
             !vendor
                 .path()
-                .join(format!("artifacts/fmt/fmt-10.2.1-{}.zip", "0".repeat(16)))
+                .join(format!("archives/fmt/fmt-10.2.1-{}.zip", "0".repeat(16)))
                 .exists()
         );
     }
@@ -1000,7 +1000,7 @@ mod tests {
         // partial earlier vendor invocation looks like.
         let target = vendor
             .path()
-            .join(format!("artifacts/fmt/fmt-10.2.1-{}.zip", rev(&checksum)));
+            .join(format!("archives/fmt/fmt-10.2.1-{}.zip", rev(&checksum)));
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::copy(&archive, &target).unwrap();
 
@@ -1016,7 +1016,7 @@ mod tests {
         let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"new");
         let target = vendor
             .path()
-            .join(format!("artifacts/fmt/fmt-10.2.1-{}.zip", rev(&checksum)));
+            .join(format!("archives/fmt/fmt-10.2.1-{}.zip", rev(&checksum)));
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, b"stale").unwrap();
 
@@ -1031,7 +1031,7 @@ mod tests {
                 // so the Windows legs compare the same tail.
                 let rendered = path.to_string_lossy().replace('\\', "/");
                 assert!(
-                    rendered.contains("artifacts/fmt/fmt-10.2.1-"),
+                    rendered.contains("archives/fmt/fmt-10.2.1-"),
                     "stale-artifact path should point at the destination archive, got: {}",
                     path.display()
                 );
@@ -1052,7 +1052,7 @@ mod tests {
         sentinel.write_str("keep").unwrap();
         let (archive, checksum) = write_archive(&cache, "acme/foo", "1.0.0", b"zip");
         let dst = vendor.child(format!(
-            "artifacts/acme/foo/acme-foo-1.0.0-{}.zip",
+            "archives/acme/foo/acme-foo-1.0.0-{}.zip",
             rev(&checksum)
         ));
         fs::create_dir_all(dst.parent().unwrap()).unwrap();
@@ -1073,8 +1073,8 @@ mod tests {
     #[test]
     fn materialize_refuses_symlinks_inside_vendor_dir() {
         for rel in [
-            "artifacts/acme/foo/acme-foo-1.0.0-{rev}.zip",
-            "artifacts/acme",
+            "archives/acme/foo/acme-foo-1.0.0-{rev}.zip",
+            "archives/acme",
             "packages/acme",
         ] {
             let cache = TempDir::new().unwrap();
@@ -1144,7 +1144,7 @@ mod tests {
         for case in ["config", "nested-dir"] {
             let vendor = TempDir::new().unwrap();
             let outside = TempDir::new().unwrap();
-            let config = r#"{"schema":1,"kind":"file-registry","packages":"escape/new-dir","artifacts":"artifacts"}"#;
+            let config = r#"{"schema":2,"kind":"file-registry","packages":"escape/new-dir","archives":"archives"}"#;
             if case == "config" {
                 outside.child("config.json").write_str(config).unwrap();
                 std::os::unix::fs::symlink(
@@ -1184,9 +1184,9 @@ mod tests {
         assert!(report.written.is_empty());
         assert!(vendor.path().join("config.json").is_file());
         assert!(vendor.path().join(VENDOR_SUMMARY_FILENAME).is_file());
-        // No artifacts directory entries, but the parent dirs
+        // No archives directory entries, but the parent dirs
         // exist so a follow-up `cabin vendor` can populate them.
         assert!(vendor.path().join("packages").is_dir());
-        assert!(vendor.path().join("artifacts").is_dir());
+        assert!(vendor.path().join("archives").is_dir());
     }
 }

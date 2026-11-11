@@ -423,13 +423,13 @@ fn two_projects_build_two_versions_of_one_build_tool() {
     let dir = TempDir::new().unwrap();
     let index = dir.path().join("index");
     assert_fs::fixture::ChildPath::new(index.join("config.json"))
-        .write_str("{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n")
+        .write_str("{\"schema\":2,\"kind\":\"file-registry\",\"packages\":\"packages\",\"archives\":\"archives\"}\n")
         .unwrap();
     let mut versions = Vec::new();
     for major in ["1", "2"] {
         let version = format!("{major}.0.0");
         let checksum = make_archive(
-            &index.join(format!("artifacts/gen/gen-{version}.zip")),
+            &index.join(format!("archives/gen/gen-{version}.zip")),
             &[
                 (
                     "cabin.toml",
@@ -455,7 +455,7 @@ sources = ["src/main.c"]
         );
         let revision = &checksum[..16];
         versions.push(format!(
-            "\"{version}\": {{\"dependencies\": {{}}, \"yanked\": false, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/gen/gen-{version}.zip\", \"format\": \"zip\"}}}}}}}}"
+            "\"{version}\": {{\"dependencies\": {{}}, \"yanked\": false, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../archives/gen/gen-{version}.zip\", \"format\": \"zip\"}}}}}}}}"
         ));
     }
     assert_fs::fixture::ChildPath::new(index.join("packages/gen.json"))
@@ -637,10 +637,10 @@ fn registry_build_dependencies_are_locked_vendored_and_built_offline() {
     let dir = TempDir::new().unwrap();
     let index = dir.path().join("index");
     assert_fs::fixture::ChildPath::new(index.join("config.json"))
-        .write_str("{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n")
+        .write_str("{\"schema\":2,\"kind\":\"file-registry\",\"packages\":\"packages\",\"archives\":\"archives\"}\n")
         .unwrap();
     let checksum = make_archive(
-        &index.join("artifacts/gen/gen-1.0.0.zip"),
+        &index.join("archives/gen/gen-1.0.0.zip"),
         &[
             (
                 "cabin.toml",
@@ -660,7 +660,7 @@ sources = ["src/main.c"]
     let revision = &checksum[..16];
     assert_fs::fixture::ChildPath::new(index.join("packages/gen.json"))
         .write_str(&format!(
-            "{{\"schema\": 1, \"name\": \"gen\", \"versions\": {{\"1.0.0\": {{\"dependencies\": {{}}, \"yanked\": false, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/gen/gen-1.0.0.zip\", \"format\": \"zip\"}}}}}}}}}}}}\n"
+            "{{\"schema\": 1, \"name\": \"gen\", \"versions\": {{\"1.0.0\": {{\"dependencies\": {{}}, \"yanked\": false, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../archives/gen/gen-1.0.0.zip\", \"format\": \"zip\"}}}}}}}}}}}}\n"
         ))
         .unwrap();
     let proj = assert_fs::fixture::ChildPath::new(dir.path().join("proj"));

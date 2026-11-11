@@ -467,7 +467,7 @@ fn scoped(inputs: &BlobInputs<'_>) -> String {
 /// The artifact route for one version and revision of this package.
 fn artifact_path(inputs: &BlobInputs<'_>, version: &str, revision: &str) -> String {
     let BlobInputs { scope, name, .. } = *inputs;
-    format!("/artifacts/{scope}/{name}/{scope}-{name}-{version}-{revision}.zip")
+    format!("/archives/{scope}/{name}/{scope}-{name}-{version}-{revision}.zip")
 }
 
 #[cfg(test)]
@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(scoped(&inputs), "smoke/withdep");
         assert_eq!(
             artifact_path(&inputs, "9.9.9", inputs.rev),
-            "/artifacts/smoke/withdep/smoke-withdep-9.9.9-3f786850e387550f.zip"
+            "/archives/smoke/withdep/smoke-withdep-9.9.9-3f786850e387550f.zip"
         );
     }
 }

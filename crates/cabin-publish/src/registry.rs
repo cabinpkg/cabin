@@ -280,7 +280,7 @@ version = "10.2.1"
         assert_eq!(
             report.source_path,
             format!(
-                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                "../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
                 report.revision
             )
         );

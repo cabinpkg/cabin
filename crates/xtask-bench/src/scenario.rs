@@ -410,7 +410,7 @@ fn shared_scenarios() -> Vec<Scenario> {
         .setup(FETCH)
         .prepare(Mutation::Remove("vendor".to_owned()))
         .expect(Expect::Entries(
-            "vendor/artifacts/bench".to_owned(),
+            "vendor/archives/bench".to_owned(),
             fixture::BLOBS.packages,
         )),
         // Capture overhead: compare with build/noop-cxx.

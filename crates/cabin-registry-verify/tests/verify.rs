@@ -269,7 +269,7 @@ fn hostile_pending(dir: &TempDir, bytes: &[u8]) -> (PathBuf, PendingVersion) {
             "checksum": format!("sha256:{hex}"),
             "source": {
                 "type": "archive",
-                "path": format!("../artifacts/demo/demo-1.2.3-{revision}.zip"),
+                "path": format!("../archives/demo/demo-1.2.3-{revision}.zip"),
                 "format": "zip",
             },
         }),
@@ -1126,7 +1126,7 @@ fn a_revisionless_source_path_is_rejected() {
     // archived manifest derives.
     let dir = TempDir::new().unwrap();
     let (archive, mut pending) = benign(&dir);
-    pending.metadata["source"]["path"] = serde_json::json!("../artifacts/demo/demo-1.2.3.zip");
+    pending.metadata["source"]["path"] = serde_json::json!("../archives/demo/demo-1.2.3.zip");
     assert_rejected(&archive, &pending, Reason::MetadataMismatch);
 }
 

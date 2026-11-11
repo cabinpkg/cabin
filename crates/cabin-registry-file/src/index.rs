@@ -532,7 +532,7 @@ mod tests {
             checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
             source: SourceMetadata {
                 kind: "archive".to_owned(),
-                path: format!("../artifacts/{name}/{name}-{version}-{revision}.zip"),
+                path: format!("../archives/{name}/{name}-{version}-{revision}.zip"),
                 format: "zip".to_owned(),
             },
         }

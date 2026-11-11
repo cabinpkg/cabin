@@ -81,7 +81,7 @@ fn read_plane(smoke: &mut Smoke) -> Result<()> {
         "/catalog.json",
         "/packages/smoke/withdep.json",
         "/packages/smoke/never-published.json",
-        "/artifacts/smoke/withdep/smoke-withdep-0.1.0-0123456789abcdef.zip",
+        "/archives/smoke/withdep/smoke-withdep-0.1.0-0123456789abcdef.zip",
     ] {
         uniform_401(smoke, Base::Registry, path)?;
     }

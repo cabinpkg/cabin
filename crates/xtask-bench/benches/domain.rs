@@ -147,7 +147,7 @@ fn index_and_resolver(c: &mut Criterion) {
 
 fn artifact(c: &mut Criterion) {
     c.bench_function("artifact/extract-zip", |b| {
-        let archive = std::fs::read_dir(registry().join("artifacts/bench/b000"))
+        let archive = std::fs::read_dir(registry().join("archives/bench/b000"))
             .unwrap()
             .map(|e| e.unwrap().path())
             .find(|p| p.extension().is_some_and(|e| e == "zip"))

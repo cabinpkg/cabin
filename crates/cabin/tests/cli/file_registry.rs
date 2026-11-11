@@ -53,7 +53,7 @@ fn publish_creates_registry_layout() {
     assert!(
         registry
             .join(format!(
-                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{revision}.zip"
+                "archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{revision}.zip"
             ))
             .is_file()
     );
@@ -94,7 +94,7 @@ fn published_package_index_is_well_formed() {
     assert_eq!(rev_entry["source"]["format"], "zip");
     assert_eq!(
         rev_entry["source"]["path"],
-        format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{revision}.zip")
+        format!("../../archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{revision}.zip")
     );
 }
 
@@ -394,7 +394,7 @@ fn republishing_a_version_follows_the_revision_rules() {
     for rev in [&first_rev, &second_rev] {
         assert!(
             registry
-                .join(format!("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{rev}.zip"))
+                .join(format!("archives/fmtlib/fmt/fmtlib-fmt-10.2.1-{rev}.zip"))
                 .is_file(),
             "revision {rev} artifact must exist"
         );
@@ -461,7 +461,7 @@ fn dry_run_against_registry_does_not_mutate() {
     assert!(stdout.contains("No registry was modified"));
     assert!(!registry.join("config.json").exists());
     assert!(!registry.join("packages").exists());
-    assert!(!registry.join("artifacts").exists());
+    assert!(!registry.join("archives").exists());
 }
 
 #[test]

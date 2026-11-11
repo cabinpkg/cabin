@@ -13,10 +13,10 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
     let index = root.join("index");
     assert_fs::fixture::ChildPath::new(index.join("config.json"))
 
-            .write_str("{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n")
+            .write_str("{\"schema\":2,\"kind\":\"file-registry\",\"packages\":\"packages\",\"archives\":\"archives\"}\n")
 
             .unwrap();
-    let archive = index.join("artifacts/fmt/fmt-10.2.1.zip");
+    let archive = index.join("archives/fmt/fmt-10.2.1.zip");
     let manifest = r#"[package]
 name = "fmt"
 version = "10.2.1"
@@ -51,7 +51,7 @@ include-dirs = ["include"]
         "{revision}": {{
           "checksum": "sha256:{checksum}",
           "published-at": "2026-01-01T00:00:00Z",
-          "source": {{"type": "archive", "path": "../artifacts/fmt/fmt-10.2.1.zip", "format": "zip"}}
+          "source": {{"type": "archive", "path": "../archives/fmt/fmt-10.2.1.zip", "format": "zip"}}
         }}
       }}
     }}
@@ -103,7 +103,7 @@ fn vendor_writes_deterministic_file_registry() {
     source["versions"]["10.2.1"]["revisions"][&stale] = serde_json::json!({
         "checksum": format!("sha256:{}", "f".repeat(64)),
         "published-at": "2025-01-01T00:00:00Z",
-        "source": { "type": "archive", "path": "../artifacts/fmt/stale.zip", "format": "zip" },
+        "source": { "type": "archive", "path": "../archives/fmt/stale.zip", "format": "zip" },
     });
     fs::write(&source_index, source.to_string()).unwrap();
     stage_consumer_project(&dir.path().join("proj"));
@@ -141,10 +141,10 @@ fn vendor_writes_deterministic_file_registry() {
     let path = parsed["versions"]["10.2.1"]["revisions"][revision]["source"]["path"]
         .as_str()
         .unwrap();
-    assert_eq!(path, format!("../artifacts/fmt/fmt-10.2.1-{revision}.zip"));
+    assert_eq!(path, format!("../archives/fmt/fmt-10.2.1-{revision}.zip"));
     assert!(
         vendor
-            .join(format!("artifacts/fmt/fmt-10.2.1-{revision}.zip"))
+            .join(format!("archives/fmt/fmt-10.2.1-{revision}.zip"))
             .is_file()
     );
 
@@ -175,8 +175,8 @@ fn vendor_from_a_hosted_registry_mirror_needs_no_flag() {
     let index = stage_fmt_index(dir.path());
     assert_fs::fixture::ChildPath::new(index.join("config.json"))
         .write_str(
-            "{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\
-             \"artifacts\":\"artifacts\",\"auth-required\":true,\
+            "{\"schema\":2,\"kind\":\"file-registry\",\"packages\":\"packages\",\
+             \"archives\":\"archives\",\"auth-required\":true,\
              \"api\":\"https://cabinpkg.com\"}\n",
         )
         .unwrap();
@@ -307,7 +307,7 @@ sources = ["src/lib.cc"]
     assert!(vendor.join("config.json").is_file());
     assert!(vendor.join("cabin-vendor.json").is_file());
     assert!(vendor.join("packages").is_dir());
-    assert!(vendor.join("artifacts").is_dir());
+    assert!(vendor.join("archives").is_dir());
 }
 
 #[test]
@@ -498,7 +498,7 @@ include-dirs = ["include"]
         .arg(&registry)
         .assert()
         .success();
-    // Same depth, so the documents' `../../artifacts/...` paths hold.
+    // Same depth, so the documents' `../../archives/...` paths hold.
     fs::rename(registry.join("packages"), registry.join("metadata")).unwrap();
     let mut config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(registry.join("config.json")).unwrap()).unwrap();

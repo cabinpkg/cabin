@@ -90,7 +90,7 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     let new_hash = sha256_hex(&tampered);
     let new_rev = revision_of(&tampered);
     let tampered_artifact_path = format!(
-        "/artifacts/{scope}/{name}/{scope}-{name}-{version}-{new_rev}.zip",
+        "/archives/{scope}/{name}/{scope}-{name}-{version}-{new_rev}.zip",
         scope = inputs.scope,
         name = inputs.name,
         version = inputs.version,
@@ -196,7 +196,7 @@ fn artifact_checksum(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<(
     // it never reaches storage and answers like any unknown path - the
     // uniform 401, token or not.
     let unrevisioned = format!(
-        "/artifacts/{scope}/{name}/{scope}-{name}-{version}.zip",
+        "/archives/{scope}/{name}/{scope}-{name}-{version}.zip",
         scope = inputs.scope,
         name = inputs.name,
         version = inputs.version,
@@ -555,7 +555,7 @@ fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
             inputs.scope, inputs.name
         ),
         artifact2_path: format!(
-            "/artifacts/{scope}/{name}/{scope}-{name}-{version2}-{rev}.zip",
+            "/archives/{scope}/{name}/{scope}-{name}-{version2}-{rev}.zip",
             scope = inputs.scope,
             name = inputs.name,
         ),

@@ -55,9 +55,9 @@ impl std::fmt::Debug for SourceContext<'_> {
 ///    are read from `<root>/<config.packages>/`.  Source paths
 ///    recorded in those documents resolve relative to the document's
 ///    parent directory, so the published
-///    `"../artifacts/<name>/<name>-<version>-<revision>.zip"` form
-///    lands at `<root>/artifacts/<name>/<name>-<version>-<revision>.zip`.
-///    The `config.artifacts` field is accepted for schema
+///    `"../archives/<name>/<name>-<version>-<revision>.zip"` form
+///    lands at `<root>/archives/<name>/<name>-<version>-<revision>.zip`.
+///    The `config.archives` field is accepted for schema
 ///    compatibility but is not consulted during resolution.
 /// 2. **Flat layout**.  Used by hand-written fixtures that drop
 ///    `<name>.json` directly under `<root>` with no `config.json`.
@@ -66,7 +66,7 @@ impl std::fmt::Debug for SourceContext<'_> {
 /// In both shapes a scoped package `<scope>/<name>` nests exactly one
 /// level deeper as `<scope>/<name>.json`; its source paths resolve
 /// relative to the scope directory (matching the published
-/// `"../../<artifacts>/<scope>/<name>/..."` form), and the declared
+/// `"../../<archives>/<scope>/<name>/..."` form), and the declared
 /// `name` must equal `<scope>/<name>`.
 #[derive(Debug, Clone)]
 pub struct FileIndex {
@@ -238,7 +238,7 @@ fn load_package_file(path: &Path, scope: Option<&str>) -> Result<IndexEntry, Ind
     };
     // Relative `source.path` values resolve against the file's own
     // parent (the scope directory for a scoped package) - which is
-    // exactly what the published `../../<artifacts>/...` form
+    // exactly what the published `../../<archives>/...` form
     // expects.
     let parent_dir = path
         .parent()
@@ -911,12 +911,12 @@ struct RawRegistryConfig {
     schema: u32,
     kind: String,
     packages: String,
-    #[serde(default, rename = "artifacts")]
-    _artifacts: String,
+    #[serde(default, rename = "archives")]
+    _archives: String,
     /// `auth-required`: every request to this registry except
     /// `config.json` must carry `Authorization: Bearer <token>`.
     /// Accepted for schema compatibility (an explicit `null` is still
-    /// rejected) but unused on the local read path, like `artifacts`.
+    /// rejected) but unused on the local read path, like `archives`.
     #[serde(default, rename = "auth-required", deserialize_with = "present_field")]
     _auth_required: Option<bool>,
     /// `api`: absolute base URL of the registry web/API origin.
@@ -1044,7 +1044,7 @@ mod tests {
                                 "published-at": "2026-01-01T00:00:00Z",
                                 "source": {
                                     "type": "archive",
-                                    "path": "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "path": "../archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
                                     "format": "zip"
                                 }
                             }
@@ -1073,14 +1073,14 @@ mod tests {
     /// A scoped package nests one level (`packages/<scope>/<name>.json`),
     /// its declared name is the full `<scope>/<name>`, and its
     /// relative `source.path` resolves against the scope directory -
-    /// so the published `../../artifacts/...` form lands at the
+    /// so the published `../../archives/...` form lands at the
     /// registry root.
     #[test]
     fn loads_scoped_package_from_scope_directory() {
         let dir = TempDir::new().unwrap();
         dir.child("config.json")
             .write_str(
-                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+                r#"{"schema":2,"kind":"file-registry","packages":"packages","archives":"archives"}"#,
             )
             .unwrap();
         dir.child("packages/fmtlib/fmt.json")
@@ -1098,7 +1098,7 @@ mod tests {
                                 "published-at": "2026-01-01T00:00:00Z",
                                 "source": {
                                     "type": "archive",
-                                    "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip",
+                                    "path": "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip",
                                     "format": "zip"
                                 }
                             }
@@ -1118,7 +1118,7 @@ mod tests {
             SourceLocation::LocalPath(p) => assert_eq!(
                 p,
                 &dir.path()
-                    .join("packages/fmtlib/../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
+                    .join("packages/fmtlib/../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
             ),
             other @ SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {other:?}"),
         }
@@ -1488,7 +1488,7 @@ mod tests {
                                 "published-at": "2026-01-01T00:00:00Z",
                                 "source": {
                                     "type": "archive",
-                                    "path": "../artifacts/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "path": "../archives/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
                                     "format": "zip"
                                 }
                             }
@@ -1511,7 +1511,7 @@ mod tests {
                 assert_eq!(
                     p,
                     &dir.path()
-                        .join("../artifacts/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
+                        .join("../archives/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
                 );
             }
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
@@ -1522,9 +1522,9 @@ mod tests {
     fn loads_source_artifact_with_absolute_path() {
         let dir = TempDir::new().unwrap();
         let abs = if cfg!(windows) {
-            "C:/artifacts/fmt-10.2.1.zip".to_string()
+            "C:/archives/fmt-10.2.1.zip".to_string()
         } else {
-            "/var/artifacts/fmt-10.2.1.zip".to_string()
+            "/var/archives/fmt-10.2.1.zip".to_string()
         };
         let body = format!(
             r#"{{
@@ -1898,10 +1898,10 @@ mod tests {
         dir.child("config.json")
             .write_str(
                 r#"{
-                "schema": 1,
+                "schema": 2,
                 "kind": "file-registry",
                 "packages": "packages",
-                "artifacts": "artifacts"
+                "archives": "archives"
             }"#,
             )
             .unwrap();
@@ -1921,7 +1921,7 @@ mod tests {
                                 "published-at": "2026-01-01T00:00:00Z",
                                 "source": {
                                     "type": "archive",
-                                    "path": "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "path": "../archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
                                     "format": "zip"
                                 }
                             }
@@ -1938,11 +1938,11 @@ mod tests {
             .get(&semver::Version::parse("10.2.1").unwrap())
             .unwrap();
         let source = meta.source.as_ref().unwrap();
-        // `../artifacts/...` resolves against `packages/` to the
-        // registry's artifacts directory.
+        // `../archives/...` resolves against `packages/` to the
+        // registry's archives directory.
         let expected = dir
             .path()
-            .join("packages/../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip");
+            .join("packages/../archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip");
         match source {
             SourceLocation::LocalPath(p) => assert_eq!(p, &expected),
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
@@ -1955,10 +1955,10 @@ mod tests {
         dir.child("config.json")
             .write_str(
                 r#"{
-                "schema": 1,
+                "schema": 2,
                 "kind": "http-registry",
                 "packages": "packages",
-                "artifacts": "artifacts"
+                "archives": "archives"
             }"#,
             )
             .unwrap();
@@ -1977,10 +1977,10 @@ mod tests {
         dir.child("config.json")
             .write_str(
                 r#"{
-                "schema": 1,
+                "schema": 2,
                 "kind": "file-registry",
                 "packages": "../escape",
-                "artifacts": "artifacts"
+                "archives": "archives"
             }"#,
             )
             .unwrap();
@@ -1998,10 +1998,10 @@ mod tests {
         dir.child("config.json")
             .write_str(
                 r#"{
-                "schema": 1,
+                "schema": 2,
                 "kind": "file-registry",
                 "packages": "packages",
-                "artifacts": "artifacts"
+                "archives": "archives"
             }"#,
             )
             .unwrap();
@@ -2028,10 +2028,10 @@ mod tests {
         dir.child("config.json")
             .write_str(&format!(
                 r#"{{
-                "schema": 1,
+                "schema": 2,
                 "kind": "file-registry",
                 "packages": "packages",
-                "artifacts": "artifacts"{extra}
+                "archives": "archives"{extra}
             }}"#
             ))
             .unwrap();
@@ -2131,7 +2131,7 @@ mod tests {
                                 "published-at": "2026-01-01T00:00:00Z",
                                 "source": {
                                     "type": "archive",
-                                    "path": "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "path": "../archives/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
                                     "format": "zip"
                                 }
                             }

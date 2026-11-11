@@ -56,10 +56,10 @@ the archives:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "kind": "file-registry",
   "packages": "packages",
-  "artifacts": "artifacts",
+  "archives": "archives",
   "auth-required": false,
   "api": "https://cabinpkg.com"
 }
@@ -334,7 +334,7 @@ The read routes are the same shapes as the sparse HTTP index in
 | --- | --- |
 | `GET /config.json` | Registry configuration (this document's fields included). |
 | `GET /packages/<scope>/<name>.json` | Per-package index document. |
-| `GET /artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` | Source archive download, one route per [packaging revision](package-index.md#packaging-revisions).  The `<revision>` segment must be exactly 16 lowercase hex characters and the `<version>` segment must not carry SemVer build metadata; anything else is not a read route and answers the uniform `401` below before storage is consulted. |
+| `GET /archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` | Source archive download, one route per [packaging revision](package-index.md#packaging-revisions).  The `<revision>` segment must be exactly 16 lowercase hex characters and the `<version>` segment must not carry SemVer build metadata; anything else is not a read route and answers the uniform `401` below before storage is consulted. |
 
 On a public registry all three serve unauthenticated `GET`s, and non-`GET` methods answer
 `405`.  A request that *does* present a token gets it validated - an invalid one is the uniform
