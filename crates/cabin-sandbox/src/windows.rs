@@ -277,8 +277,11 @@ fn set_entry(
 ) -> io::Result<()> {
     // The list is read, then written whole: a run doing the same in
     // between would lose its entry, or drop this one.
-    let lock = File::create(lock)?;
-    lock.lock()?;
+    let held = File::create(lock).and_then(|file| file.lock().map(|()| file));
+    let _held = held.map_err(|err| {
+        let lock = lock.display();
+        io::Error::new(err.kind(), format!("cannot lock {lock}: {err}"))
+    })?;
     let name = wide(path.as_os_str());
     let mut acl = null_mut();
     let mut descriptor = null_mut();
