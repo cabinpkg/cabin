@@ -580,6 +580,7 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-credentials",
  "humantime",
+ "rand",
  "semver",
  "serde",
  "serde_json",

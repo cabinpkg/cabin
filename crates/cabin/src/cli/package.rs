@@ -573,6 +573,9 @@ fn publish_with_rate_limit_pacing(
     pace: bool,
     reporter: Reporter,
 ) -> Result<cabin_registry_api::PublishReceipt> {
+    // One id for every attempt: the registry counts a retried upload
+    // once.
+    let upload_id = cabin_registry_api::UploadId::random();
     let mut attempt = 0;
     loop {
         attempt += 1;
@@ -582,6 +585,7 @@ fn publish_with_rate_limit_pacing(
             metadata_json,
             &staged.archive_bytes,
             new_revision,
+            &upload_id,
         ) {
             Err(cabin_registry_api::RegistryApiError::RateLimited { retry_after_secs })
                 if pace && attempt < MAX_PUBLISH_ATTEMPTS =>

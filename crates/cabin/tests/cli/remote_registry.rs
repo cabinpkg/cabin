@@ -3037,6 +3037,7 @@ struct CapturedTrustpub {
     method: String,
     path: String,
     authorization: Option<String>,
+    upload_id: Option<String>,
     body: Vec<u8>,
 }
 
@@ -3099,6 +3100,11 @@ impl TrustpubRegistryServer {
                         method: method.clone(),
                         path: path.clone(),
                         authorization: authorization.clone(),
+                        upload_id: req
+                            .headers()
+                            .iter()
+                            .find(|h| h.field.equiv("Cabin-Upload-Id"))
+                            .map(|h| h.value.to_string()),
                         body,
                     });
                 }
@@ -3730,12 +3736,27 @@ sources = ["src/z.c"]
         .success()
         .stderr(predicate::str::contains("rate limited acme/demo 0.1.0"));
 
-    let uploads = registry
+    // zlib, demo's 429 attempt, demo's paced retry.  One publish keeps
+    // its upload id across attempts - the registry counts the retried
+    // upload once - and another publish has its own.
+    let ids: Vec<String> = registry
         .captured()
-        .iter()
+        .into_iter()
         .filter(|c| c.path.starts_with("/api/v1/packages/"))
-        .count();
-    assert_eq!(uploads, 3, "zlib, demo's 429 attempt, demo's paced retry");
+        .map(|c| c.upload_id.expect("every upload names its id"))
+        .collect();
+    let [zlib_id, demo_id, demo_retry_id] = &ids[..] else {
+        panic!("expected three uploads, got {ids:?}");
+    };
+    assert_eq!(demo_id, demo_retry_id);
+    assert_ne!(zlib_id, demo_id);
+    assert!(
+        zlib_id.len() == 32
+            && zlib_id
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "{zlib_id}"
+    );
 
     // Alone, the same 429 fails fast: no pacing, no second attempt.
     let registry = TrustpubRegistryServer::start(&[429]);

@@ -71,6 +71,10 @@ const OVER_BUDGET_CODE: &str = "registry_over_budget";
 /// The hosted registry's private-alpha refusal (`docs/remote-registry.md`,
 /// "Error envelope"), mirrored in `cabin-index-http`.
 const PRIVATE_ALPHA_CODE: &str = "registry_private_alpha";
+/// The `429` codes of a spent upload allowance (`docs/remote-registry.md`,
+/// "Error envelope"): the day's uploads, or the versions awaiting
+/// verification.
+const UPLOAD_LIMIT_CODES: [&str; 2] = ["daily_upload_limit_exceeded", "pending_limit_exceeded"];
 
 /// Client for one registry's API origin.  Construction validates the
 /// URL (http(s), no userinfo) and enforces the same cleartext rule as
@@ -93,6 +97,18 @@ pub enum PublishOutcome {
     /// `200`: byte-identical metadata and archive were already
     /// published; the request was an idempotent no-op.
     AlreadyPublished,
+}
+
+/// The `Cabin-Upload-Id` of one publish operation: 128 random bits as
+/// 32 lower-case hex digits.  A registry counts an upload once per id,
+/// so every HTTP attempt of one operation carries the same value and
+/// another operation a fresh one.
+pub struct UploadId(String);
+
+impl UploadId {
+    pub fn random() -> Self {
+        Self(cabin_core::hash::hex_digest(&rand::random::<[u8; 16]>()))
+    }
 }
 
 /// A successful publish: the outcome plus the response body's optional
@@ -174,7 +190,9 @@ impl RegistryApi {
     /// [`RegistryApiError::QuotaExceeded`]),
     /// the quota and budget refusals map to
     /// [`RegistryApiError::ArchiveTooLarge`] (`413`),
-    /// [`RegistryApiError::RateLimited`] (`429`), and
+    /// [`RegistryApiError::RateLimited`] (`429`, or
+    /// [`RegistryApiError::QuotaExceeded`] when its code names a spent
+    /// upload allowance), and
     /// [`RegistryApiError::RegistryOverBudget`] (`503`) - the last two
     /// carrying the response's `Retry-After` seconds when usable - and
     /// any other non-success status surfaces as
@@ -187,6 +205,7 @@ impl RegistryApi {
         metadata_json: &[u8],
         archive: &[u8],
         new_revision: bool,
+        upload_id: &UploadId,
     ) -> Result<PublishReceipt, RegistryApiError> {
         // The `--new-revision` opt-in rides as a query parameter so
         // the route itself stays the immutable-unit address.
@@ -199,7 +218,8 @@ impl RegistryApi {
         let body = encode_publish_body(metadata_json, archive)?;
         let request = self
             .request("PUT", &url)
-            .set("Content-Type", "application/octet-stream");
+            .set("Content-Type", "application/octet-stream")
+            .set("Cabin-Upload-Id", &upload_id.0);
         let (status, response) = self.send(request.send_bytes(&body), name, version)?;
         let outcome = match status {
             201 => PublishOutcome::Created,
@@ -446,6 +466,20 @@ impl RegistryApi {
             413 => RegistryApiError::ArchiveTooLarge {
                 detail: refusal.detail,
             },
+            // An upload allowance is spent, not a bucket drained:
+            // retrying after `Retry-After` seconds would be refused the
+            // same way, so these are not `RateLimited`.  Mapped here
+            // and not for every route: the login exchange must never
+            // surface a server-chosen detail.
+            429 if refusal
+                .code
+                .as_deref()
+                .is_some_and(|code| UPLOAD_LIMIT_CODES.contains(&code)) =>
+            {
+                RegistryApiError::QuotaExceeded {
+                    detail: refusal.detail.unwrap_or_default(),
+                }
+            }
             _ => refusal.into_error(),
         })
     }
@@ -1372,7 +1406,14 @@ mod tests {
             "acme/_foo",
         ] {
             let err = api
-                .publish(name, &version("1.0.0"), b"{}", b"", false)
+                .publish(
+                    name,
+                    &version("1.0.0"),
+                    b"{}",
+                    b"",
+                    false,
+                    &UploadId::random(),
+                )
                 .unwrap_err();
             assert!(
                 matches!(err, RegistryApiError::UnsafePackageName { .. }),
@@ -1393,7 +1434,14 @@ mod tests {
         let api = RegistryApi::new("http://127.0.0.1:9", Some(token())).unwrap();
         let versioned = version("1.3.1+cabin.1");
         let err = api
-            .publish("fmtlib/fmt", &versioned, b"{}", b"", false)
+            .publish(
+                "fmtlib/fmt",
+                &versioned,
+                b"{}",
+                b"",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         assert!(
             matches!(err, RegistryApiError::VersionBuildMetadata { .. }),
@@ -1530,7 +1578,14 @@ mod tests {
 
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), metadata, archive, false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                metadata,
+                archive,
+                false,
+                &UploadId::random(),
+            )
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         // No "verification" field: a registry without the lifecycle.
@@ -1562,7 +1617,14 @@ mod tests {
         );
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", true)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                true,
+                &UploadId::random(),
+            )
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.revision.as_deref(), Some("0011223344556677"));
@@ -1580,7 +1642,14 @@ mod tests {
         let mock = MockApi::respond_with(201, r#"{"ok":true,"revision":"\u001b[31mpwned"}"#);
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.revision, None);
@@ -1592,7 +1661,14 @@ mod tests {
         let mock = MockApi::respond_with(200, r#"{"ok":true,"no_op":true}"#);
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
         assert_eq!(receipt.verification, None);
@@ -1610,7 +1686,14 @@ mod tests {
         );
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.verification.as_deref(), Some("pending"));
@@ -1619,7 +1702,14 @@ mod tests {
             MockApi::respond_with(200, r#"{"ok":true,"no_op":true,"verification":"verified"}"#);
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
         assert_eq!(receipt.verification.as_deref(), Some("verified"));
@@ -1629,7 +1719,14 @@ mod tests {
         let mock = MockApi::respond_with(201, "not json at all");
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.verification, None);
@@ -1647,7 +1744,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::VersionConflict {
@@ -1681,7 +1785,14 @@ mod tests {
         let mock = MockApi::respond_with(409, "conflict");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         let message = err.to_string();
         assert!(message.contains("different bytes"), "{message}");
@@ -1697,7 +1808,14 @@ mod tests {
             MockApi::respond_with(401, r#"{"errors":[{"detail":"authentication required"}]}"#);
         let err = mock
             .client(None)
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         assert!(
             matches!(err, RegistryApiError::AuthRequired { .. }),
@@ -1707,7 +1825,14 @@ mod tests {
 
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         assert!(
             matches!(err, RegistryApiError::TokenRejected { .. }),
@@ -1736,7 +1861,14 @@ mod tests {
             let mock = MockApi::respond_with(403, body);
             let err = mock
                 .client(Some(token()))
-                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+                .publish(
+                    "fmtlib/fmt",
+                    &version("10.2.1"),
+                    b"{}",
+                    b"bytes",
+                    false,
+                    &UploadId::random(),
+                )
                 .unwrap_err();
             match &err {
                 RegistryApiError::Forbidden {
@@ -1754,7 +1886,14 @@ mod tests {
         let mock = MockApi::respond_with(403, "no envelope here");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::Forbidden { detail: None, .. } => {}
@@ -1775,7 +1914,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
 
         let rendered = err.to_string();
@@ -1814,7 +1960,14 @@ mod tests {
             let mock = MockApi::respond_with(403, body);
             let err = mock
                 .client(Some(token()))
-                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+                .publish(
+                    "fmtlib/fmt",
+                    &version("10.2.1"),
+                    b"{}",
+                    b"bytes",
+                    false,
+                    &UploadId::random(),
+                )
                 .unwrap_err();
             match &err {
                 RegistryApiError::QuotaExceeded { detail } => {
@@ -1850,7 +2003,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::ServerError {
@@ -1869,7 +2029,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::BadRequest { detail: Some(_) } => {}
@@ -1890,7 +2057,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget {
@@ -1913,7 +2087,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget {
@@ -1928,7 +2109,14 @@ mod tests {
         let mock = MockApi::respond_with(503, padded_envelope(MAX_ERROR_BODY_BYTES));
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget { .. } => {}
@@ -1987,7 +2175,14 @@ mod tests {
             let mock = MockApi::respond_with(status, body);
             let err = mock
                 .client(Some(token()))
-                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+                .publish(
+                    "fmtlib/fmt",
+                    &version("10.2.1"),
+                    b"{}",
+                    b"bytes",
+                    false,
+                    &UploadId::random(),
+                )
                 .unwrap_err();
             match &err {
                 RegistryApiError::ServerError { status: got, .. } => {
@@ -2033,7 +2228,14 @@ mod tests {
         let mock = MockApi::respond_with_headers(403, ENVELOPE, &[]);
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         assert!(matches!(err, RegistryApiError::PrivateAlpha), "{err:?}");
         assert!(err.to_string().contains("private alpha"), "{err}");
@@ -2054,7 +2256,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::RateLimited {
@@ -2075,7 +2284,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::RateLimited {
@@ -2084,6 +2300,40 @@ mod tests {
             other => panic!("expected RateLimited, got {other:?}"),
         }
         assert!(err.to_string().contains("try again later"), "{err}");
+    }
+
+    /// A `429` naming a spent upload allowance is not a bucket to wait
+    /// out: it maps away from `RateLimited`, the only error a publish
+    /// paces on, and the server's detail reaches the user verbatim.
+    #[test]
+    fn publish_maps_an_upload_limit_429_to_quota_exceeded() {
+        for code in UPLOAD_LIMIT_CODES {
+            let mock = MockApi::respond_with_headers(
+                429,
+                format!(
+                    r#"{{"errors":[{{"detail":"30 of 30 uploads used today; the limit resets at 2026-11-12T00:00:00Z","code":"{code}"}}]}}"#
+                ),
+                &[("Retry-After", "3600")],
+            );
+            let err = mock
+                .client(Some(token()))
+                .publish(
+                    "fmtlib/fmt",
+                    &version("10.2.1"),
+                    b"{}",
+                    b"bytes",
+                    false,
+                    &UploadId::random(),
+                )
+                .unwrap_err();
+            match &err {
+                RegistryApiError::QuotaExceeded { detail } => assert_eq!(
+                    detail,
+                    "30 of 30 uploads used today; the limit resets at 2026-11-12T00:00:00Z"
+                ),
+                other => panic!("{code}: expected QuotaExceeded, got {other:?}"),
+            }
+        }
     }
 
     /// 413: the archive exceeds the per-archive size limit. The
@@ -2097,7 +2347,14 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::ArchiveTooLarge { detail: Some(_) } => {}
@@ -2113,7 +2370,14 @@ mod tests {
         let mock = MockApi::respond_with(413, "not an envelope");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::ArchiveTooLarge { detail: None } => {}
@@ -2130,7 +2394,14 @@ mod tests {
             MockApi::respond_with(400, r#"{"errors":[{"detail":"metadata name mismatch"}]}"#);
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         assert!(
             err.to_string().contains("metadata name mismatch"),
@@ -2140,7 +2411,14 @@ mod tests {
         let mock = MockApi::respond_with(400, "<html>not the envelope</html>");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::BadRequest { detail: None } => {}
@@ -2154,7 +2432,14 @@ mod tests {
         let mock = MockApi::respond_with(500, "garbage");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .publish(
+                "fmtlib/fmt",
+                &version("10.2.1"),
+                b"{}",
+                b"bytes",
+                false,
+                &UploadId::random(),
+            )
             .unwrap_err();
         match &err {
             RegistryApiError::ServerError {
@@ -2546,13 +2831,22 @@ mod tests {
     /// refused.
     #[test]
     fn exchange_login_session_never_surfaces_registry_chosen_text() {
-        let mock = MockApi::respond_with(400, r#"{"errors":[{"detail":"gho_reflected"}]}"#);
-        let err = exchange_login_session(&mock.url, "gho_reflected").unwrap_err();
-        let message = err.to_string();
-        assert!(
-            !message.contains("gho_reflected") && !format!("{err:?}").contains("gho_reflected"),
-            "a reflected detail must be dropped: {message}"
-        );
+        for (status, body) in [
+            (400, r#"{"errors":[{"detail":"gho_reflected"}]}"#),
+            // A code that surfaces its detail on the publish route.
+            (
+                429,
+                r#"{"errors":[{"detail":"gho_reflected","code":"pending_limit_exceeded"}]}"#,
+            ),
+        ] {
+            let mock = MockApi::respond_with(status, body);
+            let err = exchange_login_session(&mock.url, "gho_reflected").unwrap_err();
+            let message = err.to_string();
+            assert!(
+                !message.contains("gho_reflected") && !format!("{err:?}").contains("gho_reflected"),
+                "a reflected detail must be dropped: {message}"
+            );
+        }
 
         let mock = MockApi::respond_with(
             200,
