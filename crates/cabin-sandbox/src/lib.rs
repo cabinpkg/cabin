@@ -69,6 +69,12 @@
 //!   with a narrower list did not.  Killed during a run, Ctrl-C included,
 //!   Cabin leaves the entries and the run's container behind; the program
 //!   dies with it.
+//! - Windows: the program can turn an empty directory it may write into
+//!   a junction, though only to a directory it may write, the one made
+//!   for the run included.  Cabin's entry then stays on the junction, and
+//!   a later run granted that path is granted where the junction leads,
+//!   or nothing once that is gone: a caller makes a write grant anew
+//!   before granting it again.
 //!
 //! Choosing what to grant (and which environment variables are safe to
 //! pass) is the caller's policy; this crate only enforces it.
@@ -115,7 +121,8 @@ pub struct Confinement {
     pub read: Vec<PathBuf>,
     /// Directories (recursively) the program may read, write, create in,
     /// and delete from.  The directory itself it can neither remove nor
-    /// move away, nor make anything in its place.  No path granted to
+    /// move away, nor make anything in its place, but for the junction
+    /// Windows lets it turn an empty one into.  No path granted to
     /// this or a later run may lie inside one, where the program could
     /// put a symlink in its way.
     pub write: Vec<PathBuf>,
