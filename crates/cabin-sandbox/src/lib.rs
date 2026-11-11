@@ -60,9 +60,10 @@
 //!   and on Arm hardware adds `PROCESSOR_ARCHITECTURE`.
 //! - Windows: a grant is an entry Cabin adds to the access-control list
 //!   of the path and of all beneath it, and removes after the run.  The
-//!   cost grows with what the path holds, a path whose list Cabin's user
-//!   may not change fails the run, and two runs at once must not share a
-//!   granted path, or one can drop the other's entry.  As after any
+//!   cost grows with what the path holds, and a path whose list Cabin's
+//!   user may not change fails the run.  A user's runs change lists one
+//!   at a time, by locking a file in `LOCALAPPDATA`; two users' runs
+//!   granting one path at once can drop each other's entry.  As after any
 //!   change made with the system's own tools, the lists beneath the path
 //!   then match what their directories pass down, which a file moved in
 //!   with a narrower list did not.  Killed during a run, Ctrl-C included,

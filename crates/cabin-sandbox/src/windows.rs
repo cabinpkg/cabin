@@ -118,6 +118,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         let reason = format!("{LOCAL} is not set");
         return Err(SandboxError::Unavailable(reason));
     };
+    let lock = Path::new(&local).join("cabin-sandbox.lock");
     let env: Vec<_> = env
         .into_iter()
         .filter(|(key, _)| !key.eq_ignore_ascii_case(LOCAL))
@@ -128,6 +129,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
     })?;
     let mut grants = Grants {
         sid: container.sid,
+        lock,
         paths: Vec::new(),
     };
     let read = crate::without_hidden(canonical(&read), &hidden);
@@ -223,6 +225,7 @@ impl Drop for Container {
 /// drop.
 struct Grants {
     sid: PSID,
+    lock: PathBuf,
     paths: Vec<PathBuf>,
 }
 
@@ -234,11 +237,18 @@ impl Grants {
         } else {
             NO_INHERITANCE
         };
-        let granted =
-            set_entry(&path, self.sid, GRANT_ACCESS, access, inheritance).map_err(|err| {
-                let path = path.display();
-                io::Error::new(err.kind(), format!("cannot grant access to {path}: {err}"))
-            });
+        let granted = set_entry(
+            &self.lock,
+            &path,
+            self.sid,
+            GRANT_ACCESS,
+            access,
+            inheritance,
+        )
+        .map_err(|err| {
+            let path = path.display();
+            io::Error::new(err.kind(), format!("cannot grant access to {path}: {err}"))
+        });
         // Revoked even if it failed: Windows may have reached part of what
         // the directory holds.
         self.paths.push(path);
@@ -250,7 +260,7 @@ impl Drop for Grants {
     fn drop(&mut self) {
         for path in &self.paths {
             // An entry left behind names a container no process runs in.
-            let _ = set_entry(path, self.sid, REVOKE_ACCESS, 0, NO_INHERITANCE);
+            let _ = set_entry(&self.lock, path, self.sid, REVOKE_ACCESS, 0, NO_INHERITANCE);
         }
     }
 }
@@ -258,12 +268,17 @@ impl Drop for Grants {
 /// Apply `mode` for `sid` to `path`'s access-control list, which Windows
 /// then passes on to what the directory holds.
 fn set_entry(
+    lock: &Path,
     path: &Path,
     sid: PSID,
     mode: ACCESS_MODE,
     access: u32,
     inheritance: ACE_FLAGS,
 ) -> io::Result<()> {
+    // The list is read, then written whole: a run doing the same in
+    // between would lose its entry, or drop this one.
+    let lock = File::create(lock)?;
+    lock.lock()?;
     let name = wide(path.as_os_str());
     let mut acl = null_mut();
     let mut descriptor = null_mut();
@@ -692,6 +707,71 @@ mod tests {
         unsafe { LocalFree(array.cast()) };
         let expected: Vec<OsString> = iter::once(program.into_os_string()).chain(args).collect();
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn entries_set_at_once_all_land() {
+        use std::sync::Barrier;
+        use windows_sys::Win32::Security::ACL;
+        use windows_sys::Win32::Security::Isolation::DeriveAppContainerSidFromAppContainerName;
+
+        const RUNS: u16 = 8;
+        let dir = assert_fs::TempDir::new().unwrap();
+        let lock = dir.path().join("lock");
+        let granted = dir.path().join("granted");
+        std::fs::create_dir(&granted).unwrap();
+        let entries = || {
+            let name = wide(granted.as_os_str());
+            let mut acl: *mut ACL = null_mut();
+            let mut descriptor = null_mut();
+            // SAFETY: a NUL-terminated name and out-pointers; `acl` points
+            // into `descriptor`, freed once the count is read.
+            unsafe {
+                let error = GetNamedSecurityInfoW(
+                    name.as_ptr(),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION,
+                    null_mut(),
+                    null_mut(),
+                    &raw mut acl,
+                    null_mut(),
+                    &raw mut descriptor,
+                );
+                assert_eq!(error, 0);
+                let count = (*acl).AceCount;
+                LocalFree(descriptor);
+                count
+            }
+        };
+        let set_all = |mode| {
+            let barrier = Barrier::new(RUNS.into());
+            std::thread::scope(|scope| {
+                for run in 0..RUNS {
+                    let (barrier, lock, granted) = (&barrier, &lock, &granted);
+                    scope.spawn(move || {
+                        let name = wide(OsStr::new(&format!("cabin.test.{run}")));
+                        let mut sid = null_mut();
+                        // SAFETY: a NUL-terminated name and an out-pointer;
+                        // the SID is freed below.
+                        let result = unsafe {
+                            DeriveAppContainerSidFromAppContainerName(name.as_ptr(), &raw mut sid)
+                        };
+                        assert!(result >= 0);
+                        barrier.wait();
+                        set_entry(lock, granted, sid, mode, READ, NO_INHERITANCE).unwrap();
+                        // SAFETY: allocated by the call above.
+                        unsafe { FreeSid(sid) };
+                    });
+                }
+            });
+        };
+        let before = entries();
+        for _ in 0..20 {
+            set_all(GRANT_ACCESS);
+            assert_eq!(entries(), before + RUNS);
+            set_all(REVOKE_ACCESS);
+            assert_eq!(entries(), before);
+        }
     }
 
     #[test]
