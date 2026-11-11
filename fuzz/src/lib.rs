@@ -194,7 +194,9 @@ pub fn assert_package_round_trips(spec: &[u8]) -> bool {
                 name: staged.name,
                 version: staged.version,
                 checksum: staged.checksum,
-                source: FetchSource::InMemoryArchive(archive),
+                source: FetchSource::Remote(std::sync::Arc::new(move || {
+                    Ok(Box::new(std::io::Cursor::new(archive.clone())))
+                })),
             }],
         },
         &ArtifactCache::new(scratch.path().join("cache")),

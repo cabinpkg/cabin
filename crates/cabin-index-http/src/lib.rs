@@ -15,7 +15,7 @@
 //! The crate is intentionally narrow:
 //!
 //! - it issues `GET` requests for `config.json`, `packages/<name>.json`,
-//!   and (when the CLI calls [`HttpClient::download`]) artifact URLs;
+//!   and (when the CLI calls [`HttpClient::download_stream`]) artifact URLs;
 //! - it never POSTs, PUTs, or otherwise mutates a remote registry;
 //! - it attaches `Authorization: Bearer <token>` only when the caller
 //!   supplies a credential ([`HttpClient::with_auth`]), only to the

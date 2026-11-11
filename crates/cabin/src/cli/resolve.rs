@@ -1126,9 +1126,9 @@ fn open_http_index(
 /// the version-level source and checksum, and fails when the index
 /// lists no checksum either.
 ///
-/// `access` decides whether HTTP-resolved sources get downloaded
-/// here (so `cabin-artifact` stays HTTP-free) or whether the source
-/// path is handed straight through as a local file.
+/// `access` decides whether HTTP-resolved sources get the opener of
+/// their download here (so `cabin-artifact` stays HTTP-free) or
+/// whether the source path is handed straight through as a local file.
 #[tracing::instrument(level = "info", skip_all)]
 fn build_fetch_plan<'a>(
     packages: impl Iterator<Item = &'a ResolvedPackage>,
@@ -1202,14 +1202,10 @@ fn build_fetch_plan<'a>(
             }
             (cabin_index::SourceLocation::HttpUrl(url), IndexAccess::Http(client)) => {
                 let label = format!("{} {}", resolved.name.as_str(), resolved.version);
-                let bytes = client.download(url, &label).with_context(|| {
-                    format!(
-                        "failed to download source archive for `{} {}`",
-                        resolved.name.as_str(),
-                        resolved.version
-                    )
-                })?;
-                cabin_artifact::FetchSource::InMemoryArchive(bytes)
+                let (client, url) = (client.clone(), url.clone());
+                cabin_artifact::FetchSource::Remote(std::sync::Arc::new(move || {
+                    Ok(client.download_stream(&url, &label)?)
+                }))
             }
             (cabin_index::SourceLocation::HttpUrl(_), IndexAccess::Local) => {
                 bail!(

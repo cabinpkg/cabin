@@ -180,6 +180,43 @@ impl HttpClient {
     /// error.
     #[tracing::instrument(name = "http_get", level = "debug", skip_all, fields(package = %package, status = tracing::field::Empty, bytes = tracing::field::Empty))]
     pub fn get_bytes(&self, url: &str, package: &str) -> Result<Vec<u8>, IndexHttpError> {
+        let response = self.get(url, package)?;
+        let mut body = Vec::new();
+        self.capped(response)
+            .read_to_end(&mut body)
+            .map_err(|err| IndexHttpError::Transport {
+                name: package.to_owned(),
+                message: err.to_string(),
+            })?;
+        tracing::Span::current().record("bytes", body.len());
+        Ok(body)
+    }
+
+    /// `GET` `url` and return the response's body as a stream, for a
+    /// source archive: nothing is buffered.  Reading past the 64 MiB
+    /// cap fails, as does a body that ends before its declared length
+    /// or outlasts the request timeout; the caller's checksum is what
+    /// vouches for the bytes.
+    ///
+    /// # Errors
+    /// Mirrors [`HttpClient::get_bytes`], except that a 404 is an
+    /// [`IndexHttpError::Transport`] ("artifact not found (404)").
+    #[tracing::instrument(name = "http_get", level = "debug", skip_all, fields(package = %label, status = tracing::field::Empty))]
+    pub fn download_stream(&self, url: &str, label: &str) -> Result<Box<dyn Read>, IndexHttpError> {
+        let response = self.get(url, label).map_err(artifact_not_found)?;
+        Ok(Box::new(self.capped(response)))
+    }
+
+    fn capped(&self, response: ureq::Response) -> Capped {
+        Capped {
+            body: response.into_reader(),
+            limit: self.max_body_bytes,
+            read: 0,
+        }
+    }
+
+    /// Send the `GET` and map every non-success status.
+    fn get(&self, url: &str, package: &str) -> Result<ureq::Response, IndexHttpError> {
         let auth = self
             .auth
             .as_ref()
@@ -212,22 +249,7 @@ impl HttpClient {
                         status,
                     });
                 }
-                let mut reader = response.into_reader().take(self.max_body_bytes as u64 + 1);
-                let mut body = Vec::new();
-                reader
-                    .read_to_end(&mut body)
-                    .map_err(|err| IndexHttpError::Transport {
-                        name: package.to_owned(),
-                        message: err.to_string(),
-                    })?;
-                if body.len() > self.max_body_bytes {
-                    return Err(IndexHttpError::Transport {
-                        name: package.to_owned(),
-                        message: format!("response body exceeded {} bytes", self.max_body_bytes),
-                    });
-                }
-                tracing::Span::current().record("bytes", body.len());
-                Ok(body)
+                Ok(response)
             }
             Err(ureq::Error::Status(404, _)) => Err(IndexHttpError::PackageNotFound {
                 name: package.to_owned(),
@@ -310,9 +332,8 @@ impl HttpClient {
         }
     }
 
-    /// `GET` `url` and return the raw response body.  Used by the CLI
-    /// to download artifacts; checksum verification happens later in
-    /// `cabin-artifact`.
+    /// `GET` `url` and return the raw response body, for a caller
+    /// that needs the whole archive in memory.
     ///
     /// # Errors
     /// Mirrors [`HttpClient::get_bytes`] but remaps a 404 into
@@ -324,13 +345,39 @@ impl HttpClient {
         // Download paths share the same plumbing as metadata
         // requests: the `label` field of the error tells the user
         // *which* package's archive failed to download.
-        self.get_bytes(url, label).map_err(|err| match err {
-            IndexHttpError::PackageNotFound { name } => IndexHttpError::Transport {
-                name,
-                message: "artifact not found (404)".to_owned(),
-            },
-            other => other,
-        })
+        self.get_bytes(url, label).map_err(artifact_not_found)
+    }
+}
+
+fn artifact_not_found(err: IndexHttpError) -> IndexHttpError {
+    match err {
+        IndexHttpError::PackageNotFound { name } => IndexHttpError::Transport {
+            name,
+            message: "artifact not found (404)".to_owned(),
+        },
+        other => other,
+    }
+}
+
+/// A response body that fails the read taking it past `limit` bytes,
+/// so an oversized response is an error and never a short result.
+struct Capped {
+    body: Box<dyn Read + Send + Sync>,
+    limit: usize,
+    read: usize,
+}
+
+impl Read for Capped {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.body.read(buf)?;
+        self.read += n;
+        if self.read > self.limit {
+            return Err(std::io::Error::other(format!(
+                "response body exceeded {} bytes",
+                self.limit
+            )));
+        }
+        Ok(n)
     }
 }
 
@@ -535,13 +582,8 @@ mod tests {
         // Shrink the cap below the 8-byte "followed" body so the
         // test does not have to stream 64 MiB through loopback.
         let client = HttpClient {
-            agent: ureq::AgentBuilder::new()
-                .timeout(DEFAULT_TIMEOUT)
-                .redirects(0)
-                .build(),
             max_body_bytes: 4,
-            auth: None,
-            max_redirects: 0,
+            ..HttpClient::new()
         };
 
         let result = client.get_bytes(&format!("{}/to", server.url()), "pkg");
@@ -556,6 +598,68 @@ mod tests {
             }
             other => panic!("expected Transport error, got {other:?}"),
         }
+    }
+
+    /// A streamed body past the cap fails at the read that crosses
+    /// it; a caller copying the stream never mistakes it for a
+    /// complete, shorter archive.
+    #[test]
+    fn download_stream_fails_the_read_past_the_cap() {
+        let server = RedirectServer::start();
+        let client = HttpClient {
+            max_body_bytes: 4,
+            ..HttpClient::new()
+        };
+
+        let err = client
+            .download_stream(&format!("{}/to", server.url()), "pkg")
+            .unwrap()
+            .read_to_end(&mut Vec::new())
+            .unwrap_err();
+
+        assert!(err.to_string().contains("exceeded 4 bytes"), "{err}");
+    }
+
+    /// A connection that closes before the declared length fails the
+    /// stream, so a cut-off archive never reads as a complete one.
+    #[test]
+    fn download_stream_fails_on_a_body_shorter_than_declared() {
+        use std::io::Write;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("loopback addr");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            // Take the request off the socket first, so closing it
+            // ends the response instead of resetting the connection.
+            let _ = stream.read(&mut [0u8; 4096]);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\ncut off")
+                .expect("write the short response");
+        });
+
+        let result = HttpClient::new()
+            .download_stream(&format!("http://{addr}/a.zip"), "pkg")
+            .unwrap()
+            .read_to_end(&mut Vec::new());
+
+        server.join().expect("server thread");
+        assert!(result.is_err(), "read {result:?} bytes of a cut-off body");
+    }
+
+    #[test]
+    fn download_stream_reports_a_missing_archive() {
+        let server = RedirectServer::start();
+
+        let Err(err) = HttpClient::new().download_stream(&format!("{}/nope", server.url()), "pkg")
+        else {
+            panic!("a 404 must not open a stream");
+        };
+
+        assert!(
+            err.to_string().contains("artifact not found (404)"),
+            "{err}"
+        );
     }
 
     // -----------------------------------------------------------------
