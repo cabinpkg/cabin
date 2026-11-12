@@ -287,7 +287,7 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"
      the cabin-ports claim is what re-arms ports publishing - the
      trusted-publishing exchange refuses an unclaimed scope
   3. start the ports receipts log over while publishing is still
-     disabled (its README, "Automatic publishing"), re-enable it (gh
+     disabled (its docs/publishing.md, "Registry wipe"), re-enable it (gh
      workflow enable publish.yml -R cabin-ports/ports), prove the
      binding with an exchange-check dispatch, then dispatch it plainly
      from main to republish the set - no publish token or secret to

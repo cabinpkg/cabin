@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/xxhash` registry package,
 published from the curated
-[`ports/xxhash/0.8.3/`](https://github.com/cabin-ports/ports/tree/main/ports/xxhash/0.8.3/)
+[`ports/xx/xxhash/0.8.3/`](https://github.com/cabin-ports/ports/tree/main/ports/xx/xxhash/0.8.3/)
 package directory.  The program links against xxHash and prints
 `XXH_versionNumber()` plus the `XXH64` digest of a short
 string.

@@ -2332,6 +2332,8 @@ mod build_dependencies;
 
 #[path = "cli/build_scripts.rs"]
 mod build_scripts;
+#[path = "cli/install.rs"]
+mod install;
 
 #[path = "cli/optional_dependencies_and_features.rs"]
 mod optional_dependencies_and_features;

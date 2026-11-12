@@ -131,7 +131,13 @@ impl FakePortBuilder {
         let archive_dir = self.root.join("downloads");
         let archive_path = archive_dir.join(&archive_name);
         let sha256 = write_archive(&archive_path, &archive_prefix, &self.files);
-        let port_dir = self.root.join("ports").join(&self.name).join(&self.version);
+        // `<prefix>/<name>/<version>`, as `cabin-ports/ports` lays ports out.
+        let port_dir = self
+            .root
+            .join("ports")
+            .join(&self.name[..2])
+            .join(&self.name)
+            .join(&self.version);
         fs::create_dir_all(&port_dir).expect("fake port dir");
         let manifest_path = port_dir.join("cabin.toml");
         fs::write(

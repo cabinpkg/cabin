@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/zlib` registry package,
 published from the curated
-[`ports/zlib/1.3.1/`](https://github.com/cabin-ports/ports/tree/main/ports/zlib/1.3.1/)
+[`ports/zl/zlib/1.3.1/`](https://github.com/cabin-ports/ports/tree/main/ports/zl/zlib/1.3.1/)
 package directory.  The program links against zlib and prints
 `zlibVersion()`.
 

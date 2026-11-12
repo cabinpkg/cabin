@@ -37,6 +37,7 @@ pub(super) fn build(
             toolchain: &args.toolchain,
             dev: DevActivation::Disabled,
             build_context: !matches!(mode, BuildMode::Check),
+            install: false,
         },
         reporter,
     )?;

@@ -1,7 +1,7 @@
 # sqlite3-usage
 
 A consumer example for the `cabin-ports/sqlite3` registry package, published from the curated
-[`ports/sqlite3/3.53.2/`](https://github.com/cabin-ports/ports/tree/main/ports/sqlite3/3.53.2/)
+[`ports/sq/sqlite3/3.53.2/`](https://github.com/cabin-ports/ports/tree/main/ports/sq/sqlite3/3.53.2/)
 package directory.
 The program links against SQLite (the single-file amalgamation), opens an in-memory database, runs
 a query, and prints the library version and thread-safety mode.

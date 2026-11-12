@@ -156,7 +156,7 @@ async fn settle_reservations(env: &Env, db: &D1Database, now: &str) -> worker::R
 
 /// The website catalog refresh ([`catalog_refresh`]), dormant until the
 /// `WEBSITE_DEPLOY_HOOK` secret (a Workers Builds deploy hook of
-/// `cabin-website`) is set. Failures only log; the next pass retries.
+/// `website`) is set. Failures only log; the next pass retries.
 pub(super) async fn refresh_website(env: &Env, db: &D1Database) {
     let Ok(hook) = env.secret("WEBSITE_DEPLOY_HOOK") else {
         return;

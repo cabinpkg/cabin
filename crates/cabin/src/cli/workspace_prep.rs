@@ -35,6 +35,16 @@ pub(crate) fn load_workspace_and_patches(
     manifest_path: &Path,
     no_patches: bool,
 ) -> Result<WorkspacePrep> {
+    load(manifest_path, no_patches, false)
+}
+
+/// [`load_workspace_and_patches`] for `cabin install`: only the
+/// user's config files apply, not the workspace's.
+pub(crate) fn load_workspace_for_install(manifest_path: &Path) -> Result<WorkspacePrep> {
+    load(manifest_path, false, true)
+}
+
+fn load(manifest_path: &Path, no_patches: bool, user_config_only: bool) -> Result<WorkspacePrep> {
     let unpatched = cabin_workspace::load_workspace(manifest_path)?;
     // Graph-keyed config discovery: the loader canonicalizes the
     // manifest path, so under a symlinked `--manifest-path` the
@@ -43,7 +53,11 @@ pub(crate) fn load_workspace_and_patches(
     // loads share the same canonical root, so one discovery serves
     // the first patch pass, the final patch resolution, and the
     // returned bundle.
-    let effective_config = crate::cli::config::load_effective_config(&unpatched)?;
+    let effective_config = if user_config_only {
+        crate::cli::config::load_user_config()?
+    } else {
+        crate::cli::config::load_effective_config(&unpatched)?
+    };
     let patches =
         crate::cli::patch::load_active_patches(&unpatched, &effective_config, no_patches)?;
     let patched_sources = patches.workspace_sources();

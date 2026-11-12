@@ -40,7 +40,7 @@ A port is an ordinary Cabin package directory: one `cabin.toml`, plus a `patches
 when it declares any and a `tests/` consumer test when it has one.
 
 ```
-ports/<name>/<version>/
+ports/<prefix>/<name>/<version>/
   cabin.toml - the published manifest: scoped identity,
                    [package.upstream] provenance, and the
                    upstream sources described as Cabin targets
@@ -49,6 +49,8 @@ ports/<name>/<version>/
   tests/      - optional consumer test the preflight probe
                    compiles and runs; never published
 ```
+
+`<prefix>` is the first two characters of `<name>`, as in `ports/zl/zlib/1.3.1/`.
 
 The manifest publishes **verbatim**, so its committed bytes are the published bytes - a comment
 edit changes the published archive.  Its identity must agree with the directory layout: `<name>/`
@@ -249,14 +251,14 @@ Each probe compiles at the lowest standard the linked targets' declared interfac
 `c++17` when they declare no interface), except that an MSVC host raises a floor below C11 / C++14 to
 those: `cl.exe` has no `/std:` flag for C99 or C++11.
 
-Both modes run the local preflight first: fetch or reuse every pinned upstream archive
-(SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard safe
-materialization pipeline (extraction, `strip-prefix`, copy steps, patches),
+`--dry-run` and `--publish` run the local preflight first: fetch or reuse every pinned upstream
+archive (SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard
+safe materialization pipeline (extraction, `strip-prefix`, copy steps, patches),
 package each port and publish it into a temporary file registry in publication order, and build
 every port against the generated packages.  A dry-run given `--changed-since <rev>` or
 `--port <name>` narrows that to a selection after validating the whole catalog (that repository's
-`README.md`, "Selective dry-runs"); `--publish` always preflights every port.  The probe builds run
-in parallel, one worker per CPU
+`docs/maintaining.md`, "Selective dry-runs"); `--publish` never narrows it.  The probe
+builds run in parallel, one worker per CPU
 with two build jobs each, each probe starting as soon as its port is staged; a failure still
 reports the earliest failing port in publication order, and a successful run ends with each phase's
 time summed over the ports and the slowest ports.  Each port is built through a generated probe
@@ -281,8 +283,8 @@ $ cargo run --locked -- --publish --cabin <cabin> --index-url https://registry.c
 ```
 
 Run them from a `cabin-ports/ports` checkout.  `<cabin>` is a `cabin` binary built from the Cabin
-commit the tool's own Cabin crates are pinned to; that repository's `README.md` has the commands
-that install it.
+commit the tool's own Cabin crates are pinned to; that repository's `CONTRIBUTING.md` ("Checks")
+has the commands that install it.
 
 `--dry-run` stops after the preflight.  `--publish` preflights every port (building, not
 running, the probes) and then uploads
@@ -290,10 +292,10 @@ every package through the registry API in publication order, in consecutive batc
 for the operator quota class's publish rate): each batch is one `cabin publish` invocation, which
 under GitHub Actions exchanges for its own trusted-publishing token and revokes it, best-effort, on
 exit, so a large set never rides one token's 30 minutes.  A failed batch - including one slow
-enough to outlive its token - stops the run before the next one and fails it; the rerun resumes by
-uploading every package again.  It never skips a version based on the public index - pending
-(not yet verified) revisions are hidden there - and instead relies on the registry's idempotency
-rule: re-publishing byte-identical bytes is a no-op.  Every upload
+enough to outlive its token - stops the run before the next one and fails it; the next
+`--publish` resumes by uploading every package again.  It never skips a version based on the
+public index - pending (not yet verified) revisions are hidden there - and instead relies on the
+registry's idempotency rule: re-publishing byte-identical bytes is a no-op.  Every upload
 passes `--new-revision`, because a change that has been merged to `main` *is* the deliberate
 respin (see [Packaging revisions](#packaging-revisions)) - which is why editing a port's
 manifest or patches changes the published bytes; an unchanged tree still produces byte-identical
@@ -304,29 +306,36 @@ archives, so a rerun stays a no-op either way.
 The `cabin-ports/ports` workflows automate the tool.  Every pull request and merge-queue run there
 runs the `--dry-run` preflight with no secrets, on Linux, macOS, and Windows (`ci.yml`), with the
 Cabin commit the tool is pinned to.  That pin moves only when a ports maintainer adopts a newer
-Cabin commit through such a pull request (that repository's `README.md`, "Cabin revision").  A
-change that only adds new package names, editing at most `README.md` or `AGENTS.md` besides,
+Cabin commit through such a pull request (that repository's `docs/maintaining.md`, "Cabin
+revision").  A change that only adds new package names, editing at most the files "Selective
+dry-runs" there names (documentation such as `README.md`, and `publish-holds.txt`) besides,
 preflights every version of those names and their dependency closure.  A change that only edits
-`README.md` or `AGENTS.md` preflights nothing.  Any other change preflights the whole catalog: a new
+those files preflights nothing.  Any other change preflights the whole catalog: a new
 version of an existing port, any edit under an existing port, the Cabin pin, the tooling, or
 CI.  Every run still loads and validates the whole catalog first.  Cabin's own CI runs no
 full-catalog dry-run - its scheduled real-upstream example tests and benchmarks build only the ports
 they use - so a Cabin change is checked against every port only once that pin adopts it: a green
 Cabin CI run promises nothing about building every port.
-Publishing is manual only: dispatching `publish.yml` from `main` publishes the set to
-`https://registry.cabinpkg.com` (a dispatch on any other ref publishes nothing), so a ports
-change merged to `main` reaches the registry at the next dispatch - and the same dispatch is the
-recovery path after a pre-launch registry wipe.  The run first waits for a registry deploy whose
+Only `main` publishes, through `publish.yml`, and only to `https://registry.cabinpkg.com` (a run
+on any other ref publishes nothing).  A dispatch in its default mode publishes the whole set, so a
+correction to an already-published port reaches the registry at the next such dispatch - and the
+same dispatch is the recovery path after a pre-launch registry wipe.  While that repository's
+`PORTS_AUTO_PUBLISH` variable is `true`, a schedule also uploads versions that have not been
+uploaded yet, never a packaging revision (that repository's `docs/publishing.md`, "Automatic
+publishing").  A run first waits for a registry deploy whose
 Cabin commit contains the one the tool is pinned to, so the client never sends metadata the
 running registry does not accept.  Dispatching with the `exchange-check` input
 instead exchanges and immediately revokes a trusted-publishing token, proving the registered
-binding end to end while publishing nothing.  Publish runs are serialized and queued, never
-cancelled; a run superseded by a newer commit on `main` skips its upload instead
-of immutably publishing an intermediate state, and nothing publishes again until the next
-dispatch.  The check runs immediately before the publish
-command, whose own preflight still takes minutes - a commit landing inside that residual window
+binding end to end while publishing nothing.  Upload jobs are serialized and queued, never
+cancelled; a whole-set run superseded by a newer commit on `main` skips its upload instead
+of immutably publishing an intermediate state, and the whole set is not published again until the
+next dispatch.  The check runs before the publish command's own preflight, which still takes
+minutes - a commit landing inside that residual window
 can make a stale run publish first, in which case the next dispatch's differing bytes land as a
 new packaging revision (see below) rather than overwriting anything, never silent divergence.
+Once that repository's receipts log exists, a run whose upload failed is not resumed by a rerun:
+it keeps the log's lock, and nothing uploads again until an operator reconciles it (its
+`docs/publishing.md`, "Reconciling the log").
 The publish job holds no long-lived credential: it grants `permissions: id-token: write`, and
 `cabin publish` exchanges the run's own OIDC token for a short-lived registry token confined
 to the `cabin-ports` scope, revoking it on the way out (see
@@ -352,7 +361,7 @@ Consumers are unaffected until they ask to be.  A lockfile that already pins the
 resolving its graph and fetching exactly those bytes; a fresh resolution, or an explicit
 `cabin update`, picks up the corrected revision.
 
-Because the publisher always passes `--new-revision`, the merged change *is* the intent
+Because a whole-set publish always passes `--new-revision`, the merged change *is* the intent
 signal - including an edit to the committed manifest itself, which publishes verbatim.  A correction landing on `main` is by construction a deliberate respin,
 and a rerun over an unchanged tree still produces byte-identical archives and stays a no-op.  A
 respin may also correct what resolution consumes - the published package's `dependencies`,
@@ -387,5 +396,5 @@ port should be retired.  The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from `"cabin-ports/<name>"` to the appropriate
    `path` / `version` / `workspace` form pointing at the new upstream-maintained package.
-2. Delete the `ports/<name>/<version>/` directory.
+2. Delete the `ports/<prefix>/<name>/<version>/` directory.
 3. Note the retirement in the relevant release notes.
