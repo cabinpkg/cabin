@@ -158,6 +158,8 @@ fn a_bin_directory_missing_from_path_gets_what_to_add() {
         let assert = cmd
             .env("HOME", home.path())
             .env("USERPROFILE", home.path())
+            .env_remove("ZDOTDIR")
+            .env_remove("XDG_CONFIG_HOME")
             .assert()
             .success();
         String::from_utf8(assert.get_output().stderr.clone()).unwrap()

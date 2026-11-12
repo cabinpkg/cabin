@@ -436,7 +436,18 @@ fn path_hint(bin: &Path) -> String {
     // The line says `$HOME`, so the home it is under is that variable's
     // and not the account's.
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty());
-    unix_path_hint(bin, home.as_deref().map(Path::new), shell)
+    let config = match shell {
+        Some(Shell::Zsh) => std::env::var_os("ZDOTDIR"),
+        Some(Shell::Fish) => std::env::var_os("XDG_CONFIG_HOME"),
+        _ => None,
+    }
+    .filter(|dir| !dir.is_empty());
+    unix_path_hint(
+        bin,
+        home.as_deref().map(Path::new),
+        shell,
+        config.as_deref().map(Path::new),
+    )
 }
 
 fn windows_path_hint(bin: &Path) -> String {
@@ -456,8 +467,14 @@ Then open a new terminal."#
 
 /// The line to add to the startup file of `shell`, the user's login
 /// shell.  Any other shell, and a directory no line can name, get the
-/// instruction without a line rather than a guess.
-fn unix_path_hint(bin: &Path, home: Option<&Path>, shell: Option<Shell>) -> String {
+/// instruction without a line rather than a guess.  `config` is where
+/// `ZDOTDIR` (zsh) or `XDG_CONFIG_HOME` (fish) moves that file.
+fn unix_path_hint(
+    bin: &Path,
+    home: Option<&Path>,
+    shell: Option<Shell>,
+    config: Option<&Path>,
+) -> String {
     // Under the home directory the line says `$HOME`, as the user
     // would write it.  A home of `/` is over every directory.
     let under_home = home
@@ -488,8 +505,14 @@ fn unix_path_hint(bin: &Path, home: Option<&Path>, shell: Option<Shell>) -> Stri
                 quoted
             };
             let export = || format!(r#"export PATH="{}:$PATH""#, quoted(r#"\"$`"#));
+            let file = |moved: &str, default: &str| {
+                config.map_or_else(
+                    || default.to_owned(),
+                    |dir| dir.join(moved).display().to_string(),
+                )
+            };
             match shell {
-                Shell::Zsh => Some(("~/.zshrc", export())),
+                Shell::Zsh => Some((file(".zshrc", "~/.zshrc"), export())),
                 // A macOS terminal starts bash as a login shell, which
                 // reads the first of these that exists and never
                 // `~/.bashrc`.
@@ -497,12 +520,13 @@ fn unix_path_hint(bin: &Path, home: Option<&Path>, shell: Option<Shell>) -> Stri
                     ["~/.bash_profile", "~/.bash_login", "~/.profile"]
                         .into_iter()
                         .find(|file| home.is_some_and(|home| home.join(&file[2..]).exists()))
-                        .unwrap_or("~/.bash_profile"),
+                        .unwrap_or("~/.bash_profile")
+                        .to_owned(),
                     export(),
                 )),
-                Shell::Bash => Some(("~/.bashrc", export())),
+                Shell::Bash => Some(("~/.bashrc".to_owned(), export())),
                 Shell::Fish => Some((
-                    "~/.config/fish/config.fish",
+                    file("fish/config.fish", "~/.config/fish/config.fish"),
                     format!(r#"fish_add_path "{}""#, quoted(r#"\"$"#)),
                 )),
                 _ => None,
@@ -533,7 +557,7 @@ mod tests {
     use super::*;
 
     fn unix(bin: &str, shell: Option<Shell>) -> String {
-        unix_path_hint(Path::new(bin), Some(Path::new("/home/me")), shell)
+        unix_path_hint(Path::new(bin), Some(Path::new("/home/me")), shell, None)
     }
 
     #[test]
@@ -562,12 +586,28 @@ Then restart your shell."#
                 &home.path().join("bin"),
                 Some(home.path()),
                 Some(Shell::Bash),
+                None,
             )
         };
         std::fs::write(home.path().join(".profile"), "").unwrap();
         assert!(hint().contains("line to ~/.profile:"), "{}", hint());
         std::fs::write(home.path().join(".bash_profile"), "").unwrap();
         assert!(hint().contains("line to ~/.bash_profile:"), "{}", hint());
+    }
+
+    /// `ZDOTDIR` and `XDG_CONFIG_HOME` move the file the shell reads.
+    #[test]
+    fn a_moved_startup_file_is_named_where_it_is() {
+        let bin = Path::new("/home/me/.cabin/bin");
+        let home = Some(Path::new("/home/me"));
+        for (shell, moved) in [(Shell::Zsh, ".zshrc"), (Shell::Fish, "fish/config.fish")] {
+            let config = Path::new("/home/me/dots");
+            let hint = unix_path_hint(bin, home, Some(shell), Some(config));
+            let file = format!("line to {}:", config.join(moved).display());
+            assert!(hint.contains(&file), "{hint}");
+        }
+        let bash = unix_path_hint(bin, home, Some(Shell::Bash), Some(Path::new("/dots")));
+        assert!(!bash.contains("/dots"), "{bash}");
     }
 
     #[test]
@@ -624,7 +664,12 @@ Then restart your shell."#
 To run installed programs from anywhere, add that directory to
 PATH in your shell's startup file.";
         assert_eq!(unix("/opt/tools/bin", None), generic);
-        let rootless = unix_path_hint(Path::new("/opt/tools/bin"), Some(Path::new("/")), None);
+        let rootless = unix_path_hint(
+            Path::new("/opt/tools/bin"),
+            Some(Path::new("/")),
+            None,
+            None,
+        );
         assert_eq!(rootless, generic);
         assert_eq!(unix("/opt/tools/bin", Some(Shell::Elvish)), generic);
         for bin in ["/opt/a:b/bin", "/opt/a\nb/bin", "/opt/a\u{202e}b/bin"] {
@@ -636,6 +681,7 @@ PATH in your shell's startup file.";
             Path::new("/home/a:b/.cabin/bin"),
             Some(Path::new("/home/a:b")),
             Some(Shell::Zsh),
+            None,
         );
         assert!(!hint.contains("export"), "{hint}");
     }
