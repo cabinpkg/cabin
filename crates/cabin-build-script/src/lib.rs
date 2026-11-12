@@ -46,6 +46,7 @@
 //! the build directory's lock around [`run`] and [`load`].
 
 mod library;
+pub use library::loads_at_run_time;
 pub mod result;
 
 use std::collections::{BTreeMap, BTreeSet};

@@ -84,6 +84,71 @@ fn machines(path: &Path) -> Vec<Architecture> {
     }
 }
 
+/// Whether a program linked with the library file at `path` loads a
+/// file when it runs, which the link did not copy into the program: a
+/// shared library, an Apple text stub of one (told by the name
+/// `.tbd`), or a DLL's import library in MSVC's format.  Not so a file
+/// of another format, a MinGW import library and a linker script among
+/// them, or one that cannot be read.
+#[must_use]
+pub fn loads_at_run_time(path: &Path) -> bool {
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    let data = &ReadCache::new(file);
+    let slice = |(offset, size)| shared(data.range(offset, size));
+    match FileKind::parse(data) {
+        Ok(FileKind::Archive) => ArchiveFile::parse(data).is_ok_and(|archive| {
+            let mut members = archive.members().filter_map(Result::ok);
+            !archive.is_thin() && members.any(|member| slice(member.file_range()))
+        }),
+        Ok(FileKind::MachOFat32) => MachOFatFile32::parse(data)
+            .is_ok_and(|fat| fat.arches().iter().any(|arch| slice(arch.file_range()))),
+        Ok(FileKind::MachOFat64) => MachOFatFile64::parse(data)
+            .is_ok_and(|fat| fat.arches().iter().any(|arch| slice(arch.file_range()))),
+        Ok(_) => shared(data),
+        Err(_) => path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("tbd")),
+    }
+}
+
+/// Whether the file's header says it is a shared library, or an import
+/// library's entry for one function of a DLL.
+fn shared<'data>(data: impl ReadRef<'data>) -> bool {
+    let header = || {
+        Some(match FileKind::parse(data).ok()? {
+            FileKind::Elf32 => {
+                let header = elf::FileHeader32::<Endianness>::parse(data).ok()?;
+                header.e_type(header.endian().ok()?) == elf::ET_DYN
+            }
+            FileKind::Elf64 => {
+                let header = elf::FileHeader64::<Endianness>::parse(data).ok()?;
+                header.e_type(header.endian().ok()?) == elf::ET_DYN
+            }
+            FileKind::MachO32 => {
+                let header = macho::MachHeader32::<Endianness>::parse(data, 0).ok()?;
+                dylib(header.filetype(header.endian().ok()?))
+            }
+            FileKind::MachO64 => {
+                let header = macho::MachHeader64::<Endianness>::parse(data, 0).ok()?;
+                dylib(header.filetype(header.endian().ok()?))
+            }
+            FileKind::Pe32 | FileKind::Pe64 => {
+                let at = u64::from(pe::ImageDosHeader::parse(data).ok()?.nt_headers_offset()) + 4;
+                let header = data.read_at::<pe::ImageFileHeader>(at).ok()?;
+                header.characteristics.get(LittleEndian) & pe::IMAGE_FILE_DLL != 0
+            }
+            kind => kind == FileKind::CoffImport,
+        })
+    };
+    header().unwrap_or(false)
+}
+
+fn dylib(filetype: u32) -> bool {
+    matches!(filetype, macho::MH_DYLIB | macho::MH_DYLIB_STUB)
+}
+
 /// The machine of an object, a shared library, or an import library's
 /// entry for one function, from the file's header alone.  A script may
 /// have written the file, and reading the tables its header points at

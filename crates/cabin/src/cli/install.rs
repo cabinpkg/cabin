@@ -10,13 +10,14 @@
 //! dependency of a package written into that temporary directory, so
 //! it is fetched, verified, and built as any registry dependency is.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
 use clap_complete::Shell;
 
-use cabin_build::ManifestTargetSelector;
+use cabin_build::{BuildAction, ManifestTargetSelector};
 use cabin_core::{PackageName, TargetKind};
 use cabin_install::{Dependency, Root, Source, Toolchain};
 use cabin_manifest::edit::{self, DepTable, NewDependency};
@@ -213,6 +214,10 @@ pub(crate) fn install(
     let dependencies = dependencies(&prepared, &plan_graph, index)?;
     report_resolution(&dependencies, &manifest_path, reporter);
     let mut files = Vec::new();
+    // Shared libraries the programs load when they run, which are not
+    // copied with them.
+    let mut runtime_libraries = BTreeSet::new();
+    let build_dir = cabin_fs::canonicalize_or_input(&prepared.build_root);
     for target in targets {
         let output = plan_graph
             .target_outputs
@@ -220,6 +225,23 @@ pub(crate) fn install(
             .with_context(|| format!("the build produced no executable for `{name}:{target}`"))?;
         let file_name = output.file_name().expect("an executable has a file name");
         files.push((file_name.to_owned(), output.as_std_path().to_owned()));
+        let linked = plan_graph.actions.iter().find_map(|action| match action {
+            BuildAction::Link(link) if link.output == *output => Some(&link.inputs),
+            _ => None,
+        });
+        for library in linked.into_iter().flatten() {
+            if !cabin_build_script::loads_at_run_time(library.as_std_path()) {
+                continue;
+            }
+            if cabin_fs::canonicalize_or_input(library.as_std_path()).starts_with(&build_dir) {
+                bail!(
+                    "`{name}:{target}` links the shared library {library}, which its build \
+                     made: the installed program would look for it in the build directory, \
+                     which does not outlast the installation"
+                );
+            }
+            runtime_libraries.insert(library.clone());
+        }
     }
 
     let identity = &prepared.detection_report.lead().identity;
@@ -238,6 +260,7 @@ pub(crate) fn install(
             version: identity.version.as_ref().map(|version| version.raw.clone()),
         },
         dependencies,
+        runtime_libraries: runtime_libraries.into_iter().collect(),
         binaries: Vec::new(),
     };
     let shown = format!("{name} v{} ({})", record.version, shown(&record.source));

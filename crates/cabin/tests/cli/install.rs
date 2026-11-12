@@ -484,6 +484,140 @@ sources = ["src/main.c"]
     );
 }
 
+/// An installed program outlives its build directory, so one that
+/// would load a shared library its build script made there is not
+/// installed.  A shared library from elsewhere is the system's to
+/// find: the program installs, and the record names the library.
+#[cfg(unix)]
+#[test]
+fn a_program_that_loads_a_library_of_its_build_is_not_installed() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // A shared library, which Cabin links as a program with no `main`.
+    dir.child("greet/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "greet"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.greet]
+type = "executable"
+sources = ["greet.c"]
+
+[profile]
+cflags = ["-fPIC"]
+ldflags = ["-shared"]
+"#,
+        )
+        .unwrap();
+    dir.child("greet/greet.c")
+        .write_str("const char *greet(void) { return \"shared\"; }\n")
+        .unwrap();
+    cabin()
+        .current_dir(dir.path().join("greet"))
+        .args(["build", "--build-dir"])
+        .arg(dir.path().join("greet-build"))
+        .assert()
+        .success();
+    let sdk = dir.child("sdk");
+    fs::create_dir_all(sdk.path().join("lib")).unwrap();
+    fs::copy(
+        dir.path().join("greet-build/dev/packages/greet/greet"),
+        sdk.path().join("lib/libgreet.so"),
+    )
+    .unwrap();
+
+    let tool = dir.child("tool");
+    tool.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "tool"
+version = "0.1.0"
+c-standard = "c11"
+
+[features]
+copied = []
+
+[target.greet]
+type = "library"
+sources = ["greet.c"]
+
+[target.tool]
+type = "executable"
+sources = ["main.c"]
+deps = ["greet"]
+"#,
+        )
+        .unwrap();
+    tool.child("greet.c")
+        .write_str("const char *greet(void) { return \"bundled\"; }\n")
+        .unwrap();
+    tool.child("main.c")
+        .write_str(
+            r#"#include <stdio.h>
+const char *greet(void);
+int main(void) {
+    puts(greet());
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+    tool.child("build.c")
+        .write_str(
+            r#"#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    char from[4096], to[4096], buffer[4096];
+    size_t length;
+    FILE *in, *out, *result;
+    snprintf(from, sizeof from, "%s/lib/libgreet.so", getenv("CABIN_SDK_GREET"));
+    snprintf(to, sizeof to, "%s", from);
+    if (getenv("CABIN_FEATURE_COPIED")) {
+        /* The library the program links is then one of its build. */
+        snprintf(to, sizeof to, "%s/libgreet.so", getenv("CABIN_OUT_DIR"));
+        if (!(in = fopen(from, "rb")) || !(out = fopen(to, "wb"))) return 1;
+        while ((length = fread(buffer, 1, sizeof buffer, in)) > 0) fwrite(buffer, 1, length, out);
+        fclose(in);
+        if (fclose(out) != 0) return 1;
+    }
+    if (!(result = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+    fprintf(result, "external greet\nlink-file greet %s\n", to);
+    return fclose(result) != 0;
+}
+"#,
+        )
+        .unwrap();
+    let root = dir.path().join("root");
+    let install = |features: &[&str]| {
+        let mut cmd = install(tool.path(), &root);
+        cmd.env("CABIN_SDK_GREET", sdk.path()).args(features);
+        cmd.assert()
+    };
+
+    let refused = install(&["--features", "copied"]).failure();
+    let stderr = String::from_utf8_lossy(&refused.get_output().stderr).into_owned();
+    assert!(
+        crate::standard_compat::flat_contains(&stderr, "`tool:tool` links the shared library"),
+        "{stderr}"
+    );
+    assert!(!root.join("bin").exists() && !root.join(".cabin-install/installs.json").exists());
+
+    install(&[]).success();
+    assert_eq!(output_of(&installed(&root, "tool")), "shared\n");
+    let record: serde_json::Value = serde_json::from_str(&record(&root)).unwrap();
+    let libraries = record["packages"][0]["runtime-libraries"]
+        .as_array()
+        .unwrap();
+    assert_eq!(libraries.len(), 1, "{record}");
+    assert!(
+        Path::new(libraries[0].as_str().unwrap()).ends_with("sdk/lib/libgreet.so"),
+        "{record}"
+    );
+}
+
 #[test]
 fn installing_again_replaces_and_uninstall_removes() {
     require_c_and_cxx_build_tools();
