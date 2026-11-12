@@ -824,6 +824,112 @@ deps = ["acme/lib"]
         .success();
 }
 
+/// A published package's optional build dependency is resolved,
+/// locked, and built for the build machine only when a feature of the
+/// package enables it: until then it need not exist in the registry.
+#[test]
+fn a_published_packages_optional_build_dependency_follows_its_feature() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let registry = dir.path().join("registry");
+    let publish = |name: &str, manifest: &str, source: &str| {
+        let root = assert_fs::fixture::ChildPath::new(dir.path().join(name));
+        root.child("cabin.toml").write_str(manifest).unwrap();
+        root.child("src/main.c").write_str(source).unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(root.path().join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(&registry)
+            .assert()
+            .success();
+    };
+    publish(
+        "lib",
+        r#"[package]
+name = "acme/lib"
+version = "1.0.0"
+c-standard = "c11"
+
+[features]
+codegen = ["dep:acme/gen"]
+
+[build-dependencies]
+"acme/gen" = { version = "^1", optional = true }
+
+[target.lib]
+type = "library"
+sources = ["src/main.c"]
+"#,
+        "int lib_value(void) { return 7; }\n",
+    );
+
+    let app = assert_fs::fixture::ChildPath::new(dir.path().join("app"));
+    let write_app = |lib: &str| {
+        app.child("cabin.toml")
+            .write_str(&format!(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/lib" = {lib}
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["acme/lib"]
+"#
+            ))
+            .unwrap();
+    };
+    app.child("src/main.c")
+        .write_str("int lib_value(void);\nint main(void) { return lib_value() == 7 ? 0 : 1; }\n")
+        .unwrap();
+    let build = || {
+        let mut cmd = cabin();
+        cmd.current_dir(app.path())
+            .args(["build", "--index-path"])
+            .arg(&registry)
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"));
+        cmd.assert()
+    };
+    let lockfile = || fs::read_to_string(app.path().join("cabin.lock")).unwrap();
+
+    write_app(r#""^1""#);
+    build().success();
+    assert!(!lockfile().contains("acme/gen"), "{}", lockfile());
+    assert!(!app.path().join("build/dev/build-machine").exists());
+
+    write_app(r#"{ version = "^1", features = ["codegen"] }"#);
+    build()
+        .failure()
+        .stderr(predicate::str::contains("acme/gen"));
+
+    publish(
+        "gen",
+        r#"[package]
+name = "acme/gen"
+version = "1.0.0"
+c-standard = "c11"
+
+[target.gen]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        "int main(void) { return 0; }\n",
+    );
+    build().success();
+    assert!(
+        lockfile().contains("dependencies = [\"acme/gen\"]"),
+        "{}",
+        lockfile()
+    );
+    assert!(app.path().join("build/dev/build-machine").is_dir());
+}
+
 /// The command of the link edge whose output path ends with `tail`.
 pub(crate) fn link_program(ninja: &str, tail: &str) -> String {
     let needle = format!("{}: link_executable ", host_path(tail));

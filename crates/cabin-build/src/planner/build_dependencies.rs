@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use cabin_core::{DependencyKind, Target, TargetKind, TargetName, TargetPlatform};
+use cabin_core::{Target, TargetKind, TargetName, TargetPlatform};
 use cabin_workspace::{DependencyEdge, PackageGraph};
 
 use super::{ManifestTargetSelector, TargetId, default_selection};
@@ -74,7 +74,9 @@ pub struct BuildScriptInputs {
 /// the context the script prepares.  An entry's `targets` name them.
 /// Without `targets` they are among what the build machine builds for
 /// the entry by default: the dependency's executables, and its library
-/// when it has exactly one.  `enabled_features` are the build context's.
+/// when it has exactly one.  `enabled_optional_deps` names the
+/// `optional = true` entries that context enables on `package`;
+/// `enabled_features` are the build context's.
 ///
 /// # Errors
 ///
@@ -86,14 +88,12 @@ pub fn build_script_inputs(
     graph: &PackageGraph,
     package: usize,
     platform: &TargetPlatform,
+    enabled_optional_deps: &BTreeSet<String>,
     enabled_features: &HashMap<usize, BTreeSet<String>>,
 ) -> Result<BuildScriptInputs, BuildError> {
     let empty = BTreeSet::new();
     let mut inputs = BuildScriptInputs::default();
-    for edge in &graph.packages[package].deps {
-        if edge.kind != DependencyKind::Build || !edge.matches_platform(platform) {
-            continue;
-        }
+    for edge in graph.build_edges(package, platform, enabled_optional_deps) {
         let dependency = &graph.packages[edge.index].package;
         let mut selected: Vec<&Target> = Vec::new();
         for name in &edge.targets {

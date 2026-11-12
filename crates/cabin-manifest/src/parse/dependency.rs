@@ -117,10 +117,9 @@ fn ordinary_dep_from_table(
         ignore_interface_standard,
         targets,
     } = table;
-    // `optional = true` is supported only for normal
-    // dependencies.
+    // `optional = true` is not supported for dev dependencies.
     let optional_flag = optional.unwrap_or(false);
-    if optional_flag && !matches!(kind, DependencyKind::Normal) {
+    if optional_flag && kind == DependencyKind::Dev {
         return Err(ManifestError::OptionalNotSupportedForKind {
             name: name.to_owned(),
             kind,

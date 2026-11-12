@@ -192,6 +192,109 @@ int main(void) { printf("%s %s\n", greeting(), VALUE); return 0; }
     }
 }
 
+/// An optional build dependency is built, and its executable offered
+/// to the build script, only when a feature enables it, in the context
+/// that feature is on: `app` enables `gen` for its own script, and its
+/// `gen/loud` reaches the build machine's `gen`, whose script then
+/// takes `helper`.
+#[test]
+fn an_optional_build_dependency_follows_the_features_that_name_it() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let root = assert_fs::fixture::ChildPath::new(dir.path());
+    root.child("helper/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "helper"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.helper]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        )
+        .unwrap();
+    root.child("helper/src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    root.child("gen/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "gen"
+version = "0.1.0"
+c-standard = "c11"
+
+[features]
+loud = ["dep:helper"]
+
+[build-dependencies]
+helper = { path = "../helper", optional = true }
+
+[target.gen]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        )
+        .unwrap();
+    root.child("gen/src/main.c")
+        .write_str(
+            r#"#include <stdio.h>
+int main(void) { puts(LOUD ? "LOUD" : "quiet"); return 0; }
+"#,
+        )
+        .unwrap();
+    root.child("gen/build.c")
+        .write_str(
+            r#"#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+    FILE *file = fopen(getenv("CABIN_RESULT_FILE"), "w");
+    if (!file) return 1;
+    fprintf(file, "define gen LOUD=%d\n", getenv("CABIN_BIN_HELPER") != NULL);
+    return fclose(file) != 0;
+}
+"#,
+        )
+        .unwrap();
+    let app = dir.path().join("app");
+    write_app(
+        &app,
+        &header_script(r#"(getenv("CABIN_BIN_GEN") ? "tool" : "none")"#, ""),
+    );
+    let manifest = root.child("app/cabin.toml");
+    let text = fs::read_to_string(manifest.path()).unwrap();
+    manifest
+        .write_str(&format!(
+            r#"{}
+[build-dependencies]
+gen = {{ path = "../gen", optional = true }}
+"#,
+            text.replace(
+                "extra = []\n",
+                "codegen = [\"dep:gen\"]\nloud = [\"gen/loud\"]\n"
+            )
+        ))
+        .unwrap();
+    let built = |package: &str| {
+        app.join("build/dev/build-machine/packages")
+            .join(package)
+            .join(host_exe(package))
+    };
+
+    let printed_by = |args: &[&str]| printed(&cabin_in(&app, args).assert().success());
+    assert!(printed_by(&["run"]).contains("\nnone\n"));
+    assert!(!built("gen").exists());
+    for (feature, says) in [("codegen", "quiet"), ("loud", "LOUD")] {
+        let printed = printed_by(&["run", "--features", feature]);
+        assert!(printed.contains("\ntool\n"), "{printed}");
+        let output = std::process::Command::new(built("gen")).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), says);
+        assert_eq!(built("helper").exists(), feature == "loud");
+    }
+}
+
 /// A build script in C++ links the C++ library of a build dependency,
 /// and the C program it prepares still links with the C driver.
 #[test]
