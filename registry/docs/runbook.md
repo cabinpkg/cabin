@@ -51,6 +51,17 @@ only be toggled zone-wide). Managing zone security needs API-token scopes
 beyond the provisioning set (Zone WAF Edit, Zone Settings Edit) or the
 dashboard.
 
+A dashboard-managed WAF custom rule (Security -> WAF -> Custom rules)
+challenges requests to `cabinpkg.com` that do not come from a verified
+bot, except the registry's zone routes (`/api/*`, `/login`,
+`/callback*`, `/claim/*`), `/catalog-provenance.json`, which the
+registry's cron reads ("Website catalog refresh" below), and `/demo.gif`,
+which the repository README embeds. The rule matches
+`http.host eq "cabinpkg.com"`, so `registry.cabinpkg.com` is outside it.
+A new zone route in `wrangler.jsonc`, or another website path a machine
+client fetches, needs a hand edit of the rule's exclusions; until then
+that path answers `403` / `cf-mitigated: challenge`.
+
 ## Zone rate limiting (WAF)
 
 Zone-level defense for the Workers request budget: one rate limiting rule
