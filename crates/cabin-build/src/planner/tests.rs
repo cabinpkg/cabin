@@ -6210,9 +6210,15 @@ fn a_library_a_build_script_supplies_is_linked_and_not_built() {
     assert_eq!(app.arguments.defines, ["Z_SYSTEM"]);
     assert_eq!(app.arguments.system_include_dirs, ["/opt/png/include"]);
     assert_eq!(app.arguments.provider_flags, ["-pthread"]);
+    let arguments = &link_action(&bg).arguments;
+    assert_eq!(arguments[..2], ["-L/opt/png/lib", "-lpng"]);
+    // A path, whose separators are the platform's.
     assert_eq!(
-        link_action(&bg).arguments,
-        ["-L/opt/png/lib", "-lpng", &format!("{demo}/libbase.a")]
+        arguments[2..]
+            .iter()
+            .map(Utf8PathBuf::from)
+            .collect::<Vec<_>>(),
+        [format!("{demo}/libbase.a")]
     );
     assert_eq!(
         link_action(&bg).inputs,
