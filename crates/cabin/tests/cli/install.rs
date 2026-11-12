@@ -142,6 +142,86 @@ fn installed_programs_run_without_their_build() {
     assert!(listed.ends_with(&binaries), "{listed}");
 }
 
+/// The `PATH` warning: none while `<root>/bin` is on `PATH`; otherwise
+/// what to add, for `--root` and for the default root, as the platform
+/// has it.  Cabin itself writes no startup file.
+#[test]
+fn a_bin_directory_missing_from_path_gets_what_to_add() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let tools = dir.child("tools");
+    write_tools(tools.path(), "tools", "0.1.0", "v1");
+    let home = dir.child("home");
+    home.child(".zshrc").write_str("# mine\n").unwrap();
+    home.child(".bashrc").write_str("# mine\n").unwrap();
+    let stderr_of = |cmd: &mut Command| {
+        let assert = cmd
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
+            .env_remove("ZDOTDIR")
+            .env_remove("XDG_CONFIG_HOME")
+            .assert()
+            .success();
+        String::from_utf8(assert.get_output().stderr.clone()).unwrap()
+    };
+
+    let root = dir.path().join("root");
+    let bin = root.join("bin");
+    let path = std::env::join_paths(
+        std::iter::once(bin.clone())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let on_path = stderr_of(install(tools.path(), &root).env("PATH", path));
+    assert!(!on_path.contains("is not in your PATH"), "{on_path}");
+
+    let custom = stderr_of(install(tools.path(), &root).env("SHELL", "bash"));
+    let warning = format!("cabin: warning: {} is not in your PATH.\n", bin.display());
+    assert!(custom.contains(&warning), "{custom}");
+    let default = stderr_of(
+        cabin()
+            .args(["install", "--path"])
+            .arg(tools.path())
+            .env("SHELL", "zsh"),
+    );
+    if cfg!(windows) {
+        for stderr in [&custom, &default] {
+            assert!(stderr.contains("add it to your user Path"), "{stderr}");
+            assert!(!stderr.contains("export"), "{stderr}");
+        }
+        let default_bin = home.path().join(".cabin").join("bin");
+        assert!(
+            default.contains(&format!("\n    {}\n", default_bin.display())),
+            "{default}"
+        );
+    } else {
+        // How the directory is quoted follows where the temporary
+        // directory is; the unit tests pin that.
+        assert!(custom.contains("line to ~/.bash"), "{custom}");
+        assert!(custom.contains("\n    export PATH=\""), "{custom}");
+        assert!(
+            default.contains(
+                r#"cabin: warning: ~/.cabin/bin is not in your PATH.
+
+To run installed programs from anywhere, add the following
+line to ~/.zshrc:
+
+    export PATH="$HOME/.cabin/bin:$PATH"
+
+Then restart your shell.
+"#
+            ),
+            "{default}"
+        );
+    }
+
+    home.child(".zshrc").assert("# mine\n");
+    home.child(".bashrc").assert("# mine\n");
+    for startup_file in [".bash_profile", ".profile", ".zprofile", ".config/fish"] {
+        home.child(startup_file).assert(predicate::path::missing());
+    }
+}
+
 /// What the record holds is listed with its control characters escaped.
 #[test]
 fn list_escapes_what_the_record_holds() {

@@ -19,7 +19,8 @@ use anyhow::{Context as _, Result};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use super::build_prep::{
-    BuildScriptOutputs, PreparedWorkspace, plan_build_context, plan_target_context,
+    BuildScriptOutputs, PreparedWorkspace, build_script_inputs, plan_build_context,
+    plan_target_context,
 };
 use super::ninja::{self, Locks};
 use crate::cli::term_verbosity::Reporter;
@@ -82,12 +83,8 @@ pub(crate) fn run(
         };
         let mut runs = Vec::new();
         for script in step {
-            let inputs = cabin_build::build_script_inputs(
-                &prepared.graph,
-                script.package,
-                side(script).2,
-                &context.enabled_features,
-            )?;
+            let inputs =
+                build_script_inputs(prepared, context, script.package, script.build_context)?;
             let tools: Vec<_> = inputs
                 .tools
                 .into_iter()

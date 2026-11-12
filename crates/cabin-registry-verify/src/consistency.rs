@@ -15,7 +15,7 @@
 //! `[patch]` tables) never surface in the metadata document at all.
 //!
 //! The registry dependency-key grammar (canonical `<scope>/<name>`
-//! keys in `dependencies` and `dev-dependencies`) needs no
+//! keys in each dependency table) needs no
 //! independent check here: the stored document already passed the
 //! hosted publish path's key validation (`registry/src/publish.rs`),
 //! and the equality below forces the manifest-derived maps to match
@@ -138,6 +138,7 @@ const CHECK_ORDER: &[&str] = &[
     "name",
     "version",
     "dependencies",
+    "build-dependencies",
     "dev-dependencies",
     "system-dependencies",
     "language",
@@ -150,7 +151,9 @@ fn field_reason(key: &str) -> Reason {
     match key {
         "name" => Reason::NameMismatch,
         "version" => Reason::VersionMismatch,
-        "dependencies" | "dev-dependencies" | "system-dependencies" => Reason::DependencyMismatch,
+        "dependencies" | "build-dependencies" | "dev-dependencies" | "system-dependencies" => {
+            Reason::DependencyMismatch
+        }
         "language" | "standards" => Reason::LanguageStandardMismatch,
         "upstream" => Reason::UpstreamMismatch,
         "checksum" => Reason::ChecksumMismatch,
@@ -166,7 +169,12 @@ mod tests {
     fn specific_fields_map_to_their_reason_codes() {
         assert_eq!(field_reason("name"), Reason::NameMismatch);
         assert_eq!(field_reason("version"), Reason::VersionMismatch);
-        for key in ["dependencies", "dev-dependencies", "system-dependencies"] {
+        for key in [
+            "dependencies",
+            "build-dependencies",
+            "dev-dependencies",
+            "system-dependencies",
+        ] {
             assert_eq!(field_reason(key), Reason::DependencyMismatch);
         }
         for key in ["language", "standards"] {

@@ -155,6 +155,7 @@ Each version's metadata:
 | Field | Required | Default | Description |
 | --- | --- | --- | --- |
 | `dependencies` | no | `{}` | Map from package name to version requirement string.  The same requirement subset as `cabin.toml` (see [`docs/manifest.md`](manifest.md)). |
+| `build-dependencies` | no | `{}` | The version's [build dependencies](dependency-kinds.md#build-dependencies), in the encoding of `dependencies`.  They resolve with `dependencies` into one lockfile.  A Cabin older than this field rejects a package document that carries it. |
 | `yanked` | no | `false` | When `true`, the resolver excludes this version from candidate sets. |
 | `revision` | no | `null` | The version's **current** packaging revision: the one a fetch uses when no lockfile pins another.  Must name a key of `revisions`. |
 | `revisions` | no | `{}` | Every fetchable packaging revision of this version, keyed by revision id.  See [Packaging revisions](#packaging-revisions). |
@@ -162,7 +163,7 @@ Each version's metadata:
 | `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
 | `links` | no | omitted | Declared per-target [`links`](manifest.md#links) claims, keyed by target name.  Absence means the version claims nothing, so older entries that omit the field continue to load.  See [Links metadata](#links-metadata). |
 | `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, the algorithm-prefixed upstream `checksum` (`sha256:<hex>`, distinct from a revision's archive `checksum`), `format`, optional `strip-prefix`, optional `patches` list, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
-| `license` | no | omitted | Declared [`license`](manifest.md#license) SPDX expression of the current revision, as the publishing Cabin validated it.  Metadata only: resolution and fetching never read it, and the index reader does not validate it, so an identifier newer than the reading Cabin's SPDX lists still loads.  An entry published without one during the private alpha still loads; the field becomes mandatory on every version entry before the public launch. |
+| `license` | no | omitted | Declared [`license`](manifest.md#license) SPDX expression of the current revision, as the publishing Cabin validated it.  Metadata only: resolution and fetching never read it, and the index reader does not validate it, so an identifier newer than the reading Cabin's SPDX lists still loads.  Every publish declares one.  An entry published before that was required still loads during the hosted registry's private alpha; readers require the field before the public launch. |
 
 Unknown fields anywhere in the file are rejected.
 
@@ -179,11 +180,11 @@ revision that already exists, and a revision id can always be re-derived from a 
 checksum by taking its prefix.  Resolution picks a version, and the lockfile's `checksum` picks its
 revision.
 
-A respin may change what resolution reads - `dependencies`, `features`, `standards`, and `links` -
-because a revision's archive and the graph resolved for it always agree.  The version-level fields
-belong to the current revision; a revision whose resolution metadata differs carries its own in a
-`resolution` object (schema 2), so a lockfile that pins it keeps resolving exactly what its archive
-declares:
+A respin may change what resolution reads - `dependencies`, `build-dependencies`, `features`,
+`standards`, and `links` - because a revision's archive and the graph resolved for it always agree.
+The version-level fields belong to the current revision; a revision whose resolution metadata
+differs carries its own in a `resolution` object (schema 2), so a lockfile that pins it keeps
+resolving exactly what its archive declares:
 
 | Mode | Revision whose metadata resolution reads |
 | --- | --- |
@@ -225,7 +226,7 @@ Each entry of a version's `revisions` map takes this exact shape:
 | `checksum` | yes | `sha256:<hex>` digest of this revision's archive bytes, parsed strictly (exactly `sha256:` followed by 64 lowercase hex characters; any other spelling fails index loading).  The revision id must be this digest's leading hex prefix. |
 | `published-at` | yes | Non-empty timestamp recorded by the registry that accepted this revision.  Carried verbatim; Cabin never orders revisions by it (the `revision` pointer names the current one). |
 | `source` | yes | Where this revision's archive lives.  See [Source artifact](#source-artifact). |
-| `resolution` | no | This revision's `dependencies`, `features`, `standards`, and `links`, in the version entry's encoding and with the same omission defaults, when they differ from the version's.  Absent: the revision resolves exactly as the version does.  Schema 2 only, and never on the current revision. |
+| `resolution` | no | This revision's `dependencies`, `build-dependencies`, `features`, `standards`, and `links`, in the version entry's encoding and with the same omission defaults, when they differ from the version's.  Absent: the revision resolves exactly as the version does.  Schema 2 only, and never on the current revision. |
 
 Superseded revisions stay listed, and their archives stay in place, so a lockfile that pins one
 keeps building.  `revision` and `revisions` may be **absent together** - a resolver-only fixture that

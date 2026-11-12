@@ -11,6 +11,7 @@
 [package]
 name = "cabin-ports/libpng"
 version = "1.6.50"
+license = "libpng-2.0"
 
 [dependencies]
 "cabin-ports/zlib" = "^1.3"

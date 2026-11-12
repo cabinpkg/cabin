@@ -68,7 +68,8 @@ pub struct RegistryPublishReport {
 /// [`PublishError::BarePackageName`] or
 /// [`PublishError::InvalidDependencyName`] for an unscoped package
 /// name or registry dependency key,
-/// [`PublishError::StandardCompatibility`] when a PL1 lint rejects
+/// [`PublishError::MissingLicense`] when the manifest declares no
+/// license, [`PublishError::StandardCompatibility`] when a PL1 lint rejects
 /// the package, or [`PublishError::Registry`] when reading the PL3
 /// baseline or the registry write fails - the latter propagated from
 /// `publish_to_registry` (a respin without the opt-in, registry
@@ -106,6 +107,7 @@ fn run_workflow(
     )?;
     require_scoped_name(&staged.name, workflow.manifest_path)?;
     require_scoped_dependency_names(&staged.metadata, workflow.manifest_path)?;
+    require_license(&staged.metadata, workflow.manifest_path)?;
     // Reject on a PL1 error before touching the registry; a passing
     // check returns the PL2/PL3 warnings to surface.
     let warnings = evaluate_lints(&staged, workflow.registry_dir)?;
@@ -145,13 +147,35 @@ pub fn require_scoped_name(
     Ok(())
 }
 
+/// The publish gate for the license, fired beside
+/// [`require_scoped_name`] in every publish workflow: a published
+/// package always declares `[package] license`, so its registry index
+/// entry always carries one.  Local packages, and local staging via
+/// `cabin package`, may omit it.
+///
+/// # Errors
+/// Returns [`PublishError::MissingLicense`] when the staged metadata
+/// carries no license.
+pub fn require_license(
+    metadata: &cabin_package::metadata::PackageMetadata,
+    manifest_path: &Path,
+) -> Result<(), PublishError> {
+    if metadata.license.is_none() {
+        return Err(PublishError::MissingLicense {
+            manifest_path: manifest_path.display().to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// The publish gate for bare dependency keys, fired beside
 /// [`require_scoped_name`] in every publish workflow: the staged
-/// metadata's `dependencies` and `dev-dependencies` maps key on
-/// scoped `<scope>/<name>` registry names.  The keys come from
-/// validated `PackageName`s, so only the scope can be missing.  Dev-dependency keys
-/// denote registry packages too (they resolve when building the
-/// package's own tests), so one grammar covers both maps;
+/// metadata's `dependencies`, `dev-dependencies`, and
+/// `build-dependencies` maps key on scoped `<scope>/<name>` registry
+/// names.  The keys come from validated `PackageName`s, so only the
+/// scope can be missing.  Dev- and build-dependency keys denote
+/// registry packages too (they resolve when building the package's
+/// own tests, or its build script), so one grammar covers the maps;
 /// `system-dependencies` is deliberately not checked - its keys name
 /// system packages, not registry packages.  The hosted registry
 /// enforces the same rule server-side (`registry/src/publish.rs`), so
@@ -167,6 +191,7 @@ pub fn require_scoped_dependency_names(
     let tables = [
         ("dependencies", &metadata.dependencies),
         ("dev-dependencies", &metadata.dev_dependencies),
+        ("build-dependencies", &metadata.build_dependencies),
     ];
     for (table, entries) in tables {
         if let Some(name) = entries.keys().find(|name| !name.contains('/')) {
@@ -257,6 +282,7 @@ mod tests {
                 r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 "#,
             )
             .unwrap();
@@ -295,6 +321,7 @@ version = "10.2.1"
                 r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 "#,
             )
             .unwrap();
@@ -346,10 +373,46 @@ version = "10.2.1"
             .assert(predicates::path::missing());
     }
 
+    /// Both file-registry workflows refuse a package that declares no
+    /// license, naming the manifest to edit.
+    #[test]
+    fn file_registry_workflows_reject_a_package_without_a_license() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str(
+                r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+"#,
+            )
+            .unwrap();
+        let registry = dir.child("registry");
+        let workflow = || RegistryPublishWorkflow {
+            manifest_path: manifest.path(),
+            registry_dir: registry.path(),
+            resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+            new_revision: false,
+        };
+        let err = publish_to_file_registry(workflow()).unwrap_err();
+        assert!(matches!(err, PublishError::MissingLicense { .. }));
+        assert!(
+            err.to_string()
+                .contains(&manifest.path().display().to_string()),
+            "diagnostic must name the manifest, got: {err}"
+        );
+        let err = dry_run_against_file_registry(workflow()).unwrap_err();
+        assert!(matches!(err, PublishError::MissingLicense { .. }));
+        registry
+            .child("config.json")
+            .assert(predicates::path::missing());
+    }
+
     /// The registry dependency maps key on canonical scoped names:
-    /// both file workflows reject a bare key in `[dependencies]` and
-    /// `[dev-dependencies]` alike, while system dependencies are
-    /// exempt (their keys name system packages).
+    /// both file workflows reject a bare key in every dependency
+    /// table alike, while system dependencies are exempt (their keys
+    /// name system packages).
     #[test]
     fn file_registry_workflows_reject_non_canonical_dependency_names() {
         let dir = TempDir::new().unwrap();
@@ -368,6 +431,7 @@ version = "10.2.1"
         let body = r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 [dependencies]
 zlib = "^1.3"
 "#;
@@ -382,22 +446,25 @@ zlib = "^1.3"
         );
         let err = dry_run_against_file_registry(workflow(body)).unwrap_err();
         assert!(matches!(err, PublishError::InvalidDependencyName { .. }));
-        let err = publish_to_file_registry(workflow(
-            r#"[package]
+        for table in ["dev-dependencies", "build-dependencies"] {
+            let err = publish_to_file_registry(workflow(&format!(
+                r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
-[dev-dependencies]
+license = "MIT"
+[{table}]
 catch2 = "^3"
-"#,
-        ))
-        .unwrap_err();
-        assert!(matches!(
-            err,
-            PublishError::InvalidDependencyName {
-                table: "dev-dependencies",
-                ..
-            }
-        ));
+"#
+            )))
+            .unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    PublishError::InvalidDependencyName { table: found, .. } if *found == table
+                ),
+                "err: {err}"
+            );
+        }
         registry
             .child("config.json")
             .assert(predicates::path::missing());
@@ -409,6 +476,7 @@ catch2 = "^3"
             r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 [dependencies]
 "madler/zlib" = "^1.3"
 openssl = { system = true, version = ">=3" }

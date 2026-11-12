@@ -30,7 +30,7 @@ to your claimed scope, e.g.
     )]
     BarePackageName { name: String, manifest_path: String },
 
-    /// A `dependencies` or `dev-dependencies` key is not a scoped
+    /// A `dependencies`, `dev-dependencies`, or `build-dependencies` key is not a scoped
     /// `<scope>/<name>` registry name (see
     /// [`crate::require_scoped_dependency_names`]).  Raised beside
     /// [`PublishError::BarePackageName`], before any registry or
@@ -43,6 +43,18 @@ to your claimed scope, e.g.
         name: String,
         manifest_path: String,
     },
+
+    /// The staged package declares no `[package] license`.  A local
+    /// package may omit it; a published one may not (see
+    /// [`crate::require_license`]).  Raised beside
+    /// [`PublishError::BarePackageName`], before any registry or
+    /// network work.
+    #[error(
+        r#"published packages must declare a license, but {manifest_path} declares none; add an SPDX license expression under `[package]`, e.g.
+    license = "MIT OR Apache-2.0"
+using identifiers exactly as listed at https://spdx.org/licenses/ (local-only builds and path dependencies may omit it)"#
+    )]
+    MissingLicense { manifest_path: String },
 
     /// One or more rejecting standard-compatibility lints (PL1) failed
     /// the publish before any registry artifact or index write.

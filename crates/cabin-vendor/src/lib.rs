@@ -639,7 +639,13 @@ fn rewrite_vendored_revision(
         .as_object_mut()
         .and_then(|rev| rev.shift_remove("resolution"))
     {
-        for field in ["dependencies", "features", "standards", "links"] {
+        for field in [
+            "dependencies",
+            "build-dependencies",
+            "features",
+            "standards",
+            "links",
+        ] {
             match resolution.get(field) {
                 Some(value) => obj.insert(field.to_owned(), value.clone()),
                 None => obj.shift_remove(field),
@@ -806,6 +812,7 @@ mod tests {
         let revision = "aaaaaaaaaaaaaaaa";
         let mut value = serde_json::json!({
             "dependencies": { "acme/dep": "^1" },
+            "build-dependencies": { "acme/gen": "^1" },
             "yanked": false,
             "revision": "bbbbbbbbbbbbbbbb",
             "revisions": {
@@ -823,6 +830,7 @@ mod tests {
             .unwrap();
         assert_eq!(value["dependencies"], serde_json::json!({}));
         assert_eq!(value["links"], serde_json::json!({ "fmt": "fmt" }));
+        assert!(value.get("build-dependencies").is_none());
         assert!(value.get("standards").is_none());
         assert!(value["revisions"][revision].get("resolution").is_none());
     }

@@ -31,6 +31,7 @@
 //! `ErrorRetrievingDependencies` or `ErrorChoosingVersion` as their
 //! original [`ResolveError`].
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
@@ -391,10 +392,8 @@ impl<'a> Provider<'a> {
             // Optional edges join through the features that enable
             // them.  A `cfg(...)`-gated edge participates whatever
             // its predicate: the lockfile serves every platform.
-            for (dep_name, dep) in &meta.dependencies {
-                if !dep.optional {
-                    self.require_edge(&mut deps, name, version, dep_name, dep)?;
-                }
+            for (dep_name, dep) in meta.resolved_dependencies(|_, dep| !dep.optional) {
+                self.require_edge(&mut deps, name, version, dep_name, &dep)?;
             }
             return Ok(deps);
         };
@@ -430,7 +429,7 @@ impl<'a> Provider<'a> {
                             "{name} {version} feature {feature:?} enables {dep_name}, which is not optional"
                         )));
                     }
-                    self.require_edge(&mut deps, name, version, dep_name, dep)?;
+                    self.require_edge(&mut deps, name, version, dep_name, &dep)?;
                 }
                 FeatureEntry::DepFeature {
                     dep: dep_name,
@@ -438,11 +437,11 @@ impl<'a> Provider<'a> {
                 } => {
                     let (dep_name, dep) = declared_dep(name, version, feature, meta, &dep_name)?;
                     if dep.optional {
-                        self.require_edge(&mut deps, name, version, dep_name, dep)?;
+                        self.require_edge(&mut deps, name, version, dep_name, &dep)?;
                     } else {
-                        self.check_locked_edge(name, dep_name, dep)?;
+                        self.check_locked_edge(name, dep_name, &dep)?;
                     }
-                    let range = edge_range(self.input, self.index, name, version, dep_name, dep)?;
+                    let range = edge_range(self.input, self.index, name, version, dep_name, &dep)?;
                     deps.require(Node::Feature(dep_name.clone(), requested), range);
                 }
             }
@@ -515,19 +514,23 @@ pub(crate) fn without_rejected_prereleases(
     range.intersection(&lower.zip(upper).collect())
 }
 
-/// The normal dependency a feature entry of `name@version` names.
-/// An undeclared one makes the version unusable: index metadata is
-/// not validated against its own dependency table.
+/// The dependency, among the `edges` of `name@version`, that a feature
+/// entry names.  An undeclared one makes the version unusable: index
+/// metadata is not validated against its own dependency tables.
+/// The edge a feature entry naming `dep_name` enables: every
+/// declaration of that name, the optional ones included.  The package
+/// itself has already required the edge of the declarations that are
+/// not optional, so a pre-release only an optional one opts into is
+/// not admitted for them.
 fn declared_dep<'m>(
     name: &PackageName,
     version: &Version,
     feature: &str,
     meta: &'m VersionMetadata,
     dep_name: &str,
-) -> Result<(&'m PackageName, &'m IndexPackageDependency), EdgeError> {
-    meta.dependencies
-        .iter()
-        .find(|(declared, _)| declared.as_str() == dep_name)
+) -> Result<(&'m PackageName, Cow<'m, IndexPackageDependency>), EdgeError> {
+    meta.resolved_dependencies(|declared, _| declared.as_str() == dep_name)
+        .pop_first()
         .ok_or_else(|| {
             EdgeError::Unavailable(format!(
                 "{name} {version} feature {feature:?} references undeclared dependency {dep_name}"

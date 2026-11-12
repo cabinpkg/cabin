@@ -6,6 +6,7 @@ fn write_simple_package(root: &Path) {
             r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.fmt]
@@ -142,6 +143,7 @@ fn write_standards_package(root: &Path) {
             r#"[package]
 name = "acme/demo"
 version = "1.0.0"
+license = "MIT"
 
 [target.cxxlib]
 type = "library"
@@ -198,6 +200,7 @@ fn published_index_carries_links_table() {
             r#"[package]
 name = "acme/zlib"
 version = "1.3.1"
+license = "MIT"
 
 [target.z]
 type = "library"
@@ -784,6 +787,7 @@ fn multiple_manifest_paths_publish_each_package() {
             r#"[package]
 name = "acme/consumer"
 version = "0.2.0"
+license = "MIT"
 
 [dependencies]
 "fmtlib/fmt" = "=10.2.1"
@@ -821,6 +825,7 @@ fn a_batch_json_publish_emits_one_json_object_per_line() {
             r#"[package]
 name = "acme/consumer"
 version = "0.2.0"
+license = "MIT"
 
 [dependencies]
 "fmtlib/fmt" = "=10.2.1"
@@ -867,6 +872,7 @@ fn a_batch_dist_stem_collision_fails_closed_on_the_second_member() {
                 r#"[package]
 name = "{name}"
 version = "1.0.0"
+license = "MIT"
 
 [target.demo]
 type = "library"

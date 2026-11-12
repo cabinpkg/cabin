@@ -65,6 +65,7 @@ const DRIVER_REJECTED_VERSION: &str = "0.13.0";
 const WITHDEP_MANIFEST: &str = r#"[package]
 name = "smoke/withdep"
 version = "0.2.0"
+license = "MIT OR Apache-2.0"
 cxx-standard = "c++20"
 
 [dependencies]

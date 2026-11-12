@@ -44,6 +44,7 @@ sources = ["src/nodep.c"]
         manifest: r#"[package]
 name = "smoke/withdep"
 version = "0.2.0"
+license = "MIT OR Apache-2.0"
 cxx-standard = "c++20"
 
 [dependencies]
@@ -63,6 +64,7 @@ links = "withdep-native"
         manifest: r#"[package]
 name = "smoke/withupstream"
 version = "0.3.0"
+license = "MIT"
 c-standard = "c11"
 
 [package.upstream]

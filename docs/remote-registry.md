@@ -20,6 +20,10 @@
 > local-only manifests and local file registries; `cabin publish` rejects them before any
 > connection.
 
+> **Published packages declare a license.** `cabin publish` rejects a manifest without
+> [`[package] license`](manifest.md#license) before any connection, and the registry rejects an
+> upload whose metadata lacks one.
+
 This is the authoritative contract for Cabin's remote registry protocol: exactly what the Cabin
 client (this repository) and a conforming registry server implement.  The registry *service*
 itself - accounts, token issuance, hosted storage - is not part of the Cabin crates; its hosted
@@ -454,10 +458,9 @@ Server-side behavior is part of the contract:
   entries distinct from copy paths and the root manifest - the server never fetches the
   URL), requires a declared `links` map to pass a lexical mirror of the manifest's rules (valid
   target-name keys, identities of ASCII letters, digits, `.`, `_`, `+`, and `-`, each identity
-  claimed at most once), rejects a `license` that is neither a JSON string nor `null` (the
+  claimed at most once), requires a `license` that is a JSON string (the
   [verifier](#the-verifiers-checks)'s consistency check holds the value to the archived manifest's
-  SPDX-validated field; a publish without a license is accepted only during the private alpha), and
-  verifies the archive
+  SPDX-validated field), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
   Two name-level rules join the same `400` family: a reserved package name
   (`package name is reserved` - the DOS device stems plus a short project vocabulary), and, for a
@@ -480,7 +483,8 @@ Server-side behavior is part of the contract:
 - **Idempotency.**  Re-publishing byte-identical metadata and archive succeeds with `200` and body
   `{"ok":true,"no_op":true,"revision":"<16 hex>","verification":"<status>"}`, reporting the recorded
   revision and its current [verification status](#verification-lifecycle).  The stored metadata is
-  preserved, not rewritten.
+  preserved, not rewritten.  Validation comes first, so re-publishing a version that was stored
+  without a `license`, before publishes required one, is the `400` above and not a no-op.
 - **Revisions.**  Different bytes for a version that already has a live (pending or verified)
   revision require the `?new-revision=true` opt-in.  Without it the request is a `409` explaining
   the mechanism: *the version is already published with different bytes; published revisions are

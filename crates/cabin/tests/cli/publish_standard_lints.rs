@@ -41,6 +41,7 @@ fn header_only_cxx(version: &str, cxx: &str, interface_cxx: &str) -> String {
         r#"[package]
 name = "acme/hdr"
 version = "{version}"
+license = "MIT"
 
 [target.hdr]
 type = "header-only"
@@ -59,6 +60,7 @@ fn compiled_cxx(version: &str, interface_cxx: &str) -> String {
         r#"[package]
 name = "acme/demo"
 version = "{version}"
+license = "MIT"
 
 [target.demo]
 type = "library"
@@ -76,6 +78,7 @@ fn compiled_c(version: &str, interface_c: &str) -> String {
         r#"[package]
 name = "acme/demo"
 version = "{version}"
+license = "MIT"
 
 [target.demo]
 type = "library"
@@ -154,6 +157,7 @@ fn pl1_rejects_for_c() {
         r#"[package]
 name = "acme/hdr"
 version = "1.0.0"
+license = "MIT"
 
 [target.hdr]
 type = "header-only"
@@ -188,6 +192,7 @@ fn pl2_warns_on_inferred_cxx_interface() {
         r#"[package]
 name = "acme/hdr"
 version = "1.0.0"
+license = "MIT"
 
 [target.hdr]
 type = "header-only"
@@ -223,6 +228,7 @@ fn pl2_warns_on_inferred_c_interface() {
         r#"[package]
 name = "acme/hdr"
 version = "1.0.0"
+license = "MIT"
 
 [target.hdr]
 type = "header-only"
@@ -365,6 +371,7 @@ fn dry_run_staging_only_skips_pl3_and_still_warns() {
         r#"[package]
 name = "acme/hdr"
 version = "1.0.0"
+license = "MIT"
 
 [target.hdr]
 type = "header-only"
@@ -408,6 +415,7 @@ fn publish_json_reports_warnings() {
         r#"[package]
 name = "acme/hdr"
 version = "1.0.0"
+license = "MIT"
 
 [target.hdr]
 type = "header-only"

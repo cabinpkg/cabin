@@ -316,8 +316,12 @@ fn keep_superseded_resolution(
 /// on the stored entry).
 fn resolution_fields(
     metadata: &PackageMetadata,
-) -> Result<[(&'static str, serde_json::Value); 4], RegistryError> {
+) -> Result<[(&'static str, serde_json::Value); 5], RegistryError> {
     let dependencies = serde_json::to_value(&metadata.dependencies)?;
+    let build_dependencies = (!metadata.build_dependencies.is_empty())
+        .then(|| serde_json::to_value(&metadata.build_dependencies))
+        .transpose()?
+        .unwrap_or(serde_json::Value::Null);
     let features = (!metadata.features.default.is_empty()
         || !metadata.features.features.is_empty())
     .then(|| serde_json::to_value(&metadata.features))
@@ -333,6 +337,7 @@ fn resolution_fields(
         .unwrap_or(serde_json::Value::Null);
     Ok([
         ("dependencies", dependencies),
+        ("build-dependencies", build_dependencies),
         ("features", features),
         ("standards", standards),
         ("links", links),
@@ -362,12 +367,14 @@ pub struct PackageIndex {
 /// fixtures expect for packages without that metadata.
 ///
 /// `dev_dependencies` and `system_dependencies` are not projected: the
-/// version document carries only the resolution-relevant
-/// `dependencies`.  `cabin-index` reads an absent `dev-dependencies` or
-/// `system-dependencies` key as empty.
+/// version document carries only the dependencies resolution follows,
+/// `dependencies` and `build-dependencies`.  `cabin-index` reads an
+/// absent `dev-dependencies` or `system-dependencies` key as empty.
 #[derive(Serialize)]
 struct IndexVersionWire<'a, D: Serialize> {
     dependencies: &'a D,
+    #[serde(rename = "build-dependencies", skip_serializing_if = "Option::is_none")]
+    build_dependencies: Option<&'a D>,
     yanked: bool,
     /// Current packaging revision (in a file registry: the one
     /// published last; there is no verification lifecycle).
@@ -439,6 +446,8 @@ fn version_value_from_metadata(
     );
     let wire = IndexVersionWire {
         dependencies: &metadata.dependencies,
+        build_dependencies: (!metadata.build_dependencies.is_empty())
+            .then_some(&metadata.build_dependencies),
         yanked,
         revision,
         revisions,
@@ -517,6 +526,7 @@ mod tests {
             version: version.to_owned(),
             dependencies: BTreeMap::new(),
             dev_dependencies: BTreeMap::new(),
+            build_dependencies: BTreeMap::new(),
             system_dependencies: BTreeMap::new(),
             features: Default::default(),
             profiles: Default::default(),
@@ -707,6 +717,10 @@ mod tests {
             "acme/dep".to_owned(),
             PackageDependencyEntry::Bare("^1".to_owned()),
         );
+        with_dep.build_dependencies.insert(
+            "acme/gen".to_owned(),
+            PackageDependencyEntry::Bare("^2".to_owned()),
+        );
         let (index, _) = insert_version(Some(initial), &with_dep, STAMP, true).unwrap();
         assert_eq!(index.schema, REVISION_RESOLUTION_SCHEMA);
         let entry = &index.versions["10.2.1"];
@@ -732,7 +746,10 @@ mod tests {
         assert_eq!(revisions["aaaaaaaaaaaaaaaa"], first);
         assert_eq!(
             revisions["bbbbbbbbbbbbbbbb"]["resolution"],
-            serde_json::json!({ "dependencies": { "acme/dep": "^1" } })
+            serde_json::json!({
+                "dependencies": { "acme/dep": "^1" },
+                "build-dependencies": { "acme/gen": "^2" },
+            })
         );
         assert!(revisions["cccccccccccccccc"].get("resolution").is_none());
     }

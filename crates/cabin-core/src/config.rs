@@ -44,8 +44,8 @@ pub const DEFAULT_FEATURE_KEY: &str = "default";
 /// - `"feature_name"` - enables another local feature on the same
 ///   package (transitive feature implication).
 /// - `"dep:dependency_name"` - enables an optional Cabin package
-///   dependency declared by this package's `[dependencies]`
-///   table.
+///   dependency declared by this package's `[dependencies]` or
+///   `[build-dependencies]` table.
 /// - `"dependency_name/feature_name"` - requests a specific
 ///   feature on a Cabin package dependency.  If the dependency is
 ///   optional, this form also enables it.
