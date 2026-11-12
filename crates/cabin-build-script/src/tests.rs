@@ -623,7 +623,48 @@ fn a_result_file_is_refused_at_its_first_bad_line() {
         (
             format!("link-file demo {out}/libz.a"),
             1,
-            Invalid::NotExternal("demo".into()),
+            Invalid::NotExternal {
+                directive: "link-file",
+                target: "demo".into(),
+            },
+        ),
+        (
+            "pkg-config demo zlib".into(),
+            1,
+            Invalid::NotExternal {
+                directive: "pkg-config",
+                target: "demo".into(),
+            },
+        ),
+        (
+            "pkg-config headers zlib".into(),
+            1,
+            Invalid::Kind {
+                directive: "pkg-config",
+                target: "headers".into(),
+                kind: "header-only",
+            },
+        ),
+        (
+            "external demo\npkg-config demo".into(),
+            2,
+            Invalid::MissingValue("pkg-config"),
+        ),
+        // An option, or a file pkg-config would read in place of a module.
+        (
+            "external demo\npkg-config demo --define-variable=prefix=/x".into(),
+            2,
+            Invalid::Module("--define-variable=prefix=/x".into()),
+        ),
+        (
+            "external demo\npkg-config demo zlib.PC >=1".into(),
+            2,
+            Invalid::Module("zlib.PC".into()),
+        ),
+        (
+            format!("external demo\npkg-config demo {out}/zlib"),
+            2,
+            Invalid::Module(format!("{out}/zlib")),
         ),
         // The first line that lacks one, not the first target by name.
         (
@@ -978,11 +1019,30 @@ fn a_library_a_script_supplies_is_one_the_build_links() {
         );
     }
 
-    // An MSVC-style link takes another kind of file.
+    // pkg-config's modules are something to link too, each with its
+    // requirement as written.
+    let report = parse(
+        &script,
+        "pkg-config demo zlib >=1.2.11, <2\npkg-config demo libpng16",
+    )
+    .unwrap();
+    assert_eq!(
+        report.targets["demo"].pkg_config,
+        [
+            ("zlib".to_owned(), ">=1.2.11, <2".to_owned()),
+            ("libpng16".to_owned(), String::new())
+        ]
+    );
+
+    // An MSVC-style link takes another kind of file, and no pkg-config.
     let msvc = Script {
         msvc: true,
         ..script
     };
+    assert_eq!(
+        parse(&msvc, "pkg-config demo zlib").unwrap_err(),
+        (3, Invalid::PkgConfigMsvc)
+    );
     assert_eq!(
         parse(&msvc, &format!("link-file demo {out}/libz.a")).unwrap_err(),
         (3, path_problem(format!("{out}/libz.a"), result::NOT_LIB))

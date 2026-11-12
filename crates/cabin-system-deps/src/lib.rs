@@ -544,12 +544,19 @@ fn build_constraints(name: &str, requirement: &str) -> Result<ConstraintArgv, Pk
                 return Err(invalid());
             }
             for pair in split.chunks(2) {
-                // pkgconf parses options after positionals, so an operand
-                // like `--log-file=x` from an untrusted manifest would run
-                // as an option; a version starts with an alphanumeric.
-                if !matches!(pair[0], "=" | "!=" | "<" | "<=" | ">" | ">=")
-                    || !pair[1].starts_with(|c: char| c.is_ascii_alphanumeric())
-                {
+                // pkgconf parses options after positionals and splits an
+                // operand at a comma, so an untrusted `--log-file=x` would
+                // run as an option and `0,/tmp/x.pc` would name a second
+                // module, by a file's path.  A version starts with an
+                // alphanumeric and is written in these characters.
+                let version = |operand: &str| {
+                    operand.starts_with(|c: char| c.is_ascii_alphanumeric())
+                        && operand.bytes().all(|b| {
+                            b.is_ascii_alphanumeric()
+                                || matches!(b, b'.' | b'_' | b'+' | b'-' | b'~')
+                        })
+                };
+                if !matches!(pair[0], "=" | "!=" | "<" | "<=" | ">" | ">=") || !version(pair[1]) {
                     return Err(invalid());
                 }
                 argv.push(OsString::from(name));
@@ -1224,7 +1231,14 @@ mod tests {
 
     #[test]
     fn build_constraints_rejects_option_shaped_version_operand() {
-        for requirement in [">= --log-file=x", ">= -x", ">= 1.0 < --log-file=x"] {
+        for requirement in [
+            ">= --log-file=x",
+            ">= -x",
+            ">= 1.0 < --log-file=x",
+            // A comma starts another module, which a path names a file as.
+            ">= 0,/tmp/x.pc",
+            ">= 1.0,x",
+        ] {
             let err = build_constraints("zlib", requirement).unwrap_err();
             assert!(
                 matches!(err, PkgConfigError::InvalidVersionRequirement { .. }),

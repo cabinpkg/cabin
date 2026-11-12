@@ -167,13 +167,37 @@ pub(crate) fn run(
                 tools,
                 inherited: &inherited,
             };
-            let report = if let Some(report) = cabin_build_script::load(&run) {
+            let mut report = if let Some(report) = cabin_build_script::load(&run) {
                 report
             } else {
                 reporter.status("Running", format_args!("{} of {name}", script.name()));
                 cabin_build_script::run(&run)
                     .with_context(|| format!("{} of package `{name}`", script.name()))?
             };
+            // Asked on every command, of the pkg-config the command runs
+            // with: a result that still holds says which modules, not what
+            // they gave.
+            for (target, output) in &mut report {
+                if output.pkg_config.is_empty() {
+                    continue;
+                }
+                if script.build_context && context.cross {
+                    anyhow::bail!(
+                        "{} of package `{name}`: `{target}` cannot come from pkg-config for a \
+                         build dependency of a build for {}, whose pkg-config describes that \
+                         platform's libraries, not the build machine's",
+                        script.name(),
+                        prepared.platform.target,
+                    );
+                }
+                output.provided = super::system_deps::probe_reported(&output.pkg_config, platform)
+                    .with_context(|| {
+                        format!(
+                            "{} of package `{name}`: `{target}` comes from pkg-config",
+                            script.name()
+                        )
+                    })?;
+            }
             outputs[usize::from(script.build_context)].extend(
                 report
                     .into_iter()

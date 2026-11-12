@@ -27,7 +27,7 @@ const ... : &str = ...` constants.
 | `CABIN_TERM_QUIET` | unset | Suppress Cabin-owned status output when truthy |
 | `CABIN_FMT` | unset | Override for the `clang-format` executable `cabin fmt` spawns |
 | `CABIN_TIDY` | unset | Override for the `run-clang-tidy` executable `cabin tidy` spawns |
-| `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing `system = true` deps |
+| `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns; see [system dependencies](system-dependencies.md#executable-resolution) |
 | `CABIN_BUILD_JOBS` | unset | Number of parallel jobs the build backend should use |
 | `CABIN_RESOLVER_INCOMPATIBLE_STANDARDS` | unset | Standard-aware version preference (`allow` / `fallback`) |
 | `CABIN_TRACE_DIR` | unset | Write a performance trace and timings summary for this invocation into this directory; see [`performance.md`](performance.md) |

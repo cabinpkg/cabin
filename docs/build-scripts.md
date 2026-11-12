@@ -133,6 +133,7 @@ the rest of the line, so a path may contain spaces.
 | `source <target> <file>` | A source file under `CABIN_OUT_DIR` that the target compiles after its own. |
 | `external <target>` | The script supplies this library, and Cabin builds nothing of it.  See [Supplying a library](#supplying-a-library). |
 | `link-file <target> <file>` | A library file an `external` target is linked from, in the order of the lines.  It is under `CABIN_OUT_DIR`, or under a directory a `CABIN_SDK_*` variable names. |
+| `pkg-config <target> <module> [<requirement>]` | A pkg-config module an `external` target's compile and link flags come from, with the version it has to have.  See [Supplying a library](#supplying-a-library). |
 | `rerun-if-changed <path>` | A file or directory of the package, or under a directory a `CABIN_SDK_*` variable names, that the result depends on.  See [When a script runs again](#when-a-script-runs-again). |
 
 Every path is absolute, starts with a directory the script was given (`CABIN_OUT_DIR`,
@@ -171,7 +172,8 @@ link-file z /opt/zlib/lib/libz.a
 - The rest of the target stands: its `deps`, its declared interface standards, its
   [`links`](manifest.md#links) claim, and the `link-libs` and `frameworks` of its package's
   profile.  A link uses the C++ driver when one of the manifest's sources is C++.
-- An external target takes at least one `link-file` line, and no `define` or `source` line.
+- An external target takes at least one `link-file` or `pkg-config` line, and no `define` or
+  `source` line.
 - Cabin plans the build from the manifest before the script has run, so the manifest's description
   of the target has to plan without error on its own, even where the script replaces it.
 - With `CABIN_TARGET_DIALECT=msvc`, a `link-file` is a `.lib` file.  A file of another name there
@@ -188,6 +190,33 @@ link-file z /opt/zlib/lib/libz.a
   the platform's loader, and on Windows to `PATH`.
 - A link runs again when a `link-file` changes.  The script itself runs again for a change in an
   SDK only where it names the file with `rerun-if-changed`.
+
+A script can also leave the search to pkg-config, by naming a module in place of the files:
+
+```text
+external z
+pkg-config z zlib >=1.2.11
+```
+
+- Cabin asks pkg-config itself, outside the script's confinement, as it does for a
+  [system dependency](system-dependencies.md): the same executable (`CABIN_PKG_CONFIG`), the same
+  [version requirements](system-dependencies.md#version-requirements), the same diagnostics.  What
+  depends on the target compiles and links with the flags pkg-config answers, after the script's
+  own `include-dir` and `link-file` lines.  Several lines for one target are asked in their order.
+- A link names what pkg-config answers after every library file, and after that, except on Apple
+  platforms, the libraries the target's `deps` reach once more, where a static library from
+  pkg-config finds them.  A symbol that both that library and one of them define comes from the
+  latter.
+- A module's name is written as a [system dependency's](system-dependencies.md#manifest-declaration)
+  is, in ASCII letters, digits, `_`, `-`, and `.`, and is not the path of a `.pc` file.
+- Cabin asks on every build, whether or not the script runs again, so a module that is gone or
+  answers other flags is seen at once.  A library that changes behind the same flags links
+  nothing again.
+- With `CABIN_TARGET_DIALECT=msvc` a `pkg-config` line is refused: the flags pkg-config reports
+  are a GNU toolchain's.  Report `include-dir` and `link-file` lines there.
+- In a `--target` build, pkg-config has to describe the target's libraries, as for a
+  [system dependency](system-dependencies.md#manifest-declaration).  A library a build dependency
+  links there is built for the build machine, and cannot come from pkg-config.
 
 ## When a script runs
 

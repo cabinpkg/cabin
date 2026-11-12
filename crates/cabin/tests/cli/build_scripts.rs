@@ -1251,6 +1251,7 @@ const char *greet(void);
 }
 
 /// `app`, whose library `greet` its build script takes from the
+/// pkg-config module `greet` under the feature `system`, from the
 /// directory `CABIN_SDK_GREET` names when there is one, and Cabin
 /// builds from the package's own source otherwise.  A C program `app`
 /// and a C++ program `appxx` print whose header they saw and what the
@@ -1264,6 +1265,9 @@ name = "app"
 version = "0.1.0"
 c-standard = "c11"
 cxx-standard = "c++17"
+
+[features]
+system = []
 
 [target.greet]
 type = "library"
@@ -1322,6 +1326,11 @@ int main(void) {
     int msvc = strcmp(getenv("CABIN_TARGET_DIALECT"), "msvc") == 0;
     char path[4096];
     FILE *file;
+    if (getenv("CABIN_FEATURE_SYSTEM")) {
+        if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+        fprintf(file, "external greet\npkg-config greet greet >=1.2\n");
+        return fclose(file) != 0;
+    }
     if (!sdk) return 0;
     /* The script reads the SDK it is pointed at. */
     snprintf(path, sizeof path, "%s/include/greet.h", sdk);
@@ -1336,6 +1345,76 @@ int main(void) {
 "#,
         )
         .unwrap();
+}
+
+/// `consumer`, whose build script links the `greet` of its build
+/// dependency `app`, taken from pkg-config, and has the program print
+/// what that library says.
+pub(crate) fn write_greet_consumer(root: &Path) {
+    let dir = assert_fs::fixture::ChildPath::new(root);
+    dir.child("consumer/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "consumer"
+version = "0.1.0"
+c-standard = "c11"
+
+[build-dependencies]
+app = { path = "../app", features = ["system"] }
+
+[target.consumer]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        )
+        .unwrap();
+    dir.child("consumer/src/main.c")
+        .write_str(
+            "#include <stdio.h>\n#include \"said.h\"\nint main(void) { puts(SAID); return 0; }\n",
+        )
+        .unwrap();
+    dir.child("consumer/build.c")
+        .write_str(
+            r##"#include <greet.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    char path[4096];
+    FILE *file;
+    snprintf(path, sizeof path, "%s/said.h", getenv("CABIN_OUT_DIR"));
+    if (!(file = fopen(path, "w"))) return 1;
+    fprintf(file, "#define SAID \"%s\"\n", greet());
+    fclose(file);
+    if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+    fprintf(file, "include-dir consumer %s\n", getenv("CABIN_OUT_DIR"));
+    return fclose(file) != 0;
+}
+"##,
+        )
+        .unwrap();
+}
+
+/// Publishes the pkg-config module `greet` at `version`, which is the
+/// SDK directory `sdk` of `root`.
+pub(crate) fn write_greet_module(
+    fixtures: &super::system_deps_pkg_config::Fixtures,
+    root: &Path,
+    sdk: &str,
+    version: &str,
+) {
+    let sdk = root.join(sdk);
+    let sdk = sdk.display();
+    fixtures.write(
+        "greet",
+        &format!(
+            r#"{{
+    "version": "{version}",
+    "cflags": "-I{sdk}/include",
+    "libs": "-L{sdk}/lib -lgreet"
+}}"#
+        ),
+    );
 }
 
 /// A build script supplies a library from an SDK directory in place of
@@ -1553,4 +1632,70 @@ fn build_scripts_needing_each_other_are_a_package_cycle() {
         .stderr(predicate::str::contains(
             "package dependency cycle detected: a -> b -> a",
         ));
+}
+
+/// A build script takes a library from pkg-config in place of the one
+/// its package would build.  Cabin asks pkg-config on every command, so
+/// a module that is missing or too old stops the build, the bundled
+/// library never standing in, and another answer relinks the programs
+/// with no run of the script.  A build dependency's library comes from
+/// there as well.
+#[test]
+fn a_build_script_supplies_a_library_from_pkg_config() {
+    use super::system_deps_pkg_config::{Fixtures, cabin_with_fake_pkg_config};
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_greet_app(dir.path());
+    let fixtures = Fixtures::new();
+    let run = |package: &str, args: &[&str]| {
+        let mut cmd = cabin_with_fake_pkg_config(&fixtures);
+        cmd.current_dir(dir.path().join(package))
+            .arg("run")
+            .args(args);
+        cmd.assert()
+    };
+    let app = |bin| ["--features", "system", "--bin", bin];
+
+    if cfg!(windows) {
+        // The default Windows toolchain is MSVC, which takes none of
+        // pkg-config's flags.
+        let refused = printed(&run("app", &app("app")).failure());
+        let phrase = "`pkg-config` does not apply to an MSVC-style build";
+        assert!(
+            crate::standard_compat::flat_contains(&refused, phrase),
+            "{refused}"
+        );
+        return;
+    }
+    let missing = printed(&run("app", &app("app")).failure());
+    assert!(
+        missing.contains("cabin::system_deps::package_not_found"),
+        "{missing}"
+    );
+
+    build_greet_sdk(dir.path(), "sdk", "one", None);
+    write_greet_module(&fixtures, dir.path(), "sdk", "1.2.3");
+    for bin in ["app", "appxx"] {
+        let supplied = printed(&run("app", &app(bin)).success());
+        assert!(supplied.contains("\nan sdk: one\n"), "{supplied}");
+    }
+
+    write_greet_module(&fixtures, dir.path(), "sdk", "1.1.0");
+    let old = printed(&run("app", &app("app")).failure());
+    assert!(
+        old.contains("cabin::system_deps::version_mismatch") && !old.contains(RAN),
+        "{old}"
+    );
+
+    build_greet_sdk(dir.path(), "sdk-two", "two", None);
+    write_greet_module(&fixtures, dir.path(), "sdk-two", "1.2.3");
+    let moved = printed(&run("app", &app("app")).success());
+    assert!(
+        moved.contains("\nan sdk: two\n") && !moved.contains(RAN),
+        "{moved}"
+    );
+
+    write_greet_consumer(dir.path());
+    let said = printed(&run("consumer", &[]).success());
+    assert!(said.contains("\ntwo\n"), "{said}");
 }
