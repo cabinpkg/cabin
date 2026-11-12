@@ -105,6 +105,8 @@ const REPORT_INTERVAL: u32 = 50;
 thread_local! {
     /// Probe only: skip the final waits.
     pub(crate) static PROBE_NO_WAIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Probe only: read the job's reports without pause.
+    pub(crate) static PROBE_SPIN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Probe only: whether `process` is signaled, and whether it is in `job`.
@@ -521,7 +523,9 @@ impl Launch<'_> {
         // On an error below, dropping `job` kills the program.
         loop {
             // SAFETY: a process handle we own.
-            let waited = unsafe { WaitForSingleObject(child.as_raw_handle(), REPORT_INTERVAL) };
+            let interval = if PROBE_SPIN.get() { 0 } else { REPORT_INTERVAL };
+            // SAFETY: a process handle we own.
+            let waited = unsafe { WaitForSingleObject(child.as_raw_handle(), interval) };
             if waited == WAIT_FAILED {
                 return Err(io::Error::last_os_error());
             }
@@ -569,6 +573,9 @@ struct Job {
     port: OwnedHandle,
     reported: u32,
     members: Vec<OwnedHandle>,
+    probe_invalid: Vec<u32>,
+    probe_first_invalid: u32,
+    probe_misread: u32,
 }
 
 impl Job {
@@ -617,6 +624,9 @@ impl Job {
             port,
             reported: 0,
             members: Vec::new(),
+            probe_invalid: Vec::new(),
+            probe_first_invalid: 0,
+            probe_misread: 0,
         })
     }
 
@@ -652,7 +662,35 @@ impl Job {
             // SAFETY: a process handle we own.
             unsafe { WaitForSingleObject(process.as_raw_handle(), 0) != WAIT_OBJECT_0 }
         });
+        self.probe_retry();
         Ok(())
+    }
+
+    /// Probe only: open again each identifier that read as gone, and
+    /// count those that turn out to be members after all.
+    fn probe_retry(&mut self) {
+        let access = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+        let job = self.handle.as_raw_handle();
+        let mut misread = 0;
+        self.probe_invalid.retain(|&id| {
+            // SAFETY: plain system calls on a handle closed before returning.
+            unsafe {
+                let process = OpenProcess(access, 0, id);
+                if process.is_null() {
+                    return io::Error::last_os_error().raw_os_error()
+                        == Some(ERROR_INVALID_PARAMETER.cast_signed());
+                }
+                let mut member = 0;
+                IsProcessInJob(process, job, &raw mut member);
+                windows_sys::Win32::Foundation::CloseHandle(process);
+                if member != 0 {
+                    eprintln!("probe-misread {id}");
+                    misread += 1;
+                }
+                false
+            }
+        });
+        self.probe_misread += misread;
     }
 
     /// Keep a handle to the process `id` the job reported, unless that
@@ -666,6 +704,8 @@ impl Job {
             // An identifier lasts as long as its process: this one is gone.
             if err.raw_os_error() == Some(ERROR_INVALID_PARAMETER.cast_signed()) {
                 eprintln!("probe-open {id} gone");
+                self.probe_invalid.push(id);
+                self.probe_first_invalid += 1;
                 return Ok(());
             }
             eprintln!("probe-open {id} error {err}");
@@ -764,6 +804,31 @@ impl Job {
             .map(|process| probe_state(process, &self.handle))
             .collect();
         eprintln!("probe-end after the waits: {dead:?}");
+        self.probe_retry();
+        let before = accounting.TotalProcesses;
+        // SAFETY: a job handle we own and the structure the class names.
+        unsafe {
+            QueryInformationJobObject(
+                self.handle.as_raw_handle(),
+                JobObjectBasicAccountingInformation,
+                (&raw mut accounting).cast(),
+                u32::try_from(size_of_val(&accounting)).unwrap(),
+                null_mut(),
+            );
+        }
+        eprintln!(
+            "probe-recount total {before} -> {} active {} same {}",
+            accounting.TotalProcesses,
+            accounting.ActiveProcesses,
+            before == accounting.TotalProcesses && accounting.ActiveProcesses == 0
+        );
+        eprintln!(
+            "probe-u1 spin {} reported {} first-invalid {} misread {}",
+            PROBE_SPIN.get(),
+            self.reported,
+            self.probe_first_invalid,
+            self.probe_misread
+        );
         Ok(())
     }
 }

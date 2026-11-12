@@ -276,6 +276,12 @@ pub fn probe_no_wait(on: bool) {
     windows::PROBE_NO_WAIT.set(on);
 }
 
+/// Probe only.
+#[cfg(windows)]
+pub fn probe_spin(on: bool) {
+    windows::PROBE_SPIN.set(on);
+}
+
 /// Run `confinement.program` confined, wait for it, kill whatever it
 /// left running, and return its exit status.  stdin is empty.
 ///

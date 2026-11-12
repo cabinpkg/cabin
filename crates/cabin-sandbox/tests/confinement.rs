@@ -254,6 +254,14 @@ mod enforced {
                     .collect();
                 late(Path::new(arg));
             }
+            // Probe only: start children for `arg` milliseconds.
+            #[cfg(windows)]
+            "spawn-for" => {
+                let until = std::time::Instant::now() + Duration::from_millis(arg.parse().unwrap());
+                while std::time::Instant::now() < until {
+                    drop(probe_command("read:nul").spawn());
+                }
+            }
             // Probe only: start children until killed.
             #[cfg(windows)]
             "spawner" => {
@@ -1638,7 +1646,7 @@ mod enforced {
         cabin_sandbox::probe_no_wait(false);
         let mut failures = std::collections::BTreeMap::<String, u32>::new();
         let mut ok = 0;
-        for _ in 0..60 {
+        for _ in 0..150 {
             let dir = TempDir::new().unwrap();
             match confine(
                 &format!("linger:spawner:{}", arg(dir.path())),
@@ -1691,6 +1699,23 @@ mod enforced {
             CloseHandle(process);
             format!("signaled={over} code={code}")
         }
+    }
+
+    /// Probe only: open each process the moment the job reports it.
+    #[test]
+    #[cfg(windows)]
+    fn probe_u1() {
+        for spin in [true, false] {
+            cabin_sandbox::probe_spin(spin);
+            for round in 0..15 {
+                let result = confine("spawn-for:1500", &[], &[]);
+                println!(
+                    "PROBE u1 spin={spin} round={round} result={:?}",
+                    result.map(|_| ()).map_err(|err| err.to_string())
+                );
+            }
+        }
+        cabin_sandbox::probe_spin(false);
     }
 
     /// Probe only: the regression tests with the waits removed.
