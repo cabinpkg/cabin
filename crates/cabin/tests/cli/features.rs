@@ -145,6 +145,7 @@ fn cabin_publish_registry_dir_preserves_declarations() {
             r#"[package]
 name = "acme/demo"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [features]

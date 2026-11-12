@@ -280,6 +280,7 @@ fn publish_c_lib(root: &Path, short: &str, extra: &str, body: &str) {
             r#"[package]
 name = "acme/{short}"
 version = "1.0.0"
+license = "MIT"
 {extra}
 "#
         ))

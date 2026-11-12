@@ -95,8 +95,8 @@ collaborators and CI converge on the same resolution; see [`lockfile.md`](lockfi
 ## Package name
 
 Package names follow the [package-name grammar](manifest.md#package): `[a-z0-9][a-z0-9_-]*`.
-`cabin new` and `cabin init` scaffold a bare name; add a `<scope>/` to `[package].name` before
-publishing.
+`cabin new` and `cabin init` scaffold a bare name and no license; add a `<scope>/` to
+`[package].name` and a [`license`](manifest.md#license) before publishing.
 
 When `--name` is omitted, the package name is derived from the final path component, lowercased
 (`cabin new path/to/hello-world` produces `hello-world`; `cabin new Boa` creates the directory

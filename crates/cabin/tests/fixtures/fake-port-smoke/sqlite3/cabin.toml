@@ -9,6 +9,7 @@
 [package]
 name = "cabin-ports/sqlite3"
 version = "3.53.2"
+license = "blessing"
 
 [features]
 default = []

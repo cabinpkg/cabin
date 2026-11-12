@@ -271,7 +271,7 @@ publishing a version the registry verifier rejects as `missing_source`.
 | `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
 | `links` *(optional)* | Declared per-target [`links`](manifest.md#links) claims, as a `{ "<target>": "<identity>" }` map sorted by target name.  A pure projection of the manifest so index consumers can run the post-resolution uniqueness check without downloading the archive.  Omitted when no target declares one. |
 | `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), the upstream archive's algorithm-prefixed `checksum` (distinct from the document's own published-archive `checksum` below), `format`, optional `strip-prefix`, the `patches` list, and the `copy` steps (`patches` and `copy` are each omitted when empty; `patches` renders between `strip-prefix` and `copy`, matching the manifest's only valid layout).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
-| `license` *(optional)* | The manifest's [`license`](manifest.md#license) SPDX expression, exactly as written.  Omitted when the manifest declares none, which publishing accepts only during the private alpha ([`manifest.md`](manifest.md#license)). |
+| `license` *(optional)* | The manifest's [`license`](manifest.md#license) SPDX expression, exactly as written.  Omitted when the manifest declares none, which only local staging with `cabin package` allows: every publish requires it ([`manifest.md`](manifest.md#license)). |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced.  Its leading 16 hex characters are the [packaging revision](package-index.md#packaging-revisions) this document describes. |
 | `source.type` | Always `"archive"`. |
@@ -335,6 +335,9 @@ Behavioral notes specific to registry publish:
 - Registry packages are always scoped: the publish is rejected (before any lint or write) when the
   `[package]` name has no `<scope>/` prefix, with a diagnostic showing the `name = "..."` line to
   change.  Local-only builds and path dependencies keep bare names.
+- Published packages always declare a license: the publish is rejected at the same point when the
+  manifest has no [`[package] license`](manifest.md#license).  Local-only builds, path
+  dependencies, and `cabin package` may omit it.
 - `source.path` in the registry's package index file is the registry-relative reference described
   above, regardless of what the dry-run metadata happened to carry.  The registry crate normalizes
   this so static sparse-HTTP serving can read the same layout without rewriting.

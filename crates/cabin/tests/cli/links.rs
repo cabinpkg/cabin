@@ -1527,6 +1527,7 @@ fn write_fork_build_fixture(root: &Path, bbb_edge: &str, default_enables: bool) 
         r#"[package]
 name = "acme/bbb"
 version = "1.0.0"
+license = "MIT"
 
 [target.bbb]
 type = "library"
@@ -1541,6 +1542,7 @@ c-standard = "c11"
             r#"[package]
 name = "acme/aaa"
 version = "1.0.0"
+license = "MIT"
 
 [dependencies]
 {bbb_edge}
@@ -1558,6 +1560,7 @@ c-standard = "c11"
         r#"[package]
 name = "acme/zzz"
 version = "1.0.0"
+license = "MIT"
 
 [target.zzz]
 type = "library"
@@ -1577,6 +1580,7 @@ links = "z"
             r#"[package]
 name = "acme/bbb"
 version = "1.0.0"
+license = "MIT"
 
 [features]
 default = {default}

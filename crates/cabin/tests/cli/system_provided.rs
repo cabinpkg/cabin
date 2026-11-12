@@ -35,6 +35,7 @@ fn publish_zlib_and_png(root: &Path) {
                 r#"[package]
 name = "acme/zlib"
 version = "1.3.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.z]
@@ -73,6 +74,7 @@ int z_answer(void);
                 r#"[package]
 name = "acme/png"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [dependencies]
@@ -285,6 +287,7 @@ fn an_absent_or_mismatched_module_fails_the_build() {
                 r#"[package]
 name = "acme/extra"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [dependencies]
@@ -461,6 +464,7 @@ fn a_provided_package_cannot_reach_a_package_built_from_source() {
                 r#"[package]
 name = "acme/imaging"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [dependencies]
@@ -549,6 +553,7 @@ c-standard = "c11"
                 r#"[package]
 name = "acme/tooled"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [dependencies]
@@ -635,6 +640,7 @@ fn a_patch_only_a_provided_package_reaches_is_dormant() {
                 r#"[package]
 name = "acme/extra"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.extra]
@@ -652,6 +658,7 @@ sources = ["src/extra.c"]
             r#"[package]
 name = "acme/zlib"
 version = "1.3.0"
+license = "MIT"
 c-standard = "c11"
 
 [dependencies]
@@ -722,6 +729,7 @@ fn a_local_package_cannot_be_provided() {
             r#"[package]
 name = "acme/zlib"
 version = "1.3.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.z]
@@ -784,6 +792,7 @@ fn each_library_target_comes_from_its_own_module() {
                 r#"[package]
 name = "acme/tls"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.ssl]
@@ -972,6 +981,7 @@ version = "0.1.0"
             r#"[package]
 name = "acme/lib"
 version = "0.1.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.lib]

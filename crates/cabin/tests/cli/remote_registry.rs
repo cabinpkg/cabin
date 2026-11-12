@@ -2062,6 +2062,7 @@ fn write_scoped_publishable_package(root: &Path) {
             r#"[package]
 name = "acme/demo"
 version = "0.1.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.demo]
@@ -2084,6 +2085,7 @@ fn write_scoped_c_interface_package(root: &Path, version: &str, interface_c: &st
             r#"[package]
 name = "acme/demo"
 version = "{version}"
+license = "MIT"
 
 [target.demo]
 type = "library"
@@ -2429,6 +2431,52 @@ fn publish_rejects_bare_dependency_names_before_any_connection() {
         Ok(_) => panic!("a refused publish must not open a connection to the registry"),
         Err(err) => panic!("unexpected listener state: {err}"),
     }
+}
+
+/// A published package must declare a license: `cabin publish`
+/// refuses one without it before credentials or any connection, while
+/// `cabin package` still stages the same manifest for local use.
+#[test]
+fn publish_rejects_a_package_without_a_license_before_any_connection() {
+    let dir = TempDir::new().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+
+    write_scoped_publishable_package(dir.path());
+    let manifest = dir.path().join("cabin.toml");
+    let body = std::fs::read_to_string(&manifest).unwrap();
+    let unlicensed = body.replace("license = \"MIT\"\n", "");
+    assert_ne!(body, unlicensed, "the fixture must declare a license");
+    std::fs::write(&manifest, unlicensed).unwrap();
+
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&url)
+        .args(["--manifest-path"])
+        .arg(&manifest)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "published packages must declare a license"),
+        "expected the license gate diagnostic in: {stderr}"
+    );
+
+    match listener.accept() {
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+        Ok(_) => panic!("a refused publish must not open a connection to the registry"),
+        Err(err) => panic!("unexpected listener state: {err}"),
+    }
+
+    cabin()
+        .args(["package", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--output-dir")
+        .arg(dir.path().join("dist"))
+        .assert()
+        .success();
 }
 
 /// The full upload path: the PUT hits the registry's `api` origin on
@@ -3564,6 +3612,7 @@ fn a_batch_publish_exchanges_exactly_once() {
             r#"[package]
 name = "acme/zlib"
 version = "1.3.1"
+license = "MIT"
 c-standard = "c11"
 
 [target.z]
@@ -3661,6 +3710,7 @@ fn a_batch_lint_rejection_names_the_failing_member() {
             r#"[package]
 name = "acme/demo"
 version = "1.0.1"
+license = "MIT"
 
 [target.demo]
 type = "header-only"
@@ -3712,6 +3762,7 @@ fn a_rate_limited_upload_is_paced_in_a_batch_and_fatal_alone() {
             r#"[package]
 name = "acme/zlib"
 version = "1.3.1"
+license = "MIT"
 c-standard = "c11"
 
 [target.z]
@@ -3790,6 +3841,7 @@ fn a_mid_batch_upload_failure_keeps_the_earlier_reports() {
             r#"[package]
 name = "acme/zlib"
 version = "1.3.1"
+license = "MIT"
 c-standard = "c11"
 
 [target.z]
@@ -3824,6 +3876,7 @@ fn write_scoped_zlib_package(root: &Path) {
             r#"[package]
 name = "acme/zlib"
 version = "1.3.1"
+license = "MIT"
 c-standard = "c11"
 
 [target.z]

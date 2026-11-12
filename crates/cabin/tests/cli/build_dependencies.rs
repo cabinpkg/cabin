@@ -737,6 +737,7 @@ fn a_published_package_brings_its_build_dependencies() {
         r#"[package]
 name = "acme/gen"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.gen]
@@ -750,6 +751,7 @@ sources = ["src/main.c"]
         r#"[package]
 name = "acme/lib"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [build-dependencies]
@@ -849,6 +851,7 @@ fn a_published_packages_optional_build_dependency_follows_its_feature() {
         r#"[package]
 name = "acme/lib"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [features]
@@ -913,6 +916,7 @@ deps = ["acme/lib"]
         r#"[package]
 name = "acme/gen"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [target.gen]

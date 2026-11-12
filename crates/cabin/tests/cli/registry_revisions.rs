@@ -47,6 +47,7 @@ fn publish_fmt_with(
             r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]
@@ -335,6 +336,7 @@ fn publish_b(pkg_root: &Path, registry: &Path) {
             r#"[package]
 name = "acme/b"
 version = "1.0.0"
+license = "MIT"
 interface-c-standard = "c11"
 
 [target.b]

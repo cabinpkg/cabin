@@ -23,11 +23,12 @@
   "links": {
     "withdep": "withdep-native"
   },
+  "license": "MIT OR Apache-2.0",
   "yanked": false,
-  "checksum": "sha256:1ca5e59a7e30f792fc32a833252dbbd18ae617298082905aa6e4c27699bcc8ea",
+  "checksum": "sha256:48bdef43eaf109c8fb18089d56a9985a46f7b964ecef5481f55d7e323e6abd97",
   "source": {
     "type": "archive",
-    "path": "../../archives/smoke/withdep/smoke-withdep-0.2.0-1ca5e59a7e30f792.zip",
+    "path": "../../archives/smoke/withdep/smoke-withdep-0.2.0-48bdef43eaf109c8.zip",
     "format": "zip"
   }
 }

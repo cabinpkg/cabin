@@ -58,7 +58,8 @@ pub struct DryRunReport {
 /// Returns [`PublishError::BarePackageName`] or
 /// [`PublishError::InvalidDependencyName`] for an unscoped package
 /// name or registry dependency key,
-/// [`PublishError::StandardCompatibility`] when a PL1 lint
+/// [`PublishError::MissingLicense`] when the manifest declares no
+/// license, [`PublishError::StandardCompatibility`] when a PL1 lint
 /// rejects the package, and [`PublishError::Package`] when staging,
 /// archiving, or writing the artifacts fails - it propagates every
 /// `cabin_package::PackageError` raised by `stage_with_project` /
@@ -72,10 +73,11 @@ pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError>
         Some(request.output_dir),
         &request.workspace_dep_requirements,
     )?;
-    // A dry-run rehearses a publish, so the bare-name gates fire
-    // here too.
+    // A dry-run rehearses a publish, so the publish gates fire here
+    // too.
     crate::registry::require_scoped_name(&staged.name, request.manifest_path)?;
     crate::registry::require_scoped_dependency_names(&staged.metadata, request.manifest_path)?;
+    crate::registry::require_license(&staged.metadata, request.manifest_path)?;
     // Reject on a PL1 error before writing any staging output.
     let warnings = crate::lints::split(crate::lints::manifest_findings(&staged.package))
         .map_err(PublishError::StandardCompatibility)?;
@@ -108,6 +110,7 @@ mod tests {
                 r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 "#,
             )
             .unwrap();
@@ -136,6 +139,7 @@ version = "10.2.1"
                 r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 "#,
             )
             .unwrap();
@@ -192,6 +196,35 @@ version = "10.2.1"
         out.assert(predicates::path::missing());
     }
 
+    /// The staging dry-run rehearses a publish, so it refuses a
+    /// package without a license as a publish would.
+    #[test]
+    fn dry_run_rejects_a_package_without_a_license() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str(
+                r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+"#,
+            )
+            .unwrap();
+        let out = dir.child("dist");
+        let err = dry_run(DryRunRequest {
+            manifest_path: manifest.path(),
+            output_dir: out.path(),
+            resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+        })
+        .unwrap_err();
+        assert!(
+            matches!(err, PublishError::MissingLicense { .. }),
+            "expected MissingLicense, got {err:?}"
+        );
+        out.assert(predicates::path::missing());
+    }
+
     /// The dependency-key gate fires in the staging dry-run too, for
     /// the same reason as the bare-name gate above.
     #[test]
@@ -203,6 +236,7 @@ version = "10.2.1"
                 r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
+license = "MIT"
 [dependencies]
 zlib = "^1.3"
 "#,

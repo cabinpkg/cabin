@@ -34,6 +34,7 @@ fn write_scoped_package(root: &Path) {
             r#"[package]
 name = "acme/fmt"
 version = "10.2.1"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.fmt]

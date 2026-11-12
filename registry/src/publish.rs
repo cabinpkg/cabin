@@ -165,14 +165,11 @@ pub struct VersionMetadata {
     /// the external verifier's metadata-equality pass.
     pub upstream: Option<UpstreamMetadata>,
     /// `[package] license` SPDX expression, stored and served back
-    /// verbatim.  Only its JSON type is checked here: the verifier's
-    /// metadata-equality pass requires it to equal what the archived
-    /// manifest's SPDX-validated field derives.
-    ///
-    /// Private-alpha leniency: a publish without it is accepted.  It
-    /// becomes required before the public launch (`docs/runbook.md`,
-    /// "Launch checklist").
-    pub license: Option<String>,
+    /// verbatim.  Required: a published package always declares one.
+    /// Only its presence and JSON type are checked here: the
+    /// verifier's metadata-equality pass requires it to equal what the
+    /// archived manifest's SPDX-validated field derives.
+    pub license: String,
     /// The build script in the archive's root, `build.c` or
     /// `build.cpp` ([`validate_metadata`]), stored and served back
     /// verbatim.  Absent and explicit `null` both deserialize to
@@ -688,6 +685,7 @@ mod tests {
   "name": "{scope}/{name}",
   "version": "{version}",
   "dependencies": {{}},
+  "license": "MIT",
   "yanked": false,
   "checksum": "sha256:aa",
   "source": {{
@@ -782,28 +780,28 @@ mod tests {
         assert!(parsed.features.is_some());
         assert_eq!(parsed.links["fmt"], "fmt");
         assert_eq!(
-            parsed.license.as_deref(),
-            Some("Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)")
+            parsed.license,
+            "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)"
         );
         assert!(parsed.build_dependencies.contains_key("acme/gen"));
         assert_eq!(parsed.build_script.as_deref(), Some("build.cpp"));
     }
 
-    /// The canonical document without a `license` stays valid and
-    /// means unspecified; a `license` that is not a JSON string is not
-    /// the canonical shape.
+    /// A published package always declares a license: a document
+    /// without one, or with one that is not a JSON string, is not the
+    /// canonical shape.
     #[test]
-    fn validate_metadata_types_the_optional_license() {
+    fn validate_metadata_requires_a_string_license() {
         let body = metadata_json("fmtlib", "fmt", "10.2.1");
-        let parsed = validate_metadata("fmtlib", "fmt", "10.2.1", REV, body.as_bytes()).unwrap();
-        assert_eq!(parsed.license, None);
-
-        let listed = body.replace("\"yanked\"", "\"license\": [\"MIT\"], \"yanked\"");
-        assert_ne!(listed, body);
-        assert_eq!(
-            validate_metadata("fmtlib", "fmt", "10.2.1", REV, listed.as_bytes()).unwrap_err(),
-            METADATA_NOT_CANONICAL
-        );
+        for replacement in ["", r#""license": null,"#, r#""license": ["MIT"],"#] {
+            let altered = body.replace(r#""license": "MIT","#, replacement);
+            assert_ne!(altered, body);
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "10.2.1", REV, altered.as_bytes()).unwrap_err(),
+                METADATA_NOT_CANONICAL,
+                "{replacement:?}"
+            );
+        }
     }
 
     #[test]
@@ -856,6 +854,7 @@ mod tests {
   "dependencies": {{}},
   "standards": {standards},
   "links": {links},
+  "license": "MIT",
   "yanked": false,
   "checksum": "sha256:bb",
   "source": {{"type": "archive", "path": "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}}
@@ -949,6 +948,7 @@ mod tests {
   "version": "1.0.0",
   "dependencies": {{}},
   "upstream": {upstream},
+  "license": "MIT",
   "yanked": false,
   "checksum": "sha256:aa",
   "source": {{
