@@ -4,6 +4,7 @@
 // `strict-close` (turn strict handle checks on first, then fclose).
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
+#pragma comment(lib, "advapi32.lib")
 
 #include <io.h>
 #include <stdarg.h>

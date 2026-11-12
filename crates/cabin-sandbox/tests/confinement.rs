@@ -312,6 +312,19 @@ mod enforced {
                         &raw mut child,
                     );
                     last_error(created != 0).unwrap();
+                    let opened = windows_sys::Win32::System::Threading::OpenProcess(
+                        windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE,
+                        0,
+                        child.dwProcessId,
+                    );
+                    println!(
+                        "sealed-open: {}",
+                        if opened.is_null() {
+                            std::io::Error::last_os_error().to_string()
+                        } else {
+                            "ok".to_owned()
+                        }
+                    );
                     WaitForSingleObject(child.hProcess, INFINITE);
                 }
             }
@@ -1680,10 +1693,90 @@ mod enforced {
         }
     }
 
+    /// Probe only: the regression tests with the waits removed.
+    #[test]
+    #[cfg(windows)]
+    fn probe_negative() {
+        cabin_sandbox::probe_no_wait(true);
+        let held = (0..12)
+            .filter(|_| {
+                std::panic::catch_unwind(a_killed_process_holds_no_file_once_the_run_returns)
+                    .is_err()
+            })
+            .count();
+        let left = (0..12)
+            .filter(|_| std::panic::catch_unwind(processes_left_running_are_killed).is_err())
+            .count();
+        cabin_sandbox::probe_no_wait(false);
+        println!(
+            "PROBE negative: without the waits, held-file test failed {held}/12, left-running test failed {left}/12"
+        );
+    }
+
+    /// Give up the right to open any process whatever its access-control
+    /// list says, which a test run by an administrator may hold.
+    #[cfg(windows)]
+    fn disable_debug_privilege() {
+        use std::ptr::{null, null_mut};
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::Security::{
+            AdjustTokenPrivileges, LookupPrivilegeValueW, SE_DEBUG_NAME, TOKEN_ADJUST_PRIVILEGES,
+            TOKEN_PRIVILEGES,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+        let mut token = null_mut();
+        // One privilege, with no attribute: disabled.
+        let mut privileges = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            ..TOKEN_PRIVILEGES::default()
+        };
+        // SAFETY: plain system calls on a token closed before returning.
+        unsafe {
+            let opened =
+                OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &raw mut token);
+            last_error(opened != 0).unwrap();
+            let named = LookupPrivilegeValueW(
+                null(),
+                SE_DEBUG_NAME,
+                &raw mut privileges.Privileges[0].Luid,
+            );
+            last_error(named != 0).unwrap();
+            // Succeeds as well for a token without the privilege.
+            let adjusted =
+                AdjustTokenPrivileges(token, 0, &raw const privileges, 0, null_mut(), null_mut());
+            last_error(adjusted != 0).unwrap();
+            CloseHandle(token);
+        }
+    }
+
     /// A process Cabin cannot wait for could still hold its files.
     #[test]
     #[cfg(windows)]
     fn a_process_cabin_cannot_open_fails_the_run() {
+        let debug = || {
+            let seen = Command::new("whoami").arg("/priv").output().unwrap();
+            String::from_utf8_lossy(&seen.stdout)
+                .lines()
+                .filter(|line| line.contains("SeDebugPrivilege"))
+                .collect::<Vec<_>>()
+                .join("|")
+        };
+        println!("PROBE debug privilege before: {:?}", debug());
+        let before_dir = TempDir::new().unwrap();
+        let before = confine(
+            &format!("sealed:late:{}", arg(before_dir.path())),
+            &[],
+            &[before_dir.path()],
+        );
+        println!(
+            "PROBE sealed before: {:?}",
+            before
+                .as_ref()
+                .map(|probed| probed.stdout.clone())
+                .map_err(ToString::to_string)
+        );
+        disable_debug_privilege();
+        println!("PROBE debug privilege after: {:?}", debug());
         let dir = TempDir::new().unwrap();
         let sealed = format!("sealed:late:{}", arg(dir.path()));
         let Err(SandboxError::Run { source, .. }) = confine(&sealed, &[], &[dir.path()]) else {

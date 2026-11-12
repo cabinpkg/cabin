@@ -342,9 +342,10 @@ fn probe_windows_tool_start() {
         let output = cmd.output().unwrap();
         let log = dir.path().join("build/dev/packages/app/.build-script");
         let seen = format!(
-            "PROBE confined strict={strict:?} status {:?}\n{}\nscript stderr:\n{}{}",
+            "PROBE confined strict={strict:?} status {:?}\n{}\ncabin stdout:\n{}\nscript stderr:\n{}{}",
             output.status,
             String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout),
             std::fs::read_to_string(log.join("stderr")).unwrap_or_default(),
             reports(&log.join("out")),
         );
