@@ -28,7 +28,9 @@ installed, and a package without an `executable` target is an error.
 
 The files go into `<root>/bin`.  The root is `--root <DIR>`, or `.cabin` in your home directory:
 `~/.cabin/bin`, or `%USERPROFILE%\.cabin\bin` on Windows.  Cabin does not edit `PATH` or a shell
-profile; it warns when the directory is not on `PATH`.
+profile.  When the directory is not on `PATH`, it warns and says what to add: the line for the
+startup file of your login shell (`SHELL`) when that is zsh, bash, or fish, and on Windows the
+entry for your user `Path` variable.
 
 Cabin keeps its record of what it installed in `<root>/.cabin-install/`.  The directory is Cabin's
 own: its files are not an interface.

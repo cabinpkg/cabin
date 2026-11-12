@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
+use clap_complete::Shell;
 
 use cabin_build::ManifestTargetSelector;
 use cabin_core::TargetKind;
@@ -232,10 +233,7 @@ pub(crate) fn install(
     }
     reporter.status("Installed", format_args!("{shown}"));
     if !on_path(&bin) {
-        reporter.warning(format_args!(
-            "{} is not on PATH: add it to run the installed programs by name",
-            bin.display()
-        ));
+        reporter.warning(format_args!("{}", path_hint(&bin)));
     }
     Ok(())
 }
@@ -426,4 +424,234 @@ fn path_source(dir: &Path) -> Result<Source> {
 
 fn on_path(bin: &Path) -> bool {
     std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir == bin))
+}
+
+/// How to put `bin` on `PATH`, for the warning that it is not there.
+/// Cabin only says what to add: it never edits a startup file.
+fn path_hint(bin: &Path) -> String {
+    if cfg!(windows) {
+        return windows_path_hint(bin);
+    }
+    let shell = std::env::var_os("SHELL").and_then(Shell::from_shell_path);
+    // The line says `$HOME`, so the home it is under is that variable's
+    // and not the account's.
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty());
+    unix_path_hint(bin, home.as_deref().map(Path::new), shell)
+}
+
+fn windows_path_hint(bin: &Path) -> String {
+    let bin = bin.display();
+    format!(
+        r#"{bin} is not in your PATH.
+
+To run installed programs from anywhere, add it to your user Path
+variable: open "Edit environment variables for your account" from
+the Start menu, edit Path, and add a new entry:
+
+    {bin}
+
+Then open a new terminal."#
+    )
+}
+
+/// The line to add to the startup file of `shell`, the user's login
+/// shell.  Any other shell, and a directory no line can name, get the
+/// instruction without a line rather than a guess.
+fn unix_path_hint(bin: &Path, home: Option<&Path>, shell: Option<Shell>) -> String {
+    // Under the home directory the line says `$HOME`, as the user
+    // would write it.  A home of `/` is over every directory.
+    let under_home = home
+        .filter(|home| home.parent().is_some())
+        .and_then(|home| bin.strip_prefix(home).ok());
+    let (shown, prefix, rest) = match under_home {
+        Some(rest) => (format!("~/{}", rest.display()), "$HOME/", rest),
+        None => (bin.display().to_string(), "", bin),
+    };
+    let line = bin
+        .to_str()
+        // `PATH` cannot hold a `:`, and a directory the reporter would
+        // escape is not the one the line would then name.
+        .filter(|dir| !dir.contains(':') && cabin_core::escape_control_chars(dir) == *dir)
+        .and(rest.to_str())
+        .zip(shell)
+        .and_then(|(dir, shell)| {
+            // Inside double quotes, so `$HOME` expands: a backslash
+            // goes before each character the shell reads there.
+            let quoted = |special: &str| {
+                let mut quoted = String::from(prefix);
+                for c in dir.chars() {
+                    if special.contains(c) {
+                        quoted.push('\\');
+                    }
+                    quoted.push(c);
+                }
+                quoted
+            };
+            let export = || format!(r#"export PATH="{}:$PATH""#, quoted(r#"\"$`"#));
+            match shell {
+                Shell::Zsh => Some(("~/.zshrc", export())),
+                // A macOS terminal starts bash as a login shell, which
+                // reads the first of these that exists and never
+                // `~/.bashrc`.
+                Shell::Bash if cfg!(target_os = "macos") => Some((
+                    ["~/.bash_profile", "~/.bash_login", "~/.profile"]
+                        .into_iter()
+                        .find(|file| home.is_some_and(|home| home.join(&file[2..]).exists()))
+                        .unwrap_or("~/.bash_profile"),
+                    export(),
+                )),
+                Shell::Bash => Some(("~/.bashrc", export())),
+                Shell::Fish => Some((
+                    "~/.config/fish/config.fish",
+                    format!(r#"fish_add_path "{}""#, quoted(r#"\"$"#)),
+                )),
+                _ => None,
+            }
+        });
+    match line {
+        Some((file, line)) => format!(
+            r"{shown} is not in your PATH.
+
+To run installed programs from anywhere, add the following
+line to {file}:
+
+    {line}
+
+Then restart your shell."
+        ),
+        None => format!(
+            r"{shown} is not in your PATH.
+
+To run installed programs from anywhere, add that directory to
+PATH in your shell's startup file."
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unix(bin: &str, shell: Option<Shell>) -> String {
+        unix_path_hint(Path::new(bin), Some(Path::new("/home/me")), shell)
+    }
+
+    #[test]
+    fn the_default_root_gets_a_line_that_says_home() {
+        assert_eq!(
+            unix("/home/me/.cabin/bin", Some(Shell::Zsh)),
+            r#"~/.cabin/bin is not in your PATH.
+
+To run installed programs from anywhere, add the following
+line to ~/.zshrc:
+
+    export PATH="$HOME/.cabin/bin:$PATH"
+
+Then restart your shell."#
+        );
+    }
+
+    /// Creating `~/.bash_profile` would stop a login bash reading the
+    /// `~/.profile` it reads now.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bash_on_macos_gets_the_startup_file_it_already_reads() {
+        let home = tempfile::tempdir().unwrap();
+        let hint = || {
+            unix_path_hint(
+                &home.path().join("bin"),
+                Some(home.path()),
+                Some(Shell::Bash),
+            )
+        };
+        std::fs::write(home.path().join(".profile"), "").unwrap();
+        assert!(hint().contains("line to ~/.profile:"), "{}", hint());
+        std::fs::write(home.path().join(".bash_profile"), "").unwrap();
+        assert!(hint().contains("line to ~/.bash_profile:"), "{}", hint());
+    }
+
+    #[test]
+    fn each_shell_gets_its_own_file_and_line() {
+        let bash = unix("/home/me/.cabin/bin", Some(Shell::Bash));
+        let file = if cfg!(target_os = "macos") {
+            "line to ~/.bash_profile:"
+        } else {
+            "line to ~/.bashrc:"
+        };
+        assert!(bash.contains(file), "{bash}");
+        assert!(
+            bash.contains(r#"    export PATH="$HOME/.cabin/bin:$PATH""#),
+            "{bash}"
+        );
+
+        let fish = unix("/home/me/.cabin/bin", Some(Shell::Fish));
+        assert!(
+            fish.contains("line to ~/.config/fish/config.fish:"),
+            "{fish}"
+        );
+        assert!(
+            fish.contains(r#"    fish_add_path "$HOME/.cabin/bin""#),
+            "{fish}"
+        );
+    }
+
+    /// A `--root` outside the home directory is named in full, with
+    /// what the shell would read inside the quotes escaped: a backtick
+    /// is not special to fish.
+    #[test]
+    fn a_custom_root_is_quoted_for_the_shell() {
+        let bin = r#"/opt/my $tools "a`b\c/bin"#;
+        let zsh = unix(bin, Some(Shell::Zsh));
+        assert!(
+            zsh.starts_with(&format!("{bin} is not in your PATH.")),
+            "{zsh}"
+        );
+        assert!(
+            zsh.contains(r#"    export PATH="/opt/my \$tools \"a\`b\\c/bin:$PATH""#),
+            "{zsh}"
+        );
+        let fish = unix(bin, Some(Shell::Fish));
+        assert!(
+            fish.contains(r#"    fish_add_path "/opt/my \$tools \"a`b\\c/bin""#),
+            "{fish}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_shell_or_directory_gets_no_line() {
+        let generic = r"/opt/tools/bin is not in your PATH.
+
+To run installed programs from anywhere, add that directory to
+PATH in your shell's startup file.";
+        assert_eq!(unix("/opt/tools/bin", None), generic);
+        let rootless = unix_path_hint(Path::new("/opt/tools/bin"), Some(Path::new("/")), None);
+        assert_eq!(rootless, generic);
+        assert_eq!(unix("/opt/tools/bin", Some(Shell::Elvish)), generic);
+        for bin in ["/opt/a:b/bin", "/opt/a\nb/bin", "/opt/a\u{202e}b/bin"] {
+            let hint = unix(bin, Some(Shell::Zsh));
+            assert!(!hint.contains("export"), "{hint}");
+        }
+        // `$HOME` must not hide what the line cannot hold.
+        let hint = unix_path_hint(
+            Path::new("/home/a:b/.cabin/bin"),
+            Some(Path::new("/home/a:b")),
+            Some(Shell::Zsh),
+        );
+        assert!(!hint.contains("export"), "{hint}");
+    }
+
+    #[test]
+    fn windows_is_told_about_the_user_path_variable() {
+        let hint = windows_path_hint(Path::new(r"C:\Users\me\.cabin\bin"));
+        assert!(
+            hint.starts_with(r"C:\Users\me\.cabin\bin is not in your PATH."),
+            "{hint}"
+        );
+        assert!(hint.contains("your user Path\nvariable"), "{hint}");
+        assert!(
+            hint.contains("\n    C:\\Users\\me\\.cabin\\bin\n"),
+            "{hint}"
+        );
+        assert!(!hint.contains("export"), "{hint}");
+    }
 }
