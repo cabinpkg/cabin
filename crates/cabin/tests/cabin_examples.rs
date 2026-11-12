@@ -1083,3 +1083,391 @@ fn library_with_tests_runs_tests() {
         );
     }
 }
+
+// ---------------------------------------------------------------
+// PROBE ONLY, never merged: `/bigobj` on this runner's toolchain.
+// `CABIN_PROBE_NO_BIGOBJ` (probe-only switch in cabin-driver) drops
+// the flag so one binary builds both ways.
+// ---------------------------------------------------------------
+
+fn probe_walk(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            probe_walk(&path, out);
+        } else {
+            out.push(path);
+        }
+    }
+}
+
+/// Total bytes of the files under `dir` with extension `ext`.
+fn probe_bytes(dir: &Path, ext: &str) -> (usize, u64) {
+    let mut files = Vec::new();
+    probe_walk(dir, &mut files);
+    let matching: Vec<_> = files
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == ext))
+        .collect();
+    let bytes = matching
+        .iter()
+        .map(|p| std::fs::metadata(p).map_or(0, |m| m.len()))
+        .sum();
+    (matching.len(), bytes)
+}
+
+struct ProbeRun {
+    ok: bool,
+    secs: f64,
+    text: String,
+}
+
+fn probe_build(root: &Path, release: bool, bigobj: bool) -> ProbeRun {
+    let mut cmd = cabin();
+    cmd.args(["-v", "build", "--manifest-path"])
+        .arg(root.join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(root.join("build"));
+    if release {
+        cmd.arg("--release");
+    }
+    if !bigobj {
+        cmd.env("CABIN_PROBE_NO_BIGOBJ", "1");
+    }
+    let start = std::time::Instant::now();
+    let output = cmd.output().expect("spawn cabin");
+    let secs = start.elapsed().as_secs_f64();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ProbeRun {
+        ok: output.status.success(),
+        secs,
+        text,
+    }
+}
+
+fn probe_write(root: &Path, rel: &str, text: &str) {
+    let path = root.join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+/// A package with one translation unit of `count` functions, each in
+/// its own COMDAT where the compiler makes one (`inline` in C++;
+/// function-level linking in an optimized C build).
+fn probe_many_functions(cxx: bool, count: usize) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let (ext, inline) = if cxx { ("cc", "inline ") } else { ("c", "") };
+    probe_write(
+        dir.path(),
+        "cabin.toml",
+        &format!(
+            r#"[package]
+name = "many"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.many]
+type = "executable"
+sources = ["src/main.{ext}"]
+"#
+        ),
+    );
+    let mut source = String::from("#include <stdio.h>\n");
+    for i in 0..count {
+        source.push_str(&format!("{inline}int f{i}(int x) {{ return x + {i}; }}\n"));
+    }
+    // External linkage and a run-time index keep an optimizing
+    // compiler from dropping the functions.
+    source.push_str("extern int (*const table[])(int);\nint (*const table[])(int) = {\n");
+    for i in 0..count {
+        source.push_str(&format!("f{i},\n"));
+    }
+    source.push_str("};\n");
+    source.push_str(&format!(
+        "int main(int argc, char **argv) {{ (void)argv; printf(\"last=%d\\n\", table[argc + {}](1)); return 0; }}\n",
+        count - 2
+    ));
+    probe_write(dir.path(), &format!("src/main.{ext}"), &source);
+    dir
+}
+
+/// A translation unit that instantiates a fair amount of the standard
+/// library, for a visible compile and link cost.
+fn probe_stl() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    probe_write(
+        dir.path(),
+        "cabin.toml",
+        r#"[package]
+name = "stl"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.text]
+type = "library"
+sources = ["src/text.cc"]
+include-dirs = ["include"]
+
+[target.stl]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["text"]
+"#,
+    );
+    probe_write(
+        dir.path(),
+        "include/text.h",
+        "#include <map>\n#include <string>\n#include <vector>\nstd::map<std::string, int> count_words(const std::vector<std::string>& lines);\n",
+    );
+    probe_write(
+        dir.path(),
+        "src/text.cc",
+        r#"#include "text.h"
+#include <algorithm>
+#include <regex>
+#include <sstream>
+std::map<std::string, int> count_words(const std::vector<std::string>& lines) {
+    std::map<std::string, int> counts;
+    const std::regex word("[A-Za-z]+");
+    for (const auto& line : lines) {
+        for (std::sregex_iterator it(line.begin(), line.end(), word), end; it != end; ++it) {
+            std::string w = it->str();
+            std::transform(w.begin(), w.end(), w.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            ++counts[w];
+        }
+    }
+    return counts;
+}
+"#,
+    );
+    probe_write(
+        dir.path(),
+        "src/main.cc",
+        r#"#include "text.h"
+#include <iostream>
+#include <memory>
+#include <unordered_map>
+int main() {
+    auto lines = std::make_unique<std::vector<std::string>>();
+    lines->push_back("The quick brown fox");
+    lines->push_back("jumps over the lazy dog");
+    std::unordered_map<std::string, int> seen;
+    for (const auto& [word, n] : count_words(*lines)) {
+        seen[word] += n;
+    }
+    std::cout << "the=" << seen["the"] << " words=" << seen.size() << "\n";
+}
+"#,
+    );
+    dir
+}
+
+fn probe_remove(root: &Path, ext: Option<&str>) {
+    let build = root.join("build");
+    match ext {
+        None => {
+            let _ = std::fs::remove_dir_all(&build);
+        }
+        Some(ext) => {
+            let mut files = Vec::new();
+            probe_walk(&build, &mut files);
+            for file in files {
+                if file.extension().is_some_and(|e| e == ext) {
+                    std::fs::remove_file(file).unwrap();
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn probe_bigobj() {
+    if !cfg!(windows) && std::env::var_os("PROBE_LOCAL").is_none() {
+        return;
+    }
+    require_c_and_cxx_build_tools();
+    let exe_ext = if cfg!(windows) { "exe" } else { "" };
+    let obj_ext = host_obj_ext();
+    let lib_ext = if cfg!(windows) { "lib" } else { "a" };
+    println!(
+        "PROBE arch={} os={}",
+        std::env::consts::ARCH,
+        std::env::consts::OS
+    );
+
+    // 1. The section limit: a 70,000-function translation unit.
+    for cxx in [true, false] {
+        let lang = if cxx { "c++" } else { "c" };
+        for release in [false, true] {
+            let profile = if release { "release" } else { "dev" };
+            let dir = probe_many_functions(cxx, 70_000);
+            let without = probe_build(dir.path(), release, false);
+            let c1128 = without.text.contains("C1128");
+            println!(
+                "PROBE limit lang={lang} profile={profile} flag=off ok={} c1128={c1128} secs={:.1}",
+                without.ok, without.secs
+            );
+            if !without.ok && !c1128 {
+                println!(
+                    "PROBE unexpected failure without the flag:\n{}",
+                    without.text
+                );
+            }
+            // Same build directory: nothing from the failed or
+            // flagless build may satisfy this one.
+            let with = probe_build(dir.path(), release, true);
+            let compile_line = with
+                .text
+                .lines()
+                .find(|l| l.contains("main.") && (l.contains("/c ") || l.contains(" -c ")))
+                .unwrap_or("<no compile line>");
+            println!(
+                "PROBE limit lang={lang} profile={profile} flag=on ok={} secs={:.1} no_work={}",
+                with.ok,
+                with.secs,
+                with.text.contains("ninja: no work to do.")
+            );
+            println!(
+                "PROBE limit compile line: {}",
+                &compile_line[..compile_line.len().min(400)]
+            );
+            assert!(with.ok, "build with /bigobj failed:\n{}", with.text);
+            let mut files = Vec::new();
+            probe_walk(&dir.path().join("build"), &mut files);
+            let exe = files
+                .iter()
+                .find(|p| {
+                    p.file_stem().is_some_and(|s| s == "many")
+                        && p.extension().map_or(exe_ext.is_empty(), |e| e == exe_ext)
+                })
+                .expect("built executable");
+            let stdout = run_artifact(exe, "many");
+            println!(
+                "PROBE limit lang={lang} profile={profile} run: {}",
+                stdout.trim()
+            );
+            assert_eq!(stdout.trim(), "last=70000");
+            let (objs, obj_bytes) = probe_bytes(&dir.path().join("build"), obj_ext);
+            println!("PROBE limit lang={lang} profile={profile} objects={objs} bytes={obj_bytes}");
+        }
+    }
+
+    // 2. Stale objects: a flag change must recompile.
+    let dir = copy_example("library-and-app");
+    let header = |root: &Path| {
+        let mut files = Vec::new();
+        probe_walk(&root.join("build"), &mut files);
+        let mut heads: Vec<String> = files
+            .iter()
+            .filter(|p| p.extension().is_some_and(|e| e == obj_ext))
+            .map(|p| {
+                let bytes = std::fs::read(p).unwrap();
+                format!(
+                    "{}:{:02x?}",
+                    p.file_name().unwrap().to_string_lossy(),
+                    &bytes[..bytes.len().min(8)]
+                )
+            })
+            .collect();
+        heads.sort();
+        heads.join(" ")
+    };
+    let off = probe_build(dir.path(), false, false);
+    assert!(off.ok, "{}", off.text);
+    println!("PROBE stale flag=off headers: {}", header(dir.path()));
+    let off_again = probe_build(dir.path(), false, false);
+    println!(
+        "PROBE stale flag=off again no_work={}",
+        off_again.text.contains("ninja: no work to do.")
+    );
+    let on = probe_build(dir.path(), false, true);
+    assert!(on.ok, "{}", on.text);
+    println!(
+        "PROBE stale flag=on no_work={} headers: {}",
+        on.text.contains("ninja: no work to do."),
+        header(dir.path())
+    );
+    let on_again = probe_build(dir.path(), false, true);
+    println!(
+        "PROBE stale flag=on again no_work={}",
+        on_again.text.contains("ninja: no work to do.")
+    );
+
+    // 2b. A user's own `/bigobj` next to Cabin's: does the compiler object?
+    if cfg!(windows) {
+        let dir = copy_example("hello-cpp");
+        let output = cabin()
+            .args(["-v", "build", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .arg("--build-dir")
+            .arg(dir.path().join("build"))
+            .env("CXXFLAGS", "/bigobj")
+            .output()
+            .expect("spawn cabin");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let line = text.lines().find(|l| l.contains("/bigobj")).unwrap_or("");
+        let diagnostics: Vec<&str> = text
+            .lines()
+            .filter(|l| l.contains("warning") || l.contains("D90") || l.contains("error"))
+            .collect();
+        println!(
+            "PROBE repeat ok={} count={} diagnostics={diagnostics:?}",
+            output.status.success(),
+            line.matches("/bigobj").count()
+        );
+    }
+
+    // 3. Time and size, with and without the flag.
+    let stl = probe_stl();
+    let hello_c = copy_example("hello-c");
+    let lib_app = copy_example("library-and-app");
+    for (name, root) in [
+        ("stl", stl.path()),
+        ("hello-c", hello_c.path()),
+        ("library-and-app", lib_app.path()),
+    ] {
+        for release in [false, true] {
+            let profile = if release { "release" } else { "dev" };
+            for bigobj in [false, true] {
+                let flag = if bigobj { "on" } else { "off" };
+                let (mut clean, mut relink, mut noop) = (Vec::new(), Vec::new(), Vec::new());
+                for _ in 0..3 {
+                    probe_remove(root, None);
+                    let run = probe_build(root, release, bigobj);
+                    assert!(run.ok, "{}", run.text);
+                    clean.push(run.secs);
+                    noop.push(probe_build(root, release, bigobj).secs);
+                    if !exe_ext.is_empty() {
+                        probe_remove(root, Some(exe_ext));
+                        let run = probe_build(root, release, bigobj);
+                        assert!(run.ok, "{}", run.text);
+                        relink.push(run.secs);
+                    }
+                }
+                let min = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
+                let build = root.join("build");
+                let (objs, obj_bytes) = probe_bytes(&build, obj_ext);
+                let (_, lib_bytes) = probe_bytes(&build, lib_ext);
+                let (_, exe_bytes) = probe_bytes(&build, exe_ext);
+                println!(
+                    "PROBE cost target={name} profile={profile} flag={flag} clean_min={:.2} clean_all={clean:.2?} relink_min={:.2} noop_min={:.2} objects={objs} obj_bytes={obj_bytes} lib_bytes={lib_bytes} exe_bytes={exe_bytes}",
+                    min(&clean),
+                    min(&relink),
+                    min(&noop),
+                );
+            }
+        }
+    }
+}

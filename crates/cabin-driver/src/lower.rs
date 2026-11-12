@@ -337,7 +337,7 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
 }
 
 /// MSVC `cl.exe` compile argv: the GNU layout with `cl` spellings,
-/// plus `/nologo`, `/utf-8`, and `/EHsc` (C++ only).  `/Z7` embeds
+/// plus `/nologo`, `/utf-8`, `/bigobj`, and `/EHsc` (C++ only).  `/Z7` embeds
 /// debug info in each object, so parallel compiles never contend on a
 /// shared PDB.  The mode-specific tail is `/c /Tp<src> /Fo<obj>` or
 /// `/Tp<src> /Zs`, with `/Tc` for C.
@@ -356,6 +356,14 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     // the box.  Every `cl` new enough to pass Cabin's `/std:`
     // validation (19.10+) understands the flag, as does `clang-cl`.
     out.push("/utf-8".to_owned());
+    // Without `/bigobj`, `cl` fails a translation unit that needs
+    // more than 65,279 sections (C1128), which template-heavy headers
+    // reach.  `clang-cl` accepts the flag and ignores it: LLVM picks
+    // the object format from the section count.
+    // PROBE ONLY, never merged: lets one binary build both ways.
+    if std::env::var_os("CABIN_PROBE_NO_BIGOBJ").is_none() {
+        out.push("/bigobj".to_owned());
+    }
     out.extend(args.provider_flags.iter().cloned());
     out.push(msvc_std_flag(compile.standard).to_owned());
     if compile.standard.language() == SourceLanguage::Cxx {
@@ -797,14 +805,14 @@ mod tests {
         let mut compile = cxx_compile(CompileMode::Object);
         compile.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
         let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
-        // `/std:` sits after `cl` `/nologo` `/utf-8`.
-        assert_eq!(lowered.command[3], "/std:c++20");
+        // `/std:` sits after `cl` `/nologo` `/utf-8` `/bigobj`.
+        assert_eq!(lowered.command[4], "/std:c++20");
 
         let mut compile = cxx_compile(CompileMode::Object);
         compile.standard = LanguageStandard::C(CStandard::C17);
         let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
-        assert_eq!(lowered.command[3], "/std:c17");
+        assert_eq!(lowered.command[4], "/std:c17");
         assert!(!lowered.command.iter().any(|a| a == "/EHsc"));
         assert!(lowered.command.iter().any(|a| a.starts_with("/Tc")));
     }
@@ -989,6 +997,7 @@ mod tests {
                 "cl.exe",
                 "/nologo",
                 "/utf-8",
+                "/bigobj",
                 "/std:c++17",
                 "/EHsc",
                 "/O2",
@@ -1021,8 +1030,15 @@ mod tests {
         let mut msvc = msvc_cxx_compile(CompileMode::Object);
         msvc.arguments.provider_flags = strs(&["/std:c++14"]);
         assert_eq!(
-            compile_argv(Dialect::Msvc, &msvc)[..5],
-            strs(&["cl.exe", "/nologo", "/utf-8", "/std:c++14", "/std:c++17"])
+            compile_argv(Dialect::Msvc, &msvc)[..6],
+            strs(&[
+                "cl.exe",
+                "/nologo",
+                "/utf-8",
+                "/bigobj",
+                "/std:c++14",
+                "/std:c++17"
+            ])
         );
     }
 
@@ -1062,7 +1078,7 @@ mod tests {
         let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile.clone()));
         assert_eq!(lowered.depfile, compile.depfile);
         assert!(!lowered.command.iter().any(|a| a == "/showIncludes"));
-        let depfile = &lowered.command[8..10];
+        let depfile = &lowered.command[9..11];
         assert_eq!(
             depfile,
             &strs(&["/clang:-MD", "/clang:-MFC:/build/main.obj.d"])[..]
@@ -1092,6 +1108,32 @@ mod tests {
         assert!(!lowered.command.iter().any(|a| a == "/EHsc"));
         // The UTF-8 charset pin is language-independent.
         assert!(lowered.command.iter().any(|a| a == "/utf-8"));
+    }
+
+    /// Beyond the C++ object compile whose argv is pinned above, a C
+    /// compile, a `clang-cl` compile, and a check take `/bigobj` once
+    /// on the MSVC dialect and never on the GNU one.  The exact-argv
+    /// tests pin its absence from the assemble, archive, and link
+    /// commands.
+    #[test]
+    fn bigobj_is_on_every_msvc_dialect_compile_once() {
+        let mut c = msvc_cxx_compile(CompileMode::Object);
+        c.standard = LanguageStandard::C(CStandard::C11);
+        let mut clang_cl = msvc_cxx_compile(CompileMode::Object);
+        clang_cl.clang_depfile = true;
+        let check = msvc_cxx_compile(CompileMode::SyntaxOnly {
+            stamp: Utf8PathBuf::from("C:/build/main.obj.check"),
+        });
+        for compile in [c, clang_cl, check] {
+            let count = |dialect| {
+                compile_argv(dialect, &compile)
+                    .iter()
+                    .filter(|a| *a == "/bigobj")
+                    .count()
+            };
+            assert_eq!(count(Dialect::Msvc), 1, "{compile:?}");
+            assert_eq!(count(Dialect::GnuLike), 0, "{compile:?}");
+        }
     }
 
     #[test]
