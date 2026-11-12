@@ -15,7 +15,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 mod auth;
-mod backup;
 mod common;
 mod downloads;
 mod packages;

@@ -52,18 +52,6 @@ fn the_canonical_call_sites_pass() {
         ),
     );
     assert!(accepted, "the guard rejected the canonical call sites");
-    // The queue drain's double acquisition is pinned under
-    // backup_glue.rs, where the drain lives.
-    let accepted = guard_accepts_in(
-        "backup_glue.rs",
-        concat!(
-            "async fn drain_backup_queue(env: &Env) {\n",
-            "    let (Ok(db), Ok(blobs), Ok(backup)) =\n",
-            "        (env.d1(\"DB\"), env.bucket(\"BLOBS\"), env.bucket(\"BACKUP\"));\n",
-            "}\n",
-        ),
-    );
-    assert!(accepted, "the guard rejected the backup_glue drain");
 }
 
 #[test]
@@ -82,7 +70,7 @@ fn unsanctioned_acquisitions_are_caught() {
             concat!(
                 "async fn artifact_response(env: &Env) {\n",
                 "    let a = env.bucket(\"BLOBS\")?;\n",
-                "    let b = env.bucket(\"BACKUP\")?;\n",
+                "    let b = env.bucket(\"OTHER\")?;\n",
                 "}\n",
             ),
         ),
@@ -167,15 +155,15 @@ fn the_pins_are_file_scoped_and_track_drift() {
 #[test]
 fn a_drifted_pin_names_its_counts() {
     let dir = scratch(
-        "backup_glue.rs",
-        "async fn drain_backup_queue(env: &Env) { let b = env.bucket(\"BLOBS\"); }",
+        "web_glue.rs",
+        "async fn package_source(env: &Env) { serve_from_cache(env).await }",
     );
     let violations = r2::check(dir.path()).expect("run the guard");
     assert_eq!(
         violations,
         vec![
-            "src/backup_glue.rs: drain_backup_queue is pinned for 2 acquisition(s) \
-             but has 1; update crates/xtask-registry-guard/src/r2.rs"
+            "src/web_glue.rs: package_source is pinned for 1 acquisition(s) \
+             but has 0; update crates/xtask-registry-guard/src/r2.rs"
         ]
     );
 }

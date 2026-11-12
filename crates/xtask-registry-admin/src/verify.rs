@@ -56,7 +56,7 @@
 //!   boundary is charged for it;
 //! - the CA roots are `ureq`'s compiled-in `webpki-roots`, never
 //!   `SSL_CERT_FILE` or the system store - the same environment
-//!   ceiling the crate's proxy handling carries (`crate::audit`);
+//!   ceiling the crate's proxy handling carries;
 //! - a redirect on the upstream download must be an absolute `https://`
 //!   URL: a relative `Location` fails the download, and a failed
 //!   upstream download is "verifying without it", never a rejection;

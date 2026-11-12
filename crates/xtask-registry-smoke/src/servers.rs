@@ -243,7 +243,6 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     DELETE FROM scope_claims WHERE scope_name IN
       ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
        'core', 'sm0keorg');
-    DELETE FROM backup_pending;
     -- A prior run that failed inside a breaker leg leaves its pinned
     -- mode behind; normalize so re-runs never start blocked.
     UPDATE meta SET value = 'normal' WHERE key = 'service_mode';"#

@@ -440,9 +440,7 @@ enum Persist {
 /// blob already uploaded but never counted - still accounts for it, a
 /// second name sharing the blob never double-counts it, and two
 /// concurrent first publishes of the same archive serialize on the
-/// transaction so exactly one of them counts it. Backup replication
-/// does not ride publish: only versions that become verified enter the
-/// durable backup queue ([`sql::ENQUEUE_VERIFIED_BACKUP`]).
+/// transaction so exactly one of them counts it.
 ///
 /// [`Persist::Lost`] means the batch's guards suppressed the revision
 /// insert - a twin publish, a byte-identical publish, (without the
@@ -702,9 +700,8 @@ async fn revive_rejected_revision(
     // ponytail: a delete decided before this batch can still land after
     // this put (two stores, no shared transaction); that residual
     // window needs the same version's verdict and replacement in flight
-    // simultaneously, fails loudly (the artifact route's missing-blob
-    // 500), and the verified-only BACKUP replica holds the bytes for
-    // recovery when the version had ever been verified.
+    // simultaneously, and fails loudly (the artifact route's
+    // missing-blob 500); a byte-identical re-publish repairs it.
     bucket.put(&key, new.archive.to_vec()).execute().await?;
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
@@ -772,9 +769,7 @@ async fn revive_rejected_revision(
 /// The idempotent no-op's self-heal: the retry holds the row's exact
 /// bytes, so it repairs a primary blob a reclaim race deleted. Like
 /// every repair path it is governed and opportunistic - a refusal
-/// skips it without failing the (already correct) response. Backup
-/// replication does not ride retries: the verified-backup queue is
-/// durable on its own.
+/// skips it without failing the (already correct) response.
 async fn heal_blobs_on_retry(env: &Env, checksum: &str, archive: &[u8]) -> worker::Result<()> {
     let key = crate::checksum::blob_key(checksum);
     let bucket = env.bucket("BLOBS")?;

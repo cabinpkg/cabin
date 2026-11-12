@@ -9,7 +9,7 @@ use crate::catalog_refresh::{self, Target};
 use crate::governor::{self, StoragePool};
 use crate::governor_client::{self};
 use crate::routes::Route;
-use crate::{analytics, auth, backup, breaker, sql, verify};
+use crate::{analytics, auth, breaker, sql, verify};
 
 use super::{
     CountRecord, non_negative, now_iso8601, post_json, read_meta, upsert_meta, web_origin,
@@ -80,10 +80,10 @@ pub(super) async fn reconcile_governor(env: &Env, db: &D1Database) {
 
 /// The reconciliation core the cron pass and the admin endpoint's
 /// on-demand `{"reconcile":true}` action share: pushes D1's
-/// authoritative live-blob set (primary pool only - operation windows,
-/// backup, and dump accounting have their own recovery paths;
-/// `docs/runbook.md`, "Known ceilings") and returns the governor's
-/// report. `None` means the governor did not answer.
+/// authoritative live-blob set (primary pool only - the operation
+/// windows have their own recovery path; `docs/runbook.md`, "Known
+/// ceilings") and returns the governor's report. `None` means the
+/// governor did not answer.
 pub(super) async fn push_live_set_to_governor(
     env: &Env,
     db: &D1Database,
@@ -334,17 +334,9 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     ])
     .await?;
 
-    // Backup health rides every pass (docs/runbook.md, "Disaster
-    // recovery"): an unhealthy backup logs and notifies on every pass
-    // until resolved - a backup system's classic failure mode is
-    // stopping silently - while mode changes notify once.
-    let overdue_backups = read_overdue_backups(&db).await.ok();
-    let backup_alert = backup::alert(overdue_backups);
-    if let Some(alert) = &backup_alert {
-        console_error!("backup health: {alert}");
-    }
-    // Verification health rides every pass too: revisions pending for
-    // over an hour mean the verifier is stuck or absent, and the
+    // Verification health rides every pass, logging and notifying
+    // until resolved, while mode changes notify once: revisions pending
+    // for over an hour mean the verifier is stuck or absent, and the
     // fail-safe direction (nothing pending ever becomes resolvable on
     // its own) makes that invisible to users unless it alerts here.
     let stale_pending = read_stale_pending(&db).await.ok();
@@ -359,15 +351,13 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
             next.as_str()
         );
     }
-    if next != current || backup_alert.is_some() || verification_alert.is_some() {
+    if next != current || verification_alert.is_some() {
         notify_webhook(
             env,
             current,
             next,
             &reason,
             &usage,
-            overdue_backups,
-            backup_alert.as_deref(),
             stale_pending,
             verification_alert.as_deref(),
         )
@@ -383,17 +373,6 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
 async fn read_stale_pending(db: &D1Database) -> worker::Result<u64> {
     let record: CountRecord = db
         .prepare(sql::COUNT_STALE_PENDING)
-        .first(None)
-        .await?
-        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
-    Ok(non_negative(record.n))
-}
-
-/// How many verified-archive backups have sat in the replication queue
-/// for over an hour.
-async fn read_overdue_backups(db: &D1Database) -> worker::Result<u64> {
-    let record: CountRecord = db
-        .prepare(sql::COUNT_STALE_BACKUP_PENDING)
         .first(None)
         .await?
         .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
@@ -444,17 +423,14 @@ async fn fetch_metric(
 }
 
 /// POSTs a summary to `NOTIFY_WEBHOOK_URL` when it is configured, on
-/// service-mode changes (`from != to`), backup alerts, and
-/// stuck-verifier alerts alike; failures only log.
-#[allow(clippy::too_many_arguments)] // one cron pass's full snapshot
+/// service-mode changes (`from != to`) and stuck-verifier alerts
+/// alike; failures only log.
 async fn notify_webhook(
     env: &Env,
     from: breaker::Mode,
     to: breaker::Mode,
     reason: &str,
     usage: &breaker::Usage,
-    overdue_backups: Option<u64>,
-    backup_alert: Option<&str>,
     stale_pending: Option<u64>,
     verification_alert: Option<&str>,
 ) {
@@ -471,10 +447,6 @@ async fn notify_webhook(
         "r2_class_a_month": usage.r2_class_a_month,
         "d1_rows_read_today": usage.d1_rows_read_today,
         "r2_class_b_month": usage.r2_class_b_month,
-        "backup": {
-            "overdue_backups": overdue_backups,
-            "alert": backup_alert,
-        },
         "verification": {
             "stale_pending": stale_pending,
             "alert": verification_alert,

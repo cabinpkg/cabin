@@ -36,7 +36,8 @@ use serde::{Deserialize, Serialize};
 pub enum StoragePool {
     /// Primary archive blobs (`BLOBS`, `blobs/sha256/<hex>`).
     Primary,
-    /// Verified-artifact backup blobs (`BACKUP`, same keys).
+    /// The verified-archive copies a retired replication left
+    /// (`BACKUP`, same keys).
     Backup,
     /// The D1 dumps and sidecars a retired nightly job left (`BACKUP`,
     /// `d1/...`).
@@ -56,16 +57,15 @@ impl StoragePool {
 /// Billable-operation pools: monthly flows, consumed immediately before
 /// each billable R2 call. Split so abuse of one channel can exhaust
 /// only its own allowance: the publish path, the read plane, the source
-/// viewer, the verifier, and the operator-side infrastructure jobs
-/// (backup replication, reconciliation) each draw from
-/// their own pool, and nothing reachable with an ordinary credential
-/// can touch the infrastructure pools.
+/// viewer, and the verifier each draw from their own pool. Nothing
+/// draws from the infrastructure pools since the backup replication
+/// was retired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpPool {
     /// Class A (writes/lists) on the publish path: blob puts.
     APublish,
-    /// Class A for infrastructure: backup replication puts.
+    /// Class A for infrastructure; unused.
     AInfra,
     /// Class B (reads) for ordinary artifact downloads (cache misses).
     BOrdinary,
@@ -75,7 +75,7 @@ pub enum OpPool {
     BVerifier,
     /// Class B on the publish path: existence heads.
     BPublish,
-    /// Class B for infrastructure: replication heads and source reads.
+    /// Class B for infrastructure; unused.
     BInfra,
 }
 

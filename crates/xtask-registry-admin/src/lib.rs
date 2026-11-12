@@ -20,12 +20,10 @@
 //! D1 and the R2 object commands go through the pinned `wrangler`
 //! ([`wrangler`]), the only supported path to them from outside the
 //! Worker.  Listing a bucket is the exception: wrangler exposes no
-//! command for it, and no bulk mode for deleting one - so the audit, the
-//! governor's evidence checks and the wipe's sweep call Cloudflare's R2
-//! REST API directly with the operator's `CLOUDFLARE_API_TOKEN`.
+//! command for it, and no bulk mode for deleting one - so the governor's
+//! evidence checks and the wipe's sweep call Cloudflare's R2 REST API
+//! directly with the operator's `CLOUDFLARE_API_TOKEN`.
 
-pub mod audit;
-pub mod backfill;
 pub mod diagnose;
 pub mod governor;
 pub mod launch_guard;
@@ -41,17 +39,14 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-/// The BACKUP bucket, which more than one command reaches: the
-/// backfill writes to it, the audit and the governor's evidence checks
-/// read it, and the pre-launch wipe empties it.
-/// Outside that wipe its `blobs/` namespace is append-only
-/// (`registry/docs/runbook.md`, "Disaster recovery"), so nothing else
-/// here deletes from it.
+/// The BACKUP bucket, which nothing writes any more: the governor's
+/// evidence checks read what a retired replication and a retired
+/// nightly dump left in it, and the pre-launch wipe empties it.
 pub const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
 /// The PRIMARY blob bucket, which more than one command reaches: the
-/// governor's evidence checks list it, the wipe sweeps it, and the
-/// backfill copies out of it.  The deploy guard
+/// governor's evidence checks list it and the wipe sweeps it.  The
+/// deploy guard
 /// (`xtask-registry-guard`) keeps its own literal on purpose - it
 /// asserts `wrangler.jsonc` declares this binding, and a guard
 /// importing the value it checks would check it against itself.
@@ -281,7 +276,7 @@ pub fn column_lines(
         text.push('\n');
     }
     // NULs are dropped, so `sha256:<32 hex>\0<32 hex>` reaches the caller as
-    // 64 hex digits and passes the backfill's grammar.
+    // 64 hex digits.
     text.retain(|character| character != '\0');
     // An empty enumeration still yields a single blank line, and a
     // value carrying a newline becomes two lines.

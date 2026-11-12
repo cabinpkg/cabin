@@ -59,11 +59,7 @@ const TOTALS: &str = "
         (SELECT COUNT(*) FROM (SELECT checksum FROM revisions
           WHERE verification != 'rejected' GROUP BY checksum)) AS live_objects,
         (SELECT COALESCE(SUM(size), 0) FROM (SELECT MAX(archive_size) AS size
-          FROM revisions WHERE verification != 'rejected' GROUP BY checksum)) AS live_bytes,
-        (SELECT COUNT(*) FROM (SELECT checksum FROM revisions
-          WHERE verification = 'verified' GROUP BY checksum)) AS verified_objects,
-        (SELECT COALESCE(SUM(size), 0) FROM (SELECT MAX(archive_size) AS size
-          FROM revisions WHERE verification = 'verified' GROUP BY checksum)) AS verified_bytes
+          FROM revisions WHERE verification != 'rejected' GROUP BY checksum)) AS live_bytes
     ";
 
 // Expiry mirrors the auth lookup's strict lexicographic bound over the
@@ -74,20 +70,19 @@ const PUBLISHERS: &str = "SELECT COUNT(*) AS n FROM tokens \
      WHERE scopes LIKE '%publish%' AND revoked_at IS NULL \
      AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
 
-/// The governor's usage snapshot.  The audit deserializes the same
-/// endpoint's answer, so the shape lives here once.
+/// The governor's usage snapshot.
 #[derive(Deserialize)]
-pub(crate) struct Snapshot {
-    pub(crate) storage: Vec<StorageRow>,
+struct Snapshot {
+    storage: Vec<StorageRow>,
     ops: Vec<OpRow>,
 }
 
 #[derive(Deserialize)]
-pub(crate) struct StorageRow {
-    pub(crate) pool: String,
+struct StorageRow {
+    pool: String,
     state: String,
-    pub(crate) bytes: u64,
-    pub(crate) objects: u64,
+    bytes: u64,
+    objects: u64,
 }
 
 #[derive(Deserialize)]
@@ -112,8 +107,16 @@ struct Report {
 struct Page {
     success: bool,
     result: Vec<Object>,
-    #[serde(default, deserialize_with = "crate::audit::present")]
+    #[serde(default, deserialize_with = "present")]
     result_info: Option<PageInfo>,
+}
+
+/// `deserialize_with` for an R2 listing's `result_info`, so only a
+/// missing key reads as `None`.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    value: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(value).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -129,6 +132,24 @@ struct PageInfo {
 /// Cloudflare's API, which the evidence checks list through.
 pub(crate) const API_BASE: &str = "https://api.cloudflare.com/client/v4";
 
+/// No redirects: a redirect is the answer, never a step on the way to
+/// one - and a redirected read is the one way this could inspect a
+/// bucket or a ledger other than the one it names.  `ureq` returns the
+/// 3xx as `Ok` with this set: the listing then fails to parse and the
+/// ledger read fails its status check, each with the body the redirect
+/// carried.
+fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new().redirects(0).build()
+}
+
+fn get(agent: &ureq::Agent, url: &str, token: &str) -> Result<String> {
+    Ok(agent
+        .get(url)
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()?
+        .into_string()?)
+}
+
 /// This account's buckets through the R2 REST object API: the evidence
 /// checks here and the registry wipe's sweep both go through it.
 pub(crate) struct Buckets {
@@ -141,7 +162,7 @@ impl Buckets {
     /// `base` is the API root that `accounts/<id>/r2/buckets` hangs off.
     pub(crate) fn new(base: &str, account: &str, token: String) -> Self {
         Self {
-            agent: crate::audit::agent(),
+            agent: agent(),
             url: format!("{base}/accounts/{account}/r2/buckets"),
             token,
         }
@@ -158,7 +179,7 @@ impl Buckets {
         if !prefix.is_empty() {
             url = format!("{url}&prefix={}", encode_prefix(prefix));
         }
-        let body = crate::audit::get(&self.agent, &url, &self.token)
+        let body = get(&self.agent, &url, &self.token)
             .with_context(|| format!("listing {bucket} failed"))?;
         let page: Page = serde_json::from_str(&body)
             .with_context(|| format!("unexpected R2 list response: {body}"))?;
@@ -326,7 +347,7 @@ fn origin() -> Result<String> {
 }
 
 /// The admin governor endpoint.
-pub(crate) struct Api {
+struct Api {
     endpoint: String,
     token: String,
 }
@@ -336,7 +357,7 @@ impl Api {
     ///
     /// If `CABIN_API_ORIGIN` is not https, or the registry token is
     /// missing.
-    pub(crate) fn new() -> Result<Self> {
+    fn new() -> Result<Self> {
         let token = std::env::var(cabin_env::CABIN_REGISTRY_TOKEN).unwrap_or_default();
         if token.is_empty() {
             bail!(
@@ -354,7 +375,7 @@ impl Api {
     /// The status is the verdict and the body is read for its message
     /// either way, so a refusal is not raised.
     fn call(&self, body: Option<&str>) -> Result<(u16, String)> {
-        let agent = crate::audit::agent();
+        let agent = agent();
         let request = match body {
             Some(_) => agent
                 .post(&self.endpoint)
@@ -387,7 +408,7 @@ impl Api {
 
     /// Anything but 200 ends the run, naming what was asked for and
     /// what came back.
-    pub(crate) fn ok(&self, body: Option<&str>, what: &str) -> Result<String> {
+    fn ok(&self, body: Option<&str>, what: &str) -> Result<String> {
         let (status, answer) = self.call(body)?;
         if status != 200 {
             bail!("{what} answered {status}: {answer}");
@@ -476,7 +497,6 @@ fn compare(api: &Api) -> Result<()> {
             .with_context(|| format!("the D1 totals query answered no {column}"))
     };
     let (live_objects, live_bytes) = (total("live_objects")?, total("live_bytes")?);
-    let (verified_objects, verified_bytes) = (total("verified_objects")?, total("verified_bytes")?);
 
     let pool = |name: &str| -> (u64, u64) {
         snapshot
@@ -504,17 +524,11 @@ fn compare(api: &Api) -> Result<()> {
         );
     }
     println!("backup ledger:  {backup_bytes} B in {backup_objects} object(s)");
-    println!("D1 verified:    {verified_bytes} B in {verified_objects} blob(s)");
     println!(
-        "    (the backup pool may legitimately exceed the verified view: the BACKUP\n    \
-         bucket keeps history only the pre-launch wipe deletes; cargo\n    \
-         registry-backup-audit, from the repository root, audits it)"
+        "    (leftovers of the retired replication: nothing writes the BACKUP bucket\n    \
+         any more, and only the pre-launch wipe deletes what it holds)"
     );
     println!("dump ledger:    {dump_bytes} B in {dump_objects} object(s)");
-    println!(
-        "    (audit the d1/ prefix against this with cargo registry-backup-audit,\n    \
-         run from the repository root)"
-    );
     Ok(())
 }
 
@@ -610,14 +624,13 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
     let buckets = deployed_buckets()?;
 
     if pool == Pool::Backup {
-        // The BACKUP bucket is append-only, so a gone backup object is
-        // an incident, never routine maintenance: the extra
-        // confirmation marks that boundary, and the evidence rule is
-        // the same.
+        // A backup entry is a leftover of the retired replication and
+        // nothing recreates it, so releasing one is confirmed
+        // separately; the evidence rule is the same.
         confirm(
             cabin_env::CABIN_GOVERNOR_RELEASE_BACKUP_YES,
-            "Backup-pool accounting is append-only; releasing marks an incident, not \
-             maintenance. Type \"release-backup\" to confirm: ",
+            "Nothing recreates a backup-pool entry once it is released. Type \
+             \"release-backup\" to confirm: ",
             "release-backup",
         )?;
     }
@@ -682,13 +695,10 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
                 api.ok(Some(r#"{"reconcile":true}"#), "the repair reconcile")?;
                 eprintln!("verify with cargo registry-governor compare before moving on");
             }
-            Pool::Backup => eprintln!(
-                "run cargo registry-backup-backfill from the repository root so the drain \
-                 re-ledgers it"
-            ),
-            Pool::Dump => eprintln!(
-                "nothing in the service writes dump keys; audit with \
-                 cargo registry-backup-audit from the repository root"
+            Pool::Backup | Pool::Dump => eprintln!(
+                "nothing in the service writes {} keys; find what wrote it before \
+                 releasing again",
+                pool.as_str()
             ),
         }
         bail!("the release window closed over a reappearing object");
@@ -834,9 +844,24 @@ fn count(sql: &str) -> Result<u64> {
 pub(crate) fn encode_prefix(prefix: &str) -> String {
     prefix
         .split('/')
-        .map(crate::audit::encode_uri_component)
+        .map(encode_uri_component)
         .collect::<Vec<_>>()
         .join("/")
+}
+
+/// `encodeURIComponent`.
+fn encode_uri_component(value: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            encoded.push(char::from(byte));
+        } else {
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
 
 /// Whether the exact key exists.  `Ok(false)` is proven absence; every
@@ -889,6 +914,7 @@ mod tests {
         assert_eq!(encode_prefix("blobs/"), "blobs/");
         assert_eq!(encode_prefix("a b/c+d"), "a%20b/c%2Bd");
         assert_eq!(encode_prefix("a/b?c=d&e"), "a/b%3Fc%3Dd%26e");
+        assert_eq!(encode_prefix("a%41"), "a%2541");
         assert_eq!(encode_prefix("x/-_.!~*\'()"), "x/-_.!~*\'()");
     }
 

@@ -27,8 +27,7 @@
     // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account
     // Analytics Read; the budget cron degrades gracefully without it),
     // and optionally NOTIFY_WEBHOOK_URL (POSTed a JSON summary on
-    // service-mode changes, backup-replication alerts, and
-    // stuck-verifier alerts) and
+    // service-mode changes and stuck-verifier alerts) and
     // WEBSITE_DEPLOY_HOOK (the website's Workers Builds deploy hook, POSTed
     // when its package pages fall behind the catalog).
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
@@ -121,8 +120,7 @@
         }
     ],
     "r2_buckets": [
-        { "binding": "BLOBS", "bucket_name": "cabin-registry-blobs" },
-        { "binding": "BACKUP", "bucket_name": "cabin-registry-backup" }
+        { "binding": "BLOBS", "bucket_name": "cabin-registry-blobs" }
     ],
     // The cost governor: one named SQLite-backed Durable Object is the
     // serialized authority for the hard R2 budgets (src/governor.rs,

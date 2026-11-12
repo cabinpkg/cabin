@@ -3,7 +3,7 @@
 //! rejected blob's reclaim. The lifecycle rules live in `crate::verify`.
 
 use serde::Deserialize;
-use worker::{Context, D1Database, Env, Request, Response, console_error, console_log};
+use worker::{D1Database, Env, Request, Response, console_error, console_log};
 
 use crate::auth::{self, AuthContext};
 use crate::error;
@@ -262,7 +262,6 @@ pub(super) async fn verdict_authn(
 pub(super) async fn verdict_response(
     req: &mut Request,
     env: &Env,
-    ctx: &Context,
     db: &D1Database,
     scope: &str,
     name: &str,
@@ -318,8 +317,8 @@ pub(super) async fn verdict_response(
             // A repeat rejection re-drives the blob reclaim: the first
             // rejection's row flip and refund commit in one D1
             // transaction, but the reclaim runs after it and can fail
-            // (a D1 error in its refcount read or queue retirement; the
-            // R2 delete itself is logged and swallowed) - the driver
+            // (a D1 error in its refcount read; the R2 delete itself is
+            // logged and swallowed) - the driver
             // never re-lists a rejected row, so this is the operator's
             // or a retrying client's path to the orphan. Idempotent
             // when the first attempt already reclaimed it.
@@ -338,14 +337,6 @@ pub(super) async fn verdict_response(
                      the row moved between the read and the guarded update"
                 );
                 return error_response(409, error::VERDICT_TARGET_CHANGED);
-            }
-            // The fast replication path: drain the just-enqueued
-            // backup work off the response path. The queue row is
-            // durable, so a lost kick only defers to the next breaker
-            // cron pass.
-            if parsed.verdict == verify::Verdict::Verified {
-                let env = env.clone();
-                ctx.wait_until(async move { crate::backup_glue::drain_backup_queue(&env).await });
             }
             true
         }
@@ -387,37 +378,19 @@ async fn apply_verdict(
 ) -> worker::Result<bool> {
     match parsed.verdict {
         verify::Verdict::Verified => {
-            let now = now_iso8601();
-            // One batch: the verified transition and its backup-queue
-            // row commit together, so a crash right after can never
-            // lose the replication work - the enqueue's guards repeat
-            // the mark's, so the row appears exactly when the
-            // transition applied (`sql::ENQUEUE_VERIFIED_BACKUP`).
-            let results = db
-                .batch(vec![
-                    db.prepare(sql::MARK_REVISION_VERIFIED).bind(&[
-                        now.as_str().into(),
-                        scope.into(),
-                        name.into(),
-                        version.into(),
-                        parsed.checksum.as_str().into(),
-                        parsed.published_at.as_str().into(),
-                        revision.into(),
-                    ])?,
-                    db.prepare(sql::ENQUEUE_VERIFIED_BACKUP).bind(&[
-                        scope.into(),
-                        name.into(),
-                        version.into(),
-                        parsed.checksum.as_str().into(),
-                        parsed.published_at.as_str().into(),
-                        now.as_str().into(),
-                        revision.into(),
-                    ])?,
-                ])
+            let mark = db
+                .prepare(sql::MARK_REVISION_VERIFIED)
+                .bind(&[
+                    now_iso8601().as_str().into(),
+                    scope.into(),
+                    name.into(),
+                    version.into(),
+                    parsed.checksum.as_str().into(),
+                    parsed.published_at.as_str().into(),
+                    revision.into(),
+                ])?
+                .run()
                 .await?;
-            let mark = results
-                .first()
-                .ok_or_else(|| worker::Error::RustError("missing batch result 0".to_owned()))?;
             Ok(changed_rows(mark.meta()?) > 0)
         }
         verify::Verdict::Rejected => {
@@ -493,17 +466,15 @@ async fn apply_rejection(
 /// same harmless, content-addressed garbage a crashed publish leaves -
 /// see `docs/runbook.md`), and later reclaim paths retry it. Never
 /// touches the meta counter - the caller accounts for the bytes when it
-/// flips the row states - and never touches BACKUP, which is
-/// append-only by design.
+/// flips the row states.
 ///
 /// ponytail: the refcount read and the delete are not atomic with
 /// publishes' R2 writes (two stores, no shared transaction). Publishers
 /// close the practical window by re-checking their blob after their D1
 /// batch commits and re-uploading if this delete beat them to it; a
 /// delete that lands even later is loud (the artifact route's
-/// missing-blob 500) and recoverable from the append-only BACKUP
-/// replica when a verified blob's copy completed, otherwise by the
-/// publisher's byte-identical re-publish (`heal_blobs_on_retry`).
+/// missing-blob 500) and recoverable by the publisher's byte-identical
+/// re-publish (`heal_blobs_on_retry`).
 /// A reclaim queue with a grace period is the upgrade if
 /// reclaim/publish races ever become a real operational pattern.
 async fn delete_blob_if_unreferenced(
@@ -521,18 +492,6 @@ async fn delete_blob_if_unreferenced(
         return Ok(());
     }
     let key = crate::checksum::blob_key(checksum);
-    // No live reference also means nothing needs a backup copy any
-    // more: retire the queue row first (before the delete, so it can
-    // never linger past the primary object), or a blob whose copy
-    // never landed would keep the drain retrying against a deleted
-    // primary object forever. The retire re-checks liveness inside
-    // the statement - a verdict landing between this request's
-    // refcount read and here enqueues transactionally, and its work
-    // must not be lost to this stale reader.
-    db.prepare(sql::RETIRE_DEAD_BACKUP_PENDING)
-        .bind(&[key.as_str().into(), checksum.into()])?
-        .run()
-        .await?;
     // R2 deletes are not billable, so no consumption rides them. The
     // ledger entry deliberately stays committed: a successful delete is
     // NOT proof the key stays gone - a concurrent same-checksum publish

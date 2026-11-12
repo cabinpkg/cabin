@@ -90,7 +90,7 @@ pub(super) async fn handle_website(
         let response = if let Some(refusal) = oidc_admission(req, env).await? {
             refusal
         } else if verdict_authn(req, env, &db).await? {
-            verdict_response(req, env, ctx, &db, &scope, &name, &version).await?
+            verdict_response(req, env, &db, &scope, &name, &version).await?
         } else {
             unauthorized(env)?
         };

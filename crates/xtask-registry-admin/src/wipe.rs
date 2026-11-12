@@ -7,14 +7,12 @@
 //! ```
 //!
 //! Remote first empties both buckets - the primary's archive blobs and
-//! every object in the BACKUP bucket, the backups of a registry whose
-//! data is disposable - then drops and recreates the database,
+//! every object in the BACKUP bucket, which holds only what retired
+//! jobs left - then drops and recreates the database,
 //! reapplies every migration, bakes the recreated id into
 //! `wrangler.jsonc`, bumps the registry generation and redeploys.
-//! `--local` is the same reset of the local emulated state, the emulated
-//! backup bucket included.  Once `meta.launched` is `true`, neither
-//! runs, and the backup bucket's append-only retention is the only
-//! thing that ever happens to it.
+//! `--local` is the same reset of the local emulated state.  Once
+//! `meta.launched` is `true`, neither runs.
 //!
 //! Pre-launch only: [`launch_guard`] refuses once `meta.launched` is
 //! `true`.  It runs AFTER the confirmation prompt and immediately before
@@ -76,7 +74,7 @@
 //!
 //! Ceilings:
 //!
-//! - the R2 sweep goes through the audit's pinned `ureq` agent, so a
+//! - the R2 sweep goes through the governor's pinned `ureq` agent, so a
 //!   proxy named only in the environment is not read;
 //! - a key the delete URL cannot carry verbatim - one with a `.` or
 //!   `..` path segment, which URL parsing resolves away - cannot be
@@ -85,13 +83,6 @@
 //!   `wrangler r2 object delete` builds the same URL;
 //! - the base of that API is `CF_API_BASE`, defaulting to Cloudflare's,
 //!   so the environment names where `CLOUDFLARE_API_TOKEN` is sent;
-//! - the comment in `registry/migrations/0001_init.sql` still names the
-//!   deleted `scripts/wipe.sh`.  Applied migrations are byte-frozen: the
-//!   deploy gate compares `migrations-applied` against the files'
-//!   content, so editing that comment would block every deploy until
-//!   an operator re-runs this very command against the live database.
-//!   The wording follows the next baseline edit that ships through a
-//!   wipe, which re-stamps as part of the procedure;
 //! - `wrangler.jsonc` is read as UTF-8; a config carrying invalid bytes
 //!   ends the run;
 //! - the four local state directories are removed in order and the

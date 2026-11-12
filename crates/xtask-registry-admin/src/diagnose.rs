@@ -36,8 +36,7 @@ const COUNTS: &str = "
     (SELECT COUNT(*) FROM revisions WHERE verification = 'verified') AS verified,
     (SELECT COUNT(*) FROM revisions WHERE verification = 'rejected') AS rejected,
     (SELECT COUNT(*) FROM versions WHERE yanked = 1) AS yanked,
-    (SELECT COUNT(*) FROM tokens) AS tokens,
-    (SELECT COUNT(*) FROM backup_pending) AS backup_pending";
+    (SELECT COUNT(*) FROM tokens) AS tokens";
 
 /// # Errors
 ///
@@ -81,7 +80,7 @@ pub fn run() -> Result<()> {
         println!("    {key}: {value}");
     }
 
-    step("corpus and queue counts (D1)");
+    step("corpus counts (D1)");
     let counts = output(&mut wrangler(&[
         "d1",
         "execute",
