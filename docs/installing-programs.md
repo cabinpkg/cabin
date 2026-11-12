@@ -74,8 +74,19 @@ A registry package is built as a dependency is, so less of its manifest applies 
 Install such a package from a copy of its sources with `--path`.
 
 Only the executable is copied.  Cabin links the libraries of the packages it builds statically, so
-the program does not need its build.  A shared library a package names through raw `ldflags` is
-not copied: the program finds it only where those flags said.
+the program does not need its build.  A shared library is never copied with a program:
+
+- One a [build script supplies](build-scripts.md#supplying-a-library) from outside the build, such
+  as an SDK's, is the platform's loader's to find when the program runs.  Cabin's record of the
+  installation names it, and Cabin does not check that the loader finds it.
+- One a build script made in the build directory would be gone with that directory, so a program
+  that links it is not installed.
+- One a package names through raw `ldflags` is found only where those flags said.
+
+Cabin tells such a library by its file's header (an ELF shared object, a Mach-O dynamic library, a
+DLL, an import library in MSVC's format) or, for an Apple text stub, by the name `.tbd`.  It does
+not recognize a MinGW import library (`.dll.a`) or a linker script that names a shared library, so
+neither rule above reaches a program linked through one.
 
 ## The lockfile
 

@@ -44,6 +44,11 @@ pub struct Package {
     pub toolchain: Toolchain,
     /// Every other package the build used.
     pub dependencies: Vec<Dependency>,
+    /// The shared libraries the package's programs were linked with and
+    /// load when they run.  Cabin neither installed them nor checked
+    /// that a program finds them.
+    #[serde(default)]
+    pub runtime_libraries: Vec<Utf8PathBuf>,
     /// The files in `bin/` the package owns.
     pub binaries: Vec<Binary>,
 }

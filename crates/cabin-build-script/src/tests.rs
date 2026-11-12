@@ -17,7 +17,7 @@ use cabin_core::{Package, TargetPlatform};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::result::{self, Invalid};
-use crate::{Error, Script, find, load, run};
+use crate::{Error, Script, find, load, loads_at_run_time, run};
 
 const ACTION: &str = "CABIN_SDK_ACTION";
 const SECRET: &str = "secret-marker";
@@ -1106,6 +1106,78 @@ fn a_library_names_its_machine_in_its_header() {
             "{name}: {problem:?}"
         );
     }
+}
+
+/// A library a program loads when it runs is told from one a link
+/// copies into the program, by the file's header.
+#[test]
+fn a_library_a_program_loads_says_so_in_its_header() {
+    let temp = TempDir::new().unwrap();
+    let head = |head: &[u8], len| {
+        let mut file = head.to_vec();
+        file.resize(len, 0);
+        file
+    };
+    // The type follows the sixteen bytes that identify an ELF file.
+    let elf = |kind: u8| {
+        let mut file = head(&[0x7f, b'E', b'L', b'F', 2, 1, 1], 64);
+        file[16] = kind;
+        file
+    };
+    // The file type is the fourth word of a Mach-O header.
+    let macho = |kind: u8| {
+        let mut file = head(&[0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1], 32);
+        file[12] = kind;
+        file
+    };
+    // A universal binary of one slice, at 64.
+    let mut fat = head(&[0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 1], 64);
+    fat[8..20].copy_from_slice(&[1, 0, 0, 0x0c, 0, 0, 0, 0, 0, 0, 0, 64]);
+    fat[23] = 32;
+    fat.extend(macho(6));
+    // A DOS header that places the PE one at 0x40, whose characteristics
+    // end the file header.
+    let pe = |dll: u8| {
+        let mut file = head(b"MZ", 0x40 + 248);
+        file[0x3c] = 0x40;
+        file[0x40..0x46].copy_from_slice(b"PE\0\0\x64\xaa");
+        file[0x58..0x5a].copy_from_slice(&[0x0b, 0x02]);
+        file[0x57] = dll;
+        file
+    };
+    let mut import = archive(62);
+    let entry = head(&[0, 0, 0xff, 0xff, 0, 0, 0x64, 0xaa], 20);
+    import.extend(
+        format!(
+            "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+            "f.obj/",
+            0,
+            0,
+            0,
+            644,
+            entry.len()
+        )
+        .into_bytes(),
+    );
+    import.extend(entry);
+    for (name, file, loads) in [
+        ("libz.so", elf(3), true),
+        ("z.o", elf(1), false),
+        ("libz.dylib", macho(6), true),
+        ("z.macho.o", macho(1), false),
+        ("universal.dylib", fat, true),
+        ("z.dll", pe(0x20), true),
+        ("z.exe", pe(0), false),
+        ("libz.a", archive(62), false),
+        ("z.lib", import, true),
+        ("libz.tbd", b"--- !tapi-tbd\n".to_vec(), true),
+        ("libz.ld", b"GROUP ( libz.a )\n".to_vec(), false),
+    ] {
+        let path = temp.path().join(name);
+        fs::write(&path, file).unwrap();
+        assert_eq!(loads_at_run_time(&path), loads, "{name}");
+    }
+    assert!(!loads_at_run_time(&temp.path().join("missing.so")));
 }
 
 #[test]

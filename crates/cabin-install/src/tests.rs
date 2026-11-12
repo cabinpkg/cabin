@@ -18,6 +18,7 @@ fn package(name: &str) -> Package {
             version: None,
         },
         dependencies: Vec::new(),
+        runtime_libraries: Vec::new(),
         binaries: Vec::new(),
     }
 }
