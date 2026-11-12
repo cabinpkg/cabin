@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/picohttpparser` registry
 package, published from the curated
-[`ports/picohttpparser/2026.4.6/`](https://github.com/cabin-ports/ports/tree/main/ports/picohttpparser/2026.4.6/)
+[`ports/pi/picohttpparser/2026.4.6/`](https://github.com/cabin-ports/ports/tree/main/ports/pi/picohttpparser/2026.4.6/)
 package directory.  The program links against picohttpparser, parses an HTTP
 request from an in-memory buffer with `phr_parse_request`, and
 prints the method, path, and header count.

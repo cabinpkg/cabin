@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/stb` registry package,
 published from the curated
-[`ports/stb/2026.4.15/`](https://github.com/cabin-ports/ports/tree/main/ports/stb/2026.4.15/)
+[`ports/st/stb/2026.4.15/`](https://github.com/cabin-ports/ports/tree/main/ports/st/stb/2026.4.15/)
 package directory.  The program includes `stb_sprintf.h` with
 `STB_SPRINTF_IMPLEMENTATION` defined - the stb single-file pattern,
 where exactly one translation unit hosts the function bodies - and

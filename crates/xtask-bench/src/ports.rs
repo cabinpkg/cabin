@@ -20,7 +20,9 @@ pub const PORTS: [(&str, &str); 4] = [
 pub fn stage_registry(ports: &Path, download_cache: &Path, work: &Path) -> Result<PathBuf> {
     let registry = work.join("registry");
     for (name, _) in PORTS {
-        let name_dir = ports.join(name.trim_start_matches("cabin-ports/"));
+        let short = name.trim_start_matches("cabin-ports/");
+        // `<prefix>/<name>`: the prefix is the name's first two characters.
+        let name_dir = ports.join(&short[..2]).join(short);
         let mut versions = std::fs::read_dir(&name_dir)
             .with_context(|| format!("reading {}", name_dir.display()))?
             .map(|entry| entry.map(|entry| entry.path()))
