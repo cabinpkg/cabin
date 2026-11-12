@@ -397,9 +397,10 @@ sources = ["src/main.c"]
         .env("PATH", path)
         .assert()
         .success();
+    // The embedded file's own line ending is its checkout's.
     assert_eq!(
-        output_of(&installed(&root, "app")),
-        "Hello from an embedded file\n"
+        output_of(&installed(&root, "app")).trim_end(),
+        "Hello from an embedded file"
     );
 }
 
