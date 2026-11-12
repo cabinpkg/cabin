@@ -289,8 +289,9 @@ repository-relative fixture data deterministically.
 
 A package's build script runs with an environment Cabin builds from scratch: a fixed set of
 `CABIN_*` variables, a short list of yours (`PATH` among them), and every variable whose name starts
-with `CABIN_SDK_`, which is how you point a build script at an SDK.  Nothing else of your
-environment reaches it.  See [What a script is given](build-scripts.md#what-a-script-is-given).
+with `CABIN_SDK_`, which is how you point a build script at an SDK.  Every build script of the
+build may read the directories those name.  Nothing else of your environment reaches it.  See
+[What a script is given](build-scripts.md#what-a-script-is-given).
 
 ## Why Cabin does not auto-inject `-DCABIN_PACKAGE_*` macros
 

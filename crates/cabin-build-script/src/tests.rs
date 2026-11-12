@@ -37,6 +37,10 @@ type = "library"
 sources = ["src/demo.c"]
 interface-defines = ["DEMO_API=1"]
 
+[target.core]
+type = "library"
+sources = ["src/core.c"]
+
 [target.headers]
 type = "header-only"
 include-dirs = ["include"]
@@ -99,7 +103,7 @@ impl Fixture {
             fs::write(path, contents).unwrap();
         }
         #[cfg(unix)]
-        std::os::unix::fs::symlink(base.join("sdk"), root.join("led")).unwrap();
+        std::os::unix::fs::symlink(&base, root.join("led")).unwrap();
         let secret = |name: &str| (name.into(), SECRET.into());
         let mut inherited = vec![
             (ACTION.into(), action.into()),
@@ -159,6 +163,7 @@ impl Fixture {
             profile: "dev",
             platform: &self.platform,
             msvc: false,
+            machine: &self.platform.arch,
             tools: &self.tools,
             inherited: &self.inherited,
         }
@@ -185,6 +190,7 @@ fn path_problem(path: impl Into<String>, problem: &'static str) -> Invalid {
 
 /// The build script: see the module documentation.
 #[test]
+#[allow(clippy::too_many_lines)] // one arm per action
 fn script() {
     let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
     let (Some(action), Some(out)) = (var(ACTION), var("CABIN_OUT_DIR")) else {
@@ -214,7 +220,11 @@ fn script() {
                     read(&root.parent().unwrap().join("outside")),
                 ),
                 // Absent on Windows, where the fixture makes no symlink.
-                ("read through a link", read(&root.join("led/include/sdk.h"))),
+                ("read through a link", read(&root.join("led/outside"))),
+                (
+                    "read the SDK",
+                    read(&var("CABIN_SDK_DEMO").unwrap().join("include/sdk.h")),
+                ),
                 ("write the package", outcome(fs::write(&table, "2\n"))),
                 (
                     "write a stamp",
@@ -346,6 +356,7 @@ fn a_script_reports_through_its_result_file_from_inside_its_grants() {
     ] {
         assert!(line(refused).contains(": refused"), "{}", line(refused));
     }
+    assert_eq!(line("read the SDK"), "read the SDK: done");
     assert_eq!(line("write a home"), "write a home: done");
     assert!(!seen.contains(SECRET), "{seen}");
     for set in [
@@ -562,12 +573,79 @@ fn a_result_file_is_refused_at_its_first_bad_line() {
     let (root, out) = (&fixture.root, fixture.out());
     fs::create_dir_all(out.join("include")).unwrap();
     fs::write(out.join("gen.c"), "").unwrap();
+    fs::write(out.join("libz.a"), "").unwrap();
     let (not_offered, unwatched) = (result::NOT_OFFERED, result::UNWATCHED);
     let cases: Vec<(String, usize, Invalid)> = vec![
         (
-            "link-file demo /usr/lib/libz.a".into(),
+            "link-library demo z".into(),
             1,
-            Invalid::UnknownDirective("link-file".into()),
+            Invalid::UnknownDirective("link-library".into()),
+        ),
+        (
+            "external headers".into(),
+            1,
+            Invalid::Kind {
+                directive: "external",
+                target: "headers".into(),
+                kind: "header-only",
+            },
+        ),
+        (
+            "external app".into(),
+            1,
+            Invalid::Kind {
+                directive: "external",
+                target: "app".into(),
+                kind: "executable",
+            },
+        ),
+        (
+            "interface-define demo A\nexternal demo".into(),
+            2,
+            Invalid::ExternalLate("demo".into()),
+        ),
+        (
+            format!("external demo\nlink-file demo {out}/libz.a\ndefine demo A"),
+            3,
+            Invalid::External {
+                directive: "define",
+                target: "demo".into(),
+            },
+        ),
+        (
+            format!("external demo\nsource demo {out}/gen.c"),
+            2,
+            Invalid::External {
+                directive: "source",
+                target: "demo".into(),
+            },
+        ),
+        (
+            format!("link-file demo {out}/libz.a"),
+            1,
+            Invalid::NotExternal("demo".into()),
+        ),
+        // The first line that lacks one, not the first target by name.
+        (
+            "# none\nexternal demo\nexternal core\ninterface-define demo A".into(),
+            2,
+            Invalid::NothingToLink("demo".into()),
+        ),
+        (
+            format!("external demo\nlink-file demo {out}/include"),
+            2,
+            path_problem(format!("{out}/include"), "is not a file"),
+        ),
+        // Not the package's own, nor the system's: by its spelling.
+        (
+            format!("external demo\nlink-file demo {root}/src/demo.c"),
+            2,
+            path_problem(format!("{root}/src/demo.c"), result::NOT_LINKABLE),
+        ),
+        (
+            format!("external demo\nlink-file demo {}/libz.a", fixture.base),
+            2,
+            path_problem(format!("{}/libz.a", fixture.base), result::NOT_LINKABLE),
         ),
         (
             " define demo A".into(),
@@ -747,6 +825,45 @@ fn a_result_file_is_refused_at_its_first_bad_line() {
     );
     let hidden = regions.hidden().unwrap();
     assert!(hidden.contains(&regions.root.join(".git")));
+    // And of what the user offers, the directories apart from the
+    // package and the build.
+    let sdk = fixture.base.join("sdk");
+    let read_with = |offered: &Utf8Path| {
+        let offering = [("CABIN_SDK_DEMO".into(), offered.into())];
+        let script = Script {
+            inherited: &offering,
+            ..fixture.script()
+        };
+        let (_, regions) = script.prepare().unwrap();
+        regions.readable().unwrap()
+    };
+    assert!(read_with(&sdk).contains(&sdk.clone().into()));
+    for kept in [
+        &fixture.base,
+        root,
+        &root.join(".git"),
+        &fixture.build_dir,
+        &out,
+        &fixture.base.join("outside"),
+    ] {
+        assert!(!read_with(kept).contains(&kept.into()), "{kept}");
+    }
+    // Nor where a link leads from what a script writes, from the
+    // package, or from an entry the script does not read.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let tmp = fixture.dir.join("tmp");
+        fs::create_dir(&tmp).unwrap();
+        symlink(&sdk, tmp.join("sdk")).unwrap();
+        for led in [tmp.join("sdk"), root.join("led/sdk")] {
+            assert!(!read_with(&led).contains(&sdk.clone().into()), "{led}");
+        }
+        fs::remove_dir_all(root.join(".git")).unwrap();
+        symlink(&sdk, root.join(".git")).unwrap();
+        assert!(!read_with(&sdk).contains(&sdk.clone().into()));
+        fs::remove_file(root.join(".git")).unwrap();
+    }
 
     // What lies outside the package is the user's to offer, and one
     // file is one source however a script spells it.
@@ -769,6 +886,166 @@ source demo {out}/./gen.c
         ..script
     };
     assert!(matches!(run(&around), Err(Error::PackageInBuildDir(at)) if at == *root));
+}
+
+/// A static library of one ELF object for `machine`, an `e_machine`.
+fn archive(machine: u16) -> Vec<u8> {
+    let mut object = vec![0x7f, b'E', b'L', b'F', 2, 1, 1];
+    object.resize(16, 0);
+    // A relocatable object, version 1, with no section and no segment.
+    object.extend([1, machine, 1, 0].into_iter().flat_map(u16::to_le_bytes));
+    object.resize(52, 0);
+    object.extend([64, 0, 0, 64, 0, 0].into_iter().flat_map(u16::to_le_bytes));
+    let size = object.len();
+    let mut archive = format!(
+        "!<arch>\n{:<16}{:<12}{:<6}{:<6}{:<8}{size:<10}`\n",
+        "z.o/", 0, 0, 0, 644
+    )
+    .into_bytes();
+    archive.extend(object);
+    archive
+}
+
+#[test]
+fn a_library_a_script_supplies_is_one_the_build_links() {
+    let Some(fixture) = Fixture::new("") else {
+        return;
+    };
+    let (out, sdk) = (fixture.out(), fixture.base.join("sdk"));
+    fs::create_dir_all(&out).unwrap();
+    let (x86_64, aarch64) = (archive(62), archive(183));
+    for (file, contents) in [
+        (out.join("libz.a"), &x86_64),
+        (out.join("z.lib"), &x86_64),
+        (sdk.join("libm.so.6"), &b"GROUP ( libm.so )".to_vec()),
+        (sdk.join("libarm.a"), &aarch64),
+    ] {
+        fs::write(file, contents).unwrap();
+    }
+    let script = Script {
+        machine: "x86_64",
+        ..fixture.script()
+    };
+    let (_, regions) = script.prepare().unwrap();
+    let parse = |script: &Script<'_>, text: &str| {
+        let text = format!("external demo\ninclude-dir demo {sdk}/include\n{text}");
+        result::parse(text.as_bytes(), script, &regions)
+    };
+
+    // In the order of the lines, and one file once.
+    let text = format!(
+        "link-file demo {sdk}/libm.so.6\nlink-file demo {out}/libz.a\nlink-file demo {out}/./libz.a"
+    );
+    let text = format!("{text}\ninterface-define demo DEMO_API=2");
+    let report = parse(&script, &text).unwrap();
+    let demo = &report.targets["demo"];
+    assert!(demo.external);
+    // The manifest's `DEMO_API` is not in the way: it is dropped.
+    assert_eq!(demo.interface_defines, ["DEMO_API=2"]);
+    assert_eq!(demo.link_files, [sdk.join("libm.so.6"), out.join("libz.a")]);
+    assert_eq!(demo.include_dirs, [sdk.join("include")]);
+
+    // A machine is another's only where both the file and the build
+    // name one.
+    let arm = format!("link-file demo {sdk}/libarm.a");
+    assert_eq!(
+        parse(&script, &arm).unwrap_err(),
+        (
+            3,
+            Invalid::Machine {
+                path: format!("{sdk}/libarm.a"),
+                built: "aarch64",
+                machine: "x86_64".into(),
+            }
+        )
+    );
+    for machine in ["aarch64", "powerpc64"] {
+        let script = Script { machine, ..script };
+        assert!(parse(&script, &arm).is_ok(), "{machine}");
+    }
+    // Where a link leads is settled before the file is opened.
+    #[cfg(unix)]
+    {
+        let outside = fixture.base.join("libarm.a");
+        fs::write(&outside, &aarch64).unwrap();
+        std::os::unix::fs::symlink(&outside, out.join("led.a")).unwrap();
+        assert_eq!(
+            parse(&script, &format!("link-file demo {out}/led.a")).unwrap_err(),
+            (
+                3,
+                path_problem(format!("{out}/led.a"), result::NOT_LINKABLE)
+            )
+        );
+    }
+
+    // An MSVC-style link takes another kind of file.
+    let msvc = Script {
+        msvc: true,
+        ..script
+    };
+    assert_eq!(
+        parse(&msvc, &format!("link-file demo {out}/libz.a")).unwrap_err(),
+        (3, path_problem(format!("{out}/libz.a"), result::NOT_LIB))
+    );
+    let report = parse(&msvc, &format!("link-file demo {out}/z.lib")).unwrap();
+    assert_eq!(report.targets["demo"].link_files, [out.join("z.lib")]);
+}
+
+/// Each format's header names the machine alone: these files are no more
+/// than one.
+#[test]
+fn a_library_names_its_machine_in_its_header() {
+    let Some(fixture) = Fixture::new("") else {
+        return;
+    };
+    let sdk = fixture.base.join("sdk");
+    let script = Script {
+        machine: "x86_64",
+        ..fixture.script()
+    };
+    let (_, regions) = script.prepare().unwrap();
+    let head = |head: &[u8], len| {
+        let mut file = head.to_vec();
+        file.resize(len, 0);
+        file
+    };
+    let mut bigobj = head(&[0, 0, 0xff, 0xff, 2, 0, 0x64, 0xaa], 56);
+    bigobj[12..28].copy_from_slice(&[
+        0xc7, 0xa1, 0xba, 0xd1, 0xee, 0xba, 0xa9, 0x4b, 0xaf, 0x20, 0xfa, 0xf6, 0x6a, 0xa4, 0xdc,
+        0xb8,
+    ]);
+    // A DOS header that places the PE one at 0x40, for a PE32+ image.
+    let mut pe = head(b"MZ", 0x40 + 248);
+    pe[0x3c] = 0x40;
+    pe[0x40..0x46].copy_from_slice(b"PE\0\0\x64\xaa");
+    pe[0x58..0x5a].copy_from_slice(&[0x0b, 0x02]);
+    for (name, file) in [
+        (
+            "macho.o",
+            head(&[0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1], 32),
+        ),
+        ("coff.obj", head(&[0x64, 0xaa], 20)),
+        (
+            "import.obj",
+            head(&[0, 0, 0xff, 0xff, 0, 0, 0x64, 0xaa], 20),
+        ),
+        ("bigobj.obj", bigobj),
+        ("pe.dll", pe),
+    ] {
+        fs::write(sdk.join(name), file).unwrap();
+        let text = format!("external demo\nlink-file demo {sdk}/{name}");
+        let (_, problem) = result::parse(text.as_bytes(), &script, &regions).unwrap_err();
+        assert!(
+            matches!(
+                problem,
+                Invalid::Machine {
+                    built: "aarch64",
+                    ..
+                }
+            ),
+            "{name}: {problem:?}"
+        );
+    }
 }
 
 #[test]
