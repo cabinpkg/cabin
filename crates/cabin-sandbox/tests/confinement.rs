@@ -24,6 +24,10 @@ mod enforced {
 
     /// The action the confined copy of this binary performs.
     const PROBE: &str = "SANDBOX_TEST_PROBE";
+    /// Enough handles that Windows takes far longer to close them than
+    /// a run takes to return once its job counts no process.
+    #[cfg(windows)]
+    const HELD_HANDLES: u32 = 1_000_000;
     const PROBE_ARGS: [&str; 4] = [
         "--exact",
         "enforced::probe",
@@ -233,6 +237,84 @@ mod enforced {
             }
             // Write `<arg>/started`, then `<arg>/late` a second later.
             "late" => late(Path::new(arg)),
+            // Write `<arg>/started` with `<arg>/held` open, shared with
+            // no one, through so many handles that Windows is a while
+            // closing them once this process is killed.
+            #[cfg(windows)]
+            "hold" => {
+                use std::os::windows::fs::OpenOptionsExt as _;
+                let held = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .share_mode(0)
+                    .open(Path::new(arg).join("held"))
+                    .unwrap();
+                let _copies: Vec<File> = (0..HELD_HANDLES)
+                    .map(|_| held.try_clone().unwrap())
+                    .collect();
+                late(Path::new(arg));
+            }
+            // Probe only: start children until killed.
+            #[cfg(windows)]
+            "spawner" => {
+                std::fs::write(Path::new(arg).join("started"), "").unwrap();
+                loop {
+                    drop(probe_command("read:nul").spawn());
+                }
+            }
+            // Run the probe `arg` in a child whose process object admits
+            // no one, Cabin's user included, and wait for it.
+            #[cfg(windows)]
+            "sealed" => {
+                use std::ptr::{null, null_mut};
+                use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+                use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+                use windows_sys::Win32::System::Threading::{
+                    CreateProcessW, INFINITE, PROCESS_INFORMATION, STARTUPINFOW,
+                    WaitForSingleObject,
+                };
+                let exe = std::env::current_exe().unwrap();
+                let exe = exe.to_str().unwrap();
+                let mut line = wide(&format!("\"{exe}\" {}", PROBE_ARGS.join(" ")));
+                let mut attributes = SECURITY_ATTRIBUTES {
+                    nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>()).unwrap(),
+                    lpSecurityDescriptor: null_mut(),
+                    bInheritHandle: 0,
+                };
+                let startup = STARTUPINFOW {
+                    cb: u32::try_from(size_of::<STARTUPINFOW>()).unwrap(),
+                    ..STARTUPINFOW::default()
+                };
+                let mut child = PROCESS_INFORMATION::default();
+                // SAFETY: NUL-terminated strings, and structures that outlive
+                // the calls; nothing else in this process reads the
+                // environment meanwhile.
+                unsafe {
+                    std::env::set_var(PROBE, arg);
+                    // An access-control list with no entry.
+                    let sealed = ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                        wide("D:").as_ptr(),
+                        1,
+                        &raw mut attributes.lpSecurityDescriptor,
+                        null_mut(),
+                    );
+                    last_error(sealed != 0).unwrap();
+                    let created = CreateProcessW(
+                        null(),
+                        line.as_mut_ptr(),
+                        &raw const attributes,
+                        null(),
+                        1,
+                        0,
+                        null(),
+                        null(),
+                        &raw const startup,
+                        &raw mut child,
+                    );
+                    last_error(created != 0).unwrap();
+                    WaitForSingleObject(child.hProcess, INFINITE);
+                }
+            }
             // Write `<signal>/started`, wait for `<signal>/go`, then read.
             "wait-read" => {
                 let (signal, path) = arg.split_once(',').unwrap();
@@ -580,11 +662,12 @@ mod enforced {
         assert!(junction(link, target).output().unwrap().status.success());
     }
 
-    /// Whether the process `pid` is gone or was ended by the job, which
-    /// ends a process with the code 1, one the probe never exits with.
+    /// Whether the process `pid` is gone, or over and ended by the job,
+    /// which ends a process with the code 1, one the probe never exits
+    /// with.
     #[cfg(windows)]
     fn killed(pid: u32) -> bool {
-        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER};
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, WAIT_OBJECT_0};
         use windows_sys::Win32::System::Threading::{
             GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
             PROCESS_SYNCHRONIZE, WaitForSingleObject,
@@ -599,13 +682,13 @@ mod enforced {
                 assert_eq!(std::io::Error::last_os_error().raw_os_error(), gone);
                 return true;
             }
-            // A killed process can outlast the run by a moment.  The code
-            // of one still running after the wait reads as 259.
+            // Without waiting: the run that returned waited.  The code of
+            // one still running reads as 259.
             let mut code = 0;
-            WaitForSingleObject(process, 5_000);
+            let over = WaitForSingleObject(process, 0) == WAIT_OBJECT_0;
             GetExitCodeProcess(process, &raw mut code);
             CloseHandle(process);
-            code == 1
+            over && code == 1
         }
     }
 
@@ -1480,6 +1563,140 @@ mod enforced {
             std::thread::sleep(Duration::from_secs(2));
         }
         assert!(!dir.path().join("late").exists());
+    }
+
+    /// A caller reads, moves, and removes what the program wrote as soon
+    /// as the run returns.
+    #[test]
+    #[cfg(windows)]
+    fn a_killed_process_holds_no_file_once_the_run_returns() {
+        let dir = TempDir::new().unwrap();
+        let probed = confine(
+            &format!("linger:hold:{}", arg(dir.path())),
+            &[],
+            &[dir.path()],
+        )
+        .unwrap();
+        std::fs::remove_file(dir.path().join("held")).unwrap();
+        assert!(killed(probed.outcome("linger").parse().unwrap()));
+    }
+
+    /// Probe only: measurements, printed.
+    #[test]
+    #[cfg(windows)]
+    fn probe_fu1() {
+        use std::time::Instant;
+        let mut lines = Vec::new();
+        for no_wait in [false, true] {
+            cabin_sandbox::probe_no_wait(no_wait);
+            for round in 0..12 {
+                let dir = TempDir::new().unwrap();
+                let begun = Instant::now();
+                let probed = confine(
+                    &format!("linger:hold:{}", arg(dir.path())),
+                    &[],
+                    &[dir.path()],
+                );
+                let ran = begun.elapsed();
+                let returned = Instant::now();
+                let held = dir.path().join("held");
+                let first = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&held)
+                    .map(drop);
+                let pid = probed
+                    .as_ref()
+                    .map(|probed| probed.outcome("linger").parse::<u32>().unwrap());
+                let gone = pid.as_ref().map(|&pid| killed_or_running(pid));
+                let mut free_after = None;
+                while returned.elapsed() < Duration::from_secs(20) {
+                    if std::fs::OpenOptions::new().write(true).open(&held).is_ok() {
+                        free_after = Some(returned.elapsed());
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                lines.push(format!(
+                    "PROBE hold no_wait={no_wait} round={round} run={ran:?} result={:?} first_open={first:?} process={gone:?} free_after={free_after:?}",
+                    probed.as_ref().map(|_| ()).map_err(ToString::to_string),
+                ));
+            }
+        }
+        cabin_sandbox::probe_no_wait(false);
+        let mut failures = std::collections::BTreeMap::<String, u32>::new();
+        let mut ok = 0;
+        for _ in 0..60 {
+            let dir = TempDir::new().unwrap();
+            match confine(
+                &format!("linger:spawner:{}", arg(dir.path())),
+                &[],
+                &[dir.path()],
+            ) {
+                Ok(_) => ok += 1,
+                Err(err) => {
+                    let text = err.to_string();
+                    let text = text
+                        .split_once(": ")
+                        .map_or(text.clone(), |(_, rest)| rest.to_owned());
+                    *failures.entry(text).or_default() += 1;
+                }
+            }
+        }
+        lines.push(format!("PROBE spawner ok={ok} failures={failures:?}"));
+        let begun = Instant::now();
+        for _ in 0..20 {
+            let dir = TempDir::new().unwrap();
+            confine(
+                &format!("write:{}", arg(&dir.path().join("x"))),
+                &[],
+                &[dir.path()],
+            )
+            .unwrap();
+        }
+        lines.push(format!("PROBE plain run mean={:?}", begun.elapsed() / 20));
+        println!("{}", lines.join("\n"));
+    }
+
+    /// Probe only: `gone`, or whether it is signaled and its exit code.
+    #[cfg(windows)]
+    fn killed_or_running(pid: u32) -> String {
+        use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            PROCESS_SYNCHRONIZE, WaitForSingleObject,
+        };
+        // SAFETY: plain system calls on a handle closed before returning.
+        unsafe {
+            let access = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+            let process = OpenProcess(access, 0, pid);
+            if process.is_null() {
+                return format!("gone({:?})", std::io::Error::last_os_error().raw_os_error());
+            }
+            let mut code = 0;
+            let over = WaitForSingleObject(process, 0) == WAIT_OBJECT_0;
+            GetExitCodeProcess(process, &raw mut code);
+            CloseHandle(process);
+            format!("signaled={over} code={code}")
+        }
+    }
+
+    /// A process Cabin cannot wait for could still hold its files.
+    #[test]
+    #[cfg(windows)]
+    fn a_process_cabin_cannot_open_fails_the_run() {
+        let dir = TempDir::new().unwrap();
+        let sealed = format!("sealed:late:{}", arg(dir.path()));
+        let Err(SandboxError::Run { source, .. }) = confine(&sealed, &[], &[dir.path()]) else {
+            panic!("the run succeeded");
+        };
+        assert_eq!(source.kind(), std::io::ErrorKind::PermissionDenied);
+        // Control: the same child, open to Cabin.
+        confine(
+            &format!("child:late:{}", arg(dir.path())),
+            &[],
+            &[dir.path()],
+        )
+        .unwrap();
     }
 
     /// Leaving the group appears to work, so callers such as ninja do not

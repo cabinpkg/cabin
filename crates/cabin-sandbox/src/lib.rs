@@ -16,6 +16,9 @@
 //!   handles other than the standard streams are not inherited.
 //!
 //! Before [`run`] returns, every process the program started is killed.
+//! On Windows, where a process shares the files it has open with others
+//! only as it chose to, [`run`] succeeds only once each of them is gone,
+//! every file it had open closed.
 //!
 //! Mechanisms: Linux Landlock (ABI 3, Linux 6.2, or newer) plus a
 //! seccomp filter, on 64-bit x86 and Arm; macOS `sandbox-exec`; on
@@ -75,8 +78,10 @@
 //!   a later run granted that path is granted where the junction leads,
 //!   or nothing once that is gone: a caller makes a write grant anew
 //!   before granting it again.
-//! - Windows: a process killed as a run ends can take a moment longer to
-//!   go, and holds the files it had open until then.
+//! - Windows: Cabin learns of each process the program starts from the
+//!   job's reports, and waits for it through a handle to it.  A run
+//!   fails, whatever the program exited with, when a report is lost or
+//!   a process was started closed to Cabin's user.
 //!
 //! Choosing what to grant (and which environment variables are safe to
 //! pass) is the caller's policy; this crate only enforces it.
@@ -264,13 +269,20 @@ fn without_hidden(read: Vec<PathBuf>, hidden: &[PathBuf]) -> Vec<PathBuf> {
     granted
 }
 
+/// Probe only.
+#[cfg(windows)]
+#[doc(hidden)]
+pub fn probe_no_wait(on: bool) {
+    windows::PROBE_NO_WAIT.set(on);
+}
+
 /// Run `confinement.program` confined, wait for it, kill whatever it
 /// left running, and return its exit status.  stdin is empty.
 ///
 /// # Errors
 /// [`SandboxError::Unavailable`] when the platform cannot enforce the
 /// confinement; [`SandboxError::Run`] when the program could not be
-/// started or waited for.
+/// started or waited for, or on Windows a process it started could not.
 pub fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> {
     #[cfg(all(
         target_os = "linux",

@@ -299,6 +299,86 @@ fn build_script_helper_lib_builds_and_runs() {
         .stdout(predicates::str::contains("crc32(\"cabin\") = ce4ce919"));
 }
 
+/// Temporary probe: see `probe_build.c` and `probe_tool.c`.
+#[cfg(windows)]
+#[test]
+fn probe_windows_tool_start() {
+    fn reports(dir: &Path) -> String {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return "(no directory)\n".to_owned();
+        };
+        let mut paths: Vec<_> = entries.map(|entry| entry.unwrap().path()).collect();
+        paths.sort();
+        let mut seen = String::new();
+        for path in paths {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if name.starts_with("diag-") {
+                let text = std::fs::read(&path).unwrap();
+                seen += &format!("--- {name}\n{}", String::from_utf8_lossy(&text));
+            }
+        }
+        seen
+    }
+    fn probe_example() -> TempDir {
+        let dir = copy_example("build-script-generator");
+        std::fs::write(
+            dir.path().join("packages/app/build.c"),
+            include_str!("probe_build.c"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("packages/embed/src/main.c"),
+            include_str!("probe_tool.c"),
+        )
+        .unwrap();
+        dir
+    }
+    fn confined(strict: Option<&str>) -> (TempDir, String) {
+        let dir = probe_example();
+        let mut cmd = run_example(&dir);
+        if let Some(strict) = strict {
+            cmd.env("CABIN_SANDBOX_PROBE_STRICT", strict);
+        }
+        let output = cmd.output().unwrap();
+        let log = dir.path().join("build/dev/packages/app/.build-script");
+        let seen = format!(
+            "PROBE confined strict={strict:?} status {:?}\n{}\nscript stderr:\n{}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr),
+            std::fs::read_to_string(log.join("stderr")).unwrap_or_default(),
+            reports(&log.join("out")),
+        );
+        (dir, seen)
+    }
+    require_c_and_cxx_build_tools();
+    let (dir, plain) = confined(None);
+    let (_off_dir, off) = confined(Some("off"));
+    let (_on_dir, on) = confined(Some("on"));
+
+    // The same script and tool with no confinement.
+    let machine = dir.path().join("build/dev/build-machine/packages");
+    let tool = machine.join("embed/embed.exe");
+    let script = machine.join("app/.build-script/target/build.exe");
+    let free = TempDir::new().unwrap();
+    let [stdout, stderr] =
+        ["stdout", "stderr"].map(|name| std::fs::File::create(free.path().join(name)).unwrap());
+    let status = StdCommand::new(&script)
+        .current_dir(dir.path().join("packages/app"))
+        .env("CABIN_BIN_EMBED", &tool)
+        .env("CABIN_OUT_DIR", free.path())
+        .env("PROBE_STRICT", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .status();
+    let unconfined = format!(
+        "PROBE unconfined status {status:?}\nscript stderr:\n{}{}",
+        std::fs::read_to_string(free.path().join("stderr")).unwrap_or_default(),
+        reports(free.path()),
+    );
+    panic!("{plain}\n{off}\n{on}\n{unconfined}");
+}
+
 /// The build script runs the `embed` Cabin built, by the path Cabin
 /// gave it: a failing program of that name first on `PATH` changes
 /// nothing.
