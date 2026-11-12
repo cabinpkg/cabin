@@ -40,7 +40,7 @@ A port is an ordinary Cabin package directory: one `cabin.toml`, plus a `patches
 when it declares any and a `tests/` consumer test when it has one.
 
 ```
-ports/<name>/<version>/
+ports/<prefix>/<name>/<version>/
   cabin.toml - the published manifest: scoped identity,
                    [package.upstream] provenance, and the
                    upstream sources described as Cabin targets
@@ -49,6 +49,8 @@ ports/<name>/<version>/
   tests/      - optional consumer test the preflight probe
                    compiles and runs; never published
 ```
+
+`<prefix>` is the first two characters of `<name>`, as in `ports/zl/zlib/1.3.1/`.
 
 The manifest publishes **verbatim**, so its committed bytes are the published bytes - a comment
 edit changes the published archive.  Its identity must agree with the directory layout: `<name>/`
@@ -387,5 +389,5 @@ port should be retired.  The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from `"cabin-ports/<name>"` to the appropriate
    `path` / `version` / `workspace` form pointing at the new upstream-maintained package.
-2. Delete the `ports/<name>/<version>/` directory.
+2. Delete the `ports/<prefix>/<name>/<version>/` directory.
 3. Note the retirement in the relevant release notes.

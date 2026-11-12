@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/inih` registry package,
 published from the curated
-[`ports/inih/62.0.0/`](https://github.com/cabin-ports/ports/tree/main/ports/inih/62.0.0/)
+[`ports/in/inih/62.0.0/`](https://github.com/cabin-ports/ports/tree/main/ports/in/inih/62.0.0/)
 package directory.  The program links against the inih C core, parses an
 in-memory INI document with `ini_parse_string`, and prints the two
 values its handler captured.

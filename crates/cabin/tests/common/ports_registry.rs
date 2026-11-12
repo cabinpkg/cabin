@@ -121,28 +121,33 @@ fn stage(ports_dir: &Path, cache_dir: &Path, work_dir: &Path, fetch: ArchiveFetc
     let registry_dir = work_dir.join("registry");
     let sources_dir = work_dir.join("src");
     let ports_cache = cache_dir.join("ports");
-    let mut staged = 0;
-    // `<name>/<version>/` directories; a file registry accepts
-    // packages in any order, so no publication order is needed.
-    for name_dir in sorted_dirs(ports_dir) {
-        for package_dir in sorted_dirs(&name_dir) {
-            stage_committed_package(
-                &package_dir,
-                &ports_cache,
-                &sources_dir,
-                &registry_dir,
-                fetch,
+    // `<prefix>/<name>/<version>/` directories; a file registry
+    // accepts packages in any order, so no publication order is needed.
+    let package_dirs: Vec<PathBuf> = sorted_dirs(ports_dir)
+        .iter()
+        .flat_map(|prefix_dir| sorted_dirs(prefix_dir))
+        .flat_map(|name_dir| sorted_dirs(&name_dir))
+        .collect();
+    assert!(
+        !package_dirs.is_empty(),
+        "no ports found under {}",
+        ports_dir.display()
+    );
+    for package_dir in package_dirs {
+        stage_committed_package(
+            &package_dir,
+            &ports_cache,
+            &sources_dir,
+            &registry_dir,
+            fetch,
+        )
+        .unwrap_or_else(|err| {
+            panic!(
+                "staging {} into the fixture registry: {err}",
+                package_dir.display()
             )
-            .unwrap_or_else(|err| {
-                panic!(
-                    "staging {} into the fixture registry: {err}",
-                    package_dir.display()
-                )
-            });
-            staged += 1;
-        }
+        });
     }
-    assert!(staged > 0, "no ports found under {}", ports_dir.display());
     registry_dir
 }
 
