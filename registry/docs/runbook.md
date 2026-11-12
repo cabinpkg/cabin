@@ -110,14 +110,14 @@ Two hostnames, one zone:
 - **`cabinpkg.com`** - the website Worker (`website`, deployed by
   Workers Builds from `website/` on every push to `main`) serves the
   marketing site, docs, and the account pages; the registry Worker
-  (`cabin-registry`) takes exactly `/api/*`, `/login`, `/callback*`,
+  (`registry`) takes exactly `/api/*`, `/login`, `/callback*`,
   and `/claim/*` via the zone routes below. This one origin is the
   registry's browser plane.
 - **`registry.cabinpkg.com`** - the registry's machine read plane
-  (custom domain of `cabin-registry`), nothing else.
+  (custom domain of `registry`), nothing else.
 
 Deploy skew: the `website` Worker deploys automatically on every push to
-`main` (Workers Builds); `cabin-registry` deploys from CI (the
+`main` (Workers Builds); `registry` deploys from CI (the
 `deploy-registry` job in `.github/workflows/registry.yml`) on pushes
 to `main` with registry-relevant changes (the `registry` filter in
 `.github/path-filters.yml`); the conformance job, and the build job
@@ -246,7 +246,7 @@ facts that matter operationally:
   `cabinpkg.com/callback*`. `/login` deliberately stays exact so the
   website keeps serving `/login/denied`.
 - A route pattern can point at only **one** Worker; all four patterns
-  belong to `cabin-registry`.
+  belong to `registry`.
 - The website's `/dashboard`, `/settings/*`, and `/login/denied` pages
   are live on the origin ("Account pages" in `website/README.md`). For
   ops debugging, the session API also works directly: `curl -H "Cookie:

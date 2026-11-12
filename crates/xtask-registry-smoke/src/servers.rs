@@ -264,7 +264,7 @@ const WEB_CONFIG: &str = r#"{
   "name": "cabin-registry-smoke-web",
   "main": "index.js",
   "compatibility_date": "2026-07-09",
-  "services": [{ "binding": "REGISTRY", "service": "cabin-registry" }]
+  "services": [{ "binding": "REGISTRY", "service": "registry" }]
 }
 "#;
 
