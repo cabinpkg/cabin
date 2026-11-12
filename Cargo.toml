@@ -17,6 +17,7 @@ members = [
   "crates/cabin-fs",
   "crates/cabin-index",
   "crates/cabin-index-http",
+  "crates/cabin-install",
   "crates/cabin-lockfile",
   "crates/cabin-manifest",
   "crates/cabin-ninja",
@@ -136,6 +137,7 @@ cabin-fmt = { package = "cabinpkg-fmt", path = "crates/cabin-fmt", version = "0.
 cabin-fs = { package = "cabinpkg-fs", path = "crates/cabin-fs", version = "0.18.0" }
 cabin-index = { package = "cabinpkg-index", path = "crates/cabin-index", version = "0.18.0" }
 cabin-index-http = { package = "cabinpkg-index-http", path = "crates/cabin-index-http", version = "0.18.0" }
+cabin-install = { package = "cabinpkg-install", path = "crates/cabin-install", version = "0.18.0" }
 cabin-lockfile = { package = "cabinpkg-lockfile", path = "crates/cabin-lockfile", version = "0.18.0" }
 cabin-manifest = { package = "cabinpkg-manifest", path = "crates/cabin-manifest", version = "0.18.0" }
 cabin-ninja = { package = "cabinpkg-ninja", path = "crates/cabin-ninja", version = "0.18.0" }

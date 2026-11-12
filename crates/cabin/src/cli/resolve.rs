@@ -744,6 +744,9 @@ pub(crate) enum LockPolicy {
     /// `--frozen`: `--locked` plus no network fetches and no cache
     /// population.
     Frozen,
+    /// `cabin install`: as `PreferLocked`, but the lockfile is never
+    /// written.
+    ReadOnly,
     /// `cabin update`: re-resolve every locked package.
     UpdateAll,
     /// `cabin update --package <name>`: refresh one direct dep.
@@ -764,7 +767,7 @@ impl LockPolicy {
     /// Translate into the resolver's [`ResolveMode`].
     pub(crate) fn resolve_mode(&self) -> ResolveMode {
         match self {
-            LockPolicy::PreferLocked => ResolveMode::PreferLocked,
+            LockPolicy::PreferLocked | LockPolicy::ReadOnly => ResolveMode::PreferLocked,
             LockPolicy::Locked | LockPolicy::Frozen => ResolveMode::Locked,
             LockPolicy::UpdateAll => ResolveMode::UpdateAll,
             LockPolicy::UpdatePackage(name) => ResolveMode::UpdatePackage(name.clone()),
@@ -773,7 +776,7 @@ impl LockPolicy {
 
     /// Whether the lockfile may be written.
     pub(crate) fn allow_write(&self) -> bool {
-        !self.locked()
+        !self.locked() && !matches!(self, LockPolicy::ReadOnly)
     }
 
     /// Whether the lockfile is authoritative (`--locked` or
@@ -1035,7 +1038,10 @@ pub(crate) fn run_artifact_pipeline(
             Some(lock)
                 if matches!(
                     request.policy,
-                    LockPolicy::PreferLocked | LockPolicy::Locked | LockPolicy::Frozen
+                    LockPolicy::PreferLocked
+                        | LockPolicy::ReadOnly
+                        | LockPolicy::Locked
+                        | LockPolicy::Frozen
                 ) =>
             {
                 output

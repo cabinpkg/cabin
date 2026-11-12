@@ -53,6 +53,7 @@ export const DOCS_NAV: DocsNavSection[] = [
             { label: "Checking", slug: "check" },
             { label: "Compiler wrappers", slug: "compiler-cache" },
             { label: "Testing", slug: "testing" },
+            { label: "Installing programs", slug: "installing-programs" },
             { label: "Formatting", slug: "fmt" },
             { label: "Static analysis", slug: "tidy" },
         ],

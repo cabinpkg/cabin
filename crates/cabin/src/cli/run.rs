@@ -155,6 +155,7 @@ pub(crate) fn run(
             toolchain: &args.toolchain,
             dev: DevActivation::Disabled,
             build_context: true,
+            install: false,
         },
         reporter,
     )?;

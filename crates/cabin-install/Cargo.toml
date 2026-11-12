@@ -1,0 +1,26 @@
+[package]
+name = "cabinpkg-install"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Install roots: the executables a user installed with Cabin and their owners"
+
+[lib]
+name = "cabin_install"
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
+camino = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+assert_fs = { workspace = true }
+predicates = { workspace = true }
+
+[lints]
+workspace = true

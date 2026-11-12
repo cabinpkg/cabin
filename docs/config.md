@@ -31,6 +31,9 @@ XDG config directories (`/etc/xdg`, `$XDG_CONFIG_DIRS`).
 Discovery does **not** walk arbitrary parent directories beyond the workspace root.  Member-local
 `.cabin/config.toml` files inside a workspace are ignored - only the workspace-root file applies.
 
+`cabin install` consults the User file only, or the Explicit one: no Workspace or Package file.  See
+[`installing-programs.md`](installing-programs.md).
+
 If `CABIN_CONFIG` is set to a non-empty value, it short-circuits discovery: only that one file
 loads, and a missing file is an explicit `config file <path> was requested explicitly but could not
 be read` error rather than a silent fallback.

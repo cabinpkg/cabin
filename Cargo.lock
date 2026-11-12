@@ -261,6 +261,7 @@ dependencies = [
  "cabinpkg-fs",
  "cabinpkg-index",
  "cabinpkg-index-http",
+ "cabinpkg-install",
  "cabinpkg-lockfile",
  "cabinpkg-manifest",
  "cabinpkg-ninja",
@@ -289,6 +290,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tar",
+ "tempfile",
  "termcolor",
  "tiny_http",
  "tracing",
@@ -503,6 +505,20 @@ dependencies = [
  "tracing",
  "ureq",
  "url",
+]
+
+[[package]]
+name = "cabinpkg-install"
+version = "0.18.0"
+dependencies = [
+ "assert_fs",
+ "cabinpkg-core",
+ "cabinpkg-fs",
+ "camino",
+ "predicates",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

@@ -20,6 +20,7 @@ pub(crate) mod explain;
 pub(crate) mod fetch_output;
 pub(crate) mod fmt;
 pub(crate) mod gc;
+pub(crate) mod install;
 pub(crate) mod login;
 pub(crate) mod metadata;
 pub(crate) mod ninja;
@@ -365,6 +366,19 @@ pub(crate) enum Command {
     /// executed program.
     #[command(visible_alias = "r")]
     Run(crate::cli::run::RunArgs),
+    /// Install a package's executables.
+    ///
+    /// Builds the `executable` targets of the package in `--path`
+    /// and copies them into the `bin` directory of the install
+    /// root: `--root`, or `.cabin` in the home directory.  The
+    /// directory is not added to `PATH`.
+    Install(crate::cli::install::InstallArgs),
+    /// Remove an installed package's executables.
+    ///
+    /// Removes the files `cabin install` put into the install
+    /// root for the package.  A file changed since then is left
+    /// alone, and nothing is removed.
+    Uninstall(crate::cli::install::UninstallArgs),
     /// Run the tests of a local package.
     ///
     /// Builds the workspace's `test` targets and executes
@@ -1235,6 +1249,12 @@ pub(crate) fn run(
         }
         Command::Clean(args) => clean(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Run(args) => crate::cli::run::run(&args, reporter, color),
+        Command::Install(args) => {
+            crate::cli::install::install(&args, reporter, color).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Uninstall(args) => {
+            crate::cli::install::uninstall(&args, reporter).map(|()| ExitCode::SUCCESS)
+        }
         Command::Test(args) => {
             crate::cli::test::test(&args, reporter, color).map(|()| ExitCode::SUCCESS)
         }
