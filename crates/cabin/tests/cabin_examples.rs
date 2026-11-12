@@ -1470,4 +1470,80 @@ fn probe_bigobj() {
             }
         }
     }
+
+    // 4. Compilers Cabin did not drive above, compile only: the
+    // ARM64-targeting `cl` and `clang-cl`.
+    if cfg!(windows) {
+        let dir = probe_many_functions(true, 70_000);
+        let src = dir.path().join("src").join("main.cc");
+        let where_cl = std::process::Command::new("where")
+            .arg("cl")
+            .output()
+            .expect("where cl");
+        let cl = PathBuf::from(
+            String::from_utf8_lossy(&where_cl.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim(),
+        );
+        // `...\bin\Host<host>\<target>\cl.exe`
+        let host_dir = cl.parent().and_then(Path::parent).unwrap_or(Path::new(""));
+        let bin_dir = host_dir.parent().unwrap_or(Path::new(""));
+        let compilers = [
+            ("cl-samehost-arm64", host_dir.join("arm64").join("cl.exe")),
+            (
+                "cl-hostarm64-arm64",
+                bin_dir.join("HostARM64").join("arm64").join("cl.exe"),
+            ),
+            ("clang-cl-path", PathBuf::from("clang-cl")),
+            (
+                "clang-cl-llvm",
+                PathBuf::from(r"C:\Program Files\LLVM\bin\clang-cl.exe"),
+            ),
+        ];
+        for (name, exe) in compilers {
+            if name.starts_with("clang") {
+                if let Ok(v) = std::process::Command::new(&exe).arg("--version").output() {
+                    let text = String::from_utf8_lossy(&v.stdout);
+                    let lines: Vec<&str> = text.lines().take(2).collect();
+                    println!("PROBE direct compiler={name} version={lines:?}");
+                }
+            }
+            for flag in [false, true] {
+                let obj = dir.path().join(format!("{name}-{flag}.obj"));
+                let mut cmd = std::process::Command::new(&exe);
+                cmd.args(["/nologo", "/c", "/std:c++17", "/EHsc"]);
+                if flag {
+                    cmd.arg("/bigobj");
+                }
+                cmd.arg(format!("/Tp{}", src.display()))
+                    .arg(format!("/Fo{}", obj.display()));
+                match cmd.output() {
+                    Err(e) => println!("PROBE direct compiler={name} flag={flag} spawn-error={e}"),
+                    Ok(o) => {
+                        let text = format!(
+                            "{}{}",
+                            String::from_utf8_lossy(&o.stdout),
+                            String::from_utf8_lossy(&o.stderr)
+                        );
+                        let head = std::fs::read(&obj).map_or_else(
+                            |_| "none".to_owned(),
+                            |b| format!("{:02x?}", &b[..b.len().min(8)]),
+                        );
+                        let notes: Vec<&str> = text
+                            .lines()
+                            .filter(|l| l.contains("warning") || l.contains("error"))
+                            .take(3)
+                            .collect();
+                        println!(
+                            "PROBE direct compiler={name} exe={} flag={flag} ok={} header={head} notes={notes:?}",
+                            exe.display(),
+                            o.status.success()
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
