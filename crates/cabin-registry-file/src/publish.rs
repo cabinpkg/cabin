@@ -331,6 +331,7 @@ mod tests {
                 links: Default::default(),
                 upstream: None,
                 license: None,
+                build_script: None,
                 yanked: false,
                 checksum,
                 // `staged_metadata_for_registry` overrides this.

@@ -125,8 +125,8 @@ dependency's `targets`.
 `cabin build`, `run`, and `test` build build dependencies.  What runs a build dependency's
 executable, or links its library, is the package's [build script](build-scripts.md); without one,
 the build runs nothing.  A package taken from a registry has its build dependencies resolved,
-fetched, and built the same way, but its build script is
-[not run](build-scripts.md#which-build-scripts-run), so nothing uses them.  `cabin check` checks
+fetched, and built the same way, for the build script its index entry
+[declares](build-scripts.md#which-build-scripts-run).  `cabin check` checks
 only the selected packages' own sources, and builds build dependencies only when a build script has
 to run first.  System dependencies in the build context are not yet supported: `system = true` under
 `[build-dependencies]`, and a workspace member built there that declares one, are rejected.

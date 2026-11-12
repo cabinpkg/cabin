@@ -22,7 +22,10 @@
 //!    tree byte-for-byte, except the root `cabin.toml` (the manifest
 //!    is the publisher's, never upstream's) and the declared patch
 //!    files (publisher-authored inputs to the patch step, not
-//!    products of the upstream transformation).
+//!    products of the upstream transformation);
+//! 4. refuses a root `build.c` / `build.cpp` the upstream archive
+//!    itself ships with the same bytes: a build script is the
+//!    publisher's.
 //!
 //! The upstream archive is publisher-pinned but untrusted; the
 //! error-channel split mirrors the crate doctrine.  Deterministic
@@ -88,12 +91,8 @@ pub(crate) fn check(
     }
 
     let tree = scratch_dir(upstream_archive);
-    remove_scratch(&tree)?;
-    fs::create_dir_all(&tree).map_err(|source| VerifyError::Io {
-        path: tree.clone(),
-        source,
-    })?;
-    let outcome = check_extracted(
+    fresh_scratch(&tree)?;
+    let mut outcome = check_extracted(
         upstream_archive,
         declared,
         include,
@@ -101,6 +100,12 @@ pub(crate) fn check(
         patch_bytes,
         &tree,
     );
+    if let (Ok(None), Ok(Some(script))) = (
+        &outcome,
+        cabin_package::archive::build_script(files.keys().map(String::as_str)),
+    ) {
+        outcome = check_build_script(upstream_archive, declared, script, &files[script], &tree);
+    }
     // Best-effort cleanup; the verdict (or error) already stands.
     let _ = fs::remove_dir_all(&tree);
     outcome
@@ -118,14 +123,61 @@ fn scratch_dir(upstream_archive: &Path) -> PathBuf {
     upstream_archive.with_file_name(name)
 }
 
-fn remove_scratch(tree: &Path) -> Result<(), VerifyError> {
+fn fresh_scratch(tree: &Path) -> Result<(), VerifyError> {
+    let io = |source| VerifyError::Io {
+        path: tree.to_path_buf(),
+        source,
+    };
     match fs::remove_dir_all(tree) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(source) => Err(VerifyError::Io {
-            path: tree.to_path_buf(),
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(io(err)),
+        _ => {}
+    }
+    fs::create_dir_all(tree).map_err(io)
+}
+
+fn digest(path: &Path) -> Result<String, VerifyError> {
+    fs::File::open(path)
+        .and_then(cabin_core::hash::hash_reader)
+        .map_err(|source| VerifyError::Io {
+            path: path.to_path_buf(),
             source,
-        }),
+        })
+}
+
+/// Reject a published build script, with the digest `published`, that
+/// is the upstream archive's own file of that name, unchanged.  A
+/// build script runs on the machine of everyone who builds the
+/// package, so it has to be one the publisher wrote or changed; a
+/// file upstream happens to ship under the name is not.
+fn check_build_script(
+    upstream_archive: &Path,
+    declared: &UpstreamProvenance,
+    script: &str,
+    published: &str,
+    tree: &Path,
+) -> Result<Option<Reason>, VerifyError> {
+    fresh_scratch(tree)?;
+    let mut no_patch = |_: &camino::Utf8Path| Ok(PatchFetch::Missing);
+    if let Some(reason) = materialize(&declared.pristine(), upstream_archive, tree, &mut no_patch)?
+    {
+        return Ok(Some(reason));
+    }
+    let upstream = tree.join(script);
+    Ok((upstream.is_file() && digest(&upstream)? == published)
+        .then_some(Reason::UpstreamBuildScript))
+}
+
+/// [`materialize_upstream`], with a defect as its rejection reason.
+fn materialize(
+    declared: &UpstreamProvenance,
+    upstream_archive: &Path,
+    tree: &Path,
+    fetch_patch: &mut dyn FnMut(&camino::Utf8Path) -> Result<PatchFetch, MaterializeError>,
+) -> Result<Option<Reason>, VerifyError> {
+    match materialize_upstream(declared, upstream_archive, tree, fetch_patch) {
+        Ok(()) => Ok(None),
+        Err(MaterializeError::Defect(defect)) => Ok(Some(defect_reason(defect))),
+        Err(MaterializeError::Io { path, source }) => Err(VerifyError::Io { path, source }),
     }
 }
 
@@ -149,11 +201,8 @@ fn check_extracted(
             None => PatchFetch::Missing,
         })
     };
-    if let Err(err) = materialize_upstream(declared, upstream_archive, tree, &mut fetch_patch) {
-        return match err {
-            MaterializeError::Defect(defect) => Ok(Some(defect_reason(defect))),
-            MaterializeError::Io { path, source } => Err(VerifyError::Io { path, source }),
-        };
+    if let Some(reason) = materialize(declared, upstream_archive, tree, &mut fetch_patch)? {
+        return Ok(Some(reason));
     }
 
     // The same walk `cabin package` runs, under the archived
@@ -181,14 +230,7 @@ fn check_extracted(
         if file.rel_path == ROOT_MANIFEST {
             continue;
         }
-        let handle = fs::File::open(&file.abs_path).map_err(|source| VerifyError::Io {
-            path: file.abs_path.clone(),
-            source,
-        })?;
-        let digest = cabin_core::hash::hash_reader(handle).map_err(|source| VerifyError::Io {
-            path: file.abs_path.clone(),
-            source,
-        })?;
+        let digest = digest(&file.abs_path)?;
         expected.insert(file.rel_path, digest);
     }
 

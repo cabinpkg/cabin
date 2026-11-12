@@ -783,6 +783,9 @@ fn a_build_script_is_found_by_its_exact_name() {
     fs::write(root.join("build.cpp"), "").unwrap();
     assert_eq!(find(root).unwrap(), Some("build.cpp"));
     fs::remove_file(root.join("Build.c")).unwrap();
+    fs::create_dir(root.join("build.c")).unwrap();
+    assert_eq!(find(root).unwrap(), Some("build.cpp"));
+    fs::remove_dir(root.join("build.c")).unwrap();
     fs::write(root.join("build.c"), "").unwrap();
     assert!(matches!(find(root).unwrap_err(), Error::Ambiguous(at) if at == *root));
     fs::remove_file(root.join("build.cpp")).unwrap();

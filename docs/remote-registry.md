@@ -750,9 +750,9 @@ checks, in order:
    target source it declares present in the archive (a package missing a declared source would
    extract but fail to build), and must reproduce the
    entire stored canonical metadata document through the same derivation publish used - name,
-   version, the three dependency tables, language-standard fields and the per-target standards
+   version, the four dependency tables, language-standard fields and the per-target standards
    table, the per-target links claims, features, profiles, toolchain, build settings, the declared
-   license, the upstream provenance block, and the
+   license, the upstream provenance block, the build script the archive holds in its root, and the
    source block - and the archive
    bytes must hash to the recorded checksum (defense in depth; the server already checked at
    publish).
@@ -783,7 +783,9 @@ checks, in order:
    be checked stays pending, because a transport failure must not terminally reject a package
    (the stuck-pending alert summons an operator instead).  Deterministic disagreements - a digest
    mismatch, an uninterpretable archive, an inapplicable copy step, a malformed or inapplicable
-   patch, a diverging tree - are rejections with the stable codes below.
+   patch, a diverging tree - are rejections with the stable codes below.  A root `build.c` or
+   `build.cpp` the upstream archive itself ships with the same bytes is one too: a
+   [build script](build-scripts.md#publishing-a-package-with-a-build-script) is the publisher's.
 
 A rejection records machine-readable reason codes in the revision's `verification_reason`:
 
@@ -809,7 +811,7 @@ A rejection records machine-readable reason codes in the revision's `verificatio
 | `dependency_mismatch` | manifest dependency tables disagree with metadata |
 | `language_standard_mismatch` | manifest standard fields or the derived standards table disagree with metadata |
 | `checksum_mismatch` | archive bytes do not hash to the recorded checksum |
-| `metadata_mismatch` | any other canonical-metadata field disagrees with what the manifest derives |
+| `metadata_mismatch` | any other canonical-metadata field disagrees with what the manifest derives, or `build-script` with the build script in the archive's root |
 | `archive_invalid` | not a well-formed zip container: a bad or misplaced EOCD, a non-contiguous layout, or bytes outside the tiled regions |
 | `upstream_mismatch` | the stored `upstream` block disagrees with the manifest's `[package.upstream]` declaration |
 | `upstream_checksum_mismatch` | the downloaded upstream archive does not hash to the pinned SHA-256 |
@@ -817,6 +819,7 @@ A rejection records machine-readable reason codes in the revision's `verificatio
 | `upstream_copy_invalid` | a declared copy step cannot be applied to the extracted upstream tree: its `from` file is absent (`missing source`), or its `to` cannot name a regular file there (`destination`) |
 | `upstream_patch_invalid` | a declared patch file cannot be applied to the assembled upstream tree: the published archive lacks the declared entry (`missing file`), the patch exceeds the 1 MiB per-file cap (`too large`), the patch path also names a file the upstream transformation produces (`shadows tree`), it is not strictly a unified diff - free text around the diff or inside git's preamble lines is rejected along with structural corruption (`malformed`), it carries binary content (`binary`), a diff header path cannot address the tree (`unsafe path`), the patched file is absent (`missing target`), the patched or created path cannot name a regular file (`target conflict`), the patched file exceeds the 16 MiB per-target cap (`target too large`), the `patches` list carries more than 1024 file entries (`too many file entries`), applying the whole list would read or rewrite more than 128 MiB of the tree (`work budget exceeded`), or the tree's bytes do not match the patch context exactly (`context mismatch`) |
 | `upstream_tree_mismatch` | the published tree is not the declared transformation of the upstream archive; the detail names the first divergence in sorted-path order, reporting missing and diverging files before unexplained extras: `missing file`, `file contents`, or `extra file` |
+| `upstream_build_script` | the archive's root `build.c` or `build.cpp` is the upstream archive's own file of that name, unchanged; a [build script](build-scripts.md#publishing-a-package-with-a-build-script) is one a declared copy step or patch puts there or changes |
 
 A recorded reason is the `code` above, optionally followed by one parenthesized detail that
 narrows the cause - `unsupported_zip_feature (zip64)`, `header_mismatch (crc)`,
@@ -876,12 +879,13 @@ version's yanked state in the per-package index document:
 { "yanked": true }
 ```
 
-`{"yanked": false}` un-yanks.  The route is idempotent: setting the state a version already has
-succeeds with `200` and body `{"ok":true}`.  Yank is **version-level** - it covers every packaging
-revision of the version at once, and there is no per-revision yank.  It applies to versions with at
-least one [**served**](#verification-lifecycle) revision - a version with none
-was never part of the registry's resolvable surface, so there is nothing to
-retract and it answers an authenticated `404`.
+`{"yanked": false}` un-yanks.  The response is a `200` reporting the resulting state and whether the
+request changed it: `{"ok":true,"yanked":<bool>,"changed":<bool>}`.  The route is idempotent:
+setting the state a version already has reports `"changed":false`.  Yank is **version-level** - it
+covers every packaging revision of the version at once, and there is no per-revision yank.  It
+applies to versions with at least one [**served**](#verification-lifecycle) revision - a version
+with none was never part of the registry's resolvable surface, so there is nothing to retract and it
+answers an authenticated `404`.
 
 ### Yanking from the client
 

@@ -13,7 +13,7 @@ use std::collections::{BTreeSet, HashMap};
 use cabin_workspace::{PackageGraph, PackageKind};
 use camino::Utf8Path;
 
-use super::{TargetDepEdge, TargetId, find_target, promote_dir};
+use super::{BuildScriptOutput, TargetDepEdge, TargetId, find_target, promote_dir};
 use crate::error::BuildError;
 
 /// Every C (through C23) and C++ (through C++26, including the
@@ -202,7 +202,9 @@ fn probed_standard_headers(dir: &Utf8Path) -> impl Iterator<Item = &'static str>
 
 /// Refuse the first registry library target whose include dir holds
 /// a file named like a standard header, unless the root manifest's
-/// `[standard-header-shadowing] allow` names its package.  Only
+/// `[standard-header-shadowing] allow` names its package.  An include
+/// dir is one the target declares or one its package's build script
+/// reported (`reported`).  Only
 /// targets some resolved edge depends on are checked: those are the
 /// ones whose include dirs reach another target's compiles.  Local
 /// packages are the user's own code and are not checked.  The listed
@@ -211,10 +213,12 @@ fn probed_standard_headers(dir: &Utf8Path) -> impl Iterator<Item = &'static str>
 pub(super) fn reject_standard_header_shadowing(
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     graph: &PackageGraph,
+    reported: &HashMap<TargetId, BuildScriptOutput>,
 ) -> Result<(), BuildError> {
     let allowed = &graph.root_settings.allow_standard_header_shadowing;
     let deps: BTreeSet<&TargetId> = resolved.values().flatten().map(|edge| &edge.to).collect();
-    for (pkg_idx, target_name) in deps {
+    for tid in deps {
+        let (pkg_idx, target_name) = tid;
         let pkg = &graph.packages[*pkg_idx];
         if pkg.kind != PackageKind::Registry || allowed.contains(&pkg.package.name) {
             continue;
@@ -226,8 +230,16 @@ pub(super) fn reject_standard_header_shadowing(
             continue;
         }
         let manifest_dir = promote_dir(&pkg.manifest_dir)?;
-        for include_dir in &target.include_dirs {
-            let dir = manifest_dir.join(include_dir);
+        let declared = target
+            .include_dirs
+            .iter()
+            .map(|include_dir| (include_dir, manifest_dir.join(include_dir)));
+        let reported = reported
+            .get(tid)
+            .into_iter()
+            .flat_map(|output| &output.include_dirs)
+            .map(|dir| (dir, dir.clone()));
+        for (include_dir, dir) in declared.chain(reported) {
             let listed = dir
                 .read_dir_utf8()
                 .into_iter()

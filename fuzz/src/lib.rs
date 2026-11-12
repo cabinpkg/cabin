@@ -30,9 +30,10 @@ version = "1.2.3"
 /// Inspect `archive` against the listing entry a publish that passed
 /// the server's synchronous checks would produce, with `checksum` as
 /// the recorded digest. The canonical metadata is derived through the
-/// publish seam from the archive's own `cabin.toml` as the client's zip
-/// reader sees it, or from [`FALLBACK_MANIFEST`] when it sees none, so
-/// a well-formed archive can reach, and pass, the consistency checks.
+/// publish seam from the archive's own `cabin.toml` and root build
+/// script as the client's zip reader sees them, or from
+/// [`FALLBACK_MANIFEST`] when it sees no manifest, so a well-formed
+/// archive can reach, and pass, the consistency checks.
 ///
 /// # Errors
 ///
@@ -43,10 +44,17 @@ version = "1.2.3"
 ///
 /// If [`FALLBACK_MANIFEST`] stops being publishable.
 pub fn inspect_as_listed(archive: &[u8], checksum: Checksum) -> Result<Verdict, VerifyError> {
+    let build_script = zip::ZipArchive::new(Cursor::new(archive))
+        .ok()
+        .and_then(|zip| {
+            let names: Vec<_> = zip.file_names().filter_map(Result::ok).collect();
+            cabin_package::archive::build_script(names.iter().map(AsRef::as_ref)).ok()?
+        });
     let metadata = client_manifest(archive)
-        .and_then(|text| metadata_of(&text, &checksum))
+        .and_then(|text| metadata_of(&text, &checksum, build_script))
         .unwrap_or_else(|| {
-            metadata_of(FALLBACK_MANIFEST, &checksum).expect("the fallback manifest is publishable")
+            metadata_of(FALLBACK_MANIFEST, &checksum, build_script)
+                .expect("the fallback manifest is publishable")
         });
     inspect_listed_with(archive, checksum, metadata)
 }
@@ -83,13 +91,19 @@ fn client_manifest(archive: &[u8]) -> Option<String> {
 }
 
 /// The canonical metadata publish stores for `manifest`.
-fn metadata_of(manifest: &str, checksum: &Checksum) -> Option<serde_json::Value> {
+fn metadata_of(
+    manifest: &str,
+    checksum: &Checksum,
+    build_script: Option<&'static str>,
+) -> Option<serde_json::Value> {
     let package = cabin_manifest::parse_manifest_str(manifest).ok()?.package?;
     // `canonical_metadata` takes a publishable package, as publish and
     // the verifier's consistency pass hand it one.
     cabin_package::validate::validate_publishable(&package).ok()?;
     serde_json::to_value(cabin_package::metadata::canonical_metadata(
-        &package, checksum,
+        &package,
+        checksum,
+        build_script,
     ))
     .ok()
 }

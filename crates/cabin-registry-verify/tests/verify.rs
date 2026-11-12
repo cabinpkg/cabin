@@ -290,7 +290,7 @@ fn hand_pending(dir: &TempDir, entries: &[Entry], manifest: &str) -> (PathBuf, P
     let hex = checksum.hex().to_owned();
     let parsed = cabin_manifest::parse_manifest_str(manifest).unwrap();
     let package = parsed.package.unwrap();
-    let metadata = cabin_package::metadata::canonical_metadata(&package, &checksum);
+    let metadata = cabin_package::metadata::canonical_metadata(&package, &checksum, None);
     let pending = PendingVersion {
         name: package.name.as_str().to_owned(),
         version: package.version.to_string(),
@@ -379,6 +379,40 @@ fn tampered_license_metadata_rejects() {
         match tampered {
             Some(value) => fields.insert("license".to_owned(), value),
             None => fields.remove("license"),
+        };
+        assert_rejected(&archive, &pending, Reason::MetadataMismatch);
+    }
+}
+
+/// The stored `build-script` is the build script the archive holds in
+/// its root, by name: one the archive lacks, another name, an explicit
+/// `null`, or an archive's script left undeclared is a metadata
+/// mismatch.
+#[test]
+fn a_declared_build_script_is_the_archives() {
+    let dir = TempDir::new().unwrap();
+    let (archive, mut pending) = benign(&dir);
+    pending.metadata["build-script"] = "build.c".into();
+    assert_rejected(&archive, &pending, Reason::MetadataMismatch);
+
+    dir.child("pkg/build.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    for tampered in [
+        Some(serde_json::json!("build.cpp")),
+        Some(serde_json::Value::Null),
+        None,
+    ] {
+        let (archive, mut pending) = benign(&dir);
+        assert_eq!(pending.metadata["build-script"], "build.c");
+        assert_eq!(
+            inspect(&archive, &pending, &Limits::default(), None).unwrap(),
+            Verdict::Verified
+        );
+        let fields = pending.metadata.as_object_mut().unwrap();
+        match tampered {
+            Some(value) => fields.insert("build-script".to_owned(), value),
+            None => fields.remove("build-script"),
         };
         assert_rejected(&archive, &pending, Reason::MetadataMismatch);
     }
@@ -1934,6 +1968,54 @@ fn patched_provenance_verifies() {
     let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
     let verdict = inspect(&archive, &pending, &Limits::default(), Some(&upstream)).unwrap();
     assert_eq!(verdict, Verdict::Verified);
+}
+
+/// A build script the upstream archive ships is the package's only
+/// once a declared patch has changed it: unchanged, it is a file
+/// nobody chose to run on every machine that builds the package.
+#[test]
+fn an_upstream_file_is_no_build_script_until_a_patch_changes_it() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", UPSTREAM_LIB_CC),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+            ("lib-1.0/build.c", UPSTREAM_LIB_CC),
+        ],
+    );
+    let verdict = |staged: &cabin_package::StagedPackage| {
+        assert_eq!(staged.metadata.build_script, Some("build.c"));
+        let (archive, pending) = write_pending(&dir, &staged.archive_bytes, staged);
+        inspect(&archive, &pending, &Limits::default(), Some(&upstream)).unwrap()
+    };
+    dir.child("pkg/build.c").write_str(UPSTREAM_LIB_CC).unwrap();
+    assert_eq!(
+        verdict(&patched_staged(&dir, &hex, PATCHED_LIB_CC)),
+        Verdict::Rejected(vec![Reason::UpstreamBuildScript])
+    );
+
+    dir.child("pkg/build.c").write_str(PATCHED_LIB_CC).unwrap();
+    dir.child("pkg/patches/0002-script.patch")
+        .write_str(&UPSTREAM_PATCH.replace("src/lib.cc", "build.c"))
+        .unwrap();
+    let manifest = dir.child("pkg/cabin.toml");
+    let text = fs::read_to_string(manifest.path()).unwrap();
+    manifest
+        .write_str(&text.replace(
+            r#"["patches/0001-fix.patch"]"#,
+            r#"["patches/0001-fix.patch", "patches/0002-script.patch"]"#,
+        ))
+        .unwrap();
+    let staged = cabin_package::stage_with_project(
+        manifest.path(),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    )
+    .unwrap();
+    assert_eq!(verdict(&staged), Verdict::Verified);
 }
 
 #[test]

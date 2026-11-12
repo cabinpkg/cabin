@@ -22,7 +22,7 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 | `cabin clean` | `cargo clean` | Removes Cabin-generated build artifacts; `--gc` removes only those unused for a while (see [`profiles.md`](profiles.md#unused-build-outputs)) |
 | `cabin run` | `cargo run` | Builds and runs an exec target; `--` forwards args |
 | `cabin test` | `cargo test` | Builds + runs `test` targets; `--` forwards args to each |
-| `cabin install` | `cargo install` | Builds a package's `executable` targets and copies them into `<root>/bin`; `--path <dir>` only, no registry packages yet.  See [`installing-programs.md`](installing-programs.md). |
+| `cabin install` | `cargo install` | Builds a package's `executable` targets and copies them into `<root>/bin`: a registry package by name, or the package in `--path <dir>`.  See [`installing-programs.md`](installing-programs.md). |
 | `cabin uninstall` | `cargo uninstall` | Removes the executables `cabin install` put there |
 | `cabin fetch` | `cargo fetch` | Downloads + verifies registry artifacts |
 | `cabin update` | `cargo update` | Re-resolves, refreshes lockfile |

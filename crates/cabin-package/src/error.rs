@@ -65,6 +65,9 @@ pub enum PackageError {
     )]
     IncludeMatchedNothing(String),
 
+    #[error("the package holds both `build.c` and `build.cpp`; a package has one build script")]
+    TwoBuildScripts,
+
     #[error("refusing to package symlink `{0}`: symlinks in package archives are not supported")]
     SymlinkNotSupported(String),
 

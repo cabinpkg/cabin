@@ -102,7 +102,8 @@ upstream `VERSION` file is opened for `<version>`.
 
 So while planning, a build refuses a registry package (an extracted registry archive or a
 foundation port) whose library or header-only target, depended on by another target, has a file
-directly inside one of its `include-dirs` that a C or C++ standard library header include would
+directly inside one of its `include-dirs`, or inside an include directory its
+[build script](build-scripts.md) reports, that a C or C++ standard library header include would
 open: the C headers through C23 (`<assert.h>` ... `<uchar.h>`, `<stdbit.h>`, `<stdckdint.h>`) and
 the C++ headers through C++26, including the `<cxxx>` forms and `<version>`.  Two comparisons
 decide it:

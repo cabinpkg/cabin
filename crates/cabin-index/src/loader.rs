@@ -9,8 +9,8 @@ use serde::Deserialize;
 
 use crate::error::IndexError;
 use crate::model::{
-    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, ResolutionMetadata,
-    RevisionMetadata, SourceLocation, VersionMetadata,
+    BuildScript, IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex,
+    ResolutionMetadata, RevisionMetadata, SourceLocation, VersionMetadata,
 };
 use crate::walk::walk_dependencies;
 
@@ -382,6 +382,7 @@ pub fn parse_package_entry(
                 links: raw_ver.links,
                 upstream: raw_ver.upstream,
                 license: raw_ver.license,
+                build_script: raw_ver.build_script,
             },
         );
     }
@@ -674,6 +675,7 @@ fn parse_resolution(
     Ok(ResolutionMetadata {
         dependencies,
         build_dependencies,
+        build_script: raw.build_script,
         features: raw.features,
         standards: raw.standards,
         links: raw.links,
@@ -821,6 +823,10 @@ struct RawVersion {
     /// launch (`registry/docs/runbook.md`, "Launch checklist").
     #[serde(default)]
     license: Option<String>,
+    /// Declared build script, `build.c` or `build.cpp`.  Optional;
+    /// a version without one runs no build script.
+    #[serde(default, rename = "build-script")]
+    build_script: Option<BuildScript>,
 }
 
 /// On-disk shape of one packaging revision inside a version entry's
@@ -847,6 +853,8 @@ struct RawResolution {
     dependencies: BTreeMap<String, RawIndexPackageDep>,
     #[serde(default, rename = "build-dependencies")]
     build_dependencies: BTreeMap<String, RawIndexPackageDep>,
+    #[serde(default, rename = "build-script")]
+    build_script: Option<BuildScript>,
     #[serde(default)]
     features: cabin_core::Features,
     #[serde(default)]
@@ -982,6 +990,7 @@ mod tests {
                     "10.2.1": {{
                         "dependencies": {{ "acme/b": "^1" }},
                         "build-dependencies": {{ "acme/t": "^1" }},
+                        "build-script": "build.cpp",
                         "revision": "{current}",
                         "revisions": {{
                             "aaaaaaaaaaaaaaaa": {{
@@ -1020,10 +1029,20 @@ mod tests {
         current.select_revision(meta.checksum.as_ref().unwrap());
         assert_eq!(names(&current.dependencies), ["acme/b"]);
         assert_eq!(names(&current.build_dependencies), ["acme/t"]);
+        assert_eq!(current.build_script, Some(BuildScript::Cpp));
         let mut pinned = meta.clone();
         pinned.select_revision(&meta.revisions[rev_a].checksum);
         assert_eq!(names(&pinned.dependencies), ["acme/c"]);
         assert_eq!(names(&pinned.build_dependencies), ["acme/u"]);
+        assert_eq!(pinned.build_script, None);
+        // Only the two names are build scripts.
+        let aliased = doc(2, rev_b, "^2").replace("build.cpp", "build.cc");
+        let err = parse_package_entry(&aliased, None, &context, None).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("unknown variant `build.cc`, expected `build.c` or `build.cpp`"),
+            "{err}"
+        );
 
         let err = parse_package_entry(&doc(2, rev_b, "not a requirement"), None, &context, None)
             .unwrap_err();
