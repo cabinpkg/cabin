@@ -71,7 +71,14 @@ pub struct RevisionRow {
 /// from the served revision's carries its own as `resolution`, so a
 /// lockfile pinning it resolves what its archive declares
 /// (`package-index.md`, "Packaging revisions").
-const RESOLUTION_FIELDS: [&str; 4] = ["dependencies", "features", "standards", "links"];
+const RESOLUTION_FIELDS: [&str; 6] = [
+    "dependencies",
+    "build-dependencies",
+    "build-script",
+    "features",
+    "standards",
+    "links",
+];
 
 #[derive(Serialize)]
 struct PackageDoc<'a> {
@@ -515,7 +522,7 @@ mod tests {
         let current = r#"{"dependencies":{"acme/b":"^1"},"links":{"z":"z"}}"#;
         let rev_c = "cccccccccccccccc";
         let mut first = revision("1.0.0", REV_A, 'a');
-        first.metadata_json = r#"{"dependencies":{},"features":{"default":[]}}"#.to_owned();
+        first.metadata_json = r#"{"dependencies":{},"build-dependencies":{"acme/gen":"^1"},"build-script":"build.c","features":{"default":[]}}"#.to_owned();
         let mut agreeing = revision("1.0.0", rev_c, 'c');
         agreeing.metadata_json = current.to_owned();
         let revisions = [first, revision("1.0.0", REV_B, 'b'), agreeing];
@@ -531,7 +538,12 @@ mod tests {
         let listed = &value["versions"]["1.0.0"]["revisions"];
         assert_eq!(
             listed[REV_A]["resolution"],
-            serde_json::json!({"dependencies": {}, "features": {"default": []}})
+            serde_json::json!({
+                "dependencies": {},
+                "build-dependencies": {"acme/gen": "^1"},
+                "build-script": "build.c",
+                "features": {"default": []},
+            })
         );
         assert!(listed[REV_B].get("resolution").is_none(), "{body}");
         assert!(listed[rev_c].get("resolution").is_none(), "{body}");
