@@ -6193,7 +6193,7 @@ fn a_library_a_build_script_supplies_is_linked_and_not_built() {
     assert_eq!(
         compiles
             .iter()
-            .map(|compile| compile.source.as_str())
+            .map(|compile| &compile.source)
             .collect::<Vec<_>>(),
         ["/abs/demo/src/base.c", "/abs/demo/src/main.c"]
     );
