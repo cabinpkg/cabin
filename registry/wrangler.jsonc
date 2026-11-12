@@ -21,7 +21,7 @@
     },
     "observability": {
         "enabled": true,
-        "head_sampling_rate": 1
+        "head_sampling_rate": 0.1
     },
     // Secrets, set via `wrangler secret put <NAME>` (never in this file):
     // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account

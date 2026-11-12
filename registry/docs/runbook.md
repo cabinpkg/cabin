@@ -702,10 +702,11 @@ independently.
 
 **Inspecting the ledger.** Every breaker cron pass logs one summary
 line (`governor usage: storage ... ops ...`) next to the analytics
-evaluation - `wrangler tail` or the dashboard shows both - and the
-reconciliation report right after it: objects added conservatively,
-plus `governor ledger divergence: N unreferenced entr(ies), M byte
-mismatch(es)` when the ledger carries entries D1 does not prove live.
+evaluation - `wrangler tail` shows both, the dashboard only what its
+sample kept (see "Logs") - and the reconciliation report right after
+it: objects added conservatively, plus `governor ledger divergence: N
+unreferenced entr(ies), M byte mismatch(es)` when the ledger carries
+entries D1 does not prove live.
 On demand (with a login-session token in `CABIN_REGISTRY_TOKEN`):
 
 ```sh
@@ -1322,7 +1323,10 @@ node_modules/.bin/wrangler d1 execute DB --remote --command "
 
 `wrangler tail` (or the dashboard). One line per request:
 `req=<id> method=<m> path=<p> status=<s> token=<token-row-id|->`. Tokens and
-token hashes are never logged.
+token hashes are never logged. The dashboard's stored logs are a sample:
+`wrangler.jsonc` sets `head_sampling_rate` to 0.1, so Workers Logs keeps
+about one request in ten, and every line of a request it drops - an
+internal error or a refusal reason included - is absent.
 
 For an incident report or a bug thread, `cargo registry-diagnose`, run from
 the repository root, gathers
