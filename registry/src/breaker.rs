@@ -1,12 +1,12 @@
 //! The free-plan budget circuit breaker: pure evaluation of usage against
 //! budgets (`docs/runbook.md`, "Budget breaker and service mode").
 //!
-//! The wasm32 glue's cron handler gathers usage (exact self-accounted R2
-//! storage from `meta.total_stored_bytes`, the rest from the Cloudflare
-//! GraphQL Analytics API via `crate::analytics`), evaluates it here, and
-//! persists the resulting mode to `meta.service_mode`; the request
-//! handlers only ever read that row - writes fail closed on it, reads
-//! fail open ([`read_gate_refuses`]).
+//! The wasm32 glue's cron handler gathers usage (the stored bytes
+//! publishers are charged, summed from `users.stored_bytes`; the rest
+//! from the Cloudflare GraphQL Analytics API via `crate::analytics`),
+//! evaluates it here, and persists the resulting mode to
+//! `meta.service_mode`; the request handlers only ever read that row -
+//! writes fail closed on it, reads fail open ([`read_gate_refuses`]).
 
 /// The persisted `meta.service_mode` value. Ordered by severity so partial
 /// analytics data can escalate but never de-escalate ([`next_mode`]);
@@ -90,7 +90,12 @@ pub const GOVERNOR_UNAVAILABLE_RETRY_AFTER_SECS: u64 = 60;
 #[derive(Debug, Clone, Copy)]
 pub struct Budgets {
     /// `BUDGET_R2_STORAGE_BYTES`; free limit 10 GB-month across the
-    /// account.
+    /// account. Compared with the bytes publishers are charged, which a
+    /// rejection refunds at once while its object stays in UPLOADS until
+    /// the bucket expires it: what UPLOADS holds beyond this figure is
+    /// bounded by the classes' daily upload allowances over twenty-eight
+    /// days (an archive is stored up to fourteen days after its upload
+    /// was charged, and expires fourteen days later), not by this budget.
     pub r2_storage_bytes: u64,
     /// `BUDGET_R2_CLASS_A_MONTH`; free limit 1 million/month.
     pub r2_class_a_month: u64,
@@ -123,12 +128,11 @@ impl Default for Budgets {
     }
 }
 
-/// One cron pass's usage snapshot. Storage is exact (self-accounted in
-/// `meta.total_stored_bytes`, never analytics) but still `None` when the
-/// meta row is missing or non-numeric - unavailable data, never zero, so
-/// a corrupt counter can never unblock writes. The analytics-sourced
-/// metrics are `None` when their query failed or the dataset was
-/// rejected.
+/// One cron pass's usage snapshot. Storage is self-accounted (the sum
+/// of `users.stored_bytes`, never analytics), and `None` stands for a
+/// total that could not be read - unavailable data, never zero. The
+/// analytics-sourced metrics are `None` when their query failed or the
+/// dataset was rejected.
 #[derive(Debug, Clone, Copy)]
 pub struct Usage {
     pub stored_bytes: Option<u64>,
@@ -430,7 +434,7 @@ mod tests {
 
     #[test]
     fn unavailable_storage_marks_the_snapshot_incomplete() {
-        // A corrupt total_stored_bytes must ride the never-de-escalate
+        // An unreadable storage total must ride the never-de-escalate
         // path, not read as zero usage.
         let missing_storage = Usage {
             stored_bytes: None,

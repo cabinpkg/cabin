@@ -8,8 +8,8 @@
 //!
 //! Every checksum this worker stores, serves, or accepts is the full
 //! `sha256:<64 lowercase hex>` spelling; the bare hex tail exists
-//! only inside derived values (R2 blob keys, packaging-revision ids),
-//! obtained by slicing a value that already passed [`is_canonical`].
+//! only inside the packaging-revision id, obtained by slicing a value
+//! that already passed [`is_canonical`].
 
 /// The one supported algorithm prefix.
 pub const PREFIX: &str = "sha256:";
@@ -28,11 +28,7 @@ pub fn is_canonical(value: &str) -> bool {
 
 /// The 64-character bare hex tail of a canonical value.  A
 /// non-canonical value (a corrupt row; every writer stores the
-/// canonical spelling) yields the empty tail, so every derived key
-/// collapses to the bare `blobs/sha256/` prefix, an address no object
-/// occupies: even a bare-hex value never aliases the real object at
-/// `blobs/sha256/<hex>`, and the read fails closed as a logged miss
-/// instead of serving or panicking.
+/// canonical spelling) yields the empty tail.
 #[must_use]
 pub fn hex(value: &str) -> &str {
     if is_canonical(value) {
@@ -40,17 +36,6 @@ pub fn hex(value: &str) -> &str {
     } else {
         ""
     }
-}
-
-/// The R2 key prefix of every archive blob (OCI-style layout).
-pub const BLOB_KEY_PREFIX: &str = "blobs/sha256/";
-
-/// The R2 key of the archive blob a checksum names,
-/// `blobs/sha256/<hex>`; a non-canonical value yields the bare
-/// prefix (see [`hex`]).
-#[must_use]
-pub fn blob_key(value: &str) -> String {
-    format!("{BLOB_KEY_PREFIX}{}", hex(value))
 }
 
 /// The packaging-revision id a canonical checksum mints: the leading
@@ -95,21 +80,16 @@ mod tests {
         let value = from_hex(SHA);
         assert_eq!(hex(&value), SHA);
         assert_eq!(revision_id(&value), "9a93b2b7dfdac77c");
-        assert_eq!(blob_key(&value), format!("blobs/sha256/{SHA}"));
     }
 
-    /// Corrupt column values must degrade to impossible keys and
-    /// ids, never panic a request or alias a real object: the
-    /// helpers are total for any string, and a bare-hex value -
-    /// whose `blobs/sha256/<hex>` key may name a real object - must
-    /// not map to that key.
+    /// Corrupt column values must degrade to an impossible id, never
+    /// panic a request: the helpers are total for any string.
     #[test]
     fn non_canonical_values_degrade_without_panicking() {
         let bare = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
         for corrupt in ["", "aa", "sha256:", "sha256:short", "é", bare] {
             assert_eq!(hex(corrupt), "", "{corrupt:?}");
             assert_eq!(revision_id(corrupt), "", "{corrupt:?}");
-            assert_eq!(blob_key(corrupt), "blobs/sha256/", "{corrupt:?}");
         }
     }
 

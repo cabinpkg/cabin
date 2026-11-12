@@ -80,9 +80,29 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""binding": "DATABASE""#,
     ),
     (
-        "lost_blobs_bucket",
-        r#""binding": "BLOBS""#,
-        r#""binding": "BLOBSTORE""#,
+        "lost_archives_bucket",
+        r#""binding": "ARCHIVES""#,
+        r#""binding": "ARCHIVE""#,
+    ),
+    (
+        "lost_uploads_bucket",
+        r#""binding": "UPLOADS""#,
+        r#""binding": "UPLOAD""#,
+    ),
+    (
+        "lost_download_logs_bucket",
+        r#""binding": "DOWNLOAD_LOGS""#,
+        r#""binding": "LOGS""#,
+    ),
+    (
+        "lost_index_bucket",
+        r#""binding": "INDEX""#,
+        r#""binding": "INDEXES""#,
+    ),
+    (
+        "binding_moved_to_another_bucket",
+        r#""bucket_name": "cabin-registry-uploads""#,
+        r#""bucket_name": "cabin-registry-scratch""#,
     ),
     (
         "edited_v1_migration",

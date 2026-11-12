@@ -13,6 +13,7 @@
 
 use std::fmt::Write as _;
 use std::io::Read as _;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, bail};
 
@@ -319,6 +320,44 @@ impl Smoke {
         self.request_at(Base::Web, method, path, data, expected)
     }
 
+    /// A publish as a new upload operation: a fresh `Cabin-Upload-Id`,
+    /// returned for the legs that read the stored object or send the
+    /// operation again.  A publish that must carry no id at all goes
+    /// through [`Smoke::wrequest`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Smoke::request_at`].
+    pub fn publish(&mut self, path: &str, data: &[u8], expected: &[u16]) -> Result<String> {
+        // The clock is the id: requests are sequential and paced, and a
+        // rerun over the same local state must not repeat an earlier
+        // run's ids.
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let upload_id = format!("{nanos:032x}");
+        self.publish_as(&upload_id, path, data, expected)?;
+        Ok(upload_id)
+    }
+
+    /// A publish under a given `Cabin-Upload-Id`: that operation sent
+    /// again, or an id the registry must refuse.
+    ///
+    /// # Errors
+    ///
+    /// As [`Smoke::request_at`].
+    pub fn publish_as(
+        &mut self,
+        upload_id: &str,
+        path: &str,
+        data: &[u8],
+        expected: &[u16],
+    ) -> Result<()> {
+        let url = self.url(Base::Web, path);
+        let mut headers = self.auth.clone();
+        headers.push(("Cabin-Upload-Id".to_owned(), upload_id.to_owned()));
+        let status = self.http("PUT", &url, &headers, Some(data))?;
+        self.expect_status(&format!("PUT {path}"), status, expected)
+    }
+
     /// The last body must contain `fixed`.  `grep -qF`, so a fixed
     /// string and never a pattern.
     ///
@@ -574,6 +613,34 @@ mod tests {
             "/config.json returned 401, expected one of: 200 404 (body: nope!)"
         );
         let _ = requests.recv();
+    }
+
+    /// The registry takes exactly 32 lower-case hex digits
+    /// (`registry/src/upload.rs`, `parse_id`), and a new operation must
+    /// not reuse an earlier one's.
+    #[test]
+    fn a_publish_carries_a_fresh_well_formed_upload_id() {
+        let created = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
+        let (port, requests) = serve(vec![created, created]);
+        let mut smoke = smoke(port);
+        let path = "/api/v1/packages/smoke/withdep/0.2.0";
+        let first = smoke.publish(path, b"body", &[201]).expect("publish");
+        let second = smoke.publish(path, b"body", &[201]).expect("publish");
+
+        assert_eq!(first.len(), 32, "{first}");
+        assert!(
+            first
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')),
+            "{first}"
+        );
+        assert_ne!(first, second);
+        assert!(
+            requests
+                .recv()
+                .expect("head")
+                .contains(&format!("Cabin-Upload-Id: {first}\r\n"))
+        );
     }
 
     #[test]

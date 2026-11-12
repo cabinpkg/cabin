@@ -28,9 +28,6 @@ fn the_account_id_is_the_first_matching_occurrence() {
     ] {
         assert_eq!(declared_account_id(text), None, "accepted {text}");
     }
-    // The deployed config still declares one, which is what the
-    // command reads at runtime.
-    assert!(xtask_registry_admin::account_id().is_ok());
 }
 
 /// The two config-id matchers separate whitespace as JavaScript's `\s`

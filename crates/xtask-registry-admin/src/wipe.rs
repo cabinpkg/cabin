@@ -6,10 +6,9 @@
 //!   cargo registry-wipe --local    the local .wrangler/ state (smoke, dev)
 //! ```
 //!
-//! Remote first empties both buckets - the primary's archive blobs and
-//! every object in the BACKUP bucket, which holds only what retired
-//! jobs left - then drops and recreates the database,
-//! reapplies every migration, bakes the recreated id into
+//! Remote first empties the registry's four buckets - archives,
+//! uploads, download logs and index - then drops and recreates the
+//! database, reapplies every migration, bakes the recreated id into
 //! `wrangler.jsonc`, bumps the registry generation and redeploys.
 //! `--local` is the same reset of the local emulated state.  Once
 //! `meta.launched` is `true`, neither runs.
@@ -46,9 +45,9 @@
 //! - **The bump is 64-bit and wrapping**, and reads a leading zero as
 //!   octal - see `increment` below.
 //! - **The `--local` reset deletes four subtrees and nothing else.**  The
-//!   governor Durable Object's ledger and the emulated edge cache go with
-//!   the D1 and R2 state: a wiped registry must not keep accounting for
-//!   (or serving) deleted blobs.
+//!   governor Durable Object's state and the emulated edge cache go with
+//!   the D1 and R2 state: a wiped registry must not keep serving deleted
+//!   archives.
 //! - **The textual `wrangler.jsonc` rewrite targets the FIRST
 //!   `database_id`**, which is only the `DB` binding's while it is the
 //!   only one - so a count guards it beforehand, and a second count
@@ -74,8 +73,8 @@
 //!
 //! Ceilings:
 //!
-//! - the R2 sweep goes through the governor's pinned `ureq` agent, so a
-//!   proxy named only in the environment is not read;
+//! - the R2 sweep's `ureq` agent does not read a proxy named only in
+//!   the environment;
 //! - a key the delete URL cannot carry verbatim - one with a `.` or
 //!   `..` path segment, which URL parsing resolves away - cannot be
 //!   swept: the run names it and stops before sending its delete.  No
@@ -104,11 +103,10 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use serde::Deserialize;
 use xtask_workflow_guard::migrations_pending;
 
-use crate::governor::Buckets;
 use crate::launch_guard::{self, Mode};
+use crate::r2::Buckets;
 use crate::{
-    BACKUP_BUCKET, BLOBS_BUCKET, declared_account_id, display, output, registry_root, results,
-    status, step, wrangler,
+    BUCKETS, declared_account_id, display, output, registry_root, results, status, step, wrangler,
 };
 
 /// The database this drops and recreates.
@@ -141,9 +139,8 @@ pub fn run(mode: Mode) -> Result<()> {
     if matches!(mode, Mode::Remote) {
         // The one follow-up that must happen BEFORE the wipe, so it is
         // printed before the confirmation rather than with the others:
-        // a ports publish run mints its own publish token through the
-        // trusted-publishing exchange, and the post-wipe governor wipe
-        // refuses while any live publish token exists.
+        // a ports publish landing after a bucket's sweep would leave an
+        // object the recreated database has no row for.
         println!(
             "before wiping: gh workflow disable publish.yml -R cabin-ports/ports and gh \
              workflow disable registry-verify.yml, and cancel every queued or in-flight run of \
@@ -212,12 +209,13 @@ fn remote(old: &str, new: i64) -> Result<()> {
     // guard's flag - still exists: a sweep that fails partway, a token
     // that cannot list or delete included, leaves nothing a re-run of
     // this command cannot finish.
-    step(&format!("deleting blobs/ from {BLOBS_BUCKET}"));
-    let primary = or_fail(sweep(&buckets, BLOBS_BUCKET, "blobs/"));
-    println!("    deleted {primary} object(s); none is listed any more");
-    step(&format!("deleting every object from {BACKUP_BUCKET}"));
-    let backup = or_fail(sweep(&buckets, BACKUP_BUCKET, ""));
-    println!("    deleted {backup} object(s); none is listed any more");
+    let mut deleted = 0;
+    for bucket in BUCKETS {
+        step(&format!("deleting every object from {bucket}"));
+        let swept = or_fail(sweep(&buckets, bucket));
+        println!("    deleted {swept} object(s); none is listed any more");
+        deleted += swept;
+    }
 
     step(&format!("dropping and recreating the {DATABASE} database"));
     wrangler_run(&["d1", "delete", DATABASE, "-y"], Show::Stdout)?;
@@ -277,7 +275,7 @@ fn remote(old: &str, new: i64) -> Result<()> {
     wrangler_run(&["deploy"], Show::Stdout)?;
 
     print!(
-        r#"wipe OK (generation {old} -> {new}; {primary} primary and {backup} backup object(s) deleted)
+        r#"wipe OK (generation {old} -> {new}; {deleted} object(s) deleted)
 
 Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"):
   1. commit the wrangler.jsonc database-id change and the refreshed
@@ -288,27 +286,14 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"
      OAuth app grant survives the wipe, so re-claims grant immediately);
      the cabin-ports claim is what re-arms ports publishing - the
      trusted-publishing exchange refuses an unclaimed scope
-  3. mint a login-session token for the governor step below as the
-     operator - only the operator's session carries the verify scope that
-     authenticates the admin endpoint; the verifier workflow needs no
-     secret of its own -
-     each run mints its own through the trusted-publishing exchange, and
-     the baseline migration seeds the backing identity it resolves
-  4. run cargo registry-governor wipe (from the repository root): it
-     resets every storage pool only while both buckets are still
-     empty.  Its no-delayed-publisher evidence gate requires zero live
-     publish tokens and a login-session token carries publish, so block
-     writes first, wait out the in-flight window (~5 min), then run under
-     writes_blocked - the gate clears on that path; the ports publish
-     workflow stays disabled until the next step
-  5. start the ports receipts log over while publishing is still
+  3. start the ports receipts log over while publishing is still
      disabled (its README, "Automatic publishing"), re-enable it (gh
      workflow enable publish.yml -R cabin-ports/ports), prove the
      binding with an exchange-check dispatch, then dispatch it plainly
      from main to republish the set - no publish token or secret to
      mint: each run's OIDC exchange is the credential; then re-enable
      the verifier (gh workflow enable registry-verify.yml)
-  6. rerun whatever main CI went red against the old registry
+  4. rerun whatever main CI went red against the old registry
      (gh run rerun <id> --failed)
 "#
     );
@@ -322,8 +307,9 @@ fn confirm() -> Result<()> {
         return Ok(());
     }
     print!(
-        "About to WIPE the deployed registry ({DATABASE}, {BLOBS_BUCKET}, and every object \
-         in {BACKUP_BUCKET}). Type \"wipe\" to confirm: "
+        "About to WIPE the deployed registry ({DATABASE} and every object in {}). Type \
+         \"wipe\" to confirm: ",
+        BUCKETS.join(", ")
     );
     std::io::stdout().flush().context("write the prompt")?;
     let mut answer = String::new();
@@ -512,18 +498,18 @@ fn stamp(root: &Path) -> Result<()> {
     stamp.map(drop)
 }
 
-/// The sweep: list `prefix` (the whole bucket when it is empty), delete
-/// every listed key, and list again until a listing comes back empty -
-/// the only way it ends without an error.
+/// The sweep: list the bucket, delete every listed key, and list again
+/// until a listing comes back empty - the only way it ends without an
+/// error.
 ///
 /// Deleting drains the listing, so the first page is re-fetched each
 /// time and no cursor is handled (opaque cursors carry URL-hostile
 /// characters).  A key listed again after its delete answered success
 /// ends the run rather than looping: a writer is putting it back.
-fn sweep(buckets: &Buckets, bucket: &str, prefix: &str) -> Result<u64> {
+fn sweep(buckets: &Buckets, bucket: &str) -> Result<u64> {
     let mut deleted = HashSet::new();
     loop {
-        let keys = buckets.keys(bucket, prefix, 500)?;
+        let keys = buckets.keys(bucket)?;
         if keys.is_empty() {
             return Ok(deleted.len() as u64);
         }
@@ -543,7 +529,7 @@ fn api_base() -> String {
     std::env::var("CF_API_BASE")
         .ok()
         .filter(|base| !base.is_empty())
-        .unwrap_or_else(|| crate::governor::API_BASE.to_owned())
+        .unwrap_or_else(|| crate::r2::API_BASE.to_owned())
 }
 
 /// `wrangler d1 execute DB <flag> --command "UPDATE meta …"`.  The value
@@ -588,6 +574,10 @@ mod tests {
     /// tell a rewritten site from an untouched one.
     const NEW: &str = "1234abcd-1234-abcd-1234-abcd1234abcd";
     const OLD: &str = "00000000-0000-0000-0000-000000000000";
+
+    /// The bucket the sweep tests empty, and one they must leave alone.
+    const SWEPT: &str = BUCKETS[1];
+    const OTHER: &str = BUCKETS[0];
 
     #[test]
     fn a_composite_generation_never_passes_the_numeric_guard() {
@@ -750,37 +740,32 @@ mod tests {
         assert_eq!(bake(&late, NEW).matches(NEW).count(), 1);
     }
 
-    /// Both sweeps, over pages of two: the primary loses its `blobs/`
-    /// and keeps anything else, the backup loses everything - dumps,
-    /// sidecars, and keys under prefixes nothing expects - including
-    /// keys that need escaping, and a second sweep has nothing left.
+    /// A sweep over pages of two takes everything its bucket holds -
+    /// keys under any prefix, keys that need escaping - and nothing
+    /// another bucket holds, and a second sweep has nothing left.
     #[test]
-    fn the_sweeps_empty_the_primary_blobs_and_the_whole_backup_bucket() {
+    fn a_sweep_empties_its_bucket_and_no_other() {
         use crate::r2_mock::{Mock, State};
         let mock = Mock::start(State {
             page_cap: 2,
             ..State::holding(&[
-                (BLOBS_BUCKET, "blobs/sha256/aa"),
-                (BLOBS_BUCKET, "blobs/sha256/bb"),
-                (BLOBS_BUCKET, "blobs/sha256/cc"),
-                (BLOBS_BUCKET, "unrelated/kept"),
-                (BACKUP_BUCKET, "blobs/sha256/aa"),
-                (BACKUP_BUCKET, "d1/2026-10-26.sql"),
-                (BACKUP_BUCKET, "d1/2026-10-26.sql.sha256"),
-                (BACKUP_BUCKET, "rehearsal/notes.txt"),
-                (BACKUP_BUCKET, "odd key/a+b%c?d#e&f=g;ü"),
-                (BACKUP_BUCKET, "nested//empty/segment"),
-                (BACKUP_BUCKET, "x"),
+                (SWEPT, "uploads/aa.zip"),
+                (SWEPT, "uploads/bb.zip"),
+                (SWEPT, "uploads/cc.zip"),
+                (SWEPT, "rehearsal/notes.txt"),
+                (SWEPT, "odd key/a+b%c?d#e&f=g;ü"),
+                (SWEPT, "nested//empty/segment"),
+                (SWEPT, "x"),
+                (OTHER, "uploads/aa.zip"),
             ])
         });
         let buckets = mock.buckets();
-        assert_eq!(sweep(&buckets, BLOBS_BUCKET, "blobs/").unwrap(), 3);
-        assert_eq!(sweep(&buckets, BACKUP_BUCKET, "").unwrap(), 7);
+        assert_eq!(sweep(&buckets, SWEPT).unwrap(), 7);
         assert_eq!(
             mock.remaining(),
-            [(BLOBS_BUCKET.to_owned(), "unrelated/kept".to_owned())]
+            [(OTHER.to_owned(), "uploads/aa.zip".to_owned())]
         );
-        assert_eq!(sweep(&buckets, BACKUP_BUCKET, "").unwrap(), 0);
+        assert_eq!(sweep(&buckets, SWEPT).unwrap(), 0);
     }
 
     /// No answer short of a successful empty last page ends a sweep, so
@@ -809,12 +794,9 @@ mod tests {
         ] {
             let mock = Mock::start(State {
                 list_answer: Some((status, body.to_owned())),
-                ..State::holding(&[(BACKUP_BUCKET, "d1/2026-10-26.sql")])
+                ..State::holding(&[(SWEPT, "uploads/aa.zip")])
             });
-            assert!(
-                sweep(&mock.buckets(), BACKUP_BUCKET, "").is_err(),
-                "{status} {body}"
-            );
+            assert!(sweep(&mock.buckets(), SWEPT).is_err(), "{status} {body}");
         }
     }
 
@@ -825,17 +807,13 @@ mod tests {
         use crate::r2_mock::{Mock, State};
         let mock = Mock::start(State {
             undeletable: Some("b".to_owned()),
-            ..State::holding(&[
-                (BACKUP_BUCKET, "a"),
-                (BACKUP_BUCKET, "b"),
-                (BACKUP_BUCKET, "c"),
-            ])
+            ..State::holding(&[(SWEPT, "a"), (SWEPT, "b"), (SWEPT, "c")])
         });
-        let error = sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap_err();
+        let error = sweep(&mock.buckets(), SWEPT).unwrap_err();
         assert!(format!("{error:#}").contains("deleting b"), "{error:#}");
         assert_eq!(mock.remaining().len(), 2, "a is gone, b and c are not");
         mock.state().undeletable = None;
-        assert_eq!(sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap(), 2);
+        assert_eq!(sweep(&mock.buckets(), SWEPT).unwrap(), 2);
         assert!(mock.remaining().is_empty());
     }
 
@@ -845,27 +823,25 @@ mod tests {
     fn a_delete_that_succeeds_without_deleting_ends_the_sweep() {
         use crate::r2_mock::{Mock, State};
         let mock = Mock::start(State {
-            sticky: Some("d1/2026-10-26.sql".to_owned()),
-            ..State::holding(&[(BACKUP_BUCKET, "d1/2026-10-26.sql")])
+            sticky: Some("uploads/aa.zip".to_owned()),
+            ..State::holding(&[(SWEPT, "uploads/aa.zip")])
         });
-        let error = sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap_err();
+        let error = sweep(&mock.buckets(), SWEPT).unwrap_err();
         assert!(
-            error
-                .to_string()
-                .contains("d1/2026-10-26.sql is still listed"),
+            error.to_string().contains("uploads/aa.zip is still listed"),
             "{error:#}"
         );
     }
 
     /// A key whose delete URL would resolve to another path of the API -
-    /// `../..` from a backup key is the primary bucket's own URL - is
-    /// refused before any delete goes out.
+    /// `../..` from a key is another bucket's own URL - is refused
+    /// before any delete goes out.
     #[test]
     fn a_dot_segment_key_is_refused_before_its_delete_is_sent() {
         use crate::r2_mock::{Mock, State};
-        for key in ["../../cabin-registry-blobs", "blobs/./a", "blobs/.."] {
-            let mock = Mock::start(State::holding(&[(BACKUP_BUCKET, key)]));
-            let error = sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap_err();
+        for key in ["../../cabin-registry-archives", "uploads/./a", "uploads/.."] {
+            let mock = Mock::start(State::holding(&[(SWEPT, key)]));
+            let error = sweep(&mock.buckets(), SWEPT).unwrap_err();
             assert!(error.to_string().contains("dot segment"), "{error:#}");
             assert!(
                 !mock

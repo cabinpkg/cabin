@@ -22,7 +22,7 @@ use super::{
     unauthorized, web_origin,
 };
 
-use governor::{admin_governor_mutation_response, admin_governor_usage_response};
+use governor::admin_governor_usage_response;
 use package::{publish_response, yank_response};
 use tokens::{self_revoke_response, session_mint_response, trustpub_exchange_response};
 use verifier::{admin_packages_response, admin_versions_response, verdict_authn, verdict_response};
@@ -90,7 +90,7 @@ pub(super) async fn handle_website(
         let response = if let Some(refusal) = oidc_admission(req, env).await? {
             refusal
         } else if verdict_authn(req, env, &db).await? {
-            verdict_response(req, env, &db, &scope, &name, &version).await?
+            verdict_response(req, &db, &scope, &name, &version).await?
         } else {
             unauthorized(env)?
         };
@@ -128,13 +128,6 @@ pub(super) async fn handle_website(
                 let (scope, name, version) =
                     (scope.to_owned(), name.to_owned(), version.to_owned());
                 publish_response(req, env, &db, &auth, &scope, &name, &version).await?
-            }
-            Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
-            None => error_response(404, error::NOT_FOUND)?,
-        },
-        Method::Post => match match_api_route(path) {
-            Some(ApiRoute::AdminGovernor) => {
-                admin_governor_mutation_response(req, env, &db, &auth).await?
             }
             Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,

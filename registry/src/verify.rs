@@ -16,9 +16,10 @@ use crate::error;
 /// `pending` until the external verifier renders a verdict; only
 /// `verified` revisions are part of the registry (composed into package
 /// documents, downloadable with ordinary tokens, immutable). `rejected`
-/// revisions never became part of the registry: their blob is reclaimed
-/// (unless another live revision stores the same bytes), their quota
-/// refunded, and the same `(scope, name, version)` may be republished.
+/// revisions never became part of the registry: their stored bytes are
+/// refunded to the publisher's quota, their object expires with the
+/// rest of UPLOADS, and the same `(scope, name, version)` may be
+/// republished.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Pending,
@@ -188,8 +189,7 @@ pub fn transition(current: Status, verdict: Verdict) -> Transition {
 /// Whether the artifact route serves a revision to this request:
 /// verified revisions to everyone (reads are public), pending revisions
 /// only to the `verify` scope (the verifier downloads the bytes it
-/// inspects), and rejected revisions to no one - their blob is
-/// reclaimed.
+/// inspects), and rejected revisions to no one.
 pub fn artifact_readable(status: Status, has_verify_scope: bool) -> bool {
     match status {
         Status::Verified => true,

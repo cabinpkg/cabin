@@ -1,8 +1,9 @@
 //! The publish and verification core: the validation 400s that refuse
-//! before any write, the first publish, the pending version's
-//! invisibility to every reader without a verify scope, the verifier's
-//! listing/download/verdict round trip, download counting, and the
-//! idempotent re-publish that heals the blob.
+//! before any write, the first publish and where its archive is stored,
+//! the retry that completes a reservation whose store never happened,
+//! the pending version's invisibility to every reader without a verify
+//! scope, the verifier's listing/download/verdict round trip, download
+//! counting, and the idempotent re-publish.
 //!
 //! One shape here looks like it could be tidied and cannot be.
 //!
@@ -25,12 +26,12 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
-use xtask_registry_admin::{BLOBS_BUCKET, display, output, results, wrangler};
+use xtask_registry_admin::{display, results};
 
 use crate::bytes::{frame, replace_all, sha256_hex};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::{PRIVATE_ALPHA, uniform_401_with};
-use crate::servers::d1_json;
+use crate::servers::{d1_json, d1_quiet, delete_upload, stored_upload};
 use crate::step;
 use crate::text::{capture, contains, grep_anywhere, grep_lines, read, text, write};
 
@@ -43,8 +44,7 @@ const HALF_SECOND: Duration = Duration::from_millis(500);
 const VERDICT_UNBOUND: &[u8] = br#"{"verdict":"verified"}"#;
 
 /// What this span needs out of the run's setup, with the fixtures as
-/// *paths* because `wrangler r2 object put` takes `--file` and three
-/// sites read the archive again.
+/// the *paths* [`run`] reads them from.
 pub struct PublishInputs<'a> {
     /// The run's scratch directory.
     pub work: &'a Path,
@@ -77,7 +77,9 @@ pub fn run(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     let archive = read(inputs.fixture_archive)?;
 
     bare_dependency_key(smoke, inputs, &metadata, &archive)?;
-    let publish_body = first_publish(smoke, inputs, &metadata, &archive)?;
+    upload_id_required(smoke, inputs, &frame(&metadata, &archive))?;
+    let (publish_body, upload_id) = first_publish(smoke, inputs, &metadata, &archive)?;
+    unstored_reservation(smoke, inputs, &publish_body, &upload_id, &archive)?;
     twin_and_reserved_names(smoke, inputs, &metadata, &archive)?;
     pending_invisibility(smoke, inputs)?;
     let pending = verify_scope_listing(smoke, inputs)?;
@@ -89,7 +91,6 @@ pub fn run(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     verdict_idempotence(smoke, inputs, &entry, &verdict_verified)?;
     download_counting(smoke, inputs)?;
     closed_to_outsiders(smoke, inputs)?;
-    heal_blob(smoke, inputs, &publish_body)?;
     byte_identical_no_op(smoke, inputs, &publish_body)
 }
 
@@ -101,7 +102,7 @@ fn bare_dependency_key(
 ) -> Result<()> {
     step("a bare dependency key is a 400 before any write");
     let bare = replace_all(metadata, br#""smoke/nodep""#, br#""nodep""#);
-    smoke.wrequest("PUT", inputs.publish_path, &frame(&bare, archive), &[400])?;
+    smoke.publish(inputs.publish_path, &frame(&bare, archive), &[400])?;
     smoke.expect_body("canonical <scope>/<name> names")?;
     // The refused attempt still charged the publish bucket (the rate
     // limit sits before validation); refund it so the downstream legs
@@ -109,23 +110,66 @@ fn bare_dependency_key(
     refund()
 }
 
+/// `body` is the first publish's, which is admitted right below under a
+/// well-formed id: the id is the only thing these two requests lack.
+fn upload_id_required(smoke: &mut Smoke, inputs: &PublishInputs<'_>, body: &[u8]) -> Result<()> {
+    step("a publish without a well-formed Cabin-Upload-Id is a 400");
+    smoke.wrequest("PUT", inputs.publish_path, body, &[400])?;
+    // The right length, in the wrong case.
+    let upper = "0123456789ABCDEF0123456789ABCDEF";
+    smoke.publish_as(upper, inputs.publish_path, body, &[400])?;
+    refund()
+}
+
+/// Returns the framed body and the upload id it was published under.
 fn first_publish(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
     metadata: &[u8],
     archive: &[u8],
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, String)> {
     step("first publish creates the version pending verification");
     let body = frame(metadata, archive);
     // Later legs re-send this exact file, so it stays on disk as well
     // as in hand.
     write(&inputs.work.join("publish.bin"), &body)?;
-    smoke.wrequest("PUT", inputs.publish_path, &body, &[201])?;
+    let upload_id = smoke.publish(inputs.publish_path, &body, &[201])?;
     smoke.expect_body(r#""ok":true"#)?;
     smoke.expect_body(&format!(r#""name":"{}/{}""#, inputs.scope, inputs.name))?;
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
     smoke.expect_body(r#""verification":"pending""#)?;
-    Ok(body)
+    if stored_upload(&upload_id, inputs.work)?.as_deref() != Some(archive) {
+        bail!("the published archive is not in UPLOADS under its upload id");
+    }
+    Ok((body, upload_id))
+}
+
+/// A request that dies between its admission and its store leaves a
+/// reservation: a pending row with no `stored_at` and no object.  That
+/// state is written here directly, since no request can be killed at
+/// that point from outside.  The same operation sent again must store
+/// the archive and confirm the row; the verifier's listing and download
+/// below only see a confirmed one.  A stored upload has no such path:
+/// its retry is the no-op the last leg of this span checks.
+fn unstored_reservation(
+    smoke: &mut Smoke,
+    inputs: &PublishInputs<'_>,
+    publish_body: &[u8],
+    upload_id: &str,
+    archive: &[u8],
+) -> Result<()> {
+    step("the same upload sent again stores what its reservation is missing");
+    d1_quiet(&format!(
+        "UPDATE revisions SET stored_at = NULL WHERE upload_id = '{upload_id}';"
+    ))?;
+    delete_upload(upload_id, inputs.work)?;
+    smoke.publish_as(upload_id, inputs.publish_path, publish_body, &[200])?;
+    smoke.expect_body(r#""no_op":true"#)?;
+    smoke.expect_body(r#""verification":"pending""#)?;
+    if stored_upload(upload_id, inputs.work)?.as_deref() != Some(archive) {
+        bail!("the retry did not store the reservation's archive");
+    }
+    Ok(())
 }
 
 fn twin_and_reserved_names(
@@ -136,28 +180,28 @@ fn twin_and_reserved_names(
 ) -> Result<()> {
     step("reserved and -/_ twin package names are 400s");
     // The fixture pair renamed to `with-dep` (name and source path; the
-    // archive bytes and checksum are untouched, and the shared blob is
-    // not re-counted) creates the twinnable package; its `_` twin must
-    // then be the deterministic 400 with no second row.
+    // archive bytes and checksum are untouched) creates the twinnable
+    // package; its `_` twin must then be the deterministic 400 with no
+    // second row.
     let twin = replace_all(metadata, b"withdep", b"with-dep");
     let path = format!(
         "/api/v1/packages/{}/with-dep/{}",
         inputs.scope, inputs.version
     );
-    smoke.wrequest("PUT", &path, &frame(&twin, archive), &[201])?;
+    smoke.publish(&path, &frame(&twin, archive), &[201])?;
 
     let under = replace_all(metadata, b"withdep", b"with_dep");
     let path = format!(
         "/api/v1/packages/{}/with_dep/{}",
         inputs.scope, inputs.version
     );
-    smoke.wrequest("PUT", &path, &frame(&under, archive), &[400])?;
+    smoke.publish(&path, &frame(&under, archive), &[400])?;
     smoke.expect_body("differs only in")?;
 
     // A reserved name answers in the same validation 400 family.
     let reserved = replace_all(metadata, b"withdep", b"con");
     let path = format!("/api/v1/packages/{}/con/{}", inputs.scope, inputs.version);
-    smoke.wrequest("PUT", &path, &frame(&reserved, archive), &[400])?;
+    smoke.publish(&path, &frame(&reserved, archive), &[400])?;
     smoke.expect_body("reserved")?;
     // Like the bare-dep leg: refund the extra publish charges so the
     // downstream legs keep the budget they were written against.
@@ -580,34 +624,13 @@ fn closed_to_outsiders(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<
     Ok(())
 }
 
-fn heal_blob(smoke: &mut Smoke, inputs: &PublishInputs<'_>, publish_body: &[u8]) -> Result<()> {
-    // An idempotent no-op heals a reclaim-raced blob: the retry holds
-    // the bytes.
-    step("an idempotent re-publish heals the blob");
-    let key = blob_key(inputs);
-    r2_delete(BLOBS_BUCKET, &key)?;
-    smoke.wrequest("PUT", inputs.publish_path, publish_body, &[200])?;
-    smoke.expect_body(r#""no_op":true"#)?;
-    smoke.expect_body(r#""verification":"verified""#)?;
-    // The heal runs before the response, so the object itself is back
-    // (the artifact route could otherwise answer from the edge cache).
-    let healed = inputs.work.join("healed.zip");
-    if !r2_get(BLOBS_BUCKET, &key, &healed)? {
-        bail!("the idempotent re-publish did not heal the blob");
-    }
-    if read(&healed)? != read(inputs.fixture_archive)? {
-        bail!("the healed blob differs from the published archive");
-    }
-    smoke.check(inputs.artifact_path, &[200])
-}
-
 fn byte_identical_no_op(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
     publish_body: &[u8],
 ) -> Result<()> {
     step("byte-identical re-publish is an idempotent no-op reporting the status");
-    smoke.wrequest("PUT", inputs.publish_path, publish_body, &[200])?;
+    smoke.publish(inputs.publish_path, publish_body, &[200])?;
     smoke.expect_body(r#""no_op":true"#)?;
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
     smoke.expect_body(r#""verification":"verified""#)
@@ -769,32 +792,6 @@ fn refund() -> Result<()> {
     )
 }
 
-/// `wrangler r2 object get <bucket>/<key> --file <out> --local`, and
-/// whether it succeeded.
-fn r2_get(bucket: &str, key: &str, out: &Path) -> Result<bool> {
-    let target = format!("{bucket}/{key}");
-    let mut command = wrangler(&[
-        "r2",
-        "object",
-        "get",
-        &target,
-        "--file",
-        utf8(out)?,
-        "--local",
-    ]);
-    command.stdout(Stdio::null());
-    Ok(command.status().context("run wrangler")?.success())
-}
-
-/// `wrangler r2 object delete <bucket>/<key> --local`.
-fn r2_delete(bucket: &str, key: &str) -> Result<()> {
-    let target = format!("{bucket}/{key}");
-    output(&mut wrangler(&[
-        "r2", "object", "delete", &target, "--local",
-    ]))?;
-    Ok(())
-}
-
 // --- Pure shapes. ---
 
 /// Padding *inside* an otherwise well-formed rejected verdict, so an
@@ -849,10 +846,6 @@ fn stats_are_counted(body: &[u8]) -> bool {
     })
 }
 
-fn blob_key(inputs: &PublishInputs<'_>) -> String {
-    format!("blobs/sha256/{}", inputs.blob_hash)
-}
-
 fn scoped_name(inputs: &PublishInputs<'_>) -> String {
     format!("{}/{}", inputs.scope, inputs.name)
 }
@@ -873,11 +866,6 @@ fn vetted_row(inputs: &PublishInputs<'_>, name: &str, vetted: bool) -> String {
         r#""scope":"{}","name":"{name}","vetted":{vetted}"#,
         inputs.scope
     )
-}
-
-fn utf8(path: &Path) -> Result<&str> {
-    path.to_str()
-        .with_context(|| format!("{} is not UTF-8", path.display()))
 }
 
 #[cfg(test)]

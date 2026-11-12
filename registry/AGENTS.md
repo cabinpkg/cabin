@@ -37,7 +37,7 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | D1 SQL statements (one authoritative home; the governor's Durable Object SQL stays in `src/governor.rs` and `src/governor_do.rs`) | `src/sql/` (one module per domain), validated by `tests/sql_validation/` |
 | Cost governor / budget breaker | `src/governor.rs`, `src/breaker.rs` (operator admin surface in `src/glue/bearer/governor.rs`) |
 | Browser cookies, CSRF, session plane | `src/session.rs` (runtime in `src/web_glue.rs`) |
-| Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer/` mutation/admin planes (`package.rs` publish/yank, `tokens.rs` token mint/revocation, `verifier.rs` listings/verdict, `governor.rs` ledger admin), `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/governor_client.rs`, `src/governor_do.rs` |
+| Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer/` mutation/admin planes (`package.rs` publish/yank, `tokens.rs` token mint/revocation, `verifier.rs` listings/verdict, `governor.rs` usage snapshot), `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/governor_client.rs`, `src/governor_do.rs` |
 
 The table routes the common areas; for anything else, the module doc
 comments in `src/` identify the owner.
@@ -66,8 +66,9 @@ From the repository root, the static guards no local gate runs for you
 conformance test — `README.md`, "Development"). CI also model-checks the
 TLA+ lifecycle specification in `proofs/` (its `README.md` has the
 command and the action-to-code map); a change to the publish, revival,
-verdict, read-gate, or stored-bytes statements, or to the verifier's pass
-in `crates/xtask-registry-admin/src/verify.rs`, must keep it faithful.
+upload-lifecycle, verdict, read-gate, or stored-bytes statements, or to
+the verifier's pass in `crates/xtask-registry-admin/src/verify.rs`, must
+keep it faithful.
 For changes to dispatch, routing, or another end-to-end surface, also
 run the local smoke test: `npm ci --ignore-scripts` from this directory
 first (again whenever `package-lock.json` changes) to install the pinned

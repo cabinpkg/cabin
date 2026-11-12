@@ -1,8 +1,8 @@
 //! The packaging-revision respin, the yank cycle, the source viewer's
 //! ranged session reads and the two service-mode gates.
 //!
-//! Its last statements build the `0.2.1` fixtures the shared-blob leg
-//! consumes, which [`run`] returns.
+//! Its last statements build the `0.2.1` fixtures the storage-accounting
+//! leg consumes, which [`run`] returns.
 //!
 //! The two `sleep`s here precede assertions that a counter did **not**
 //! move; trimming them turns those into races that pass for the wrong
@@ -47,7 +47,7 @@ pub struct RevisionInputs<'a> {
     pub token: &'a str,
 }
 
-/// The `0.2.1` fixtures built for the shared-blob leg.
+/// The `0.2.1` fixtures built for the storage-accounting leg.
 pub struct RevisionOutputs {
     pub version2: String,
     pub publish2_path: String,
@@ -57,7 +57,7 @@ pub struct RevisionOutputs {
     pub publish2_bin: Vec<u8>,
 }
 
-/// The shared-blob leg replays these exact bytes.
+/// The storage-accounting leg replays these exact bytes.
 pub const YANKED: &[u8] = br#"{"yanked":true}"#;
 
 pub const UNYANKED: &[u8] = br#"{"yanked":false}"#;
@@ -97,7 +97,7 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     );
     let metadata = retarget_hash(inputs.fixture_metadata, &old_hash, &new_hash);
     let body = frame(&metadata, &tampered);
-    smoke.wrequest("PUT", inputs.publish_path, &body, &[409])?;
+    smoke.publish(inputs.publish_path, &body, &[409])?;
     smoke.expect_body("new-revision")?;
 
     step("the opt-in publishes the changed bytes as a pending respin");
@@ -107,7 +107,7 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     // serves cannot move.
     d1_quiet(RESET_PUBLISH_BUCKET)?;
     let opt_in = format!("{}?new-revision=true", inputs.publish_path);
-    smoke.wrequest("PUT", &opt_in, &body, &[201])?;
+    smoke.publish(&opt_in, &body, &[201])?;
     smoke.expect_body(&format!(r#""revision":"{new_rev}""#))?;
     smoke.expect_body(r#""verification":"pending""#)?;
     smoke.check(inputs.package_path, &[200])?;
@@ -208,12 +208,11 @@ fn artifact_checksum(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<(
 fn source_viewer(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
     step("the source route serves session-ranged reads of the verified archive");
     let size = inputs.fixture_archive.len();
-    // The two artifact fetches since the counted-downloads step (the
-    // heal re-check and the checksum download) land their deferred
-    // increments here; awaiting the exact count keeps the flat-counter
-    // assertion below race-free.  A new artifact fetch above must bump
-    // this number.
-    await_row_downloads("5")?;
+    // The one artifact fetch since the counted-downloads step (the
+    // checksum download) lands its deferred increment here; awaiting
+    // the exact count keeps the flat-counter assertion below race-free.
+    // A new artifact fetch above must bump this number.
+    await_row_downloads("4")?;
     source_credentials(smoke, inputs, source_path)?;
     range_policy(smoke, inputs, source_path, size)?;
     range_reads(smoke, inputs, source_path, size)?;
@@ -227,9 +226,9 @@ fn source_viewer(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
 
     // Source reads are never downloads: the counter did not move.
     sleep(Duration::from_secs(1));
-    if row_downloads()? != "5" {
+    if row_downloads()? != "4" {
         bail!(
-            "source reads moved the download counter: {} (expected 5)",
+            "source reads moved the download counter: {} (expected 4)",
             row_downloads()?
         );
     }
@@ -333,7 +332,7 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     d1("
   UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';
   UPDATE meta SET value = 'forced by the smoke test' WHERE key = 'service_mode_reason';")?;
-    smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[503])?;
+    smoke.publish(inputs.publish_path, inputs.publish_bin, &[503])?;
     smoke.expect_body("registry_over_budget")?;
     let yank_path = format!("{}/yank", inputs.publish_path);
     smoke.wrequest("PATCH", &yank_path, UNYANKED, &[503])?;
@@ -469,7 +468,7 @@ fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
     smoke.check(inputs.artifact_path, &[503])?;
     smoke.check("/config.json", &[200])?;
     smoke.as_publisher();
-    smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[503])?;
+    smoke.publish(inputs.publish_path, inputs.publish_bin, &[503])?;
     // Anonymous readers get the private-alpha 401 before the gate, so
     // the service state never reaches them.  /healthz stays up.
     uniform_401_with(smoke, Base::Registry, "GET", inputs.package_path, &[], None)?;
@@ -514,7 +513,7 @@ fn restore_normal(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> 
     d1("
   UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
   UPDATE meta SET value = '' WHERE key = 'service_mode_reason';")?;
-    smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[200])?;
+    smoke.publish(inputs.publish_path, inputs.publish_bin, &[200])?;
     smoke.expect_body(r#""no_op":true"#)
 }
 
@@ -530,14 +529,14 @@ fn shared_bucket(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
          WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke');",
     )?;
     smoke.as_ci_publisher();
-    smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[429])?;
+    smoke.publish(inputs.publish_path, inputs.publish_bin, &[429])?;
     smoke.as_publisher();
     Ok(())
 }
 
-/// The reject -> blob reclaim -> quota refund -> republish flow's
-/// fixtures.  `0.2.1` carries the exact archive `0.2.0` published, so
-/// this version's first revision carries the same id.
+/// The reject -> quota refund -> republish flow's fixtures.  `0.2.1`
+/// carries the exact archive `0.2.0` published, so this version's first
+/// revision carries the same id.
 fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
     // `shared_bucket` drained the publish bucket; give the next leg a
     // full burst by resetting the user's bucket columns.

@@ -4,7 +4,7 @@
 //! hostname-role dispatch, authentication, and the helpers every plane
 //! shares; the planes live in [`read`] (registry domain), [`bearer`]
 //! (website-origin mutation/admin), and [`cron`] (breaker budgets and
-//! governor reconciliation).
+//! the upload lifecycle).
 
 mod bearer;
 mod cron;
@@ -21,11 +21,11 @@ use worker::{
 
 use crate::auth::{self, AuthContext, Scope};
 use crate::error;
-use crate::governor::{self, Consume, Decision, OpPool, Refusal, StoragePool};
+use crate::governor::{Consume, Decision, OpPool, Refusal};
 use crate::{allowlist, breaker, quota, sql};
 
 use bearer::handle_website;
-use cron::{evaluate_budgets, reconcile_governor, refresh_website};
+use cron::{evaluate_budgets, log_governor_usage, refresh_website, settle_uploads};
 use read::handle_registry;
 
 /// Mutation JSON is tiny. This shared cap covers the bearer and session
@@ -401,17 +401,6 @@ pub(crate) fn consume_one(pool: OpPool) -> Decision {
     }
 }
 
-pub(crate) fn commit_object(pool: StoragePool, key: &str, bytes: u64) -> Decision {
-    Decision {
-        commit: vec![governor::Commit {
-            pool,
-            key: key.to_owned(),
-            bytes,
-        }],
-        ..Decision::default()
-    }
-}
-
 pub(crate) async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
     let record: Option<MetaRecord> = db
         .prepare(sql::META_VALUE)
@@ -438,9 +427,9 @@ const BREAKER_CRON: &str = "*/15 * * * *";
 /// evaluation (every 15 minutes: gather usage, evaluate it against the
 /// budgets, persist the resulting service mode - failed analytics
 /// queries leave their metric unset, which can escalate but never
-/// unblock writes, [`breaker::next_mode`]), then the governor
-/// reconciliation pass and the website catalog refresh. A schedule no
-/// job is registered for runs nothing.
+/// unblock writes, [`breaker::next_mode`]), then the upload lifecycle
+/// pass and the website catalog refresh. A schedule no job is
+/// registered for runs nothing.
 #[event(scheduled)]
 pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let cron = event.cron();
@@ -451,12 +440,13 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     if let Err(err) = evaluate_budgets(&env).await {
         console_error!("budget evaluation failed; keeping the last service mode: {err}");
     }
+    log_governor_usage(&env).await;
     match env.d1("DB") {
         Ok(db) => {
-            reconcile_governor(&env, &db).await;
+            settle_uploads(&env, &db).await;
             refresh_website(&env, &db).await;
         }
-        Err(err) => console_error!("governor reconciliation: no DB binding: {err}"),
+        Err(err) => console_error!("the cron found no DB binding: {err}"),
     }
 }
 
@@ -507,7 +497,20 @@ fn error_response_with_code(
     code: &str,
     retry_after_secs: Option<u64>,
 ) -> worker::Result<Response> {
-    let mut response = Response::ok(error::envelope_with_code(detail, code))?.with_status(status);
+    error_body_response(
+        status,
+        error::envelope_with_code(detail, code),
+        retry_after_secs,
+    )
+}
+
+/// An error response from an already-rendered envelope.
+fn error_body_response(
+    status: u16,
+    envelope: String,
+    retry_after_secs: Option<u64>,
+) -> worker::Result<Response> {
+    let mut response = Response::ok(envelope)?.with_status(status);
     response
         .headers_mut()
         .set("content-type", "application/json")?;
@@ -537,6 +540,15 @@ fn now_epoch_ms() -> f64 {
 
 pub(crate) fn now_iso8601() -> String {
     worker::js_sys::Date::new_0()
+        .to_iso_string()
+        .as_string()
+        .unwrap_or_default()
+}
+
+/// Epoch milliseconds in the shape [`now_iso8601`] writes.
+#[allow(clippy::cast_precision_loss)]
+fn iso8601_from_ms(ms: u64) -> String {
+    worker::js_sys::Date::new(&worker::wasm_bindgen::JsValue::from_f64(ms as f64))
         .to_iso_string()
         .as_string()
         .unwrap_or_default()

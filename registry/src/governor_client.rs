@@ -5,9 +5,7 @@
 
 use worker::{Env, Headers, Method, Request, RequestInit, Response, console_error};
 
-use crate::governor::{
-    Decision, Outcome, ReconcileReport, ReconcileRequest, Refusal, UsageSnapshot,
-};
+use crate::governor::{Decision, Outcome, Refusal, UsageSnapshot};
 use crate::governor_do::GOVERNOR_SINGLETON;
 
 /// The synthetic authority for stub requests; Durable Object fetches
@@ -78,33 +76,6 @@ pub(crate) async fn decide(env: &Env, decision: &Decision) -> Gate {
     }
 }
 
-/// A best-effort settle (commits and releases record reality and never
-/// refuse): a failure only logs, leaving conservative reserved state
-/// for reconciliation to settle - it must never fail the response of a
-/// write that already happened.
-pub(crate) async fn settle(env: &Env, decision: &Decision) {
-    if let Gate::Refused(_) = decide(env, decision).await {
-        console_error!("governor settle failed; reconciliation will settle the reservation");
-    }
-}
-
 pub(crate) async fn usage(env: &Env) -> Option<UsageSnapshot> {
     call_json(env, "/usage", None).await
-}
-
-/// The pre-launch ledger wipe; the admin route owns the launch guard.
-/// `false` means the governor did not confirm.
-pub(crate) async fn wipe(env: &Env) -> bool {
-    #[derive(serde::Deserialize)]
-    struct Confirmation {
-        ok: bool,
-    }
-    call_json::<Confirmation>(env, "/wipe", Some(String::new()))
-        .await
-        .is_some_and(|answer| answer.ok)
-}
-
-pub(crate) async fn reconcile(env: &Env, request: &ReconcileRequest) -> Option<ReconcileReport> {
-    let body = serde_json::to_string(request).ok()?;
-    call_json(env, "/reconcile", Some(body)).await
 }

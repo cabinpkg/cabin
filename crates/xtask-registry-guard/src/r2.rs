@@ -32,28 +32,18 @@ const PIN_SITE: &str = "crates/xtask-registry-guard/src/r2.rs";
 
 /// (reported path) => \[(enclosing fn, sanctioned acquisition count)\].
 ///
-/// `glue/`: the four request-path acquisitions are each immediately
-/// preceded by a governor decide (artifact/read/publish paths), the
-/// reclaim delete is R2's one free operation, and the heal helper admits
-/// per call inside.  `web_glue`'s source viewer admits before every
-/// billable call.
+/// `glue/read.rs`: each acquisition is immediately preceded by a
+/// governor decide.  `store`'s head and put are admitted by its caller,
+/// before the D1 admission.  The cron's reservation pass admits each
+/// head before making it.  `web_glue`'s source viewer admits before
+/// every billable call.
 const SANCTIONED: [(&str, &[(&str, usize)]); 4] = [
     (
         "src/glue/read.rs",
         &[("artifact_response", 1), ("charged_blob_read", 1)],
     ),
-    (
-        "src/glue/bearer/package.rs",
-        &[
-            ("persist_new_revision", 1),
-            ("revive_rejected_revision", 1),
-            ("heal_blobs_on_retry", 1),
-        ],
-    ),
-    (
-        "src/glue/bearer/verifier.rs",
-        &[("delete_blob_if_unreferenced", 1)],
-    ),
+    ("src/glue/bearer/package.rs", &[("store", 1)]),
+    ("src/glue/cron.rs", &[("settle_reservations", 1)]),
     ("src/web_glue.rs", &[("package_source", 1)]),
 ];
 
@@ -146,19 +136,15 @@ fn scan(source: &[u8], file: &str) -> Vec<String> {
     // bucket means the seam moved; the pin must move with it or it stops
     // guarding. A pin whose function is gone entirely is left to the
     // review that removed the function.
-    let mut drifted: Vec<&(&str, usize)> = sanctioned
-        .iter()
-        .filter(|(name, pinned)| {
-            let count = pinned_count(&seen, name).unwrap_or(0);
-            functions.iter().any(|(_, defined)| defined == name) && count < *pinned // more than pinned was already reported
-        })
-        .collect();
-    drifted.sort_by_key(|(name, _)| *name);
-    for (name, pinned) in drifted {
-        violations.push(format!(
-            "{file}: {name} is pinned for {pinned} acquisition(s) but has {}; update {PIN_SITE}",
-            pinned_count(&seen, name).unwrap_or(0),
-        ));
+    for (name, pinned) in sanctioned {
+        let count = pinned_count(&seen, name).unwrap_or(0);
+        // More than pinned was already reported.
+        if functions.iter().any(|(_, defined)| defined == name) && count < *pinned {
+            violations.push(format!(
+                "{file}: {name} is pinned for {pinned} acquisition(s) but has {count}; \
+                 update {PIN_SITE}",
+            ));
+        }
     }
     violations
 }

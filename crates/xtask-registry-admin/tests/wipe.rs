@@ -205,7 +205,7 @@ impl R2 {
         Self { url, requests }
     }
 
-    /// An account whose buckets are both already empty.
+    /// An account whose buckets are all already empty.
     fn empty() -> Self {
         Self::answering(200, r#"{"success":true,"errors":[],"result":[]}"#)
     }
@@ -262,18 +262,18 @@ fn a_refused_r2_listing_stops_the_remote_wipe_before_the_database() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "FAIL: listing cabin-registry-blobs failed",
+            "FAIL: listing cabin-registry-archives failed",
         ));
     assert!(!world.destroyed(), "{:?}", world.log());
     assert_eq!(world.config(), before);
 }
 
-/// The whole remote procedure, in order: both buckets swept (the backup
-/// one without a prefix) before the database is dropped, then the
-/// recreated id baked into both config sites, the migrations applied and
-/// stamped, the generation bumped, and the Worker redeployed.
+/// The whole remote procedure, in order: the four buckets swept, each
+/// as a whole, before the database is dropped, then the recreated id
+/// baked into the config, the migrations applied and stamped, the
+/// generation bumped, and the Worker redeployed.
 #[test]
-fn a_remote_wipe_sweeps_both_buckets_before_recreating_the_database() {
+fn a_remote_wipe_sweeps_the_four_buckets_before_recreating_the_database() {
     let world = World::new("false");
     let r2 = R2::empty();
     world
@@ -281,20 +281,18 @@ fn a_remote_wipe_sweeps_both_buckets_before_recreating_the_database() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "wipe OK (generation 7 -> 8; 0 primary and 0 backup object(s) deleted)",
+            "wipe OK (generation 7 -> 8; 0 object(s) deleted)",
         ));
     let account = "0123456789abcdef".repeat(2);
     assert_eq!(
         r2.requests(),
         [
-            format!(
-                "GET /accounts/{account}/r2/buckets/cabin-registry-blobs/objects\
-                 ?per_page=500&prefix=blobs/"
-            ),
-            format!(
-                "GET /accounts/{account}/r2/buckets/cabin-registry-backup/objects?per_page=500"
-            ),
+            "cabin-registry-archives",
+            "cabin-registry-uploads",
+            "cabin-registry-download-logs",
+            "cabin-registry-index",
         ]
+        .map(|bucket| format!("GET /accounts/{account}/r2/buckets/{bucket}/objects?per_page=500"))
     );
     let log = world.log();
     let expected = [

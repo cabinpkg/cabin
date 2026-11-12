@@ -1,17 +1,19 @@
-//! downloads: the artifact read plane and blob reclaim.
+//! downloads: the artifact read plane.
 
 statements! {
-    /// The artifact route's checksum and read-gate lookup, addressed
-    /// by the immutable unit: the route's filename embeds the
-    /// revision, so superseded revisions stay fetchable and the
-    /// verifier can fetch a *specific* pending revision.
+    /// The artifact route's read-gate and object lookup, addressed by
+    /// the immutable unit: the route's filename embeds the revision, so
+    /// superseded revisions stay fetchable and the verifier can fetch a
+    /// *specific* pending revision. A reservation has no object to
+    /// serve yet and is a missing row here.
     ARTIFACT_BY_REVISION =
-        "SELECT checksum, verification FROM revisions \
-         WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?4";
+        "SELECT verification, upload_id FROM revisions \
+         WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?4 \
+         AND stored_at IS NOT NULL";
 
-    /// The source viewer's lookup: the checksum plus the stored archive
+    /// The source viewer's lookup: the stored object plus the archive
     /// size, which bounds the ranged read before R2 is consulted (the
-    /// blob was written from the same bytes the size was recorded
+    /// object was written from the same bytes the size was recorded
     /// from). Like
     /// [`CURRENT_REVISIONS_BY_PACKAGE`](super::packages::CURRENT_REVISIONS_BY_PACKAGE),
     /// it reads the verified-only `current_revisions` view, so pending,
@@ -19,7 +21,7 @@ statements! {
     /// construction - sessions have no verify scope, so unlike the
     /// artifact route there is no pending carve-out to branch on.
     SOURCE_VERSION_LOOKUP =
-        "SELECT checksum, archive_size FROM current_revisions \
+        "SELECT upload_id, archive_size FROM current_revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
     /// The public stats totals: verified packages, verified versions,
@@ -47,16 +49,4 @@ statements! {
          AND EXISTS (SELECT 1 FROM revisions r \
                      WHERE r.scope = ?1 AND r.name = ?2 AND r.version = ?3 \
                      AND r.verification = 'verified')";
-
-    /// Live (non-rejected) references to one blob, for reclaim.
-    COUNT_LIVE_BLOB_REFERENCES =
-        "SELECT COUNT(*) AS n FROM revisions \
-         WHERE checksum = ?1 AND verification != 'rejected'";
-
-    /// The governor reconciliation's authoritative live set: one size
-    /// per distinct live checksum, the same shape the storage
-    /// self-accounting counts (`docs/runbook.md`, "Orphaned R2 blobs").
-    LIVE_BLOB_SIZES =
-        "SELECT checksum, MAX(archive_size) AS size FROM revisions \
-         WHERE verification != 'rejected' GROUP BY checksum";
 }

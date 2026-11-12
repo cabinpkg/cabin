@@ -17,6 +17,21 @@ pub struct ClassQuotas {
     pub max_new_packages_per_day: u64,
     pub max_packages_total: u64,
     pub max_versions_per_package_per_day: u64,
+    /// Archive bytes one user may have admitted per UTC day, as
+    /// uploaded. An admitted upload stays charged whatever becomes of
+    /// it - verified, rejected, or expired.
+    pub max_upload_bytes_per_day: u64,
+    /// Uploads one user may have admitted per UTC day, charged like
+    /// [`Self::max_upload_bytes_per_day`].
+    pub max_uploads_per_day: u64,
+    /// Uploads one user may have awaiting verification at once,
+    /// counting those admitted but not yet stored.
+    pub max_pending_uploads: u64,
+    /// Archive bytes and uploads the whole class may have admitted per
+    /// UTC day ([`shared_class`]): what bounds many accounts uploading
+    /// at once. Raised only by editing this map.
+    pub shared_upload_bytes_per_day: u64,
+    pub shared_uploads_per_day: u64,
     /// Lifetime cap on *successful* scope claims, counted over the
     /// append-only `scope_claims` history: releasing or transferring a
     /// scope never restores capacity, and failed claims never consume
@@ -48,6 +63,11 @@ const DEFAULT: ClassQuotas = ClassQuotas {
     max_new_packages_per_day: 5,
     max_packages_total: 20,
     max_versions_per_package_per_day: 30,
+    max_upload_bytes_per_day: 256 * 1024 * 1024,
+    max_uploads_per_day: 30,
+    max_pending_uploads: 3,
+    shared_upload_bytes_per_day: 5 * 1024 * 1024 * 1024,
+    shared_uploads_per_day: 500,
     max_scope_claims_total: 3,
     publish_burst: 5.0,
     publish_refill_per_minute: 1.0,
@@ -60,15 +80,23 @@ const DEFAULT: ClassQuotas = ClassQuotas {
 /// seeded pre-promoted by the baseline migration. Sized so the
 /// cabin-ports publish pipeline can seed thousands of curated ports
 /// (whole library collections such as Boost) in serial runs without a
-/// per-user limit binding. The storage cap equals the governor's
-/// default primary pool, so the governor and the breaker - which no
-/// quota class raises - are what bound this tier's spend.
+/// per-user limit binding. The storage cap and the breaker - which no
+/// quota class raises - are what bound this tier's stored bytes. One
+/// republish of the ports corpus sits pending all at once while the
+/// verifier works through it, so the pending limit equals a day's
+/// uploads; the daily byte allowances equal the storage cap, since a
+/// day cannot usefully admit more than may be stored.
 const OPERATOR: ClassQuotas = ClassQuotas {
     max_archive_bytes: 16 * 1024 * 1024,
     max_total_bytes_per_user: 4 * 1024 * 1024 * 1024,
     max_new_packages_per_day: 1_000,
     max_packages_total: 10_000,
     max_versions_per_package_per_day: 1_000,
+    max_upload_bytes_per_day: 4 * 1024 * 1024 * 1024,
+    max_uploads_per_day: 1_000,
+    max_pending_uploads: 1_000,
+    shared_upload_bytes_per_day: 4 * 1024 * 1024 * 1024,
+    shared_uploads_per_day: 1_000,
     max_scope_claims_total: 30,
     publish_burst: 100.0,
     publish_refill_per_minute: 60.0,
@@ -82,6 +110,17 @@ pub fn quotas_for_class(class: &str) -> ClassQuotas {
     match class {
         "operator" => OPERATOR,
         _ => DEFAULT,
+    }
+}
+
+/// The shared daily allowance a class's uploads are charged to: the
+/// operator's own, so bulk port publishing never spends what ordinary
+/// users share, and the default class's for every other name, as
+/// [`quotas_for_class`] measures them.
+pub fn shared_class(class: &str) -> &'static str {
+    match class {
+        "operator" => "operator",
+        _ => DEFAULT_CLASS_NAME,
     }
 }
 
@@ -282,6 +321,186 @@ pub fn check_publish(
     }
     if counts.package_versions_today >= quotas.max_versions_per_package_per_day {
         return Err(QUOTA_VERSIONS_DAILY);
+    }
+    Ok(())
+}
+
+/// What one prospective upload's admission is measured against: the
+/// allowance rows of the request's UTC day and the user's uploads
+/// awaiting verification.
+#[derive(Debug, Clone, Copy)]
+pub struct UploadUsage {
+    pub user_bytes_today: u64,
+    pub user_uploads_today: u64,
+    pub shared_bytes_today: u64,
+    pub shared_uploads_today: u64,
+    /// Reservations included.
+    pub pending: u64,
+}
+
+/// Which daily allowance an upload ran into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitKind {
+    UserBytes,
+    UserCount,
+    SharedBytes,
+    SharedCount,
+}
+
+impl LimitKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::UserBytes => "user_bytes",
+            Self::UserCount => "user_count",
+            Self::SharedBytes => "shared_bytes",
+            Self::SharedCount => "shared_count",
+        }
+    }
+}
+
+/// An upload admission refusal (`429`). `used` is the usage before this
+/// upload: an archive too large for what is left of a byte allowance is
+/// refused without that allowance reading as spent.
+#[derive(Debug, PartialEq, Eq)]
+pub enum UploadDenial {
+    /// A daily allowance; it reopens at the next UTC midnight.
+    Daily {
+        kind: LimitKind,
+        limit: u64,
+        used: u64,
+    },
+    /// The pending limit; it reopens when a verdict lands, which no
+    /// clock predicts.
+    Pending { limit: u64, used: u64 },
+}
+
+impl UploadDenial {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Daily { .. } => "daily_upload_limit_exceeded",
+            Self::Pending { .. } => "pending_limit_exceeded",
+        }
+    }
+
+    /// The envelope `detail`. The client prints it verbatim and reads
+    /// none of the other fields, so it says what to do and when.
+    pub fn detail(&self, archive_bytes: u64, reset_at: &str) -> String {
+        match *self {
+            Self::Daily {
+                kind: LimitKind::UserBytes,
+                limit,
+                used,
+            } => format!(
+                "this {archive_bytes}-byte upload would exceed your daily upload allowance \
+                 of {limit} bytes ({used} used); the allowance resets at {reset_at}"
+            ),
+            Self::Daily {
+                kind: LimitKind::UserCount,
+                limit,
+                ..
+            } => {
+                format!("your daily allowance of {limit} uploads is spent; it resets at {reset_at}")
+            }
+            Self::Daily {
+                kind: LimitKind::SharedBytes,
+                limit,
+                used,
+            } => format!(
+                "this {archive_bytes}-byte upload would exceed the registry's shared daily \
+                 upload capacity of {limit} bytes ({used} used); the capacity resets at \
+                 {reset_at}"
+            ),
+            Self::Daily {
+                kind: LimitKind::SharedCount,
+                limit,
+                ..
+            } => format!(
+                "the registry's shared daily capacity of {limit} uploads is spent; it \
+                 resets at {reset_at}"
+            ),
+            Self::Pending { limit, used } => format!(
+                "{used} of your uploads are awaiting verification and at most {limit} may \
+                 at once; publish again once one has been verified"
+            ),
+        }
+    }
+
+    /// The envelope's machine-readable fields beside `detail` and
+    /// `code`.
+    pub fn fields(&self, reset_at: &str) -> Vec<(&'static str, serde_json::Value)> {
+        match *self {
+            Self::Daily { kind, limit, used } => vec![
+                ("limit_kind", kind.as_str().into()),
+                ("limit", limit.into()),
+                ("used", used.into()),
+                ("reset_at", reset_at.into()),
+            ],
+            Self::Pending { limit, used } => {
+                vec![("limit", limit.into()), ("used", used.into())]
+            }
+        }
+    }
+}
+
+/// The daily allowance checks of a newly charged upload, the user's
+/// before the class's. Limits are exact thresholds like
+/// [`check_publish`]'s. With `archive_bytes` zero - before the body is
+/// read - only an allowance already spent refuses.
+///
+/// # Errors
+///
+/// The first allowance the upload would exceed.
+pub fn check_daily_uploads(
+    archive_bytes: u64,
+    usage: &UploadUsage,
+    quotas: &ClassQuotas,
+) -> Result<(), UploadDenial> {
+    let daily = |kind, limit, used| Err(UploadDenial::Daily { kind, limit, used });
+    if usage.user_bytes_today + archive_bytes > quotas.max_upload_bytes_per_day {
+        return daily(
+            LimitKind::UserBytes,
+            quotas.max_upload_bytes_per_day,
+            usage.user_bytes_today,
+        );
+    }
+    if usage.user_uploads_today >= quotas.max_uploads_per_day {
+        return daily(
+            LimitKind::UserCount,
+            quotas.max_uploads_per_day,
+            usage.user_uploads_today,
+        );
+    }
+    if usage.shared_bytes_today + archive_bytes > quotas.shared_upload_bytes_per_day {
+        return daily(
+            LimitKind::SharedBytes,
+            quotas.shared_upload_bytes_per_day,
+            usage.shared_bytes_today,
+        );
+    }
+    if usage.shared_uploads_today >= quotas.shared_uploads_per_day {
+        return daily(
+            LimitKind::SharedCount,
+            quotas.shared_uploads_per_day,
+            usage.shared_uploads_today,
+        );
+    }
+    Ok(())
+}
+
+/// The pending-limit check of an upload about to take a pending slot.
+///
+/// # Errors
+///
+/// [`UploadDenial::Pending`] when every slot is taken.
+pub fn check_pending_uploads(
+    usage: &UploadUsage,
+    quotas: &ClassQuotas,
+) -> Result<(), UploadDenial> {
+    if usage.pending >= quotas.max_pending_uploads {
+        return Err(UploadDenial::Pending {
+            limit: quotas.max_pending_uploads,
+            used: usage.pending,
+        });
     }
     Ok(())
 }
@@ -511,6 +730,181 @@ mod tests {
         );
     }
 
+    const MIB: u64 = 1024 * 1024;
+    const GIB: u64 = 1024 * MIB;
+
+    fn no_usage() -> UploadUsage {
+        UploadUsage {
+            user_bytes_today: 0,
+            user_uploads_today: 0,
+            shared_bytes_today: 0,
+            shared_uploads_today: 0,
+            pending: 0,
+        }
+    }
+
+    #[test]
+    fn the_daily_upload_allowances_are_exact_thresholds() {
+        let quotas = quotas_for_class("default");
+        assert_eq!(
+            (
+                quotas.max_upload_bytes_per_day,
+                quotas.max_uploads_per_day,
+                quotas.max_pending_uploads,
+                quotas.shared_upload_bytes_per_day,
+                quotas.shared_uploads_per_day,
+            ),
+            (256 * MIB, 30, 3, 5 * GIB, 500)
+        );
+        let daily = |kind, limit, used| Err(UploadDenial::Daily { kind, limit, used });
+
+        // The byte that lands on an allowance is admitted, the next is not,
+        // and the refusal reports the usage before the refused upload.
+        let user_bytes = UploadUsage {
+            user_bytes_today: 256 * MIB - 100,
+            ..no_usage()
+        };
+        assert_eq!(check_daily_uploads(100, &user_bytes, &quotas), Ok(()));
+        assert_eq!(
+            check_daily_uploads(101, &user_bytes, &quotas),
+            daily(LimitKind::UserBytes, 256 * MIB, 256 * MIB - 100)
+        );
+        let shared_bytes = UploadUsage {
+            shared_bytes_today: 5 * GIB - 100,
+            ..no_usage()
+        };
+        assert_eq!(check_daily_uploads(100, &shared_bytes, &quotas), Ok(()));
+        assert_eq!(
+            check_daily_uploads(101, &shared_bytes, &quotas),
+            daily(LimitKind::SharedBytes, 5 * GIB, 5 * GIB - 100)
+        );
+
+        // The thirtieth and the five-hundredth upload are admitted.
+        let user_count = |user_uploads_today| UploadUsage {
+            user_uploads_today,
+            ..no_usage()
+        };
+        assert_eq!(check_daily_uploads(1, &user_count(29), &quotas), Ok(()));
+        assert_eq!(
+            check_daily_uploads(1, &user_count(30), &quotas),
+            daily(LimitKind::UserCount, 30, 30)
+        );
+        let shared_count = |shared_uploads_today| UploadUsage {
+            shared_uploads_today,
+            ..no_usage()
+        };
+        assert_eq!(check_daily_uploads(1, &shared_count(499), &quotas), Ok(()));
+        assert_eq!(
+            check_daily_uploads(1, &shared_count(500), &quotas),
+            daily(LimitKind::SharedCount, 500, 500)
+        );
+
+        // Before the body is read, only an allowance already spent refuses.
+        assert_eq!(check_daily_uploads(0, &user_bytes, &quotas), Ok(()));
+        assert!(check_daily_uploads(0, &user_count(30), &quotas).is_err());
+
+        let pending = |pending| UploadUsage {
+            pending,
+            ..no_usage()
+        };
+        assert_eq!(check_pending_uploads(&pending(2), &quotas), Ok(()));
+        assert_eq!(
+            check_pending_uploads(&pending(3), &quotas),
+            Err(UploadDenial::Pending { limit: 3, used: 3 })
+        );
+    }
+
+    /// The operator's allowances are its own row and its own values:
+    /// spending the ordinary users' whole shared day leaves it untouched.
+    #[test]
+    fn the_operator_class_has_its_own_shared_allowance() {
+        assert_eq!(shared_class("operator"), "operator");
+        for ordinary in ["default", "enterprise", "", "Operator"] {
+            assert_eq!(shared_class(ordinary), "default", "{ordinary:?}");
+        }
+        let quotas = quotas_for_class("operator");
+        assert_eq!(
+            (
+                quotas.max_upload_bytes_per_day,
+                quotas.max_uploads_per_day,
+                quotas.max_pending_uploads,
+                quotas.shared_upload_bytes_per_day,
+                quotas.shared_uploads_per_day,
+            ),
+            (4 * GIB, 1_000, 1_000, 4 * GIB, 1_000)
+        );
+        // A whole republish of the ports corpus waits for the verifier
+        // at once.
+        let republish = UploadUsage {
+            user_bytes_today: 200 * MIB,
+            user_uploads_today: 319,
+            shared_bytes_today: 200 * MIB,
+            shared_uploads_today: 319,
+            pending: 319,
+        };
+        assert_eq!(check_daily_uploads(MIB, &republish, &quotas), Ok(()));
+        assert_eq!(check_pending_uploads(&republish, &quotas), Ok(()));
+    }
+
+    #[test]
+    fn upload_denials_render_the_contract_fields() {
+        let reset_at = "2026-11-12T00:00:00Z";
+        let daily = UploadDenial::Daily {
+            kind: LimitKind::SharedBytes,
+            limit: 5 * GIB,
+            used: 5 * GIB - 100,
+        };
+        assert_eq!(daily.code(), "daily_upload_limit_exceeded");
+        assert_eq!(
+            serde_json::Value::Object(
+                daily
+                    .fields(reset_at)
+                    .into_iter()
+                    .map(|(key, value)| (key.to_owned(), value))
+                    .collect()
+            ),
+            serde_json::json!({
+                "limit_kind": "shared_bytes",
+                "limit": 5 * GIB,
+                "used": 5 * GIB - 100,
+                "reset_at": reset_at,
+            })
+        );
+        // The detail is what the client shows: it names the reopening
+        // time, and does not call a partly used allowance spent.
+        let detail = daily.detail(101, reset_at);
+        assert!(detail.contains(reset_at), "{detail}");
+        assert!(detail.contains("101-byte"), "{detail}");
+        assert!(!detail.contains("spent"), "{detail}");
+
+        let pending = UploadDenial::Pending { limit: 3, used: 3 };
+        assert_eq!(pending.code(), "pending_limit_exceeded");
+        let fields = pending.fields(reset_at);
+        assert_eq!(
+            fields.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            ["limit", "used"]
+        );
+        // A pending slot does not reopen at midnight.
+        assert!(!pending.detail(1, reset_at).contains(reset_at));
+        for kind in [
+            LimitKind::UserBytes,
+            LimitKind::UserCount,
+            LimitKind::SharedBytes,
+            LimitKind::SharedCount,
+        ] {
+            let denial = UploadDenial::Daily {
+                kind,
+                limit: 1,
+                used: 1,
+            };
+            assert!(denial.detail(1, reset_at).contains(reset_at), "{kind:?}");
+            // A detail is one line of prose: a lost line continuation
+            // would leave the source's indentation in it.
+            assert!(!denial.detail(1, reset_at).contains("  "), "{kind:?}");
+        }
+        assert!(!pending.detail(1, reset_at).contains("  "));
+    }
+
     fn healthy_counts() -> PublishCounts {
         PublishCounts {
             user_stored_bytes: 0,
@@ -680,6 +1074,11 @@ mod verification {
             max_new_packages_per_day: kani::any(),
             max_packages_total: kani::any(),
             max_versions_per_package_per_day: kani::any(),
+            max_upload_bytes_per_day: kani::any(),
+            max_uploads_per_day: kani::any(),
+            max_pending_uploads: kani::any(),
+            shared_upload_bytes_per_day: kani::any(),
+            shared_uploads_per_day: kani::any(),
             max_scope_claims_total: kani::any(),
             publish_burst: kani::any(),
             publish_refill_per_minute: kani::any(),

@@ -4,8 +4,8 @@ The hosted side of Cabin's experimental remote registry: a Cloudflare Worker
 (Rust, [`workers-rs`](https://github.com/cloudflare/workers-rs)) serving the
 sparse HTTP file-registry contract in
 [`../docs/remote-registry.md`](../docs/remote-registry.md) - the authoritative
-protocol document - with D1 as the canonical store and R2 for immutable
-archive blobs: the read routes (verified
+protocol document - with D1 as the canonical store and R2 for the package
+archives: the read routes (verified
 content; during the private alpha, closed to every account
 `ALLOWED_GITHUB_IDS` does not admit) plus the authenticated `publish` and `yank`
 API routes and the verifier's `verify`-scoped admin routes (publish
@@ -35,11 +35,11 @@ the registry remains closed to allowlisted maintainers:
 | Index domain | `registry.cabinpkg.com` |
 | Browser/API origin | `https://cabinpkg.com` (zone routes `/api/*`, `/login`, `/callback*`, `/claim/*`) |
 | D1 database | `cabin-registry` |
-| R2 buckets | `cabin-registry-blobs`, `cabin-registry-backup` |
+| R2 buckets | `cabin-registry-archives`, `cabin-registry-uploads`, `cabin-registry-download-logs`, `cabin-registry-index` |
 
 **The disposable/permanent data boundary is temporal, not spatial.** Until
-launch (`meta.launched` = `'false'`), the database, the primary blob
-data, and the whole backup bucket are wiped and recreated instead of
+launch (`meta.launched` = `'false'`), the database and every object in
+the four buckets are wiped and recreated instead of
 migrated whenever the storage format changes; from launch onward the
 data is permanent and never wiped. The launch guard in
 `cargo registry-wipe` enforces the boundary, and flipping the flag is a
@@ -109,7 +109,7 @@ on the website origin under the just-claimed scope (first publish,
 idempotent re-publish, immutability conflict, yank transitions,
 artifact checksum) -
 and the verification lifecycle (pending -> verify -> resolvable with a
-verify-scoped token, plus the reject -> reclaim -> refund -> republish
+verify-scoped token, plus the reject -> refund -> republish
 flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
 and Node, then `npm ci --ignore-scripts` in this directory (again after
 `package-lock.json` changes) to install the wrangler `package.json` pins,

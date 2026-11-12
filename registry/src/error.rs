@@ -54,9 +54,6 @@ pub const VERDICT_TARGET_CHANGED: &str =
     "the version changed since it was listed; fetch the pending list again";
 pub const INVALID_STATUS_QUERY: &str =
     "the status query parameter must be pending, verified, or rejected";
-pub const INVALID_GOVERNOR_BODY: &str = r#"the governor body must be exactly {"release": {"pool": "primary" | "backup" | "dump", "key": <string>}}, {"wipe": true}, or {"reconcile": true}"#;
-pub const GOVERNOR_LEDGER_LAUNCHED: &str =
-    "the registry is launched; the governor ledger only resets pre-launch";
 pub const GOVERNOR_UNAVAILABLE: &str = "the governor did not answer; try again";
 pub const CSRF_REQUIRED: &str = "the request must declare Content-Type: application/json and \
      carry the X-CSRF-Protection header";
@@ -88,7 +85,24 @@ pub fn envelope(detail: &str) -> String {
 /// budget refusals carry codes; the other errors are detail-only
 /// (clients ignore the extra field either way).
 pub fn envelope_with_code(detail: &str, code: &str) -> String {
-    serde_json::json!({ "errors": [{ "detail": detail, "code": code }] }).to_string()
+    envelope_with_fields(detail, code, Vec::new())
+}
+
+/// [`envelope_with_code`] plus further machine-readable fields on the
+/// same error object (`docs/remote-registry.md`, "Error envelope":
+/// clients ignore fields they do not know).
+pub fn envelope_with_fields(
+    detail: &str,
+    code: &str,
+    fields: Vec<(&str, serde_json::Value)>,
+) -> String {
+    let mut error = serde_json::Map::new();
+    error.insert("detail".to_owned(), detail.into());
+    error.insert("code".to_owned(), code.into());
+    for (key, value) in fields {
+        error.insert(key.to_owned(), value);
+    }
+    serde_json::json!({ "errors": [error] }).to_string()
 }
 
 #[cfg(test)]
@@ -140,6 +154,18 @@ mod tests {
                 "archive_too_large"
             ),
             r#"{"errors":[{"detail":"archive exceeds the per-archive size limit","code":"archive_too_large"}]}"#
+        );
+    }
+
+    #[test]
+    fn envelope_with_fields_appends_them_after_the_code() {
+        assert_eq!(
+            envelope_with_fields(
+                "too many",
+                "pending_limit_exceeded",
+                vec![("limit", 3.into()), ("used", 3.into())]
+            ),
+            r#"{"errors":[{"detail":"too many","code":"pending_limit_exceeded","limit":3,"used":3}]}"#
         );
     }
 

@@ -32,7 +32,16 @@ use serde_json::Value;
 /// The bindings the Worker code looks up by name (`src/glue/`,
 /// `src/web_glue.rs`, `src/governor_client.rs`).
 const DATABASE: &str = "cabin-registry";
-const BLOBS_BUCKET: &str = "cabin-registry-blobs";
+
+/// (binding, bucket).  The wipe tooling empties the buckets by these
+/// names, so a binding moved to another bucket would point at one the
+/// wipe leaves full.
+const BUCKETS: [(&str, &str); 4] = [
+    ("ARCHIVES", "cabin-registry-archives"),
+    ("UPLOADS", "cabin-registry-uploads"),
+    ("DOWNLOAD_LOGS", "cabin-registry-download-logs"),
+    ("INDEX", "cabin-registry-index"),
+];
 
 /// The scheduled handler runs its jobs on the exact breaker expression
 /// and nothing on any other schedule (`src/glue/mod.rs`).
@@ -239,14 +248,16 @@ fn validate_bindings<'a>(config: &'a Value, failures: &mut Vec<String>) -> Optio
         failures,
     );
 
-    require(
-        array(config, "r2_buckets").iter().any(|entry| {
-            entry.get("binding") == Some(&Value::from("BLOBS"))
-                && entry.get("bucket_name") == Some(&Value::from(BLOBS_BUCKET))
-        }),
-        &format!("r2_buckets must bind BLOBS to {BLOBS_BUCKET}"),
-        failures,
-    );
+    for (binding, bucket) in BUCKETS {
+        require(
+            array(config, "r2_buckets").iter().any(|entry| {
+                entry.get("binding") == Some(&Value::from(binding))
+                    && entry.get("bucket_name") == Some(&Value::from(bucket))
+            }),
+            &format!("r2_buckets must bind {binding} to {bucket}"),
+            failures,
+        );
+    }
     require(
         durable_object_bindings(config).iter().any(|entry| {
             entry.get("name") == Some(&Value::from("GOVERNOR"))
