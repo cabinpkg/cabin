@@ -843,10 +843,17 @@ fn a_published_packages_build_script_runs_for_its_dependents() {
         }
     };
 
+    // Each later run builds from nothing, in a build directory of its
+    // own: Windows may refuse to delete one a program just ran from.
     run(&["--index-path"], registry.as_os_str(), "cache");
-    fs::remove_dir_all(app.join("build")).unwrap();
     run(
-        &["--offline", "--locked", "--index-path"],
+        &[
+            "--build-dir",
+            "offline",
+            "--offline",
+            "--locked",
+            "--index-path",
+        ],
         registry.as_os_str(),
         "cache",
     );
@@ -860,17 +867,25 @@ fn a_published_packages_build_script_runs_for_its_dependents() {
         .arg(dir.path().join("cache"))
         .assert()
         .success();
-    fs::remove_dir_all(app.join("build")).unwrap();
     run(
-        &["--offline", "--locked", "--index-path"],
+        &[
+            "--build-dir",
+            "vendored",
+            "--offline",
+            "--locked",
+            "--index-path",
+        ],
         vendor.as_os_str(),
         "vendor-cache",
     );
 
-    fs::remove_dir_all(app.join("build")).unwrap();
     fs::remove_file(app.join("cabin.lock")).unwrap();
     let server = super::sparse_http::TestServer::serve(registry);
-    run(&["--index-url"], server.url().as_ref(), "http-cache");
+    run(
+        &["--build-dir", "http", "--index-url"],
+        server.url().as_ref(),
+        "http-cache",
+    );
 }
 
 /// A respin may drop the build script.  A lockfile pinning the
@@ -910,8 +925,9 @@ fn a_respin_that_drops_the_build_script_leaves_old_pins_running_it() {
         .assert()
         .success();
 
-    fs::remove_dir_all(app.join("build")).unwrap();
-    let pinned = run(&["--locked"]);
+    // A build directory of its own, so the pinned revision builds
+    // from nothing.
+    let pinned = run(&["--locked", "--build-dir", "pinned"]);
     assert!(pinned.contains("\nhello HELLO tool\n"), "{pinned}");
     assert!(
         pinned.contains("Running build script of acme/helper"),
