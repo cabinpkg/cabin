@@ -444,9 +444,9 @@ Server-side behavior is part of the contract:
   (`schema` values other than `1` are refused - a document the
   [verifier](#the-verifiers-checks) cannot judge must never enter the pending queue), requires
   the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), requires every key of the
-  metadata's `dependencies` and `dev-dependencies` maps to be a canonical `<scope>/<name>`
+  metadata's `dependencies`, `dev-dependencies`, and `build-dependencies` maps to be a canonical `<scope>/<name>`
   name, neither part a Windows device name (`system-dependencies` is exempt - its keys name system packages, not registry
-  packages), requires a declared `upstream` provenance block to pass a lexical mirror of the
+  packages), requires a declared `build-script` to be `"build.c"` or `"build.cpp"`, requires a declared `upstream` provenance block to pass a lexical mirror of the
   manifest's provenance rules (credential-free HTTPS URL, `sha256:`-prefixed 64-hex `checksum`,
   `"tar.gz"` / `"zip"` format, single-component `strip-prefix`, non-escaping copy paths,
   non-escaping `patches`
@@ -488,7 +488,7 @@ Server-side behavior is part of the contract:
   different archives whose digests share the same 16-hex prefix are a loud `409` (`a packaging
   revision with this id already exists with different bytes`), never a silent overwrite.
 - **Per-revision resolution metadata.**  A revision may change what resolution consumes:
-  `dependencies`, `features`, `standards`, and `links`.  Each revision keeps its own stored
+  `dependencies`, `build-dependencies`, `build-script`, `features`, `standards`, and `links`.  Each revision keeps its own stored
   document, and the package document gives a superseded revision whose fields differ from the
   current revision's its own `resolution`, which makes the document `"schema": 2`
   ([packaging revisions](package-index.md#packaging-revisions)).  A lockfile pinning that revision
