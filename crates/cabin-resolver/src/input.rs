@@ -40,16 +40,18 @@ pub struct ResolveInput {
     /// Declared `links` claims of the local packages the caller
     /// includes without resolution (the selected closure).  The
     /// post-resolution uniqueness check validates these together with
-    /// the claims of every resolved package, because native symbol
+    /// the claims of the resolved packages, because native symbol
     /// collisions ignore where a package came from.
     pub local_links: Vec<LinksClaim>,
     /// The link/runtime domains of a root whose local packages
-    /// declare build dependencies: the target context and the build
-    /// context.  When non-empty, the post-resolution uniqueness check
-    /// runs once per domain, in place of once over `local_links` and
-    /// every resolved package, so a build tool and the target program
-    /// may each claim the same identity.
-    pub link_domains: Vec<LinkDomain>,
+    /// declare build dependencies: the target context, then the build
+    /// context.  The post-resolution uniqueness check runs once per
+    /// domain, so a build tool and the target program may each claim
+    /// the same identity.  `None` means one target domain of
+    /// `local_links` and everything `root_dependencies` reach; either
+    /// way a resolved package's build dependencies join the build
+    /// domain.
+    pub link_domains: Option<[LinkDomain; 2]>,
     /// The root's active edges onto versioned dependencies with the
     /// features they request, keyed by dependency name: `default` for
     /// an edge that keeps default features, plus edge `features` and
@@ -89,7 +91,7 @@ impl ResolveInput {
             incompatible_standards: IncompatibleStandards::default(),
             consumer_standards: ConsumerStandards { c: None, cxx: None },
             local_links: Vec::new(),
-            link_domains: Vec::new(),
+            link_domains: None,
             root_features: BTreeMap::new(),
             local_packages: BTreeMap::new(),
             lazy_index: false,

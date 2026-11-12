@@ -319,6 +319,7 @@ mod tests {
                 version: version.to_owned(),
                 dependencies: BTreeMap::new(),
                 dev_dependencies: BTreeMap::new(),
+                build_dependencies: BTreeMap::new(),
                 system_dependencies: BTreeMap::new(),
                 features: Default::default(),
                 profiles: Default::default(),

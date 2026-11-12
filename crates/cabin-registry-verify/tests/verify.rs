@@ -1073,6 +1073,14 @@ fn dev_dependency_mismatch_is_rejected() {
 }
 
 #[test]
+fn build_dependency_mismatch_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (archive, mut pending) = benign(&dir);
+    pending.metadata["build-dependencies"] = serde_json::json!({ "acme/gen": "^1" });
+    assert_rejected(&archive, &pending, Reason::DependencyMismatch);
+}
+
+#[test]
 fn language_standard_mismatch_is_rejected() {
     let dir = TempDir::new().unwrap();
     let (archive, mut pending) = benign(&dir);

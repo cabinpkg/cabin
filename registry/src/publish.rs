@@ -113,8 +113,8 @@ const MAX_UPSTREAM_PATCH_FILES: usize = 16;
 /// Fields the service interprets are typed; fields it only stores and
 /// serves back verbatim stay opaque. `deny_unknown_fields` makes client
 /// drift a `400` here and a conformance-test failure in CI, never a
-/// silently accepted document.  `build-dependencies` and `build-script`
-/// are ahead of the client, which does not write them yet.
+/// silently accepted document.  `build-script` is ahead of the client,
+/// which does not write it yet.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VersionMetadata {

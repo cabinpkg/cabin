@@ -147,11 +147,12 @@ pub fn require_scoped_name(
 
 /// The publish gate for bare dependency keys, fired beside
 /// [`require_scoped_name`] in every publish workflow: the staged
-/// metadata's `dependencies` and `dev-dependencies` maps key on
-/// scoped `<scope>/<name>` registry names.  The keys come from
-/// validated `PackageName`s, so only the scope can be missing.  Dev-dependency keys
-/// denote registry packages too (they resolve when building the
-/// package's own tests), so one grammar covers both maps;
+/// metadata's `dependencies`, `dev-dependencies`, and
+/// `build-dependencies` maps key on scoped `<scope>/<name>` registry
+/// names.  The keys come from validated `PackageName`s, so only the
+/// scope can be missing.  Dev- and build-dependency keys denote
+/// registry packages too (they resolve when building the package's
+/// own tests, or its build script), so one grammar covers the maps;
 /// `system-dependencies` is deliberately not checked - its keys name
 /// system packages, not registry packages.  The hosted registry
 /// enforces the same rule server-side (`registry/src/publish.rs`), so
@@ -167,6 +168,7 @@ pub fn require_scoped_dependency_names(
     let tables = [
         ("dependencies", &metadata.dependencies),
         ("dev-dependencies", &metadata.dev_dependencies),
+        ("build-dependencies", &metadata.build_dependencies),
     ];
     for (table, entries) in tables {
         if let Some(name) = entries.keys().find(|name| !name.contains('/')) {
@@ -347,9 +349,9 @@ version = "10.2.1"
     }
 
     /// The registry dependency maps key on canonical scoped names:
-    /// both file workflows reject a bare key in `[dependencies]` and
-    /// `[dev-dependencies]` alike, while system dependencies are
-    /// exempt (their keys name system packages).
+    /// both file workflows reject a bare key in every dependency
+    /// table alike, while system dependencies are exempt (their keys
+    /// name system packages).
     #[test]
     fn file_registry_workflows_reject_non_canonical_dependency_names() {
         let dir = TempDir::new().unwrap();
@@ -382,22 +384,24 @@ zlib = "^1.3"
         );
         let err = dry_run_against_file_registry(workflow(body)).unwrap_err();
         assert!(matches!(err, PublishError::InvalidDependencyName { .. }));
-        let err = publish_to_file_registry(workflow(
-            r#"[package]
+        for table in ["dev-dependencies", "build-dependencies"] {
+            let err = publish_to_file_registry(workflow(&format!(
+                r#"[package]
 name = "fmtlib/fmt"
 version = "10.2.1"
-[dev-dependencies]
+[{table}]
 catch2 = "^3"
-"#,
-        ))
-        .unwrap_err();
-        assert!(matches!(
-            err,
-            PublishError::InvalidDependencyName {
-                table: "dev-dependencies",
-                ..
-            }
-        ));
+"#
+            )))
+            .unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    PublishError::InvalidDependencyName { table: found, .. } if *found == table
+                ),
+                "err: {err}"
+            );
+        }
         registry
             .child("config.json")
             .assert(predicates::path::missing());

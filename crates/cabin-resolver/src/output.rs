@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use cabin_core::{DEFAULT_FEATURE_KEY, FeatureEntry, PackageName, SourceLanguage};
-use cabin_index::{PackageIndex, VersionMetadata};
+use cabin_index::{IndexPackageDependency, PackageIndex, VersionMetadata};
 use pubgrub::SelectedDependencies;
 use semver::Version;
 
@@ -51,20 +51,25 @@ impl ResolveOutput {
         (reached, stopped)
     }
 
-    /// Every package `name` reaches through dependency edges.
+    /// Every package `name` reaches through the dependency edges
+    /// `follow` accepts, given a package and one of its dependencies.
     #[must_use]
-    pub fn dependencies_of(&self, name: &PackageName) -> BTreeSet<&PackageName> {
+    pub fn dependencies_of(
+        &self,
+        name: &PackageName,
+        follow: impl Fn(&ResolvedPackage, &PackageName) -> bool,
+    ) -> BTreeSet<&PackageName> {
         let by_name = self.by_name();
         let mut reached = BTreeSet::new();
-        let mut stack: Vec<&PackageName> = by_name
-            .get(name)
-            .map(|p| p.dependencies.iter().collect())
-            .unwrap_or_default();
+        let mut stack = vec![name];
         while let Some(name) = stack.pop() {
-            if reached.insert(name)
-                && let Some(package) = by_name.get(name)
-            {
-                stack.extend(&package.dependencies);
+            let Some(package) = by_name.get(name) else {
+                continue;
+            };
+            for dep in &package.dependencies {
+                if follow(package, dep) && reached.insert(dep) {
+                    stack.push(dep);
+                }
             }
         }
         reached
@@ -254,7 +259,12 @@ pub(crate) fn selected_dependencies_to_output(
     for (name, version) in selected {
         let features = features.remove(&name).unwrap_or_default();
         let dependencies = version_metadata(input, index, &name, &version)
-            .map(|meta| active_dependencies(meta, &features))
+            .map(|meta| {
+                meta.resolved_dependencies(active_dependency(meta, &features))
+                    .into_keys()
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default();
         let source = if input.local_packages.contains_key(&name) {
             ResolvedSource::Local
@@ -275,12 +285,12 @@ pub(crate) fn selected_dependencies_to_output(
     }
 }
 
-/// The dependency edges of `meta` that are active once `features`
-/// are enabled - the same edges the provider required.
-fn active_dependencies(
+/// Whether a declaration of `meta` is active once `features` are
+/// enabled: the test the provider applied to it.
+pub fn active_dependency(
     meta: &VersionMetadata,
     features: &BTreeSet<String>,
-) -> BTreeSet<PackageName> {
+) -> impl Fn(&PackageName, &IndexPackageDependency) -> bool {
     let enabled: BTreeSet<String> = features
         .iter()
         .filter_map(|feature| meta.features.features.get(feature))
@@ -290,11 +300,7 @@ fn active_dependencies(
             _ => None,
         })
         .collect();
-    meta.dependencies
-        .iter()
-        .filter(|(name, dep)| !dep.optional || enabled.contains(name.as_str()))
-        .map(|(name, _)| name.clone())
-        .collect()
+    move |name, dep| !dep.optional || enabled.contains(name.as_str())
 }
 
 #[cfg(test)]
@@ -333,8 +339,16 @@ mod tests {
         assert_eq!(names(reached), ["acme/a", "acme/c"]);
         assert_eq!(names(stopped), ["acme/p"]);
         assert_eq!(
-            names(output.dependencies_of(&PackageName::new("acme/p").unwrap())),
+            names(output.dependencies_of(&PackageName::new("acme/p").unwrap(), |_, _| true)),
             ["acme/b", "acme/c"]
+        );
+        assert_eq!(
+            names(
+                output.dependencies_of(&PackageName::new("acme/p").unwrap(), |package, _| {
+                    package.name.as_str() != "acme/b"
+                })
+            ),
+            ["acme/b"]
         );
     }
 }

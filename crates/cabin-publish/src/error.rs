@@ -30,7 +30,7 @@ to your claimed scope, e.g.
     )]
     BarePackageName { name: String, manifest_path: String },
 
-    /// A `dependencies` or `dev-dependencies` key is not a scoped
+    /// A `dependencies`, `dev-dependencies`, or `build-dependencies` key is not a scoped
     /// `<scope>/<name>` registry name (see
     /// [`crate::require_scoped_dependency_names`]).  Raised beside
     /// [`PublishError::BarePackageName`], before any registry or

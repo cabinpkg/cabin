@@ -444,7 +444,8 @@ fn vendor_keeps_provided_packages() {
 /// A package a provided package reaches, here through `png`, cannot also
 /// be built from source: the system library links its own copy.  An edge
 /// onto it that is inactive on this platform builds nothing, so it does
-/// not count.
+/// not count, and neither does a build dependency, a tool the system
+/// library does not link, beside an optional dependency left off.
 #[test]
 fn a_provided_package_cannot_reach_a_package_built_from_source() {
     require_c_and_cxx_build_tools();
@@ -536,6 +537,51 @@ c-standard = "c11"
 {target}"#
         ),
         policy,
+    );
+    build(&manifest).success();
+
+    publish(
+        root,
+        "src-tooled",
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "acme/tooled"
+version = "1.0.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/zlib" = { version = "^1.3", optional = true }
+
+[build-dependencies]
+"acme/zlib" = "^1.3"
+
+[target.tooled]
+type = "library"
+sources = ["src/tooled.c"]
+"#,
+            ),
+            ("src/tooled.c", "int tooled(void) { return 0; }\n"),
+        ],
+    );
+    fixtures.write(
+        "tooled",
+        r#"{
+"version": "1.0.0",
+"cflags": "",
+"libs": ""
+}
+"#,
+    );
+    write_app(
+        root,
+        &format!(
+            r#""acme/tooled" = "^1.0"
+"acme/zlib" = "^1.3"
+{target}"#
+        ),
+        "\n[system-provided.\"acme/tooled\"]\npkg-config = \"tooled\"\n",
     );
     build(&manifest).success();
 }

@@ -240,7 +240,8 @@ manifest that carries it.
   constrain its consumers, since its standards are the system library's.
 - **One copy per link.**  A package that a provided package depends on, directly or not, is an
   error when the build also builds it from source for another package: the system library links
-  its own copy, so provide that dependency from the system too.
+  its own copy, so provide that dependency from the system too.  Build dependencies do not count:
+  the system library does not link the tools it was built with.
 - **Other policy.**  Only a registry package can be provided: naming a workspace member or path
   dependency fails the build.  A package cannot be both `[patch]`ed and provided.  Source
   replacement only changes the index the package resolves from.

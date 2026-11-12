@@ -56,7 +56,10 @@ fn packaged_member_with_workspace_dep_matches_literal_twin() {
 fmt = ">=10 <11"
 
 [workspace.dev-dependencies]
-fmt = "^99""#,
+fmt = "^99"
+
+[workspace.build-dependencies]
+fmt = "^5""#,
     );
     write_member(
         ws.path(),
@@ -65,6 +68,9 @@ fmt = "^99""#,
 fmt = { workspace = true }
 
 [dev-dependencies]
+fmt = { workspace = true }
+
+[build-dependencies]
 fmt = { workspace = true }"#,
     );
     let inherited_dist = ws.path().join("dist");
@@ -87,7 +93,10 @@ fmt = { workspace = true }"#,
 fmt = ">=10 <11"
 
 [dev-dependencies]
-fmt = "^99""#,
+fmt = "^99"
+
+[build-dependencies]
+fmt = "^5""#,
     );
     let literal_dist = twin.path().join("dist");
     cabin()
