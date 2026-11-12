@@ -723,7 +723,7 @@ fn provenance_round_trips_committed_pin_into_index_and_archived_manifest() {
     // Re-read the pin straight from the fixture's committed manifest
     // so the assertion cannot drift from what was staged.
     let committed =
-        fs::read_to_string(staged.root.path().join("ports/libpng/1.6.50/cabin.toml")).unwrap();
+        fs::read_to_string(staged.root.path().join("ports/li/libpng/1.6.50/cabin.toml")).unwrap();
     let pinned_checksum = committed
         .lines()
         .find_map(|line| line.strip_prefix("checksum = \""))

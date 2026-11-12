@@ -182,6 +182,8 @@ A running script:
 - is started with no variable beyond [those listed](#what-a-script-is-given): no registry token,
   no `GITHUB_TOKEN`, no `SSH_AUTH_SOCK`, no `CC` or `CFLAGS`;
 - starts programs that are confined the same way, and any still running when it exits are killed.
+  On Windows, where a killed program keeps its files open a moment longer, Cabin reads what the
+  script wrote only once each of them is gone, and fails the build if it cannot wait for one.
 
 Limits to know:
 
@@ -211,9 +213,12 @@ Limits to know:
 - On Windows, `TEMP` and `TMP` name the directory Windows makes for the run, as `LOCALAPPDATA`
   does, not the one `TMPDIR` names.
 - On Windows, a script runs a `CABIN_BIN_*` program directly (`_spawnl`, `CreateProcess`), not
-  through `system`: the command interpreter answers `Access is denied`.  A program started with
-  `_spawnl` that closes its standard output fails as it exits (`0xC0000005`), its work done; one
-  that only flushes it does not.
+  through `system`: the command interpreter answers `Access is denied`.
+- On Windows, a program a script starts with `_spawnl` can fail as it exits (`0xC0000005`), its
+  work done, once it has closed its standard input, output, or error.  Windows applies strict
+  handle checks to confined processes, and Cabin, which does not start that program, cannot turn
+  them off for it.  Start the program with `CreateProcess`, or have it flush those streams and
+  leave them open.
 - Cabin is not meant to run as root or as an administrator: a script run with those privileges can
   reach past the confinement.
 - The build directory must not hold the package: a build script does not read the build directory,

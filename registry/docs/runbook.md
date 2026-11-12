@@ -49,6 +49,17 @@ only be toggled zone-wide). Managing zone security needs API-token scopes
 beyond the provisioning set (Zone WAF Edit, Zone Settings Edit) or the
 dashboard.
 
+A dashboard-managed WAF custom rule (Security -> WAF -> Custom rules)
+challenges requests to `cabinpkg.com` that do not come from a verified
+bot, except the registry's zone routes (`/api/*`, `/login`,
+`/callback*`, `/claim/*`), `/catalog-provenance.json`, which the
+registry's cron reads ("Website catalog refresh" below), and `/demo.gif`,
+which the repository README embeds. The rule matches
+`http.host eq "cabinpkg.com"`, so `registry.cabinpkg.com` is outside it.
+A new zone route in `wrangler.jsonc`, or another website path a machine
+client fetches, needs a hand edit of the rule's exclusions; until then
+that path answers `403` / `cf-mitigated: challenge`.
+
 ## Zone rate limiting (WAF)
 
 Zone-level defense for the Workers request budget: one rate limiting rule
@@ -105,17 +116,17 @@ carries the registry's own `rate_limited` envelope with a
 
 Two hostnames, one zone:
 
-- **`cabinpkg.com`** - the website Worker (`cabin-website`, deployed by
+- **`cabinpkg.com`** - the website Worker (`website`, deployed by
   Workers Builds from `website/` on every push to `main`) serves the
   marketing site, docs, and the account pages; the registry Worker
-  (`cabin-registry`) takes exactly `/api/*`, `/login`, `/callback*`,
+  (`registry`) takes exactly `/api/*`, `/login`, `/callback*`,
   and `/claim/*` via the zone routes below. This one origin is the
   registry's browser plane.
 - **`registry.cabinpkg.com`** - the registry's machine read plane
-  (custom domain of `cabin-registry`), nothing else.
+  (custom domain of `registry`), nothing else.
 
-Deploy skew: `cabin-website` deploys automatically on every push to
-`main` (Workers Builds); `cabin-registry` deploys from CI (the
+Deploy skew: the `website` Worker deploys automatically on every push to
+`main` (Workers Builds); `registry` deploys from CI (the
 `deploy-registry` job in `.github/workflows/registry.yml`) on pushes
 to `main` with registry-relevant changes (the `registry` filter in
 `.github/path-filters.yml`); the conformance job, and the build job
@@ -244,7 +255,7 @@ facts that matter operationally:
   `cabinpkg.com/callback*`. `/login` deliberately stays exact so the
   website keeps serving `/login/denied`.
 - A route pattern can point at only **one** Worker; all four patterns
-  belong to `cabin-registry`.
+  belong to `registry`.
 - The website's `/dashboard`, `/settings/*`, and `/login/denied` pages
   are live on the origin ("Account pages" in `website/README.md`). For
   ops debugging, the session API also works directly: `curl -H "Cookie:
@@ -261,7 +272,7 @@ package pages on the registry's catalog (`docs/remote-registry.md`,
 (a same-zone `fetch` reaches the website Worker because it serves its
 own domain, not a route) and, when that record differs from what
 `/catalog.json` answers anonymously, POSTs the `WEBSITE_DEPLOY_HOOK`
-secret: a Workers Builds deploy hook of `cabin-website` for `main`
+secret: a Workers Builds deploy hook of `website` for `main`
 (the Worker's Settings, Builds, Deploy Hooks). The `website_refresh`
 meta row counts the triggers per catalog, at most three; `wrangler
 tail` shows the `website refresh:` lines. Without the secret the step
@@ -441,7 +452,7 @@ lifecycle rule.
    trusted-publishing exchange mints for the scope's oldest owner and
    refuses while the scope is unclaimed.
 3. Start the ports receipts log over while the publish workflow is
-   still disabled (its README, "Automatic publishing"), then re-enable
+   still disabled (its `docs/publishing.md`, "Registry wipe"), then re-enable
    it (`gh workflow enable publish.yml -R cabin-ports/ports`), prove
    the trusted-publishing binding with an `exchange-check`
    dispatch (exchange + immediate revocation, publishes nothing), then
@@ -454,8 +465,10 @@ lifecycle rule.
    baseline migration seeds the backing identity its verifier arm
    resolves (`VERIFIER_BACKING_ACCOUNT_ID`).
 4. Rerun whatever main CI went red against the old registry
-   (`gh run rerun <id> --failed`); byte-identical republication of the
-   already-landed packages no-ops, so a partial run resumes cleanly.
+   (`gh run rerun <id> --failed`). A ports publish run whose upload
+   failed does not resume by a rerun: it keeps the receipts log's lock
+   until the log is reconciled, and only then is the workflow
+   dispatched again (its `docs/publishing.md`, "Reconciling the log").
 
 ## Launch checklist
 
@@ -653,7 +666,8 @@ Two knob rules that differ from the breaker's, on purpose:
 
 **Inspecting the windows.** Every breaker cron pass logs one summary
 line (`governor usage: ops ...`) next to the analytics
-evaluation - `wrangler tail` or the dashboard shows both. On demand
+evaluation - `wrangler tail` shows both, the dashboard only what its
+sample kept (see "Logs"). On demand
 (with a login-session token in `CABIN_REGISTRY_TOKEN`):
 
 ```sh
@@ -1160,7 +1174,10 @@ node_modules/.bin/wrangler d1 execute DB --remote --command "
 
 `wrangler tail` (or the dashboard). One line per request:
 `req=<id> method=<m> path=<p> status=<s> token=<token-row-id|->`. Tokens and
-token hashes are never logged.
+token hashes are never logged. The dashboard's stored logs are a sample:
+`wrangler.jsonc` sets `head_sampling_rate` to 0.1, so Workers Logs keeps
+about one request in ten, and every line of a request it drops - an
+internal error or a refusal reason included - is absent.
 
 For an incident report or a bug thread, `cargo registry-diagnose`, run from
 the repository root, gathers

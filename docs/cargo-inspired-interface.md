@@ -22,6 +22,8 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 | `cabin clean` | `cargo clean` | Removes Cabin-generated build artifacts; `--gc` removes only those unused for a while (see [`profiles.md`](profiles.md#unused-build-outputs)) |
 | `cabin run` | `cargo run` | Builds and runs an exec target; `--` forwards args |
 | `cabin test` | `cargo test` | Builds + runs `test` targets; `--` forwards args to each |
+| `cabin install` | `cargo install` | Builds a package's `executable` targets and copies them into `<root>/bin`; `--path <dir>` only, no registry packages yet.  See [`installing-programs.md`](installing-programs.md). |
+| `cabin uninstall` | `cargo uninstall` | Removes the executables `cabin install` put there |
 | `cabin fetch` | `cargo fetch` | Downloads + verifies registry artifacts |
 | `cabin update` | `cargo update` | Re-resolves, refreshes lockfile |
 | `cabin metadata` | `cargo metadata` | Deterministic JSON state |
@@ -48,7 +50,7 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 | `-j`, `--jobs <N>` | Number of parallel jobs for the build backend | identical |
 | `--locked` / `--frozen` | Lockfile policy | identical |
 | `--offline` | Forbid network access | identical |
-| `--bin <name>` | Pick an `executable` to run (`cabin run` only) | matches Cargo's `cargo run --bin`; Cabin does *not* offer a Cargo-style `--target <name>` manifest-target selector on `cabin build` / `cabin test` (see below) |
+| `--bin <name>` | Pick an `executable` to run (`cabin run`), or the executables to install or remove (`cabin install` / `cabin uninstall`; repeatable) | matches Cargo's `cargo run --bin`; Cabin does *not* offer a Cargo-style `--target <name>` manifest-target selector on `cabin build` / `cabin test` (see below) |
 | `--test <name>` | Run only the named `test` target(s) (`cabin test` only; repeatable) | matches Cargo's `cargo test --test` |
 | `--color <when>` | Terminal-color choice (`auto` / `always` / `never`) | identical wording; Cabin's env-var spelling is `CABIN_TERM_COLOR` |
 | `-v`, `--verbose` | Increase Cabin's status output volume; specify twice for very verbose output | identical |
@@ -161,7 +163,6 @@ These are Cargo / Rust concepts that do not (yet) translate to Cabin's C/C++ sco
 
 - `cargo doc` - Cabin has no doc generator yet; rustdoc has no C/C++ equivalent that would justify
   the surface.
-- `cargo install` - install / prefix semantics are not designed yet.
 - `cargo search` / `cargo owner` - registry-server search / ownership surfaces are not
   implemented.  (`cabin login` / `cabin logout` are stable; `cabin yank` exists behind the
   experimental `-Z remote-registry` flag; see [`remote-registry.md`](remote-registry.md).)

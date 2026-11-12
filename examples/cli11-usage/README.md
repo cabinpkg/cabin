@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/cli11` registry package,
 published from the curated
-[`ports/cli11/2.6.2/`](https://github.com/cabin-ports/ports/tree/main/ports/cli11/2.6.2/)
+[`ports/cl/cli11/2.6.2/`](https://github.com/cabin-ports/ports/tree/main/ports/cl/cli11/2.6.2/)
 package directory.  The program includes the header-only CLI11 command line
 parser, declares one option with a default, parses `argv`, and
 prints the parsed value plus the compiled-in CLI11 version.

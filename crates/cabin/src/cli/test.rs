@@ -232,6 +232,7 @@ pub(crate) fn test(
             toolchain: &args.toolchain,
             dev: DevActivation::SelectedPrimaries,
             build_context: true,
+            install: false,
         },
         reporter,
     )?;

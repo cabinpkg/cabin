@@ -312,6 +312,9 @@ pub(crate) struct WorkspacePipelineArgs<'a> {
     /// checks only the selected packages' own sources, and builds it
     /// only where a build script has to run first.
     pub build_context: bool,
+    /// `cabin install`: only the user's config files apply, and the
+    /// lockfile is read but never written.
+    pub install: bool,
 }
 
 /// Everything the shared preamble produces that the command tails
@@ -337,6 +340,9 @@ pub(crate) struct PreparedWorkspace {
     pub build_root: PathBuf,
     pub ninja: PathBuf,
     pub lockfile_pinned: BTreeSet<(String, String)>,
+    /// The checksum of each fetched registry archive, by package name
+    /// and version.
+    pub checksums: BTreeMap<(String, String), String>,
     pub dev_for: BTreeSet<String>,
     /// The platform `--target` selects, or the build machine.
     pub platform: cabin_core::TargetPlatform,
@@ -467,7 +473,11 @@ pub(crate) fn prepare_workspace(
         // pipeline because they ship from a local working copy.
         active_patches,
         graph: initial_graph,
-    } = super::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
+    } = if args.install {
+        super::workspace_prep::load_workspace_for_install(&manifest_path)?
+    } else {
+        super::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?
+    };
     let patched_names = active_patches.owned_patched_names();
     let resolved_index_source =
         super::config::resolve_index_source(args.index_path, args.index_url, &effective_config)?;
@@ -531,7 +541,7 @@ pub(crate) fn prepare_workspace(
     })?;
     let has_versioned = seed.has_versioned_deps();
 
-    let (registry, lockfile_pinned, activated_patches, system) = if has_versioned {
+    let (registry, lockfile_pinned, checksums, activated_patches, system) = if has_versioned {
         let inputs = super::config::resolve_pipeline_inputs(
             resolved_index_source.as_ref(),
             &effective_config,
@@ -547,7 +557,11 @@ pub(crate) fn prepare_workspace(
             initial_graph: probe_graph,
             index_source: &inputs.index_source,
             index_user_chosen: inputs.index_user_chosen,
-            policy: inputs.policy,
+            policy: if args.install && !args.locked {
+                super::LockPolicy::ReadOnly
+            } else {
+                inputs.policy
+            },
             cache_dir: &inputs.cache_dir,
             reporter,
             seed: &seed,
@@ -564,6 +578,14 @@ pub(crate) fn prepare_workspace(
         (
             pipeline.registry_sources(),
             pipeline.lockfile_pinned,
+            pipeline
+                .fetched
+                .iter()
+                .map(|p| {
+                    let key = (p.name.as_str().to_owned(), p.version.to_string());
+                    (key, p.checksum.to_string())
+                })
+                .collect(),
             pipeline.activated_patches,
             pipeline.system,
         )
@@ -578,6 +600,7 @@ pub(crate) fn prepare_workspace(
         (
             Vec::new(),
             BTreeSet::new(),
+            BTreeMap::new(),
             seed.patched_deps.activated.clone(),
             super::system_provided::SystemSplit::default(),
         )
@@ -895,6 +918,7 @@ pub(crate) fn prepare_workspace(
         build_root,
         ninja,
         lockfile_pinned,
+        checksums,
         dev_for,
         platform,
         clang_target: compiler_targets.clang_target,
