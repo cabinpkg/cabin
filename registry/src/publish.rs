@@ -77,8 +77,8 @@ pub const NAME_TWIN_CONFLICT: &str =
 pub const INVALID_VERSION: &str = "package version is not valid SemVer";
 pub const VERSION_BUILD_METADATA: &str = "package version must not carry build metadata; packaging corrections are published as \
      revisions of the same version";
-pub const INVALID_DEPENDENCY_NAME: &str =
-    "dependency keys in dependencies and dev-dependencies must be canonical <scope>/<name> names";
+pub const INVALID_DEPENDENCY_NAME: &str = "dependency keys in dependencies, dev-dependencies, and build-dependencies must be canonical \
+     <scope>/<name> names";
 pub const YANKED_AT_PUBLISH: &str = "yanked must be false at publish";
 pub const CHECKSUM_MISMATCH: &str = "checksum does not match the archive bytes";
 pub const NOT_ZIP: &str = "archive is not a zip container";
@@ -113,7 +113,8 @@ const MAX_UPSTREAM_PATCH_FILES: usize = 16;
 /// Fields the service interprets are typed; fields it only stores and
 /// serves back verbatim stay opaque. `deny_unknown_fields` makes client
 /// drift a `400` here and a conformance-test failure in CI, never a
-/// silently accepted document.
+/// silently accepted document.  `build-dependencies` and `build-script`
+/// are ahead of the client, which does not write them yet.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VersionMetadata {
@@ -130,6 +131,9 @@ pub struct VersionMetadata {
     /// must stay non-canonical rather than alias the omission.
     #[serde(rename = "dev-dependencies", default)]
     pub dev_dependencies: serde_json::Map<String, serde_json::Value>,
+    /// Like `dev-dependencies`, for `[build-dependencies]`.
+    #[serde(rename = "build-dependencies", default)]
+    pub build_dependencies: serde_json::Map<String, serde_json::Value>,
     #[serde(rename = "system-dependencies")]
     pub system_dependencies: Option<serde_json::Value>,
     pub features: Option<serde_json::Value>,
@@ -169,6 +173,14 @@ pub struct VersionMetadata {
     /// becomes required before the public launch (`docs/runbook.md`,
     /// "Launch checklist").
     pub license: Option<String>,
+    /// The build script in the archive's root, `build.c` or
+    /// `build.cpp` ([`validate_metadata`]), stored and served back
+    /// verbatim.  Absent and explicit `null` both deserialize to
+    /// `None`, as for `strip-prefix`: the verifier's metadata-equality
+    /// pass refuses a stored value it does not derive from the
+    /// archive, a `null` included.
+    #[serde(rename = "build-script")]
+    pub build_script: Option<String>,
     pub yanked: bool,
     pub checksum: String,
     pub source: SourceMetadata,
@@ -390,8 +402,9 @@ pub fn source_path(scope: &str, name: &str, version: &str, revision: &str) -> St
 /// implies embeds the scope twice - directory and filename - plus the
 /// packaging revision), scope and
 /// name charsets, the reserved-name list (`crate::names`, package
-/// part only), `SemVer`, `dependencies` / `dev-dependencies` keys
-/// (`system-dependencies` is exempt), the `links` claims
+/// part only), `SemVer`, `dependencies` / `dev-dependencies` /
+/// `build-dependencies` keys (`system-dependencies` is exempt), the
+/// `build-script` name, the `links` claims
 /// (`validate_links`), the optional `upstream` block's lexical
 /// provenance rules ([`validate_upstream`]), `yanked`. The
 /// checksum is checked separately by [`verify_checksum`] once the
@@ -448,11 +461,16 @@ pub fn validate_metadata(
     // key could never resolve against this registry (the read plane
     // has no bare-name route), and published metadata is immutable,
     // so one admitted here would be a permanent dark edge in the
-    // reverse-dependency graph. Dev-dependency keys denote registry
-    // packages too (they resolve when building the package's own
-    // tests), so the same grammar applies; `system-dependencies` is
-    // exempt - its keys name system packages, not registry packages.
-    for map in [&parsed.dependencies, &parsed.dev_dependencies] {
+    // reverse-dependency graph. Dev- and build-dependency keys denote
+    // registry packages too (they resolve when building the package's
+    // own tests, or its build script), so the same grammar applies;
+    // `system-dependencies` is exempt - its keys name system packages,
+    // not registry packages.
+    for map in [
+        &parsed.dependencies,
+        &parsed.dev_dependencies,
+        &parsed.build_dependencies,
+    ] {
         for key in map.keys() {
             let scoped = key.split_once('/').is_some_and(|(scope, name)| {
                 crate::routes::is_valid_scope(scope)
@@ -464,6 +482,11 @@ pub fn validate_metadata(
                 return Err(INVALID_DEPENDENCY_NAME);
             }
         }
+    }
+    if let Some(script) = &parsed.build_script
+        && !matches!(script.as_str(), "build.c" | "build.cpp")
+    {
+        return Err(METADATA_NOT_CANONICAL);
     }
     validate_links(&parsed.links, parsed.standards.as_ref())?;
     if let Some(upstream) = &parsed.upstream {
@@ -738,6 +761,7 @@ mod tests {
   "version": "1.0.0",
   "dependencies": {"madler/zlib": "^1.3", "acme/rich": {"version": "^2", "optional": true}},
   "dev-dependencies": {"catchorg/catch2": "^3"},
+  "build-dependencies": {"acme/gen": {"version": "^1", "features": ["fast"]}},
   "system-dependencies": {"openssl": {"version": ">=3", "dependency_kind": "normal"}},
   "features": {"default": [], "features": {}},
   "profiles": {},
@@ -748,6 +772,7 @@ mod tests {
   "standards": {"targets": {"fmt": {"interface": {"c++": {"min": "c++17"}}}}},
   "links": {"fmt": "fmt"},
   "license": "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)",
+  "build-script": "build.cpp",
   "yanked": false,
   "checksum": "sha256:bb",
   "source": {"type": "archive", "path": "../../archives/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}
@@ -760,6 +785,8 @@ mod tests {
             parsed.license.as_deref(),
             Some("Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)")
         );
+        assert!(parsed.build_dependencies.contains_key("acme/gen"));
+        assert_eq!(parsed.build_script.as_deref(), Some("build.cpp"));
     }
 
     /// The canonical document without a `license` stays valid and
@@ -1416,6 +1443,18 @@ mod tests {
                 INVALID_DEPENDENCY_NAME,
                 "dev-dependencies key: {key:?}"
             );
+            let with_build_dep = metadata_json("fmtlib", "fmt", "1.0.0").replace(
+                "\"dependencies\": {}",
+                &format!(
+                    "\"dependencies\": {{}},\n  \"build-dependencies\": {{\"{key}\": \"^1\"}}"
+                ),
+            );
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, with_build_dep.as_bytes())
+                    .unwrap_err(),
+                INVALID_DEPENDENCY_NAME,
+                "build-dependencies key: {key:?}"
+            );
         }
         // Canonical scoped keys pass in both maps (the optional-blocks
         // test covers the rich-value shapes), and system-dependencies
@@ -1428,16 +1467,45 @@ mod tests {
   "system-dependencies": {"openssl": {"version": ">=3"}}"#,
         );
         assert!(validate_metadata("fmtlib", "fmt", "1.0.0", REV, scoped.as_bytes()).is_ok());
-        // The dev-dependencies map is typed for the key check, so a
-        // non-object value is not canonical - and an explicit `null`
-        // must not alias the omitted-when-empty form.
-        for value in ["[\"catch2\"]", "null"] {
-            let non_object = metadata_json("fmtlib", "fmt", "1.0.0").replace(
+        // The dev- and build-dependencies maps are typed for the key
+        // check, so a non-object value is not canonical - and an
+        // explicit `null` must not alias the omitted-when-empty form.
+        for key in ["dev-dependencies", "build-dependencies"] {
+            for value in ["[\"catch2\"]", "null"] {
+                let non_object = metadata_json("fmtlib", "fmt", "1.0.0").replace(
+                    "\"dependencies\": {}",
+                    &format!("\"dependencies\": {{}},\n  \"{key}\": {value}"),
+                );
+                assert_eq!(
+                    validate_metadata("fmtlib", "fmt", "1.0.0", REV, non_object.as_bytes())
+                        .unwrap_err(),
+                    METADATA_NOT_CANONICAL,
+                    "{key}: {value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn validate_metadata_accepts_only_the_two_build_script_names() {
+        let with = |value: &str| {
+            metadata_json("fmtlib", "fmt", "1.0.0").replace(
                 "\"dependencies\": {}",
-                &format!("\"dependencies\": {{}},\n  \"dev-dependencies\": {value}"),
-            );
+                &format!("\"dependencies\": {{}},\n  \"build-script\": {value}"),
+            )
+        };
+        let parsed = validate_metadata(
+            "fmtlib",
+            "fmt",
+            "1.0.0",
+            REV,
+            with("\"build.c\"").as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(parsed.build_script.as_deref(), Some("build.c"));
+        for value in ["\"build.sh\"", "\"src/build.c\"", "true", "[\"build.c\"]"] {
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", REV, non_object.as_bytes())
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, with(value).as_bytes())
                     .unwrap_err(),
                 METADATA_NOT_CANONICAL,
                 "value: {value}"
