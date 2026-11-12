@@ -38,9 +38,10 @@ statements! {
 
     /// Refunds an archive to the row's publisher, directly after the
     /// statement that turned the row `rejected`
-    /// ([`MARK_REVISION_REJECTED`](super::packages::MARK_REVISION_REJECTED)
+    /// ([`MARK_REVISION_REJECTED`](super::packages::MARK_REVISION_REJECTED),
+    /// [`RELEASE_EXPIRED_RESERVATION`](super::admission::RELEASE_EXPIRED_RESERVATION),
     /// or
-    /// [`RELEASE_EXPIRED_RESERVATION`](super::admission::RELEASE_EXPIRED_RESERVATION)).
+    /// [`REJECT_UNARCHIVED_REVISION`](super::publication::REJECT_UNARCHIVED_REVISION)).
     REFUND_USER_STORED_BYTES =
         "UPDATE users SET stored_bytes = stored_bytes - \
          (SELECT archive_size FROM revisions \

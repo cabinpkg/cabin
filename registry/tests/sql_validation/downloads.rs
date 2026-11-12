@@ -3,7 +3,7 @@
 
 use cabin_registry_worker::sql;
 
-use crate::common::{migrated_connection, seed_scope_collision};
+use crate::common::{archive_verified, migrated_connection, seed_scope_collision};
 
 /// The download counter's guard lives inside the statement: `prepare`
 /// cannot check that only verified rows count or that the increment
@@ -85,6 +85,7 @@ fn registry_stats_totals_are_verified_only_and_name_distinct() {
          UPDATE versions SET downloads = 100 WHERE scope = 'beta' AND version = '1.0.0';",
     )
     .expect("seed verified versions and a pending counter");
+    archive_verified(&conn);
     conn.execute(
         sql::ADD_VERSION_DOWNLOADS,
         rusqlite::params!["alpha", "pkg", "1.0.0", 2],

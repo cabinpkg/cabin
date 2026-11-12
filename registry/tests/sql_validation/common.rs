@@ -396,9 +396,22 @@ pub fn count(conn: &Connection, table: &str) -> i64 {
     .expect("count rows")
 }
 
+/// Records every verified revision's archive as placed, as the
+/// placement pass would: a seed's verified rows are served ones unless
+/// the test says otherwise.
+pub fn archive_verified(conn: &Connection) {
+    conn.execute(
+        "UPDATE revisions SET archived_at = '2026-07-19T00:00:00.000Z' \
+         WHERE verification = 'verified' AND archived_at IS NULL",
+        [],
+    )
+    .expect("archive the verified revisions");
+}
+
 /// Seeds one user, two scopes the user is a member of, and the same
 /// `(name, version)` under both, each with one stored revision - the
-/// collision the scoped statements must keep apart.
+/// collision the scoped statements must keep apart. alpha's is served,
+/// beta's pending.
 pub fn seed_scope_collision(conn: &Connection) {
     conn.execute_batch(
         "INSERT INTO users (id, created_at) VALUES (2, '2026-07-15T00:00:00.000Z');
@@ -421,4 +434,5 @@ pub fn seed_scope_collision(conn: &Connection) {
          UPDATE users SET package_count = 2, stored_bytes = 30 WHERE id = 2;",
     )
     .expect("seed the cross-scope collision");
+    archive_verified(conn);
 }

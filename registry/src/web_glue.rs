@@ -927,7 +927,7 @@ async fn reverse_dependencies(
 
 #[derive(Deserialize)]
 struct SourceVersionRecord {
-    upload_id: Option<String>,
+    revision: String,
     archive_size: i64,
 }
 
@@ -995,12 +995,9 @@ async fn package_source(
         }
     }
 
-    let Some(key) = record.upload_id.as_deref().map(crate::upload::object_key) else {
-        console_error!("{scope}/{name}@{version} no longer names a stored object");
-        return json_error(500, error::INTERNAL);
-    };
+    let key = crate::publication::archive_key(scope, name, version, &record.revision);
     let object = env
-        .bucket("UPLOADS")?
+        .bucket("ARCHIVES")?
         .get(&key)
         .range(worker::Range::OffsetWithLength {
             offset: resolved.offset,

@@ -128,13 +128,24 @@ fn upload_object(upload_id: &str) -> String {
 }
 
 /// The archive local R2 holds for one upload, if any, read through
-/// `work`.  A missing object is wrangler's non-zero exit; its streams
-/// are dropped because several callers expect exactly that.
+/// `work`.
 pub(crate) fn stored_upload(upload_id: &str, work: &Path) -> Result<Option<Vec<u8>>> {
-    let out = work.join("stored-upload.zip");
+    stored_object(&upload_object(upload_id), work)
+}
+
+/// The archive local R2 holds in the ARCHIVES bucket (`wrangler.jsonc`)
+/// under a revision's key (`registry/src/publication.rs`,
+/// `archive_key`), if any, read through `work`.
+pub(crate) fn stored_archive(key: &str, work: &Path) -> Result<Option<Vec<u8>>> {
+    stored_object(&format!("cabin-registry-archives/{key}"), work)
+}
+
+/// A missing object is wrangler's non-zero exit; its streams are
+/// dropped because several callers expect exactly that.
+fn stored_object(object: &str, work: &Path) -> Result<Option<Vec<u8>>> {
+    let out = work.join("stored-object.zip");
     let file = out.to_str().context("the work directory is not UTF-8")?;
-    let object = upload_object(upload_id);
-    let got = wrangler(&["r2", "object", "get", &object, "--file", file, "--local"])
+    let got = wrangler(&["r2", "object", "get", object, "--file", file, "--local"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()

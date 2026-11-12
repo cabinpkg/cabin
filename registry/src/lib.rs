@@ -17,6 +17,7 @@ pub mod documents;
 pub mod error;
 pub mod governor;
 pub mod names;
+pub mod publication;
 pub mod publish;
 pub mod quota;
 pub mod routes;

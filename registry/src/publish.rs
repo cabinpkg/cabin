@@ -390,7 +390,10 @@ fn is_valid_publish_name(scope: &str, name: &str) -> bool {
 /// registry writes the same layout.
 #[must_use]
 pub fn source_path(scope: &str, name: &str, version: &str, revision: &str) -> String {
-    format!("../../archives/{scope}/{name}/{scope}-{name}-{version}-{revision}.zip")
+    format!(
+        "../../{}",
+        crate::publication::archive_key(scope, name, version, revision)
+    )
 }
 
 /// Validates the metadata frame against the request URL's `scope` /

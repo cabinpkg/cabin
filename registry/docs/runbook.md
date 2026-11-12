@@ -435,7 +435,10 @@ its queued or in-flight runs, so none spans the database drop.
 An archive a writer slips in anyway - a publish landing between the
 UPLOADS sweep and the database drop, while the old Worker still
 serves - is left with no row naming it and expires with the bucket's
-lifecycle rule.
+lifecycle rule. One the old Worker's placement copies into ARCHIVES
+after that bucket's sweep stays, since ARCHIVES has no such rule; it
+is harmless, because its key names exactly those bytes and a later
+publication of them converges on it.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp to the pull request that changes the
@@ -639,12 +642,12 @@ in-code defaults (`src/governor.rs`):
 | Var | Default | Pool (as snapshots name it) |
 | --- | --- | --- |
 | `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | `a_publish` - publish-path puts |
-| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - unused |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - archive placement puts |
 | `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | `b_ordinary` - artifact cache misses |
 | `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | `b_source` - source-viewer ranged reads |
 | `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | `b_verifier` - pending-artifact fetches |
 | `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | `b_publish` - publish-path heads |
-| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - the cron's object checks of expired reservations |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read |
 
 A limit var only takes effect through `wrangler.jsonc` `vars` and a
 deploy; `cargo check-deploy` (also a CI step) refuses a var whose
@@ -848,11 +851,12 @@ Sizing rules - the degrade-before-pay policy:
   the breaker can stop new bytes but cannot un-spend stored ones, so
   the storage budget must always fit within the capacity of the tier
   the registry would fall back to if the grant ended. The budget counts
-  the bytes publishers are charged. The archives of rejected, released,
-  and timed-out uploads that UPLOADS keeps until its lifecycle rule
-  removes them are outside it, bounded only by the daily allowances
-  ("What stays in UPLOADS"), and at today's allowances that bound is
-  above the fallback tier's 10 GB.
+  the bytes publishers are charged. What UPLOADS keeps until its
+  lifecycle rule removes it - the archives of rejected, released, and
+  timed-out uploads, and the upload of every served archive beside
+  its copy in ARCHIVES - is outside it, bounded only by the daily
+  allowances ("What stays in UPLOADS"), and at today's allowances that
+  bound is above the fallback tier's 10 GB.
 - **No stored payment method on free/granted plans.** The breaker
   closes the variable spend channels; the absent payment method closes
   everything else. Adding one is part of the same deliberate activation
@@ -863,14 +867,15 @@ Sizing rules - the degrade-before-pay policy:
 Every publish names its operation with a `Cabin-Upload-Id` header
 (`docs/remote-registry.md`, "Publish"), and an admitted operation
 stores its archive as one object of its own, `uploads/<upload id>.zip`
-in UPLOADS. A revision row is in one of four states
-(`revisions.verification` and `stored_at`):
+in UPLOADS. A revision row is in one of five states
+(`revisions.verification`, `stored_at`, and `archived_at`):
 
 | State | Row | Leaves it by |
 | --- | --- | --- |
 | reservation | `pending`, `stored_at` NULL | its request storing and confirming the archive, else the reservation sweep |
 | pending | `pending`, `stored_at` set | a verdict, else the pending timeout |
-| verified | `verified` | never |
+| verified | `verified`, `archived_at` NULL | archive placement |
+| served | `verified`, `archived_at` set | never |
 | rejected | `rejected` | a republish of the same bytes |
 
 - **Admission is one D1 transaction** (`src/sql/admission.rs`). It
@@ -888,6 +893,20 @@ in UPLOADS. A revision row is in one of four states
   `stored_at` is rejected with reason `verification_timeout` and
   refunded by the same cron: its object is about to expire and could
   no longer be verified.
+- **Archive placement** (`src/glue/publication.rs`). A verified
+  revision is served only once its archive is in ARCHIVES under
+  `archives/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` and
+  the row's `archived_at` is set. The verdict's own request runs the
+  placement pass and the `*/15` cron runs it again for whatever is
+  left: at most 20 revisions a pass, oldest verdict first, each charged
+  two `b_infra` operations and one `a_infra`; a governor refusal ends
+  the pass. R2 checks the copy against the row's SHA-256, and no pass
+  replaces an object: a key that already holds the archive counts as
+  placed, and one that holds anything else is logged on every pass
+  (`archive placement: ...`) and left for the operator. When UPLOADS
+  no longer holds the verified bytes, the revision is rejected with
+  reason `publication_source_lost` and refunded - it was never served,
+  and the same bytes may be published again.
 - **Returning to a released reservation.** The same upload id and
   publisher may return within 14 days of the operation's first charge
   (`charged_at`); returning never extends that window. It takes a
@@ -927,7 +946,8 @@ The `operator` class is charged to shared allowances of its own, so
 bulk port publishing never spends what `default` accounts share.
 
 **What a rejection gives back.** A verifier's rejection, a released
-reservation, and a pending timeout each refund the archive's bytes to
+reservation, a pending timeout, and an archive that could not be placed
+each refund the archive's bytes to
 `users.stored_bytes` in the transaction that rejects the row, and the
 row leaving `pending` frees its slot. The daily allowances are never
 refunded: an admitted upload stays charged whatever becomes of it.
@@ -935,18 +955,22 @@ refunded: an admitted upload stays charged whatever becomes of it.
 **What stays in UPLOADS.** The Worker never deletes an UPLOADS object;
 the bucket's 14-day lifecycle rule ("First-time provisioning") does, so the
 archive of a rejected, released, or timed-out upload stays until the
-rule removes it while nobody is charged for it. The breaker's storage
-figure, `SUM(users.stored_bytes)`, is therefore what publishers are
-charged, not what the bucket holds; the difference is bounded by the
-classes' shared daily allowances over 28 days - a resumed upload stores
-its archive up to 14 days after it was charged, and the object then
-lives 14 more - not by `BUDGET_R2_STORAGE_BYTES`. Do not delete UPLOADS
-objects by hand: a row may still name one.
+rule removes it while nobody is charged for it, and a served archive
+is held twice, charged once, until the rule removes its upload. The
+breaker's storage figure, `SUM(users.stored_bytes)`, is therefore what
+publishers are charged, not what the buckets hold; what UPLOADS holds
+is bounded by the classes' shared daily allowances over 28 days - a
+resumed upload stores its archive up to 14 days after it was charged,
+and the object then lives 14 more - not by `BUDGET_R2_STORAGE_BYTES`.
+Do not delete UPLOADS objects by hand: a row may still name one.
 
-The Worker also serves a **verified** revision from its UPLOADS object
-(`src/glue/read.rs`): nothing writes ARCHIVES, DOWNLOAD_LOGS, or INDEX,
-so a verified archive lasts only as long as the UPLOADS rule keeps its
-object.
+A served revision is read from ARCHIVES (`src/glue/read.rs`), which
+has no lifecycle rule: the Worker never deletes or replaces an object
+there. An archive stays there uncharged, for good, when its revision
+is rejected as `publication_source_lost` after one placement pass had
+copied it and before that pass recorded it - a second pass found the
+upload expired in between; a later publication of the same bytes is
+served from that object. Nothing writes DOWNLOAD_LOGS or INDEX.
 
 ## Verification pipeline
 
@@ -1110,9 +1134,9 @@ platform's point-in-time restore. Its retention and commands are
 Cloudflare's to document: read the current D1 documentation when a
 restore is needed. A deleted database, or damage older than that
 retention, has no recovery path; that loss is an accepted risk. A
-restore moves D1 alone, so afterwards check the
-restored rows against UPLOADS, and after restoring to a point that
-predates launch, immediately re-run the launch-checklist `UPDATE` that
+restore moves D1 alone, so afterwards check the restored rows against
+UPLOADS and ARCHIVES, and after restoring to a point that predates
+launch, immediately re-run the launch-checklist `UPDATE` that
 sets `meta.launched = 'true'`, or the launch guard would treat the
 restored registry as pre-launch and let a wipe through.
 

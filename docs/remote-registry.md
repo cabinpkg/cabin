@@ -357,12 +357,13 @@ the `405` answers admitted callers only; an anonymous `GET /config.json` and the
 `/healthz` are the only answers without an admitted token.
 
 On a registry with the [verification lifecycle](#verification-lifecycle), the composed
-`/packages/<scope>/<name>.json` document contains **verified** revisions only - each version's
-`revision` pointer names its current one and its `revisions` map lists every verified revision of
-it - and the artifact route serves verified revisions to ordinary tokens; a package with no verified
-revisions is indistinguishable from an unknown one.  A superseded verified revision stays
-downloadable, and carries its own `resolution` when it resolves differently from the current one,
-which is what keeps lockfiles that pin it building.
+`/packages/<scope>/<name>.json` document contains **served** revisions only - verified ones whose
+archive the registry has placed in its archive store.  Each version's `revision` pointer names its
+current one and its `revisions` map lists every served revision of it, and the artifact route
+serves them to ordinary tokens; a package with no served revisions is indistinguishable from an
+unknown one.  A superseded served revision stays downloadable, and carries its own `resolution`
+when it resolves differently from the current one, which is what keeps lockfiles that pin it
+building.
 
 The hosted registry serves `/packages/<scope>/<name>.json` - including the `404` for an unknown
 package - and [`/catalog.json`](#the-catalog) from a per-location edge cache that keeps each answer
@@ -372,7 +373,7 @@ reader.
 ### The catalog
 
 `GET /catalog.json` on the hosted registry is the website's package catalog, not part of the client
-protocol: no `cabin` command reads it.  It lists every package, in every scope, that has a verified,
+protocol: no `cabin` command reads it.  It lists every package, in every scope, that has a served,
 non-yanked version, and exactly those versions - what the package documents serve as resolvable -
 each at its current revision:
 
@@ -601,8 +602,8 @@ Client-side behavior:
 Verification is **per packaging revision**, not per version:
 
 ```text
-publish (201) --> pending --verdict: verified--> verified (resolvable, immutable)
-                    ^  |
+publish (201) --> pending --verdict: verified--> verified --archive placed--> served
+                    ^  |                                       (resolvable, immutable)
                     |  +--verdict: rejected--> rejected (storage quota refunded)
                     |                              |
                     +--republish, identical bytes--+
@@ -614,18 +615,25 @@ publish (201) --> pending --verdict: verified--> verified (resolvable, immutable
   verifier inspects pending revisions and renders a verdict through the
   [admin API](#admin-api-scope-verify).  One still pending fourteen days after its archive was
   stored is rejected.
-- **verified** - part of the registry: composed, resolvable, downloadable, and covered by the
-  immutability guarantee, which applies to verified revisions **only**.
+- **verified** - passed verification.  The registry then places the archive in its archive
+  store - within the verdict's own request, or on a later scheduled pass when that did not
+  finish - and from that moment the revision is **served**: part of the registry, composed,
+  resolvable, downloadable, and covered by the immutability guarantee, which applies to served
+  revisions **only**.  Served is not a state of its own on the wire - listings report the
+  revision as `verified` throughout - and until it is served a verified revision is as
+  invisible as a pending one.  One whose uploaded archive can no longer be read back intact is
+  rejected instead.
 - **rejected** - the revision never became part of the registry: the publisher's storage quota
   is refunded (the day's upload allowance is not).  Republishing the identical bytes revives that
   revision to `pending` for a fresh verdict; different bytes create a new revision, needing the
   opt-in only while some other revision of the version is still live.
 
 A version's **current** revision - the one the composed document's `revision` field names - is the
-verified revision with the newest `published_at`, breaking ties on the greater revision id.  Its
-`revisions` map carries every verified revision of the version, so superseded ones stay resolvable
-by pin.  Pending and rejected revisions appear in neither: a respin under review never disturbs
-what consumers are being served, and it becomes current only when it is verified.
+served revision with the newest `published_at`, breaking ties on the greater revision id.  Its
+`revisions` map carries every served revision of the version, so superseded ones stay resolvable
+by pin.  Pending and rejected revisions, and verified ones not served yet, appear in neither: a
+respin under review never disturbs what consumers are being served, and it becomes current only
+when it is served itself.
 
 **Fail-safe direction.**  If the verifier never runs, nothing new ever becomes resolvable.
 Broken verification infrastructure can only keep content unexposed; it must never expose
@@ -686,14 +694,15 @@ moment under the same checksum, so a stale verdict of either direction must neve
 generation it never judged.  A binding that does not match the stored row
 conflicts (`409`), and the same guard is enforced transactionally: a verdict racing a conflicting
 verdict or a revival answers `409` rather than applying.
-`verified` stamps `verified_at` and makes the revision resolvable; `rejected` refunds the
-publisher's storage quota.  The response reports the resulting state and whether the request
-changed it, mirroring yank:
+`verified` stamps `verified_at` and starts the archive's placement, after which the revision is
+resolvable; `rejected` refunds the publisher's storage quota.  The response reports the state the
+verdict left the revision in and whether the request changed it, mirroring yank:
 `{"ok":true,"name":...,"version":...,"revision":"...","verification":"...","changed":<bool>}`.
 
 Verdicts are idempotent for the same value: repeating the verdict a revision already carries -
 `verified` on a verified revision, `rejected` on a rejected one - with a matching binding is a
-`200` no-op, so a verifier retrying after a lost response converges.
+`200` no-op, so a verifier retrying after a lost response converges - unless the registry has
+rejected the revision since because its archive could not be placed, when the retry conflicts.
 Conflicts are `409`: a
 rejecting verdict on a verified revision hits the immutability wall, and a verifying verdict on
 a rejected revision is refused - republishing is the recovery path.  A late duplicate verdict
@@ -866,8 +875,8 @@ version's yanked state in the per-package index document:
 `{"yanked": false}` un-yanks.  The route is idempotent: setting the state a version already has
 succeeds with `200` and body `{"ok":true}`.  Yank is **version-level** - it covers every packaging
 revision of the version at once, and there is no per-revision yank.  It applies to versions with at
-least one [**verified**](#verification-lifecycle) revision - a version whose revisions are all
-pending or rejected was never part of the registry's resolvable surface, so there is nothing to
+least one [**served**](#verification-lifecycle) revision - a version with none
+was never part of the registry's resolvable surface, so there is nothing to
 retract and it answers an authenticated `404`.
 
 ### Yanking from the client
@@ -1055,7 +1064,7 @@ a repeated `DELETE` idempotent - the same contract as the
 | `400` | Malformed request: bad framing, an oversized body or metadata frame, invalid metadata, a version carrying build metadata, an invalid JSON body, a `new-revision` query value other than `true`, or a missing or malformed `Cabin-Upload-Id`. |
 | `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, every non-read-plane path of the index host (never reveals whether anything exists there), and on the hosted registry every read but `config.json` - and every [trusted-publishing](#trusted-publishing) exchange, [login-session](#login-sessions) mint (unadmitted identities excepted), or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge); on the hosted registry's index host, also the `registry_private_alpha` code. |
 | `403` | Valid token, but the scope the route requires is missing; on publish and yank, the token's user is not a member of the route's `<scope>` (or the token is confined to a different scope), answered with one byte-identical refusal whether or not the scope exists and before the request body or the version is consulted; or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field; or, on the hosted registry, a valid token or proven GitHub identity whose account the private alpha does not admit (code `registry_private_alpha`), on every route except the [trusted-publishing](#trusted-publishing) exchange, which keeps its uniform `401`. |
-| `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
+| `404` | Request for an unknown package, version, or revision - including revisions that are not [served](#verification-lifecycle), which are indistinguishable from unknown ones: only a pending revision answers a token with the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; a revival that lost a race or whose timestamp is not later than the rejected revision's; a new upload under a `Cabin-Upload-Id` that already names a different upload, or whose upload was rejected or has expired; an upload the registry released before its archive was stored (retry it under the same id); or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
 | `429` | A rate limit: the publish token bucket is empty, or the per-client admission budget of the [trusted-publishing](#trusted-publishing) exchange, the verdict route, and the [login-session](#login-sessions) mint is spent (both code `rate_limited`); or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets.  A publish is also refused while an upload allowance is spent: `daily_upload_limit_exceeded` carries `Retry-After` up to the next UTC midnight; `pending_limit_exceeded` carries none, because it clears as those uploads are verified or rejected. |

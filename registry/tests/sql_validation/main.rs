@@ -19,6 +19,7 @@ mod auth;
 mod common;
 mod downloads;
 mod packages;
+mod publication;
 mod quota;
 mod scopes;
 mod trustpub;

@@ -2,10 +2,10 @@
 (***************************************************************************)
 (* The hosted registry's publish / verification lifecycle for one package  *)
 (* (docs/remote-registry.md, "Publish" and "Verification lifecycle"), as   *)
-(* the D1 statements in registry/src/sql/ execute it, with the UPLOADS     *)
-(* bucket as the separate, non-transactional store it is.  README.md maps  *)
-(* every action to the Rust and SQL it abstracts and lists what the model  *)
-(* leaves out.                                                             *)
+(* the D1 statements in registry/src/sql/ execute it, with the UPLOADS and *)
+(* ARCHIVES buckets as the separate, non-transactional stores they are.    *)
+(* README.md maps every action to the Rust and SQL it abstracts and lists  *)
+(* what the model leaves out.                                              *)
 (*                                                                         *)
 (* A revision row is keyed by (version, checksum): the packaging-revision  *)
 (* id is derived from the checksum, so the two name the same row.  Its    *)
@@ -21,6 +21,12 @@
 (* is the one object uploads/<id>.zip.  A row is a reservation from its    *)
 (* admission until the object is confirmed stored; the cron settles the    *)
 (* reservations no request confirmed.                                      *)
+(*                                                                         *)
+(* A verified row is served once it is archived: a placement pass copies   *)
+(* its archive from the upload's object to the row's own ARCHIVES key,     *)
+(* and a separate write records it.  The key names one byte sequence, so   *)
+(* a pass that finds the archive under it converges on that object, and    *)
+(* no pass replaces one.                                                   *)
 (*                                                                         *)
 (* What a publish request decides to attempt (upload::dispose, from a      *)
 (* read that may be stale by the time it writes) is left free: a request   *)
@@ -44,8 +50,10 @@ CONSTANTS
     Uploads,       \* Cabin-Upload-Id values
     Publishers,    \* concurrent publish request slots
     Verifiers,     \* concurrent verdict request slots
+    Placers,       \* concurrent archive placements, each of one listed row
     MaxStamps,     \* how many publish events one execution can stamp
     Malicious,     \* the contents the archive inspector rejects (its result, abstracted)
+    Stray,         \* the contents whose ARCHIVES key may hold an object no placement wrote
     PendingLimit,  \* quotas.max_pending_uploads
     DailyLimit,    \* quotas.max_uploads_per_day
     StorageLimit   \* quotas.max_total_bytes_per_user
@@ -53,6 +61,7 @@ CONSTANTS
 ASSUME /\ Checksums \subseteq Nat \ {0}
        /\ MaxStamps \in Nat
        /\ Malicious \subseteq Checksums
+       /\ Stray \subseteq Checksums
        /\ PendingLimit \in Nat /\ DailyLimit \in Nat /\ StorageLimit \in Nat
 
 Size(c) == c   \* revisions.archive_size, a function of the bytes
@@ -63,20 +72,23 @@ VARIABLES
     clock,         \* the greatest stamp now_iso8601() has issued (a repeated sample leaves it)
     spare,         \* SUBSET Nat: stamps requests sampled and have not committed
     stored,        \* [Versions -> [Checksums -> BOOLEAN]]: revisions.stored_at IS NOT NULL
+    archived,      \* [Versions -> [Checksums -> BOOLEAN]]: revisions.archived_at IS NOT NULL
     opOf,          \* [Versions -> [Checksums -> Uploads \cup {None}]]: revisions.upload_id
     owner,         \* [Versions -> [Checksums -> Users \cup {None}]]: revisions.published_by
     storedBytes,   \* [Users -> Nat]: users.stored_bytes
     dailyUploads,  \* [Users -> Nat]: user_daily_upload_usage.uploads, within one UTC day
     object,        \* [Uploads -> Checksums \cup {0}]: the bytes of uploads/<id>.zip, 0 for no object
+    archive,       \* [Versions -> [Checksums -> Checksums \cup {0}]]: the bytes under the row's ARCHIVES key
     pub,           \* [Publishers -> publish request]
     ver,           \* [Verifiers -> verdict request]
     cron,          \* the cron's reservation pass
+    place,         \* [Placers -> archive placement]
     gen,           \* ghost: how many publish events (the admission, each return) the row has had
     decided,       \* ghost: the generation a row's terminal state was decided against, 0 for none
     basis          \* ghost: what rendered a row's terminal state
 
-vars == <<status, pubAt, clock, spare, stored, opOf, owner, storedBytes, dailyUploads, object,
-          pub, ver, cron, gen, decided, basis>>
+vars == <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes, dailyUploads,
+          object, archive, pub, ver, cron, place, gen, decided, basis>>
 
 None == "none"
 Status == {"absent", "pending", "verified", "rejected"}
@@ -90,12 +102,14 @@ PubPhase == {"idle", "admitted", "stored"}
 Admissions == {"new", "revive", "resume"}
 VerPhase == {"idle", "decided"}
 Verdicts == {"verified", "rejected"}
-Basis == {"none", "inspected", "manual", "released", "timeout"}
+PlacePhase == {"idle", "headed", "lost"}
+Basis == {"none", "inspected", "manual", "released", "timeout", "lost"}
 
 \* Everything but the checksums is interchangeable (checksums carry sizes
 \* and break the served-revision tie).
 Symmetry == Permutations(Versions) \cup Permutations(Users) \cup Permutations(Uploads)
             \cup Permutations(Publishers) \cup Permutations(Verifiers)
+            \cup Permutations(Placers)
 
 -----------------------------------------------------------------------------
 (* Row predicates, each the SQL it names *)
@@ -155,9 +169,10 @@ Gate(kind, u, v, c, optIn, i, stamp) ==
 -----------------------------------------------------------------------------
 (* The read plane *)
 
-\* current_revisions: the verified revision with the greatest (published_at, revision)
+\* current_revisions: the verified revision in ARCHIVES with the greatest
+\* (published_at, revision)
 Current(v) ==
-    LET served == {c \in Checksums : status[v][c] = "verified"}
+    LET served == {c \in Checksums : status[v][c] = "verified" /\ archived[v][c]}
     IN IF served = {} THEN 0
        ELSE CHOOSE c \in served :
                 \A d \in served \ {c} :
@@ -168,7 +183,7 @@ Current(v) ==
 \* is a missing row
 ArtifactReadable(v, c, verifyScope) ==
     /\ stored[v][c]
-    /\ CASE status[v][c] = "verified" -> TRUE
+    /\ CASE status[v][c] = "verified" -> archived[v][c]
          [] status[v][c] = "pending" -> verifyScope
          [] OTHER -> FALSE
 
@@ -189,14 +204,21 @@ Init ==
     /\ clock = 0
     /\ spare = {}
     /\ stored = [v \in Versions |-> [c \in Checksums |-> FALSE]]
+    /\ archived = [v \in Versions |-> [c \in Checksums |-> FALSE]]
     /\ opOf = [v \in Versions |-> [c \in Checksums |-> None]]
     /\ owner = [v \in Versions |-> [c \in Checksums |-> None]]
     /\ storedBytes = [u \in Users |-> 0]
     /\ dailyUploads = [u \in Users |-> 0]
     /\ object = [i \in Uploads |-> 0]
+    \* An ARCHIVES key starts empty or, for a Stray content, holding an
+    \* object that is not the key's archive.
+    /\ archive \in [Versions -> [Checksums -> Checksums \cup {0}]]
+    /\ \A v \in Versions, c \in Checksums :
+        archive[v][c] = 0 \/ (c \in Stray /\ archive[v][c] # c)
     /\ pub = [p \in Publishers |-> Idle]
     /\ ver = [w \in Verifiers |-> Idle]
     /\ cron = Idle
+    /\ place = [k \in Placers |-> Idle]
     /\ gen = [v \in Versions |-> [c \in Checksums |-> 0]]
     /\ decided = [v \in Versions |-> [c \in Checksums |-> 0]]
     /\ basis = [v \in Versions |-> [c \in Checksums |-> "none"]]
@@ -212,8 +234,8 @@ Sample ==
     /\ clock < MaxStamps
     /\ clock' = clock + 1
     /\ spare' = spare \cup {clock + 1}
-    /\ UNCHANGED <<status, pubAt, stored, opOf, owner, storedBytes, dailyUploads, object,
-                   pub, ver, cron, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, stored, archived, opOf, owner, storedBytes, dailyUploads,
+                   object, archive, pub, ver, cron, place, gen, decided, basis>>
 
 \* One D1 batch (package.rs admit_upload): a gate, evaluated against the
 \* rows as they are now, and behind it the charges and the reservation.
@@ -251,7 +273,7 @@ PubAdmit(p) ==
         /\ pub' = [pub EXCEPT ![p] = [phase |-> "admitted", v |-> v, c |-> c, id |-> i,
                                       stamp |-> s, optIn |-> optIn,
                                       how |-> IF kind = "resume" THEN "resume" ELSE "put"]]
-    /\ UNCHANGED <<clock, object, ver, cron>>
+    /\ UNCHANGED <<clock, archived, object, archive, ver, cron, place>>
 
 \* A request whose bytes are already a reservation - another request's,
 \* or its own earlier attempt's - converges on it: nothing is admitted or
@@ -264,8 +286,8 @@ PubConverge(p) ==
         /\ pub' = [pub EXCEPT ![p] = [phase |-> "admitted", v |-> v, c |-> c, id |-> opOf[v][c],
                                       stamp |-> pubAt[v][c], optIn |-> FALSE,
                                       how |-> "converge"]]
-    /\ UNCHANGED <<status, pubAt, clock, spare, stored, opOf, owner, storedBytes, dailyUploads,
-                   object, ver, cron, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, object, archive, ver, cron, place, gen, decided, basis>>
 
 \* package.rs `store`: the request's bytes go to the reservation's key.
 \* A new or revived operation always puts; a resumed or converging one
@@ -277,8 +299,8 @@ PubStore(p) ==
        object' = IF pub[p].how # "put" /\ object[i] # 0 THEN object
                  ELSE [object EXCEPT ![i] = pub[p].c]
     /\ pub' = [pub EXCEPT ![p].phase = "stored"]
-    /\ UNCHANGED <<status, pubAt, clock, spare, stored, opOf, owner, storedBytes, dailyUploads,
-                   ver, cron, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, archive, ver, cron, place, gen, decided, basis>>
 
 \* CONFIRM_UPLOAD_STORED, guarded on the generation stored for.  A
 \* reservation released or taken again in the meantime is left alone.
@@ -291,8 +313,8 @@ PubConfirm(p) ==
        IN stored' = IF Confirmable(v, c, pub[p].id, pub[p].stamp)
                     THEN [stored EXCEPT ![v][c] = TRUE] ELSE stored
     /\ pub' = [pub EXCEPT ![p] = Idle]
-    /\ UNCHANGED <<status, pubAt, clock, spare, opOf, owner, storedBytes, dailyUploads, object,
-                   ver, cron, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, clock, spare, archived, opOf, owner, storedBytes, dailyUploads,
+                   object, archive, ver, cron, place, gen, decided, basis>>
 
 \* The request ends after its admission, writing nothing more: a failed
 \* put or batch, or the Worker dying.  It leaves a reservation for the
@@ -300,8 +322,8 @@ PubConfirm(p) ==
 PubDrop(p) ==
     /\ pub[p].phase \in {"admitted", "stored"}
     /\ pub' = [pub EXCEPT ![p] = Idle]
-    /\ UNCHANGED <<status, pubAt, clock, spare, stored, opOf, owner, storedBytes, dailyUploads,
-                   object, ver, cron, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, object, archive, ver, cron, place, gen, decided, basis>>
 
 -----------------------------------------------------------------------------
 (* The cron (glue/cron.rs) *)
@@ -318,8 +340,8 @@ CronList ==
         /\ cron' = [phase |-> "headed", v |-> v, c |-> c, id |-> opOf[v][c],
                     stamp |-> pubAt[v][c], gen |-> gen[v][c],
                     present |-> object[opOf[v][c]] # 0]
-    /\ UNCHANGED <<status, pubAt, clock, spare, stored, opOf, owner, storedBytes, dailyUploads,
-                   object, pub, ver, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, object, archive, pub, ver, place, gen, decided, basis>>
 
 \* CONFIRM_UPLOAD_STORED when the object was there; otherwise
 \* RELEASE_EXPIRED_RESERVATION and REFUND_USER_STORED_BYTES in one batch.
@@ -340,7 +362,8 @@ CronSettle ==
              /\ UNCHANGED stored
           \/ UNCHANGED <<status, stored, storedBytes, decided, basis>>
     /\ cron' = Idle
-    /\ UNCHANGED <<pubAt, clock, spare, opOf, owner, dailyUploads, object, pub, ver, gen>>
+    /\ UNCHANGED <<pubAt, clock, spare, archived, opOf, owner, dailyUploads, object, archive,
+                   pub, ver, place, gen>>
 
 \* REFUND_TIMED_OUT_UPLOADS and TIME_OUT_PENDING_UPLOADS in one batch: a
 \* stored upload no verdict reached.  The statements take every such row
@@ -352,8 +375,8 @@ CronTimeout ==
         /\ storedBytes' = [storedBytes EXCEPT ![owner[v][c]] = @ - Size(c)]
         /\ decided' = [decided EXCEPT ![v][c] = gen[v][c]]
         /\ basis' = [basis EXCEPT ![v][c] = "timeout"]
-    /\ UNCHANGED <<pubAt, clock, spare, stored, opOf, owner, dailyUploads, object, pub, ver,
-                   cron, gen>>
+    /\ UNCHANGED <<pubAt, clock, spare, stored, archived, opOf, owner, dailyUploads, object,
+                   archive, pub, ver, cron, place, gen>>
 
 \* PRUNE_SETTLED_UPLOAD_IDS: a terminal row forgets its operation, which
 \* frees the upload id.
@@ -361,8 +384,8 @@ CronForget ==
     /\ \E v \in Versions, c \in Checksums :
         /\ status[v][c] \in Terminal /\ opOf[v][c] # None
         /\ opOf' = [opOf EXCEPT ![v][c] = None]
-    /\ UNCHANGED <<status, pubAt, clock, spare, stored, owner, storedBytes, dailyUploads, object,
-                   pub, ver, cron, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, owner, storedBytes,
+                   dailyUploads, object, archive, pub, ver, cron, place, gen, decided, basis>>
 
 -----------------------------------------------------------------------------
 (* Verdicts: GET /api/v1/admin/versions?status=pending, then                *)
@@ -403,8 +426,8 @@ VerList(w) ==
                  /\ bytes = c   \* undeclared_digest and the inspector's own hash (a mutation hook, README "Sensitivity")
                  /\ \E verdict \in Inspections(bytes) : render(verdict, "inspected")
               \/ render("rejected", "manual")
-    /\ UNCHANGED <<status, pubAt, clock, spare, stored, opOf, owner, storedBytes, dailyUploads,
-                   object, pub, cron, gen, decided, basis>>
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, object, archive, pub, cron, place, gen, decided, basis>>
 
 \* The PATCH arrives: verdict_authn consumes its single-use OIDC jti in
 \* its own transaction first (a replayed PATCH is refused there and never
@@ -429,7 +452,99 @@ VerApply(w) ==
              /\ basis' = [basis EXCEPT ![v][c] = ver[w].basis]
           \/ UNCHANGED <<status, storedBytes, decided, basis>>
     /\ ver' = [ver EXCEPT ![w] = Idle]
-    /\ UNCHANGED <<pubAt, clock, spare, stored, opOf, owner, dailyUploads, object, pub, cron, gen>>
+    /\ UNCHANGED <<pubAt, clock, spare, stored, archived, opOf, owner, dailyUploads, object,
+                   archive, pub, cron, place, gen>>
+
+-----------------------------------------------------------------------------
+(* Archive placement (glue/publication.rs): the pass a verdict that         *)
+(* verified a row runs before it answers, and the cron's                    *)
+
+\* place_archives lists a verified row that is not archived, with its
+\* upload id and published_at (UNARCHIVED_REVISIONS), and copy_archive
+\* heads the row's ARCHIVES key and finds it empty.  The listing and the
+\* head are one step: no object leaves ARCHIVES, so the key was empty at
+\* the listing too.  A row that outlived its upload id has no object to
+\* read, so the empty key settles it as the lost source.  A key that
+\* holds the archive is PlaceMark's; one that holds anything else is an
+\* error the pass logs, which writes nothing and leaves the row listed:
+\* the stutter.  The ghost `gen` remembers which generation was listed.
+PlaceList(k) ==
+    /\ place[k].phase = "idle"
+    /\ \E v \in Versions, c \in Checksums :
+        /\ status[v][c] = "verified" /\ ~archived[v][c] /\ archive[v][c] = 0
+        /\ place' = [place EXCEPT ![k] =
+                       [phase |-> IF opOf[v][c] = None THEN "lost" ELSE "headed",
+                        v |-> v, c |-> c, id |-> opOf[v][c],
+                        stamp |-> pubAt[v][c], gen |-> gen[v][c]]]
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, object, archive, pub, ver, cron, gen, decided, basis>>
+
+\* copy_archive past the head: the read of the listed upload's object and
+\* the put of its bytes under the row's SHA-256, which creates the key
+\* only while it is empty.  A missing object and one recording another
+\* digest are the lost source.  A put that finds the key filled lost the
+\* create race to another pass and writes nothing more; after the put
+\* that fills it, the write is PlaceMark's.  The read and the put are one
+\* step, taken at the read.  That keeps what is stored (the bytes the
+\* read returned, or by R2's digest check nothing) but not when: the key
+\* fills here, where copy_archive leaves it empty until the streamed put
+\* completes, so no step is another pass's head of the key in between.
+\* Why no checked property depends on that is an argument, not a checked
+\* fact (README.md, "Assumptions").
+PlaceCopy(k) ==
+    /\ place[k].phase = "headed"
+    /\ LET v == place[k].v
+           c == place[k].c
+           bytes == object[place[k].id]
+       IN IF bytes # c   \* holds_archive, and R2's check of the put against the digest (a mutation hook)
+          THEN /\ place' = [place EXCEPT ![k].phase = "lost"]
+               /\ UNCHANGED archive
+          ELSE /\ place' = [place EXCEPT ![k] = Idle]
+               /\ archive' = IF archive[v][c] = 0 THEN [archive EXCEPT ![v][c] = bytes]
+                             ELSE archive
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, object, pub, ver, cron, gen, decided, basis>>
+
+\* The pass ends before its copy: a failed R2 call, or the Worker dying.
+PlaceDrop(k) ==
+    /\ place[k].phase = "headed"
+    /\ place' = [place EXCEPT ![k] = Idle]
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, archived, opOf, owner, storedBytes,
+                   dailyUploads, object, archive, pub, ver, cron, gen, decided, basis>>
+
+\* MARK_REVISION_ARCHIVED, by a pass whose head found the archive under
+\* the key or whose put stored it: guarded on the row being verified and
+\* not archived, and on no generation, because the key and the bytes
+\* under it follow from the row key.  The head or the put and the write
+\* are one step, and no slot's: the object stays under its key, so the
+\* write lands exactly where a head taken at that moment finds the
+\* archive, whichever pass makes it and however long ago it looked.
+PlaceMark ==
+    /\ \E v \in Versions, c \in Checksums :
+        /\ status[v][c] = "verified" /\ ~archived[v][c]
+        /\ archive[v][c] = c   \* publication.rs holds_archive (a mutation hook, README "Sensitivity")
+        /\ archived' = [archived EXCEPT ![v][c] = TRUE]
+    /\ UNCHANGED <<status, pubAt, clock, spare, stored, opOf, owner, storedBytes, dailyUploads,
+                   object, archive, pub, ver, cron, place, gen, decided, basis>>
+
+\* place_archive's write for a lost source: REJECT_UNARCHIVED_REVISION
+\* then REFUND_USER_STORED_BYTES, one D1 batch evaluated now, guarded on
+\* the row being verified and not archived at the listed published_at.
+\* A refused or failed batch, or a pass that dies before it, changes
+\* nothing.
+PlaceReject(k) ==
+    /\ place[k].phase = "lost"
+    /\ LET v == place[k].v
+           c == place[k].c
+       IN \/ /\ status[v][c] = "verified" /\ ~archived[v][c] /\ pubAt[v][c] = place[k].stamp
+             /\ status' = [status EXCEPT ![v][c] = "rejected"]
+             /\ storedBytes' = [storedBytes EXCEPT ![owner[v][c]] = @ - Size(c)]
+             /\ decided' = [decided EXCEPT ![v][c] = place[k].gen]
+             /\ basis' = [basis EXCEPT ![v][c] = "lost"]
+          \/ UNCHANGED <<status, storedBytes, decided, basis>>
+    /\ place' = [place EXCEPT ![k] = Idle]
+    /\ UNCHANGED <<pubAt, clock, spare, stored, archived, opOf, owner, dailyUploads, object,
+                   archive, pub, ver, cron, gen>>
 
 -----------------------------------------------------------------------------
 Next ==
@@ -438,6 +553,8 @@ Next ==
         PubAdmit(p) \/ PubConverge(p) \/ PubStore(p) \/ PubConfirm(p) \/ PubDrop(p)
     \/ \E w \in Verifiers : VerList(w) \/ VerApply(w)
     \/ CronList \/ CronSettle \/ CronTimeout \/ CronForget
+    \/ \E k \in Placers : PlaceList(k) \/ PlaceCopy(k) \/ PlaceDrop(k) \/ PlaceReject(k)
+    \/ PlaceMark
     \* The stamp bound ends an execution: with the clock spent an
     \* execution may have nothing left to do, which is the model's bound.
     \* This stutter keeps TLC from reporting that end as a deadlock; before
@@ -455,11 +572,13 @@ TypeOK ==
     /\ clock \in 0..MaxStamps
     /\ spare \subseteq 1..clock
     /\ stored \in [Versions -> [Checksums -> BOOLEAN]]
+    /\ archived \in [Versions -> [Checksums -> BOOLEAN]]
     /\ opOf \in [Versions -> [Checksums -> Uploads \cup {None}]]
     /\ owner \in [Versions -> [Checksums -> Users \cup {None}]]
     /\ storedBytes \in [Users -> Nat]
     /\ dailyUploads \in [Users -> Nat]
     /\ object \in [Uploads -> Checksums \cup {0}]
+    /\ archive \in [Versions -> [Checksums -> Checksums \cup {0}]]
     /\ \A p \in Publishers :
         /\ pub[p].phase \in PubPhase
         /\ pub[p].phase # "idle" =>
@@ -477,6 +596,13 @@ TypeOK ==
         /\ cron.v \in Versions /\ cron.c \in Checksums /\ cron.id \in Uploads
         /\ cron.stamp \in 1..MaxStamps /\ cron.gen \in 1..MaxStamps
         /\ cron.present \in BOOLEAN
+    /\ \A k \in Placers :
+        /\ place[k].phase \in PlacePhase
+        /\ place[k].phase # "idle" =>
+            /\ place[k].v \in Versions /\ place[k].c \in Checksums
+            /\ place[k].id \in Uploads \cup {None}
+            /\ place[k].stamp \in 1..MaxStamps /\ place[k].gen \in 1..MaxStamps
+            /\ place[k].phase = "headed" => place[k].id # None
     /\ gen \in [Versions -> [Checksums -> 0..MaxStamps]]
     /\ decided \in [Versions -> [Checksums -> 0..MaxStamps]]
     /\ basis \in [Versions -> [Checksums -> Basis]]
@@ -491,16 +617,25 @@ RowsStamped ==
     /\ \A v, u \in Versions, c, d \in Checksums :
         (pubAt[v][c] = pubAt[u][d] /\ pubAt[v][c] # 0) => (v = u /\ c = d)
 
-\* Ordinary (verify-scope-less) reads expose verified revisions only, and
-\* the served pointer names a verified row.
-PublicReadsAreVerified ==
-    /\ \A v \in Versions, c \in Checksums : ArtifactReadable(v, c, FALSE) => status[v][c] = "verified"
-    /\ \A v \in Versions : Current(v) # 0 => status[v][Current(v)] = "verified"
+\* Ordinary (verify-scope-less) reads expose archived revisions only and
+\* find the revision's own bytes where read.rs reads them, under its
+\* ARCHIVES key; the served pointer names a revision such a read serves.
+PublicReadsAreArchived ==
+    /\ \A v \in Versions, c \in Checksums :
+        ArtifactReadable(v, c, FALSE) =>
+            status[v][c] = "verified" /\ archived[v][c] /\ archive[v][c] = c
+    /\ \A v \in Versions : Current(v) # 0 => ArtifactReadable(v, Current(v), FALSE)
+
+\* An archived row is verified (the column's CHECK) and its ARCHIVES key
+\* holds its bytes, whatever became of the upload's object.
+ArchivedIsPlaced ==
+    \A v \in Versions, c \in Checksums :
+        archived[v][c] => status[v][c] = "verified" /\ archive[v][c] = c
 
 \* A terminal status was decided against the row's current generation: no
-\* delayed verdict or release lands on a later publish event of the same
-\* bytes.  The ghost generation, not the stamp the guards compare, is
-\* what lets this detect a stamp the clock reused.
+\* delayed verdict, release, or placement's rejection lands on a later
+\* publish event of the same bytes.  The ghost generation, not the stamp
+\* the guards compare, is what lets this detect a stamp the clock reused.
 TerminalDecidedOnCurrentGeneration ==
     \A v \in Versions, c \in Checksums :
         status[v][c] \in Terminal => decided[v][c] = gen[v][c]
@@ -518,13 +653,14 @@ VerifiedByInspection ==
     \A v \in Versions, c \in Checksums :
         status[v][c] = "verified" => basis[v][c] = "inspected" /\ c \notin Malicious
 
-\* The verifier's verdicts and the timeout land only on stored uploads,
-\* and only a reservation is released: the listing and VERDICT_TARGET
-\* hide reservations, and a generation, once stored, stays stored.
+\* The verifier's verdicts, the timeout, and the placement's rejection
+\* land only on stored uploads, and only a reservation is released: the
+\* listing and VERDICT_TARGET hide reservations, and a generation, once
+\* stored, stays stored.
 VerdictOnlyOnStored ==
     \A v \in Versions, c \in Checksums :
         /\ status[v][c] = "verified" => stored[v][c]
-        /\ basis[v][c] \in {"inspected", "manual", "timeout"} => stored[v][c]
+        /\ basis[v][c] \in {"inspected", "manual", "timeout", "lost"} => stored[v][c]
         /\ basis[v][c] = "released" => ~stored[v][c]
 
 \* Every row that is or was admitted names its publisher; a pending row
@@ -567,10 +703,28 @@ WithinLimits ==
 -----------------------------------------------------------------------------
 (* Action properties: what one step may change *)
 
-\* Immutability: a verified row never changes status or generation.
-VerifiedImmutable ==
+\* Immutability: an archived row stays archived and verified, and never
+\* changes generation.
+ArchivedImmutable ==
     [][\A v \in Versions, c \in Checksums :
-        status[v][c] = "verified" => status'[v][c] = "verified" /\ pubAt'[v][c] = pubAt[v][c]]_vars
+        archived[v][c] => /\ archived'[v][c]
+                          /\ status'[v][c] = "verified"
+                          /\ pubAt'[v][c] = pubAt[v][c]]_vars
+
+\* Until it is archived a verified row keeps its generation too, and
+\* leaves `verified` only by the placement's rejection.
+VerifiedUnlessSourceLost ==
+    [][\A v \in Versions, c \in Checksums :
+        status[v][c] = "verified" =>
+            /\ pubAt'[v][c] = pubAt[v][c]
+            /\ \/ status'[v][c] = "verified"
+               \/ status'[v][c] = "rejected" /\ basis'[v][c] = "lost"]_vars
+
+\* No object in ARCHIVES is replaced or removed, and a key is only ever
+\* filled with its row's own bytes.
+ArchivesWriteOnce ==
+    [][\A v \in Versions, c \in Checksums :
+        archive'[v][c] # archive[v][c] => archive[v][c] = 0 /\ archive'[v][c] = c]_vars
 
 \* A rejected row only ever returns to pending; no verdict verifies it.
 RejectedOnlyRevives ==
@@ -586,12 +740,14 @@ LiveGenerationStable ==
                         /\ stored[v][c] => stored'[v][c]
                         /\ status[v][c] = "pending" => opOf'[v][c] = opOf[v][c]]_vars
 
-\* What a version serves changes only when a row becomes verified: a
-\* pending respin, a rejection, or a revival never disturbs the served revision.
-ServedChangesOnlyByVerification ==
+\* What a version serves changes only when a row is archived, and to
+\* that row: a pending respin, a verdict, a rejection, or a revival
+\* never disturbs the served revision, and nothing withdraws it.
+ServedChangesOnlyByPlacement ==
     [][\A v \in Versions :
         Current(v)' # Current(v) =>
-            status[v][Current(v)'] # "verified" /\ status'[v][Current(v)'] = "verified"]_vars
+            /\ Current(v)' # 0
+            /\ ~archived[v][Current(v)'] /\ archived'[v][Current(v)']]_vars
 
 \* A different-bytes revision joins a live sibling only through a request
 \* that carried the new-revision opt-in (`?9` of the three gates).
@@ -613,10 +769,10 @@ ChargedOncePerOperation ==
                             /\ opOf'[x[1]][x[2]] # None
                             /\ opOf'[x[1]][x[2]] # opOf[x[1]][x[2]]})]_vars
 
-\* The id of an upload rejected after it was stored - by a verdict or
-\* the timeout - is spent: the bytes return only as a new operation,
-\* which ChargedOncePerOperation charges.  Only a reservation that never
-\* stored resumes for free.
+\* The id of an upload rejected after it was stored - by a verdict, the
+\* timeout, or the placement - is spent: the bytes return only as a new
+\* operation, which ChargedOncePerOperation charges.  Only a reservation
+\* that never stored resumes for free.
 SpentIdStaysSpent ==
     [][\A v \in Versions, c \in Checksums :
         (status[v][c] = "rejected" /\ stored[v][c] /\ status'[v][c] = "pending")
@@ -628,8 +784,8 @@ SpentIdStaysSpent ==
 (* (RegistryLifecycle_witness.cfg, and RegistryLifecycleShared_witness.cfg *)
 (* for NoSameBytesTwice; README.md "Non-vacuity").                         *)
 
-\* a revision becomes verified and is served
-NoVerified == \A v \in Versions : Current(v) = 0
+\* a revision is verified, archived, and served
+NoServed == \A v \in Versions : Current(v) = 0
 \* a rejected revision returns (same bytes, new stamp) and is then verified
 NoRevivedVerified == \A v \in Versions, c \in Checksums : ~(gen[v][c] > 1 /\ status[v][c] = "verified")
 \* a verdict is refused because its generation binding went stale: the
@@ -690,5 +846,48 @@ NoStaleObject ==
 NoVerifiedObjectReplaced ==
     \A v \in Versions, c \in Checksums :
         (status[v][c] = "verified" /\ opOf[v][c] # None) => object[opOf[v][c]] = c
+\* and where that form ends: the placement finds other bytes under the
+\* row's upload id and rejects the row, which was never served
+NoReplacedObjectRejected ==
+    \A v \in Versions, c \in Checksums :
+        ~(basis[v][c] = "lost" /\ opOf[v][c] # None /\ object[opOf[v][c]] \notin {0, c})
+\* the placement rejects a verified row whose upload no longer holds its
+\* bytes
+NoSourceLost == \A v \in Versions, c \in Checksums : basis[v][c] # "lost"
+\* a row is recorded as archived after its upload stopped holding its
+\* bytes (the id pruned, or the object replaced): the write reads nothing
+\* from UPLOADS and rests on the object under the ARCHIVES key
+NoMarkWithoutSource ==
+    [][\A v \in Versions, c \in Checksums :
+        ~(/\ archived'[v][c] /\ ~archived[v][c]
+          /\ (opOf[v][c] = None \/ object[opOf[v][c]] # c))]_vars
+\* a returned row is verified while its ARCHIVES key already holds its
+\* bytes, which a pass copied for an earlier generation that another pass
+\* rejected as lost.  No pass copies for the returned one (PlaceList), and
+\* the state the trace ends in satisfies PlaceMark's guard: the write that
+\* archives it, one step on, rests on that object, which is what
+\* MARK_REVISION_ARCHIVED's missing generation guard allows
+NoEarlierGenerationArchive ==
+    [][\A v \in Versions, c \in Checksums :
+        ~(/\ status[v][c] = "pending" /\ status'[v][c] = "verified"
+          /\ archive[v][c] = c)]_vars
+\* two passes head one empty key, and the second put finds it filled
+NoCreateRaceLost ==
+    [][\A k \in Placers :
+        ~(/\ place[k].phase = "headed" /\ place'[k].phase = "idle"
+          /\ archive[place[k].v][place[k].c] # 0
+          /\ object[place[k].id] = place[k].c)]_vars
+\* a rejection is refused by its generation guard: since the listing the
+\* row was rejected by another pass, returned, and was verified again
+NoStaleLossRefused ==
+    [][\A k \in Placers :
+        ~(/\ place[k].phase = "lost" /\ place'[k].phase = "idle"
+          /\ status[place[k].v][place[k].c] = "verified" /\ ~archived[place[k].v][place[k].c]
+          /\ pubAt[place[k].v][place[k].c] # place[k].stamp)]_vars
+\* a verified row whose ARCHIVES key holds an object that is not its
+\* archive: no pass places it or rejects it
+NoStrayBlocks ==
+    \A v \in Versions, c \in Checksums :
+        ~(status[v][c] = "verified" /\ archive[v][c] \notin {0, c})
 
 =============================================================================

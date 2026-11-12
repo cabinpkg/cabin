@@ -14,7 +14,7 @@ use crate::error;
 use crate::governor::{Consume, Decision, OpPool};
 use crate::governor_client::{self, Gate};
 use crate::routes::{Route, match_route};
-use crate::{breaker, quota, sql, telemetry, upload, verify};
+use crate::{breaker, publication, quota, sql, telemetry, upload, verify};
 
 use super::{
     Authn, authenticate, error_response, error_response_with_code, governor_refusal_response,
@@ -43,6 +43,7 @@ struct RevisionListRecord {
 struct ArtifactRecord {
     verification: String,
     upload_id: Option<String>,
+    archived: i64,
 }
 
 /// The registry custom domain: only the machine read plane exists here.
@@ -312,26 +313,26 @@ async fn artifact_response(
     let Some(record) = record else {
         return error_response(404, error::NOT_FOUND);
     };
-    // Verified versions download for everyone; pending ones only with
-    // the `verify` scope (the verifier fetches the bytes it inspects);
-    // rejected ones and rows with an unreadable status gate like
-    // missing rows.
+    // Verified revisions download for everyone once their archive is in
+    // ARCHIVES; pending ones only with the `verify` scope (the verifier
+    // fetches the bytes it inspects); rejected ones and rows with an
+    // unreadable status gate like missing rows.
     let status = verify::Status::parse(&record.verification);
     let readable = status.is_some_and(|status| {
-        verify::artifact_readable(status, auth.is_some_and(has_verify_scope))
+        verify::artifact_readable(
+            status,
+            record.archived != 0,
+            auth.is_some_and(has_verify_scope),
+        )
     });
     if !readable {
         return error_response(404, error::NOT_FOUND);
     }
 
     // Archives are immutable; yanked versions stay downloadable on
-    // purpose (docs/remote-registry.md, "Yank"). A row outlives its
-    // upload id only after UPLOADS has expired the object.
-    let Some(key) = record.upload_id.as_deref().map(upload::object_key) else {
-        console_error!("{scope}/{name}@{version} no longer names a stored object");
-        return error_response(500, error::INTERNAL);
-    };
+    // purpose (docs/remote-registry.md, "Yank").
     if status == Some(verify::Status::Verified) {
+        let key = publication::archive_key(scope, name, version, revision);
         let response =
             verified_artifact_response(env, auth, client_ip, &key, scope, name, version).await?;
         if response.status_code() == 200 {
@@ -339,6 +340,13 @@ async fn artifact_response(
         }
         return Ok(response);
     }
+
+    // A pending row always names its upload: the id is cleared only
+    // after the row turned terminal.
+    let Some(key) = record.upload_id.as_deref().map(upload::object_key) else {
+        console_error!("{scope}/{name}@{version} no longer names a stored object");
+        return error_response(500, error::INTERNAL);
+    };
 
     // Pending is readable only with the `verify` scope, so a credential
     // is present here by construction; gate like a missing row if not.
@@ -495,11 +503,7 @@ async fn charged_blob_read(
         Gate::Refused(refusal) => return governor_refusal_response(refusal.as_ref(), false),
     }
 
-    // shortcut: a verified archive is still read from its UPLOADS object,
-    // which the bucket expires fourteen days after the put; upgrade when
-    // the publication job that copies verified archives to ARCHIVES lands,
-    // before this branch is deployed.
-    let Some(object) = env.bucket("UPLOADS")?.get(key).execute().await? else {
+    let Some(object) = env.bucket("ARCHIVES")?.get(key).execute().await? else {
         console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
         return error_response(500, error::INTERNAL);
     };

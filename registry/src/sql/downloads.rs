@@ -5,23 +5,24 @@ statements! {
     /// the immutable unit: the route's filename embeds the revision, so
     /// superseded revisions stay fetchable and the verifier can fetch a
     /// *specific* pending revision. A reservation has no object to
-    /// serve yet and is a missing row here.
+    /// serve yet and is a missing row here. `archived` is whether the
+    /// archive is in ARCHIVES, where a verified revision is read from.
     ARTIFACT_BY_REVISION =
-        "SELECT verification, upload_id FROM revisions \
+        "SELECT verification, upload_id, archived_at IS NOT NULL AS archived FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?4 \
          AND stored_at IS NOT NULL";
 
-    /// The source viewer's lookup: the stored object plus the archive
-    /// size, which bounds the ranged read before R2 is consulted (the
-    /// object was written from the same bytes the size was recorded
-    /// from). Like
+    /// The source viewer's lookup: the served revision, which names
+    /// the object in ARCHIVES, plus the archive size, which bounds the
+    /// ranged read before R2 is consulted (the object holds the bytes
+    /// the size was recorded from). Like
     /// [`CURRENT_REVISIONS_BY_PACKAGE`](super::packages::CURRENT_REVISIONS_BY_PACKAGE),
-    /// it reads the verified-only `current_revisions` view, so pending,
+    /// it reads the served-only `current_revisions` view, so pending,
     /// rejected, and corrupt-status rows are missing rows by
     /// construction - sessions have no verify scope, so unlike the
     /// artifact route there is no pending carve-out to branch on.
     SOURCE_VERSION_LOOKUP =
-        "SELECT upload_id, archive_size FROM current_revisions \
+        "SELECT revision, archive_size FROM current_revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
     /// The public stats totals: verified packages, verified versions,

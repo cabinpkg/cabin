@@ -31,7 +31,7 @@ use xtask_registry_admin::{display, results};
 use crate::bytes::{frame, replace_all, sha256_hex};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::{PRIVATE_ALPHA, uniform_401_with};
-use crate::servers::{d1_json, d1_quiet, delete_upload, stored_upload};
+use crate::servers::{d1_json, d1_quiet, delete_upload, stored_archive, stored_upload};
 use crate::step;
 use crate::text::{capture, contains, grep_anywhere, grep_lines, read, text, write};
 
@@ -85,7 +85,7 @@ pub fn run(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     let pending = verify_scope_listing(smoke, inputs)?;
     unbound_verdict(smoke, inputs)?;
     let entry = advisory_abstain(inputs, &pending)?;
-    let verdict_verified = real_verification(smoke, inputs, &entry)?;
+    let verdict_verified = real_verification(smoke, inputs, &entry, &upload_id, &archive)?;
     corpus_vetted(smoke, inputs)?;
     search_and_package_routes(smoke, inputs)?;
     verdict_idempotence(smoke, inputs, &entry, &verdict_verified)?;
@@ -414,6 +414,8 @@ fn real_verification(
     smoke: &mut Smoke,
     inputs: &PublishInputs<'_>,
     entry: &Map<String, Value>,
+    upload_id: &str,
+    archive: &[u8],
 ) -> Result<Vec<u8>> {
     step("the real verifier verifies the fixture and the verdict makes it resolvable");
     let real = run_verifier(
@@ -434,6 +436,21 @@ fn real_verification(
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
     smoke.expect_body(r#""changed":true"#)?;
 
+    // The verdict's own request placed the archive in ARCHIVES.  The
+    // upload is deleted so that every read from here on can only be
+    // served from there, as it is once UPLOADS expires the object.
+    let key = format!(
+        "archives/{scope}/{name}/{scope}-{name}-{version}-{rev}.zip",
+        scope = inputs.scope,
+        name = inputs.name,
+        version = inputs.version,
+        rev = inputs.rev
+    );
+    if stored_archive(&key, inputs.work)?.as_deref() != Some(archive) {
+        bail!("the verified archive is not in ARCHIVES under its revision key");
+    }
+    delete_upload(upload_id, inputs.work)?;
+
     smoke.as_publisher();
     smoke.check("/catalog.json", &[200])?;
     smoke.expect_body(&format!(
@@ -449,13 +466,7 @@ fn real_verification(
     // The composed entry names the revision it serves, and lists it in
     // the per-version revisions map with the canonical source path.
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
-    smoke.expect_body(&format!(
-        "../../archives/{scope}/{name}/{scope}-{name}-{version}-{rev}.zip",
-        scope = inputs.scope,
-        name = inputs.name,
-        version = inputs.version,
-        rev = inputs.rev
-    ))?;
+    smoke.expect_body(&format!("../../{key}"))?;
     // This is the first verified download (a cache-miss fill), so it
     // also proves the outward answer to an authenticated request never
     // licenses a shared cache: the `public` freshness header lives only

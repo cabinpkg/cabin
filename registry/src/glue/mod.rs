@@ -8,6 +8,7 @@
 
 mod bearer;
 mod cron;
+mod publication;
 mod read;
 
 use std::cell::Cell;
@@ -26,6 +27,7 @@ use crate::{allowlist, breaker, quota, sql};
 
 use bearer::handle_website;
 use cron::{evaluate_budgets, log_governor_usage, refresh_website, settle_uploads};
+use publication::place_archives;
 use read::handle_registry;
 
 /// Mutation JSON is tiny. This shared cap covers the bearer and session
@@ -428,8 +430,8 @@ const BREAKER_CRON: &str = "*/15 * * * *";
 /// budgets, persist the resulting service mode - failed analytics
 /// queries leave their metric unset, which can escalate but never
 /// unblock writes, [`breaker::next_mode`]), then the upload lifecycle
-/// pass and the website catalog refresh. A schedule no job is
-/// registered for runs nothing.
+/// pass, the archive placement pass, and the website catalog refresh.
+/// A schedule no job is registered for runs nothing.
 #[event(scheduled)]
 pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let cron = event.cron();
@@ -444,6 +446,7 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     match env.d1("DB") {
         Ok(db) => {
             settle_uploads(&env, &db).await;
+            place_archives(&env, &db).await;
             refresh_website(&env, &db).await;
         }
         Err(err) => console_error!("the cron found no DB binding: {err}"),
