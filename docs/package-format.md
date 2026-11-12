@@ -236,6 +236,9 @@ publishing a version the registry verifier rejects as `missing_source`.
   "dev-dependencies": {
     "cabin-ports/googletest": "^1.17"
   },
+  "build-dependencies": {
+    "cabin-ports/re2c": "^4"
+  },
   "system-dependencies": {
     "openssl": { "version": ">=3" }
   },
@@ -259,6 +262,7 @@ publishing a version the registry verifier rejects as `missing_source`.
 | `name`, `version` | From `[package].name` and `[package].version`. |
 | `dependencies` | Normal-kind versioned registry dependencies (`[dependencies]`).  Path / workspace dependencies cause validation to fail before metadata is generated. |
 | `dev-dependencies` *(optional)* | `[dev-dependencies]` versioned dependencies.  Omitted when empty. |
+| `build-dependencies` *(optional)* | `[build-dependencies]` versioned dependencies.  Omitted when empty. |
 | `system-dependencies` *(optional)* | Entries declared with `system = true` in any of the dependency tables, keyed by pkg-config module name: `{ name -> { "version", "dependency_kind" } }`.  Omitted when empty.  Every declared system dependency is required; the metadata document has no `required` field.  Cabin never resolves or fetches these - they round-trip purely as metadata, and `cabin build` probes them via `pkg-config`. |
 | `target` *(optional, per-entry)* | Canonical inner-expression form of a `cfg(...)` predicate copied from `[target.'cfg(...)'.<kind>]`.  Present on Cabin package and system dep entries declared under a target table; absent otherwise.  The wrapping `cfg(...)` is implicit.  See [`target-dependencies.md`](target-dependencies.md). |
 | `features` *(optional)* | The package's `[features]` declarations.  Omitted from the JSON when no features are declared. |
@@ -267,7 +271,7 @@ publishing a version the registry verifier rejects as `missing_source`.
 | `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
 | `links` *(optional)* | Declared per-target [`links`](manifest.md#links) claims, as a `{ "<target>": "<identity>" }` map sorted by target name.  A pure projection of the manifest so index consumers can run the post-resolution uniqueness check without downloading the archive.  Omitted when no target declares one. |
 | `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), the upstream archive's algorithm-prefixed `checksum` (distinct from the document's own published-archive `checksum` below), `format`, optional `strip-prefix`, the `patches` list, and the `copy` steps (`patches` and `copy` are each omitted when empty; `patches` renders between `strip-prefix` and `copy`, matching the manifest's only valid layout).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
-| `license` *(optional)* | The manifest's [`license`](manifest.md#license) SPDX expression, exactly as written.  Omitted when the manifest declares none, which publishing accepts only during the private alpha ([`manifest.md`](manifest.md#license)). |
+| `license` *(optional)* | The manifest's [`license`](manifest.md#license) SPDX expression, exactly as written.  Omitted when the manifest declares none, which only local staging with `cabin package` allows: every publish requires it ([`manifest.md`](manifest.md#license)). |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced.  Its leading 16 hex characters are the [packaging revision](package-index.md#packaging-revisions) this document describes. |
 | `source.type` | Always `"archive"`. |
@@ -331,12 +335,15 @@ Behavioral notes specific to registry publish:
 - Registry packages are always scoped: the publish is rejected (before any lint or write) when the
   `[package]` name has no `<scope>/` prefix, with a diagnostic showing the `name = "..."` line to
   change.  Local-only builds and path dependencies keep bare names.
+- Published packages always declare a license: the publish is rejected at the same point when the
+  manifest has no [`[package] license`](manifest.md#license).  Local-only builds, path
+  dependencies, and `cabin package` may omit it.
 - `source.path` in the registry's package index file is the registry-relative reference described
   above, regardless of what the dry-run metadata happened to carry.  The registry crate normalizes
   this so static sparse-HTTP serving can read the same layout without rewriting.
 - The immutable unit is `(name, version, revision)`.  Republishing byte-identical bytes is a no-op
   onto the recorded revision; changed bytes for an already-published version require
-  `--new-revision`.  A respin may change `dependencies`, `features`, `standards`, or `links`;
+  `--new-revision`.  A respin may change `dependencies`, `build-dependencies`, `features`, `standards`, or `links`;
   every superseded revision keeps resolving as it was published.  See
   [`package-index.md`](package-index.md#packaging-revisions).
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a

@@ -341,10 +341,14 @@ pub fn resolve_fork_island_features(
 ///
 /// Each edge is seeded from a package `target` includes, with its
 /// `cfg(...)` condition evaluated against `target_platform` - the
-/// declaring unit's platform.  From there the pass follows normal
-/// and build edges against `build_machine`, since every unit it
-/// reaches runs on the build machine.  Dev edges never participate.
-/// `None` platforms admit every declaration, as in
+/// declaring unit's platform.  An optional one is seeded when
+/// `target` enabled it, and a `<dep>/<feature>` entry of a feature
+/// `target` enabled on the package requests `<feature>` here, on the
+/// build-machine unit, as it does on the target-context unit of a
+/// normal dependency of that name.  From there the pass follows
+/// normal and build edges against `build_machine`, since every unit
+/// it reaches runs on the build machine.  Dev edges never
+/// participate.  `None` platforms admit every declaration, as in
 /// [`resolve_features`].
 ///
 /// # Errors
@@ -360,12 +364,36 @@ pub fn resolve_build_context_features(
     let mut state = ResolverState::new(graph, build_machine, &BTreeSet::new());
     state.build_context = true;
     for &package in &target.included {
-        for declared in &graph.packages[package].package.dependencies {
-            if declared.kind == DependencyKind::Build
-                && target_platform.is_none_or(|platform| declared.matches_platform(platform))
+        let manifest = &graph.packages[package].package;
+        let enabled = target.for_package(package);
+        let requests: Vec<(String, String)> = enabled
+            .enabled_features
+            .iter()
+            .filter_map(|feature| manifest.features.features.get(feature))
+            .flatten()
+            .filter_map(|entry| match FeatureEntry::parse(entry) {
+                Ok(FeatureEntry::DepFeature { dep, feature }) => Some((dep, feature)),
+                _ => None,
+            })
+            .collect();
+        for declared in &manifest.dependencies {
+            if declared.kind != DependencyKind::Build
+                || target_platform.is_some_and(|platform| !declared.matches_platform(platform))
+                || (declared.optional
+                    && !enabled
+                        .enabled_optional_deps
+                        .contains(declared.name.as_str()))
             {
-                state.expand_declared_edge(graph, package, declared)?;
+                continue;
             }
+            let mut declared = declared.clone();
+            declared.features.extend(
+                requests
+                    .iter()
+                    .filter(|(dep, _)| dep == declared.name.as_str())
+                    .map(|(_, feature)| feature.clone()),
+            );
+            state.expand_declared_edge(graph, package, &declared)?;
         }
     }
     state.drain(graph)?;
@@ -539,33 +567,49 @@ impl ResolverState {
                 FeatureEntry::OptionalDep(dep_name) => {
                     // When inactive on the evaluated platform, a
                     // `dep:foo` entry is a silent no-op.  When active,
-                    // the dep must be declared optional.
-                    if self.assert_optional_dep_active_or_skip(pkg, feature, &dep_name)? {
+                    // a declaration of the dep must be optional, on
+                    // this platform or another: dependency resolution
+                    // judges a registry package the same way, for
+                    // every platform at once.
+                    let named = self.named_deps(pkg, feature, &dep_name)?;
+                    if named
+                        .iter()
+                        .any(|dep| dep.optional && self.on_platform(dep))
+                    {
                         self.work
                             .push_back(WorkItem::EnableOptionalDep { package, dep_name });
+                    } else if named.iter().any(|dep| self.on_platform(dep))
+                        && !named.iter().any(|dep| dep.optional)
+                    {
+                        return Err(FeatureResolverError::DepIsNotOptional {
+                            package: manifest.name.as_str().to_owned(),
+                            feature: feature.to_owned(),
+                            dependency: dep_name,
+                        });
                     }
                 }
                 FeatureEntry::DepFeature {
                     dep,
                     feature: requested_feature,
                 } => {
-                    let Some(dep_entry) = self.lookup_declared_dep(pkg, feature, &dep)? else {
-                        // Dep is declared only under a `cfg(...)`
-                        // the evaluated platform fails - no work to
-                        // enqueue for this evaluation.
-                        continue;
-                    };
-                    if dep_entry.optional {
+                    let mut named = self.named_deps(pkg, feature, &dep)?;
+                    named.retain(|dep| self.on_platform(dep));
+                    if named.iter().any(|dep| dep.optional) {
                         self.work.push_back(WorkItem::EnableOptionalDep {
                             package,
                             dep_name: dep.clone(),
                         });
                     }
-                    self.work.push_back(WorkItem::DepFeatureRequest {
-                        from_package: package,
-                        dep_name: dep,
-                        feature: requested_feature,
-                    });
+                    // A build declaration has no edge outside the build
+                    // context: `resolve_build_context_features` applies
+                    // the request to it.
+                    if named.iter().any(|dep| self.dep_participates(pkg, dep)) {
+                        self.work.push_back(WorkItem::DepFeatureRequest {
+                            from_package: package,
+                            dep_name: dep,
+                            feature: requested_feature,
+                        });
+                    }
                 }
             }
         }
@@ -626,11 +670,16 @@ impl ResolverState {
         // queues `EnableOptionalDep` ahead of every request on one,
         // and the worklist drains FIFO.
         let pkg = &graph.packages[from_package];
-        let Some(dep_entry) = self.lookup_declared_dep(pkg, "<dep-feature-request>", dep_name)?
-        else {
-            // Inactive on the evaluated platform - nothing to propagate.
-            return Ok(());
-        };
+        let dep_entry = pkg
+            .package
+            .dependencies
+            .iter()
+            .find(|dep| {
+                dep.name.as_str() == dep_name
+                    && self.dep_participates(pkg, dep)
+                    && self.on_platform(dep)
+            })
+            .expect("queued only for an active declaration");
         let Some(edge) = pkg.deps.iter().find(|e| {
             graph.packages[e.index].package.name.as_str() == dep_name && e.kind == dep_entry.kind
         }) else {
@@ -775,66 +824,39 @@ impl ResolverState {
         Ok(())
     }
 
-    /// Look up a dependency by name.  Returns:
+    /// The declarations of `dep_name` that a `[features]` entry of
+    /// `pkg` names, whatever their platform: those of a participating
+    /// kind, and build declarations, which
+    /// [`resolve_build_context_features`] seeds from this pass's
+    /// result.  Where a `cfg(...)` the evaluated platform fails gates
+    /// every one (never without a platform), the entry is a no-op for
+    /// this evaluation.
     ///
-    /// - `Ok(Some(dep))` for an active declaration of a
-    ///   participating kind;
-    /// - `Ok(None)` when every declaration matching `dep_name`
-    ///   is gated by a `cfg(...)` the evaluated platform fails
-    ///   (never without a platform) -
-    ///   feature entries that reference such a dep, optional or
-    ///   not, become a no-op for this evaluation;
-    /// - `Err(UnknownDependency)` when no declaration of any
-    ///   participating kind names `dep_name`.
-    fn lookup_declared_dep<'a>(
+    /// `Err(UnknownDependency)` when no such declaration names
+    /// `dep_name`.
+    fn named_deps<'a>(
         &self,
         pkg: &'a WorkspacePackage,
         referring_feature: &str,
         dep_name: &str,
-    ) -> Result<Option<&'a cabin_core::Dependency>, FeatureResolverError> {
-        let mut declared_anywhere = false;
-        for dep in &pkg.package.dependencies {
-            if dep.name.as_str() != dep_name || !self.dep_participates(pkg, dep) {
-                continue;
-            }
-            declared_anywhere = true;
-            if self.on_platform(dep) {
-                return Ok(Some(dep));
-            }
-        }
-        if declared_anywhere {
-            return Ok(None);
-        }
-        Err(FeatureResolverError::UnknownDependency {
-            package: pkg.package.name.as_str().to_owned(),
-            feature: referring_feature.to_owned(),
-            dependency: dep_name.to_owned(),
-        })
-    }
-
-    /// Returns `Ok(true)` when the dep is active for the evaluated
-    /// platform and is optional (the caller should enable it),
-    /// `Ok(false)` when it is declared only under non-matching
-    /// `cfg(...)` (the caller should skip), or
-    /// `Err(DepIsNotOptional)` when the dep is active but not
-    /// declared with `optional = true`.
-    fn assert_optional_dep_active_or_skip(
-        &self,
-        pkg: &WorkspacePackage,
-        referring_feature: &str,
-        dep_name: &str,
-    ) -> Result<bool, FeatureResolverError> {
-        let Some(dep) = self.lookup_declared_dep(pkg, referring_feature, dep_name)? else {
-            return Ok(false);
-        };
-        if !dep.optional {
-            return Err(FeatureResolverError::DepIsNotOptional {
+    ) -> Result<Vec<&'a cabin_core::Dependency>, FeatureResolverError> {
+        let declared: Vec<_> = pkg
+            .package
+            .dependencies
+            .iter()
+            .filter(|dep| {
+                dep.name.as_str() == dep_name
+                    && (dep.kind == DependencyKind::Build || self.dep_participates(pkg, dep))
+            })
+            .collect();
+        if declared.is_empty() {
+            return Err(FeatureResolverError::UnknownDependency {
                 package: pkg.package.name.as_str().to_owned(),
                 feature: referring_feature.to_owned(),
                 dependency: dep_name.to_owned(),
             });
         }
-        Ok(true)
+        Ok(declared)
     }
 
     fn finalize(self) -> FeatureResolution {

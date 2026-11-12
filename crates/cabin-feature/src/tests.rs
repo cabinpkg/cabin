@@ -967,3 +967,145 @@ fn a_disabled_optional_declaration_does_not_shadow_another_kind() {
     assert_eq!(build.included, BTreeSet::from([1, 2]));
     assert_eq!(names(&build.for_package(2).enabled_features), vec!["fast"]);
 }
+
+/// A feature entry naming a build dependency enables an optional one
+/// and requests its features on the build-machine unit only: the
+/// target-context unit of the same package keeps what its own edges
+/// ask.
+#[test]
+fn feature_entries_reach_build_dependencies_in_the_build_context() {
+    let build = |dep: Dependency| Dependency {
+        kind: DependencyKind::Build,
+        ..dep
+    };
+    let root = make_project(
+        "root",
+        vec![
+            build(dep_normal("gen", true)),
+            build(dep_normal("util", false)),
+            dep_normal("lib", false),
+            dep_normal("both", false),
+            build(dep_normal("both", false)),
+        ],
+        features(
+            &[],
+            &[
+                ("codegen", &["dep:gen"]),
+                ("fast", &["util/fast"]),
+                ("fast-gen", &["gen/fast"]),
+                ("fast-both", &["both/fast"]),
+                ("bad", &["dep:util"]),
+            ],
+        ),
+    );
+    let generator = make_project("gen", Vec::new(), features(&[], &[("fast", &[])]));
+    let util = make_project("util", Vec::new(), features(&[], &[("fast", &[])]));
+    let lib = make_project("lib", vec![dep_normal("util", false)], empty_features());
+    let both = make_project("both", Vec::new(), features(&[], &[("fast", &[])]));
+    let graph = make_graph(vec![
+        (
+            root,
+            vec![
+                (1, DependencyKind::Build),
+                (2, DependencyKind::Build),
+                (3, DependencyKind::Normal),
+                (4, DependencyKind::Normal),
+                (4, DependencyKind::Build),
+            ],
+        ),
+        (generator, Vec::new()),
+        (util, Vec::new()),
+        (lib, vec![(2, DependencyKind::Normal)]),
+        (both, Vec::new()),
+    ]);
+    let resolve = |feature: Option<&str>| {
+        let request = RootFeatureRequest {
+            explicit_features: feature.into_iter().map(str::to_owned).collect(),
+            ..RootFeatureRequest::default()
+        };
+        let target = resolve_features(&graph, &[0], &request, Some(&host()), &no_dev())?;
+        let build = resolve_build_context_features(&graph, &target, Some(&host()), Some(&host()))?;
+        Ok::<_, FeatureResolverError>((target, build))
+    };
+
+    let (target, build) = resolve(None).unwrap();
+    assert!(target.for_package(0).enabled_optional_deps.is_empty());
+    assert_eq!(build.included, BTreeSet::from([2, 4]));
+
+    let (target, build) = resolve(Some("codegen")).unwrap();
+    assert!(target.is_optional_dep_enabled(0, "gen"));
+    assert_eq!(target.included, BTreeSet::from([0, 2, 3, 4]));
+    assert_eq!(build.included, BTreeSet::from([1, 2, 4]));
+    assert_eq!(names(&build.for_package(1).enabled_features), ["default"]);
+
+    let (target, build) = resolve(Some("fast")).unwrap();
+    assert_eq!(names(&target.for_package(2).enabled_features), ["default"]);
+    assert_eq!(build.included, BTreeSet::from([2, 4]));
+    assert_eq!(
+        names(&build.for_package(2).enabled_features),
+        ["default", "fast"]
+    );
+
+    let (_, build) = resolve(Some("fast-gen")).unwrap();
+    assert_eq!(build.included, BTreeSet::from([1, 2, 4]));
+    assert_eq!(
+        names(&build.for_package(1).enabled_features),
+        ["default", "fast"]
+    );
+
+    // A name under both kinds takes the request in each context.
+    let (target, build) = resolve(Some("fast-both")).unwrap();
+    for context in [&target, &build] {
+        assert_eq!(
+            names(&context.for_package(4).enabled_features),
+            ["default", "fast"]
+        );
+    }
+
+    assert!(matches!(
+        resolve(Some("bad")).unwrap_err(),
+        FeatureResolverError::DepIsNotOptional { dependency, .. } if dependency == "util"
+    ));
+}
+
+/// `dep:foo` is no error on a platform that gates the optional
+/// declaration of `foo` off and keeps a required one of another kind:
+/// it enables nothing there.
+#[test]
+fn dep_colon_accepts_an_optional_declaration_only_another_platform_keeps() {
+    let linux = TargetPlatform::from_triple("x86_64-unknown-linux-gnu").unwrap();
+    let windows = TargetPlatform::from_triple("x86_64-pc-windows-msvc").unwrap();
+    let root = make_project(
+        "root",
+        vec![
+            Dependency {
+                condition: Some(
+                    cabin_core::Condition::parse_cfg(r#"cfg(os = "windows")"#).unwrap(),
+                ),
+                ..dep_normal("foo", true)
+            },
+            Dependency {
+                kind: DependencyKind::Build,
+                ..dep_normal("foo", false)
+            },
+        ],
+        features(&[], &[("with-foo", &["dep:foo"])]),
+    );
+    let foo = make_project("foo", Vec::new(), empty_features());
+    let graph = make_graph(vec![
+        (
+            root,
+            vec![(1, DependencyKind::Normal), (1, DependencyKind::Build)],
+        ),
+        (foo, Vec::new()),
+    ]);
+    let request = RootFeatureRequest {
+        explicit_features: BTreeSet::from(["with-foo".to_owned()]),
+        ..RootFeatureRequest::default()
+    };
+    let on =
+        |platform| resolve_features(&graph, &[0], &request, Some(platform), &no_dev()).unwrap();
+    assert!(!on(&linux).is_optional_dep_enabled(0, "foo"));
+    assert_eq!(on(&linux).included, BTreeSet::from([0]));
+    assert_eq!(on(&windows).included, BTreeSet::from([0, 1]));
+}

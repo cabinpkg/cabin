@@ -30,7 +30,7 @@ mod preflight;
 mod provider;
 mod range;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cabin_core::standard_compatibility::{ConsumerStandards, EffectiveRequirements};
 use cabin_core::{
@@ -43,7 +43,9 @@ use semver::Version;
 
 pub use error::{ResolveError, ResolverConstraint};
 pub use input::{LinkDomain, LinksClaim, LockedVersion, ResolveInput, ResolveMode};
-pub use output::{BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, ResolvedSource};
+pub use output::{
+    BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, ResolvedSource, active_dependency,
+};
 
 use crate::explanation::explain_no_solution;
 use crate::output::selected_dependencies_to_output;
@@ -87,9 +89,8 @@ pub fn select_locked_revisions(input: &ResolveInput, index: &mut PackageIndex) {
 /// retrieving dependencies, or cancelling is bubbled back unchanged.
 /// Returns [`ResolveError::MetadataNeeded`] when a lazy index lacks
 /// metadata the solve reached, and [`ResolveError::LinksCollision`]
-/// when two packages claim the same `links` identity: anywhere in the
-/// resolved graph, or within one link domain when the input declares
-/// domains.
+/// when two packages of one link domain claim the same `links`
+/// identity.
 #[tracing::instrument(level = "info", skip_all, fields(roots = input.root_dependencies.len(), index_packages = index.packages.len()))]
 pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let mut output = resolve_once(input, index)?;
@@ -190,48 +191,69 @@ fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOut
             }
         }
     }
-    // Post-resolution `links` uniqueness, over the whole graph or
-    // per link domain.  Runs here - not in `resolve` - so
-    // `resolve_packages` (build/run/test/vendor) enforces it too,
-    // and before any lockfile is written from this output.
-    if input.link_domains.is_empty() {
-        detect_links_collision(&links_claims_of_solution(input, index, &output.packages))?;
-    }
-    for domain in &input.link_domains {
-        detect_links_collision(&links_claims_of_domain(
-            input,
-            index,
-            &output.packages,
-            domain,
-        ))?;
-    }
+    // Post-resolution `links` uniqueness, per link domain.  Runs here -
+    // not in `resolve` - so `resolve_packages` (build/run/test/vendor)
+    // enforces it too, and before any lockfile is written from this
+    // output.  Without the caller's domains the target domain is
+    // everything the root requires: the solution holds exactly the
+    // packages active edges reach.
+    let (target, mut build) = match &input.link_domains {
+        Some([target, build]) => (target.clone(), build.clone()),
+        None => (
+            LinkDomain {
+                roots: input
+                    .root_dependencies
+                    .keys()
+                    .chain(input.root_features.keys())
+                    .cloned()
+                    .collect(),
+                local_links: input.local_links.clone(),
+            },
+            LinkDomain {
+                roots: BTreeSet::new(),
+                local_links: Vec::new(),
+            },
+        ),
+    };
+    detect_links_collision(&links_claims_of_domain(
+        input,
+        index,
+        &output.packages,
+        &target,
+        Some(&mut build.roots),
+    ))?;
+    detect_links_collision(&links_claims_of_domain(
+        input,
+        index,
+        &output.packages,
+        &build,
+        None,
+    ))?;
     Ok(output)
 }
 
-/// Every `links` claim the resolved graph carries: the caller's
-/// claims for the local packages it includes without resolution,
-/// plus the claims of every resolved package - from its index
-/// metadata, or from its local entry when the workspace supplies
-/// it.  Only selected packages claim: a `[patch]`ed name resolves to
-/// its fork, so the upstream it replaces never claims, and the
-/// solution holds exactly the packages active edges reach.
-fn links_claims_of_solution(
-    input: &ResolveInput,
-    index: &PackageIndex,
-    packages: &[ResolvedPackage],
-) -> Vec<LinksClaim> {
-    let mut claims = input.local_links.clone();
-    claims.extend(resolved_claims(input, index, packages));
-    claims
-}
-
 /// The claims of one link/runtime domain: its local packages' plus
-/// those of every resolved package its roots reach.
+/// those of every resolved package its roots reach - from its index
+/// metadata, or from its local entry when the workspace supplies it.
+/// Only selected packages claim: a `[patch]`ed name resolves to its
+/// fork, so the upstream it replaces never claims.
+///
+/// `build_roots` is given for the target domain.  A build dependency
+/// of a package there links into that package's build script, so the
+/// walk follows only its active normal edges and adds each active
+/// build dependency to `build_roots`, the roots the build domain
+/// gains.  The build domain follows every edge: a build script's own
+/// build dependencies run on the same machine as it does.
+///
+/// Active is what resolution enabled, and resolution unifies a
+/// package's feature requests across the two domains: an optional
+/// edge only the other domain's features enable is followed here too.
 fn links_claims_of_domain(
     input: &ResolveInput,
     index: &PackageIndex,
     packages: &[ResolvedPackage],
     domain: &LinkDomain,
+    mut build_roots: Option<&mut BTreeSet<PackageName>>,
 ) -> Vec<LinksClaim> {
     let by_name: BTreeMap<&PackageName, &ResolvedPackage> = packages
         .iter()
@@ -244,7 +266,24 @@ fn links_claims_of_domain(
         if let Some(package) = by_name.get(name)
             && reached.insert(name, package).is_none()
         {
-            pending.extend(&package.dependencies);
+            let meta = version_metadata(input, index, name, &package.version);
+            let Some((build_roots, meta)) = build_roots.as_deref_mut().zip(meta) else {
+                pending.extend(&package.dependencies);
+                continue;
+            };
+            let active = active_dependency(meta, &package.features);
+            let build = meta.build_dependencies.iter();
+            build_roots.extend(
+                build
+                    .filter(|(dep, edge)| active(dep, edge))
+                    .map(|(dep, _)| dep.clone()),
+            );
+            let normal = meta.dependencies.iter();
+            pending.extend(
+                normal
+                    .filter(|(dep, edge)| active(dep, edge))
+                    .map(|(dep, _)| dep),
+            );
         }
     }
     let mut claims = domain.local_links.clone();
@@ -487,15 +526,21 @@ fn admissible_under(
         let Some(meta) = version_metadata(input, index, &resolved.name, &resolved.version) else {
             continue;
         };
-        let Some(dep) = meta.dependencies.get(package) else {
-            continue;
-        };
-        if let Ok(dep_range) = req_to_range(&dep.req) {
-            let dep_range =
-                without_rejected_prereleases(input, index, package, &dep.req, dep_range);
-            range = range.intersection(&dep_range);
+        // The provider's two edges: the package requires its
+        // declarations that are not optional, its features the active.
+        let required = meta.resolved_dependencies(|_, dep| !dep.optional);
+        let active = meta.resolved_dependencies(active_dependency(meta, &resolved.features));
+        for dep in [required, active]
+            .iter()
+            .filter_map(|edges| edges.get(package))
+        {
+            if let Ok(dep_range) = req_to_range(&dep.req) {
+                let dep_range =
+                    without_rejected_prereleases(input, index, package, &dep.req, dep_range);
+                range = range.intersection(&dep_range);
+            }
+            requested.extend(dep.features.iter().cloned());
         }
-        requested.extend(dep.features.iter().cloned());
         for enabled in &resolved.features {
             for raw in meta.features.features.get(enabled).into_iter().flatten() {
                 if let Ok(FeatureEntry::DepFeature { dep, feature }) = FeatureEntry::parse(raw)
@@ -639,6 +684,7 @@ mod tests {
                 version(ver),
                 VersionMetadata {
                     dependencies: depmap,
+                    build_dependencies: BTreeMap::new(),
                     dev_dependencies: BTreeMap::new(),
                     system_dependencies: BTreeMap::new(),
                     yanked,
@@ -1211,6 +1257,7 @@ mod tests {
             version(ver_str),
             VersionMetadata {
                 dependencies: to_deps(normal),
+                build_dependencies: BTreeMap::new(),
                 dev_dependencies: BTreeMap::new(),
                 system_dependencies: BTreeMap::new(),
                 yanked: false,
@@ -1737,6 +1784,7 @@ mod tests {
             version(ver_str),
             VersionMetadata {
                 dependencies: depmap,
+                build_dependencies: BTreeMap::new(),
                 dev_dependencies: BTreeMap::new(),
                 system_dependencies: BTreeMap::new(),
                 yanked: false,
@@ -2059,23 +2107,23 @@ mod tests {
             local_links,
         };
         let mut input = make_input(vec![("zlib", "*"), ("gen-support", "*")]);
-        input.link_domains = vec![domain(&["zlib"], vec![]), domain(&["gen-support"], vec![])];
+        input.link_domains = Some([domain(&["zlib"], vec![]), domain(&["gen-support"], vec![])]);
         resolve_packages(&input, &index).expect("separate domains may share an identity");
 
-        input.link_domains = vec![
+        input.link_domains = Some([
             domain(&["zlib", "gen-support"], vec![]),
             domain(&["gen-support"], vec![]),
-        ];
+        ]);
         let err = resolve_packages(&input, &index).unwrap_err();
         assert!(matches!(err, ResolveError::LinksCollision { links, .. } if links == "z"));
 
-        input.link_domains = vec![
+        input.link_domains = Some([
             domain(&["zlib"], vec![]),
             domain(
                 &["gen-support"],
                 vec![local_claim("gen", "0.1.0", "vendored-z", "z")],
             ),
-        ];
+        ]);
         let err = resolve_packages(&input, &index).unwrap_err();
         assert!(matches!(err, ResolveError::LinksCollision { links, .. } if links == "z"));
     }
@@ -2906,6 +2954,39 @@ mod tests {
         assert!(out.held_back.is_empty(), "held_back: {:?}", out.held_back);
     }
 
+    /// A pre-release only an optional declaration opts into is not
+    /// admitted for the required declaration of the same name, so it is
+    /// no standard hold either: under the selected `a 1.0.0`, whose
+    /// build dependency on `b` is `*`, `b 2.1.0-alpha` is out of range.
+    #[test]
+    fn a_prerelease_the_required_declaration_rejects_is_not_held_back() {
+        let a = |build: &str| {
+            let mut meta = featured_version(
+                vec![("b", optional("<=2.1.0-alpha"))],
+                &[],
+                &[("rt", &["dep:b"])],
+            );
+            meta.build_dependencies = BTreeMap::from([(pkg_name("b"), edge(build))]);
+            meta
+        };
+        let b = || featured_version(vec![], &[], &[]);
+        let mut index = build_index(vec![
+            featured("a", vec![("1.0.0", a("*")), ("1.1.0", a("=2.1.0-alpha"))]),
+            featured("b", vec![("1.0.0", b()), ("2.1.0-alpha", b())]),
+        ]);
+        for (pkg, old, new) in [("a", "1.0.0", "1.1.0"), ("b", "1.0.0", "2.1.0-alpha")] {
+            let table = |cxx| cxx_table(Requirement::Min(cxx));
+            set_standards(&mut index, pkg, old, table(CxxStandard::Cxx17));
+            set_standards(&mut index, pkg, new, table(CxxStandard::Cxx20));
+        }
+        let mut input = cxx_consumer_input(vec![("a", "^1")], CxxStandard::Cxx17);
+        request(&mut input, "a", &["rt"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "b").version, version("1.0.0"));
+        let held: Vec<&str> = out.held_back.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(held, ["a"]);
+    }
+
     /// When `fallback` and `allow` diverge at a parent, the child's
     /// version difference is a consequence of the parent choice, not a
     /// standard hold on the child.  `foo 2.0.0` (c++20) needs
@@ -3266,6 +3347,151 @@ mod tests {
             selected(&out, "b").dependencies,
             BTreeSet::from([pkg_name("c")])
         );
+    }
+
+    /// A registry package's build dependencies resolve with its normal
+    /// ones: a required one always, an optional one through the feature
+    /// that enables it, and a name declared as both to one version that
+    /// satisfies both declarations.
+    #[test]
+    fn registry_build_dependencies_resolve_with_the_normal_ones() {
+        let mut generator = featured_version(
+            vec![("shared", edge(">=1"))],
+            &[],
+            &[("fast", &["dep:simd"])],
+        );
+        generator.build_dependencies = BTreeMap::from([
+            (pkg_name("tool"), edge("^1")),
+            (pkg_name("simd"), optional("^1")),
+            (pkg_name("shared"), edge("<2")),
+        ]);
+        let index = build_index(vec![
+            featured("gen", vec![("1.0.0", generator)]),
+            plain("tool"),
+            plain("simd"),
+            featured(
+                "shared",
+                vec![
+                    ("1.5.0", featured_version(vec![], &[], &[])),
+                    ("2.0.0", featured_version(vec![], &[], &[])),
+                ],
+            ),
+        ]);
+        let mut input = make_input(vec![("gen", "^1")]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(names(&out), ["gen", "shared", "tool"]);
+        assert_eq!(selected(&out, "shared").version, version("1.5.0"));
+
+        request(&mut input, "gen", &["fast"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(names(&out), ["gen", "shared", "simd", "tool"]);
+    }
+
+    /// One name declared as a normal and as a build dependency joins
+    /// its active declarations: the optional one binds no version and
+    /// requests no feature until a feature enables it, and one
+    /// declaration's pre-release opt-in admits it for both.
+    #[test]
+    fn a_name_in_both_kinds_joins_its_active_declarations() {
+        let runtime = cabin_index::IndexPackageDependency {
+            features: vec!["net".to_owned()],
+            ..optional("<2")
+        };
+        let mut lib = featured_version(vec![("proto", runtime)], &[], &[("rt", &["dep:proto"])]);
+        lib.build_dependencies = BTreeMap::from([(pkg_name("proto"), edge("*"))]);
+        let proto = || featured_version(vec![], &[], &[("net", &[])]);
+        let index = build_index(vec![
+            featured("lib", vec![("1.0.0", lib)]),
+            featured("proto", vec![("1.0.0", proto()), ("2.0.0", proto())]),
+        ]);
+        let mut input = make_input(vec![("lib", "^1")]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "proto").version, version("2.0.0"));
+        assert!(selected(&out, "proto").features.is_empty());
+
+        request(&mut input, "lib", &["rt"]);
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(selected(&out, "proto").version, version("1.0.0"));
+        assert_eq!(selected(&out, "proto").features, set(["net"]));
+
+        let mut lib = featured_version(vec![("proto", edge("*"))], &[], &[]);
+        lib.build_dependencies = BTreeMap::from([(pkg_name("proto"), edge("=1.0.0-alpha"))]);
+        let proto = || featured_version(vec![], &[], &[]);
+        let index = build_index(vec![
+            featured("lib", vec![("1.0.0", lib)]),
+            featured("proto", vec![("0.9.0", proto()), ("1.0.0-alpha", proto())]),
+        ]);
+        let out = resolve(&make_input(vec![("lib", "^1")]), &index).unwrap();
+        assert_eq!(selected(&out, "proto").version, version("1.0.0-alpha"));
+    }
+
+    /// A registry package's build dependency links into its build
+    /// script, apart from the target program: the two may claim one
+    /// identity, two build dependencies may not, and a name that is
+    /// both a normal and a build dependency claims in each domain its
+    /// edge is active in.
+    #[test]
+    fn registry_build_dependencies_claim_in_the_build_domain() {
+        let index = |normal: &[(&str, cabin_index::IndexPackageDependency)], build: &[&str]| {
+            let mut generator = featured_version(normal.to_vec(), &[], &[]);
+            generator.build_dependencies =
+                build.iter().map(|dep| (pkg_name(dep), edge("*"))).collect();
+            let mut index = build_index(vec![
+                featured("gen", vec![("1.0.0", generator)]),
+                plain("zlib"),
+                plain("miniz"),
+                plain("zng"),
+            ]);
+            for name in ["zlib", "miniz", "zng"] {
+                set_links(&mut index, name, "1.0.0", &[(name, "z")]);
+            }
+            index
+        };
+        let collides = |input: &ResolveInput, index: &PackageIndex| {
+            matches!(
+                resolve_packages(input, index),
+                Err(ResolveError::LinksCollision { links, .. }) if links == "z"
+            )
+        };
+
+        let mut input = make_input(vec![("gen", "*"), ("zlib", "*")]);
+        assert!(!collides(&input, &index(&[], &["miniz"])));
+        assert!(collides(&input, &index(&[], &["miniz", "zng"])));
+        // The caller's build domain gains the registry package's.
+        let domain = |roots: &[&str]| LinkDomain {
+            roots: roots.iter().map(|name| pkg_name(name)).collect(),
+            local_links: Vec::new(),
+        };
+        input.link_domains = Some([domain(&["gen"]), domain(&["zlib"])]);
+        assert!(collides(&input, &index(&[], &["miniz"])));
+
+        let input = make_input(vec![("gen", "*")]);
+        let normal = [("miniz", edge("*"))];
+        assert!(!collides(&input, &index(&normal, &["miniz"])));
+        assert!(collides(&input, &index(&normal, &["miniz", "zng"])));
+        // An optional normal edge no feature enables is not followed.
+        let input = make_input(vec![("gen", "*"), ("zlib", "*")]);
+        let normal = [("miniz", optional("*"))];
+        assert!(!collides(&input, &index(&normal, &["miniz"])));
+    }
+
+    /// Without the caller's domains every package the root requires is
+    /// in the target domain, a `[patch]`ed name it requires only
+    /// through its features included.
+    #[test]
+    fn links_uniqueness_covers_what_only_root_features_require() {
+        let mut index = build_index(vec![plain("zlib"), plain("miniz")]);
+        for name in ["zlib", "miniz"] {
+            set_links(&mut index, name, "1.0.0", &[(name, "z")]);
+        }
+        let mut input = make_input(vec![("zlib", "*")]);
+        let fork = featured_version(vec![("miniz", edge("*"))], &[], &[]);
+        input
+            .local_packages
+            .insert(pkg_name("fork"), featured("fork", vec![("1.0.0", fork)]));
+        request(&mut input, "fork", &[]);
+        let err = resolve_packages(&input, &index).unwrap_err();
+        assert!(matches!(err, ResolveError::LinksCollision { links, .. } if links == "z"));
     }
 
     /// Default features are additive per edge: `left` turns them off

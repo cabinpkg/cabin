@@ -1337,6 +1337,7 @@ fn activated_fork_path_deps_fold_registry_and_chained_patch_deps() {
             r#"[package]
 name = "acme/aaa"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]
@@ -1352,6 +1353,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/bbb"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.bbb]
@@ -1364,6 +1366,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/ccc"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.ccc]
@@ -1376,6 +1379,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/ddd"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.ddd]
@@ -1409,6 +1413,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/bbb"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]
@@ -1440,6 +1445,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/ppp"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]
@@ -1520,6 +1526,7 @@ fn dead_upstream_edges_of_activated_forks_do_not_activate_patches() {
             r#"[package]
 name = "acme/aaa"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]
@@ -1535,6 +1542,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/ppp"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]
@@ -1550,6 +1558,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/bbb"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.bbb]
@@ -1579,6 +1588,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/ppp"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [target.ppp]
@@ -1591,6 +1601,7 @@ sources = ["src/lib.cc"]
             r#"[package]
 name = "acme/bbb"
 version = "1.0.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]

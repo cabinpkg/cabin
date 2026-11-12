@@ -665,6 +665,7 @@ fn registry_dependency_errors_on_fresh_and_lockfile_paths() {
             r#"[package]
 name = "acme/libnone"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++17"
 interface-cxx-standard = "none"
 
@@ -801,6 +802,7 @@ fn lockfile_loaded_violation_explains_staleness_and_suggests_update() {
             r#"[package]
 name = "acme/libiface"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++20"
 interface-cxx-standard = "c++20"
 
@@ -1325,6 +1327,7 @@ const LIBNONE_FILES: &[(&str, &str)] = &[
         r#"[package]
 name = "cabin-ports/libnone"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++17"
 interface-cxx-standard = "none"
 
@@ -1357,6 +1360,7 @@ fn mixed_consumer_files(name: &str, ignore: bool) -> Vec<(String, String)> {
                 r#"[package]
 name = "cabin-ports/{name}"
 version = "0.1.0"
+license = "MIT"
 c-standard = "c11"
 cxx-standard = "c++17"
 
@@ -1563,6 +1567,7 @@ fn registry_internal_violations_still_fail() {
                 r#"[package]
 name = "cabin-ports/legacy"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++14"
 interface-cxx-standard = { min = "c++11", max = "c++14" }
 
@@ -1588,6 +1593,7 @@ include-dirs = ["include"]
                 r#"[package]
 name = "cabin-ports/modern"
 version = "0.1.0"
+license = "MIT"
 cxx-standard = "c++17"
 
 [dependencies]

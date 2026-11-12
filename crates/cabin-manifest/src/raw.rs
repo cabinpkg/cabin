@@ -432,7 +432,7 @@ pub(crate) struct RawDependencyTable {
     /// individually).
     #[serde(default)]
     pub(crate) system: bool,
-    /// `optional = true` marks a normal-kind dependency as
+    /// `optional = true` marks a normal or build dependency as
     /// inactive until a feature implication enables it.
     #[serde(default)]
     pub(crate) optional: Option<bool>,

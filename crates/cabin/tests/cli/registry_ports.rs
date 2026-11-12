@@ -44,6 +44,7 @@ const LIBPNG_MAIN_C: &str = include_str!("../fixtures/fake-libpng-transitive/con
 const STB_MANIFEST: &str = r#"[package]
 name = "cabin-ports/stb"
 version = "2026.4.15"
+license = "MIT"
 
 [target.stb]
 type = "header-only"
@@ -69,6 +70,7 @@ int stb_answer(void) { return 42; }
 const TOOLBOX_MANIFEST: &str = r#"[package]
 name = "cabin-ports/toolbox"
 version = "1.2.3"
+license = "MIT"
 
 [target.alpha]
 type = "library"

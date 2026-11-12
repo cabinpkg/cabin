@@ -277,7 +277,9 @@ index.  Requirements from different packages in the dependency graph must each a
 pre-release: one package's opt-in does not extend to another's, so `^1.2.0-beta.1` from one and
 `^1.0` from another select no `1.2.0` pre-release.  A workspace's own declarations of one name -
 across its members, and across one package's dependency kinds - combine into a single requirement
-first, which admits a pre-release when any of them opts in.  A locked-in pre-release survives a
+first, which admits a pre-release when any of them opts in.  A registry package's normal and build
+declarations of one name combine the same way, except that a pre-release only an optional
+declaration opts into is not admitted for a required one.  A locked-in pre-release survives a
 follow-up `cabin resolve` so existing lockfile pins do not silently churn.
 
 ## Resolver diagnostics

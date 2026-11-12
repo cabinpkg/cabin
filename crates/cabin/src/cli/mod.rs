@@ -1468,6 +1468,10 @@ fn select_single_package_manifest(
     if let Some(workspace) = &parsed.workspace {
         for (kind, table) in [
             (cabin_core::DependencyKind::Normal, &workspace.dependencies),
+            (
+                cabin_core::DependencyKind::Build,
+                &workspace.build_dependencies,
+            ),
             (cabin_core::DependencyKind::Dev, &workspace.dev_dependencies),
         ] {
             for (name, requirement) in table {

@@ -1,4 +1,6 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::path::PathBuf;
 
 use cabin_core::{Condition, DependencyKind, PackageName};
@@ -35,6 +37,10 @@ pub struct VersionMetadata {
     /// Normal-kind direct dependencies.  Registry-only - local path
     /// dependencies do not appear in the index.
     pub dependencies: BTreeMap<PackageName, IndexPackageDependency>,
+    /// `[build-dependencies]` of this version: what its build script
+    /// is built with.  Resolved with [`Self::dependencies`], linked
+    /// apart from them.
+    pub build_dependencies: BTreeMap<PackageName, IndexPackageDependency>,
     /// `[dev-dependencies]` of this version.
     pub dev_dependencies: BTreeMap<PackageName, IndexPackageDependency>,
     /// `system = true` dependencies of this version.  Each entry is
@@ -130,6 +136,38 @@ pub struct VersionMetadata {
 }
 
 impl VersionMetadata {
+    /// The edges this version resolves with, from the normal and build
+    /// declarations `active` accepts.  Two declarations of one name
+    /// join into one edge: one version satisfies both requirements, a
+    /// pre-release either opts into stays admitted, the feature
+    /// requests unite, and the edge is `optional` when either is.
+    pub fn resolved_dependencies(
+        &self,
+        active: impl Fn(&PackageName, &IndexPackageDependency) -> bool,
+    ) -> BTreeMap<&PackageName, Cow<'_, IndexPackageDependency>> {
+        let mut edges = BTreeMap::new();
+        for (name, dep) in self.dependencies.iter().chain(&self.build_dependencies) {
+            if !active(name, dep) {
+                continue;
+            }
+            match edges.entry(name) {
+                Entry::Vacant(slot) => {
+                    slot.insert(Cow::Borrowed(dep));
+                }
+                Entry::Occupied(mut slot) => {
+                    let edge = slot.get_mut().to_mut();
+                    edge.req
+                        .comparators
+                        .extend(dep.req.comparators.iter().cloned());
+                    edge.optional |= dep.optional;
+                    edge.features.extend(dep.features.iter().cloned());
+                    edge.default_features |= dep.default_features;
+                }
+            }
+        }
+        edges
+    }
+
     /// Give this version the resolution metadata of its revision with
     /// `checksum`, as a lockfile pinning that revision must see it.  A
     /// no-op when that revision carries none of its own - it then has
@@ -144,6 +182,7 @@ impl VersionMetadata {
             return;
         };
         self.dependencies = resolution.dependencies;
+        self.build_dependencies = resolution.build_dependencies;
         self.features = resolution.features;
         self.standards = resolution.standards;
         self.links = resolution.links;
@@ -182,6 +221,7 @@ pub struct RevisionMetadata {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResolutionMetadata {
     pub dependencies: BTreeMap<PackageName, IndexPackageDependency>,
+    pub build_dependencies: BTreeMap<PackageName, IndexPackageDependency>,
     pub features: cabin_core::Features,
     pub standards: cabin_core::StandardsMetadata,
     pub links: BTreeMap<String, String>,

@@ -1368,8 +1368,8 @@ fn lockfile_from_resolution(
         // Declared, not feature- or platform-active, edges: the list
         // must not churn across hosts.  A local selection has no entry.
         let deps: Vec<PackageName> = meta
-            .dependencies
-            .keys()
+            .resolved_dependencies(|_, _| true)
+            .into_keys()
             .filter(|n| resolved_names.contains(n.as_str()))
             .cloned()
             .collect();

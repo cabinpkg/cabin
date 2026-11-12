@@ -85,6 +85,31 @@ impl PackageGraph {
             .position(|p| p.package.name.as_str() == name)
     }
 
+    /// The `[build-dependencies]` edges of `package` active on
+    /// `platform`, the platform of the context that builds `package`.
+    /// An `optional = true` entry is active only when
+    /// `enabled_optional_deps`, that context's for `package`, names it.
+    pub fn build_edges<'g>(
+        &'g self,
+        package: usize,
+        platform: &TargetPlatform,
+        enabled_optional_deps: &BTreeSet<String>,
+    ) -> impl Iterator<Item = &'g DependencyEdge> {
+        let dependent = &self.packages[package];
+        dependent.deps.iter().filter(move |edge| {
+            let name = &self.packages[edge.index].package.name;
+            edge.kind == DependencyKind::Build
+                && edge.matches_platform(platform)
+                && (enabled_optional_deps.contains(name.as_str())
+                    || !dependent.package.dependencies.iter().any(|dep| {
+                        dep.optional
+                            && dep.kind == edge.kind
+                            && dep.name == *name
+                            && dep.condition == edge.condition
+                    }))
+        })
+    }
+
     /// The consumer standards for standard-aware version preference:
     /// per language, the minimum effective implementation standard
     /// (D6 `impl_L`) across the targets of `members` that implement

@@ -22,7 +22,7 @@ use cabin_core::{
     SystemProvidedSettings, SystemProvider, Target, TargetKind, TargetName, TargetPlatform,
 };
 use cabin_index::PackageIndex;
-use cabin_resolver::{ResolveOutput, ResolvedSource};
+use cabin_resolver::{ResolveOutput, ResolvedPackage, ResolvedSource, active_dependency};
 use cabin_system_deps::{SystemDependencyProbeRequest, probe_system_dependency};
 use cabin_workspace::{PackageGraph, PackageKind};
 
@@ -39,8 +39,9 @@ pub(crate) struct SystemSplit {
     /// header-only target with no sources, the index's feature names
     /// enabling nothing, and no dependencies.
     pub(crate) stubs: Vec<Package>,
-    /// Every package each stub's package reaches in the resolution, on
-    /// any platform: the system library links its own copies of them.
+    /// Every package each stub's package reaches in the resolution
+    /// through normal dependencies, on any platform: the system
+    /// library links its own copies of them.
     pub(crate) reaches: BTreeMap<PackageName, BTreeSet<PackageName>>,
 }
 
@@ -71,9 +72,27 @@ pub(crate) fn split_resolution(
         .filter(|p| p.source == ResolvedSource::Index && provided.contains(&p.name))
     {
         let name = &resolved.name;
+        // A build dependency is a tool the library was built with, not
+        // a package it links.  The index does not describe a fork.
+        let links = |package: &ResolvedPackage, dep: &PackageName| {
+            package.source != ResolvedSource::Index
+                || index
+                    .package(&package.name)
+                    .and_then(|entry| entry.versions.get(&package.version))
+                    .is_none_or(|meta| {
+                        let active = active_dependency(meta, &package.features);
+                        meta.dependencies
+                            .get(dep)
+                            .is_some_and(|edge| active(dep, edge))
+                    })
+        };
         reaches.insert(
             name.clone(),
-            output.dependencies_of(name).into_iter().cloned().collect(),
+            output
+                .dependencies_of(name, links)
+                .into_iter()
+                .cloned()
+                .collect(),
         );
         let meta = index
             .package(name)

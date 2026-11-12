@@ -75,7 +75,8 @@ amalgamation, for example); prefer `.tar.gz` when the upstream publishes one.
 
 `zlib`'s manifest declares a single `library` target with the 15 canonical zlib C sources and the
 archive root on the include path.  The target key is the artifact stem, so it is `z` (producing
-`libz.a` / `z.lib`), not `zlib`:
+`libz.a` / `z.lib`), not `zlib`.  A port is a published package, so it declares the
+[`license`](manifest.md#license) of the upstream sources it ships:
 
 ```toml
 [package.upstream]
@@ -87,6 +88,7 @@ strip-prefix = "zlib-1.3.1"
 [package]
 name = "cabin-ports/zlib"
 version = "1.3.1"
+license = "Zlib"
 
 [target.z]
 type = "library"

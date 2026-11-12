@@ -46,10 +46,9 @@ pub fn walk_dependencies<E>(
             });
             for meta in entry.versions.values().filter(|meta| !meta.yanked) {
                 wave.extend(
-                    meta.dependencies
-                        .iter()
-                        .filter(|(_, edge)| !edge.optional)
-                        .map(|(dep, _)| dep.clone()),
+                    meta.resolved_dependencies(|_, edge| !edge.optional)
+                        .into_keys()
+                        .cloned(),
                 );
             }
             packages.insert(name, entry);

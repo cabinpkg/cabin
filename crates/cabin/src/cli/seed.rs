@@ -51,7 +51,7 @@ pub(crate) struct ResolutionSeed {
     pub local_links: Vec<LinksClaim>,
     /// The target and build link domains when the build context is
     /// not empty (see `cabin_resolver::ResolveInput::link_domains`).
-    pub link_domains: Vec<LinkDomain>,
+    pub link_domains: Option<[LinkDomain; 2]>,
     /// Closure-collected versioned deps with patched names excluded,
     /// plus the patched names the walk reached on active edges (the
     /// patches a direct local reference activates).
@@ -126,9 +126,9 @@ impl ResolutionSeed {
         // A registry-only build dependency leaves the build context
         // without local packages, but it still links apart.
         let link_domains = if build_features.included.is_empty() && build_roots.is_empty() {
-            Vec::new()
+            None
         } else {
-            vec![
+            Some([
                 LinkDomain {
                     roots: domain_roots(inputs.graph, &features, |package, kind| {
                         kind == DependencyKind::Normal
@@ -140,7 +140,7 @@ impl ResolutionSeed {
                     roots: build_roots,
                     local_links: build_local_links,
                 },
-            ]
+            ])
         };
         Ok(Self {
             resolved_selection,
@@ -370,37 +370,39 @@ pub(crate) fn local_packages(graph: &PackageGraph) -> BTreeMap<PackageName, Inde
         .filter(|pkg| pkg.kind == PackageKind::Local)
         .map(|pkg| {
             let package = &pkg.package;
-            let dependencies = package
-                .dependencies
-                .iter()
-                .filter(|dep| dep.kind.is_resolved_by_default())
-                .filter_map(|dep| {
-                    let req = match &dep.source {
-                        DependencySource::Version(req) => req.clone(),
-                        // The loader loads every path dependency,
-                        // whatever its condition.
-                        DependencySource::Path(_) => pkg
-                            .deps
-                            .iter()
-                            .map(|edge| &graph.packages[edge.index].package)
-                            .find(|target| target.name == dep.name)
-                            .map_or(semver::VersionReq::STAR, |target| {
-                                exact_req(&target.version)
-                            }),
-                        DependencySource::Workspace => return None,
-                    };
-                    Some((
-                        dep.name.clone(),
-                        IndexPackageDependency {
-                            req,
-                            optional: dep.optional,
-                            features: dep.features.clone(),
-                            default_features: dep.default_features,
-                            condition: dep.condition.clone(),
-                        },
-                    ))
-                })
-                .fold(BTreeMap::new(), merge_same_name_dependency);
+            let dependencies = |kind| {
+                package
+                    .dependencies
+                    .iter()
+                    .filter(|dep| dep.kind == kind)
+                    .filter_map(|dep| {
+                        let req = match &dep.source {
+                            DependencySource::Version(req) => req.clone(),
+                            // The loader loads every path dependency,
+                            // whatever its condition.
+                            DependencySource::Path(_) => pkg
+                                .deps
+                                .iter()
+                                .map(|edge| &graph.packages[edge.index].package)
+                                .find(|target| target.name == dep.name)
+                                .map_or(semver::VersionReq::STAR, |target| {
+                                    exact_req(&target.version)
+                                }),
+                            DependencySource::Workspace => return None,
+                        };
+                        Some((
+                            dep.name.clone(),
+                            IndexPackageDependency {
+                                req,
+                                optional: dep.optional,
+                                features: dep.features.clone(),
+                                default_features: dep.default_features,
+                                condition: dep.condition.clone(),
+                            },
+                        ))
+                    })
+                    .collect()
+            };
             let links = package
                 .targets
                 .iter()
@@ -410,7 +412,8 @@ pub(crate) fn local_packages(graph: &PackageGraph) -> BTreeMap<PackageName, Inde
                 })
                 .collect();
             let meta = VersionMetadata {
-                dependencies,
+                dependencies: dependencies(DependencyKind::Normal),
+                build_dependencies: dependencies(DependencyKind::Build),
                 features: package.features.clone(),
                 links,
                 ..VersionMetadata::default()
@@ -424,27 +427,6 @@ pub(crate) fn local_packages(graph: &PackageGraph) -> BTreeMap<PackageName, Inde
             )
         })
         .collect()
-}
-
-/// One name declared as both a normal and a build dependency resolves
-/// to one version that must satisfy both declarations.
-fn merge_same_name_dependency(
-    mut deps: BTreeMap<PackageName, IndexPackageDependency>,
-    (name, dep): (PackageName, IndexPackageDependency),
-) -> BTreeMap<PackageName, IndexPackageDependency> {
-    match deps.entry(name) {
-        std::collections::btree_map::Entry::Vacant(slot) => {
-            slot.insert(dep);
-        }
-        std::collections::btree_map::Entry::Occupied(mut slot) => {
-            let merged = slot.get_mut();
-            merged.req.comparators.extend(dep.req.comparators);
-            merged.optional &= dep.optional;
-            merged.features.extend(dep.features);
-            merged.default_features |= dep.default_features;
-        }
-    }
-    deps
 }
 
 fn exact_req(version: &semver::Version) -> semver::VersionReq {
@@ -868,9 +850,7 @@ links = "z"
         let dir = assert_fs::TempDir::new().unwrap();
         let (graph, patches) = two_context_app(dir.path());
         let seed = seed(&graph, &patches, SelectionMode::CurrentPackage, &[]).unwrap();
-        let [target, build] = &seed.link_domains[..] else {
-            panic!("expected two link domains: {:?}", seed.link_domains);
-        };
+        let [target, build] = seed.link_domains.as_ref().unwrap();
         assert_eq!(target.local_links.len(), 1);
         assert_eq!(build.local_links.len(), 1);
         assert_ne!(target.local_links, build.local_links);
@@ -884,6 +864,7 @@ links = "z"
         assert!(
             seed.link_domains
                 .iter()
+                .flatten()
                 .all(|domain| !domain.roots.contains(&PackageName::new("zb").unwrap())),
             "{:?}",
             seed.link_domains
@@ -914,7 +895,8 @@ util = { version = ">=1.2", features = ["b"] }
             .values()
             .next()
             .unwrap();
-        let util = &app.dependencies[&PackageName::new("util").unwrap()];
+        let resolved = app.resolved_dependencies(|_, _| true);
+        let util = &resolved[&PackageName::new("util").unwrap()];
         assert!(util.req.matches(&semver::Version::new(1, 2, 0)));
         assert!(!util.req.matches(&semver::Version::new(1, 1, 0)));
         assert!(!util.req.matches(&semver::Version::new(2, 0, 0)));
