@@ -1,0 +1,40 @@
+[package]
+name = "zlib"
+# The version of the sources beside this file.  What `build.c` asks of a
+# system zlib is a requirement of its own.
+version = "1.3.1"
+c-standard = "c11"
+license = "Zlib"
+
+[features]
+# Build the sources beside this file instead of taking the system's zlib.
+vendored = []
+
+# What Cabin builds with `vendored`.  Without it, `build.c` names the
+# system's library in this target's place.
+[target.z]
+type = "library"
+sources = [
+  "adler32.c",
+  "compress.c",
+  "crc32.c",
+  "deflate.c",
+  "gzclose.c",
+  "gzlib.c",
+  "gzread.c",
+  "gzwrite.c",
+  "infback.c",
+  "inffast.c",
+  "inflate.c",
+  "inftrees.c",
+  "trees.c",
+  "uncompr.c",
+  "zutil.c",
+]
+include-dirs = ["."]
+# One build links one `z`, whichever way this package supplies it.
+links = "z"
+
+# The gz*.c sources include `unistd.h` only when this is defined.
+[target.'cfg(family = "unix")'.profile]
+defines = ["HAVE_UNISTD_H=1"]

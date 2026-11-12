@@ -101,11 +101,12 @@ fn every_example_round_trips_with_wide_margin_under_the_caps() {
             metrics.largest_entry
         );
         // The whole-stream cap is `max(32 x compressed, 64 MiB)`, so
-        // the floor is what a small archive is measured against.  A
-        // real package sits orders of magnitude below it.
+        // the floor is what a small archive is measured against.  The
+        // largest example carries a real library's sources (zlib's,
+        // about 1 MiB) and sits well over an order of magnitude below it.
         assert!(
-            metrics.decompressed * 100 <= RATIO_FLOOR_BYTES,
-            "{name}: {} decompressed bytes leaves under 100x margin below the {RATIO_FLOOR_BYTES}-byte floor",
+            metrics.decompressed * 50 <= RATIO_FLOOR_BYTES,
+            "{name}: {} decompressed bytes leaves under 50x margin below the {RATIO_FLOOR_BYTES}-byte floor",
             metrics.decompressed
         );
         assert!(metrics.compressed > 0, "{name}: empty archive");

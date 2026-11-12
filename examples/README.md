@@ -56,6 +56,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`build-script-header/`](build-script-header) | A build script: `build.c` in the package's root generates a header before the C program compiles. |
 | [`build-script-helper-lib/`](build-script-helper-lib) | A build script in C++ (`build.cpp`) that links a helper library from `[build-dependencies]` to generate a C source; the program stays C. |
 | [`build-script-generator/`](build-script-generator) | A build script that runs a code generator declared in `[build-dependencies]`, by the path Cabin gives it. |
+| [`build-script-sdk/`](build-script-sdk) | A package for zlib whose build script takes the library from the system (an SDK directory or `pkg-config`) or, with its `vendored` feature, leaves Cabin to build the sources it carries; a C and a C++ program use it. |
 
 ## Running an example manually
 

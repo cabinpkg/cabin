@@ -155,16 +155,11 @@ fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
     );
 }
 
-/// A C-only project builds and runs on a `PATH` that holds no C++
-/// compiler: only the C compiler, the archiver, Ninja, and the tools
-/// the C driver itself invokes.
+/// A directory to use as `PATH` that holds no C++ compiler: only the C
+/// compiler, the archiver, Ninja, and the tools the C driver itself
+/// invokes.
 #[cfg(unix)]
-#[test]
-fn c_only_project_builds_and_runs_without_a_cxx_compiler() {
-    assert!(
-        ninja_available() && c_compiler_available(),
-        "ninja and a C compiler are required for this test"
-    );
+pub(crate) fn c_only_path() -> TempDir {
     let bin = TempDir::new().unwrap();
     let cc = ["cc", "clang", "gcc"]
         .into_iter()
@@ -177,6 +172,18 @@ fn c_only_project_builds_and_runs_without_a_cxx_compiler() {
             std::os::unix::fs::symlink(path, bin.path().join(tool)).unwrap();
         }
     }
+    bin
+}
+
+/// A C-only project builds and runs on such a `PATH`.
+#[cfg(unix)]
+#[test]
+fn c_only_project_builds_and_runs_without_a_cxx_compiler() {
+    assert!(
+        ninja_available() && c_compiler_available(),
+        "ninja and a C compiler are required for this test"
+    );
+    let bin = c_only_path();
     let dir = TempDir::new().unwrap();
     write_c_only_library(dir.path());
     cabin()

@@ -1,0 +1,1 @@
+Hello from a banner packed with zlib

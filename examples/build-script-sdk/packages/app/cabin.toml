@@ -1,0 +1,23 @@
+[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+packer = { path = "../packer" }
+# Named only to choose its features: `app` uses zlib through `packer`.
+zlib = { path = "../zlib" }
+
+# What `build.c` links.  A program of the build machine has a zlib of its own, with features of
+# its own: this one is always built from source.
+[build-dependencies]
+zlib = { path = "../zlib", features = ["vendored"] }
+
+[features]
+# Build zlib from its sources instead of taking the system's.
+vendored = ["zlib/vendored"]
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["packer:packer"]
