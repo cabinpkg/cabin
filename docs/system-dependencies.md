@@ -125,7 +125,8 @@ Requirements that do not parse as SemVer are forwarded to `pkg-config` as one or
 becomes `name >= 1.0.1f name < 3.0.0z`).  Tokens that do not form such pairs - a bare non-SemVer
 token (e.g.  `vendor-special`), a dangling operator, a pair that does not start with a
 `pkg-config` comparison operator, or a version that does not start with an ASCII letter or digit
-(which `pkg-config` could read as an option) - produce a clear error rather than being silently
+or holds a character other than those, `.`, `_`, `+`, `-`, and `~` (`pkg-config` could read it as
+an option, or after a comma as another module) - produce a clear error rather than being silently
 dropped.
 
 `pkg-config` itself does the version comparison.
@@ -145,9 +146,11 @@ variable overrides the default with a verbatim executable path or command name:
 CABIN_PKG_CONFIG=/opt/pkgconf/bin/pkg-config cabin build
 ```
 
-If a project declares no `system = true` entries, Cabin never spawns `pkg-config` and the executable
-is not required.  When the project does declare system dependencies and the resolved executable is
-missing, Cabin produces a single diagnostic suggesting the install / override fix.
+If a build has no active `system = true` entry, no
+[system-provided package](#system-provided-packages), and no build script that reports a
+[`pkg-config` line](build-scripts.md#supplying-a-library), Cabin never spawns `pkg-config` and the
+executable is not required.  When the project does declare system dependencies and the resolved
+executable is missing, Cabin produces a single diagnostic suggesting the install / override fix.
 
 ## Pkg-config environment
 

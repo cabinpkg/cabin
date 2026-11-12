@@ -103,6 +103,38 @@ pub(crate) fn pkg_config_for(platform: &TargetPlatform) -> Result<PkgConfigTool>
     Ok(tool)
 }
 
+/// Ask pkg-config for `modules`, which a build script named for a
+/// library it supplies, each with its version requirement, and return
+/// what they give the library's dependents and links, in their order.
+///
+/// # Errors
+/// As [`pkg_config_for`], and a probe failure, a module at a version
+/// outside its requirement among them.
+pub(crate) fn probe_reported(
+    modules: &[(String, String)],
+    platform: &TargetPlatform,
+) -> Result<cabin_build::SystemTargetInterface> {
+    let tool = pkg_config_for(platform)?;
+    let mut interface = cabin_build::SystemTargetInterface::default();
+    for (module, requirement) in modules {
+        let flags = probe_system_dependency(&SystemDependencyProbeRequest {
+            name: module,
+            version_requirement: requirement,
+            tool: &tool,
+        })?
+        .flags;
+        // `-D` tokens stay among the compile arguments, in pkg-config's
+        // order, so a later `-U` still undoes them.
+        interface.include_dirs.extend(flags.include_dirs);
+        interface
+            .system_include_dirs
+            .extend(flags.system_include_dirs);
+        interface.compile_args.extend(flags.extra_compile_args);
+        interface.link_args.extend(flags.ldflags);
+    }
+    Ok(interface)
+}
+
 /// Whether any active `system = true` dependency is declared by a
 /// *selected* primary package for the evaluation platform.
 ///

@@ -6152,7 +6152,9 @@ fn what_a_build_script_reported_applies_to_its_target() {
 /// compiled or archived, what depends on it sees what the script
 /// reported and none of what the manifest declares, and a link takes
 /// the script's files where the archive would go, before the libraries
-/// the target depends on.
+/// the target depends on.  What pkg-config gave the library reaches the
+/// same compiles and links, where a linker that reads left to right
+/// finds the libraries the target depends on after it once more.
 #[test]
 fn a_library_a_build_script_supplies_is_linked_and_not_built() {
     let mut z = target("z", TargetKind::Library, &["src/z.c"], &["base"]);
@@ -6180,6 +6182,12 @@ fn a_library_a_build_script_supplies_is_linked_and_not_built() {
                 Utf8PathBuf::from("/sdk/lib/libz.a"),
                 Utf8PathBuf::from("/sdk/lib/libm.a"),
             ],
+            provided: crate::SystemTargetInterface {
+                system_include_dirs: vec![Utf8PathBuf::from("/opt/png/include")],
+                compile_args: vec!["-pthread".to_owned()],
+                link_args: vec!["-L/opt/png/lib".to_owned(), "-lpng".to_owned()],
+                ..Default::default()
+            },
             ..Default::default()
         },
     )]);
@@ -6200,6 +6208,12 @@ fn a_library_a_build_script_supplies_is_linked_and_not_built() {
     let app = compiles[1];
     assert_eq!(app.arguments.include_dirs, ["/sdk/include"]);
     assert_eq!(app.arguments.defines, ["Z_SYSTEM"]);
+    assert_eq!(app.arguments.system_include_dirs, ["/opt/png/include"]);
+    assert_eq!(app.arguments.provider_flags, ["-pthread"]);
+    assert_eq!(
+        link_action(&bg).arguments,
+        ["-L/opt/png/lib", "-lpng", &format!("{demo}/libbase.a")]
+    );
     assert_eq!(
         link_action(&bg).inputs,
         [
@@ -6208,6 +6222,11 @@ fn a_library_a_build_script_supplies_is_linked_and_not_built() {
             "/sdk/lib/libm.a".to_owned(),
             format!("{demo}/libbase.a"),
         ]
+    );
+    req.platform = cabin_core::TargetPlatform::from_triple("aarch64-apple-darwin").unwrap();
+    assert_eq!(
+        link_action(&plan(&req).unwrap()).arguments,
+        ["-L/opt/png/lib", "-lpng"]
     );
     // Its language is the one its manifest's sources are in.
     assert_eq!(link_command(&bg)[0], "/usr/bin/cc");

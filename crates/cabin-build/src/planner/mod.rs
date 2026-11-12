@@ -171,6 +171,13 @@ pub struct BuildScriptOutput {
     pub external: bool,
     /// Absolute library files, in link order.
     pub link_files: Vec<Utf8PathBuf>,
+    /// The pkg-config modules the script names for the library, each
+    /// with its version requirement, empty for none, in the script's
+    /// order.
+    pub pkg_config: Vec<(String, String)>,
+    /// What [`Self::pkg_config`] gives the library, which whoever runs
+    /// the script fills in by asking pkg-config.
+    pub provided: SystemTargetInterface,
 }
 
 /// Inputs to the build planner.
@@ -1035,16 +1042,18 @@ fn emit_actions(
                 // archives for left-to-right resolution. `arguments`
                 // is the package's own raw `ldflags`, then the link
                 // arguments of the system-provided targets it reaches.
+                // Apple's linker resolves archives in any order and
+                // warns on a repeated library, so its links name each
+                // once; other linkers search left to right.
+                let apple = matches!(req.platform.os.as_str(), "macos" | "ios");
                 let mut link_arguments = ldflags.to_vec();
                 link_arguments.extend(collect_system_link_args(
                     tid,
                     &resolved_deps,
-                    req.system_targets,
+                    req,
+                    &output_for_target,
+                    !apple,
                 ));
-                // Apple's linker resolves archives in any order and
-                // warns on a repeated `-l`, so its links name each
-                // library once; other linkers search left to right.
-                let apple = matches!(req.platform.os.as_str(), "macos" | "ios");
                 let link_libs = collect_link_names(
                     tid,
                     script.map(|script| &script.flags),

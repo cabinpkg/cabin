@@ -244,7 +244,7 @@ pub(super) fn collect_interface(
     object: &Utf8Path,
     violations: &mut Vec<StandardViolation>,
 ) -> Result<CollectedInterface, BuildError> {
-    let (graph, system_targets) = (req.graph, req.system_targets);
+    let graph = req.graph;
     let manifest_dir = promote_dir(&graph.packages[start.0].manifest_dir)?;
     let reported = |tid: &TargetId| req.build_script_outputs.get(tid).into_iter();
     let mut collected = CollectedInterface {
@@ -290,7 +290,7 @@ pub(super) fn collect_interface(
             // both `-I` and `-isystem` on one command line.
             let third_party = dep_pkg.kind == cabin_workspace::PackageKind::Registry;
             let dep_manifest = promote_dir(&dep_pkg.manifest_dir)?;
-            let provided = system_targets.get(tid);
+            let provided = provided(req, tid);
             // What the manifest declares describes the library Cabin
             // would build, not the one a script supplies in its place.
             let built = !reported(tid).any(|r| r.external);
@@ -488,21 +488,44 @@ pub(super) fn collect_link_names(
     names
 }
 
-/// The link arguments of the system-provided targets the link of
+/// What the system supplies for `tid`: a `[system-provided]` package's
+/// target, or what pkg-config gave a library a build script supplies.
+fn provided<'a>(req: &PlanRequest<'a>, tid: &TargetId) -> Option<&'a SystemTargetInterface> {
+    let reported = req.build_script_outputs.get(tid);
+    req.system_targets
+        .get(tid)
+        .or(reported.map(|reported| &reported.provided))
+}
+
+/// The link arguments of the system-supplied targets the link of
 /// `start` reaches, dependents before dependencies, each target's in
-/// its provider's order.  A system library never depends on a
-/// Cabin-built archive, so placing them all after the archives keeps
-/// the left-to-right resolution a GNU linker needs.
+/// its provider's order.  They follow the archives.  A system library
+/// may be an archive itself, which a linker that reads left to right
+/// searches once, so with `repeat` the libraries a target depends on
+/// follow its arguments again.
+// shortcut: those libraries stand among the inputs as well, ahead of
+// the arguments, so of a symbol both define the link takes theirs;
+// give link arguments a place among the inputs when a build needs the
+// system library's.
 pub(super) fn collect_system_link_args(
     start: &TargetId,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
-    system_targets: &HashMap<TargetId, SystemTargetInterface>,
+    req: &PlanRequest<'_>,
+    output_for_target: &HashMap<TargetId, Utf8PathBuf>,
+    repeat: bool,
 ) -> Vec<String> {
-    link_closure(start, resolved)
-        .into_iter()
-        .filter_map(|tid| system_targets.get(tid))
-        .flat_map(|system| system.link_args.iter().cloned())
-        .collect()
+    let mut arguments = Vec::new();
+    for tid in link_closure(start, resolved) {
+        let Some(system) = provided(req, tid).filter(|system| !system.link_args.is_empty()) else {
+            continue;
+        };
+        arguments.extend(system.link_args.iter().cloned());
+        if repeat {
+            let needed = collect_link_libs(tid, resolved, req, output_for_target);
+            arguments.extend(needed.into_iter().map(String::from));
+        }
+    }
+    arguments
 }
 
 /// The libraries the link of `start` takes, dependents before

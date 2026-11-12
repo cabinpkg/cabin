@@ -19,12 +19,17 @@
 //!   builds nothing of the target, and what depends on it gets what the
 //!   script's lines say and none of what the manifest declares.  It
 //!   comes before every other line naming the target, which takes no
-//!   `define` or `source` and at least one `link-file`;
+//!   `define` or `source` and at least one `link-file` or `pkg-config`;
 //! - `link-file <target> <file>`: a library file an `external` target is
 //!   linked from, under `CABIN_OUT_DIR` or under the directory a
 //!   `CABIN_SDK_*` variable names, in the order of the lines.  It is a
 //!   `.lib` for an MSVC-style link, and is not built for another
 //!   machine;
+//! - `pkg-config <target> <module> [<requirement>]`: a pkg-config module
+//!   an `external` target's include directories, compile flags, and link
+//!   flags come from, at a version the requirement accepts.  Cabin asks
+//!   pkg-config itself, outside the script's confinement.  Not for an
+//!   MSVC-style link, whose tools take none of those flags;
 //! - `rerun-if-changed <path>`: a file or directory the script's
 //!   result depends on.  Once a script names one, it runs again only
 //!   when one it named changes, not whenever a file of the package
@@ -88,10 +93,19 @@ pub enum Invalid {
         directive: &'static str,
         target: String,
     },
-    #[error("`link-file` applies to a library an `external {0}` line names first")]
-    NotExternal(String),
-    #[error("`external {0}` needs a `link-file` line for `{0}`")]
+    #[error("`{directive}` applies to a library an `external {target}` line names first")]
+    NotExternal {
+        directive: &'static str,
+        target: String,
+    },
+    #[error("`external {0}` needs a `link-file` or a `pkg-config` line for `{0}`")]
     NothingToLink(String),
+    #[error("`{}` is not a pkg-config module's name", escape_control_chars(.0))]
+    Module(String),
+    #[error(
+        "`pkg-config` does not apply to an MSVC-style build, whose tools take none of the flags it reports"
+    )]
+    PkgConfigMsvc,
     #[error("`{}` is built for {built}, and this build is for {machine}", escape_control_chars(.path))]
     Machine {
         path: String,
@@ -185,11 +199,49 @@ pub(crate) fn parse(
         }
     }
     for (target, line) in external {
-        if report.targets[target].link_files.is_empty() {
+        let output = &report.targets[target];
+        if output.link_files.is_empty() && output.pkg_config.is_empty() {
             return Err((line, Invalid::NothingToLink(target.to_owned())));
         }
     }
     Ok(report)
+}
+
+/// The target of the package that `directive` names as `name`: one the
+/// build enables, of a kind the directive applies to.
+fn target<'a>(
+    directive: &'static str,
+    name: &str,
+    script: &Script<'a>,
+) -> Result<&'a cabin_core::Target, Invalid> {
+    let target = script
+        .package
+        .targets
+        .iter()
+        .find(|target| target.name.as_str() == name)
+        .ok_or_else(|| Invalid::UnknownTarget(name.to_owned()))?;
+    let missing = target.missing_required_features(script.features);
+    if !missing.is_empty() {
+        return Err(Invalid::DisabledTarget {
+            target: name.to_owned(),
+            missing,
+        });
+    }
+    // As the manifest allows the fields they add to.
+    let applies = match directive {
+        "interface-define" => target.kind.is_library_like(),
+        "define" | "source" => !target.kind.is_header_only(),
+        "external" | "link-file" | "pkg-config" => target.kind.produces_archive(),
+        _ => true,
+    };
+    if !applies {
+        return Err(Invalid::Kind {
+            directive,
+            target: name.to_owned(),
+            kind: target.kind.as_str(),
+        });
+    }
+    Ok(target)
 }
 
 fn directive(
@@ -210,6 +262,7 @@ fn directive(
         "source",
         "external",
         "link-file",
+        "pkg-config",
     ]
     .into_iter()
     .find(|directive| *directive == name) else {
@@ -221,33 +274,7 @@ fn directive(
         rest.split_once(' ')
             .ok_or(Invalid::MissingValue(directive))?
     };
-    let target = script
-        .package
-        .targets
-        .iter()
-        .find(|target| target.name.as_str() == target_name)
-        .ok_or_else(|| Invalid::UnknownTarget(target_name.to_owned()))?;
-    let missing = target.missing_required_features(script.features);
-    if !missing.is_empty() {
-        return Err(Invalid::DisabledTarget {
-            target: target_name.to_owned(),
-            missing,
-        });
-    }
-    // As the manifest allows the fields they add to.
-    let applies = match directive {
-        "interface-define" => target.kind.is_library_like(),
-        "define" | "source" => !target.kind.is_header_only(),
-        "external" | "link-file" => target.kind.produces_archive(),
-        _ => true,
-    };
-    if !applies {
-        return Err(Invalid::Kind {
-            directive,
-            target: target_name.to_owned(),
-            kind: target.kind.as_str(),
-        });
-    }
+    let target = target(directive, target_name, script)?;
     if directive == "external" && report.targets.contains_key(target_name) {
         return Err(Invalid::ExternalLate(target_name.to_owned()));
     }
@@ -260,8 +287,25 @@ fn directive(
                 target: target_name.to_owned(),
             });
         }
-        "link-file" if !output.external => {
-            return Err(Invalid::NotExternal(target_name.to_owned()));
+        "link-file" | "pkg-config" if !output.external => {
+            return Err(Invalid::NotExternal {
+                directive,
+                target: target_name.to_owned(),
+            });
+        }
+        "pkg-config" if script.msvc => return Err(Invalid::PkgConfigMsvc),
+        "pkg-config" => {
+            let (module, requirement) = value.split_once(' ').unwrap_or((value, ""));
+            // pkg-config reads a name ending in `.pc` as a file's path,
+            // and the script does not choose the file its flags come from.
+            if cabin_core::validate_system_dependency_name(module).is_err()
+                || module.to_ascii_lowercase().ends_with(".pc")
+            {
+                return Err(Invalid::Module(module.to_owned()));
+            }
+            output
+                .pkg_config
+                .push((module.to_owned(), requirement.to_owned()));
         }
         "link-file" => {
             let file = link_file(value, script, regions)?;
