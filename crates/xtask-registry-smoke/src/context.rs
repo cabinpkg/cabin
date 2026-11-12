@@ -179,6 +179,39 @@ impl Smoke {
             .with_context(|| format!("no hits in the count answer: {counted}"))
     }
 
+    /// The URLs the mock's Cloudflare purge API has accepted
+    /// (`/__purge/urls`).
+    ///
+    /// # Errors
+    ///
+    /// If the mock cannot answer or answers an unexpected shape.
+    pub fn purged_urls(&mut self) -> Result<Vec<String>> {
+        let url = format!("{}/__purge/urls", self.github_base);
+        let status = self.http("GET", &url, &[], None)?;
+        if status != 200 {
+            bail!("the GitHub mock refused the purged URLs: {status}");
+        }
+        let answer: serde_json::Value =
+            serde_json::from_slice(&self.body).context("parse the purged URLs")?;
+        serde_json::from_value(answer["urls"].clone())
+            .with_context(|| format!("no urls in the purge answer: {answer}"))
+    }
+
+    /// Makes the mock's purge API report failure (`fail`) or accept
+    /// again (`ok`).
+    ///
+    /// # Errors
+    ///
+    /// If the mock refuses the switch.
+    pub fn purges(&mut self, state: &str) -> Result<()> {
+        let url = format!("{}/__purge/{state}", self.github_base);
+        let status = self.http("POST", &url, &[], None)?;
+        if status != 200 {
+            bail!("POST {url} returned {status}");
+        }
+        Ok(())
+    }
+
     /// A verdict PATCH as the verify workflow delivers it: a freshly
     /// minted OIDC JWT as the bearer.  Deliberately not through
     /// [`Smoke::auth`], which keeps whatever credential the surrounding

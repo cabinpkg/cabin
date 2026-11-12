@@ -30,6 +30,9 @@
     // service-mode changes and stuck-verifier alerts) and
     // WEBSITE_DEPLOY_HOOK (the website's Workers Builds deploy hook, POSTed
     // when its package pages fall behind the catalog).
+    // CACHE_PURGE_TOKEN (the zone's Cache Purge) is required from the
+    // deploy that adds INDEX_ORIGIN to `vars` (docs/runbook.md, "Upload
+    // lifecycle").
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
     // The breaker budgets BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code

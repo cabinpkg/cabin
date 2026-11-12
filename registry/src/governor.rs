@@ -114,8 +114,8 @@ const LIMIT_CLAMP: u64 = i64::MAX as u64 / 4;
 /// under the R2 free-tier limits, leaving headroom for orphan drift and
 /// out-of-band operator work. The two infrastructure defaults cover a
 /// month of the cron (2,976 invocations) with every pass at the ceiling
-/// its work list's `LIMIT` sets: 141 class A operations an invocation
-/// and 211 class B. Yank has no quota and can hold the publish pass at
+/// its work list's `LIMIT` sets: 142 class A operations an invocation
+/// and 212 class B. Yank has no quota and can hold the publish pass at
 /// its ceiling, so a limit that did not cover it could be exhausted
 /// through yanks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

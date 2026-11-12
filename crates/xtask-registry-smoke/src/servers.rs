@@ -670,6 +670,11 @@ GITHUB_API_BASE="http://127.0.0.1:{github}"
 GITHUB_JWKS_URL="http://127.0.0.1:{github}/.well-known/jwks"
 GITHUB_CLIENT_SECRET="smoke-client-secret"
 VERIFIER_BACKING_ACCOUNT_ID="0"
+INDEX_ORIGIN="https://index.smoke.invalid"
+ARCHIVES_ORIGIN="https://archives.smoke.invalid"
+CF_ZONE_ID="smoke-zone"
+CACHE_PURGE_TOKEN="smoke-purge-token"
+CLOUDFLARE_API_BASE="http://127.0.0.1:{github}"
 "#
     )
 }

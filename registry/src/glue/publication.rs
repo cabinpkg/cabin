@@ -16,7 +16,9 @@
 //! fifteen minutes, and only it puts the catalog and completes changes.
 //! A yank's request puts nothing: yank has no quota, so it makes no R2
 //! call, and the pass's work list bounds what yanks can draw from the
-//! infrastructure pools (`governor::Limits`).
+//! infrastructure pools (`governor::Limits`). The cron's publish pass
+//! also keeps the registry's configuration in INDEX; that changes only
+//! with a deployment and has no generation.
 //!
 //! Why INDEX holds a completed change from then on. Generations come
 //! from one counter that only grows, a change takes the next one in the
@@ -48,6 +50,17 @@
 //! later put carries the change, so INDEX keeps it. Until then INDEX
 //! may go back, and the next pass that reaches the package puts the
 //! current document again.
+//!
+//! The edge. Once the buckets' own domains serve these objects
+//! (`INDEX_ORIGIN` is set), the edge may answer from a copy it keeps,
+//! and the passes purge what they change. A publish pass that found
+//! changed packages' documents and then the catalog in INDEX purges
+//! them all, and completes nothing unless that purge succeeded: the
+//! pass that completes a change has purged after its own head. The
+//! other purges only shorten the wait - a placement's, of the
+//! archive's URL (the edge may hold the 404 it answered before) and
+//! the package's document, and the configuration's - and a copy one
+//! of them misses expires.
 
 use std::collections::HashMap;
 
@@ -62,7 +75,9 @@ use crate::governor_client::{self, Gate};
 use crate::{documents, publication, sql, upload};
 
 use super::read::package_document;
-use super::{changed_rows, iso8601_from_ms, js_int, non_negative, now_iso8601};
+use super::{
+    changed_rows, iso8601_from_ms, js_int, non_negative, now_iso8601, post_json, web_origin,
+};
 
 #[derive(Deserialize)]
 struct UnarchivedRecord {
@@ -217,6 +232,15 @@ async fn place_archive(
         if let Err(err) = publish_package(env, db, scope, name).await {
             console_error!("document publication: {scope}/{name}: {err}");
         }
+        let purged = purge(
+            env,
+            &[publication::document_key(scope, name)],
+            &[publication::archive_key(scope, name, version, revision)],
+        )
+        .await;
+        if let Err(err) = purged {
+            console_error!("purge: {scope}/{name}@{version}#{revision}: {err}");
+        }
     }
     Ok(())
 }
@@ -320,15 +344,50 @@ pub(crate) fn document_changed(
     ])
 }
 
-/// The publish pass: the documents of the packages with open changes,
-/// then the catalog, then the completion of the changes that have
-/// settled. Failures only log, like the placement pass's. The catalog
-/// is rendered here alone because that reads every served version:
-/// once per pass, whatever the number of changes.
+/// The publish pass: the configuration, then the documents of the
+/// packages with open changes, then the catalog, then their purge,
+/// then the completion of the changes that have settled. Failures
+/// only log, like the placement pass's. The catalog is rendered here
+/// alone because that reads every served version: once per pass,
+/// whatever the number of changes.
 pub(crate) async fn publish_documents(env: &Env, db: &D1Database) {
+    if let Err(err) = publish_config(env).await {
+        console_error!("configuration publication: {err}");
+    }
     if let Err(err) = try_publish(env, db).await {
         console_error!("document publication: {err}");
     }
+}
+
+/// Makes sure INDEX holds the configuration the read plane serves.
+/// Every pass compares the bytes and puts its own rendering over any
+/// other, so a pass of the previous deployment can put the old one
+/// back, until the next pass. One admission covers the read and the
+/// put it may need. The purge follows the put alone: when it fails,
+/// the edge keeps its copy until that expires.
+async fn publish_config(env: &Env) -> worker::Result<()> {
+    let body = documents::config_json(&web_origin(env)?);
+    if let Gate::Refused(_) = governor_client::decide(env, &admission(1, 1)).await {
+        console_error!("configuration publication: the governor refused the check");
+        return Ok(());
+    }
+    let index = env.bucket("INDEX")?;
+    if let Some(held) = index.get(publication::CONFIG_KEY).execute().await?
+        && let Some(held) = held.body()
+        && held.bytes().await? == body.as_bytes()
+    {
+        return Ok(());
+    }
+    index
+        .put(publication::CONFIG_KEY, body)
+        .http_metadata(HttpMetadata {
+            content_type: Some("application/json".to_owned()),
+            cache_control: Some(publication::CONFIG_CACHE_CONTROL.to_owned()),
+            ..HttpMetadata::default()
+        })
+        .execute()
+        .await?;
+    purge(env, &[publication::CONFIG_KEY.to_owned()], &[]).await
 }
 
 async fn try_publish(env: &Env, db: &D1Database) -> worker::Result<()> {
@@ -339,7 +398,8 @@ async fn try_publish(env: &Env, db: &D1Database) -> worker::Result<()> {
             .saturating_sub(publication::SETTLE_MS),
     );
     // shortcut: a hundred packages whose document keeps failing would
-    // starve the rest, like the placement pass's list.
+    // starve the rest, like the placement pass's list; so would any
+    // hundred while the purge fails.
     let packages: Vec<PackageRecord> = db
         .prepare(sql::UNPUBLISHED_PACKAGES)
         .all()
@@ -368,6 +428,13 @@ async fn try_publish(env: &Env, db: &D1Database) -> worker::Result<()> {
     if !put_document(env, publication::CATALOG_KEY, &body, generation).await? {
         return Ok(());
     }
+    // A failure leaves the changes open: see the module comment.
+    let mut keys: Vec<String> = published
+        .iter()
+        .map(|(scope, name, _)| publication::document_key(scope, name))
+        .collect();
+    keys.push(publication::CATALOG_KEY.to_owned());
+    purge(env, &keys, &[]).await?;
     let now = now_iso8601();
     let completions = published
         .into_iter()
@@ -473,4 +540,43 @@ async fn put_document(env: &Env, key: &str, body: &str, generation: i64) -> work
         console_error!("document publication: another write of {key} came first");
     }
     Ok(put.is_some())
+}
+
+/// Purges the edge's copies of the INDEX objects under `documents` and
+/// the ARCHIVES objects under `archives`. Does nothing until
+/// `INDEX_ORIGIN` names the origin the edge serves INDEX under; from
+/// then on the other settings are required, and a purge that cannot be
+/// made is an error. Success is Cloudflare accepting the purge.
+async fn purge(env: &Env, documents: &[String], archives: &[String]) -> worker::Result<()> {
+    let Ok(index_origin) = env.var("INDEX_ORIGIN") else {
+        return Ok(());
+    };
+    let index_origin = index_origin.to_string();
+    let archives_origin = env.var("ARCHIVES_ORIGIN")?.to_string();
+    let urls: Vec<String> = documents
+        .iter()
+        .map(|key| format!("{index_origin}/{key}"))
+        .chain(
+            archives
+                .iter()
+                .map(|key| format!("{archives_origin}/{key}")),
+        )
+        .collect();
+    // Overridable for the local smoke test only.
+    let api = env.var("CLOUDFLARE_API_BASE").map_or_else(
+        |_| "https://api.cloudflare.com/client/v4".to_owned(),
+        |base| base.to_string(),
+    );
+    let url = format!("{api}/zones/{}/purge_cache", env.var("CF_ZONE_ID")?);
+    let token = env.secret("CACHE_PURGE_TOKEN")?.to_string();
+    for request in publication::purge_requests(&urls) {
+        let mut response = post_json(&url, &request, Some(&token)).await?;
+        if !publication::purged(&response.text().await?) {
+            return Err(worker::Error::RustError(format!(
+                "the purge answered {} without success",
+                response.status_code()
+            )));
+        }
+    }
+    Ok(())
 }

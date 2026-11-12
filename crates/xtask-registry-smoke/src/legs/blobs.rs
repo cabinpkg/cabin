@@ -426,8 +426,11 @@ fn cron_records_placed_archives(smoke: &mut Smoke) -> Result<()> {
 /// what the read plane composes.  A yank records a job and puts
 /// nothing itself - it has no quota, and a put would draw on the
 /// infrastructure pools; its package's document and the catalog follow
-/// in the next cron pass.  The cron completes a change only once it has
-/// settled, which the last step stands in for by ageing the open jobs.
+/// in the next cron pass, with the configuration.  The passes purge
+/// what they put from the edge (the mock stands in for Cloudflare's
+/// API).  The cron completes a change only once it has settled, which
+/// the last steps stand in for by ageing the open jobs, and never in a
+/// pass whose purge failed.
 fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     step("INDEX holds the documents the read plane serves");
     let open_jobs = || d1_rows("SELECT 1 FROM publication_jobs WHERE completed_at IS NULL");
@@ -448,6 +451,7 @@ fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> R
         if stored_document(document, inputs.work)?.as_ref() == Some(&served) {
             bail!("a yank's request put its document into INDEX");
         }
+        let purged = smoke.purged_urls()?.len();
         smoke.check(BREAKER_CRON, &[200])?;
         if open_jobs()?.is_empty() {
             bail!("the cron completed a publication job that had not settled");
@@ -459,11 +463,33 @@ fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> R
         if stored_document("catalog.json", inputs.work)?.as_deref() != Some(&smoke.body[..]) {
             bail!("INDEX does not hold the catalog the read plane serves");
         }
+        // A yank places nothing, so only the publish pass purged these.
+        let purged = smoke.purged_urls()?.split_off(purged);
+        for key in [document, "catalog.json"] {
+            if !purged.contains(&format!("https://index.smoke.invalid/{key}")) {
+                bail!("the publish pass did not purge {key}");
+            }
+        }
+    }
+    smoke.check("/config.json", &[200])?;
+    if stored_document("config.json", inputs.work)?.as_deref() != Some(&smoke.body[..]) {
+        bail!("INDEX does not hold the configuration the read plane serves");
+    }
+    let archive = format!("https://archives.smoke.invalid{}", inputs.artifact_path);
+    if !smoke.purged_urls()?.contains(&archive) {
+        bail!("{archive} was never purged");
     }
     d1_quiet(
         "UPDATE publication_jobs SET created_at = '2000-01-01T00:00:00.000Z' \
          WHERE completed_at IS NULL;",
     )?;
+    let open = open_jobs()?.len();
+    smoke.purges("fail")?;
+    smoke.check(BREAKER_CRON, &[200])?;
+    if open_jobs()?.len() != open {
+        bail!("the cron completed a publication job in a pass whose purge failed");
+    }
+    smoke.purges("ok")?;
     smoke.check(BREAKER_CRON, &[200])?;
     if !open_jobs()?.is_empty() {
         bail!("the cron left a settled publication job open");

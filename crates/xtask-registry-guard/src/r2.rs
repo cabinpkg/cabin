@@ -38,7 +38,7 @@ const PIN_SITE: &str = "crates/xtask-registry-guard/src/r2.rs";
 /// head before making it.  The archive placement's caller admits the
 /// head, the read, and the put of one placement before making it, and
 /// the publish pass admits the head and the put of each attempt at a
-/// document.
+/// document, and the read and the put of the configuration.
 /// `web_glue`'s source viewer admits before every billable call.
 const SANCTIONED: [(&str, &[(&str, usize)]); 5] = [
     (
@@ -49,7 +49,11 @@ const SANCTIONED: [(&str, &[(&str, usize)]); 5] = [
     ("src/glue/cron.rs", &[("settle_reservations", 1)]),
     (
         "src/glue/publication.rs",
-        &[("copy_archive", 2), ("put_document", 1)],
+        &[
+            ("copy_archive", 2),
+            ("publish_config", 1),
+            ("put_document", 1),
+        ],
     ),
     ("src/web_glue.rs", &[("package_source", 1)]),
 ];

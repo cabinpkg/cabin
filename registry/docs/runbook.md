@@ -296,6 +296,8 @@ the wrangler secrets are the client secret, the session secret, and
 `ANALYTICS_API_TOKEN` for the budget cron (plus the optional
 `NOTIFY_WEBHOOK_URL` and `WEBSITE_DEPLOY_HOOK`; see "Budget breaker and
 service mode" and "Integrated topology and route management").
+`CACHE_PURGE_TOKEN` joins them once the edge serves the buckets ("Upload
+lifecycle", the publish pass).
 
 ```sh
 node_modules/.bin/wrangler d1 create cabin-registry
@@ -373,8 +375,11 @@ smoke test). What it does, in order:
    more than a thousand-odd objects can take a second run), or a key
    still listed after its delete answered success stops the run - and since
    the database and its flag still exist, re-running the command
-   resumes the sweep. The buckets themselves, their lifecycle rules,
-   their bindings, and every other Cloudflare resource stay.
+   resumes the sweep. The cron puts `config.json` back into
+   `cabin-registry-index` when it finds none ("Upload lifecycle", the
+   publish pass), and a sweep that lists it again after deleting it
+   stops that way. The buckets themselves, their lifecycle rules, their
+   bindings, and every other Cloudflare resource stay.
 3. Deletes and recreates the database
    (`wrangler d1 delete cabin-registry -y` / `wrangler d1 create
    cabin-registry`) and bakes the new id into the `DB` binding's
@@ -444,7 +449,9 @@ generation of the dropped database, and the publish pass leaves it
 alone for every change the new database numbers at or below that ("The
 publish pass"). Only the cron and a verdict's request put documents: a
 cron invocation ends within 15 minutes, and the verifier's runs were
-cancelled before the wipe. Step 3 looks at the bucket after both.
+cancelled before the wipe. Step 3 looks at the bucket after both. The
+cron also puts `config.json` back there; that records no generation,
+and every pass replaces one that differs.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp to the pull request that changes the
@@ -470,8 +477,9 @@ cancelled before the wipe. Step 3 looks at the bucket after both.
    OIDC exchange is the credential. Before re-enabling the verifier,
    and no sooner than 15 minutes after the wipe, look at
    `cabin-registry-index` in the dashboard and delete any object it
-   lists (`wrangler r2 object delete cabin-registry-index/<key>
-   --remote`): nothing puts a document until a verdict arrives. Then
+   lists other than `config.json` (`wrangler r2 object delete
+   cabin-registry-index/<key> --remote`): nothing puts a document
+   until a verdict arrives. Then
    re-enable the verifier (`gh workflow enable registry-verify.yml`);
    its schedule verifies the republished
    set. The verifier workflow needs no secret of its own: each run
@@ -652,13 +660,13 @@ in-code defaults (`src/governor.rs`):
 | `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 700,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read; document checks |
 
 The two infrastructure defaults cover a month of the cron (2,976
-invocations) with every pass at its ceiling: 141 class A operations an
+invocations) with every pass at its ceiling: 142 class A operations an
 invocation (20 placements, their 20 documents, the publish pass's 100
-documents and the catalog) and 211 class B (those, a second for each
-placement, and 50 reservation checks). They are sized that way because
-yank has no quota: a member's yanks can hold the publish pass at its
-ceiling, and a limit that did not cover it would let them stop archive
-placement.
+documents, the catalog and the configuration) and 212 class B (those, a
+second for each placement, and 50 reservation checks). They are sized
+that way because yank has no quota: a member's yanks can hold the
+publish pass at its ceiling, and a limit that did not cover it would
+let them stop archive placement.
 
 A limit var only takes effect through `wrangler.jsonc` `vars` and a
 deploy; `cargo check-deploy` (also a CI step) refuses a var whose
@@ -945,8 +953,29 @@ in UPLOADS. A revision row is in one of five states
   `a_infra`, whether or not it has to write. A row is open
   for 15 to 30 minutes, longer while more than 100 packages have open
   rows. One open for 45 minutes with fewer than that means a document
-  is not getting into INDEX; the pass logs why
+  is not getting into INDEX or its purge is failing; the pass logs why
   (`document publication: ...`).
+
+  The same pass keeps `config.json` in INDEX: it reads the object every
+  time (one `b_infra` operation and one `a_infra`, as for a document)
+  and puts the configuration this deployment serves when the bytes
+  differ. Around a deployment that changes it, a pass of the previous
+  version can put the old one back until the next pass.
+
+  **Purging the edge** is off until the buckets' own domains serve
+  INDEX and ARCHIVES. It is switched on by `INDEX_ORIGIN` in
+  `wrangler.jsonc` `vars`, and then needs `ARCHIVES_ORIGIN` (both
+  without a trailing slash), `CF_ZONE_ID`, and the `CACHE_PURGE_TOKEN`
+  secret - an API token with the zone's Cache Purge permission and
+  nothing else. From then on a publish pass that found documents and
+  then the catalog in INDEX purges them all, and completes no row when
+  that purge failed: without the secret every row stays open, and once
+  more than 100 packages have open rows the pass no longer reaches the
+  rest. A placement also purges its archive's URL and its package's
+  document, and a put of `config.json` purges that; when one of these
+  fails (`purge: ...`, `configuration publication: ...`) the edge keeps
+  its copy until it expires - an hour for `config.json`, which is worth
+  purging by hand after a deployment that changed it.
 - **Returning to a released reservation.** The same upload id and
   publisher may return within 14 days of the operation's first charge
   (`charged_at`); returning never extends that window. It takes a

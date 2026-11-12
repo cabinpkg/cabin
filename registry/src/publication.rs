@@ -9,9 +9,11 @@
 //! holds anything else is never replaced.
 //!
 //! A document's key names whatever the document says now, so each
-//! INDEX object records the generation it was rendered at, and a
-//! writer replaces only an object it found at an earlier one
-//! (`glue/publication.rs` argues what that guarantees).
+//! package's document and the catalog record in INDEX the generation
+//! they were rendered at, and a writer replaces only an object it
+//! found at an earlier one (`glue/publication.rs` argues what that
+//! guarantees). The configuration records none: a pass replaces one
+//! whose bytes differ.
 
 use crate::checksum;
 
@@ -68,6 +70,29 @@ pub const CATALOG_KEY: &str = "catalog.json";
 /// The `Cache-Control` R2 stores with a document, and answers with
 /// when the bucket's own domain serves it.
 pub const DOCUMENT_CACHE_CONTROL: &str = "public, max-age=60";
+
+/// The INDEX key of the registry's configuration.
+pub const CONFIG_KEY: &str = "config.json";
+
+/// The `Cache-Control` R2 stores with the configuration, which changes
+/// only with a deployment.
+pub const CONFIG_CACHE_CONTROL: &str = "public, max-age=3600";
+
+/// The bodies of the purge requests that name `urls`: Cloudflare takes
+/// at most a hundred URLs in one request.
+#[must_use]
+pub fn purge_requests(urls: &[String]) -> Vec<String> {
+    urls.chunks(100)
+        .map(|files| serde_json::json!({ "files": files }).to_string())
+        .collect()
+}
+
+/// Whether the body of a purge response reports that Cloudflare
+/// accepted the purge.
+#[must_use]
+pub fn purged(body: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(body).is_ok_and(|body| body["success"] == true)
+}
 
 /// How long a change stays open after it is recorded, in milliseconds:
 /// the publish pass completes a change only when it started this long
@@ -126,5 +151,26 @@ mod tests {
         assert!(!holds_document(Some("6"), 7));
         assert!(!holds_document(None, 0));
         assert!(!holds_document(Some("seven"), 0));
+    }
+
+    #[test]
+    fn a_purge_request_names_at_most_a_hundred_urls() {
+        let urls: Vec<String> = (0..101)
+            .map(|n| format!("https://index.example/{n}"))
+            .collect();
+        let requests = purge_requests(&urls);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1], r#"{"files":["https://index.example/100"]}"#);
+        assert!(purge_requests(&[]).is_empty());
+    }
+
+    #[test]
+    fn only_a_reported_success_is_a_purge() {
+        assert!(purged(
+            r#"{"success":true,"errors":[],"messages":[],"result":{"id":"0"}}"#
+        ));
+        assert!(!purged(r#"{"success":false,"errors":[{"code":1}]}"#));
+        assert!(!purged(r#"{"result":{"id":"0"}}"#));
+        assert!(!purged("<html>"));
     }
 }
