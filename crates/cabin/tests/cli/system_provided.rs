@@ -553,6 +553,7 @@ c-standard = "c11"
                 r#"[package]
 name = "acme/tooled"
 version = "1.0.0"
+license = "MIT"
 c-standard = "c11"
 
 [dependencies]
