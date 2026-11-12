@@ -853,12 +853,13 @@ version's yanked state in the per-package index document:
 { "yanked": true }
 ```
 
-`{"yanked": false}` un-yanks.  The route is idempotent: setting the state a version already has
-succeeds with `200` and body `{"ok":true}`.  Yank is **version-level** - it covers every packaging
-revision of the version at once, and there is no per-revision yank.  It applies to versions with at
-least one [**verified**](#verification-lifecycle) revision - a version whose revisions are all
-pending or rejected was never part of the registry's resolvable surface, so there is nothing to
-retract and it answers an authenticated `404`.
+`{"yanked": false}` un-yanks.  The response is a `200` reporting the resulting state and whether the
+request changed it: `{"ok":true,"yanked":<bool>,"changed":<bool>}`.  The route is idempotent:
+setting the state a version already has reports `"changed":false`.  Yank is **version-level** - it
+covers every packaging revision of the version at once, and there is no per-revision yank.  It
+applies to versions with at least one [**verified**](#verification-lifecycle) revision - a version
+whose revisions are all pending or rejected was never part of the registry's resolvable surface, so
+there is nothing to retract and it answers an authenticated `404`.
 
 ### Yanking from the client
 
