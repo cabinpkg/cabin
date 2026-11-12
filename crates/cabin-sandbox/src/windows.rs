@@ -23,6 +23,15 @@
 //! it started once the program exits, or as soon as Cabin's handle to the
 //! job closes, which Cabin's exit does however it exits.  The program
 //! inherits only the three standard handles.
+//!
+//! A killed process keeps the files it had open until Windows has closed
+//! its handles, which it has by the time the process's own handle is
+//! signaled; the job stops counting the process before that.  So the job
+//! reports each process it takes in to a completion port, Cabin opens
+//! them as the program runs, and a run ends by waiting on each one not
+//! yet gone.  A report can be lost, and a process can deny Cabin its
+//! handle: a run that cannot account for every process the job counted
+//! fails.
 
 use std::ffi::{OsStr, OsString, c_void};
 use std::fs::File;
@@ -37,7 +46,8 @@ use std::ptr::{null, null_mut};
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
-    DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_INVALID_ACL, LocalFree, WAIT_OBJECT_0,
+    DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_INVALID_ACL, ERROR_INVALID_PARAMETER,
+    INVALID_HANDLE_VALUE, LocalFree, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
 use windows_sys::Win32::Security::Authorization::{
@@ -57,24 +67,28 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_DELETE_CHILD, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
 };
+use windows_sys::Win32::System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus};
 use windows_sys::Win32::System::JobObjects::{
-    CreateJobObjectW, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
+    CreateJobObjectW, IsProcessInJob, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_UILIMIT_DESKTOP,
     JOB_OBJECT_UILIMIT_DISPLAYSETTINGS, JOB_OBJECT_UILIMIT_EXITWINDOWS,
     JOB_OBJECT_UILIMIT_GLOBALATOMS, JOB_OBJECT_UILIMIT_HANDLES, JOB_OBJECT_UILIMIT_READCLIPBOARD,
     JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS, JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
-    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_BASIC_UI_RESTRICTIONS,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOBOBJECTINFOCLASS, JobObjectBasicAccountingInformation,
+    JOBOBJECT_ASSOCIATE_COMPLETION_PORT, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+    JOBOBJECT_BASIC_UI_RESTRICTIONS, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOBOBJECTINFOCLASS,
+    JobObjectAssociateCompletionPortInformation, JobObjectBasicAccountingInformation,
     JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation, QueryInformationJobObject,
     SetInformationJobObject, TerminateJobObject,
 };
+use windows_sys::Win32::System::SystemServices::JOB_OBJECT_MSG_NEW_PROCESS;
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
     EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, INFINITE,
-    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcess,
     PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST,
-    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
-    STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+    UpdateProcThreadAttribute, WaitForSingleObject,
 };
 
 use crate::{Confinement, SandboxError};
@@ -84,6 +98,12 @@ const READ: u32 = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
 /// Without `DELETE`: the program removes and renames what a granted
 /// directory holds, not the directory itself.
 const WRITE: u32 = READ | FILE_GENERIC_WRITE | FILE_DELETE_CHILD;
+/// Milliseconds between two looks at what a running program's job has
+/// reported.  No guarantee rests on the value: a process gone before
+/// its report is read needs no waiting for.  A longer one gives that
+/// process's identifier more time to pass to a process Cabin cannot
+/// open, which fails the run.
+const REPORT_INTERVAL: u32 = 50;
 
 pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> {
     let Confinement {
@@ -379,8 +399,8 @@ impl Launch<'_> {
             AppContainerSid: self.sid,
             ..SECURITY_CAPABILITIES::default()
         };
-        let job = job()?;
-        let jobs = [job.as_raw_handle()];
+        let mut job = Job::new()?;
+        let jobs = [job.handle.as_raw_handle()];
         // Declared after the values it points to, so dropped before them.
         let attributes = Attributes::new(3)?;
         attributes.set(
@@ -439,50 +459,24 @@ impl Launch<'_> {
             )
         };
         // On an error below, dropping `job` kills the program.
+        loop {
+            // SAFETY: a process handle we own.
+            let waited = unsafe { WaitForSingleObject(child.as_raw_handle(), REPORT_INTERVAL) };
+            if waited == WAIT_FAILED {
+                return Err(io::Error::last_os_error());
+            }
+            job.open_reported()?;
+            if waited == WAIT_OBJECT_0 {
+                break;
+            }
+        }
         let mut code = 0;
         // SAFETY: a process handle we own and an out-pointer.
-        let exited = unsafe {
-            WaitForSingleObject(child.as_raw_handle(), INFINITE) == WAIT_OBJECT_0
-                && GetExitCodeProcess(child.as_raw_handle(), &raw mut code) != 0
-        };
-        if !exited {
+        if unsafe { GetExitCodeProcess(child.as_raw_handle(), &raw mut code) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        end(&job)?;
+        job.end()?;
         Ok(ExitStatus::from_raw(code))
-    }
-}
-
-/// Kill what is left in `job` and wait until the job counts no process.
-/// shortcut: a killed process can outlast that count by a moment, the
-/// files it had still open; wait on each process's own handle once a
-/// caller must find those files closed.
-fn end(job: &OwnedHandle) -> io::Result<()> {
-    let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-    loop {
-        // Each turn: this ends the processes in the job at that moment,
-        // and one whose start was under way joins it after them.
-        // SAFETY: a job handle we own.
-        if unsafe { TerminateJobObject(job.as_raw_handle(), 1) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: a job handle we own and the structure the class names.
-        let queried = unsafe {
-            QueryInformationJobObject(
-                job.as_raw_handle(),
-                JobObjectBasicAccountingInformation,
-                (&raw mut accounting).cast(),
-                u32::try_from(size_of_val(&accounting)).unwrap(),
-                null_mut(),
-            )
-        };
-        if queried == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        if accounting.ActiveProcesses == 0 {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -508,34 +502,187 @@ fn inheritable(file: &File) -> io::Result<OwnedHandle> {
     Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
 }
 
-/// A job that kills all in it once its handle closes, which no process
-/// in it can leave, that keeps them off the user's desktop and
-/// clipboard, and where a crash ends the process instead of waiting on
-/// an error box.
-fn job() -> io::Result<OwnedHandle> {
-    // SAFETY: no attributes, no name.
-    let job = unsafe { CreateJobObjectW(null(), null()) };
-    if job.is_null() {
-        return Err(io::Error::last_os_error());
+/// A job, the port it reports each process it takes in to, and the
+/// processes it reported that were not seen to be gone.
+struct Job {
+    handle: OwnedHandle,
+    port: OwnedHandle,
+    reported: u32,
+    members: Vec<OwnedHandle>,
+}
+
+impl Job {
+    /// A job that kills all in it once its handle closes, which no
+    /// process in it can leave, that keeps them off the user's desktop
+    /// and clipboard, and where a crash ends the process instead of
+    /// waiting on an error box.
+    fn new() -> io::Result<Self> {
+        // SAFETY: no attributes, no name.
+        let job = unsafe { CreateJobObjectW(null(), null()) };
+        if job.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `CreateJobObjectW` handed this handle to us.
+        let job = unsafe { OwnedHandle::from_raw_handle(job) };
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags =
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
+        set_job_information(&job, JobObjectExtendedLimitInformation, &limits)?;
+        let restrictions = JOBOBJECT_BASIC_UI_RESTRICTIONS {
+            UIRestrictionsClass: JOB_OBJECT_UILIMIT_DESKTOP
+                | JOB_OBJECT_UILIMIT_DISPLAYSETTINGS
+                | JOB_OBJECT_UILIMIT_EXITWINDOWS
+                | JOB_OBJECT_UILIMIT_GLOBALATOMS
+                | JOB_OBJECT_UILIMIT_HANDLES
+                | JOB_OBJECT_UILIMIT_READCLIPBOARD
+                | JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS
+                | JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
+        };
+        set_job_information(&job, JobObjectBasicUIRestrictions, &restrictions)?;
+        // SAFETY: a new port, tied to no file.
+        let port = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1) };
+        if port.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `CreateIoCompletionPort` handed this handle to us.
+        let port = unsafe { OwnedHandle::from_raw_handle(port) };
+        // Before the job holds a process, so that none goes unreported.
+        let reports = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+            CompletionKey: null_mut(),
+            CompletionPort: port.as_raw_handle(),
+        };
+        set_job_information(&job, JobObjectAssociateCompletionPortInformation, &reports)?;
+        Ok(Self {
+            handle: job,
+            port,
+            reported: 0,
+            members: Vec::new(),
+        })
     }
-    // SAFETY: `CreateJobObjectW` handed this handle to us.
-    let job = unsafe { OwnedHandle::from_raw_handle(job) };
-    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-    limits.BasicLimitInformation.LimitFlags =
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
-    set_job_information(&job, JobObjectExtendedLimitInformation, &limits)?;
-    let restrictions = JOBOBJECT_BASIC_UI_RESTRICTIONS {
-        UIRestrictionsClass: JOB_OBJECT_UILIMIT_DESKTOP
-            | JOB_OBJECT_UILIMIT_DISPLAYSETTINGS
-            | JOB_OBJECT_UILIMIT_EXITWINDOWS
-            | JOB_OBJECT_UILIMIT_GLOBALATOMS
-            | JOB_OBJECT_UILIMIT_HANDLES
-            | JOB_OBJECT_UILIMIT_READCLIPBOARD
-            | JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS
-            | JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
-    };
-    set_job_information(&job, JobObjectBasicUIRestrictions, &restrictions)?;
-    Ok(job)
+
+    /// Open each process the job has reported since the last call, and
+    /// close those that are gone by now.
+    fn open_reported(&mut self) -> io::Result<()> {
+        loop {
+            let (mut message, mut key, mut id) = (0, 0, null_mut());
+            // SAFETY: a port we own and out-pointers.
+            let dequeued = unsafe {
+                GetQueuedCompletionStatus(
+                    self.port.as_raw_handle(),
+                    &raw mut message,
+                    &raw mut key,
+                    &raw mut id,
+                    0,
+                )
+            };
+            if dequeued == 0 {
+                let err = io::Error::last_os_error();
+                if err.raw_os_error() == Some(WAIT_TIMEOUT.cast_signed()) {
+                    break;
+                }
+                return Err(err);
+            }
+            if message == JOB_OBJECT_MSG_NEW_PROCESS {
+                self.reported += 1;
+                // The job sends the process's identifier as the pointer.
+                self.open(u32::try_from(id.addr()).expect("process ids fit u32"))?;
+            }
+        }
+        self.members.retain(|process| {
+            // SAFETY: a process handle we own.
+            unsafe { WaitForSingleObject(process.as_raw_handle(), 0) != WAIT_OBJECT_0 }
+        });
+        Ok(())
+    }
+
+    /// Keep a handle to the process `id` the job reported, unless that
+    /// process is gone.
+    fn open(&mut self, id: u32) -> io::Result<()> {
+        let access = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+        // SAFETY: plain system call.
+        let process = unsafe { OpenProcess(access, 0, id) };
+        if process.is_null() {
+            let err = io::Error::last_os_error();
+            // An identifier lasts as long as its process: this one is gone.
+            if err.raw_os_error() == Some(ERROR_INVALID_PARAMETER.cast_signed()) {
+                return Ok(());
+            }
+            // A process Cabin cannot open, it cannot wait for.
+            return Err(io::Error::new(
+                err.kind(),
+                format!("cannot open its process {id}: {err}"),
+            ));
+        }
+        // SAFETY: `OpenProcess` handed this handle to us.
+        let process = unsafe { OwnedHandle::from_raw_handle(process) };
+        let mut member = 0;
+        // SAFETY: handles we own and an out-pointer.
+        let asked = unsafe {
+            IsProcessInJob(
+                process.as_raw_handle(),
+                self.handle.as_raw_handle(),
+                &raw mut member,
+            )
+        };
+        if asked == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // One outside the job took the identifier over once the process
+        // reported was gone.
+        if member != 0 {
+            self.members.push(process);
+        }
+        Ok(())
+    }
+
+    /// Kill what is left in the job, then wait until every process it
+    /// ever held is gone, and with it the handles that process had open.
+    fn end(mut self) -> io::Result<()> {
+        let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        loop {
+            // Each turn: this ends the processes in the job at that moment,
+            // and one whose start was under way joins it after them.
+            // SAFETY: a job handle we own.
+            if unsafe { TerminateJobObject(self.handle.as_raw_handle(), 1) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: a job handle we own and the structure the class names.
+            let queried = unsafe {
+                QueryInformationJobObject(
+                    self.handle.as_raw_handle(),
+                    JobObjectBasicAccountingInformation,
+                    (&raw mut accounting).cast(),
+                    u32::try_from(size_of_val(&accounting)).unwrap(),
+                    null_mut(),
+                )
+            };
+            if queried == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if accounting.ActiveProcesses == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // No process is left to start another: the job has taken in, and
+        // reported, its last.
+        self.open_reported()?;
+        if self.reported != accounting.TotalProcesses {
+            return Err(io::Error::other(format!(
+                "Windows reported {} of its {} processes",
+                self.reported, accounting.TotalProcesses
+            )));
+        }
+        for process in &self.members {
+            // Signaled once Windows has closed all the process had open;
+            // the job stops counting it sooner.
+            // SAFETY: a process handle we own.
+            if unsafe { WaitForSingleObject(process.as_raw_handle(), INFINITE) } != WAIT_OBJECT_0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// `information` must be the structure `class` names.

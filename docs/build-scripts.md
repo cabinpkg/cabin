@@ -182,6 +182,8 @@ A running script:
 - is started with no variable beyond [those listed](#what-a-script-is-given): no registry token,
   no `GITHUB_TOKEN`, no `SSH_AUTH_SOCK`, no `CC` or `CFLAGS`;
 - starts programs that are confined the same way, and any still running when it exits are killed.
+  On Windows, where a killed program keeps its files open a moment longer, Cabin reads what the
+  script wrote only once each of them is gone, and fails the build if it cannot wait for one.
 
 Limits to know:
 
