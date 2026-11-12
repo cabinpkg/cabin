@@ -354,7 +354,6 @@ fn probe_windows_tool_start() {
     require_c_and_cxx_build_tools();
     let (dir, plain) = confined(None);
     let (_off_dir, off) = confined(Some("off"));
-    let (_on_dir, on) = confined(Some("on"));
 
     // The same script and tool with no confinement.
     let machine = dir.path().join("build/dev/build-machine/packages");
@@ -377,7 +376,7 @@ fn probe_windows_tool_start() {
         std::fs::read_to_string(free.path().join("stderr")).unwrap_or_default(),
         reports(free.path()),
     );
-    panic!("{plain}\n{off}\n{on}\n{unconfined}");
+    panic!("{plain}\n{off}\n{unconfined}");
 }
 
 /// The build script runs the `embed` Cabin built, by the path Cabin

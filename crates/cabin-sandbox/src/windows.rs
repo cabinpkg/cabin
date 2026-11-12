@@ -122,7 +122,37 @@ fn probe_state(process: &OwnedHandle, job: &OwnedHandle) -> (bool, i32) {
     }
 }
 
+/// Probe only: run as a user without the debug privilege would.
+fn probe_disable_debug_privilege() {
+    use windows_sys::Win32::Security::{
+        AdjustTokenPrivileges, LookupPrivilegeValueW, SE_DEBUG_NAME, TOKEN_ADJUST_PRIVILEGES,
+        TOKEN_PRIVILEGES,
+    };
+    use windows_sys::Win32::System::Threading::OpenProcessToken;
+    let mut token = null_mut();
+    let mut privileges = TOKEN_PRIVILEGES {
+        PrivilegeCount: 1,
+        ..TOKEN_PRIVILEGES::default()
+    };
+    // SAFETY: plain system calls on a token closed before returning.
+    unsafe {
+        let opened = OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &raw mut token);
+        let named = LookupPrivilegeValueW(
+            null(),
+            SE_DEBUG_NAME,
+            &raw mut privileges.Privileges[0].Luid,
+        );
+        let adjusted =
+            AdjustTokenPrivileges(token, 0, &raw const privileges, 0, null_mut(), null_mut());
+        if opened == 0 || named == 0 || adjusted == 0 {
+            eprintln!("probe-privilege failed {opened} {named} {adjusted}");
+        }
+        windows_sys::Win32::Foundation::CloseHandle(token);
+    }
+}
+
 pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> {
+    probe_disable_debug_privilege();
     let Confinement {
         program,
         args,
