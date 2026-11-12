@@ -500,7 +500,7 @@ refuse rather than undercount.
    no registry writer produces one, and its delete URL resolves to
    another path of the API - the bucket's own, at worst.
 5. Start the ports receipts log over while the publish workflow is
-   still disabled (its README, "Automatic publishing"), then re-enable
+   still disabled (its `docs/publishing.md`, "Registry wipe"), then re-enable
    it (`gh workflow enable publish.yml -R cabin-ports/ports`), prove
    the trusted-publishing binding with an `exchange-check`
    dispatch (exchange + immediate revocation, publishes nothing), then
@@ -510,8 +510,10 @@ refuse rather than undercount.
    enable registry-verify.yml`); its schedule verifies the republished
    set.
 6. Rerun whatever main CI went red against the old registry
-   (`gh run rerun <id> --failed`); byte-identical republication of the
-   already-landed packages no-ops, so a partial run resumes cleanly.
+   (`gh run rerun <id> --failed`). A ports publish run whose upload
+   failed does not resume by a rerun: it keeps the receipts log's lock
+   until the log is reconciled, and only then is the workflow
+   dispatched again (its `docs/publishing.md`, "Reconciling the log").
 
 ## Launch checklist
 

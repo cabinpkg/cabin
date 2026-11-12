@@ -311,7 +311,7 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"
      writes_blocked - the gate clears on that path; the ports publish
      workflow stays disabled until the next step
   5. start the ports receipts log over while publishing is still
-     disabled (its README, "Automatic publishing"), re-enable it (gh
+     disabled (its docs/publishing.md, "Registry wipe"), re-enable it (gh
      workflow enable publish.yml -R cabin-ports/ports), prove the
      binding with an exchange-check dispatch, then dispatch it plainly
      from main to republish the set - no publish token or secret to
