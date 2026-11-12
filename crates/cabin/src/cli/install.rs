@@ -6,7 +6,9 @@
 //! hands the built files to `cabin-install`, which owns what an install
 //! root holds and how it changes.  Two things differ from a build: only
 //! the user's configuration files are read, and the lockfile is read
-//! but never written.
+//! but never written.  A registry package is built as the one
+//! dependency of a package written into that temporary directory, so
+//! it is fetched, verified, and built as any registry dependency is.
 
 use std::path::{Path, PathBuf};
 
@@ -15,8 +17,9 @@ use clap::Args;
 use clap_complete::Shell;
 
 use cabin_build::ManifestTargetSelector;
-use cabin_core::TargetKind;
+use cabin_core::{PackageName, TargetKind};
 use cabin_install::{Dependency, Root, Source, Toolchain};
+use cabin_manifest::edit::{self, DepTable, NewDependency};
 use cabin_workspace::PackageKind;
 
 use crate::cli::build_prep::{
@@ -26,9 +29,16 @@ use crate::cli::term_verbosity::Reporter;
 use crate::cli::{ToolchainSelectionArgs, WorkspaceSelectionArgs};
 
 #[derive(Debug, Args)]
+#[command(group(clap::ArgGroup::new("what").required(true).args(["package", "path", "list"])))]
 pub(crate) struct InstallArgs {
+    /// Install this package from the registry: `<scope>/<name>`, or
+    /// `<scope>/<name>@<req>` for the newest version the requirement
+    /// allows.
+    #[arg(value_name = "PACKAGE", conflicts_with_all = ["locked", "all_features"])]
+    pub package: Option<String>,
+
     /// Install the package in this directory.
-    #[arg(long, value_name = "DIR", required_unless_present = "list")]
+    #[arg(long, value_name = "DIR")]
     pub path: Option<PathBuf>,
 
     /// Install only the named `executable` target.  Repeat the flag
@@ -42,7 +52,7 @@ pub(crate) struct InstallArgs {
     pub root: Option<PathBuf>,
 
     /// List the installed packages and their executables.
-    #[arg(long, conflicts_with = "path")]
+    #[arg(long)]
     pub list: bool,
 
     /// Build profile (`dev`, `release`, or any custom profile
@@ -103,45 +113,67 @@ pub(crate) fn install(
     if args.list {
         return list(&root);
     }
-    let dir = args.path.as_deref().expect("clap requires --path");
-    // Canonical, so the walk to a workspace root visits the
-    // directory's real ancestors.
-    let dir = cabin_fs::canonicalize(dir)
-        .with_context(|| format!("cannot find the package directory {}", dir.display()))?;
-    let package_manifest = dir.join("cabin.toml");
-    let Some(package) = cabin_manifest::load_manifest(&package_manifest)?.package else {
-        bail!(
-            "{} declares no package to install",
-            package_manifest.display()
-        );
-    };
-    // A workspace member is built as its workspace builds it: with
-    // what it inherits, and the workspace's lockfile.
-    let manifest_path = cabin_workspace::discover_workspace_root(&dir)?
-        .map_or(package_manifest, |root| root.manifest_path);
     // Dropped, and so deleted, after everything that holds a file in it.
-    let build_dir = tempfile::Builder::new()
+    let scratch = tempfile::Builder::new()
         .prefix("cabin-install-")
         .tempdir()
         .context("failed to create a temporary build directory")?;
+    // The registry package to install, when one is named.  Its
+    // features ride on the edge to it.
+    let registry = args
+        .package
+        .as_deref()
+        .map(|spec| write_dependent(scratch.path(), spec, args))
+        .transpose()?;
+    let (manifest_path, selected, build_dir, features) = if registry.is_some() {
+        (
+            scratch.path().join("cabin.toml"),
+            DEPENDENT.to_owned(),
+            scratch.path().join("build"),
+            &[][..],
+        )
+    } else {
+        let dir = args.path.as_deref().expect("clap requires one of them");
+        // Canonical, so the walk to a workspace root visits the
+        // directory's real ancestors.
+        let dir = cabin_fs::canonicalize(dir)
+            .with_context(|| format!("cannot find the package directory {}", dir.display()))?;
+        let package_manifest = dir.join("cabin.toml");
+        let Some(package) = cabin_manifest::load_manifest(&package_manifest)?.package else {
+            bail!(
+                "{} declares no package to install",
+                package_manifest.display()
+            );
+        };
+        // A workspace member is built as its workspace builds it: with
+        // what it inherits, and the workspace's lockfile.
+        let manifest_path = cabin_workspace::discover_workspace_root(&dir)?
+            .map_or(package_manifest, |root| root.manifest_path);
+        (
+            manifest_path,
+            package.name.as_str().to_owned(),
+            scratch.path().to_owned(),
+            &args.features[..],
+        )
+    };
     let prepared = prepare_workspace(
         &WorkspacePipelineArgs {
             manifest_path: Some(&manifest_path),
             offline: args.offline,
             cache_dir: None,
-            build_dir: Some(build_dir.path()),
+            build_dir: Some(&build_dir),
             locked: args.locked,
             frozen: false,
             no_patches: false,
-            features: &args.features,
+            features,
             all_features: args.all_features,
-            no_default_features: args.no_default_features,
+            no_default_features: registry.is_none() && args.no_default_features,
             index_path: None,
             index_url: None,
             profile: Some(args.profile.as_deref().unwrap_or("release")),
             release: false,
             workspace_selection: &WorkspaceSelectionArgs {
-                package: vec![package.name.as_str().to_owned()],
+                package: vec![selected],
                 ..WorkspaceSelectionArgs::default()
             },
             toolchain: &ToolchainSelectionArgs::default(),
@@ -151,7 +183,13 @@ pub(crate) fn install(
         },
         reporter,
     )?;
-    let index = prepared.resolved_selection.packages[0];
+    let index = match &registry {
+        Some(name) => prepared
+            .graph
+            .index_of(name)
+            .expect("resolution gave the dependent its dependency"),
+        None => prepared.resolved_selection.packages[0],
+    };
     let package = &prepared.graph.packages[index];
     let name = package.package.name.as_str();
     let targets = executables(&prepared, index, &args.bin)?;
@@ -188,7 +226,7 @@ pub(crate) fn install(
     let record = cabin_install::Package {
         name: name.to_owned(),
         version: package.package.version.to_string(),
-        source: path_source(&package.manifest_dir)?,
+        source: source(&prepared, index)?,
         features: prepared
             .enabled_features
             .get(&index)
@@ -202,11 +240,7 @@ pub(crate) fn install(
         dependencies,
         binaries: Vec::new(),
     };
-    let shown = format!(
-        "{name} v{} ({})",
-        record.version,
-        package.manifest_dir.display()
-    );
+    let shown = format!("{name} v{} ({})", record.version, shown(&record.source));
     let done = match root.install(record, &files, args.force, wait_message(reporter, &root)) {
         Err(err @ cabin_install::Error::Collision { .. }) => {
             bail!("{err}\npass `--force` to replace what is in the way")
@@ -262,11 +296,7 @@ pub(crate) fn uninstall(args: &UninstallArgs, reporter: Reporter) -> Result<()> 
 
 fn list(root: &Root) -> Result<()> {
     for package in root.packages()? {
-        let source = match &package.source {
-            Source::Path(path) => path.as_str(),
-            Source::Registry { checksum, .. } => checksum,
-            Source::System => "system",
-        };
+        let source = shown(&package.source);
         // The record is a file: nothing in it reaches the terminal raw.
         let header = format!("{} v{} ({source}):", package.name, package.version);
         println!("{}", cabin_core::escape_control_chars(&header));
@@ -275,6 +305,60 @@ fn list(root: &Root) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Where a package came from, as the user is told: its directory, or
+/// its archive's checksum.
+fn shown(source: &Source) -> &str {
+    match source {
+        Source::Path(path) => path.as_str(),
+        Source::Registry { checksum, .. } => checksum,
+        Source::System => "system",
+    }
+}
+
+/// The package that depends on the registry package to install.  A
+/// published package's name has a scope, so none is this one.
+const DEPENDENT: &str = "cabin-install";
+
+/// Write into `dir` the manifest of [`DEPENDENT`], whose one dependency
+/// is the registry package `spec` names, at the requirement after its
+/// `@` as `cabin add` reads one, with the features `args` asks for.
+/// Return that package's name.
+fn write_dependent(dir: &Path, spec: &str, args: &InstallArgs) -> Result<String> {
+    let (name, requirement) = crate::cli::add::split_dep_spec(spec);
+    let name = PackageName::new(name)
+        .map_err(|err| anyhow::anyhow!("invalid package name `{name}`: {err}"))?;
+    if !name.is_scoped() {
+        let name = name.as_str();
+        bail!(
+            "registry packages are named `<scope>/<name>`, but `{name}` is a bare name; pass the \
+             package's full scoped name, or use `cabin install --path <dir>` for a local package"
+        );
+    }
+    let name = name.as_str();
+    if let Some(requirement) = requirement {
+        crate::cli::add::parse_req(name, requirement)?;
+    }
+    let mut doc = edit::parse_document(&format!(
+        r#"[package]
+name = "{DEPENDENT}"
+version = "0.0.0"
+"#
+    ))?;
+    edit::upsert_dependency(
+        &mut doc,
+        DepTable::Normal,
+        &NewDependency {
+            name: name.to_owned(),
+            version: Some(requirement.unwrap_or("*").to_owned()),
+            path: None,
+            features: crate::cli::add::split_features(&args.features),
+            no_default_features: args.no_default_features,
+        },
+    )?;
+    crate::cli::manifest_edit::write_document(&dir.join("cabin.toml"), &doc)?;
+    Ok(name.to_owned())
 }
 
 /// `--root`, else `.cabin` in the user's home directory.
@@ -391,29 +475,33 @@ fn dependencies(
         if dependency == index || !planned {
             continue;
         }
-        let version = package.package.version.to_string();
-        let source = match package.kind {
-            PackageKind::Local => path_source(&package.manifest_dir)?,
-            PackageKind::Registry => {
-                match prepared.checksums.get(&(name.clone(), version.clone())) {
-                    Some(checksum) => Source::Registry {
-                        checksum: checksum.clone(),
-                        locked: prepared
-                            .lockfile_pinned
-                            .contains(&(name.clone(), version.clone())),
-                    },
-                    None => Source::System,
-                }
-            }
-        };
         out.push(Dependency {
             name,
-            version,
-            source,
+            version: package.package.version.to_string(),
+            source: source(prepared, dependency)?,
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
+}
+
+/// Where the package at `index` came from.
+fn source(prepared: &PreparedWorkspace, index: usize) -> Result<Source> {
+    let package = &prepared.graph.packages[index];
+    let key = (
+        package.package.name.as_str().to_owned(),
+        package.package.version.to_string(),
+    );
+    Ok(match package.kind {
+        PackageKind::Local => path_source(&package.manifest_dir)?,
+        PackageKind::Registry => match prepared.checksums.get(&key) {
+            Some(checksum) => Source::Registry {
+                checksum: checksum.clone(),
+                locked: prepared.lockfile_pinned.contains(&key),
+            },
+            None => Source::System,
+        },
+    })
 }
 
 fn path_source(dir: &Path) -> Result<Source> {
