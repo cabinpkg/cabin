@@ -93,6 +93,10 @@ package in the **build context**, apart from the packages it links for the platf
   A package both contexts use is built twice, once per context, and the two never share objects.
 - Features unify per package within a context, never across: an edge in one context cannot turn on
   a feature of the other context's copy.
+- A `[features]` entry that names a build dependency reaches the build machine's copy: `dep:gen`
+  enables an [optional](#optional-dependencies) `gen`, and `gen/x` requests feature `x` of it.  When
+  the package also lists the name under `[dependencies]`, the entry applies to both declarations,
+  each in its own context.
 - A `[target.'cfg(...)'.build-dependencies]` condition is evaluated for the platform of the package
   that declares it; everything inside the build context evaluates `cfg(...)` for the build machine.
 - `links` uniqueness applies per context: a build tool and the program may each link one package
@@ -124,11 +128,8 @@ the build runs nothing.  A package taken from a registry has its build dependenc
 fetched, and built the same way, but its build script is
 [not run](build-scripts.md#which-build-scripts-run), so nothing uses them.  `cabin check` checks
 only the selected packages' own sources, and builds build dependencies only when a build script has
-to run first.  Not yet supported:
-
-- system dependencies in the build context: `system = true` under `[build-dependencies]`, and a
-  workspace member built there that declares one, are rejected,
-- `[features]` entries that name a build dependency (`gen/x`, `dep:gen`).
+to run first.  System dependencies in the build context are not yet supported: `system = true` under
+`[build-dependencies]`, and a workspace member built there that declares one, are rejected.
 
 ## Lockfile behavior
 
@@ -222,7 +223,8 @@ in where the archive identity sits: an index version entry replaces the document
 
 ## Optional dependencies
 
-Cabin package dependencies in `[dependencies]` may declare `optional = true`:
+Cabin package dependencies in `[dependencies]` and `[build-dependencies]` may declare
+`optional = true`:
 
 ```toml
 [dependencies]
@@ -236,9 +238,10 @@ metadata but never in the resolver's selection or the lockfile.  Per-edge `featu
 that include the same package - see [`features.md`](features.md) for the full feature-resolution
 behavior.
 
-`optional = true` is **not** supported on `[dev-dependencies]`, `[build-dependencies]`, or
-`system = true` entries.  The manifest layer reports the violation as `OptionalNotSupportedForKind`
-(dev, build) or `SystemConflictsWith` (system).
+An optional build dependency is built for the build machine, and offered to the package's
+[build script](build-scripts.md), only once enabled.  `optional = true` is **not** supported on
+`[dev-dependencies]` or `system = true` entries.  The manifest layer reports the violation as
+`OptionalNotSupportedForKind` (dev) or `SystemConflictsWith` (system).
 
 ## Scope
 

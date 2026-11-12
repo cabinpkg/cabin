@@ -424,7 +424,7 @@ pub(crate) struct BuildContextPrep {
     /// targets, plus the default targets of each root an edge reaches
     /// without `targets`.  `None` builds every root's default targets.
     pub selected: Option<Vec<cabin_build::ManifestTargetSelector>>,
-    pub included: BTreeSet<usize>,
+    pub features: cabin_feature::FeatureResolution,
     /// Whether `--target` was given: the build machine then has a
     /// toolchain of its own.
     pub cross: bool,
@@ -988,17 +988,7 @@ fn needed_build_scripts(
     found
         .into_iter()
         .map(|(package, build_context, source)| {
-            let platform = if build_context {
-                &context.platform
-            } else {
-                &prepared.platform
-            };
-            let inputs = cabin_build::build_script_inputs(
-                &prepared.graph,
-                package,
-                platform,
-                &context.enabled_features,
-            )?;
+            let inputs = build_script_inputs(prepared, context, package, build_context)?;
             Ok(cabin_build::BuildScript {
                 package,
                 build_context,
@@ -1008,6 +998,29 @@ fn needed_build_scripts(
             })
         })
         .collect()
+}
+
+/// What the build script of `package` takes from the package's
+/// `[build-dependencies]`: those active in the context whose units the
+/// script prepares, the build context when `build_context`.
+pub(crate) fn build_script_inputs(
+    prepared: &PreparedWorkspace,
+    context: &BuildContextPrep,
+    package: usize,
+    build_context: bool,
+) -> Result<cabin_build::BuildScriptInputs, cabin_build::BuildError> {
+    let (platform, features) = if build_context {
+        (&context.platform, &context.features)
+    } else {
+        (&prepared.platform, &prepared.feature_resolution)
+    };
+    cabin_build::build_script_inputs(
+        &prepared.graph,
+        package,
+        platform,
+        &features.for_package(package).enabled_optional_deps,
+        &context.enabled_features,
+    )
 }
 
 /// What [`build_context_prep`] reads from the target context's
@@ -1056,12 +1069,10 @@ fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep
         (inputs.features, &inputs.build_machine),
     ] {
         for &idx in &features.included {
-            for edge in &graph.packages[idx].deps {
-                if edge.kind == cabin_core::DependencyKind::Build && edge.matches_platform(platform)
-                {
-                    roots.insert(edge.index);
-                    edges.push((idx, edge));
-                }
+            let enabled = &features.for_package(idx).enabled_optional_deps;
+            for edge in graph.build_edges(idx, platform, enabled) {
+                roots.insert(edge.index);
+                edges.push((idx, edge));
             }
         }
     }
@@ -1069,7 +1080,7 @@ fn build_context_prep(inputs: BuildContextInputs<'_>) -> Result<BuildContextPrep
     Ok(BuildContextPrep {
         roots: roots.into_iter().collect(),
         selected,
-        included: inputs.features.included.clone(),
+        features: inputs.features.clone(),
         cross: inputs.cross,
         enabled_features,
         build_flags,
@@ -1310,7 +1321,7 @@ pub(crate) fn plan_build_context(
     super::system_deps::reject_build_context_system_deps(
         &prepared.graph,
         &context.platform,
-        &context.included,
+        &context.features.included,
     )?;
     super::plan(&super::PlanRequest {
         graph: &prepared.graph,
@@ -1339,7 +1350,7 @@ pub(crate) fn plan_build_context(
                 .any(|script| script.source.extension() == Some("c"))
                 || cabin_build::collect_requested_standards(
                     &prepared.graph,
-                    &context.included,
+                    &context.features.included,
                     &prepared.language_standards,
                     &BTreeSet::new(),
                 )

@@ -6198,7 +6198,7 @@ fn a_build_script_takes_what_its_build_dependencies_select() {
             .iter()
             .map(|(index, feature)| (*index, BTreeSet::from([(*feature).to_owned()])))
             .collect();
-        build_script_inputs(graph, 3, &linux, &features)
+        build_script_inputs(graph, 3, &linux, &BTreeSet::new(), &features)
     };
     let inputs = |graph: &PackageGraph| inputs_with(graph, &[]);
     let ids = |ids: &[(usize, &str)]| -> Vec<(usize, String)> {

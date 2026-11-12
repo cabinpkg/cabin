@@ -36,11 +36,14 @@ This keeps ordinary feature identifiers separate from the feature-entry syntax d
  - `"feature_name"` - enables another local feature on the same package (transitive feature
    implication).
  - `"dep:dependency_name"` - enables an optional Cabin package dependency declared by this package's
-   `[dependencies]` table.  The dependency name may be scoped: `"dep:fmtlib/fmt"`.
+   `[dependencies]` or `[build-dependencies]` table.  The dependency name may be scoped:
+   `"dep:fmtlib/fmt"`.
  - `"dependency_name/feature_name"` - requests a feature on a Cabin package dependency.  If the
    dependency is optional this form also enables it.  The split is on the *last* `/` (feature names
    never contain one), so `"fmtlib/fmt/json"` requests feature `json` of the scoped dependency
    `fmtlib/fmt` and the legacy `"fmt/json"` keeps its meaning.
+- An entry naming a build dependency reaches the copy built for the build machine; see
+  [build dependencies](dependency-kinds.md#build-dependencies).
 - The on-disk shape stays a list of strings; the typed
   [`FeatureEntry`](https://github.com/cabinpkg/cabin/blob/main/crates/cabin-core/src/config.rs) view
   is produced lazily by the feature resolver.
@@ -70,8 +73,8 @@ ssl = ["dep:openssl"]
 full = ["ssl", "openssl/legacy"]
 ```
 
-- `optional = true` declares an optional Cabin package dependency (supported in `[dependencies]`;
-  rejected in `[dev-dependencies]` and `system = true` deps).
+- `optional = true` declares an optional Cabin package dependency (supported in `[dependencies]`
+  and `[build-dependencies]`; rejected in `[dev-dependencies]` and `system = true` deps).
 - `features = ["..."]` requests features on the dependency package; entries must be feature names
   declared by that dependency.
 - `default-features = false` drops *this edge's* request for the dependency's `default` feature.  It
