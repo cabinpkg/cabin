@@ -240,8 +240,8 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// breaker (`503`) like publish; yank has no rate limit or quota.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
-/// under a foreign scope. Yank applies to verified versions only: a
-/// pending or rejected version was never part of the registry's
+/// under a foreign scope. Yank applies to served versions only: a
+/// version with no served revision was never part of the registry's
 /// resolvable surface, so there is nothing to retract and the triple
 /// answers an authenticated 404.
 pub(super) async fn yank_response(
