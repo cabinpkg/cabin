@@ -1,12 +1,13 @@
 //! packages/versions: the read plane, publish, yank, verification.
 
 statements! {
-    /// The package document's per-version base rows: each verified
+    /// The package document's per-version base rows: each served
     /// version's **current** revision (the `current_revisions` view is
     /// the single "served revision" definition) with the version-level
-    /// yank flag.  Pending and rejected revisions never reach
-    /// composition, and a pending respin leaves the previously served
-    /// revision in place here.  `CROSS JOIN` makes `versions` the outer
+    /// yank flag.  Pending and rejected revisions, and verified ones
+    /// not yet in ARCHIVES, never reach composition, and a respin
+    /// leaves the previously served revision in place here until its
+    /// own archive is placed.  `CROSS JOIN` makes `versions` the outer
     /// loop (SQLite never reorders it), so the read seeks the package
     /// by primary key: the registry never runs `ANALYZE`, and without
     /// `sqlite_stat1` the planner drives the flattened view from
@@ -19,22 +20,24 @@ statements! {
            ON c.scope = v.scope AND c.name = v.name AND c.version = v.version \
          WHERE v.scope = ?1 AND v.name = ?2";
 
-    /// Every **verified** revision of the package, for the composed
-    /// document's per-version `revisions` maps: superseded revisions
-    /// stay listed (and fetchable) so pinned lockfiles keep building,
-    /// and their stored documents give them their own `resolution`.
+    /// Every **served** revision of the package (verified, its archive
+    /// in ARCHIVES), for the composed document's per-version
+    /// `revisions` maps: superseded revisions stay listed (and
+    /// fetchable) so pinned lockfiles keep building, and their stored
+    /// documents give them their own `resolution`.
     VERIFIED_REVISIONS_BY_PACKAGE =
         "SELECT version, revision, checksum, published_at, metadata_json FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND verification = 'verified' \
+         AND archived_at IS NOT NULL \
          ORDER BY version, revision";
 
     /// The yank handler's current-state read: the version-level yank
-    /// flag plus whether any revision is verified (yank applies to
+    /// flag plus whether any revision is served (yank applies to
     /// versions the registry actually serves).
     VERSION_YANK_STATE =
         "SELECT v.yanked, EXISTS(SELECT 1 FROM revisions r \
          WHERE r.scope = v.scope AND r.name = v.name AND r.version = v.version \
-         AND r.verification = 'verified') AS verified \
+         AND r.verification = 'verified' AND r.archived_at IS NOT NULL) AS verified \
          FROM versions v WHERE v.scope = ?1 AND v.name = ?2 AND v.version = ?3";
 
     /// Applies a yank or un-yank; the `yanked` column is the single home
@@ -172,13 +175,14 @@ statements! {
            ON c.scope = v.scope AND c.name = v.name AND c.version = v.version \
          WHERE v.scope = ?1 AND v.name = ?2";
 
-    /// Whether the package is visible at all (>= 1 verified version):
+    /// Whether the package is visible at all (>= 1 served version):
     /// the reverse-dependencies target gate.  The unary `+` keeps the
     /// planner off `revisions_verification`, which without
     /// `sqlite_stat1` it would otherwise prefer to the primary key.
     HAS_VERIFIED_VERSION =
         "SELECT COUNT(*) AS n FROM revisions \
-         WHERE scope = ?1 AND name = ?2 AND +verification = 'verified'";
+         WHERE scope = ?1 AND name = ?2 AND +verification = 'verified' \
+         AND archived_at IS NOT NULL";
 
     /// The verified versions whose stored `dependencies` map contains
     /// the canonical `<scope>/<name>` key in `?1`: a `json_each` walk

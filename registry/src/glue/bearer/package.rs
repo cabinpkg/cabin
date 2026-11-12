@@ -17,7 +17,7 @@ use crate::glue::{
 use crate::governor::OpPool;
 use crate::governor_client::{self, Gate};
 use crate::publish;
-use crate::{quota, sql, upload, verify};
+use crate::{publication, quota, sql, upload, verify};
 
 use super::denial_response;
 
@@ -36,7 +36,7 @@ struct StoredRevisionRecord {
 #[derive(Deserialize)]
 struct YankedRecord {
     yanked: i64,
-    /// Whether any revision of the version is verified (the
+    /// Whether any revision of the version is served (the
     /// `EXISTS(...) AS verified` column): yank applies to versions
     /// the registry actually serves.
     verified: i64,
@@ -489,7 +489,15 @@ async fn attempt(
             if let Some(refused) = govern_store(env, true).await? {
                 return Ok(Some(refused));
             }
-            let stored_at = store(env, upload_id, request.archive, true, preflight.now).await?;
+            let stored_at = store(
+                env,
+                upload_id,
+                request.archive,
+                request.checksum,
+                true,
+                preflight.now,
+            )
+            .await?;
             if confirm(
                 db,
                 preflight,
@@ -568,6 +576,7 @@ async fn admit_and_store(
         env,
         request.upload_id,
         request.archive,
+        request.checksum,
         head_first,
         preflight.now,
     )
@@ -768,11 +777,14 @@ async fn govern_store(env: &Env, head_first: bool) -> worker::Result<Option<Resp
 /// is: writing it again would restart the lifetime the bucket's expiry
 /// counts. `now` is sampled before the put, so the recorded time is
 /// never later than the object's own and the verification deadline it
-/// starts never outlives the object.
+/// starts never outlives the object. The put carries the archive's
+/// SHA-256 (`checksum`), which R2 checks and records with the object:
+/// the archive placement reads it to tell whose bytes an upload holds.
 async fn store(
     env: &Env,
     upload_id: &str,
     archive: &[u8],
+    checksum: &str,
     head_first: bool,
     now: &str,
 ) -> worker::Result<String> {
@@ -781,7 +793,13 @@ async fn store(
     if head_first && let Some(object) = bucket.head(&key).await? {
         return Ok(iso8601_from_ms(object.uploaded().as_millis()));
     }
-    bucket.put(&key, archive.to_vec()).execute().await?;
+    let digest = publication::digest(checksum)
+        .ok_or_else(|| worker::Error::RustError("the checksum is not canonical".to_owned()))?;
+    bucket
+        .put(&key, archive.to_vec())
+        .sha256(digest)
+        .execute()
+        .await?;
     Ok(now.to_owned())
 }
 

@@ -5,7 +5,8 @@
 use cabin_registry_worker::sql;
 
 use crate::common::{
-    Limits, Op, admit_new, admit_revival, migrated_connection, reject, rows, seed_scope_collision,
+    Limits, Op, admit_new, admit_revival, archive_verified, migrated_connection, reject, rows,
+    seed_scope_collision,
 };
 
 /// One 10-byte default-class upload by the seeded user 2, under an
@@ -228,6 +229,7 @@ fn seed_search_corpus(conn: &rusqlite::Connection) {
             '2026-07-18T00:00:00.000Z', 10, 2, 'verified');"#,
     )
     .expect("seed the search corpus");
+    archive_verified(conn);
 }
 
 /// Runs [`sql::SEARCH_VERIFIED_VERSIONS`] with the term the session
@@ -308,6 +310,7 @@ fn catalog_rows_are_the_current_revisions_of_unyanked_verified_versions() {
         [],
     )
     .expect("pending respin and superseded revision");
+    archive_verified(&conn);
 
     let mut statement = conn
         .prepare(sql::CATALOG_VERSIONS)
@@ -560,7 +563,8 @@ fn revision_opt_in_is_enforced_inside_the_gates() {
     // A version whose only revisions are rejected accepts a fresh one
     // without the flag - the recovery path.
     conn.execute(
-        "UPDATE revisions SET verification = 'rejected' WHERE scope = 'alpha'",
+        "UPDATE revisions SET verification = 'rejected', archived_at = NULL \
+         WHERE scope = 'alpha'",
         [],
     )
     .expect("reject both revisions");
@@ -620,13 +624,17 @@ fn current_revisions_view_serves_the_newest_verified_revision() {
     .expect("pending respin");
     assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
 
-    // Once verified, the newer publish time takes over, and both
-    // revisions stay listed for the composed document.
+    // Nor does a verified one whose archive is not in ARCHIVES yet.
     conn.execute(
         "UPDATE revisions SET verification = 'verified' WHERE revision = 'a2'",
         [],
     )
     .expect("verify the respin");
+    assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
+
+    // Once its archive is placed, the newer publish time takes over,
+    // and both revisions stay listed for the composed document.
+    archive_verified(&conn);
     assert_eq!(current(), Some(("a2".to_owned(), "a2".to_owned())));
     let listed: i64 = conn
         .query_row(
@@ -717,6 +725,7 @@ fn a_respin_may_change_resolution_metadata() {
         [],
     )
     .expect("verify the respin");
+    archive_verified(&conn);
     let mut listed = conn
         .prepare(sql::VERIFIED_REVISIONS_BY_PACKAGE)
         .expect("prepare listing");

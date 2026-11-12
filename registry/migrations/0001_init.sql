@@ -358,9 +358,10 @@ CREATE TABLE revisions (
     published_by INTEGER NOT NULL REFERENCES users,
     -- The asynchronous verification lifecycle (docs/architecture.md,
     -- "The verification lifecycle"): 'pending' (published, not yet
-    -- resolvable), 'verified' (part of the registry, immutable), or
-    -- 'rejected' (never became part of the registry; the revision may
-    -- be republished).
+    -- resolvable), 'verified' (passed verification; part of the
+    -- registry, and immutable, once archived_at is set), or 'rejected'
+    -- (never became part of the registry; the revision may be
+    -- republished).
     verification TEXT NOT NULL DEFAULT 'pending',
     verification_reason TEXT,
     verified_at TEXT,
@@ -382,6 +383,11 @@ CREATE TABLE revisions (
     -- with NULL here is a reservation: admitted and counted, not yet
     -- something the verifier may see.
     stored_at TEXT,
+    -- When the archive was confirmed in ARCHIVES under the revision's
+    -- own key. A 'verified' row with NULL here passed verification and
+    -- is not served yet; the row is part of the registry from the
+    -- moment this is set, and it is never cleared.
+    archived_at TEXT CHECK (archived_at IS NULL OR verification = 'verified'),
     PRIMARY KEY (scope, name, version, revision),
     FOREIGN KEY (scope, name, version) REFERENCES versions (scope, name, version)
 );
@@ -406,22 +412,27 @@ CREATE INDEX revisions_settled_uploads ON revisions (COALESCE(verified_at, rejec
 -- range over the package's revisions of one day, not its history.
 CREATE INDEX revisions_published_at ON revisions (scope, name, published_at);
 CREATE INDEX revisions_verification ON revisions (verification);
+-- The archive placement's work list: verified revisions not yet in
+-- ARCHIVES, oldest verdict first.
+CREATE INDEX revisions_unarchived ON revisions (verified_at)
+    WHERE verification = 'verified' AND archived_at IS NULL;
 
 -- The single definition of "the revision the read plane serves": per
--- verified version, the verified revision with the newest
+-- version, the verified revision in ARCHIVES with the newest
 -- published_at (revision id as the deterministic tie-break).  Every
 -- read projection - package documents, search, package detail,
 -- reverse dependencies, the source viewer, stats - selects through
 -- this view, so "current" can never mean different things on
--- different routes.  Pending and rejected rows are invisible here by
+-- different routes.  Pending and rejected rows, and verified ones
+-- whose archive is not in ARCHIVES yet, are invisible here by
 -- construction.
 CREATE VIEW current_revisions AS
 SELECT r.* FROM revisions r
-WHERE r.verification = 'verified'
+WHERE r.verification = 'verified' AND r.archived_at IS NOT NULL
 AND NOT EXISTS (
     SELECT 1 FROM revisions s
     WHERE s.scope = r.scope AND s.name = r.name AND s.version = r.version
-    AND s.verification = 'verified'
+    AND s.verification = 'verified' AND s.archived_at IS NOT NULL
     AND (s.published_at > r.published_at
          OR (s.published_at = r.published_at AND s.revision > r.revision))
 );

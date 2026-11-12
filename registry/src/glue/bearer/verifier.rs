@@ -7,6 +7,7 @@ use worker::{D1Database, Env, Request, Response, console_error, console_log};
 
 use crate::auth::{self, AuthContext};
 use crate::error;
+use crate::glue::publication::place_archives;
 use crate::glue::{
     MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response, has_verify_scope, js_int,
     json_response, json_response_with_status, now_epoch_ms, now_iso8601,
@@ -251,13 +252,17 @@ pub(super) async fn verdict_authn(
 /// the row, so a duplicate concurrent verdict cannot refund twice. The
 /// archive itself is left to the UPLOADS bucket's expiry.
 /// Deliberately **not** gated by the budget breaker, unlike publish
-/// and yank: a verdict stores no new bytes (a rejection frees them),
-/// so blocking it would only stall the pending queue - verification
-/// must be able to drain it whatever the service mode.
-/// The response reports the resulting state plus whether this request
-/// changed it.
+/// and yank: a verdict admits no new bytes (placement copies ones
+/// already charged, a rejection frees them), so blocking it would only
+/// stall the pending queue - verification must be able to drain it
+/// whatever the service mode.
+/// The response reports the state the verdict left the row in plus
+/// whether this request changed it. A verdict that verified a revision
+/// runs an archive placement pass before it answers, so the revision is
+/// normally served by then; the response is the verdict's either way.
 pub(super) async fn verdict_response(
     req: &mut Request,
+    env: &Env,
     db: &D1Database,
     scope: &str,
     name: &str,
@@ -328,6 +333,9 @@ pub(super) async fn verdict_response(
         verify::Verdict::Verified => verify::Status::Verified,
         verify::Verdict::Rejected => verify::Status::Rejected,
     };
+    if changed && resulting == verify::Status::Verified {
+        place_archives(env, db).await;
+    }
     json_response_with_status(
         200,
         &serde_json::json!({

@@ -4,9 +4,10 @@
 //! alert (`docs/remote-registry.md`, "Verification lifecycle").
 //!
 //! Fail-safe direction: nothing becomes resolvable or downloadable by
-//! ordinary tokens unless its status is exactly `verified`, so a
-//! verifier that never runs - or a status value that does not parse -
-//! can only keep content unexposed, never expose it.
+//! ordinary tokens unless its status is exactly `verified` and its
+//! archive is in ARCHIVES, so a verifier that never runs, a placement
+//! that never completes, or a status value that does not parse can
+//! only keep content unexposed, never expose it.
 
 use serde::Deserialize;
 
@@ -14,12 +15,13 @@ use crate::error;
 
 /// The `revisions.verification` column. Every published revision is
 /// `pending` until the external verifier renders a verdict; only
-/// `verified` revisions are part of the registry (composed into package
-/// documents, downloadable with ordinary tokens, immutable). `rejected`
-/// revisions never became part of the registry: their stored bytes are
-/// refunded to the publisher's quota, their object expires with the
-/// rest of UPLOADS, and the same `(scope, name, version)` may be
-/// republished.
+/// `verified` revisions become part of the registry (composed into
+/// package documents, downloadable with ordinary tokens, immutable),
+/// each from the moment its archive is in ARCHIVES
+/// (`crate::publication`). `rejected` revisions never became part of
+/// the registry: their stored bytes are refunded to the publisher's
+/// quota, their object expires with the rest of UPLOADS, and the same
+/// `(scope, name, version)` may be republished.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Pending,
@@ -187,12 +189,13 @@ pub fn transition(current: Status, verdict: Verdict) -> Transition {
 }
 
 /// Whether the artifact route serves a revision to this request:
-/// verified revisions to everyone (reads are public), pending revisions
-/// only to the `verify` scope (the verifier downloads the bytes it
-/// inspects), and rejected revisions to no one.
-pub fn artifact_readable(status: Status, has_verify_scope: bool) -> bool {
+/// verified revisions whose archive is in ARCHIVES to everyone (reads
+/// are public), pending revisions only to the `verify` scope (the
+/// verifier downloads the bytes it inspects), and rejected revisions
+/// to no one.
+pub fn artifact_readable(status: Status, archived: bool, has_verify_scope: bool) -> bool {
     match status {
-        Status::Verified => true,
+        Status::Verified => archived,
         Status::Pending => has_verify_scope,
         Status::Rejected => false,
     }
@@ -407,13 +410,22 @@ mod tests {
     }
 
     #[test]
-    fn artifact_gate_serves_verified_to_all_and_pending_to_verify_only() {
-        assert!(artifact_readable(Status::Verified, false));
-        assert!(artifact_readable(Status::Verified, true));
-        assert!(!artifact_readable(Status::Pending, false));
-        assert!(artifact_readable(Status::Pending, true));
-        assert!(!artifact_readable(Status::Rejected, false));
-        assert!(!artifact_readable(Status::Rejected, true));
+    fn artifact_gate_serves_archived_to_all_and_pending_to_verify_only() {
+        for has_verify_scope in [false, true] {
+            assert!(artifact_readable(Status::Verified, true, has_verify_scope));
+            assert!(!artifact_readable(
+                Status::Verified,
+                false,
+                has_verify_scope
+            ));
+            assert!(!artifact_readable(
+                Status::Rejected,
+                false,
+                has_verify_scope
+            ));
+        }
+        assert!(!artifact_readable(Status::Pending, false, false));
+        assert!(artifact_readable(Status::Pending, false, true));
     }
 
     #[test]

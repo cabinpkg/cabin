@@ -66,9 +66,9 @@ From the repository root, the static guards no local gate runs for you
 conformance test — `README.md`, "Development"). CI also model-checks the
 TLA+ lifecycle specification in `proofs/` (its `README.md` has the
 command and the action-to-code map); a change to the publish, revival,
-upload-lifecycle, verdict, read-gate, or stored-bytes statements, or to
-the verifier's pass in `crates/xtask-registry-admin/src/verify.rs`, must
-keep it faithful.
+upload-lifecycle, verdict, archive-placement, read-gate, or stored-bytes
+statements, or to the verifier's pass in
+`crates/xtask-registry-admin/src/verify.rs`, must keep it faithful.
 For changes to dispatch, routing, or another end-to-end surface, also
 run the local smoke test: `npm ci --ignore-scripts` from this directory
 first (again whenever `package-lock.json` changes) to install the pinned

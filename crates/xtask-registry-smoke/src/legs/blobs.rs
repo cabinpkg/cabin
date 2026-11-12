@@ -5,8 +5,9 @@
 //! the republish that supersedes it and its refund in turn, the upload
 //! id that already names another revision, the byte-identical revival
 //! under a new one, the cron's release of an expired reservation and
-//! the resume under its own id, and the byte-identical refusal an
-//! unclaimed and a foreign scope must both answer.
+//! the resume under its own id, the two ends of an archive placement
+//! that did not finish in its verdict's request, and the byte-identical
+//! refusal an unclaimed and a foreign scope must both answer.
 //!
 //! Three comparisons here check a response against one an *earlier*
 //! request left in the shared buffer: each reads a clone taken before
@@ -100,6 +101,7 @@ pub fn run(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     reject_replacement(smoke, inputs, &before_bytes)?;
     let revival = restart_verification(smoke, inputs, &before_bytes, &replacement, &first_upload)?;
     resume_released(smoke, inputs, &before_bytes, &replacement, &revival)?;
+    cron_records_placed_archives(smoke)?;
     uniform_403(smoke, inputs)
 }
 
@@ -326,6 +328,11 @@ fn restart_verification(
 /// so the expiry is written into the revival's row directly - no
 /// `stored_at`, a `published_at` past the limit, its object deleted.
 /// The release and the resume are the Worker's own.
+///
+/// The resumed revision is then verified with its upload deleted
+/// again and its upload id cleared, as a row is thirty days after its
+/// verdict: with no archive to place it is rejected and refunded
+/// rather than left verified and unserved.
 fn resume_released(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
@@ -358,13 +365,57 @@ fn resume_released(
         bail!("the resumed archive is not in UPLOADS under its upload id");
     }
 
-    // Judged here rather than left pending: the default class holds
-    // three pending uploads at a time (`registry/src/quota.rs`), and
-    // the legs after this one need the room.
+    step("a verified revision whose upload is gone is rejected, never served");
     let entry = pending_entry(smoke, inputs)?;
-    let verdict = verdict_rejected(&entry.checksum, &entry.published_at);
+    delete_upload(upload_id, inputs.work)?;
+    d1_quiet(&format!(
+        "UPDATE revisions SET upload_id = NULL WHERE upload_id = '{upload_id}';"
+    ))?;
+    let verdict = verdict_verified(&entry.checksum, &entry.published_at);
     smoke.verdict_patch(inputs.verdict2_path, verdict.as_bytes(), &[200])?;
+    let rows = d1_rows(&format!(
+        "SELECT verification, verification_reason FROM revisions
+         WHERE checksum = '{}' AND published_at = '{}'",
+        entry.checksum, entry.published_at
+    ))?;
+    let field = |key| {
+        rows.first()
+            .and_then(|row| row.get(key))
+            .and_then(Value::as_str)
+    };
+    if (field("verification"), field("verification_reason"))
+        != (Some("rejected"), Some("publication_source_lost"))
+    {
+        bail!("the revision with no archive to place was not rejected: {rows:?}");
+    }
+    // The rejection refunds like any other, and frees the pending slot
+    // the legs after this one need: the default class holds three
+    // pending uploads at a time (`registry/src/quota.rs`).
+    if stored_bytes()? != before_bytes {
+        bail!("the lost upload was not refunded: {}", stored_bytes()?);
+    }
+    smoke.check(&replacement.artifact, &[404])?;
     smoke.as_publisher();
+    smoke.check(&replacement.artifact, &[404])
+}
+
+/// A placement pass that died after its copy leaves the object in
+/// ARCHIVES and the revision unserved.  That state is written into
+/// every served row directly; the cron's pass must find each object
+/// and record it.
+fn cron_records_placed_archives(smoke: &mut Smoke) -> Result<()> {
+    step("the cron serves a revision whose archive a dead pass had placed");
+    let unserved = || {
+        d1_rows("SELECT 1 FROM revisions WHERE verification = 'verified' AND archived_at IS NULL")
+    };
+    d1_quiet("UPDATE revisions SET archived_at = NULL;")?;
+    if unserved()?.is_empty() {
+        bail!("no served revision was left to un-record");
+    }
+    smoke.check(BREAKER_CRON, &[200])?;
+    if !unserved()?.is_empty() {
+        bail!("the cron left a placed archive unrecorded");
+    }
     Ok(())
 }
 
@@ -461,6 +512,15 @@ fn verdict_stale(checksum: &str) -> String {
     format!(
         r#"{{"verdict":"verified","checksum":{},"published_at":"{EPOCH}"}}"#,
         json_string(checksum)
+    )
+}
+
+/// A verified verdict bound to its entry.
+fn verdict_verified(checksum: &str, published_at: &str) -> String {
+    format!(
+        r#"{{"verdict":"verified","checksum":{},"published_at":{}}}"#,
+        json_string(checksum),
+        json_string(published_at)
     )
 }
 
