@@ -368,10 +368,10 @@ pub(crate) enum Command {
     Run(crate::cli::run::RunArgs),
     /// Install a package's executables.
     ///
-    /// Builds the `executable` targets of the package in `--path`
-    /// and copies them into the `bin` directory of the install
-    /// root: `--root`, or `.cabin` in the home directory.  The
-    /// directory is not added to `PATH`.
+    /// Builds the `executable` targets of a registry package, or of
+    /// the package in `--path`, and copies them into the `bin`
+    /// directory of the install root: `--root`, or `.cabin` in the
+    /// home directory.  The directory is not added to `PATH`.
     Install(crate::cli::install::InstallArgs),
     /// Remove an installed package's executables.
     ///

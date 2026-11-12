@@ -10,15 +10,24 @@ installed (see [`build-scripts.md`](build-scripts.md)).
 ## Usage
 
 ```text
+cabin install <PACKAGE>[@<REQ>] [--bin <NAME>]... [--root <DIR>] [OPTIONS]
 cabin install --path <DIR> [--bin <NAME>]... [--root <DIR>] [OPTIONS]
 cabin install --list [--root <DIR>]
 cabin uninstall <PACKAGE> [--bin <NAME>]... [--root <DIR>]
 ```
 
+`<PACKAGE>` names a package in the registry your [configuration](config.md#registry) names.
+`cabin install acme/tool` installs the newest version, and `cabin install acme/tool@1.2` the newest
+one that [version requirement](manifest.md#version-requirement-syntax) allows, read as a manifest
+reads it: `acme/tool@=1.2.0` installs that version only.  A yanked version is never installed, and
+a pre-release only when the requirement names one.  The package and its dependencies are fetched
+and built as a project that depends on them builds them: each archive is checked against the
+checksum its index entry records, and a package's [build script](build-scripts.md) runs when its
+index entry declares one.
+
 `--path` names the directory that holds the package's `cabin.toml`.  A member of a
 [workspace](workspaces.md) is built as its workspace builds it: with what it inherits from the
-workspace root, and the root's `[patch]` and `[profile]` tables.  Installing a package from a
-registry is not available yet.
+workspace root, and the root's `[patch]` and `[profile]` tables.
 
 ## What is installed, and where
 
@@ -47,8 +56,22 @@ As `cabin build` builds it, build scripts confined the same way, with these diff
   a `[patch]` entry in such a file does not apply.
 - The build is for the machine it runs on.
 
-`--features`, `--all-features`, and `--no-default-features` choose the package's features, and
-`--offline` forbids network access.
+`--features` and `--no-default-features` choose the package's features, and so does
+`--all-features` with `--path`.  `--offline` forbids network access: a registry package then
+installs only when your configuration names its registry by `index-path`, such as a
+[vendored](vendoring-offline.md) one, and not by URL.
+
+A registry package is built as a dependency is, so less of its manifest applies than with `--path`:
+
+- A package that declares `[profile.<name>]` tables, a `[toolchain]` table, or
+  `[build] compiler-wrapper` is refused: those belong to the root of a build.
+- The raw `cflags`, `cxxflags`, and `ldflags` it declares are dropped, and the
+  [environment's flags](environment-variables.md#cppflags--cflags--cxxflags--ldflags) do not reach
+  it.
+- Its `system = true` dependencies are not probed, so a program that needs one does not link.
+- `--profile` names `dev` or `release`.
+
+Install such a package from a copy of its sources with `--path`.
 
 Only the executable is copied.  Cabin links the libraries of the packages it builds statically, so
 the program does not need its build.  A shared library a package names through raw `ldflags` is
@@ -56,9 +79,12 @@ not copied: the program finds it only where those flags said.
 
 ## The lockfile
 
-The `cabin.lock` next to the package's `cabin.toml`, or next to its workspace root's for a
-workspace member, is read and never written.  The versions it names are used where they still
-satisfy the manifest; the rest are resolved as if there were no lockfile.
+With `--path`, the `cabin.lock` next to the package's `cabin.toml`, or next to its workspace
+root's for a workspace member, is read and never written.  The versions it names are used where
+they still satisfy the manifest; the rest are resolved as if there were no lockfile.
+
+A registry package's archive holds no lockfile, so the versions of its dependencies are resolved at
+each installation, and `--locked` is for `--path` only.
 
 `--locked` takes every version from the lockfile.  It fails when the package has registry
 dependencies and the file is missing or no longer matches the manifest, and when the file was
@@ -96,12 +122,14 @@ deletes it during a later `cabin install` or `cabin uninstall` once the program 
 
 ```text
 $ cabin install --list
+acme/tool v1.2.0 (sha256:9f2c...):
+    tool
 hello v0.1.0 (/home/me/src/hello):
     hello
 ```
 
-Each installed package is listed with its version, the directory it was installed from, and its
-executables.
+Each installed package is listed with its version, its executables, and the directory it was
+installed from or, for a registry package, the checksum of its archive.
 
 ## Uninstalling
 

@@ -701,6 +701,243 @@ void say_hello() {{ std::cout << "fmt {version}\n"; }}
     assert_eq!(fs::read_to_string(&lockfile).unwrap(), locked);
 }
 
+/// A user configuration under `dir` whose registry is `registry`:
+/// `index-path = ...` or `index-url = ...`.
+fn registry_config(dir: &Path, registry: &str) -> PathBuf {
+    assert_fs::fixture::ChildPath::new(dir.join("config.toml"))
+        .write_str(&format!("[registry]\n{registry}\n"))
+        .unwrap();
+    dir.to_owned()
+}
+
+/// `cabin` reading the user configuration in `config`, with `cache`
+/// as its cache.
+fn cabin_configured(config: &Path, cache: &Path) -> Command {
+    let mut cmd = cabin_with_config();
+    cmd.env("CABIN_CONFIG_HOME", config)
+        .env("CABIN_CACHE_DIR", cache);
+    cmd
+}
+
+/// A published program installs by its name in the registry, and a
+/// project builds with the same package as its `[build-dependencies]`
+/// generator.  Neither needs the other: the project builds before
+/// anything is installed, and each fills a cache of its own.
+/// `@<req>` installs the newest version the requirement allows, a
+/// request the registry cannot satisfy changes nothing, and an HTTP
+/// registry serves as a directory does.
+#[test]
+fn a_registry_package_installs_by_name_and_generates_for_a_project() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let packages = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/build-script-generator/packages");
+    let embed = dir.child("embed");
+    embed.copy_from(packages.join("embed"), &["**"]).unwrap();
+    let app = dir.child("app");
+    app.copy_from(packages.join("app"), &["**"]).unwrap();
+    let rewrite = |file: PathBuf, from: &str, to: &str| {
+        let text = fs::read_to_string(&file).unwrap();
+        fs::write(file, text.replace(from, to)).unwrap();
+    };
+    rewrite(
+        embed.path().join("cabin.toml"),
+        r#"name = "embed""#,
+        "name = \"acme/embed\"\nlicense = \"MIT\"",
+    );
+    rewrite(
+        app.path().join("cabin.toml"),
+        r#"embed = { path = "../embed" }"#,
+        r#""acme/embed" = "0.1.0""#,
+    );
+    let registry = dir.path().join("registry");
+    let publish = || {
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(embed.path().join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(&registry)
+            .assert()
+            .success();
+    };
+    publish();
+    let config = registry_config(
+        &dir.path().join("config"),
+        &format!(
+            "index-path = {}",
+            serde_json::to_string(registry.to_str().unwrap()).unwrap()
+        ),
+    );
+    let root = dir.path().join("root");
+
+    cabin_configured(&config, &dir.path().join("project-cache"))
+        .current_dir(app.path())
+        .arg("run")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Hello from an embedded file"));
+
+    let install = |spec: &str| {
+        let mut cmd = cabin_configured(&config, &dir.path().join("install-cache"));
+        cmd.args(["install", spec, "--root"]).arg(&root);
+        cmd
+    };
+    // What the installed generator makes of the project's file.
+    let generated = |root: &Path| {
+        let output = StdCommand::new(installed(root, "embed"))
+            .arg(app.path().join("assets/banner.txt"))
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    install("acme/embed").assert().success();
+    assert!(generated(&root).starts_with("static const unsigned char embedded[]"));
+    assert!(!generated(&root).contains("0.2.0"));
+
+    rewrite(embed.path().join("cabin.toml"), "0.1.0", "0.2.0");
+    rewrite(
+        embed.path().join("src/main.c"),
+        r#"puts("0};");"#,
+        r#"puts("0}; // 0.2.0");"#,
+    );
+    publish();
+    install("acme/embed").assert().success();
+    assert!(generated(&root).contains("0.2.0"));
+    let listed = list(&root);
+    assert!(listed.starts_with("acme/embed v0.2.0 (sha256:"), "{listed}");
+
+    install("acme/embed@0.1")
+        .arg("--offline")
+        .assert()
+        .success();
+    for (spec, message) in [
+        ("acme/embed@0.3", r#"no version of "acme/embed" satisfies"#),
+        ("acme/none", r#"package "acme/none" was not found"#),
+        ("acme/embed@new", "invalid version requirement `new`"),
+        ("embed", "`embed` is a bare name"),
+    ] {
+        install(spec)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(message));
+    }
+    assert!(!generated(&root).contains("0.2.0"));
+    let listed = list(&root);
+    assert!(listed.starts_with("acme/embed v0.1.0 (sha256:"), "{listed}");
+    let record = record(&root);
+    assert!(record.contains(r#""registry""#), "{record}");
+
+    let server = super::sparse_http::TestServer::serve(registry);
+    let config = registry_config(
+        &dir.path().join("http-config"),
+        &format!("index-url = \"{}\"", server.url()),
+    );
+    let root = dir.path().join("http-root");
+    cabin_configured(&config, &dir.path().join("http-cache"))
+        .args(["install", "acme/embed", "--root"])
+        .arg(&root)
+        .assert()
+        .success();
+    assert!(generated(&root).contains("0.2.0"));
+}
+
+/// A registry package is built with the features asked for, by the
+/// build script its index entry declares: only the script defines what
+/// the program prints.
+#[test]
+fn a_registry_packages_features_and_build_script_apply() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let say = dir.child("say");
+    say.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "acme/say"
+version = "1.0.0"
+license = "MIT"
+c-standard = "c11"
+
+[features]
+default = ["loud"]
+loud = []
+twice = []
+
+[target.say]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        )
+        .unwrap();
+    say.child("build.c")
+        .write_str(
+            r#"#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+    FILE *file = fopen(getenv("CABIN_RESULT_FILE"), "w");
+    if (!file) return 1;
+    fprintf(file, "define say LOUD=%d\n", getenv("CABIN_FEATURE_LOUD") != NULL);
+    fprintf(file, "define say TWICE=%d\n", getenv("CABIN_FEATURE_TWICE") != NULL);
+    return fclose(file) != 0;
+}
+"#,
+        )
+        .unwrap();
+    say.child("src/main.c")
+        .write_str(
+            r#"#include <stdio.h>
+int main(void) {
+    printf("%s%s\n", LOUD ? "HELLO" : "hello", TWICE ? " again" : "");
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+    let registry = dir.path().join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(say.path().join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    let config = registry_config(
+        &dir.path().join("config"),
+        &format!(
+            "index-path = {}",
+            serde_json::to_string(registry.to_str().unwrap()).unwrap()
+        ),
+    );
+    let root = dir.path().join("root");
+    let install = |flags: &[&str]| {
+        cabin_configured(&config, &dir.path().join("cache"))
+            .args(["install", "acme/say", "--root"])
+            .arg(&root)
+            .args(flags)
+            .assert()
+            .success();
+        output_of(&installed(&root, "say"))
+    };
+
+    assert_eq!(install(&[]), "HELLO\n");
+    assert_eq!(install(&["--no-default-features"]), "hello\n");
+    assert_eq!(
+        install(&["--no-default-features", "--features", "twice"]),
+        "hello again\n"
+    );
+    let record = record(&root);
+    assert!(record.contains(r#""twice""#), "{record}");
+    assert!(!record.contains(r#""loud""#), "{record}");
+
+    cabin()
+        .args(["uninstall", "acme/say", "--root"])
+        .arg(&root)
+        .assert()
+        .success();
+    assert!(!installed(&root, "say").exists());
+}
+
 #[test]
 fn two_installs_at_once_both_land() {
     require_c_and_cxx_build_tools();

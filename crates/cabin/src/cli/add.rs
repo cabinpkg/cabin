@@ -208,7 +208,7 @@ fn build_path_dependency(
 
 /// Split a `<name>@<req>` dependency spec; `<name>` alone yields no
 /// requirement.
-fn split_dep_spec(spec: &str) -> (&str, Option<&str>) {
+pub(super) fn split_dep_spec(spec: &str) -> (&str, Option<&str>) {
     match spec.split_once('@') {
         Some((name, req)) => (name, Some(req)),
         None => (spec, None),
@@ -217,14 +217,14 @@ fn split_dep_spec(spec: &str) -> (&str, Option<&str>) {
 
 /// Parse a version requirement the same lenient way the manifest parser
 /// does, so `cabin add foo@1.2` and a hand-written `foo = "1.2"` agree.
-fn parse_req(name: &str, raw: &str) -> Result<VersionReq> {
+pub(super) fn parse_req(name: &str, raw: &str) -> Result<VersionReq> {
     cabin_core::version_req::parse_lenient(raw)
         .map_err(|err| anyhow::anyhow!("invalid version requirement `{raw}` for `{name}`: {err}"))
 }
 
 /// Flatten repeated and comma/space-separated `--features` values into a
 /// single list, dropping empty entries.
-fn split_features(raw: &[String]) -> Vec<String> {
+pub(super) fn split_features(raw: &[String]) -> Vec<String> {
     raw.iter()
         .flat_map(|value| value.split([',', ' ']))
         .filter(|feature| !feature.is_empty())
