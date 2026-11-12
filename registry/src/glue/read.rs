@@ -23,7 +23,7 @@ use super::{
 };
 
 #[derive(Deserialize)]
-struct VersionRecord {
+pub(super) struct VersionRecord {
     version: String,
     revision: String,
     metadata_json: String,
@@ -31,7 +31,7 @@ struct VersionRecord {
 }
 
 #[derive(Deserialize)]
-struct RevisionListRecord {
+pub(super) struct RevisionListRecord {
     version: String,
     revision: String,
     checksum: String,
@@ -216,6 +216,23 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
         .all()
         .await?
         .results()?;
+    match package_document(scope, name, records, revision_records) {
+        Ok(body) => json_response(&body),
+        Err(detail) => {
+            console_error!("package document for {scope}/{name}: {detail}");
+            error_response(500, error::INTERNAL)
+        }
+    }
+}
+
+/// A package's document from its [`sql::CURRENT_REVISIONS_BY_PACKAGE`]
+/// and [`sql::VERIFIED_REVISIONS_BY_PACKAGE`] rows.
+pub(super) fn package_document(
+    scope: &str,
+    name: &str,
+    records: Vec<VersionRecord>,
+    revision_records: Vec<RevisionListRecord>,
+) -> Result<String, String> {
     let rows: Vec<VersionRow> = records
         .into_iter()
         .map(|record| VersionRow {
@@ -235,13 +252,7 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
             metadata_json: record.metadata_json,
         })
         .collect();
-    match documents::package_json(scope, name, &rows, &revisions) {
-        Ok(body) => json_response(&body),
-        Err(detail) => {
-            console_error!("package document for {scope}/{name}: {detail}");
-            error_response(500, error::INTERNAL)
-        }
-    }
+    documents::package_json(scope, name, &rows, &revisions)
 }
 
 /// `GET /catalog.json`: [`documents::catalog_json`] over every

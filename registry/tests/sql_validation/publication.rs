@@ -1,6 +1,7 @@
 //! Executed-semantics tests for `src/sql/publication.rs`: what the read
-//! plane serves before and after an archive is placed, and the guards
-//! of the placement pass's two writes.
+//! plane serves before and after an archive is placed, the guards of
+//! the placement pass's two writes, and the generations and jobs of the
+//! publish pass.
 
 use cabin_registry_worker::{publication, sql};
 use rusqlite::Connection;
@@ -174,5 +175,156 @@ fn only_the_unplaced_generation_the_pass_listed_is_rejected() {
         )
         .expect("REJECT_UNARCHIVED_REVISION"),
         0
+    );
+}
+
+/// One batch that changes what `scope/pkg`'s document says: the change
+/// itself, then the statements `glue::publication::document_changed`
+/// puts after it; each statement's changed rows.
+fn change(conn: &Connection, statement: &str, values: Vec<Value>, scope: &str) -> Vec<usize> {
+    batch(
+        conn,
+        vec![
+            (statement, values),
+            (sql::ADVANCE_CATALOG_GENERATION, vec![]),
+            (
+                sql::STAMP_PACKAGE_GENERATION,
+                vec![text(scope), text("pkg")],
+            ),
+            (
+                sql::RECORD_PUBLICATION_JOB,
+                vec![text(scope), text("pkg"), text(NOW)],
+            ),
+        ],
+    )
+    .into_iter()
+    .map(|(changed, _)| changed)
+    .collect()
+}
+
+/// A yank or un-yank of `alpha/pkg@1.0.0`, the flag bound as the
+/// number D1 binds.
+fn yank(conn: &Connection, yanked: f64) -> Vec<usize> {
+    let values = vec![yanked.into(), text("alpha"), text("pkg"), text("1.0.0")];
+    change(conn, sql::SET_VERSION_YANKED, values, "alpha")
+}
+
+/// Completes `scope/pkg`'s jobs up to `generation`, bound as the number
+/// D1 binds, that were recorded by `settled`; the rows changed.
+fn complete(conn: &Connection, scope: &str, generation: f64, settled: &str) -> usize {
+    conn.execute(
+        sql::COMPLETE_PUBLICATION_JOBS,
+        rusqlite::params![NOW, scope, "pkg", generation, settled],
+    )
+    .expect("COMPLETE_PUBLICATION_JOBS")
+}
+
+/// A revision becoming served, a yank, and an un-yank each take the
+/// registry's next generation, give it to their package, and record
+/// one job; a statement that changes nothing does none of it.
+#[test]
+fn only_a_change_to_a_document_takes_a_generation_and_records_a_job() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    verify_beta(&conn);
+    let mark = || {
+        let values = vec![
+            text(NOW),
+            text("beta"),
+            text("pkg"),
+            text("1.0.0"),
+            text("bb"),
+        ];
+        change(&conn, sql::MARK_REVISION_ARCHIVED, values, "beta")
+    };
+    let state = |conn: &Connection| {
+        rows(
+            conn,
+            "SELECT value, typeof(value), \
+             (SELECT group_concat(scope || '=' || generation) FROM packages), \
+             (SELECT group_concat(job) FROM (SELECT generation || ':' || scope AS job \
+              FROM publication_jobs \
+              WHERE completed_at IS NULL AND created_at = '2026-07-16T00:00:00.000Z' \
+              ORDER BY generation)) \
+             FROM meta WHERE key = 'catalog_generation'",
+        )
+    };
+    assert_eq!(
+        state(&conn),
+        [r#"Text("0") | Text("text") | Text("alpha=0,beta=0") | Null"#]
+    );
+
+    assert_eq!(mark(), [1; 4]);
+    let served = [r#"Text("1") | Text("text") | Text("alpha=0,beta=1") | Text("1:beta")"#];
+    assert_eq!(state(&conn), served);
+    assert_eq!(mark(), [0; 4], "already served");
+    assert_eq!(yank(&conn, 0.0), [0; 4], "not yanked");
+    assert_eq!(state(&conn), served);
+
+    assert_eq!(yank(&conn, 1.0), [1; 4]);
+    assert_eq!(yank(&conn, 1.0), [0; 4], "already yanked");
+    assert_eq!(yank(&conn, 0.0), [1; 4]);
+    assert_eq!(
+        state(&conn),
+        [r#"Text("3") | Text("text") | Text("alpha=3,beta=1") | Text("1:beta,2:alpha,3:alpha")"#]
+    );
+    let generation = |statement: &str, params: &[&str]| -> i64 {
+        conn.query_row(statement, rusqlite::params_from_iter(params), |row| {
+            row.get("generation")
+        })
+        .expect(statement)
+    };
+    assert_eq!(generation(sql::PACKAGE_GENERATION, &["alpha", "pkg"]), 3);
+    assert_eq!(generation(sql::PACKAGE_GENERATION, &["beta", "pkg"]), 1);
+    assert_eq!(generation(sql::CATALOG_GENERATION, &[]), 3);
+}
+
+/// The publish pass lists the packages with open jobs by their oldest
+/// one, and completes a package's jobs only up to the generation it
+/// published, and only those recorded by the time it names.
+#[test]
+fn a_job_is_listed_until_its_generation_is_published() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    let unpublished = |conn: &Connection| rows(conn, sql::UNPUBLISHED_PACKAGES);
+    assert!(unpublished(&conn).is_empty());
+    assert_eq!(yank(&conn, 1.0), [1; 4]);
+    verify_beta(&conn);
+    let mark = vec![
+        text(NOW),
+        text("beta"),
+        text("pkg"),
+        text("1.0.0"),
+        text("bb"),
+    ];
+    assert_eq!(
+        change(&conn, sql::MARK_REVISION_ARCHIVED, mark, "beta"),
+        [1; 4]
+    );
+    assert_eq!(yank(&conn, 0.0), [1; 4]);
+    let alpha = r#"Text("alpha") | Text("pkg")"#;
+    let beta = r#"Text("beta") | Text("pkg")"#;
+    assert_eq!(unpublished(&conn), [alpha, beta], "generations 1 and 3, 2");
+
+    // The jobs are recorded at `NOW`: a pass leaves the ones recorded
+    // after the time it names.
+    assert_eq!(complete(&conn, "alpha", 3.0, PUBLISHED), 0, "not settled");
+    assert_eq!(unpublished(&conn), [alpha, beta]);
+
+    // A pass that rendered alpha at generation 1 leaves its later job.
+    assert_eq!(complete(&conn, "alpha", 1.0, NOW), 1);
+    assert_eq!(unpublished(&conn), [beta, alpha], "generations 2, 3");
+    assert_eq!(complete(&conn, "alpha", 2.0, NOW), 0, "beta's generation");
+    assert_eq!(complete(&conn, "beta", 3.0, NOW), 1);
+    assert_eq!(unpublished(&conn), [alpha]);
+    assert_eq!(complete(&conn, "alpha", 3.0, NOW), 1);
+    assert_eq!(complete(&conn, "alpha", 3.0, NOW), 0, "once");
+    assert!(unpublished(&conn).is_empty());
+    assert_eq!(
+        rows(
+            &conn,
+            "SELECT COUNT(*) FROM publication_jobs WHERE completed_at = '2026-07-16T00:00:00.000Z'"
+        ),
+        ["Integer(3)"]
     );
 }

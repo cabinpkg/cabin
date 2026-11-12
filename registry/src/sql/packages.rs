@@ -41,9 +41,12 @@ statements! {
          FROM versions v WHERE v.scope = ?1 AND v.name = ?2 AND v.version = ?3";
 
     /// Applies a yank or un-yank; the `yanked` column is the single home
-    /// of yank state.
+    /// of yank state. It changes a row only when the flag changes, which
+    /// is what the statements after it in the batch count
+    /// ([`ADVANCE_CATALOG_GENERATION`](super::publication::ADVANCE_CATALOG_GENERATION)).
     SET_VERSION_YANKED =
-        "UPDATE versions SET yanked = ?1 WHERE scope = ?2 AND name = ?3 AND version = ?4";
+        "UPDATE versions SET yanked = ?1 \
+         WHERE scope = ?2 AND name = ?3 AND version = ?4 AND yanked != ?1";
 
     /// The verifier's deterministic work list, filtered by status.
     /// One row per revision: a pending respin lists beside the

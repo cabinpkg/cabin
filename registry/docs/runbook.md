@@ -438,7 +438,13 @@ serves - is left with no row naming it and expires with the bucket's
 lifecycle rule. One the old Worker's placement copies into ARCHIVES
 after that bucket's sweep stays, since ARCHIVES has no such rule; it
 is harmless, because its key names exactly those bytes and a later
-publication of them converges on it.
+publication of them converges on it. A document the old Worker puts
+into INDEX after that bucket's sweep is not harmless: it records a
+generation of the dropped database, and the publish pass leaves it
+alone for every change the new database numbers at or below that ("The
+publish pass"). Only the cron and a verdict's request put documents: a
+cron invocation ends within 15 minutes, and the verifier's runs were
+cancelled before the wipe. Step 3 looks at the bucket after both.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp to the pull request that changes the
@@ -461,8 +467,13 @@ publication of them converges on it.
    dispatch (exchange + immediate revocation, publishes nothing), then
    dispatch it plainly from `main` to republish the set. There is
    no publish token to mint and no `CABIN_PORTS_TOKEN` secret: the run's
-   OIDC exchange is the credential. Re-enable the verifier (`gh workflow
-   enable registry-verify.yml`); its schedule verifies the republished
+   OIDC exchange is the credential. Before re-enabling the verifier,
+   and no sooner than 15 minutes after the wipe, look at
+   `cabin-registry-index` in the dashboard and delete any object it
+   lists (`wrangler r2 object delete cabin-registry-index/<key>
+   --remote`): nothing puts a document until a verdict arrives. Then
+   re-enable the verifier (`gh workflow enable registry-verify.yml`);
+   its schedule verifies the republished
    set. The verifier workflow needs no secret of its own: each run
    mints its token through the trusted-publishing exchange, and the
    baseline migration seeds the backing identity its verifier arm
@@ -517,7 +528,8 @@ ones. Launch is a data and policy event, in order:
    a code change, not a data flip (`docs/remote-registry.md`, "Read
    routes").
 6. Re-enable the `registry-verify` workflow if the final wipe disabled
-   it, and dispatch it once (see "Verification pipeline"); it carries no
+   it - after the INDEX check in step 3 of "Post-wipe re-provisioning" -
+   and dispatch it once (see "Verification pipeline"); it carries no
    long-lived token to re-issue - each run mints its own through the
    trusted-publishing exchange.
 
@@ -632,12 +644,21 @@ in-code defaults (`src/governor.rs`):
 | Var | Default | Pool (as snapshots name it) |
 | --- | --- | --- |
 | `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | `a_publish` - publish-path puts |
-| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - archive placement puts |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 500,000 | `a_infra` - archive placement puts; document puts |
 | `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | `b_ordinary` - artifact cache misses |
 | `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | `b_source` - source-viewer ranged reads |
 | `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | `b_verifier` - pending-artifact fetches |
 | `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | `b_publish` - publish-path heads |
-| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 700,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read; document checks |
+
+The two infrastructure defaults cover a month of the cron (2,976
+invocations) with every pass at its ceiling: 141 class A operations an
+invocation (20 placements, their 20 documents, the publish pass's 100
+documents and the catalog) and 211 class B (those, a second for each
+placement, and 50 reservation checks). They are sized that way because
+yank has no quota: a member's yanks can hold the publish pass at its
+ceiling, and a limit that did not cover it would let them stop archive
+placement.
 
 A limit var only takes effect through `wrangler.jsonc` `vars` and a
 deploy; `cargo check-deploy` (also a CI step) refuses a var whose
@@ -897,6 +918,35 @@ in UPLOADS. A revision row is in one of five states
   no longer holds the verified bytes, the revision is rejected with
   reason `publication_source_lost` and refunded - it was never served,
   and the same bytes may be published again.
+- **The publish pass** (`src/glue/publication.rs`) keeps INDEX holding
+  the documents the read plane composes: each package's under
+  `packages/<scope>/<name>.json`, and `catalog.json`. A revision
+  becoming served, a yank, and an un-yank each take the next value of
+  `meta.catalog_generation`, give it to their package
+  (`packages.generation`), and add a row to `publication_jobs`, in the
+  transaction that makes the change. A verdict's request puts its
+  package's document once the archive is placed; a yank's request makes
+  no R2 call. The `*/15` cron puts the
+  documents of the packages with open rows - at most 100
+  packages a pass, oldest change first - then the catalog, and
+  completes the rows (`completed_at`) recorded at least 15 minutes
+  before the pass started. Each object records the generation it was
+  rendered at, and a pass replaces only an object it found at an
+  earlier one. R2 compares
+  that replacement by the object's bytes, so when a document returns
+  to earlier bytes (a yank, then the un-yank), a request or pass that
+  rendered between the two can still put its document over the current
+  one; the 15 minutes are there so that
+  such a writer has finished before the row is completed, and the pass
+  that completes the row puts the current document first. Until then INDEX
+  may show the earlier document, up to the next pass that reaches the
+  package. Every
+  attempt at a document is charged one `b_infra` operation and one
+  `a_infra`, whether or not it has to write. A row is open
+  for 15 to 30 minutes, longer while more than 100 packages have open
+  rows. One open for 45 minutes with fewer than that means a document
+  is not getting into INDEX; the pass logs why
+  (`document publication: ...`).
 - **Returning to a released reservation.** The same upload id and
   publisher may return within 14 days of the operation's first charge
   (`charged_at`); returning never extends that window. It takes a
@@ -960,7 +1010,9 @@ there. An archive stays there uncharged, for good, when its revision
 is rejected as `publication_source_lost` after one placement pass had
 copied it and before that pass recorded it - a second pass found the
 upload expired in between; a later publication of the same bytes is
-served from that object. Nothing writes DOWNLOAD_LOGS or INDEX.
+served from that object. INDEX holds the publish pass's documents,
+which nothing reads yet: the read plane composes its answers from D1.
+Nothing writes DOWNLOAD_LOGS.
 
 ## Verification pipeline
 
@@ -1128,7 +1180,12 @@ restore moves D1 alone, so afterwards check the restored rows against
 UPLOADS and ARCHIVES, and after restoring to a point that predates
 launch, immediately re-run the launch-checklist `UPDATE` that
 sets `meta.launched = 'true'`, or the launch guard would treat the
-restored registry as pre-launch and let a wipe through.
+restored registry as pre-launch and let a wipe through. INDEX is not
+restored either: its documents then record generations the restored
+database has not reached, and the publish pass leaves a document alone
+for a change the database numbers at or below the generation that
+document records - the change's row completes all the same. Nothing
+reads INDEX yet.
 
 **Bucket data loss** (a bucket deleted or its objects destroyed): there
 is no second copy, and a byte-identical re-publish does not bring an

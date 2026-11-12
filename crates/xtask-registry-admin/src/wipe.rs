@@ -291,8 +291,10 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"
      workflow enable publish.yml -R cabin-ports/ports), prove the
      binding with an exchange-check dispatch, then dispatch it plainly
      from main to republish the set - no publish token or secret to
-     mint: each run's OIDC exchange is the credential; then re-enable
-     the verifier (gh workflow enable registry-verify.yml)
+     mint: each run's OIDC exchange is the credential; then, no sooner
+     than 15 minutes after this wipe, delete whatever the
+     cabin-registry-index bucket lists and re-enable the verifier (gh
+     workflow enable registry-verify.yml)
   4. rerun whatever main CI went red against the old registry
      (gh run rerun <id> --failed)
 "#

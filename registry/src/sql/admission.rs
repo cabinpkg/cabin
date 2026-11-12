@@ -216,7 +216,8 @@ statements! {
 
     /// Reservations older than `?2` (an `SQLite` time modifier,
     /// `crate::upload::RESERVATION_TTL`), oldest first: the cron checks
-    /// each one's object and confirms or releases it.
+    /// each one's object and confirms or releases it. `governor::Limits`
+    /// sizes its infrastructure defaults by the `LIMIT`.
     EXPIRED_RESERVATIONS =
         "SELECT scope, name, version, revision, upload_id, published_at FROM revisions \
          WHERE verification = 'pending' AND stored_at IS NULL \

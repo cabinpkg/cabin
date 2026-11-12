@@ -58,14 +58,15 @@ impl StoragePool {
 /// Billable-operation pools: monthly flows, consumed immediately before
 /// each billable R2 call. Split so abuse of one channel can exhaust
 /// only its own allowance: the publish path, the read plane, the source
-/// viewer, the verifier, and the cron's sweep of expired reservations
-/// each draw from their own pool.
+/// viewer, the verifier, and infrastructure (the cron's sweep of
+/// expired reservations and the publication passes) each draw from
+/// their own pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpPool {
     /// Class A (writes/lists) on the publish path: archive puts.
     APublish,
-    /// Class A for infrastructure; unused.
+    /// Class A for infrastructure: the publication passes' puts.
     AInfra,
     /// Class B (reads) for ordinary artifact downloads (cache misses).
     BOrdinary,
@@ -76,7 +77,7 @@ pub enum OpPool {
     /// Class B on the publish path: existence heads.
     BPublish,
     /// Class B for infrastructure: the cron's object checks of expired
-    /// reservations.
+    /// reservations and the publication passes' reads.
     BInfra,
 }
 
@@ -111,7 +112,12 @@ const LIMIT_CLAMP: u64 = i64::MAX as u64 / 4;
 /// Hard per-pool ceilings. Env-overridable (`GOVERNOR_*`; see
 /// [`Limits::from_lookup`]) with in-code defaults sized comfortably
 /// under the R2 free-tier limits, leaving headroom for orphan drift and
-/// out-of-band operator work.
+/// out-of-band operator work. The two infrastructure defaults cover a
+/// month of the cron (2,976 invocations) with every pass at the ceiling
+/// its work list's `LIMIT` sets: 141 class A operations an invocation
+/// and 211 class B. Yank has no quota and can hold the publish pass at
+/// its ceiling, so a limit that did not cover it could be exhausted
+/// through yanks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub storage_primary_bytes: u64,
@@ -133,12 +139,12 @@ impl Default for Limits {
             storage_backup_bytes: 4 * 1024 * 1024 * 1024,
             storage_dump_bytes: 512 * 1024 * 1024,
             a_publish_month: 200_000,
-            a_infra_month: 200_000,
+            a_infra_month: 500_000,
             b_ordinary_month: 4_000_000,
             b_source_month: 500_000,
             b_verifier_month: 500_000,
             b_publish_month: 200_000,
-            b_infra_month: 200_000,
+            b_infra_month: 700_000,
         }
     }
 }

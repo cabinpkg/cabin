@@ -9,6 +9,7 @@ use worker::{D1Database, Env, Request, Response, console_error};
 
 use crate::auth::{AuthContext, Scope};
 use crate::error;
+use crate::glue::publication::{document_changed, result};
 use crate::glue::{
     CountRecord, MAX_MUTATION_BODY_BYTES, bounded_body, bucket_from_columns, changed_rows,
     consume_one, error_body_response, error_response, governor_refusal_response, iso8601_from_ms,
@@ -233,12 +234,14 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// `PATCH /api/v1/packages/<scope>/<name>/<version>/yank`
 /// (`docs/remote-registry.md`, "Yank"): idempotent, and the row's
 /// `yanked` column is the single home of yank state - the read path
-/// overrides the stored metadata's field from it. Gated by the budget
+/// overrides the stored metadata's field from it. A change is recorded
+/// for the publish pass in the same batch. The request makes no R2
+/// call and draws nothing from the governor. Gated by the budget
 /// breaker (`503`) like publish; yank has no rate limit or quota.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
-/// under a foreign scope. Yank applies to verified versions only: a
-/// pending or rejected version was never part of the registry's
+/// under a foreign scope. Yank applies to served versions only: a
+/// version with no served revision was never part of the registry's
 /// resolvable surface, so there is nothing to retract and the triple
 /// answers an authenticated 404.
 pub(super) async fn yank_response(
@@ -277,17 +280,18 @@ pub(super) async fn yank_response(
     if existing.verified == 0 {
         return error_response(404, error::NOT_FOUND);
     }
-    let changed = (existing.yanked != 0) != yanked;
+    let mut changed = (existing.yanked != 0) != yanked;
     if changed {
-        db.prepare(sql::SET_VERSION_YANKED)
-            .bind(&[
-                i32::from(yanked).into(),
-                scope.into(),
-                name.into(),
-                version.into(),
-            ])?
-            .run()
-            .await?;
+        let mut batch = vec![db.prepare(sql::SET_VERSION_YANKED).bind(&[
+            i32::from(yanked).into(),
+            scope.into(),
+            name.into(),
+            version.into(),
+        ])?];
+        batch.extend(document_changed(db, scope, name, &now_iso8601())?);
+        // The update is guarded on the flag: a concurrent request that
+        // made the change first leaves this one a no-op.
+        changed = changed_rows(result(&db.batch(batch).await?, 0)?.meta()?) > 0;
     }
     // The resulting state, plus whether this request changed it (the
     // idempotent no-op reports `changed: false`).

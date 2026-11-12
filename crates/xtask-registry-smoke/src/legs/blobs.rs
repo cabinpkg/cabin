@@ -6,8 +6,9 @@
 //! id that already names another revision, the byte-identical revival
 //! under a new one, the cron's release of an expired reservation and
 //! the resume under its own id, the two ends of an archive placement
-//! that did not finish in its verdict's request, and the byte-identical
-//! refusal an unclaimed and a foreign scope must both answer.
+//! that did not finish in its verdict's request, the documents a yank
+//! and the cron leave in INDEX, and the byte-identical refusal an
+//! unclaimed and a foreign scope must both answer.
 //!
 //! Three comparisons here check a response against one an *earlier*
 //! request left in the shared buffer: each reads a clone taken before
@@ -28,8 +29,9 @@ use serde_json::Value;
 use crate::bytes::{frame, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::Smoke;
 use crate::legs::finale::BREAKER_CRON;
+use crate::legs::revisions::{UNYANKED, YANKED};
 use crate::legs::session;
-use crate::servers::{d1, d1_quiet, d1_rows, delete_upload, stored_upload};
+use crate::servers::{d1, d1_quiet, d1_rows, delete_upload, stored_document, stored_upload};
 use crate::step;
 use crate::text::{capture, contains};
 
@@ -102,6 +104,7 @@ pub fn run(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     let revival = restart_verification(smoke, inputs, &before_bytes, &replacement, &first_upload)?;
     resume_released(smoke, inputs, &before_bytes, &replacement, &revival)?;
     cron_records_placed_archives(smoke)?;
+    index_holds_served_documents(smoke, inputs)?;
     uniform_403(smoke, inputs)
 }
 
@@ -415,6 +418,55 @@ fn cron_records_placed_archives(smoke: &mut Smoke) -> Result<()> {
     smoke.check(BREAKER_CRON, &[200])?;
     if !unserved()?.is_empty() {
         bail!("the cron left a placed archive unrecorded");
+    }
+    Ok(())
+}
+
+/// INDEX is where the documents will be read from, so it must hold
+/// what the read plane composes.  A yank records a job and puts
+/// nothing itself - it has no quota, and a put would draw on the
+/// infrastructure pools; its package's document and the catalog follow
+/// in the next cron pass.  The cron completes a change only once it has
+/// settled, which the last step stands in for by ageing the open jobs.
+fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
+    step("INDEX holds the documents the read plane serves");
+    let open_jobs = || d1_rows("SELECT 1 FROM publication_jobs WHERE completed_at IS NULL");
+    let document = inputs.package_path.trim_start_matches('/');
+    let yank_path = format!(
+        "/api/v1/packages/{}/{}/{}/yank",
+        inputs.scope, inputs.name, inputs.version
+    );
+    for flag in [YANKED, UNYANKED] {
+        let recorded = open_jobs()?.len();
+        smoke.wrequest("PATCH", &yank_path, flag, &[200])?;
+        smoke.expect_body(r#""changed":true"#)?;
+        if open_jobs()?.len() != recorded + 1 {
+            bail!("a yank did not record one publication job");
+        }
+        smoke.check(inputs.package_path, &[200])?;
+        let served = smoke.body.clone();
+        if stored_document(document, inputs.work)?.as_ref() == Some(&served) {
+            bail!("a yank's request put its document into INDEX");
+        }
+        smoke.check(BREAKER_CRON, &[200])?;
+        if open_jobs()?.is_empty() {
+            bail!("the cron completed a publication job that had not settled");
+        }
+        if stored_document(document, inputs.work)?.as_ref() != Some(&served) {
+            bail!("INDEX does not hold the package document a yank changed");
+        }
+        smoke.check("/catalog.json", &[200])?;
+        if stored_document("catalog.json", inputs.work)?.as_deref() != Some(&smoke.body[..]) {
+            bail!("INDEX does not hold the catalog the read plane serves");
+        }
+    }
+    d1_quiet(
+        "UPDATE publication_jobs SET created_at = '2000-01-01T00:00:00.000Z' \
+         WHERE completed_at IS NULL;",
+    )?;
+    smoke.check(BREAKER_CRON, &[200])?;
+    if !open_jobs()?.is_empty() {
+        bail!("the cron left a settled publication job open");
     }
     Ok(())
 }

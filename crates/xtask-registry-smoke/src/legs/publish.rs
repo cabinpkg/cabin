@@ -31,7 +31,9 @@ use xtask_registry_admin::{display, results};
 use crate::bytes::{frame, replace_all, sha256_hex};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::{PRIVATE_ALPHA, uniform_401_with};
-use crate::servers::{d1_json, d1_quiet, delete_upload, stored_archive, stored_upload};
+use crate::servers::{
+    d1_json, d1_quiet, delete_upload, stored_archive, stored_document, stored_upload,
+};
 use crate::step;
 use crate::text::{capture, contains, grep_anywhere, grep_lines, read, text, write};
 
@@ -463,6 +465,11 @@ fn real_verification(
     smoke.check(inputs.package_path, &[200])?;
     smoke.expect_body(&format!(r#""name":"{}""#, scoped_name(inputs)))?;
     smoke.expect_body(r#""0.2.0""#)?;
+    // The same request put the document into INDEX.
+    let document = inputs.package_path.trim_start_matches('/');
+    if stored_document(document, inputs.work)?.as_deref() != Some(&smoke.body[..]) {
+        bail!("INDEX does not hold the package document the verdict changed");
+    }
     // The composed entry names the revision it serves, and lists it in
     // the per-version revisions map with the canonical source path.
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
