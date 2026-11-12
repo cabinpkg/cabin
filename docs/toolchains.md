@@ -707,9 +707,10 @@ the example packages that need no outbound network on a `windows-2025-vs2026` ru
   compile as C++.  The language is driven explicitly (`cl /Tp<file>` / `/Tc<file>`) rather than left
   to `cl`'s extension inference, so every supported extension compiles as the language Cabin
   classified it.  A `.asm` source assembles with the `ml64.exe` beside the resolved `cl.exe`.
-- **Command mapping.** `cl /nologo /utf-8 /std:c++17 /EHsc /O2 /Z7 /showIncludes /D ... /I ... /c
-  /Tp<src> /Fo<obj>` for compiles (Ninja consumes `/showIncludes` via `deps = msvc`); `lib /nologo
-  /OUT:<lib> <objs>` for archives; `ml64 /nologo /c /D ... /I ... /Fo <obj> <src>` for assembly;
+- **Command mapping.** `cl /nologo /utf-8 /bigobj /std:c++17 /EHsc /O2 /Z7 /showIncludes /D ... /I
+  ... /c /Tp<src> /Fo<obj>` for compiles (Ninja consumes `/showIncludes` via `deps = msvc`);
+  `lib /nologo /OUT:<lib> <objs>` for archives;
+  `ml64 /nologo /c /D ... /I ... /Fo <obj> <src>` for assembly;
   `cl /nologo <inputs> /Fe<exe> /link /SUBSYSTEM:CONSOLE <ldflags>` for links.  Naming the
   subsystem lets `main` come from a static library: `link.exe` infers the subsystem before it
   searches archives, so a `main` that only an archive member defines, with nothing else pulling
@@ -721,7 +722,13 @@ the example packages that need no outbound network on a `windows-2025-vs2026` ru
   without it `cl` interprets sources in the machine's active code page, and UTF-8-requiring headers
   (such as {fmt}'s) fail to compile.  With it `/showIncludes` names headers in UTF-8 too, which
   Ninja's Windows release binaries from 1.11 on read as UTF-8 on Windows 10 version 1903 or later,
-  so a header path outside the active code page is tracked.  `cabin check`
+  so a header path outside the active code page is tracked.
+  `/bigobj` raises the number of sections one object file can hold past 65,279, the limit `cl`
+  otherwise reports as C1128 on a translation unit that instantiates many templates or inline
+  functions.  Cabin adds it to every compile command it generates, for a dependency's sources and
+  for the sources that include its headers alike; a build that compiles the same headers with
+  another build system passes the flag itself.  `clang-cl` accepts the flag and ignores it,
+  because LLVM chooses the object format from the section count.  `cabin check`
   runs its syntax-only compile through a shell-free `cabin stamp` witness writer that stamps the
   output on a zero exit, so the rule is identical on every host and build paths containing shell
   metacharacters (`&`, `|`, `(`, `)`) never need escaping.
