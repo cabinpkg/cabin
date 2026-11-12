@@ -309,6 +309,10 @@ CREATE TABLE packages (
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     created_by INTEGER NOT NULL REFERENCES users,
+    -- The registry's generation (meta, 'catalog_generation') as of the
+    -- last change to what the package's document says; 0 until one of
+    -- its revisions is served.
+    generation INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (scope, name)
 );
 -- created_at serves the created-today quota count as a range scan.
@@ -437,6 +441,24 @@ AND NOT EXISTS (
          OR (s.published_at = r.published_at AND s.revision > r.revision))
 );
 
+-- One row per change to what a package's document and the catalog
+-- say: a revision becoming served, a yank, an un-yank. `generation` is
+-- the registry's generation the change produced. The row is open until
+-- a publish pass that started 15 minutes or more after `created_at`
+-- has seen the INDEX bucket hold the package's document and the
+-- catalog, rendered at that generation or a later one.
+CREATE TABLE publication_jobs (
+    generation INTEGER PRIMARY KEY,
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (scope, name) REFERENCES packages (scope, name)
+);
+-- The publish pass's work list and its completing write.
+CREATE INDEX publication_jobs_open ON publication_jobs (scope, name, generation)
+    WHERE completed_at IS NULL;
+
 -- The daily upload allowances (docs/remote-registry.md, "Publish"):
 -- bytes and upload count admitted per user and per quota class on one
 -- UTC day ('YYYY-MM-DD'). A new day is a new row, so nothing resets
@@ -469,8 +491,11 @@ CREATE TABLE meta (
 -- is disposable (pre-launch), flipped to 'true' exactly once, by hand,
 -- as a launch-checklist item; every destructive maintenance path
 -- (cargo registry-launch-guard) reads it first and refuses while 'true'.
+-- catalog_generation counts the changes to what the package documents
+-- and the catalog say (publication_jobs); it only grows.
 INSERT INTO meta (key, value) VALUES
     ('registry_generation', '1'),
+    ('catalog_generation', '0'),
     ('service_mode', 'normal'),
     ('service_mode_reason', ''),
     ('launched', 'false');

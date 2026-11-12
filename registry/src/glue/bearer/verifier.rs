@@ -258,7 +258,8 @@ pub(super) async fn verdict_authn(
 /// whatever the service mode.
 /// The response reports the state the verdict left the row in plus
 /// whether this request changed it. A verdict that verified a revision
-/// runs an archive placement pass before it answers, so the revision is
+/// runs an archive placement pass before it answers, which also puts
+/// the document of each package it placed for, so the revision is
 /// normally served by then; the response is the verdict's either way.
 pub(super) async fn verdict_response(
     req: &mut Request,

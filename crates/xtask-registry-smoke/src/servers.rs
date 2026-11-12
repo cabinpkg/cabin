@@ -140,6 +140,13 @@ pub(crate) fn stored_archive(key: &str, work: &Path) -> Result<Option<Vec<u8>>> 
     stored_object(&format!("cabin-registry-archives/{key}"), work)
 }
 
+/// The document local R2 holds in the INDEX bucket (`wrangler.jsonc`)
+/// under a key of `registry/src/publication.rs`, if any, read through
+/// `work`.
+pub(crate) fn stored_document(key: &str, work: &Path) -> Result<Option<Vec<u8>>> {
+    stored_object(&format!("cabin-registry-index/{key}"), work)
+}
+
 /// A missing object is wrangler's non-zero exit; its streams are
 /// dropped because several callers expect exactly that.
 fn stored_object(object: &str, work: &Path) -> Result<Option<Vec<u8>>> {
@@ -279,6 +286,7 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     DELETE FROM user_daily_upload_usage;
     DELETE FROM shared_daily_upload_usage;
     DELETE FROM versions WHERE scope = 'smoke';
+    DELETE FROM publication_jobs WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
     -- The deletes above bypass the publish batches that keep the quota
     -- tallies exact, so recompute them (registry/docs/runbook.md, "Quota tallies").

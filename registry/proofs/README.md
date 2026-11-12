@@ -115,7 +115,7 @@ State:
 | `PlaceList` | `publication.rs` `place_archives`: one listed revision, and `copy_archive`'s head of its ARCHIVES key finding no object; a row without an upload id is the lost source at once. A key that holds the archive is `PlaceMark`'s; one that holds anything else is an error the pass logs (no step) | `UNARCHIVED_REVISIONS`: snapshots `(upload id, published_at)`; `archives.head` |
 | `PlaceCopy` | `copy_archive` past the head: the read of the listed upload's object and the put of its bytes; `Some(false)` as the lost source, `None` as the lost create race | `uploads.get`, compared by `publication::holds_archive`; `archives.put` under the row's SHA-256 with `onlyIf: etagDoesNotMatch "*"` |
 | `PlaceDrop` | the placement ends before its copy: a failed R2 call, or the Worker dying | none |
-| `PlaceMark` | `place_archive`'s write after `copy_archive` answered `Some(true)`: its head found the archive (`holds_archive`), or its put stored it | `MARK_REVISION_ARCHIVED`, guarded on `verified` and `archived_at IS NULL` and on no generation |
+| `PlaceMark` | `place_archive`'s write after `copy_archive` answered `Some(true)`: its head found the archive (`holds_archive`), or its put stored it | `MARK_REVISION_ARCHIVED`, guarded on `verified` and `archived_at IS NULL` and on no generation; the three statements after it in the batch count the change for the publish pass and write nothing the model holds |
 | `PlaceReject` | `place_archive`'s write for a lost source, `changed_rows == 0` as the row having moved on; a failed batch, or the Worker dying before it | `REJECT_UNARCHIVED_REVISION` then `REFUND_USER_STORED_BYTES` - one transaction, guarded on `verified`, on `archived_at IS NULL`, and on the listed `published_at` |
 
 The verdict handler's own read (`VERDICT_TARGET`) and
@@ -611,6 +611,8 @@ model checks that the gates compose under concurrency whatever a
 publish picks, with the verifier's pass reduced to the outcomes its own
 tests establish ("The verifier" above). Nothing here verifies the
 inspection of archive bytes itself, the credentials, the yank column,
+the publish pass (the generations, `publication_jobs`, and the INDEX
+documents, argued in `src/glue/publication.rs`),
 the byte and shared allowances, the package quotas, the governor, R2's
 own behavior ("Assumptions"), that a row's ARCHIVES key is the path the
 read plane opens, the responses a request is answered with, or anything
