@@ -13,7 +13,7 @@
 
 use std::io::{IsTerminal as _, Write as _};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
 use clap::Args;
 
 use cabin_credentials::{Session, SessionStorage, StoredIn, Token};
@@ -561,7 +561,7 @@ pub(crate) fn effective_registry_index_url(
     let config = if cli_index_url.is_some() {
         cabin_config::EffectiveConfig::default()
     } else if credential_command {
-        user_level_config()?
+        crate::cli::config::load_user_config()?
     } else {
         effective_config_for_cwd()?
     };
@@ -617,17 +617,7 @@ fn effective_config_for_cwd() -> Result<cabin_config::EffectiveConfig> {
     if manifest_path.is_file() {
         return crate::cli::config::load_effective_config_for_manifest(&manifest_path);
     }
-    user_level_config()
-}
-
-/// User-level config only - no workspace or package layers.  The
-/// credential commands resolve their registry through this so a
-/// hostile checkout cannot steer where a session is stored.
-fn user_level_config() -> Result<cabin_config::EffectiveConfig> {
-    let inputs = cabin_config::ConfigDiscoveryInputs::from_process(None);
-    let discovery =
-        cabin_config::discover_config_files(&inputs).context("failed to load Cabin config")?;
-    Ok(cabin_config::merge_loaded_files(discovery.loaded_files))
+    crate::cli::config::load_user_config()
 }
 
 #[cfg(test)]

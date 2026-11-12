@@ -64,6 +64,17 @@ pub(crate) fn load_effective_config_for_manifest(manifest_path: &Path) -> Result
     Ok(merge_loaded_files(discovery.loaded_files))
 }
 
+/// User-level config only - no workspace or package layers.  The
+/// credential commands resolve their registry through this so a
+/// hostile checkout cannot steer where a session is stored, and
+/// `cabin install` builds with it so a tool is the same whichever
+/// directory it was installed from.
+pub(crate) fn load_user_config() -> Result<EffectiveConfig> {
+    let inputs = ConfigDiscoveryInputs::from_process(None);
+    let discovery = discover_config_files(&inputs).context("failed to load Cabin config")?;
+    Ok(merge_loaded_files(discovery.loaded_files))
+}
+
 /// Build the typed config layer the toolchain resolver consumes.
 /// Returns `None` when no config-file values apply.
 pub(crate) fn toolchain_layer(config: &EffectiveConfig) -> Option<ConfigToolchainLayer> {
