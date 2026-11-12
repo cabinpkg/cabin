@@ -1,11 +1,12 @@
-//! Shared blobs, rejection accounting and the write plane's uniform
-//! 403: a second version publishing the exact bytes of the first (one
-//! blob, counted once), the verdict binding's stale-listing 409, a
-//! rejection that keeps both the shared blob and the accounting while
-//! going invisible to everyone, the republish that supersedes it, the
-//! reclaim and refund once the rejected blob is unshared, the
-//! byte-identical restart, and the byte-identical refusal an unclaimed
-//! and a foreign scope must both answer.
+//! Per-upload storage accounting and the write plane's uniform 403: a
+//! second version publishing the exact bytes of the first (its own
+//! upload, counted again), the verdict binding's stale-listing 409, a
+//! rejection that refunds the bytes while going invisible to everyone,
+//! the republish that supersedes it and its refund in turn, the upload
+//! id that already names another revision, the byte-identical revival
+//! under a new one, the cron's release of an expired reservation and
+//! the resume under its own id, and the byte-identical refusal an
+//! unclaimed and a foreign scope must both answer.
 //!
 //! Three comparisons here check a response against one an *earlier*
 //! request left in the shared buffer: each reads a clone taken before
@@ -19,16 +20,15 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Stdio;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
-use xtask_registry_admin::BLOBS_BUCKET;
 
 use crate::bytes::{frame, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::Smoke;
+use crate::legs::finale::BREAKER_CRON;
 use crate::legs::session;
-use crate::servers::{d1, d1_rows};
+use crate::servers::{d1, d1_quiet, d1_rows, delete_upload, stored_upload};
 use crate::step;
 use crate::text::{capture, contains};
 
@@ -41,7 +41,7 @@ pub struct BlobInputs<'a> {
     /// The version the uniform-403 leg names on the two scopes it may
     /// not write to.
     pub version: &'a str,
-    /// The shared-blob version.
+    /// The second version, which republishes the first one's bytes.
     pub version2: &'a str,
     /// The fixture archive's packaging revision.
     pub rev: &'a str,
@@ -67,8 +67,7 @@ pub struct BlobInputs<'a> {
     pub publish: &'a [u8],
     pub yank: &'a [u8],
     pub session_cookie: &'a str,
-    /// The run's scratch directory: `wrangler r2 object get` needs a
-    /// real `--file` path.
+    /// The run's scratch directory.
     pub work: &'a Path,
 }
 
@@ -77,8 +76,10 @@ pub struct BlobInputs<'a> {
 /// stale rather than absent.
 const EPOCH: &str = "1970-01-01T00:00:00.000Z";
 
-/// `meta.total_stored_bytes`, the exact storage self-accounting.
-const TOTAL_STORED_BYTES: &str = "SELECT value FROM meta WHERE key = 'total_stored_bytes'";
+/// The publisher's `users.stored_bytes`, the exact storage accounting
+/// every admission, rejection and revival moves.
+const STORED_BYTES: &str =
+    "SELECT stored_bytes FROM users WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke')";
 
 /// The publish bucket's burst, cleared so the attempts below are not
 /// refused by the rate limit before the membership gate is reached.
@@ -91,30 +92,32 @@ const RESET_PUBLISH_BUCKET: &str = "
 ///
 /// The first failed check.
 pub fn run(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
-    let before_bytes = shared_blob(smoke, inputs)?;
+    let (before_bytes, first_upload) = same_bytes_again(smoke, inputs)?;
     let entry = pending_entry(smoke, inputs)?;
     stale_verdict(smoke, inputs, &entry)?;
-    reject_shared(smoke, inputs, &entry, &before_bytes)?;
+    reject_refunds(smoke, inputs, &entry, &before_bytes)?;
     let replacement = republish_over_rejected(smoke, inputs, &before_bytes)?;
-    reclaim_unshared(smoke, inputs, &before_bytes, &replacement)?;
-    restart_verification(smoke, inputs, &before_bytes, &replacement)?;
+    reject_replacement(smoke, inputs, &before_bytes)?;
+    let revival = restart_verification(smoke, inputs, &before_bytes, &replacement, &first_upload)?;
+    resume_released(smoke, inputs, &before_bytes, &replacement, &revival)?;
     uniform_403(smoke, inputs)
 }
 
-/// The second version publishes the exact archive the first did, so the
-/// blob is shared and the accounting must not move.
-fn shared_blob(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<String> {
-    step("publishing a second version with identical content shares the blob");
+/// The second version publishes the exact archive the first did.  An
+/// archive is stored per upload, not per content, so it is charged
+/// again.  Returns the bytes charged before it and its upload id.
+fn same_bytes_again(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<(String, String)> {
+    step("a second version with identical content is its own counted upload");
     let before_bytes = stored_bytes()?;
-    smoke.wrequest("PUT", inputs.publish2_path, inputs.publish2, &[201])?;
+    let upload_id = smoke.publish(inputs.publish2_path, inputs.publish2, &[201])?;
     smoke.expect_body(r#""verification":"pending""#)?;
-    if stored_bytes()? != before_bytes {
+    if stored_bytes()? != sum(&before_bytes, inputs.archive.len())? {
         bail!(
-            "a shared blob was double-counted: {} (was {before_bytes})",
+            "the second upload of the same bytes was not counted: {} (was {before_bytes})",
             stored_bytes()?
         );
     }
-    Ok(before_bytes)
+    Ok((before_bytes, upload_id))
 }
 
 /// Every verdict binds to the listing entry of the version it judges:
@@ -145,13 +148,13 @@ fn stale_verdict(smoke: &mut Smoke, inputs: &BlobInputs<'_>, entry: &Entry) -> R
 
 /// Bound to `0.2.1`'s own listing entry: the shared checksum names the
 /// revision, its publish event names the generation.
-fn reject_shared(
+fn reject_refunds(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
     entry: &Entry,
     before_bytes: &str,
 ) -> Result<()> {
-    step("rejecting a version sharing its blob keeps the blob and the accounting");
+    step("rejecting a version refunds its bytes and leaves the other version's alone");
     let verdict = verdict_rejected(&entry.checksum, &entry.published_at);
     smoke.verdict_patch(inputs.verdict2_path, verdict.as_bytes(), &[200])?;
     smoke.expect_body(r#""verification":"rejected""#)?;
@@ -195,7 +198,7 @@ fn reject_shared(
     smoke.as_publisher();
     if stored_bytes()? != before_bytes {
         bail!(
-            "rejecting a shared blob changed the accounting: {} (was {before_bytes})",
+            "the rejection did not refund the upload's bytes: {} (was {before_bytes})",
             stored_bytes()?
         );
     }
@@ -231,11 +234,10 @@ fn republish_over_rejected(
     let metadata = retarget_hash(inputs.metadata2, inputs.blob_hash, &hash);
     let body = frame(&metadata, &archive);
 
-    smoke.wrequest("PUT", inputs.publish2_path, &body, &[201])?;
+    smoke.publish(inputs.publish2_path, &body, &[201])?;
     smoke.expect_body(&format!(r#""revision":"{revision}""#))?;
     smoke.expect_body(r#""verification":"pending""#)?;
-    let size = archive.len();
-    if stored_bytes()? != sum(before_bytes, size)? {
+    if stored_bytes()? != sum(before_bytes, archive.len())? {
         bail!(
             "the replacement archive was not counted: {}",
             stored_bytes()?
@@ -247,23 +249,21 @@ fn republish_over_rejected(
     smoke.expect_body(r#""version":"0.2.1""#)?;
     smoke.expect_body(&hash)?;
     Ok(Replacement {
-        hash,
         revision,
         artifact,
         body,
-        size,
+        archive,
     })
 }
 
-/// The rejected revision is the blob's only holder now, so the reject
-/// must both refund the bytes and delete the object.
-fn reclaim_unshared(
+/// The refund is the whole effect: the archive itself is left to the
+/// UPLOADS bucket's expiry.
+fn reject_replacement(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
     before_bytes: &str,
-    replacement: &Replacement,
 ) -> Result<()> {
-    step("rejecting an unshared blob reclaims it and refunds the bytes");
+    step("rejecting the replacement refunds its bytes");
     let entry = binding(
         &smoke.body,
         &scoped(inputs),
@@ -279,47 +279,91 @@ fn reclaim_unshared(
             stored_bytes()?
         );
     }
-
-    let reclaimed = inputs.work.join("reclaimed.zip");
-    let file = reclaimed
-        .to_str()
-        .context("the work directory path is not UTF-8")?;
-    let key = format!("{BLOBS_BUCKET}/blobs/sha256/{}", replacement.hash);
-    let mut command =
-        xtask_registry_admin::wrangler(&["r2", "object", "get", &key, "--file", file, "--local"]);
-    // A successful read is the failure: a non-zero exit is the expected
-    // outcome and never an abort.
-    let got = command
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("run wrangler r2 object get")?;
-    if got.success() {
-        bail!("the rejected version's unshared blob was not reclaimed");
-    }
     Ok(())
 }
 
 /// Byte-identical, so this revives the rejected revision in place
-/// rather than minting another one.
+/// rather than minting another one - as a new upload operation, whose
+/// id must not be one that already names another revision.
+/// `first_upload` is the id the version's first revision was published
+/// under; the revival's own is returned.
 fn restart_verification(
     smoke: &mut Smoke,
     inputs: &BlobInputs<'_>,
     before_bytes: &str,
     replacement: &Replacement,
-) -> Result<()> {
+    first_upload: &str,
+) -> Result<String> {
+    // The request the next step admits, apart from its id.
+    step("an upload id that already names another revision is refused");
+    smoke.publish_as(
+        first_upload,
+        inputs.publish2_path,
+        &replacement.body,
+        &[409],
+    )?;
+    smoke.expect_body("already names a different upload")?;
+
     step("republishing identical bytes over a rejected version restarts verification");
-    smoke.wrequest("PUT", inputs.publish2_path, &replacement.body, &[201])?;
+    let upload_id = smoke.publish(inputs.publish2_path, &replacement.body, &[201])?;
     smoke.expect_body(&format!(r#""revision":"{}""#, replacement.revision))?;
     smoke.expect_body(r#""verification":"pending""#)?;
-    if stored_bytes()? != sum(before_bytes, replacement.size)? {
-        bail!(
-            "the re-uploaded blob was not re-counted: {}",
-            stored_bytes()?
-        );
+    if stored_bytes()? != sum(before_bytes, replacement.archive.len())? {
+        bail!("the revived upload was not re-counted: {}", stored_bytes()?);
+    }
+    if stored_upload(&upload_id, inputs.work)?.as_deref() != Some(replacement.archive.as_slice()) {
+        bail!("the revived archive is not in UPLOADS under the new upload id");
     }
     smoke.as_verifier();
     smoke.check(&replacement.artifact, &[200])?;
+    smoke.as_publisher();
+    Ok(upload_id)
+}
+
+/// A reservation whose store never happened expires after fifteen
+/// minutes: the cron then releases it and refunds its bytes, and the
+/// same upload id may take it up again.  The run cannot wait that out,
+/// so the expiry is written into the revival's row directly - no
+/// `stored_at`, a `published_at` past the limit, its object deleted.
+/// The release and the resume are the Worker's own.
+fn resume_released(
+    smoke: &mut Smoke,
+    inputs: &BlobInputs<'_>,
+    before_bytes: &str,
+    replacement: &Replacement,
+    upload_id: &str,
+) -> Result<()> {
+    step("the cron releases an expired reservation and its upload id resumes it");
+    reset_publish_bucket()?;
+    d1_quiet(&format!(
+        "UPDATE revisions SET stored_at = NULL,
+           published_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-16 minutes'),
+           charged_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-16 minutes')
+         WHERE upload_id = '{upload_id}';"
+    ))?;
+    delete_upload(upload_id, inputs.work)?;
+    smoke.check(BREAKER_CRON, &[200])?;
+    if stored_bytes()? != before_bytes {
+        bail!(
+            "the cron did not release and refund the expired reservation: {}",
+            stored_bytes()?
+        );
+    }
+
+    smoke.publish_as(upload_id, inputs.publish2_path, &replacement.body, &[201])?;
+    if stored_bytes()? != sum(before_bytes, replacement.archive.len())? {
+        bail!("the resumed upload was not re-counted: {}", stored_bytes()?);
+    }
+    if stored_upload(upload_id, inputs.work)?.as_deref() != Some(replacement.archive.as_slice()) {
+        bail!("the resumed archive is not in UPLOADS under its upload id");
+    }
+
+    // Judged here rather than left pending: the default class holds
+    // three pending uploads at a time (`registry/src/quota.rs`), and
+    // the legs after this one need the room.
+    let entry = pending_entry(smoke, inputs)?;
+    let verdict = verdict_rejected(&entry.checksum, &entry.published_at);
+    smoke.verdict_patch(inputs.verdict2_path, verdict.as_bytes(), &[200])?;
     smoke.as_publisher();
     Ok(())
 }
@@ -337,7 +381,7 @@ fn uniform_403(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
 
     step("publishing to an unclaimed or foreign scope is one uniform 403");
     let ghost = format!("/api/v1/packages/ghost/{}/{}", inputs.name, inputs.version);
-    smoke.wrequest("PUT", &ghost, inputs.publish, &[403])?;
+    smoke.publish(&ghost, inputs.publish, &[403])?;
     let refusal = smoke.body.clone();
     if !contains(&refusal, b"not a member") {
         bail!(
@@ -350,7 +394,7 @@ fn uniform_403(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
         "/api/v1/packages/foreign/{}/{}",
         inputs.name, inputs.version
     );
-    smoke.wrequest("PUT", &foreign, inputs.publish, &[403])?;
+    smoke.publish(&foreign, inputs.publish, &[403])?;
     if smoke.body != refusal {
         bail!(
             "foreign-scope and unclaimed-scope refusals differ: {}",
@@ -369,18 +413,16 @@ fn uniform_403(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
 }
 
 /// The tampered archive the version is republished with, carried
-/// between the three legs that publish it, reject it and republish it
-/// unchanged.
+/// between the legs that publish it and republish it unchanged.
 struct Replacement {
-    hash: String,
     /// The revision id, which the restart leg names again.
     revision: String,
     artifact: String,
     /// The framed body, re-sent verbatim by the restart leg.
     body: Vec<u8>,
-    /// The archive's own length and not the framed body's - only the
-    /// blob is accounted for.
-    size: usize,
+    /// The archive alone: its length, not the framed body's, is what is
+    /// accounted for, and its bytes are what UPLOADS must hold.
+    archive: Vec<u8>,
 }
 
 /// The listing fields a verdict binds to: the checksum names the
@@ -437,13 +479,13 @@ fn json_string(value: &str) -> String {
     Value::String(value.to_owned()).to_string()
 }
 
-/// `meta.total_stored_bytes` as display text; the comparisons are
+/// The publisher's `stored_bytes` as display text; the comparisons are
 /// string comparisons.
 fn stored_bytes() -> Result<String> {
-    let value = d1_rows(TOTAL_STORED_BYTES)?
+    let value = d1_rows(STORED_BYTES)?
         .first()
-        .and_then(|row| row.get("value").cloned())
-        .context("meta has no total_stored_bytes row")?;
+        .and_then(|row| row.get("stored_bytes").cloned())
+        .context("the smoke token's user has no row")?;
     Ok(xtask_registry_admin::display(&value))
 }
 
@@ -451,7 +493,7 @@ fn stored_bytes() -> Result<String> {
 fn sum(before_bytes: &str, size: usize) -> Result<String> {
     let before: usize = before_bytes
         .parse()
-        .with_context(|| format!("total_stored_bytes is not a number: {before_bytes}"))?;
+        .with_context(|| format!("stored_bytes is not a number: {before_bytes}"))?;
     Ok((before + size).to_string())
 }
 

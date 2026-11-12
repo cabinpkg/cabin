@@ -8,7 +8,7 @@
 //! a minute.  The budget arithmetic below counts against a full bucket,
 //! which holds twice over: the concurrency leg's dev restart starts
 //! fresh in-process limiter state, and the legs since the run's last
-//! OIDC request (reconciles, download waves) outlast the limiter's
+//! OIDC request (download waves) outlast the limiter's
 //! minute anyway.
 
 use anyhow::{Result, bail};

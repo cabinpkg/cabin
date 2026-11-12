@@ -28,6 +28,7 @@ pub mod sql;
 pub mod stats;
 pub mod telemetry;
 pub mod trustpub;
+pub mod upload;
 pub mod user_api;
 pub mod verify;
 

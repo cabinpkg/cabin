@@ -30,17 +30,18 @@ use serde::{Deserialize, Serialize};
 // Pools
 // ---------------------------------------------------------------------
 
-/// Storage pools: stocks of bytes, one ledger row per R2 object.
+/// Storage pools: stocks of bytes, one ledger row per R2 object. No
+/// caller reserves storage: the publish admission bounds stored bytes
+/// in D1 (`crate::quota`), so the pools remain only as the engine's
+/// storage half.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StoragePool {
-    /// Primary archive blobs (`BLOBS`, `blobs/sha256/<hex>`).
+    /// Archive objects.
     Primary,
-    /// The verified-archive copies a retired replication left
-    /// (`BACKUP`, same keys).
+    /// Copies of verified archives.
     Backup,
-    /// The D1 dumps and sidecars a retired nightly job left (`BACKUP`,
-    /// `d1/...`).
+    /// Database dumps and their sidecars.
     Dump,
 }
 
@@ -57,13 +58,12 @@ impl StoragePool {
 /// Billable-operation pools: monthly flows, consumed immediately before
 /// each billable R2 call. Split so abuse of one channel can exhaust
 /// only its own allowance: the publish path, the read plane, the source
-/// viewer, and the verifier each draw from their own pool. Nothing
-/// draws from the infrastructure pools since the backup replication
-/// was retired.
+/// viewer, the verifier, and the cron's sweep of expired reservations
+/// each draw from their own pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpPool {
-    /// Class A (writes/lists) on the publish path: blob puts.
+    /// Class A (writes/lists) on the publish path: archive puts.
     APublish,
     /// Class A for infrastructure; unused.
     AInfra,
@@ -75,7 +75,8 @@ pub enum OpPool {
     BVerifier,
     /// Class B on the publish path: existence heads.
     BPublish,
-    /// Class B for infrastructure; unused.
+    /// Class B for infrastructure: the cron's object checks of expired
+    /// reservations.
     BInfra,
 }
 
@@ -844,7 +845,7 @@ pub struct OpUsage {
     pub used: u64,
 }
 
-/// The `/usage` snapshot: the ledger as the reconciliation cron and the
+/// The `/usage` snapshot: the ledger as the cron's log line and the
 /// operator see it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageSnapshot {

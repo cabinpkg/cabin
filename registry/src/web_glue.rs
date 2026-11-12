@@ -927,7 +927,7 @@ async fn reverse_dependencies(
 
 #[derive(Deserialize)]
 struct SourceVersionRecord {
-    checksum: String,
+    upload_id: Option<String>,
     archive_size: i64,
 }
 
@@ -995,9 +995,12 @@ async fn package_source(
         }
     }
 
-    let key = crate::checksum::blob_key(&record.checksum);
+    let Some(key) = record.upload_id.as_deref().map(crate::upload::object_key) else {
+        console_error!("{scope}/{name}@{version} no longer names a stored object");
+        return json_error(500, error::INTERNAL);
+    };
     let object = env
-        .bucket("BLOBS")?
+        .bucket("UPLOADS")?
         .get(&key)
         .range(worker::Range::OffsetWithLength {
             offset: resolved.offset,
@@ -1009,9 +1012,9 @@ async fn package_source(
         console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
         return json_error(500, error::INTERNAL);
     };
-    // The row's archive_size resolved the range; if the blob disagrees
-    // (a drift the content-addressed store should make impossible), the
-    // headers below would lie about the bytes, so refuse instead.
+    // The row's archive_size resolved the range; if the object
+    // disagrees, the headers below would lie about the bytes, so refuse
+    // instead.
     if object.size() != size {
         console_error!(
             "blob {key} for {scope}/{name}@{version} is {} bytes but the row says {size}",

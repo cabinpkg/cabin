@@ -20,9 +20,9 @@
 //! Nothing reaches stdout: a passing guard is silent, and every
 //! refusal is one `launch guard:` line on stderr.
 //!
-//! Both wipes - [`crate::wipe`] and the governor's - call it
-//! in-process, so nothing stands between its refusal and the delete it
-//! guards but a function call.  What the environment does reach -
+//! [`crate::wipe`] calls it in-process, so nothing stands between its
+//! refusal and the delete it guards but a function call.  What the
+//! environment does reach -
 //! `wrangler` through `node` on `PATH` - the guard does not defend
 //! against: it exists to stop a launched registry and a stale config,
 //! not its own operator.

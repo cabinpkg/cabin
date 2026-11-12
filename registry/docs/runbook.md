@@ -21,9 +21,8 @@ infrastructure cutover.
 - **Pre-launch (`meta.launched` = `'false'`): disposable.** When the
   storage format changes incompatibly - `metadata_json` shape, R2 key
   layout, reshaped D1 columns - the registry is wiped and recreated
-  (`cargo registry-wipe`) rather than migrated - the database, the
-  primary blobs, and the whole backup bucket, which holds only what
-  retired jobs left ("Disaster recovery"). The schema ships as a
+  (`cargo registry-wipe`) rather than migrated - the database and
+  every object in the four buckets. The schema ships as a
   single from-zero baseline (`migrations/0001_init.sql`) edited in
   place: while the data is disposable, no ALTER TABLE history
   accretes.
@@ -290,8 +289,15 @@ service mode" and "Integrated topology and route management").
 ```sh
 node_modules/.bin/wrangler d1 create cabin-registry
 # copy the printed database_id into d1_databases in wrangler.jsonc
-node_modules/.bin/wrangler r2 bucket create cabin-registry-blobs
-node_modules/.bin/wrangler r2 bucket create cabin-registry-backup
+for bucket in archives uploads download-logs index; do
+  node_modules/.bin/wrangler r2 bucket create "cabin-registry-$bucket"
+done
+# UPLOADS and DOWNLOAD_LOGS expire their objects: the Worker never
+# deletes one ("Upload lifecycle").
+for bucket in uploads download-logs; do
+  node_modules/.bin/wrangler r2 bucket lifecycle add "cabin-registry-$bucket" \
+    expire-after-14-days --expire-days 14 -y
+done
 node_modules/.bin/wrangler d1 migrations apply DB --remote
 node_modules/.bin/wrangler deploy
 # deploy creates the registry.cabinpkg.com custom domain and its DNS
@@ -303,7 +309,8 @@ printf '%s' "$ANALYTICS_API_TOKEN" | node_modules/.bin/wrangler secret put ANALY
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
-exists (`d1 list` / `r2 bucket list` to check); `migrations apply` and
+exists (`d1 list` / `r2 bucket list` to check); `r2 bucket lifecycle
+list <bucket>` shows a bucket's rules; `migrations apply` and
 `deploy` are safe to re-run; a re-run `secret put` overwrites the value.
 
 Smoke checks after any deploy:
@@ -343,11 +350,10 @@ smoke test). What it does, in order:
    name through the binding, so a stale binding would otherwise delete a
    database other than the account's `cabin-registry`), then reads
    `meta.launched` through the binding.
-2. Empties both buckets through the R2 REST API, before the database
-   goes: every `blobs/`-prefixed object in `cabin-registry-blobs`, then
-   every object in `cabin-registry-backup` - the archive copies and D1
-   dumps retired jobs left, and anything else the dedicated
-   bucket holds (list, delete
+2. Empties the four buckets through the R2 REST API, before the
+   database goes: every object in `cabin-registry-archives`,
+   `cabin-registry-uploads`, `cabin-registry-download-logs`, and
+   `cabin-registry-index`, in that order (list, delete
    per key, and list again until a listing comes back empty;
    `wrangler r2 object delete` removes exactly one object and has no
    prefix or bulk mode, which is why the wipe drives the API directly).
@@ -356,10 +362,8 @@ smoke test). What it does, in order:
    more than a thousand-odd objects can take a second run), or a key
    still listed after its delete answered success stops the run - and since
    the database and its flag still exist, re-running the command
-   resumes the sweep. The buckets themselves, their bindings, and every
-   other Cloudflare resource stay. The backup bucket is emptied only
-   here, pre-launch: once `meta.launched` is `'true'` the guard
-   refuses.
+   resumes the sweep. The buckets themselves, their lifecycle rules,
+   their bindings, and every other Cloudflare resource stay.
 3. Deletes and recreates the database
    (`wrangler d1 delete cabin-registry -y` / `wrangler d1 create
    cabin-registry`) and bakes the new id into the `DB` binding's
@@ -377,36 +381,17 @@ smoke test). What it does, in order:
    pre-wipe package document for up to its 60 s TTL.
 6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings.
-7. Resets the governor ledger - a manual follow-up the command reminds
-   you of: the ledger still accounts for every deleted object in all
-   three storage pools (conservative, so nothing overspends, but
-   admission runs against ghosts). Sign in and mint a login-session
-   token; because it carries `publish`, block writes first ("Post-wipe
-   re-provisioning" gives the exact ordering and drain wait), then run
-   `cargo registry-governor wipe` (from the repository root) with it
-   (`CABIN_REGISTRY_TOKEN` plus
-   `CLOUDFLARE_API_TOKEN` in the environment): after a typed
-   confirmation it re-runs the launch guard, proves the primary bucket
-   carries no `blobs/` object and the backup bucket no object at all,
-   posts the wipe, and proves both empty again - an object left by an
-   interrupted sweep, or written since by a stale writer, would keep
-   billing while the fresh ledger no longer counts it,
-   so the command refuses before the wipe and fails loudly after it.
-   The endpoint refuses on its own unless `meta.launched` reads exactly
-   `'false'`, mirroring this command's guard. The wipe clears the
-   storage rows of all three pools - `primary`, `backup`, and `dump` -
-   and the daily fairness windows; the monthly operation windows
-   survive: they mirror R2 operations Cloudflare already metered this
-   month and cannot be rebuilt, so zeroing them would re-mint a month
-   of allowance for spend that already happened ("The cost
-   governor").
+
+The wipe leaves the governor Durable Object alone: its monthly operation
+windows mirror R2 operations Cloudflare already metered this month and
+cannot be rebuilt ("The cost governor").
 
 `cargo registry-wipe --local` is the same idea for the local `.wrangler/`
 state (guard, drop the emulated D1/R2/Durable Object/cache state,
 reapply migrations, bump the generation); the smoke
 test uses it to assert the refusal branch, and a re-run of the smoke
-test wants it first so the governor ledger and the emulated edge cache
-start empty.
+test wants it first so the governor's windows and the emulated edge
+cache start empty.
 
 A remote wipe that stops during the sweeps (step 2) has not touched the
 database: fix the cause and re-run it. If one is interrupted between the
@@ -420,29 +405,26 @@ revokes everything; users re-authenticate afterward
 cookie - the operator's included - gets 401 from the session API until
 it visits `/login`: GitHub auto-approves the already-authorized OAuth
 app, and `/callback` recreates the user row and a fresh session. The
-verifier needs no re-provisioning, only re-enabling in step 5 (see
+verifier needs no re-provisioning, only re-enabling in step 3 (see
 "Verification pipeline").
 
 ### Post-wipe re-provisioning
 
-Do the whole sequence in one sitting, in this order - two of the steps
-gate on each other and doing them out of order costs a revoke-and-remint
-round trip (drilled 2026-07-29). Before the wipe itself, disable the
-ports publish workflow (`gh workflow disable publish.yml -R
-cabin-ports/ports`) and cancel any in-flight run of it: publish runs
-come from a manual dispatch or its schedule, and one mid-ceremony would
-mint its own publish token
-through the trusted-publishing exchange - the governor wipe in step 4
-refuses while any live publish token exists - and a run left going
-would publish into the wiped registry as soon as its deploy wait finds
-a deploy containing its pinned Cabin commit, usually at once, before
-the governor gate has run. Re-enable it in step 5.
+Do the whole sequence in one sitting, in this order. Before the wipe
+itself, disable the ports publish workflow (`gh workflow disable
+publish.yml -R cabin-ports/ports`) and cancel any in-flight run of it:
+publish runs come from a manual dispatch or its schedule, and one left
+going would span the database drop, or publish into the wiped registry
+as soon as its deploy wait finds a deploy containing its pinned Cabin
+commit, usually at once, ahead of the receipts reset in step 3.
+Re-enable it in step 3.
 Disable the verifier too (`gh workflow disable registry-verify.yml`,
 which stops its schedule but not the runs it already queued) and cancel
 its queued or in-flight runs, so none spans the database drop.
-Anything a writer slips in anyway - a publish landing between the
-wipe's sweeps and its database drop, while the old Worker still
-serves - makes step 4 refuse rather than undercount.
+An archive a writer slips in anyway - a publish landing between the
+UPLOADS sweep and the database drop, while the old Worker still
+serves - is left with no row naming it and expires with the bucket's
+lifecycle rule.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp to the pull request that changes the
@@ -458,29 +440,7 @@ serves - makes step 4 refuse rather than undercount.
    `cabin-ports` claim is what re-arms ports publishing: the
    trusted-publishing exchange mints for the scope's oldest owner and
    refuses while the scope is unclaimed.
-3. Mint a login-session token for the governor step below
-   (`docs/remote-registry.md`) as the operator: only the operator's own
-   session carries the `verify` scope that authenticates the
-   `verify`-scoped admin endpoint.
-   The verifier workflow needs no secret of its own: each run mints its
-   token through the trusted-publishing exchange, and the baseline
-   migration seeds the backing identity its verifier arm resolves
-   (`VERIFIER_BACKING_ACCOUNT_ID`).
-4. Run `cargo registry-governor wipe` from the repository root. Its
-   no-delayed-publisher evidence gate requires zero live publish tokens
-   (revoked and expired ones do not count), and a login-session token
-   carries `publish`, so **block writes first**, wait out the in-flight
-   window (~5 minutes: the 60 s mode cache plus in-flight upload time),
-   then run the wipe under `writes_blocked` - the gate clears on the
-   blocked-writes path ("Budget breaker and service mode"). If it
-   refuses because a bucket still holds an object, or fails because one
-   appeared during the reset, find the writer, delete the object
-   (`node_modules/.bin/wrangler r2 object delete <bucket>/<key>
-   --remote`), and run it again; a re-run over empty buckets is
-   harmless. Never do that for a key with a `.` or `..` path segment:
-   no registry writer produces one, and its delete URL resolves to
-   another path of the API - the bucket's own, at worst.
-5. Start the ports receipts log over while the publish workflow is
+3. Start the ports receipts log over while the publish workflow is
    still disabled (its README, "Automatic publishing"), then re-enable
    it (`gh workflow enable publish.yml -R cabin-ports/ports`), prove
    the trusted-publishing binding with an `exchange-check`
@@ -489,8 +449,11 @@ serves - makes step 4 refuse rather than undercount.
    no publish token to mint and no `CABIN_PORTS_TOKEN` secret: the run's
    OIDC exchange is the credential. Re-enable the verifier (`gh workflow
    enable registry-verify.yml`); its schedule verifies the republished
-   set.
-6. Rerun whatever main CI went red against the old registry
+   set. The verifier workflow needs no secret of its own: each run
+   mints its token through the trusted-publishing exchange, and the
+   baseline migration seeds the backing identity its verifier arm
+   resolves (`VERIFIER_BACKING_ACCOUNT_ID`).
+4. Rerun whatever main CI went red against the old registry
    (`gh run rerun <id> --failed`); byte-identical republication of the
    already-landed packages no-ops, so a partial run resumes cleanly.
 
@@ -571,8 +534,9 @@ activation" below). Inspect it:
 
 ```sh
 node_modules/.bin/wrangler d1 execute DB --remote --command \
-  "SELECT key, value FROM meta WHERE key IN
-   ('service_mode', 'service_mode_reason', 'total_stored_bytes')"
+  "SELECT key, value FROM meta
+   WHERE key IN ('service_mode', 'service_mode_reason')
+   UNION ALL SELECT 'stored_bytes', COALESCE(SUM(stored_bytes), 0) FROM users"
 ```
 
 Override it (for example to force-block writes during an incident, or to
@@ -591,11 +555,14 @@ caches the mode in isolate memory for ~60 s (`SERVICE_MODE_TTL_SECS`; the
 smoke test pins it to 0 via `.dev.vars`), so an override can take up to a
 minute to bite.
 
-The breaker's numbers are approximate and cron-delayed; the hard,
-request-time R2 enforcement lives in the governor ("The cost governor"
-below), which the analytics here only audit - they can escalate the
-mode, never grant governor allowance. The budget ceilings the cron
-evaluates against, with their in-code
+The breaker's numbers are approximate and cron-delayed. The hard,
+request-time limits live elsewhere: R2 operations in the governor ("The
+cost governor" below), which the analytics here only audit - they can
+escalate the mode, never grant governor allowance - and stored and
+uploaded bytes in the publish admission ("Upload lifecycle"). The
+storage figure is the sum of what publishers are charged
+(`users.stored_bytes`), not what the buckets hold. The budget ceilings
+the cron evaluates against, with their in-code
 defaults (`src/breaker.rs`), each comfortably below the matching
 Cloudflare free limit:
 
@@ -643,35 +610,36 @@ alert.
 ## The cost governor
 
 The governor is the hard, request-time authority for every billable R2
-resource the Worker can initiate (`src/governor.rs`): one named
+operation the Worker can initiate (`src/governor.rs`): one named
 SQLite-backed Durable Object (binding `GOVERNOR`,
-class `Governor`, singleton `"governor"`) whose ledger admits or
+class `Governor`, singleton `"governor"`) that admits or
 refuses each R2 call before it is made. The breaker above stays the
 approximate, analytics-driven service mode; the governor is exact and
 per-request, and an unreachable governor fails every fresh R2 path
 closed (`503 registry_over_budget`; edge-cache hits keep serving).
+Stored bytes are not the governor's to bound: the publish admission
+does that in D1 ("Upload lifecycle").
 
 The hard limits, env-overridable in `wrangler.jsonc` `vars` with
 in-code defaults (`src/governor.rs`):
 
 | Var | Default | Pool (as snapshots name it) |
 | --- | --- | --- |
-| `GOVERNOR_STORAGE_PRIMARY_BYTES` | 4 GiB | `primary` - BLOBS archive bytes |
-| `GOVERNOR_STORAGE_BACKUP_BYTES` | 4 GiB | `backup` - the verified copies a retired replication left in BACKUP |
-| `GOVERNOR_STORAGE_DUMP_BYTES` | 512 MiB | `dump` - the `d1/` dumps a retired nightly job left in BACKUP |
 | `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | `a_publish` - publish-path puts |
-| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - unused since the replication was retired |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - unused |
 | `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | `b_ordinary` - artifact cache misses |
 | `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | `b_source` - source-viewer ranged reads |
 | `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | `b_verifier` - pending-artifact fetches |
 | `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | `b_publish` - publish-path heads |
-| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - unused since the replication was retired |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - the cron's object checks of expired reservations |
 
 A limit var only takes effect through `wrangler.jsonc` `vars` and a
 deploy; `cargo check-deploy` (also a CI step) refuses a var whose
-name is not one of the ten above or whose value does not parse as a
+name it does not know or whose value does not parse as a
 u64, because a misspelled name is silently ignored and an unparsable
-value fails closed to a zero limit in production.
+value fails closed to a zero limit in production. It still accepts the
+three `GOVERNOR_STORAGE_*_BYTES` names the engine parses, which bound
+nothing: no path reserves storage in the governor.
 
 Two knob rules that differ from the breaker's, on purpose:
 
@@ -683,109 +651,22 @@ Two knob rules that differ from the breaker's, on purpose:
   defaults carry the headroom for that skew. Windows only roll
   forward - a regressed clock cannot mint allowance.
 
-Storage sizing note: primary + backup + dump defaults sum to 8.5 GiB
-against the 10 GB-month account-wide free limit, and the breaker's
-`BUDGET_R2_STORAGE_BYTES` keeps watching the primary bytes
-independently.
-
-**Inspecting the ledger.** Every breaker cron pass logs one summary
-line (`governor usage: storage ... ops ...`) next to the analytics
-evaluation - `wrangler tail` or the dashboard shows both - and the
-reconciliation report right after it: objects added conservatively,
-plus `governor ledger divergence: N unreferenced entr(ies), M byte
-mismatch(es)` when the ledger carries entries D1 does not prove live.
-On demand (with a login-session token in `CABIN_REGISTRY_TOKEN`):
+**Inspecting the windows.** Every breaker cron pass logs one summary
+line (`governor usage: ops ...`) next to the analytics
+evaluation - `wrangler tail` or the dashboard shows both. On demand
+(with a login-session token in `CABIN_REGISTRY_TOKEN`):
 
 ```sh
-(cd .. && cargo registry-governor usage)      # the snapshot, readable
-(cd .. && cargo registry-governor compare)    # ledger totals against D1's live view
+(cd .. && cargo registry-governor usage)
 ```
 
-`usage` renders `GET /api/v1/admin/governor` (Bearer, `verify` scope);
-`compare` also sums D1's live and verified blob views and says which
-direction any divergence runs and which command fixes it. Both are
-read-only and safe on a live registry. The named object is created
+It renders `GET /api/v1/admin/governor` (Bearer, `verify` scope), is
+read-only, and is safe on a live registry. The named object is created
 on first use and applies its schema idempotently before answering, so
 `usage` also initializes a fresh object.
 
-**Reconciliation and operator releases.** Reconciliation is
-increase-only: it records every live blob as committed usage and only
-*reports* the rest. It runs on every breaker cron pass, and on demand:
-
-```sh
-(cd .. && cargo registry-governor reconcile)          # divergence counts, and settles
-(cd .. && cargo registry-governor reconcile --keys)   # ...with the divergent keys
-```
-
-(the endpoint action is `POST {"reconcile":true}`; it answers the
-report - `added`, `unreferenced`, `mismatched` - and touches the
-**primary** pool only). An `unreferenced` entry is a candidate orphan
-(a crashed publish's blob, a lost race, or a blob you deleted by
-hand); it keeps consuming allowance until an operator releases it with
-evidence. To release one: delete the object if it still exists
-(dashboard or `node_modules/.bin/wrangler r2 object delete`), then:
-
-```sh
-(cd .. && cargo registry-governor release primary blobs/sha256/<hex>)
-```
-
-The command is the evidence rule made executable (with
-`CLOUDFLARE_API_TOKEN` for the R2 checks): it refuses while the object
-still exists in R2, refuses while any non-rejected D1 version still
-references the checksum, and treats an API failure as "absence not
-proven", because a release for a live object would make the ledger
-understate reality - the one direction the design forbids.
-Observation alone cannot close the race with an in-flight publisher
-(one that reserved the key but has not put yet reads as absent, then
-lands its put after the release - an undercount reconciliation could
-never repair, since a crashed publisher leaves no D1 row either), so
-primary releases additionally **require writes blocked**, which the
-script enforces. The full sequence:
-
-```sh
-# note the current mode first: the final step restores THIS value, not
-# a blanket 'normal' - if the breaker had the registry in 'warn' or a
-# blocked mode for budget reasons, forcing 'normal' would reopen it
-# until the next cron pass recomputes
-node_modules/.bin/wrangler d1 execute DB --remote --command \
-  "SELECT value FROM meta WHERE key = 'service_mode'"
-node_modules/.bin/wrangler d1 execute DB --remote --command \
-  "UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode'"
-# wait ~5 minutes: the mode cache (60 s) plus in-flight upload time -
-# after a publish's reservation, the put is server-paced (the body is
-# already consumed), so the reserve-to-put gap is not client-extendable
-(cd .. && cargo registry-governor release primary blobs/sha256/<hex>)
-node_modules/.bin/wrangler d1 execute DB --remote --command \
-  "UPDATE meta SET value = '<the mode noted above>' WHERE key = 'service_mode'"
-```
-
-Mind the clock: the breaker cron overwrites the manual override within
-15 minutes, so finish the release inside one window (the command
-re-checks the mode right before it posts and refuses if the override
-lapsed). As a backstop it re-checks the key after the release and, if
-it somehow reappeared, runs a reconcile - which can re-ledger the
-object only once D1 references it - and exits non-zero for
-investigation either way. This is coordination plus bounded
-observation, not a transaction - the endpoint cannot inspect R2
-atomically - and the residual window (a Worker frozen mid-request
-across the whole drain wait, then crashing between its put and its D1
-rows) is accepted pre-launch; if the registry ever has open sign-ups,
-the upgrade path is a two-phase release inside the governor itself. `release dump d1/<date>.sql` releases a
-leftover dump's entry the same way once its object is gone (nothing
-writes dated dump keys, so no mode flip is needed); `release
-backup <key>` does the same for a leftover archive copy and demands
-its own typed confirmation. Never drive the raw
-endpoint by hand - it cannot check R2 or the service mode for you.
-The endpoint's remaining action,
-`{"wipe":true}` (`cargo registry-governor wipe`), clears the storage
-rows of all three pools and the daily fairness windows (the monthly
-operation windows survive - the operation counters mirror
-already-metered R2 spend and cannot be rebuilt) and only works
-pre-launch, between the command's proofs that both buckets are empty
-(see "Wipe procedure").
-
 **Analytics divergence.** The breaker cron's R2 numbers audit the
-governor: if observed Class A/B operations or storage run well ahead
+governor: if observed Class A/B operations run well ahead
 of the governor's consumed totals, something is spending outside the
 governed paths (a leaked credential, dashboard activity, a bug).
 Investigate; the emergency lever is the service mode override above,
@@ -813,13 +694,6 @@ then, do not raise `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` toward its
 cap without accepting that the object's daily quotas become the
 guaranteed failure point.
 
-**Reclaim and the ledger.** Rejected-content reclaim deletes the
-primary object (deletes are free) but never releases its ledger entry:
-the entry shows up as `unreferenced` in reconciliation reports, and
-releasing it is the operator's action above. Expect the primary ledger
-to accumulate a small tail of rejected/orphaned entries between
-sweeps; each entry only ever holds allowance, never spends.
-
 **Known ceilings.** Two residual windows are documented rather than
 engineered around: a
 spurious FORWARD platform-clock jump across a month boundary would
@@ -827,19 +701,12 @@ roll an operation window early (a later regress cannot roll it back -
 windows only move forward - so the net effect is one early reset,
 with the analytics operation counts as the independent tell), and
 a catastrophic loss of the Durable Object's storage would restart the
-operation windows at zero. Storage rows are reconstructable but the
-**operation windows are not** (R2 exposes no per-pool op counter), so
+operation windows at zero. They cannot be rebuilt (R2 exposes no
+per-pool op counter), so
 after a storage loss on a *launched* registry the month's operation
 budget re-opens on top of ops already metered - Cloudflare's 30-day
 Durable Object point-in-time recovery is the first-line fix, restoring
-the object to just before the loss. Reconciliation only repopulates
-**storage**: the **primary** rows rebuild from D1 - run
-`cargo registry-governor reconcile` (from the repository root) immediately
-rather than waiting up to
-15 minutes for the breaker cron's pass; the **backup** and **dump**
-entries do not rebuild (nothing writes either any more). On a launched registry, hold publishes until that
-reconcile lands, so the empty ledger cannot admit a write past the
-true R2 cap in the interim.
+the object to just before the loss.
 
 **Deploy notes.** The Durable Object class ships with the same
 `wrangler deploy` as the Worker (the `migrations` block in
@@ -847,9 +714,9 @@ true R2 cap in the interim.
 deploy token's Workers Scripts:Edit scope covers Durable Object
 migrations; if the API refuses a deploy that carries a new migration,
 fall back to a manual `node_modules/.bin/wrangler deploy`. A wiped or
-reinitialized object recreates its schema idempotently; reconciliation
-then rebuilds the **primary** rows conservatively from D1
-("Known ceilings" above). The schema is applied with `CREATE TABLE IF NOT EXISTS` only,
+reinitialized object recreates its schema idempotently and starts its
+windows at zero ("Known ceilings" above). The schema is applied with
+`CREATE TABLE IF NOT EXISTS` only,
 so any future column change to a governor table needs an explicit
 migration (an `ALTER TABLE`, not a silent no-op), and the `Governor`
 class must only ever be migrated by `renamed_classes`/
@@ -866,10 +733,10 @@ var name and value valid.
 
 **Validating a governor change.** Before merging, run the registry
 checks (`registry/AGENTS.md`, "Checks") and the full local smoke run
-with local state wiped first, so the ledger and edge cache start empty.
+with local state wiped first, so the windows and edge cache start empty.
 After the deploy lands ("Integrated topology and route management"),
 run the smoke checks from "First-time provisioning" and read the
-ledger:
+windows:
 
 ```sh
 (cd .. && CABIN_WIPE_YES=1 cargo registry-wipe --local)
@@ -877,7 +744,6 @@ ledger:
 (cd .. && cargo check-deploy --require-bundle)   # the smoke run built the bundle
 # after the deploy:
 (cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor usage)
-(cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor compare)
 ```
 
 What the local smoke run proves, and what it cannot: `wrangler dev`
@@ -896,8 +762,8 @@ hit); on a cold colo or after eviction both charge, which is the
 governed-and-budgeted path working, not a bug.
 
 **Rollback.** Worker code and governor state are separate by design:
-the ledger lives in the Durable Object and no rollback, redeploy, or
-`wrangler rollback` touches it (Cloudflare rollbacks change no
+the windows live in the Durable Object and no rollback, redeploy, or
+`wrangler rollback` touches them (Cloudflare rollbacks change no
 resources). Two rules bound what a rollback may target:
 
 - **Never below the governor.** The platform refuses a rollback across
@@ -920,14 +786,11 @@ node_modules/.bin/wrangler rollback           # interactive; or pass the version
 # then validate exactly like a deploy:
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
 (cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor usage)
-(cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor compare)
 ```
 
-The newer accounting state a rollback leaves behind is safe by the
-ledger's own invariants: entries the older code does not recognize
-keep holding their allowance (conservative, never spend), and the
-reconciliation cron keeps settling the primary pool from D1 either
-way. If the rollback was prompted by suspected accounting corruption,
+A rollback leaves the windows as they are: what the month already
+consumed stays consumed. If the rollback was prompted by suspected
+accounting corruption,
 stop before rolling back and capture `cargo registry-diagnose` output (from
 the repository root) plus
 `cargo registry-governor usage`, from the repository root, first -
@@ -975,6 +838,96 @@ Sizing rules - the degrade-before-pay policy:
   closes the variable spend channels; the absent payment method closes
   everything else. Adding one is part of the same deliberate activation
   decision, never a convenience.
+
+## Upload lifecycle
+
+Every publish names its operation with a `Cabin-Upload-Id` header
+(`docs/remote-registry.md`, "Publish"), and an admitted operation
+stores its archive as one object of its own, `uploads/<upload id>.zip`
+in UPLOADS. A revision row is in one of four states
+(`revisions.verification` and `stored_at`):
+
+| State | Row | Leaves it by |
+| --- | --- | --- |
+| reservation | `pending`, `stored_at` NULL | its request storing and confirming the archive, else the reservation sweep |
+| pending | `pending`, `stored_at` set | a verdict, else the pending timeout |
+| verified | `verified` | never |
+| rejected | `rejected` | a republish of the same bytes |
+
+- **Admission is one D1 transaction** (`src/sql/admission.rs`). It
+  takes everything the upload needs - the publisher's storage, the
+  package quotas, the daily upload allowances, a pending slot - or
+  nothing, before any R2 write. Only an admitted upload is stored, and
+  only a stored one is listed to the verifier.
+- **The reservation sweep** runs on the `*/15` cron. A reservation
+  older than 15 minutes is settled from what UPLOADS holds: confirmed
+  when its object is there, otherwise released - `rejected` with reason
+  `upload_not_stored`, its storage refunded. A pass settles at most 50,
+  oldest first, and charges one `b_infra` operation per object check; a
+  governor refusal ends the pass and the next one continues.
+- **The pending timeout.** A stored upload still pending 14 days after
+  `stored_at` is rejected with reason `verification_timeout` and
+  refunded by the same cron: its object is about to expire and could
+  no longer be verified.
+- **Returning to a released reservation.** The same upload id and
+  publisher may return within 14 days of the operation's first charge
+  (`charged_at`); returning never extends that window. It takes a
+  pending slot and the storage again and is not charged the daily
+  allowances a second time. An upload id whose operation was rejected
+  after it was stored, or whose window has passed, is refused with a
+  `409`; any other republish of rejected bytes is a new operation,
+  charged in full. A request that finds its own reservation released
+  under it is also a `409` (`the upload's reservation expired before
+  the archive was stored; retry the upload`): only a later request
+  returns.
+- **Upload ids are forgotten** 30 days after a row turned terminal:
+  the cron clears `upload_id`, `charged_at`, and `charged_class`.
+- **Daily allowances** are the rows of `user_daily_upload_usage` and
+  `shared_daily_upload_usage`, keyed by UTC date. A new day starts
+  from absent rows, so the allowances reopen at 00:00 UTC whether or
+  not a cron pass ran; the cron only deletes the rows from before
+  yesterday.
+
+What each class allows (`src/quota.rs`; `users.quota_class`, any
+unknown name reading as `default`):
+
+| Limit | `default` | `operator` |
+| --- | --- | --- |
+| Archive size | 16 MiB | 16 MiB |
+| Stored bytes per user | 128 MiB | 4 GiB |
+| Packages per user | 20 | 10,000 |
+| New packages per user per UTC day | 5 | 1,000 |
+| Revisions per package per UTC day | 30 | 1,000 |
+| Uploaded bytes per user per UTC day | 256 MiB | 4 GiB |
+| Uploads per user per UTC day | 30 | 1,000 |
+| Uploads pending at once per user, reservations included | 3 | 1,000 |
+| Uploaded bytes per UTC day, the whole class | 5 GiB | 4 GiB |
+| Uploads per UTC day, the whole class | 500 | 1,000 |
+
+The `operator` class is charged to shared allowances of its own, so
+bulk port publishing never spends what `default` accounts share.
+
+**What a rejection gives back.** A verifier's rejection, a released
+reservation, and a pending timeout each refund the archive's bytes to
+`users.stored_bytes` in the transaction that rejects the row, and the
+row leaving `pending` frees its slot. The daily allowances are never
+refunded: an admitted upload stays charged whatever becomes of it.
+
+**What stays in UPLOADS.** The Worker never deletes an UPLOADS object;
+the bucket's 14-day lifecycle rule ("First-time provisioning") does, so the
+archive of a rejected, released, or timed-out upload stays until the
+rule removes it while nobody is charged for it. The breaker's storage
+figure, `SUM(users.stored_bytes)`, is therefore what publishers are
+charged, not what the bucket holds; the difference is bounded by the
+classes' shared daily allowances over 28 days - a resumed upload stores
+its archive up to 14 days after it was charged, and the object then
+lives 14 more - not by `BUDGET_R2_STORAGE_BYTES`. Do not delete UPLOADS
+objects by hand: a row may still name one.
+
+The Worker also serves a **verified** revision from its UPLOADS object
+(`src/glue/read.rs`): nothing writes ARCHIVES, DOWNLOAD_LOGS, or INDEX,
+so a verified archive lasts only as long as the UPLOADS rule keeps its
+object.
 
 ## Verification pipeline
 
@@ -1139,90 +1092,43 @@ Cloudflare's to document: read the current D1 documentation when a
 restore is needed. A deleted database, or damage older than that
 retention, has no recovery path; that loss is an accepted risk. A
 restore moves D1 alone, so afterwards check the
-restored rows against the bucket, and after restoring to a point that
+restored rows against UPLOADS, and after restoring to a point that
 predates launch, immediately re-run the launch-checklist `UPDATE` that
 sets `meta.launched = 'true'`, or the launch guard would treat the
 restored registry as pre-launch and let a wipe through.
 
-**Primary-bucket data loss** (bucket deleted or objects destroyed):
-there is no second copy. A publisher's byte-identical re-publish
-restores a version's blob; anything nobody re-publishes is lost. This
-is an accepted risk.
-
-**Leftovers in the backup bucket.** `cabin-registry-backup` still holds
-what two retired jobs left: the `blobs/sha256/` copies of a retired
-verified-archive replication, and under `d1/` the `.sql` dumps (and
-`.sha256` sidecars) of a retired nightly job. The governor's `backup`
-and `dump` pools still account for them. Nothing writes, reads,
-validates, or prunes them; the pre-launch wipe removes them with the
-rest of the bucket.
+**Bucket data loss** (a bucket deleted or its objects destroyed): there
+is no second copy, and a byte-identical re-publish does not bring an
+archive back - for a revision already recorded as stored it is the
+`200` no-op and writes nothing. This is an accepted risk.
 
 **Known limitation - account-level compromise.** Everything above lives
 in one Cloudflare account: a compromised operator account or a hostile
 account closure takes all of it. This is an accepted risk; no
 off-account copy is kept.
 
-## Orphaned R2 blobs
-
-Publish writes the R2 blob before the D1 rows, so a crash between the two
-writes, or a batch whose guards refuse it (a lost race, or a quota a
-concurrent publish spent first), can leave a blob no `versions` row
-references. It is unreachable through the API (artifact lookups go
-through D1), and a retried publish reuses it instead of re-uploading
-(and counts it into `meta.total_stored_bytes` at that point). Under the
-governor an orphan is never invisible spend: the publish's reservation
-keeps representing the bytes, reconciliation reports the entry as
-`unreferenced` on every pass, and the cleanup is the operator pairing -
-delete the object (dashboard or `node_modules/.bin/wrangler r2 object
-delete`), then `cargo registry-governor release primary <key>` from the
-repository root ("The cost
-governor"). There is deliberately
-no automatic garbage collection, and the reclaim path never releases
-primary ledger entries on its own - a successful delete of a
-content-addressed key is no proof the key stays gone, because a
-concurrent same-checksum publish can recreate it at any moment.
-
-Orphaned bytes are also invisible to the storage self-accounting - the
-counter tracks referenced blobs only, by design (storage is
-self-accounted, never read from analytics), and
-the storage budget's headroom below the free limit absorbs the bounded
-drift. If the dashboard's bucket size ever diverges noticeably from
-`meta.total_stored_bytes`, delete the orphans and recompute the counter
-from D1 alone - every revision row carries `archive_size`, and the
-counter is one size per distinct live checksum:
-
-```sh
-node_modules/.bin/wrangler d1 execute DB --remote --command "
-  INSERT INTO meta (key, value) SELECT 'total_stored_bytes',
-    CAST(COALESCE(SUM(size), 0) AS TEXT) FROM (
-      SELECT MAX(archive_size) AS size FROM revisions
-      WHERE verification != 'rejected' GROUP BY checksum)
-    WHERE true
-  ON CONFLICT (key) DO UPDATE SET value = excluded.value;"
-```
-
-(The `WHERE true` is load-bearing: without it `SQLite` parses the `ON`
-after a `SELECT ... FROM` as a join constraint and rejects the upsert.)
-
 ## Quota tallies
 
 `users.package_count` and `users.stored_bytes` are what the publish
-preflight and the publish batches' in-transaction quota guards read for
+preflight and the admission gates read for
 the per-user package and storage quotas. They are exact by
 construction, not caches: each is the count of the user's
 `created_by` packages or the `archive_size` sum of the user's
-`published_by` revisions that are not rejected, and every batch that
-writes such a row adjusts the tally in the same transaction - the
-publish and revival batches add, the rejection batch refunds the row's
-publisher, and a write the batch's guards suppress counts nothing. A
+`published_by` revisions that are not rejected - reservations
+included - and every batch that
+writes such a row adjusts the tally in the same transaction: an
+admission adds, and a verifier's rejection, a released reservation, and
+a pending timeout each refund the row's
+publisher, while a write its gate refuses counts nothing. A
 fresh schema starts both at zero over empty tables, so a wipe needs no
-backfill. The daily quotas have no tally: each count is an index range
+backfill. The daily package and revision quotas have no tally: each
+count is an index range
 over one UTC day's rows (`packages_created_by`,
-`revisions_published_at`), which the daily quota itself bounds. A
-publish runs the version count five times (the preflight, the version
-row and revision inserts, and both arms of the stored-bytes upsert; a
-revival three) and, for a new package, the package count twice, so its reads never grow
-with the account's or the package's history. Nothing should ever make
+`revisions_published_at`), which the daily quota itself bounds, so a
+publish's reads never grow
+with the account's or the package's history. The daily upload
+allowances are the two usage tables of "Upload lifecycle". Nothing
+should ever make
 the tallies drift; this check, which reads
 every package and revision once, must return no rows:
 

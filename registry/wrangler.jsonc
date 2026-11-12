@@ -38,13 +38,12 @@
     // against a warn-only default; setting it is what arms the read-side
     // breaker (docs/runbook.md, "Read budgets and paid-plan
     // activation") - do not set it before that procedure.
-    // The governor's hard R2 limits (GOVERNOR_STORAGE_*_BYTES and
-    // GOVERNOR_R2_CLASS_{A,B}_*_MONTH; src/governor.rs) follow the same
-    // in-code-default pattern, with one deliberate difference: a var
-    // that is set but unparsable fails closed to a ZERO limit - a typo
-    // in a hard spending cap blocks its pool loudly instead of
-    // silently reverting to a default (docs/runbook.md, "The cost
-    // governor").
+    // The governor's hard R2 limits (GOVERNOR_R2_CLASS_{A,B}_*_MONTH;
+    // src/governor.rs) follow the same in-code-default pattern, with one
+    // deliberate difference: a var that is set but unparsable fails
+    // closed to a ZERO limit - a typo in a hard spending cap blocks its
+    // pool loudly instead of silently reverting to a default
+    // (docs/runbook.md, "The cost governor").
     // One Worker, one role per hostname (docs/remote-registry.md, "One
     // role per hostname"): the registry custom domain serves only the
     // machine read plane, and the website origin (cabinpkg.com) serves
@@ -119,8 +118,13 @@
             "migrations_dir": "migrations"
         }
     ],
+    // One bucket per role. UPLOADS and DOWNLOAD_LOGS expire their
+    // objects after fourteen days (docs/runbook.md, "First-time provisioning").
     "r2_buckets": [
-        { "binding": "BLOBS", "bucket_name": "cabin-registry-blobs" }
+        { "binding": "ARCHIVES", "bucket_name": "cabin-registry-archives" },
+        { "binding": "UPLOADS", "bucket_name": "cabin-registry-uploads" },
+        { "binding": "DOWNLOAD_LOGS", "bucket_name": "cabin-registry-download-logs" },
+        { "binding": "INDEX", "bucket_name": "cabin-registry-index" }
     ],
     // The cost governor: one named SQLite-backed Durable Object is the
     // serialized authority for the hard R2 budgets (src/governor.rs,

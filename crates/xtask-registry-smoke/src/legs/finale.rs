@@ -12,20 +12,20 @@
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
+use xtask_registry_admin::display;
 use xtask_registry_admin::verify::{Endpoints, run_with};
-use xtask_registry_admin::{BLOBS_BUCKET, display, wrangler};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::uniform_401_with;
 use crate::legs::session;
-use crate::servers::{DevServers, d1, d1_quiet};
+use crate::servers::{DevServers, d1, d1_quiet, stored_upload};
 use crate::step;
 use crate::text::{capture, contains, grep_anywhere, grep_lines, read, write};
 
@@ -35,7 +35,7 @@ const HALF_SECOND: Duration = Duration::from_millis(500);
 /// The cron expression `wrangler dev --test-scheduled` routes.
 /// The `+` are the expression's spaces and must reach the query string
 /// as `+`: percent-encoding them to `%2B` names a different cron.
-const BREAKER_CRON: &str = "/__scheduled?cron=*/15+*+*+*+*";
+pub(crate) const BREAKER_CRON: &str = "/__scheduled?cron=*/15+*+*+*+*";
 
 const PENDING_LISTING: &str = "/api/v1/admin/versions?status=pending";
 const GOVERNOR: &str = "/api/v1/admin/governor";
@@ -149,8 +149,6 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     let fixtures = governor_fixtures(smoke, inputs)?;
     tiny_pools(smoke, inputs, &fixtures)?;
     admin_governor(smoke)?;
-    admin_reconcile(smoke)?;
-    cron_reconcile(smoke, inputs)?;
     concurrency(smoke, inputs, &fixtures)?;
     // Dead last on purpose: the exhaustion burst empties the shared
     // local admission bucket (crate::legs::admission), and any OIDC
@@ -161,12 +159,15 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
 }
 
 /// The `/__scheduled` route invokes the cron handler; the breaker
-/// expression runs the governor reconciliation, and the usage log line
-/// proves the ledger answered.
+/// expression runs the budget evaluation and the upload lifecycle pass,
+/// and the usage log line proves the governor answered.  The wait is a
+/// line watermark over a log a live child is still appending to: an
+/// earlier leg's pass logged the same line.
 fn breaker_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
-    step("the breaker cron reconciles the governor ledger");
+    step("the breaker cron pass reads the governor's usage");
+    let mark = line_mark(inputs.servers.dev_log())?;
     smoke.check(BREAKER_CRON, &[200])?;
-    if !await_log(inputs.servers.dev_log(), 1, "governor usage:")? {
+    if !await_log(inputs.servers.dev_log(), mark, "governor usage:")? {
         bail!("the breaker cron pass never logged the governor usage snapshot");
     }
     Ok(())
@@ -187,12 +188,7 @@ fn zip_profile(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
 fn non_zip_body(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("the publish path fast-fails a non-zip body before hashing it");
     let body = publish_payload(inputs, PROFILE_VERSION, b"not a zip archive");
-    smoke.wrequest(
-        "PUT",
-        &publish_route(inputs, PROFILE_VERSION),
-        &body,
-        &[400],
-    )?;
+    smoke.publish(&publish_route(inputs, PROFILE_VERSION), &body, &[400])?;
     smoke.expect_body("archive is not a zip container")
 }
 
@@ -204,12 +200,7 @@ fn traversal_archive(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()>
     let evil = min_zip("../evil");
     let artifact = artifact_route(inputs, PROFILE_VERSION, &evil);
     let body = publish_payload(inputs, PROFILE_VERSION, &evil);
-    smoke.wrequest(
-        "PUT",
-        &publish_route(inputs, PROFILE_VERSION),
-        &body,
-        &[201],
-    )?;
+    smoke.publish(&publish_route(inputs, PROFILE_VERSION), &body, &[201])?;
     smoke.expect_body(r#""verification":"pending""#)?;
 
     smoke.as_verifier();
@@ -258,8 +249,8 @@ fn traversal_archive(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()>
 /// pending and fails the pass, and a working one verifies the clean
 /// repack and rejects the traversal archive.  Before the governor
 /// fixtures, whose pending version must stay pending: the driver
-/// judges every pending version it lists, the two earlier legs left
-/// behind included, and nothing after this reads those two.
+/// judges every pending version it lists, the publish leg's twin
+/// included.
 fn driver_pass(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     step("the verification driver leaves everything pending when its inspector cannot run");
     d1_quiet(BURST_RESET)?;
@@ -383,8 +374,10 @@ pub fn driver(args: &[String]) -> Result<()> {
 
 /// The isolation fixtures publish while the pools are still large: a
 /// pending version (never verified, never downloaded) and a verified
-/// one (never downloaded), each with distinct content-addressed bytes,
-/// then five more for the load leg.
+/// one (never downloaded), each with distinct bytes, then five more for
+/// the load leg.  Each of those is verified before the next is
+/// published: the default class holds three pending uploads at a time
+/// (`registry/src/quota.rs`), and two are already held.
 fn governor_fixtures(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<Fixtures> {
     step("seeding isolation fixtures for the governor legs");
     d1_quiet(BURST_RESET)?;
@@ -411,11 +404,9 @@ fn governor_fixtures(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<Fix
         let zip = min_zip(&format!("load{version}"));
         publish_min_version(smoke, inputs, version, &zip)?;
         load.push((version, Arc::new(zip)));
-    }
-    smoke.as_verifier();
-    smoke.wcheck(PENDING_LISTING, &[200])?;
-    let pending = smoke.body.clone();
-    for version in LOAD_VERSIONS {
+        smoke.as_verifier();
+        smoke.wcheck(PENDING_LISTING, &[200])?;
+        let pending = smoke.body.clone();
         verify_version(
             smoke,
             inputs,
@@ -423,8 +414,8 @@ fn governor_fixtures(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<Fix
             version,
             &format!("entry-load-{version}.json"),
         )?;
+        smoke.as_publisher();
     }
-    smoke.as_publisher();
     Ok(Fixtures {
         iso_pending,
         iso_verified,
@@ -432,7 +423,7 @@ fn governor_fixtures(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<Fix
     })
 }
 
-/// Tiny pools via a restart: the ledger and windows persist in the
+/// Tiny pools via a restart: the operation windows persist in the
 /// local Durable Object state, so the main run's consumption already
 /// exceeds these limits and every fresh billable call must refuse -
 /// while the edge cache, filled before the restart, keeps serving.
@@ -455,7 +446,7 @@ fn restart_on_tiny_pools(inputs: &mut FinaleInputs<'_>) -> Result<()> {
     inputs.servers.stop_dev_servers();
     inputs.servers.append_dev_vars(
         r#"GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="1"
-GOVERNOR_STORAGE_PRIMARY_BYTES="1"
+GOVERNOR_R2_CLASS_A_PUBLISH_MONTH="1"
 GOVERNOR_R2_CLASS_B_SOURCE_MONTH="0"
 "#,
     )?;
@@ -498,31 +489,21 @@ fn verifier_isolation(smoke: &mut Smoke, pending: &str) -> Result<()> {
 }
 
 fn blocked_publish(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
-    step("a fresh publish is refused before any r2 write when storage is exhausted");
+    step("a fresh publish is refused before any r2 write when the publish pool is exhausted");
     d1_quiet(BURST_RESET)?;
     let blocked = min_zip("isoblocked");
-    let blocked_hash = sha256_hex(&blocked);
     let body = publish_payload(inputs, BLOCKED_VERSION, &blocked);
-    smoke.wrequest(
-        "PUT",
-        &publish_route(inputs, BLOCKED_VERSION),
-        &body,
-        &[503],
-    )?;
+    let upload_id = smoke.publish(&publish_route(inputs, BLOCKED_VERSION), &body, &[503])?;
     smoke.expect_body("registry_over_budget")?;
-    // The blob bucket a refused publish must not have written to.
-    if r2_get(
-        &format!("{BLOBS_BUCKET}/blobs/sha256/{blocked_hash}"),
-        Path::new("/dev/null"),
-    )? {
-        bail!("a refused publish still wrote its blob to R2");
+    if stored_upload(&upload_id, inputs.work)?.is_some() {
+        bail!("a refused publish still wrote its archive to R2");
     }
     Ok(())
 }
 
 fn idempotent_republish(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
-    step("an idempotent re-publish stays a 200 no-op under a full storage pool");
-    smoke.wrequest("PUT", inputs.publish_path, inputs.publish_body, &[200])?;
+    step("an idempotent re-publish stays a 200 no-op under an exhausted publish pool");
+    smoke.publish(inputs.publish_path, inputs.publish_body, &[200])?;
     smoke.expect_body(r#""no_op":true"#)
 }
 
@@ -544,92 +525,17 @@ fn source_reads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     smoke.expect_body("registry_over_budget")
 }
 
-/// The pre-launch ledger wipe clears the storage rows of every pool -
-/// the registry wipe empties both buckets - while the monthly op
-/// windows survive: they mirror R2 operations Cloudflare already
-/// metered this month, so zeroing them would re-mint a month of
-/// allowance for spend that already happened.
+/// The endpoint is the usage snapshot only: any other method is a 405
+/// for the credential the GET admits.
 fn admin_governor(smoke: &mut Smoke) -> Result<()> {
-    step("the admin governor endpoint reports usage and takes operator actions");
+    step("the admin governor endpoint reports usage and takes no actions");
     smoke.as_ci_publisher();
     smoke.wcheck(GOVERNOR, &[403])?;
     smoke.expect_body("verify scope")?;
     smoke.as_verifier();
     smoke.wcheck(GOVERNOR, &[200])?;
-    smoke.expect_body(r#""storage""#)?;
-    // An idempotent release of an unknown key answers ok.
-    let release = br#"{"release":{"pool":"primary","key":"blobs/sha256/none"}}"#;
-    smoke.wrequest("POST", GOVERNOR, release, &[200])?;
-    smoke.expect_body(r#""ok":true"#)?;
-    smoke.wrequest("POST", GOVERNOR, br#"{"wipe":true}"#, &[200])?;
-    smoke.expect_body(r#""ok":true"#)?;
-    smoke.wcheck(GOVERNOR, &[200])?;
-    if !wiped_the_right_rows(&smoke.body) {
-        bail!(
-            "the governor wipe cleared the op windows or left the wrong rows: {}",
-            capture(&smoke.body)
-        );
-    }
-    Ok(())
-}
-
-/// The on-demand reconcile is the operator's recovery path after a
-/// ledger wipe or a Durable Object storage loss: the same increase-only
-/// primary rebuild the cron runs, answering with the report instead of
-/// waiting up to 15 minutes.
-fn admin_reconcile(smoke: &mut Smoke) -> Result<()> {
-    step("an admin reconcile rebuilds the wiped primary ledger on demand");
-    smoke.wrequest("POST", GOVERNOR, br#"{"reconcile":true}"#, &[200])?;
-    if !added_anything(&smoke.body) {
-        bail!(
-            "the on-demand reconcile recorded nothing after the wipe: {}",
-            capture(&smoke.body)
-        );
-    }
-    smoke.wcheck(GOVERNOR, &[200])?;
-    if !has_committed_primary(&smoke.body) {
-        bail!(
-            "the on-demand reconcile left no committed primary rows: {}",
-            capture(&smoke.body)
-        );
-    }
-    // The body names exactly one action, so `reconcile` with `wipe` is a
-    // 400.
-    smoke.wrequest(
-        "POST",
-        GOVERNOR,
-        br#"{"reconcile":true,"wipe":true}"#,
-        &[400],
-    )?;
-    // A second wipe re-empties the storage rows so the cron leg below
-    // still proves the scheduled pass rebuilds them on its own.
-    smoke.wrequest("POST", GOVERNOR, br#"{"wipe":true}"#, &[200])?;
-    smoke.expect_body(r#""ok":true"#)
-}
-
-/// The next breaker pass commits every live checksum back into the
-/// ledger and logs how many it recorded; the pass after that logs the
-/// rebuilt rows in its usage snapshot, because each pass logs usage
-/// before it reconciles.  Both waits are line watermarks over a log a
-/// live child is still appending to.
-fn cron_reconcile(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
-    step("reconciliation rebuilds the wiped primary ledger from d1");
-    let log = inputs.servers.dev_log().to_path_buf();
-    let mark = line_mark(&log)?;
-    smoke.check(BREAKER_CRON, &[200])?;
-    if !await_log(&log, mark, "previously unledgered blob")? {
-        bail!("the post-wipe cron pass never re-committed the live primary set");
-    }
-    let mark = line_mark(&log)?;
-    smoke.check(BREAKER_CRON, &[200])?;
-    if !await_log(&log, mark, "primary/committed=")? {
-        bail!("the rebuilt primary ledger never appeared in the usage snapshot");
-    }
-    // The wipe refuses while the registry is launched (the wipe guard).
-    d1_quiet("UPDATE meta SET value = 'true' WHERE key = 'launched';")?;
-    smoke.wrequest("POST", GOVERNOR, br#"{"wipe":true}"#, &[403])?;
-    smoke.expect_body("launched")?;
-    d1_quiet("UPDATE meta SET value = 'false' WHERE key = 'launched';")?;
+    smoke.expect_body(r#""ops""#)?;
+    smoke.wrequest("POST", GOVERNOR, br#"{"wipe":true}"#, &[405])?;
     smoke.as_publisher();
     Ok(())
 }
@@ -944,7 +850,7 @@ fn publish_min_version(
     zip: &[u8],
 ) -> Result<()> {
     let body = publish_payload(inputs, version, zip);
-    smoke.wrequest("PUT", &publish_route(inputs, version), &body, &[201])?;
+    smoke.publish(&publish_route(inputs, version), &body, &[201])?;
     smoke.expect_body(r#""verification":"pending""#)
 }
 
@@ -1109,47 +1015,6 @@ fn size(bytes: usize) -> u32 {
     u32::try_from(bytes).unwrap_or(u32::MAX)
 }
 
-/// The three governor-snapshot readings.  A body that is not a
-/// snapshot fails the assertion, so a parse failure answers `false`
-/// here rather than raising its own error.
-fn wiped_the_right_rows(body: &[u8]) -> bool {
-    let Ok(snapshot) = serde_json::from_slice::<Value>(body) else {
-        return false;
-    };
-    if snapshot
-        .get("storage")
-        .and_then(Value::as_array)
-        .is_none_or(|storage| !storage.is_empty())
-    {
-        return false;
-    }
-    // The exhausted ordinary-read counter must survive the wipe: the
-    // ops Cloudflare already metered this month are not re-minted.
-    rows(&snapshot, "ops")
-        .find(|row| pool(row) == Some("b_ordinary"))
-        .is_some_and(|row| row.get("used").and_then(Value::as_i64) != Some(0))
-}
-
-fn added_anything(body: &[u8]) -> bool {
-    let Ok(report) = serde_json::from_slice::<Value>(body) else {
-        return false;
-    };
-    report
-        .get("added")
-        .and_then(Value::as_array)
-        .is_some_and(|added| !added.is_empty())
-}
-
-fn has_committed_primary(body: &[u8]) -> bool {
-    let Ok(snapshot) = serde_json::from_slice::<Value>(body) else {
-        return false;
-    };
-    rows(&snapshot, "storage").any(|row| {
-        pool(row) == Some("primary")
-            && row.get("state").and_then(Value::as_str) == Some("committed")
-    })
-}
-
 /// The `b_ordinary` pool's used count and window, or `0` and `-` when
 /// the pool has no row yet.
 fn ordinary_usage(body: &[u8]) -> Result<(i64, String)> {
@@ -1188,19 +1053,6 @@ fn copy_field(into: &mut Map<String, Value>, field: &str, value: Option<&Value>)
 
 fn json_bytes(value: &Value) -> Result<Vec<u8>> {
     serde_json::to_vec(value).context("serialize a request body")
-}
-
-/// `wrangler r2 object get … --file <path> --local`, both streams
-/// discarded: the caller words its own miss, and the refused-publish
-/// check expects one.
-fn r2_get(key: &str, file: &Path) -> Result<bool> {
-    let path = file.to_str().context("an R2 destination is not UTF-8")?;
-    let status = wrangler(&["r2", "object", "get", key, "--file", path, "--local"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("run wrangler r2 object get")?;
-    Ok(status.success())
 }
 
 /// `wc -l <log>` + 1: the line the next `tail -n +N` starts at, which
@@ -1279,20 +1131,6 @@ mod tests {
             u32::from_le_bytes(zip[zip.len() - 6..zip.len() - 2].try_into().unwrap());
         assert_eq!(directory_size as usize, 46 + name);
         assert_eq!(directory_at as usize, 30 + name);
-    }
-
-    /// Every derived fixture is content-addressed, so two entry names
-    /// must not collide - the load leg needs five distinct uncached
-    /// artifacts.
-    #[test]
-    fn distinct_entry_names_give_distinct_bytes() {
-        let mut revisions: Vec<String> = LOAD_VERSIONS
-            .iter()
-            .map(|version| revision_of(&min_zip(&format!("load{version}"))))
-            .collect();
-        revisions.sort();
-        revisions.dedup();
-        assert_eq!(revisions.len(), LOAD_VERSIONS.len());
     }
 
     #[test]
@@ -1378,44 +1216,9 @@ mod tests {
     }
 
     const SNAPSHOT: &str = r#"{
-      "storage": [{"pool": "primary", "state": "committed"}, {"pool": "backup"}],
+      "storage": [],
       "ops": [{"pool": "b_ordinary", "used": 7, "window": "2026-08"}]
     }"#;
-
-    #[test]
-    fn the_wipe_snapshot_is_empty_storage_and_kept_op_windows() {
-        // Before the wipe: the primary and backup rows are still there.
-        assert!(!wiped_the_right_rows(SNAPSHOT.as_bytes()));
-        let wiped = SNAPSHOT.replace(
-            r#"[{"pool": "primary", "state": "committed"}, {"pool": "backup"}]"#,
-            "[]",
-        );
-        assert!(wiped_the_right_rows(wiped.as_bytes()));
-        // A wipe that left any pool's rows - the backup ones included -
-        // fails, and so does one that zeroed the metered month.
-        assert!(!wiped_the_right_rows(
-            SNAPSHOT
-                .replace(r#"{"pool": "primary", "state": "committed"}, "#, "")
-                .as_bytes()
-        ));
-        assert!(!wiped_the_right_rows(
-            wiped.replace("\"used\": 7", "\"used\": 0").as_bytes()
-        ));
-        // A body that is not a snapshot at all is the same failure.
-        assert!(!wiped_the_right_rows(b"<html>"));
-        assert!(!wiped_the_right_rows(br#"{"ops": []}"#));
-    }
-
-    #[test]
-    fn the_reconcile_report_and_the_rebuilt_rows_are_detected() {
-        assert!(added_anything(br#"{"added":["blobs/sha256/aa"]}"#));
-        assert!(!added_anything(br#"{"added":[]}"#));
-        assert!(!added_anything(br#"{"ok":true}"#));
-        assert!(has_committed_primary(SNAPSHOT.as_bytes()));
-        assert!(!has_committed_primary(
-            SNAPSHOT.replace("committed", "pending").as_bytes()
-        ));
-    }
 
     #[test]
     fn the_usage_reading_falls_back_to_a_missing_row() {

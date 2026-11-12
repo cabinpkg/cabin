@@ -119,6 +119,48 @@ pub(crate) fn d1_rows(sql: &str) -> Result<Vec<Map<String, Value>>> {
     results(&d1_json(sql)?)
 }
 
+/// Where local R2 keeps one upload's archive: the UPLOADS bucket
+/// (`wrangler.jsonc`) and the key the Worker gives the upload id
+/// (`registry/src/upload.rs`, `object_key`), spelled out here so the
+/// run notices if either moves.
+fn upload_object(upload_id: &str) -> String {
+    format!("cabin-registry-uploads/uploads/{upload_id}.zip")
+}
+
+/// The archive local R2 holds for one upload, if any, read through
+/// `work`.  A missing object is wrangler's non-zero exit; its streams
+/// are dropped because several callers expect exactly that.
+pub(crate) fn stored_upload(upload_id: &str, work: &Path) -> Result<Option<Vec<u8>>> {
+    let out = work.join("stored-upload.zip");
+    let file = out.to_str().context("the work directory is not UTF-8")?;
+    let object = upload_object(upload_id);
+    let got = wrangler(&["r2", "object", "get", &object, "--file", file, "--local"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .context("run wrangler r2 object get")?;
+    if !got.success() {
+        return Ok(None);
+    }
+    fs::read(&out)
+        .map(Some)
+        .with_context(|| format!("read {}", out.display()))
+}
+
+/// Deletes one upload's archive from local R2 and reads it back
+/// through `work`: the callers assert that a later request stores it
+/// again, which an object that survived would satisfy.
+pub(crate) fn delete_upload(upload_id: &str, work: &Path) -> Result<()> {
+    let object = upload_object(upload_id);
+    output(&mut wrangler(&[
+        "r2", "object", "delete", &object, "--local",
+    ]))?;
+    if stored_upload(upload_id, work)?.is_some() {
+        bail!("{object} is still stored after its delete");
+    }
+    Ok(())
+}
+
 fn d1_execute(tail: &[&str]) -> Command {
     let mut arguments = vec!["d1", "execute", "DB", "--local"];
     arguments.extend_from_slice(tail);
@@ -126,8 +168,7 @@ fn d1_execute(tail: &[&str]) -> Command {
 }
 
 /// The fixture rows are cleared so re-runs still see a first publish
-/// and a first claim; the content-addressed R2 blob may survive, which
-/// the publish path skips.
+/// and a first claim.
 ///
 /// # Errors
 ///
@@ -223,6 +264,9 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
              ('smoke-logout', '0', CAST(strftime('%s', 'now') AS INTEGER) + 3600),
              ('ghost', '1', CAST(strftime('%s', 'now') AS INTEGER) + 3600);
     DELETE FROM revisions WHERE scope = 'smoke';
+    -- The daily upload allowances an earlier run today spent on them.
+    DELETE FROM user_daily_upload_usage;
+    DELETE FROM shared_daily_upload_usage;
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
     -- The deletes above bypass the publish batches that keep the quota
@@ -800,7 +844,7 @@ mod tests {
         append(
             &vars,
             r#"GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="1"
-GOVERNOR_STORAGE_PRIMARY_BYTES="1"
+GOVERNOR_R2_CLASS_A_PUBLISH_MONTH="1"
 GOVERNOR_R2_CLASS_B_SOURCE_MONTH="0"
 "#,
         )
@@ -819,7 +863,7 @@ GOVERNOR_R2_CLASS_B_SOURCE_MONTH="0"
             .collect();
         assert_eq!(governor, ["GOVERNOR_R2_CLASS_B_ORDINARY_MONTH=\"42\""]);
         assert!(written.starts_with("SESSION_SECRET="));
-        assert!(written.contains("GOVERNOR_STORAGE_PRIMARY_BYTES=\"1\"\n"));
+        assert!(written.contains("GOVERNOR_R2_CLASS_A_PUBLISH_MONTH=\"1\"\n"));
         assert!(written.ends_with("GOVERNOR_R2_CLASS_B_ORDINARY_MONTH=\"42\"\n"));
         assert!(!dir.path().join(".dev.vars.next").exists());
     }

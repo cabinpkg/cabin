@@ -8,8 +8,8 @@ and one consumer (the verifier), so the profile is deliberately narrow -
 Go-module-zip strictness - and everything outside it is rejected rather than
 tolerated.
 
-Zip is the format because the registry stores archives as opaque,
-content-addressed bytes and the source-code viewer needs **random
+Zip is the format because the registry stores archives as opaque
+bytes and the source-code viewer needs **random
 access** into them (the browser range-reads the container); a tar.gz
 would force either a server-side repack or a second derived artifact,
 both infeasible against the Workers CPU and R2 budgets. The index
@@ -156,7 +156,7 @@ empty-archive case.
 
 ## Determinism
 
-Idempotent re-publish is already guaranteed by content-addressing: identical
+Idempotent re-publish is already guaranteed by the checksum: identical
 source bytes hash to the same checksum and the registry answers `200 no_op`.
 The determinism rules therefore split by who enforces them. Pinning cosmetic
 producer bytes on the **verifier** would let a future `zip` or deflate-backend bump

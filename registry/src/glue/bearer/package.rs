@@ -1,23 +1,23 @@
 //! The package mutations: publish and yank. Publish's validation and
-//! policy live in `crate::publish` and `crate::quota`; this is the
-//! runtime pipeline around them - the rate limit, the quota preflight,
-//! the revision disposition, and the R2-then-D1 write phase with its
-//! blob self-heal.
+//! policy live in `crate::publish`, `crate::quota`, and `crate::upload`;
+//! this is the runtime pipeline around them - the rate limit, the
+//! disposition, the quota preflight, the atomic D1 admission, and the
+//! store into UPLOADS that only an admitted upload reaches.
 
 use serde::Deserialize;
-use worker::{D1Database, Env, Request, Response, console_error, console_log};
+use worker::{D1Database, Env, Request, Response, console_error};
 
 use crate::auth::{AuthContext, Scope};
 use crate::error;
 use crate::glue::{
     CountRecord, MAX_MUTATION_BODY_BYTES, bounded_body, bucket_from_columns, changed_rows,
-    commit_object, consume_one, error_response, governor_refusal_response, js_int,
-    json_response_with_status, non_negative, now_epoch_ms, now_iso8601, write_gate,
+    consume_one, error_body_response, error_response, governor_refusal_response, iso8601_from_ms,
+    js_int, json_response_with_status, non_negative, now_epoch_ms, now_iso8601, write_gate,
 };
-use crate::governor::{Consume, Decision, OpPool, Reserve, StoragePool};
+use crate::governor::OpPool;
 use crate::governor_client::{self, Gate};
 use crate::publish;
-use crate::{quota, sql, verify};
+use crate::{quota, sql, upload, verify};
 
 use super::denial_response;
 
@@ -26,6 +26,11 @@ struct StoredRevisionRecord {
     revision: String,
     checksum: String,
     verification: String,
+    upload_id: Option<String>,
+    published_at: String,
+    published_by: i64,
+    stored: i64,
+    resumable: i64,
 }
 
 #[derive(Deserialize)]
@@ -48,21 +53,20 @@ struct YankBody {
 /// (`docs/remote-registry.md`, "Publish"). Validation order and status
 /// mapping follow `crate::publish`, preceded by the budget gate (`503`),
 /// the token's `publish` scope (`403`), the publish rate limit (`429`),
-/// and the scope-membership gate (the
+/// the scope-membership gate (the
 /// uniform `403` - publishing under a scope creates the package row, so
 /// membership alone decides, and a scope that does not exist answers
-/// exactly like one the user is not a member of), and followed - for
-/// genuinely new versions and replacements of rejected ones only - by
-/// the archive-size cap (`413`), the `-`/`_` twin-name reject for new
-/// packages (`400`, before the quotas), and the per-user quota checks
-/// (`403`, a preflight the write batches re-enforce in-transaction);
-/// on success the archive lands in R2 first (an orphaned blob from a
-/// crash between the two writes stays conservatively represented by
-/// its governor reservation - see `docs/runbook.md`), then one atomic
-/// D1 batch inserts (or, for a
-/// rejected row, replaces) the package and version rows and bumps the
-/// storage self-accounting. New rows start `pending` and the `201`
-/// reports it: nothing becomes resolvable before the verifier says so.
+/// exactly like one the user is not a member of), the upload id
+/// (`400`), and - for a version with no revisions yet - the upload
+/// allowances that are already spent (`429`, before the body is read).
+/// It is followed - for a new operation only, never for bytes already
+/// recorded - by the archive-size cap (`413`), the `-`/`_` twin-name
+/// reject for new packages (`400`), the per-user quota checks (`403`),
+/// and the upload allowances (`429`): a preflight that shapes the
+/// refusal, which the admission batch re-enforces in one transaction.
+/// Only an admitted upload is written to UPLOADS, and only a stored one
+/// becomes visible to the verifier. The `201` reports `pending`:
+/// nothing becomes resolvable before the verifier says so.
 // The route triple plus the request plumbing exceeds the argument lint,
 // and the body is one linear sequence of gate checks in the documented
 // order; splitting either would scatter that sequence across helpers.
@@ -114,6 +118,29 @@ pub(super) async fn publish_response(
         }
         flag
     };
+    let upload_id = req.headers().get(upload::HEADER)?;
+    let Some(upload_id) = upload::parse_id(upload_id.as_deref()) else {
+        return error_response(400, upload::INVALID_UPLOAD_ID);
+    };
+    let (now, day_prefix) = clock()?;
+    let preflight = Preflight {
+        user_id: auth.user_id,
+        shared_class: quota::shared_class(&auth.quota_class),
+        scope,
+        name,
+        version,
+        now: &now,
+        day_prefix: &day_prefix,
+        quotas: &quotas,
+    };
+    // A version with no revisions can only be a new operation, so an
+    // allowance that is already spent refuses it without reading the
+    // body. Any other request may be a retry of bytes already recorded,
+    // which no allowance may refuse; it is decided once the bytes are
+    // hashed.
+    if let Some(refused) = preflight.spent_refusal(db).await? {
+        return Ok(refused);
+    }
     let Some(body) = bounded_body(req, publish::MAX_BODY_BYTES).await? else {
         return error_response(400, publish::BODY_TOO_LARGE);
     };
@@ -121,7 +148,6 @@ pub(super) async fn publish_response(
         Ok(frame) => frame,
         Err(detail) => return error_response(400, detail),
     };
-    let archive_bytes = frame.archive.len() as u64;
     // Reject a body that cannot be a profile zip before hashing it; the
     // full profile is checked later by the async verifier.
     if let Err(detail) = publish::sanity_check_zip(frame.archive) {
@@ -146,129 +172,49 @@ pub(super) async fn publish_response(
         return error_response(400, publish::METADATA_NOT_JSON);
     };
 
-    let revive =
-        match revision_disposition(db, scope, name, version, revision, &checksum, new_revision)
-            .await?
-        {
-            RevisionDisposition::Answered(response) => {
-                // The idempotent no-op (200) is a retry of a committed
-                // publish that still holds the row's exact bytes, so it is
-                // the one chance to self-heal a primary blob a reclaim
-                // race deleted. The 409 arms get no heal: their uploaded
-                // bytes were refused.
-                if response.status_code() == 200 {
-                    heal_blobs_on_retry(env, &checksum, frame.archive).await?;
-                }
-                return Ok(response);
-            }
-            RevisionDisposition::Revive => true,
-            RevisionDisposition::New => false,
-        };
-
-    // The archive-size cap and the per-user quotas gate genuinely new
-    // versions - including a replacement of a rejected one, whose new
-    // archive consumes quota like any other (the rejected row's own
-    // bytes were refunded at rejection): a byte-identical re-publish of
-    // an already-stored archive (even one grandfathered above the
-    // current cap) stays the idempotent no-op above and never consumes
-    // quota.
-    if let Err(denial) = quota::check_archive_size(archive_bytes, &quotas) {
-        return denial_response(env, &denial, None);
-    }
-    let now = now_iso8601();
-    let Some(day_prefix) = quota::utc_day_prefix(&now).map(str::to_owned) else {
-        console_error!("clock produced a non-ISO timestamp: {now}");
-        return error_response(500, error::INTERNAL);
-    };
+    // The admission's own sample, taken with the body in hand: the
+    // usage day, `published_at`, and the reservation's limit count from
+    // here, not from when a slow upload began.
+    let (now, day_prefix) = clock()?;
     let preflight = Preflight {
-        user_id: auth.user_id,
-        scope,
-        name,
-        archive_bytes,
+        now: &now,
         day_prefix: &day_prefix,
-        quotas: &quotas,
+        ..preflight
     };
-    if let Some(refused) = preflight.refusal(env, db).await? {
-        return Ok(refused);
-    }
-
-    let new = NewRevision {
-        scope,
-        name,
-        version,
+    let request = Submission {
         revision,
         checksum: &checksum,
         metadata_text,
-        published_at: &now,
         archive: frame.archive,
-        user_id: auth.user_id,
+        upload_id,
         opt_in: new_revision,
-        day_prefix: &day_prefix,
-        quotas: &quotas,
     };
-    let persisted = if revive {
-        revive_rejected_revision(env, db, &new).await?
-    } else {
-        persist_new_revision(env, db, &new).await?
-    };
-    match persisted {
-        Persist::Done => {}
-        Persist::Refused(response) => return Ok(response),
-        Persist::Lost => {
-            // The batch's own guards suppressed the write: a twin
-            // publish, a concurrent revision, a verdict, or a racing
-            // publish that spent the quota headroom moved first.
-            // Re-read and answer exactly as if this request had
-            // arrived after the winner: the disposition first (a
-            // byte-identical winner is this request's no-op, whatever
-            // quota it spent), then the preflight's twin `400` and
-            // quota `403`s.
-            return match revision_disposition(
-                db,
-                scope,
-                name,
-                version,
-                revision,
-                &checksum,
-                new_revision,
-            )
-            .await?
-            {
-                RevisionDisposition::Answered(response) => {
-                    if response.status_code() == 200 {
-                        heal_blobs_on_retry(env, &checksum, frame.archive).await?;
-                    }
-                    Ok(response)
-                }
-                // Otherwise the losing guard's cause has already moved
-                // on - rejected again by a third racer, a stamp that
-                // did not advance the row's, a concurrent revision or
-                // verdict, or quota a refund freed since: a transient
-                // the conservative refusal covers, and a retry
-                // resolves cleanly (for the stamp, once its sample is
-                // later than the row's).
-                RevisionDisposition::Revive | RevisionDisposition::New => {
-                    match preflight.refusal(env, db).await? {
-                        Some(refused) => Ok(refused),
-                        None => error_response(409, error::VERSION_IMMUTABLE),
-                    }
-                }
-            };
+    // A request whose guarded write changed nothing lost a race - a
+    // twin or byte-identical publish, a verdict, a released
+    // reservation, or a publish that spent the quota headroom moved
+    // first. It is decided once more against the winner's rows, exactly
+    // as if it had arrived after them.
+    for _ in 0..2 {
+        if let Some(response) = attempt(env, db, &preflight, &request).await? {
+            return Ok(response);
         }
     }
+    // Still losing: the cause keeps moving (rejected again by a third
+    // racer, or a stamp that does not advance the row's). The
+    // conservative refusal covers the transient, and a retry resolves
+    // it.
+    error_response(409, error::VERSION_IMMUTABLE)
+}
 
-    json_response_with_status(
-        201,
-        &serde_json::json!({
-            "ok": true,
-            "name": format!("{scope}/{name}"),
-            "version": version,
-            "checksum": metadata.checksum,
-            "revision": revision,
-            "verification": "pending",
-        })
-        .to_string(),
-    )
+/// One clock sample and its UTC day prefix.
+fn clock() -> worker::Result<(String, String)> {
+    let now = now_iso8601();
+    let day = quota::utc_day_prefix(&now)
+        .ok_or_else(|| {
+            worker::Error::RustError(format!("clock produced a non-ISO timestamp: {now}"))
+        })?
+        .to_owned();
+    Ok((now, day))
 }
 
 /// Whether the token's user is a member (any role) of `scope`. A scope
@@ -386,492 +332,483 @@ struct PackageCountsRecord {
     new_today: i64,
 }
 
-/// Everything the write phase of a validated, quota-cleared publish
-/// needs.
-struct NewRevision<'a> {
-    scope: &'a str,
-    name: &'a str,
-    version: &'a str,
+#[derive(Deserialize)]
+struct UploadUsageRecord {
+    user_bytes: i64,
+    user_uploads: i64,
+    shared_bytes: i64,
+    shared_uploads: i64,
+    pending: i64,
+    version_has_revisions: i64,
+    reset_at: String,
+    retry_after_secs: i64,
+}
+
+impl UploadUsageRecord {
+    fn usage(&self) -> quota::UploadUsage {
+        quota::UploadUsage {
+            user_bytes_today: non_negative(self.user_bytes),
+            user_uploads_today: non_negative(self.user_uploads),
+            shared_bytes_today: non_negative(self.shared_bytes),
+            shared_uploads_today: non_negative(self.shared_uploads),
+            pending: non_negative(self.pending),
+        }
+    }
+
+    /// Renders an admission refusal: `429` with the denial's fields,
+    /// and `Retry-After` only for an allowance that reopens on the
+    /// clock.
+    fn refusal(
+        &self,
+        denial: &quota::UploadDenial,
+        archive_bytes: u64,
+    ) -> worker::Result<Response> {
+        let retry_after_secs = matches!(denial, quota::UploadDenial::Daily { .. })
+            .then(|| non_negative(self.retry_after_secs));
+        error_body_response(
+            429,
+            error::envelope_with_fields(
+                &denial.detail(archive_bytes, &self.reset_at),
+                denial.code(),
+                denial.fields(&self.reset_at),
+            ),
+            retry_after_secs,
+        )
+    }
+}
+
+/// The validated bytes of one publish request.
+struct Submission<'a> {
     /// The packaging-revision id: the checksum's leading hex prefix.
     revision: &'a str,
     checksum: &'a str,
     metadata_text: &'a str,
-    published_at: &'a str,
     archive: &'a [u8],
-    user_id: i64,
-    /// The `new-revision` opt-in, re-enforced inside the batch guards.
+    upload_id: &'a str,
+    /// The `new-revision` opt-in, re-enforced inside the admission.
     opt_in: bool,
-    /// The preflight's window and limits, re-enforced inside the batch
-    /// guards.
-    day_prefix: &'a str,
-    quotas: &'a quota::ClassQuotas,
 }
 
-/// The write phase's outcome: persisted, lost its guarded race, or
-/// refused by the governor before any billable R2 call.
-enum Persist {
-    Done,
-    Lost,
-    Refused(Response),
+impl Submission<'_> {
+    fn archive_bytes(&self) -> u64 {
+        self.archive.len() as u64
+    }
 }
 
-/// The publish write phase: R2 before D1, skipping the upload when the
-/// content-addressed blob is already there (e.g. the same archive
-/// published under a name it was yanked from, or a retry after a crash
-/// between the two writes), then one atomic D1 batch for the package and
-/// version rows plus the storage self-accounting. The row starts
-/// `pending`: it becomes resolvable only once the verifier says so.
-///
-/// Every billable R2 call is governed (`crate::governor`): the
-/// existence head consumes a publish-plane Class B op, and a fresh
-/// upload consumes a Class A op plus a storage reservation keyed by the
-/// content-addressed object key - so retries and concurrent identical
-/// publishes share one reservation instead of double-counting, and a
-/// crash after the put leaves the reservation conservatively held
-/// (never auto-released; reconciliation settles it once the D1 rows
-/// prove the blob live, and reports it otherwise). After the batch
-/// commits the reservation settles into committed usage.
-///
-/// The accounting decision lives inside the batch (one transaction): the
-/// meta bump counts the archive only when the row just inserted is the
-/// checksum's sole **live** (non-rejected) reference - a rejected row's
-/// bytes were refunded at rejection, so it must not suppress
-/// re-counting a re-uploaded blob. That way the crash-retry path -
-/// blob already uploaded but never counted - still accounts for it, a
-/// second name sharing the blob never double-counts it, and two
-/// concurrent first publishes of the same archive serialize on the
-/// transaction so exactly one of them counts it.
-///
-/// [`Persist::Lost`] means the batch's guards suppressed the revision
-/// insert - a twin publish, a byte-identical publish, (without the
-/// opt-in) a different-bytes sibling, or a publish spending the quota
-/// headroom committed after this request's preflight - and nothing was
-/// persisted.  Unless the winner references
-/// the same blob, the upload stays behind exactly like a crash between
-/// the two writes: an orphan the ledger keeps conservatively
-/// represented.  The caller re-reads and answers as if it had arrived
-/// after the winner.
-// The six statements' bind lists are most of the length.
-#[allow(clippy::too_many_lines)]
-async fn persist_new_revision(
-    env: &Env,
-    db: &D1Database,
-    new: &NewRevision<'_>,
-) -> worker::Result<Persist> {
-    let key = crate::checksum::blob_key(new.checksum);
-    let bucket = env.bucket("BLOBS")?;
-    match governor_client::decide(env, &consume_one(OpPool::BPublish)).await {
-        Gate::Allowed => {}
-        Gate::Refused(refusal) => {
-            return Ok(Persist::Refused(governor_refusal_response(
-                refusal.as_ref(),
-                true,
-            )?));
-        }
-    }
-    if bucket.head(&key).await?.is_none() {
-        let admit = Decision {
-            consume: vec![Consume {
-                pool: OpPool::APublish,
-                n: 1,
-                principal: None,
-                principal_cap: None,
-            }],
-            reserve: vec![Reserve {
-                pool: StoragePool::Primary,
-                key: key.clone(),
-                bytes: new.archive.len() as u64,
-            }],
-            ..Decision::default()
-        };
-        match governor_client::decide(env, &admit).await {
-            Gate::Allowed => {}
-            Gate::Refused(refusal) => {
-                return Ok(Persist::Refused(governor_refusal_response(
-                    refusal.as_ref(),
-                    true,
-                )?));
-            }
-        }
-        bucket.put(&key, new.archive.to_vec()).execute().await?;
-    }
-
-    let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
-    let opt_in = js_int(i64::from(new.opt_in));
-    let max_bytes = js_limit(new.quotas.max_total_bytes_per_user);
-    let max_versions = js_limit(new.quotas.max_versions_per_package_per_day);
-    let max_new_packages = js_limit(new.quotas.max_new_packages_per_day);
-    let max_packages = js_limit(new.quotas.max_packages_total);
-    let results = db
-        .batch(vec![
-            db.prepare(sql::INSERT_PACKAGE).bind(&[
-                new.scope.into(),
-                new.name.into(),
-                new.published_at.into(),
-                js_int(new.user_id),
-                archive_size.clone(),
-                max_bytes.clone(),
-                new.day_prefix.into(),
-                max_new_packages,
-                max_packages,
-            ])?,
-            db.prepare(sql::COUNT_USER_PACKAGE)
-                .bind(&[js_int(new.user_id)])?,
-            db.prepare(sql::INSERT_VERSION_ROW).bind(&[
-                new.scope.into(),
-                new.name.into(),
-                new.version.into(),
-                js_int(new.user_id),
-                archive_size.clone(),
-                max_bytes.clone(),
-                new.day_prefix.into(),
-                max_versions.clone(),
-            ])?,
-            db.prepare(sql::COUNT_STORED_BYTES_ON_PUBLISH).bind(&[
-                new.checksum.into(),
-                archive_size.clone(),
-                new.scope.into(),
-                new.name.into(),
-                new.version.into(),
-                new.revision.into(),
-                opt_in.clone(),
-                js_int(new.user_id),
-                max_bytes.clone(),
-                new.day_prefix.into(),
-                max_versions.clone(),
-            ])?,
-            db.prepare(sql::INSERT_REVISION).bind(&[
-                new.scope.into(),
-                new.name.into(),
-                new.version.into(),
-                new.revision.into(),
-                new.checksum.into(),
-                new.metadata_text.into(),
-                new.published_at.into(),
-                archive_size.clone(),
-                js_int(new.user_id),
-                opt_in,
-                max_bytes,
-                new.day_prefix.into(),
-                max_versions,
-            ])?,
-            db.prepare(sql::COUNT_USER_STORED_BYTES)
-                .bind(&[js_int(new.user_id), archive_size])?,
-        ])
-        .await?;
-    // The revision insert changes zero rows under the in-batch guards
-    // - the twin or a quota guard suppressed the package (and so the
-    // version row), a racing byte-identical publish committed the same
-    // revision key first, the opt-in guard refused an unflagged
-    // respin racing a live sibling, or the quota guard refused; the
-    // accounting statement ran just before it against the same
-    // pre-insert state under the same guards, so it added nothing then
-    // either, and the per-user tally after it reads the insert's own
-    // `changes()`.  The caller re-reads to tell the cases apart.
-    let revision_insert = results
-        .get(4)
-        .ok_or_else(|| worker::Error::RustError("missing batch result 4".to_owned()))?;
-    if changed_rows(revision_insert.meta()?) == 0 {
-        return Ok(Persist::Lost);
-    }
-
-    // The row now references the blob: settle the reservation into
-    // committed usage (best-effort - a lost settle leaves conservative
-    // reserved state for reconciliation, never unaccounted spend).
-    governor_client::settle(
-        env,
-        &commit_object(StoragePool::Primary, &key, new.archive.len() as u64),
-    )
-    .await;
-
-    heal_blob_if_reclaimed(env, &bucket, &key, new.archive).await?;
-    Ok(Persist::Done)
-}
-
-/// Self-heal for the head-skip/reclaim race: a reclaim delete whose
-/// refcount was read before the publish batch committed can land after
-/// the earlier head, leaving the just-inserted row's blob missing; the
-/// request still holds the bytes, so one more head buys the repair.
-/// Every call here is billable, so the whole repair is opportunistic:
-/// a governor refusal skips it (the publish already succeeded, and the
-/// missing-blob case stays loud on the artifact route) rather than
-/// initiating unpaid R2 work.
-async fn heal_blob_if_reclaimed(
-    env: &Env,
-    bucket: &worker::Bucket,
-    key: &str,
-    archive: &[u8],
-) -> worker::Result<()> {
-    match governor_client::decide(env, &consume_one(OpPool::BPublish)).await {
-        Gate::Allowed => {}
-        Gate::Refused(_) => {
-            console_log!("governor refused the post-publish heal head for {key}; skipping");
-            return Ok(());
-        }
-    }
-    if bucket.head(key).await?.is_some() {
-        return Ok(());
-    }
-    let admit = Decision {
-        consume: vec![Consume {
-            pool: OpPool::APublish,
-            n: 1,
-            principal: None,
-            principal_cap: None,
-        }],
-        // Idempotent against the committed row: same key, same bytes.
-        reserve: vec![Reserve {
-            pool: StoragePool::Primary,
-            key: key.to_owned(),
-            bytes: archive.len() as u64,
-        }],
-        ..Decision::default()
-    };
-    match governor_client::decide(env, &admit).await {
-        Gate::Allowed => {}
-        Gate::Refused(_) => {
-            console_log!("governor refused the post-publish heal put for {key}; skipping");
-            return Ok(());
-        }
-    }
-    bucket.put(key, archive.to_vec()).execute().await?;
-    Ok(())
-}
-
-/// The write phase for a publish that revives a **rejected** revision
-/// (`docs/remote-registry.md`, "Verification lifecycle"): the rejected
-/// revision never became part of the registry, and the revision id
-/// derives from the bytes, so a revival is always byte-identical -
-/// fresh metadata, publisher, and timestamp, verification back to
-/// `pending` with the old verdict cleared. R2 first, like
-/// [`persist_new_revision`]. Both statements are guarded on the row
-/// still being rejected (plus the in-batch `new-revision` opt-in and
-/// quota guards) and on this request's stamp
-/// exceeding the row's - `false` means a concurrent revival, verdict,
-/// or quota-spending publish moved first, or the clock did not advance
-/// past the rejected generation, and nothing was changed (a stale revival must never
-/// rewrite a live row, least of all drag a verified one back to
-/// pending; a repeated stamp would let a verdict listed against the
-/// rejected generation land on the revival). The accounting is decided **before**
-/// the row flips, mirroring the verifier's `apply_rejection`: the counter regains
-/// the archive's bytes exactly when the guards will let the flip apply
-/// and no other live row references the checksum - the rejection
-/// refunded them, so the revived row is about to become the blob's
-/// sole live reference and is re-counted exactly once.
-async fn revive_rejected_revision(
-    env: &Env,
-    db: &D1Database,
-    new: &NewRevision<'_>,
-) -> worker::Result<Persist> {
-    let key = crate::checksum::blob_key(new.checksum);
-    let bucket = env.bucket("BLOBS")?;
-    // The unconditional put is one Class A op plus a storage
-    // reservation; the reservation is idempotent when the ledger
-    // already carries the content-addressed key (same key means the
-    // same bytes).
-    let admit = Decision {
-        consume: vec![Consume {
-            pool: OpPool::APublish,
-            n: 1,
-            principal: None,
-            principal_cap: None,
-        }],
-        reserve: vec![Reserve {
-            pool: StoragePool::Primary,
-            key: key.clone(),
-            bytes: new.archive.len() as u64,
-        }],
-        ..Decision::default()
-    };
-    match governor_client::decide(env, &admit).await {
-        Gate::Allowed => {}
-        Gate::Refused(refusal) => {
-            return Ok(Persist::Refused(governor_refusal_response(
-                refusal.as_ref(),
-                true,
-            )?));
-        }
-    }
-    // Unconditional put, unlike persist_new_revision's head-first skip:
-    // the revival re-uses the rejected bytes, so the rejecting
-    // verdict's reclaim delete may still be in flight, and a head could
-    // observe the object right before that delete lands - skipping the
-    // upload would then leave a pending row whose blob is gone.
-    // ponytail: a delete decided before this batch can still land after
-    // this put (two stores, no shared transaction); that residual
-    // window needs the same version's verdict and replacement in flight
-    // simultaneously, and fails loudly (the artifact route's
-    // missing-blob 500); a byte-identical re-publish repairs it.
-    bucket.put(&key, new.archive.to_vec()).execute().await?;
-
-    let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
-    let opt_in = js_int(i64::from(new.opt_in));
-    let max_bytes = js_limit(new.quotas.max_total_bytes_per_user);
-    let max_versions = js_limit(new.quotas.max_versions_per_package_per_day);
-    let results = db
-        .batch(vec![
-            db.prepare(sql::COUNT_STORED_BYTES_ON_REVIVAL).bind(&[
-                new.scope.into(),
-                new.name.into(),
-                new.version.into(),
-                new.checksum.into(),
-                new.checksum.into(),
-                archive_size.clone(),
-                new.revision.into(),
-                opt_in.clone(),
-                new.published_at.into(),
-                js_int(new.user_id),
-                max_bytes.clone(),
-                new.day_prefix.into(),
-                max_versions.clone(),
-            ])?,
-            db.prepare(sql::REVIVE_REJECTED_REVISION).bind(&[
-                new.metadata_text.into(),
-                new.published_at.into(),
-                js_int(new.user_id),
-                new.scope.into(),
-                new.name.into(),
-                opt_in,
-                new.version.into(),
-                new.revision.into(),
-                new.checksum.into(),
-                archive_size.clone(),
-                max_bytes,
-                new.day_prefix.into(),
-                max_versions,
-            ])?,
-            db.prepare(sql::COUNT_USER_STORED_BYTES)
-                .bind(&[js_int(new.user_id), archive_size])?,
-        ])
-        .await?;
-    let row_flip = results
-        .get(1)
-        .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
-    if changed_rows(row_flip.meta()?) == 0 {
-        // Lost the race; the blob uploaded above is at worst an
-        // unreferenced orphan (see docs/runbook.md), which the kept
-        // reservation represents conservatively.
-        return Ok(Persist::Lost);
-    }
-
-    governor_client::settle(
-        env,
-        &commit_object(StoragePool::Primary, &key, new.archive.len() as u64),
-    )
-    .await;
-
-    // Same self-heal as persist_new_revision: repair the blob if a
-    // reclaim delete landed between the put above and the batch commit.
-    heal_blob_if_reclaimed(env, &bucket, &key, new.archive).await?;
-    Ok(Persist::Done)
-}
-
-/// The idempotent no-op's self-heal: the retry holds the row's exact
-/// bytes, so it repairs a primary blob a reclaim race deleted. Like
-/// every repair path it is governed and opportunistic - a refusal
-/// skips it without failing the (already correct) response.
-async fn heal_blobs_on_retry(env: &Env, checksum: &str, archive: &[u8]) -> worker::Result<()> {
-    let key = crate::checksum::blob_key(checksum);
-    let bucket = env.bucket("BLOBS")?;
-    heal_blob_if_reclaimed(env, &bucket, &key, archive).await
-}
-
-/// What the publish handler decided from the version's existing
-/// revision rows.
-enum RevisionDisposition {
-    /// The request is answered directly: a byte-identical
-    /// republication of a pending or verified revision is the `200`
-    /// no-op reporting that revision's verification status (the
-    /// revision id derives from the bytes, so equal checksums are the
-    /// whole test - stored metadata is preserved, never overwritten);
-    /// a same-prefix different-bytes collision and a different-bytes
-    /// publish without the `new-revision` opt-in are `409`s.
-    Answered(Response),
-    /// A rejected revision with exactly these bytes exists: revive it
-    /// in place ([`revive_rejected_revision`]); the guarded update
-    /// re-checks the rejected state inside the batch.
-    Revive,
-    /// No revision with these bytes exists and the rules allow a new
-    /// one: insert it ([`persist_new_revision`]).
+/// How an operation takes its reservation (`crate::upload::Disposition`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Admit {
     New,
+    Revive,
+    Resume,
 }
 
-/// Idempotency, immutability, the `new-revision` opt-in, and the
-/// rejected-revival carve-out for the existing revisions of
-/// `(scope, name, version)`.  The same checks are enforced *inside*
-/// the write batches ([`sql::INSERT_REVISION`] /
-/// [`sql::REVIVE_REJECTED_REVISION`]), so this preflight only shapes
-/// responses - a racer that slips between the read and the batch loses
-/// the guarded write, and the caller re-runs this function against the
-/// winner's state.
-async fn revision_disposition(
+/// One pass of the publish write phase: decides the request against the
+/// version's current rows and carries the decision out. `None` means a
+/// guarded write changed nothing - the rows moved between the read and
+/// the write - and the caller decides again.
+///
+/// The order is the contract (`docs/remote-registry.md`, "Publish"):
+/// the D1 admission first, which reserves every allowance or none; then
+/// the store, which only an admitted operation reaches; then the
+/// confirmation, which is what makes the upload visible to the
+/// verifier. A crash after the admission leaves a reservation the cron
+/// settles from what UPLOADS holds; the daily allowances stay charged
+/// either way.
+async fn attempt(
+    env: &Env,
     db: &D1Database,
-    scope: &str,
-    name: &str,
-    version: &str,
-    revision: &str,
-    checksum: &str,
-    new_revision: bool,
-) -> worker::Result<RevisionDisposition> {
-    let existing: Vec<StoredRevisionRecord> = db
-        .prepare(sql::EXISTING_REVISIONS)
-        .bind(&[scope.into(), name.into(), version.into()])?
-        .all()
-        .await?
-        .results()?;
-    let live_other_bytes = existing.iter().any(|row| {
-        row.checksum != checksum
-            && matches!(
-                verify::Status::parse(&row.verification),
-                Some(verify::Status::Pending | verify::Status::Verified)
-            )
-    });
-    if let Some(row) = existing.iter().find(|row| row.revision == revision) {
-        let Some(status) = verify::Status::parse(&row.verification) else {
-            // An invariant break (the schema never writes other
-            // values); fail safe by refusing rather than guessing a
-            // transition.
+    preflight: &Preflight<'_>,
+    request: &Submission<'_>,
+) -> worker::Result<Option<Response>> {
+    let Preflight {
+        scope,
+        name,
+        version,
+        ..
+    } = *preflight;
+    let results = db
+        .batch(vec![
+            db.prepare(sql::EXISTING_REVISIONS).bind(&[
+                scope.into(),
+                name.into(),
+                version.into(),
+                preflight.now.into(),
+                upload::RETRY_WINDOW.into(),
+            ])?,
+            db.prepare(sql::REVISION_BY_UPLOAD_ID)
+                .bind(&[request.upload_id.into()])?,
+        ])
+        .await?;
+    let existing: Vec<StoredRevisionRecord> = batch_rows(&results, 0)?;
+    let bound: Vec<RevisionKeyRecord> = batch_rows(&results, 1)?;
+    let recorded: Vec<upload::Recorded<'_>> = existing
+        .iter()
+        .map(|row| upload::Recorded {
+            revision: &row.revision,
+            checksum: &row.checksum,
+            status: verify::Status::parse(&row.verification),
+            upload_id: row.upload_id.as_deref(),
+            stored: row.stored != 0,
+            published_at: &row.published_at,
+            published_by: row.published_by,
+            resumable: row.resumable != 0,
+        })
+        .collect();
+    let disposition = upload::dispose(
+        &recorded,
+        &upload::Request {
+            revision: request.revision,
+            checksum: request.checksum,
+            upload_id: request.upload_id,
+            user_id: preflight.user_id,
+            now: preflight.now,
+            new_revision: request.opt_in,
+            upload_id_bound_elsewhere: bound.iter().any(|row| {
+                (row.scope.as_str(), row.name.as_str(), row.version.as_str())
+                    != (scope, name, version)
+                    || row.revision != request.revision
+            }),
+        },
+    );
+    match disposition {
+        upload::Disposition::NoOp(status) => no_op(request.revision, status),
+        upload::Disposition::Conflict(detail) => error_response(409, detail).map(Some),
+        upload::Disposition::Corrupt => {
             console_error!(
-                "stored verification for {scope}/{name}@{version}#{revision} is invalid: {}",
-                row.verification
+                "a stored revision of {scope}/{name}@{version} is outside the lifecycle"
             );
-            return error_response(500, error::INTERNAL).map(RevisionDisposition::Answered);
-        };
-        if row.checksum != checksum {
-            // Two different archives whose digests share the 16-hex
-            // prefix: astronomically unlikely, and silently replacing
-            // either side would break immutability - fail loudly.
-            return error_response(409, error::REVISION_COLLISION)
-                .map(RevisionDisposition::Answered);
+            error_response(500, error::INTERNAL).map(Some)
         }
-        if status == verify::Status::Rejected {
-            // Byte-identical revival of a rejected revision - but a
-            // live sibling with different bytes still demands the
-            // opt-in, or an unflagged retry could sneak a superseded
-            // respin back beside what is currently served.
-            if live_other_bytes && !new_revision {
-                return error_response(409, error::NEW_REVISION_REQUIRED)
-                    .map(RevisionDisposition::Answered);
+        upload::Disposition::Converge {
+            upload_id,
+            published_at,
+        } => {
+            // The reservation is another request's, or this one's
+            // earlier attempt: nothing new is admitted or charged.
+            if let Some(refused) = govern_store(env, true).await? {
+                return Ok(Some(refused));
             }
-            return Ok(RevisionDisposition::Revive);
+            let stored_at = store(env, upload_id, request.archive, true, preflight.now).await?;
+            if confirm(
+                db,
+                preflight,
+                request.revision,
+                upload_id,
+                published_at,
+                &stored_at,
+            )
+            .await?
+            {
+                no_op(request.revision, verify::Status::Pending)
+            } else {
+                Ok(None)
+            }
         }
-        return json_response_with_status(
-            200,
-            &serde_json::json!({
-                "ok": true,
-                "no_op": true,
-                "revision": revision,
-                "verification": status.as_str(),
-            })
-            .to_string(),
-        )
-        .map(RevisionDisposition::Answered);
+        upload::Disposition::New => admit_and_store(env, db, preflight, request, Admit::New).await,
+        upload::Disposition::Revive => {
+            admit_and_store(env, db, preflight, request, Admit::Revive).await
+        }
+        upload::Disposition::Resume => {
+            admit_and_store(env, db, preflight, request, Admit::Resume).await
+        }
     }
-    if live_other_bytes && !new_revision {
-        return error_response(409, error::NEW_REVISION_REQUIRED)
-            .map(RevisionDisposition::Answered);
+}
+
+/// The `200` of a publish that had nothing left to do.
+fn no_op(revision: &str, status: verify::Status) -> worker::Result<Option<Response>> {
+    json_response_with_status(
+        200,
+        &serde_json::json!({
+            "ok": true,
+            "no_op": true,
+            "revision": revision,
+            "verification": status.as_str(),
+        })
+        .to_string(),
+    )
+    .map(Some)
+}
+
+/// Takes the operation's reservation, stores its archive and confirms
+/// it: the `201`, a refusal, or `None` when a guarded write changed
+/// nothing ([`attempt`]).
+async fn admit_and_store(
+    env: &Env,
+    db: &D1Database,
+    preflight: &Preflight<'_>,
+    request: &Submission<'_>,
+    admit: Admit,
+) -> worker::Result<Option<Response>> {
+    let Preflight {
+        scope,
+        name,
+        version,
+        ..
+    } = *preflight;
+    if let Err(denial) = quota::check_archive_size(request.archive_bytes(), preflight.quotas) {
+        return denial_response(env, &denial, None).map(Some);
     }
-    Ok(RevisionDisposition::New)
+    if let Some(refused) = preflight
+        .refusal(env, db, request.archive_bytes(), admit != Admit::Resume)
+        .await?
+    {
+        return Ok(Some(refused));
+    }
+    // The R2 calls are governed before the admission: a refusal after
+    // it would leave a charged reservation with nothing stored.
+    let head_first = admit == Admit::Resume;
+    if let Some(refused) = govern_store(env, head_first).await? {
+        return Ok(Some(refused));
+    }
+    if !admit_upload(db, preflight, request, admit).await? {
+        return Ok(None);
+    }
+    let stored_at = store(
+        env,
+        request.upload_id,
+        request.archive,
+        head_first,
+        preflight.now,
+    )
+    .await?;
+    if !confirm(
+        db,
+        preflight,
+        request.revision,
+        request.upload_id,
+        preflight.now,
+        &stored_at,
+    )
+    .await?
+    {
+        return Ok(None);
+    }
+    json_response_with_status(
+        201,
+        &serde_json::json!({
+            "ok": true,
+            "name": format!("{scope}/{name}"),
+            "version": version,
+            "checksum": request.checksum,
+            "revision": request.revision,
+            "verification": "pending",
+        })
+        .to_string(),
+    )
+    .map(Some)
+}
+
+#[derive(Deserialize)]
+struct RevisionKeyRecord {
+    scope: String,
+    name: String,
+    version: String,
+    revision: String,
+}
+
+/// The admission batch of one operation (`sql::admission`): its gate
+/// first, then the statements that apply only behind it. `true` when
+/// the gate held and the reservation exists.
+async fn admit_upload(
+    db: &D1Database,
+    preflight: &Preflight<'_>,
+    request: &Submission<'_>,
+    admit: Admit,
+) -> worker::Result<bool> {
+    let Preflight {
+        user_id,
+        shared_class,
+        scope,
+        name,
+        version,
+        now,
+        ..
+    } = *preflight;
+    let size = js_int(i64::try_from(request.archive.len()).unwrap_or(i64::MAX));
+    let gate = gate_binds(preflight, request, admit, &size);
+    let charge_shared = || {
+        db.prepare(sql::CHARGE_SHARED_DAILY_UPLOAD).bind(&[
+            now.into(),
+            shared_class.into(),
+            size.clone(),
+        ])
+    };
+    let count_stored_bytes = || {
+        db.prepare(sql::COUNT_USER_STORED_BYTES)
+            .bind(&[js_int(user_id), size.clone()])
+    };
+    // Where the batch reports the admission: the statement whose
+    // changed row is the reservation.
+    let (statements, admitted_at) = match admit {
+        Admit::New => (
+            vec![
+                db.prepare(sql::ADMIT_NEW_UPLOAD).bind(&gate)?,
+                charge_shared()?,
+                db.prepare(sql::COUNT_ADMITTED_UPLOAD).bind(&[
+                    js_int(user_id),
+                    size.clone(),
+                    scope.into(),
+                    name.into(),
+                ])?,
+                db.prepare(sql::ENSURE_PACKAGE).bind(&[
+                    scope.into(),
+                    name.into(),
+                    now.into(),
+                    js_int(user_id),
+                ])?,
+                db.prepare(sql::ENSURE_VERSION).bind(&[
+                    scope.into(),
+                    name.into(),
+                    version.into(),
+                ])?,
+                db.prepare(sql::INSERT_ADMITTED_REVISION).bind(&[
+                    scope.into(),
+                    name.into(),
+                    version.into(),
+                    request.revision.into(),
+                    request.checksum.into(),
+                    request.metadata_text.into(),
+                    now.into(),
+                    size.clone(),
+                    js_int(user_id),
+                    request.upload_id.into(),
+                    shared_class.into(),
+                ])?,
+            ],
+            5,
+        ),
+        Admit::Revive => (
+            vec![
+                db.prepare(sql::REVIVE_REJECTED_UPLOAD).bind(&gate)?,
+                db.prepare(sql::CHARGE_USER_DAILY_UPLOAD).bind(&[
+                    now.into(),
+                    js_int(user_id),
+                    size.clone(),
+                ])?,
+                charge_shared()?,
+                count_stored_bytes()?,
+            ],
+            0,
+        ),
+        Admit::Resume => (
+            vec![
+                db.prepare(sql::RESUME_RELEASED_UPLOAD).bind(&gate)?,
+                count_stored_bytes()?,
+            ],
+            0,
+        ),
+    };
+    let results = db.batch(statements).await?;
+    let admitted = results
+        .get(admitted_at)
+        .ok_or_else(|| worker::Error::RustError(format!("missing batch result {admitted_at}")))?;
+    Ok(changed_rows(admitted.meta()?) > 0)
+}
+
+/// The bind list the three gates share, numbered as `sql::admission`
+/// documents: each gate reads the positions it needs, and D1 wants
+/// exactly as many values as the statement's highest position.
+fn gate_binds(
+    preflight: &Preflight<'_>,
+    request: &Submission<'_>,
+    admit: Admit,
+    size: &worker::wasm_bindgen::JsValue,
+) -> Vec<worker::wasm_bindgen::JsValue> {
+    let quotas = preflight.quotas;
+    let mut gate = vec![
+        preflight.now.into(),
+        js_int(preflight.user_id),
+        size.clone(),
+        preflight.scope.into(),
+        preflight.name.into(),
+        preflight.version.into(),
+        request.revision.into(),
+        request.checksum.into(),
+        js_int(i64::from(request.opt_in)),
+        request.upload_id.into(),
+        preflight.shared_class.into(),
+        js_limit(quotas.max_total_bytes_per_user),
+        js_limit(quotas.max_versions_per_package_per_day),
+        match admit {
+            Admit::Resume => upload::RETRY_WINDOW.into(),
+            Admit::New | Admit::Revive => js_limit(quotas.max_new_packages_per_day),
+        },
+        js_limit(quotas.max_packages_total),
+        js_limit(quotas.max_upload_bytes_per_day),
+        js_limit(quotas.max_uploads_per_day),
+        js_limit(quotas.shared_upload_bytes_per_day),
+        js_limit(quotas.shared_uploads_per_day),
+        js_limit(quotas.max_pending_uploads),
+    ];
+    if admit == Admit::Revive {
+        gate.push(request.metadata_text.into());
+    }
+    gate
+}
+
+/// Charges the governor for the R2 calls [`store`] is about to make:
+/// the existence head when `head_first`, and the put. `Some` is the
+/// refusal; nothing was stored or charged to the user.
+async fn govern_store(env: &Env, head_first: bool) -> worker::Result<Option<Response>> {
+    let pools = [
+        head_first.then_some(OpPool::BPublish),
+        Some(OpPool::APublish),
+    ];
+    for pool in pools.into_iter().flatten() {
+        if let Gate::Refused(refusal) = governor_client::decide(env, &consume_one(pool)).await {
+            return governor_refusal_response(refusal.as_ref(), true).map(Some);
+        }
+    }
+    Ok(None)
+}
+
+/// Makes sure the operation's archive is in UPLOADS and returns when it
+/// was stored. With `head_first` an object already there is kept as it
+/// is: writing it again would restart the lifetime the bucket's expiry
+/// counts. `now` is sampled before the put, so the recorded time is
+/// never later than the object's own and the verification deadline it
+/// starts never outlives the object.
+async fn store(
+    env: &Env,
+    upload_id: &str,
+    archive: &[u8],
+    head_first: bool,
+    now: &str,
+) -> worker::Result<String> {
+    let key = upload::object_key(upload_id);
+    let bucket = env.bucket("UPLOADS")?;
+    if head_first && let Some(object) = bucket.head(&key).await? {
+        return Ok(iso8601_from_ms(object.uploaded().as_millis()));
+    }
+    bucket.put(&key, archive.to_vec()).execute().await?;
+    Ok(now.to_owned())
+}
+
+/// Confirms one reservation generation stored ([`sql::CONFIRM_UPLOAD_STORED`]).
+/// `false` means that generation no longer exists as a pending row.
+async fn confirm(
+    db: &D1Database,
+    preflight: &Preflight<'_>,
+    revision: &str,
+    upload_id: &str,
+    published_at: &str,
+    stored_at: &str,
+) -> worker::Result<bool> {
+    let result = db
+        .prepare(sql::CONFIRM_UPLOAD_STORED)
+        .bind(&[
+            stored_at.into(),
+            preflight.scope.into(),
+            preflight.name.into(),
+            preflight.version.into(),
+            revision.into(),
+            upload_id.into(),
+            published_at.into(),
+        ])?
+        .run()
+        .await?;
+    Ok(changed_rows(result.meta()?) > 0)
 }
 
 /// The publish token bucket (`429`), charged per publish attempt - valid
@@ -963,90 +900,132 @@ async fn cas_bucket(
     Ok(changed_rows(result.meta()?) > 0)
 }
 
-/// The quota preflight of one prospective publish: what
-/// [`Preflight::refusal`] reads and checks, and what the write batches
-/// re-enforce inside their guards.
+/// The quota preflight of one prospective publish: what its refusals
+/// read and check, and what the admission batch re-enforces inside its
+/// gate.
+#[derive(Clone, Copy)]
 struct Preflight<'a> {
     user_id: i64,
+    /// The shared allowance the token's class is charged to.
+    shared_class: &'static str,
     scope: &'a str,
     name: &'a str,
-    archive_bytes: u64,
+    version: &'a str,
+    /// The request's clock sample: the usage date, and the generation
+    /// stamp of whatever this request admits.
+    now: &'a str,
     day_prefix: &'a str,
     quotas: &'a quota::ClassQuotas,
 }
 
 impl Preflight<'_> {
-    /// The twin `400` or the first quota `403` this publish draws from
-    /// the current rows, if any. The deterministic `-`/`_` twin reject
-    /// gates new packages only, and answers before the quota 403s:
-    /// whether a name can exist does not depend on the publisher's
-    /// quota state.
-    async fn refusal(&self, env: &Env, db: &D1Database) -> worker::Result<Option<Response>> {
-        let (counts, twin_exists) =
-            publish_counts(db, self.user_id, self.scope, self.name, self.day_prefix).await?;
-        if !counts.package_exists && twin_exists {
+    fn upload_usage(&self, db: &D1Database) -> worker::Result<worker::D1PreparedStatement> {
+        db.prepare(sql::UPLOAD_USAGE).bind(&[
+            self.now.into(),
+            js_int(self.user_id),
+            self.shared_class.into(),
+            self.scope.into(),
+            self.name.into(),
+            self.version.into(),
+        ])
+    }
+
+    /// The `429` for an upload allowance that is already spent, when
+    /// the version has no revisions - the one case decidable before the
+    /// body is read.
+    async fn spent_refusal(&self, db: &D1Database) -> worker::Result<Option<Response>> {
+        let record: UploadUsageRecord = self
+            .upload_usage(db)?
+            .first(None)
+            .await?
+            .ok_or_else(|| worker::Error::RustError("empty upload usage result".to_owned()))?;
+        if record.version_has_revisions != 0 {
+            return Ok(None);
+        }
+        let usage = record.usage();
+        match quota::check_daily_uploads(0, &usage, self.quotas)
+            .and_then(|()| quota::check_pending_uploads(&usage, self.quotas))
+        {
+            Ok(()) => Ok(None),
+            Err(denial) => record.refusal(&denial, 0).map(Some),
+        }
+    }
+
+    /// The twin `400`, the first quota `403`, or the first allowance
+    /// `429` this publish draws from the current rows, if any. The
+    /// deterministic `-`/`_` twin reject gates new packages only, and
+    /// answers before the quotas: whether a name can exist does not
+    /// depend on the publisher's quota state. `charged` is whether the
+    /// operation is charged the daily allowances - every one but a
+    /// resumed one, which already was.
+    ///
+    /// One D1 batch of point lookups and index ranges over one package
+    /// or today's rows, never a scan of the account's or the scope's
+    /// history (`docs/runbook.md`, "Quota tallies").
+    async fn refusal(
+        &self,
+        env: &Env,
+        db: &D1Database,
+        archive_bytes: u64,
+        charged: bool,
+    ) -> worker::Result<Option<Response>> {
+        let results = db
+            .batch(vec![
+                // Rejected revisions are excluded: their bytes were
+                // refunded when they were rejected.
+                db.prepare(sql::USER_STORED_BYTES)
+                    .bind(&[js_int(self.user_id)])?,
+                // Both package quotas key on creation (`created_by`), so
+                // a version published into someone else's package never
+                // counts against the publisher's package quotas.
+                db.prepare(sql::USER_PACKAGE_COUNTS).bind(&[
+                    js_int(self.user_id),
+                    self.day_prefix.into(),
+                    self.scope.into(),
+                    self.name.into(),
+                ])?,
+                db.prepare(sql::COUNT_PACKAGE_VERSIONS_ON_DAY).bind(&[
+                    self.scope.into(),
+                    self.name.into(),
+                    self.day_prefix.into(),
+                ])?,
+                db.prepare(sql::PACKAGE_EXISTS)
+                    .bind(&[self.scope.into(), self.name.into()])?,
+                db.prepare(sql::TWIN_PACKAGE_EXISTS)
+                    .bind(&[self.scope.into(), self.name.into()])?,
+                self.upload_usage(db)?,
+            ])
+            .await?;
+        let user_usage: UserUsageRecord = first_row(&results, 0)?;
+        let user_packages: PackageCountsRecord = first_row(&results, 1)?;
+        let versions_today: CountRecord = first_row(&results, 2)?;
+        let package_rows: CountRecord = first_row(&results, 3)?;
+        let twin_rows: CountRecord = first_row(&results, 4)?;
+        let upload_usage: UploadUsageRecord = first_row(&results, 5)?;
+        let counts = quota::PublishCounts {
+            user_stored_bytes: non_negative(user_usage.stored_bytes),
+            user_package_count: non_negative(user_packages.package_count),
+            user_new_packages_today: non_negative(user_packages.new_today),
+            package_versions_today: non_negative(versions_today.n),
+            package_exists: package_rows.n > 0,
+        };
+        if !counts.package_exists && twin_rows.n > 0 {
             return error_response(400, publish::NAME_TWIN_CONFLICT).map(Some);
         }
-        if let Err(denial) = quota::check_publish(self.archive_bytes, &counts, self.quotas) {
+        if let Err(denial) = quota::check_publish(archive_bytes, &counts, self.quotas) {
             return denial_response(env, &denial, None).map(Some);
         }
-        Ok(None)
+        let usage = upload_usage.usage();
+        let daily = if charged {
+            quota::check_daily_uploads(archive_bytes, &usage, self.quotas)
+        } else {
+            Ok(())
+        };
+        match daily.and_then(|()| quota::check_pending_uploads(&usage, self.quotas)) {
+            Ok(()) => Ok(None),
+            Err(denial) => upload_usage.refusal(&denial, archive_bytes).map(Some),
+        }
     }
-}
-
-/// Gathers the [`quota::PublishCounts`] for one prospective publish in a
-/// single D1 batch - point lookups and index ranges over one package or
-/// today's rows, never a scan of the account's or the scope's history
-/// (`docs/runbook.md`, "Quota tallies") - plus whether the name has a `-`/`_` twin in
-/// the scope (the deterministic reject the caller renders when the
-/// package would be new; a preflight only - the persistence batch
-/// repeats the guard transactionally).
-async fn publish_counts(
-    db: &D1Database,
-    user_id: i64,
-    scope: &str,
-    name: &str,
-    day_prefix: &str,
-) -> worker::Result<(quota::PublishCounts, bool)> {
-    let results = db
-        .batch(vec![
-            // Rejected versions are excluded: their bytes were refunded
-            // when the verdict landed.
-            db.prepare(sql::USER_STORED_BYTES)
-                .bind(&[js_int(user_id)])?,
-            // Both package quotas key on creation (`created_by`), so a
-            // version published into someone else's package never counts
-            // against the publisher's package quotas.
-            db.prepare(sql::USER_PACKAGE_COUNTS).bind(&[
-                js_int(user_id),
-                day_prefix.into(),
-                scope.into(),
-                name.into(),
-            ])?,
-            db.prepare(sql::COUNT_PACKAGE_VERSIONS_ON_DAY).bind(&[
-                scope.into(),
-                name.into(),
-                day_prefix.into(),
-            ])?,
-            db.prepare(sql::PACKAGE_EXISTS)
-                .bind(&[scope.into(), name.into()])?,
-            db.prepare(sql::TWIN_PACKAGE_EXISTS)
-                .bind(&[scope.into(), name.into()])?,
-        ])
-        .await?;
-    let user_usage: UserUsageRecord = first_row(&results, 0)?;
-    let user_packages: PackageCountsRecord = first_row(&results, 1)?;
-    let versions_today: CountRecord = first_row(&results, 2)?;
-    let package_rows: CountRecord = first_row(&results, 3)?;
-    let twin_rows: CountRecord = first_row(&results, 4)?;
-    let counts = quota::PublishCounts {
-        user_stored_bytes: non_negative(user_usage.stored_bytes),
-        user_package_count: non_negative(user_packages.package_count),
-        user_new_packages_today: non_negative(user_packages.new_today),
-        package_versions_today: non_negative(versions_today.n),
-        package_exists: package_rows.n > 0,
-    };
-    Ok((counts, twin_rows.n > 0))
 }
 
 /// A class limit as a D1 bind.
@@ -1066,4 +1045,15 @@ fn first_row<T: serde::de::DeserializeOwned>(
         .into_iter()
         .next()
         .ok_or_else(|| worker::Error::RustError(format!("empty batch result {index}")))
+}
+
+/// Every row of one statement in a batch result.
+fn batch_rows<T: serde::de::DeserializeOwned>(
+    results: &[worker::D1Result],
+    index: usize,
+) -> worker::Result<Vec<T>> {
+    results
+        .get(index)
+        .ok_or_else(|| worker::Error::RustError(format!("missing batch result {index}")))?
+        .results::<T>()
 }

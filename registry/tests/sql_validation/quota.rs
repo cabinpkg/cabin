@@ -4,7 +4,10 @@
 use cabin_registry_worker::{quota, sql};
 use rusqlite::{Connection, StatementStatus, params};
 
-use crate::common::{Limits, migrated_connection, resolve, sign_in};
+use crate::common::{
+    Limits, Op, admit_new, admit_revival, confirm, footprint, fresh_upload_id, migrated_connection,
+    resolve, sign_in,
+};
 
 /// One `glue::bearer::package::cas_bucket` write: D1 binds every JS
 /// number as a REAL (the user id too) and the timestamp as the `f64`
@@ -133,109 +136,36 @@ fn tallies(conn: &Connection, user: f64, day: &str) -> (i64, i64, i64) {
     (packages, today, bytes)
 }
 
-/// Runs one batch's statements, in order, as one transaction; each
-/// statement's changed rows and VM steps.
-fn batch(conn: &Connection, statements: &[(&str, &[&dyn rusqlite::ToSql])]) -> Vec<(usize, i32)> {
-    let tx = conn.unchecked_transaction().expect("begin");
-    let results = statements
-        .iter()
-        .map(|&(statement, params)| {
-            let mut prepared = tx.prepare(statement).expect("prepare");
-            let changed = prepared.execute(params).expect(statement);
-            (changed, prepared.get_status(StatementStatus::VmStep))
-        })
-        .collect();
-    tx.commit().expect("commit");
-    results
-}
-
-/// `persist_new_revision`'s batch in the glue's statement order, with
-/// D1's REAL binds and the default class's limits over the stamp's UTC
-/// day.
+/// One default-class upload into scope `alpha`.
 #[allow(clippy::too_many_arguments)]
-fn publish_batch(
-    conn: &Connection,
+fn upload<'a>(
     user: f64,
-    name: &str,
-    version: &str,
-    revision: &str,
+    name: &'a str,
+    version: &'a str,
+    revision: &'a str,
     size: f64,
-    opt_in: i64,
-    stamp: &str,
-) -> Vec<(usize, i32)> {
-    let limits = Limits::of("default");
-    let day = quota::utc_day_prefix(stamp).expect("ISO stamp");
-    batch(
-        conn,
-        &[
-            (
-                sql::INSERT_PACKAGE,
-                params![
-                    "alpha",
-                    name,
-                    stamp,
-                    user,
-                    size,
-                    limits.bytes,
-                    day,
-                    limits.packages_daily,
-                    limits.packages_total
-                ],
-            ),
-            (sql::COUNT_USER_PACKAGE, params![user]),
-            (
-                sql::INSERT_VERSION_ROW,
-                params![
-                    "alpha",
-                    name,
-                    version,
-                    user,
-                    size,
-                    limits.bytes,
-                    day,
-                    limits.versions_daily
-                ],
-            ),
-            (
-                sql::COUNT_STORED_BYTES_ON_PUBLISH,
-                params![
-                    revision,
-                    size,
-                    "alpha",
-                    name,
-                    version,
-                    revision,
-                    opt_in,
-                    user,
-                    limits.bytes,
-                    day,
-                    limits.versions_daily
-                ],
-            ),
-            (
-                sql::INSERT_REVISION,
-                params![
-                    "alpha",
-                    name,
-                    version,
-                    revision,
-                    revision,
-                    "{}",
-                    stamp,
-                    size,
-                    user,
-                    opt_in,
-                    limits.bytes,
-                    day,
-                    limits.versions_daily
-                ],
-            ),
-            (sql::COUNT_USER_STORED_BYTES, params![user, size]),
-        ],
-    )
+    opt_in: bool,
+    stamp: &'a str,
+    upload_id: &'a str,
+) -> Op<'a> {
+    Op {
+        user,
+        class: "default",
+        scope: "alpha",
+        name,
+        version,
+        revision,
+        metadata: "{}",
+        size,
+        opt_in,
+        stamp,
+        upload_id,
+    }
 }
 
-/// [`publish_batch`]'s revision insert's changed rows.
+/// A new revision's admission under the default class's limits and a
+/// fresh upload id, stored at once when it is admitted; the admission's
+/// changed rows.
 #[allow(clippy::too_many_arguments)]
 fn publish(
     conn: &Connection,
@@ -247,66 +177,24 @@ fn publish(
     opt_in: i64,
     stamp: &str,
 ) -> usize {
-    publish_batch(conn, user, name, version, revision, size, opt_in, stamp)[4].0
+    let upload_id = fresh_upload_id();
+    let op = upload(
+        user,
+        name,
+        version,
+        revision,
+        size,
+        opt_in == 1,
+        stamp,
+        &upload_id,
+    );
+    let admitted = admit_new(conn, &op, &Limits::of("default"))[5].0;
+    assert_eq!(confirm(conn, &op, stamp, stamp), admitted);
+    admitted
 }
 
-/// `revive_rejected_revision`'s batch, with the binds of
-/// [`publish_batch`], reviving `revision` of version `1.0.0`.
-fn revive_batch(
-    conn: &Connection,
-    user: f64,
-    name: &str,
-    revision: &str,
-    size: f64,
-    stamp: &str,
-) -> Vec<(usize, i32)> {
-    let limits = Limits::of("default");
-    let day = quota::utc_day_prefix(stamp).expect("ISO stamp");
-    batch(
-        conn,
-        &[
-            (
-                sql::COUNT_STORED_BYTES_ON_REVIVAL,
-                params![
-                    "alpha",
-                    name,
-                    "1.0.0",
-                    revision,
-                    revision,
-                    size,
-                    revision,
-                    1,
-                    stamp,
-                    user,
-                    limits.bytes,
-                    day,
-                    limits.versions_daily
-                ],
-            ),
-            (
-                sql::REVIVE_REJECTED_REVISION,
-                params![
-                    "{}",
-                    stamp,
-                    user,
-                    "alpha",
-                    name,
-                    1,
-                    "1.0.0",
-                    revision,
-                    revision,
-                    size,
-                    limits.bytes,
-                    day,
-                    limits.versions_daily
-                ],
-            ),
-            (sql::COUNT_USER_STORED_BYTES, params![user, size]),
-        ],
-    )
-}
-
-/// [`revive_batch`]'s flip's changed rows.
+/// The revival of `revision` of version `1.0.0`, with the opt-in, like
+/// [`publish`]; the admission's changed rows.
 fn revive(
     conn: &Connection,
     user: f64,
@@ -315,37 +203,24 @@ fn revive(
     size: f64,
     stamp: &str,
 ) -> usize {
-    revive_batch(conn, user, name, revision, size, stamp)[1].0
+    let upload_id = fresh_upload_id();
+    let op = upload(user, name, "1.0.0", revision, size, true, stamp, &upload_id);
+    let admitted = admit_revival(conn, &op, &Limits::of("default"))[0].0;
+    assert_eq!(confirm(conn, &op, stamp, stamp), admitted);
+    admitted
 }
 
-/// `apply_rejection`'s batch against the generation stamped `stamp`;
-/// the flip's changed rows.
-fn reject(conn: &Connection, name: &str, revision: &str, size: f64, stamp: &str) -> usize {
-    let tx = conn.unchecked_transaction().expect("begin");
-    tx.execute(
-        sql::REFUND_STORED_BYTES_ON_REJECTION,
-        params![revision, "alpha", name, "1.0.0", size, stamp, revision],
-    )
-    .expect("REFUND_STORED_BYTES_ON_REJECTION");
-    let flipped = tx
-        .execute(
-            sql::MARK_REVISION_REJECTED,
-            params!["bad", "alpha", name, "1.0.0", revision, stamp, revision],
-        )
-        .expect("MARK_REVISION_REJECTED");
-    tx.execute(
-        sql::REFUND_USER_STORED_BYTES,
-        params!["alpha", name, "1.0.0", revision],
-    )
-    .expect("REFUND_USER_STORED_BYTES");
-    tx.commit().expect("commit");
-    flipped
+/// The verifier's rejection of `revision` of version `1.0.0` against
+/// the generation stamped `stamp`; the flip's changed rows.
+fn reject(conn: &Connection, name: &str, revision: &str, stamp: &str) -> usize {
+    let op = upload(0.0, name, "1.0.0", revision, 0.0, false, stamp, "");
+    crate::common::reject(conn, &op, stamp, stamp)
 }
 
 /// The tallies the preflight reads must equal the rows they count after
-/// every write the lifecycle makes - the batches' `changes()` coupling
-/// is what keeps a suppressed write from counting, and nothing else
-/// can catch a miscounted path before a quota misfires in production.
+/// every write the lifecycle makes - the admission gate is what keeps a
+/// refused upload from counting, and nothing else can catch a
+/// miscounted path before a quota misfires in production.
 #[test]
 fn quota_tallies_track_every_publish_lifecycle_write() {
     let conn = migrated_connection();
@@ -422,8 +297,8 @@ fn quota_tallies_track_every_publish_lifecycle_write() {
 
     // A rejection refunds the row's publisher once; a repeated verdict
     // lands nowhere. A revival by another account charges the reviver.
-    assert_eq!(reject(&conn, "foo-bar", "a2", 60.0, midnight), 1);
-    assert_eq!(reject(&conn, "foo-bar", "a2", 60.0, midnight), 0);
+    assert_eq!(reject(&conn, "foo-bar", "a2", midnight), 1);
+    assert_eq!(reject(&conn, "foo-bar", "a2", midnight), 0);
     check((2, 1, 47), (0, 0, 50));
     let later = "2026-10-26T01:00:00.000Z";
     assert_eq!(revive(&conn, 3.0, "foo-bar", "a2", 60.0, later), 1);
@@ -431,7 +306,7 @@ fn quota_tallies_track_every_publish_lifecycle_write() {
     check((2, 1, 47), (0, 0, 110));
     // Rejecting the revived generation refunds its current publisher,
     // not the package's creator or the row's first publisher.
-    assert_eq!(reject(&conn, "foo-bar", "a2", 60.0, later), 1);
+    assert_eq!(reject(&conn, "foo-bar", "a2", later), 1);
     check((2, 1, 47), (0, 0, 50));
 }
 
@@ -473,28 +348,6 @@ fn preflight(
     quota::check_publish(size, &counts, &quota::quotas_for_class("default"))
 }
 
-/// Everything a publish or revival batch writes.
-fn footprint(conn: &Connection) -> [i64; 6] {
-    conn.query_row(
-        "SELECT (SELECT COUNT(*) FROM packages), (SELECT COUNT(*) FROM versions), \
-         (SELECT COUNT(*) FROM revisions WHERE verification != 'rejected'), \
-         (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'total_stored_bytes'), \
-         (SELECT SUM(package_count) FROM users), (SELECT SUM(stored_bytes) FROM users)",
-        [],
-        |row| {
-            Ok([
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-            ])
-        },
-    )
-    .expect("footprint")
-}
-
 /// A racing loser: the publisher, the package, and the archive size its
 /// preflight checked, and its batch.
 type Loser<'a> = (f64, &'a str, u64, &'a dyn Fn() -> usize);
@@ -525,11 +378,12 @@ fn race(
 /// to their batches - one user publishing through two tokens (every
 /// token of a user resolves to its one tally row), or two publishers
 /// into one package. D1 runs the batches one after the other: the first
-/// lands exactly on the limit, and the second's in-batch quota guards
-/// must suppress every write it would make - no package, version, or
-/// revision row, no tally or stored-bytes bump - so that its re-run
-/// preflight is what answers, with the quota `403`. One race per quota
-/// the guards enforce, plus a revival racing a new version.
+/// lands exactly on the limit, and the second's gate must refuse every
+/// write it would make - no package, version, or revision row, no
+/// tally or allowance charge - so that its re-run preflight is what
+/// answers, with the quota `403`. One race per publish quota, plus a
+/// revival racing a new version; the upload allowances' races are in
+/// `admission.rs`.
 #[test]
 #[allow(clippy::too_many_lines)] // one seed, one race per quota guard
 fn racing_publishes_cannot_overshoot_a_quota() {
@@ -557,8 +411,9 @@ fn racing_publishes_cannot_overshoot_a_quota() {
          INSERT INTO versions (scope, name, version)
            SELECT 'alpha', 'busy', i || '.0.0' FROM seq WHERE i < {versions};
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
-                                published_at, archive_size, published_by)
-           SELECT scope, name, version, 'v' || rowid, 'v' || rowid, '{{}}', '{now}', 1, 5
+                                published_at, archive_size, published_by, verification)
+           SELECT scope, name, version, 'v' || rowid, 'v' || rowid, '{{}}', '{now}', 1, 5,
+                  'verified'
            FROM versions;
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
@@ -588,7 +443,7 @@ fn racing_publishes_cannot_overshoot_a_quota() {
         publish(&conn, 7.0, "rev", "1.0.0", "r1", 10.0, 0, earlier),
         1
     );
-    assert_eq!(reject(&conn, "rev", "r1", 10.0, earlier), 1);
+    assert_eq!(reject(&conn, "rev", "r1", earlier), 1);
     assert_eq!(tally_drift(&conn), 0);
 
     // Storage, 10 bytes of headroom: a new version wins over a new
@@ -662,14 +517,14 @@ fn racing_publishes_cannot_overshoot_a_quota() {
     assert_eq!(tally_drift(&conn), 0);
 }
 
-/// The VM steps the per-publish preflight reads and the package
-/// insert's guards take on an account and scope holding `earlier`
-/// packages created the day before and `today` created today - two
-/// versions each, every tenth one also holding a rejected revision. In
-/// order: stored bytes, the package counts for a new and for an
-/// existing package, the twin check, and the insert of a new and of an
-/// existing package.
-fn preflight_steps(earlier: u32, today: u32) -> [i32; 6] {
+/// The VM steps of the per-publish preflight reads and of the admission
+/// batch, on an account and scope holding `earlier` packages created
+/// the day before and `today` created today - two versions each, every
+/// tenth one also holding a rejected revision. In order: stored bytes,
+/// the package counts for a new and for an existing package, the twin
+/// check, then the six statements of a new package's admission and of
+/// an existing package's.
+fn preflight_steps(earlier: u32, today: u32) -> Vec<i32> {
     let conn = migrated_connection();
     conn.execute_batch(&format!(
         "INSERT INTO users (id, created_at) VALUES (2, '2026-10-01T00:00:00.000Z');
@@ -712,27 +567,25 @@ fn preflight_steps(earlier: u32, today: u32) -> [i32; 6] {
     // The operator's limits, so even the largest corpus here still
     // admits the new package.
     let limits = Limits::of("operator");
-    for (name, inserted) in [("lib_new", 1), ("lib-1", 0)] {
-        let mut insert = conn.prepare(sql::INSERT_PACKAGE).expect("prepare");
-        assert_eq!(
-            insert
-                .execute(params![
-                    "alpha",
-                    name,
-                    "2026-10-26T09:00:00.000Z",
-                    2.0,
-                    100.0,
-                    limits.bytes,
-                    day,
-                    limits.packages_daily,
-                    limits.packages_total
-                ])
-                .expect("INSERT_PACKAGE"),
-            inserted
-        );
-        steps.push(insert.get_status(StatementStatus::VmStep));
+    for name in ["lib_new", "lib-1"] {
+        let op = Op {
+            class: "operator",
+            ..upload(
+                2.0,
+                name,
+                "9.0.0",
+                name,
+                100.0,
+                false,
+                "2026-10-26T09:00:00.000Z",
+                name,
+            )
+        };
+        let admitted = admit_new(&conn, &op, &limits);
+        assert!(admitted.iter().all(|&(changed, _)| changed == 1), "{name}");
+        steps.extend(admitted.iter().map(|&(_, step)| step));
     }
-    steps.try_into().expect("six measurements")
+    steps
 }
 
 /// D1 bills rows read, and these statements run on every publish that
@@ -742,9 +595,13 @@ fn preflight_steps(earlier: u32, today: u32) -> [i32; 6] {
 #[test]
 fn the_publish_preflight_cost_does_not_grow_with_the_corpus() {
     assert_eq!(preflight_steps(10, 3), preflight_steps(1_000, 3));
-    // Today's new packages cost only a new package's own day counts,
-    // which the daily quota bounds.
-    let skip_new_count = |s: [i32; 6]| [s[0], s[2], s[3], s[5]];
+    // Today's new packages cost only a new package's own day counts -
+    // its preflight read and its gate - which the daily quota bounds.
+    let skip_new_count = |mut steps: Vec<i32>| {
+        steps.remove(4);
+        steps.remove(1);
+        steps
+    };
     assert_eq!(
         skip_new_count(preflight_steps(10, 3)),
         skip_new_count(preflight_steps(10, 300))
@@ -752,7 +609,7 @@ fn the_publish_preflight_cost_does_not_grow_with_the_corpus() {
 }
 
 /// The VM steps of the preflight's version count and of every statement
-/// of the publish batch (a new version) and the revival batch, on a
+/// of the admission batch of a new version and of a revival, on a
 /// package holding `history` versions published the day before.
 fn batch_steps(history: u32) -> Vec<i32> {
     let conn = migrated_connection();
@@ -785,38 +642,29 @@ fn batch_steps(history: u32) -> Vec<i32> {
         .expect("versions today");
     assert_eq!(n, 0);
     let mut steps = vec![versions_today.get_status(StatementStatus::VmStep)];
-    let published = publish_batch(&conn, 2.0, "lib", "next", "nx", 1.0, 0, now);
-    let revived = revive_batch(&conn, 2.0, "lib", "rj", 1.0, now);
-    assert_eq!((published[4].0, revived[1].0), (1, 1));
+    let limits = Limits::of("default");
+    let new_version = upload(2.0, "lib", "next", "nx", 1.0, false, now, "u-nx");
+    let published = admit_new(&conn, &new_version, &limits);
+    let revival = upload(2.0, "lib", "1.0.0", "rj", 1.0, true, now, "u-rj");
+    let revived = admit_revival(&conn, &revival, &limits);
+    assert_eq!((published[5].0, revived[0].0), (1, 1));
     steps.extend(published.iter().chain(&revived).map(|&(_, step)| step));
     steps
 }
 
-/// The batches' quota guards repeat the daily version count on every
-/// write statement: it must cost one day's rows, never the package's
-/// history, or a long-lived package's every publish grows with it.
+/// The gates count the package's revisions of the day and the
+/// publisher's pending uploads: both must cost the rows they count,
+/// never the package's or the publisher's history, or a long-lived
+/// package's every publish grows with it.
 #[test]
 fn the_publish_batch_cost_does_not_grow_with_the_package_history() {
     assert_eq!(batch_steps(10), batch_steps(1_000));
 }
 
-/// `meta.total_stored_bytes` minus one size per live checksum.
-fn counter_drift(conn: &Connection) -> i64 {
-    conn.query_row(
-        "SELECT CAST(value AS INTEGER) - (SELECT COALESCE(SUM(size), 0) FROM \
-           (SELECT MAX(archive_size) AS size FROM revisions \
-            WHERE verification != 'rejected' GROUP BY checksum)) \
-         FROM meta WHERE key = 'total_stored_bytes'",
-        [],
-        |row| row.get(0),
-    )
-    .expect("counter drift")
-}
-
 /// A publish stamped a millisecond before UTC midnight counts only its
 /// own day, though rows stamped after midnight - by requests whose
 /// preflights started later - already exist: each daily window is one
-/// calendar day, in the preflight reads, the guards, and their mirrors.
+/// calendar day, in the preflight reads and in the gates.
 /// Every account and package here sits one below a daily quota on the
 /// publish's day and holds one more row on the next.
 #[test]
@@ -843,10 +691,10 @@ fn daily_windows_end_at_utc_midnight() {
            SELECT scope, name, i || '.0.0' FROM packages, seq
            WHERE name LIKE 'busy-%' AND i <= {versions};
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
-                                published_at, archive_size, published_by)
+                                published_at, archive_size, published_by, verification)
            SELECT scope, name, version, 'v' || rowid, 'v' || rowid, '{{}}',
                   CASE WHEN version = '{versions}.0.0' THEN '{tomorrow}'
-                       ELSE '{day}12:00:00.000Z' END, 1, 3
+                       ELSE '{day}12:00:00.000Z' END, 1, 3, 'verified'
            FROM versions;
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
@@ -855,10 +703,7 @@ fn daily_windows_end_at_utc_midnight() {
          UPDATE users SET
            package_count = (SELECT COUNT(*) FROM packages WHERE created_by = users.id),
            stored_bytes = (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
-                           WHERE published_by = users.id AND verification != 'rejected');
-         UPDATE meta SET value = (SELECT COUNT(*) FROM revisions
-                                  WHERE verification != 'rejected')
-           WHERE key = 'total_stored_bytes';",
+                           WHERE published_by = users.id AND verification != 'rejected');",
         daily = quotas.max_new_packages_per_day,
         versions = quotas.max_versions_per_package_per_day,
     ))
@@ -881,5 +726,4 @@ fn daily_windows_end_at_utc_midnight() {
     );
     assert_eq!(revive(&conn, 3.0, "busy-c", "rj", 1.0, late), 1);
     assert_eq!(tally_drift(&conn), 0);
-    assert_eq!(counter_drift(&conn), 0);
 }

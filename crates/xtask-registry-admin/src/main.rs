@@ -3,7 +3,7 @@
 
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use xtask_registry_admin::launch_guard::Mode;
 
@@ -41,14 +41,11 @@ impl Target {
 enum Command {
     /// Safe diagnostics bundle (`cargo registry-diagnose`).
     Diagnose,
-    /// The cost governor's ledger: usage | compare | reconcile
-    /// [--keys] | release <pool> <key> | wipe
-    /// (`cargo registry-governor`).
+    /// The cost governor's usage snapshot
+    /// (`cargo registry-governor usage`).
     Governor {
-        // Raw, so the one usage line in `governor` below answers every
-        // malformed spelling.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        rest: Vec<String>,
+        #[command(subcommand)]
+        action: Governor,
     },
     /// Refuse unless meta.launched is 'false'; destructive maintenance
     /// runs this first (`cargo registry-launch-guard`).
@@ -86,6 +83,12 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum Governor {
+    /// Print the operation windows' usage.
+    Usage,
+}
+
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -99,7 +102,9 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Diagnose => xtask_registry_admin::diagnose::run(),
-        Command::Governor { rest } => governor(&rest),
+        Command::Governor {
+            action: Governor::Usage,
+        } => xtask_registry_admin::governor::run(),
         Command::LaunchGuard { target } => xtask_registry_admin::launch_guard::run(target.mode()),
         Command::Migrate { target } => xtask_registry_admin::migrate::run(target.mode()),
         Command::Verify { check_oidc } => {
@@ -115,33 +120,4 @@ fn run(cli: Cli) -> Result<()> {
             xtask_registry_admin::wipe::run(if local { Mode::Local } else { Mode::Remote })
         }
     }
-}
-
-/// The governor's own argument surface, kept raw so the one usage line
-/// answers every malformed spelling.
-fn governor(rest: &[String]) -> Result<()> {
-    use xtask_registry_admin::governor::{Action, Pool};
-
-    let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
-    let action = match rest.as_slice() {
-        ["usage"] => Action::Usage,
-        ["compare"] => Action::Compare,
-        ["reconcile"] => Action::Reconcile { keys: false },
-        ["reconcile", "--keys"] => Action::Reconcile { keys: true },
-        ["release", pool, key] => {
-            let Some(pool) = Pool::parse(pool) else {
-                bail!("usage: cargo registry-governor release <primary|backup|dump> <key>");
-            };
-            Action::Release {
-                pool,
-                key: (*key).to_owned(),
-            }
-        }
-        ["wipe"] => Action::Wipe,
-        _ => bail!(
-            "usage: cargo registry-governor <usage|compare|reconcile [--keys]|\
-             release <pool> <key>|wipe>"
-        ),
-    };
-    xtask_registry_admin::governor::run(&action)
 }

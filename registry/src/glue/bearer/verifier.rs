@@ -1,6 +1,6 @@
-//! The verifier's surfaces (`verify` scope): the admin work lists, the
-//! verdict endpoint's OIDC authentication and transaction, and the
-//! rejected blob's reclaim. The lifecycle rules live in `crate::verify`.
+//! The verifier's surfaces (`verify` scope): the admin work lists and
+//! the verdict endpoint's OIDC authentication and transaction. The
+//! lifecycle rules live in `crate::verify`.
 
 use serde::Deserialize;
 use worker::{D1Database, Env, Request, Response, console_error, console_log};
@@ -8,8 +8,8 @@ use worker::{D1Database, Env, Request, Response, console_error, console_log};
 use crate::auth::{self, AuthContext};
 use crate::error;
 use crate::glue::{
-    CountRecord, MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response,
-    has_verify_scope, js_int, json_response, json_response_with_status, now_epoch_ms, now_iso8601,
+    MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response, has_verify_scope, js_int,
+    json_response, json_response_with_status, now_epoch_ms, now_iso8601,
 };
 use crate::{sql, trustpub, verify};
 
@@ -117,7 +117,6 @@ struct VerdictTargetRecord {
     verification: String,
     checksum: String,
     published_at: String,
-    archive_size: i64,
 }
 
 /// The listing binding: the row must still be the generation the
@@ -170,8 +169,8 @@ fn verdict_binding_matches(
 /// hinges on this request succeeding afterwards: a request that fails
 /// before its verdict commits leaves the row pending, and the next run
 /// lists it again and `PATCH`es with a freshly minted token (one that
-/// fails after the commit changed the row as intended; a lost reclaim
-/// is the documented orphan). `false` means refused; the caller answers
+/// fails after the commit changed the row as intended). `false` means
+/// refused; the caller answers
 /// the uniform 401 while the real reason is logged here - no
 /// pin/signature/replay oracle.
 pub(super) async fn verdict_authn(
@@ -240,19 +239,17 @@ pub(super) async fn verdict_authn(
 /// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>`
 /// ([`verdict_authn`]): the verifier's verdict. Pending versions accept either verdict; a
 /// repeat of the verdict a terminal version already carries is the
-/// idempotent 200 (a repeat rejection also re-drives the blob
-/// reclaim); the conflicting combinations are the 409 matrix in
+/// idempotent 200; the conflicting combinations are the 409 matrix in
 /// [`verify::transition`]. The body's required `checksum` binds the
 /// verdict to the bytes the verifier actually inspected (and so to
 /// the revision those bytes name), and the
 /// applying updates are themselves guarded on the row still being
 /// pending under that same binding - a verdict racing a conflicting
 /// verdict or a replacement answers 409 instead of landing on content
-/// it never saw. A rejection records the reason, refunds
-/// the archive's bytes from the storage self-accounting when the row
-/// was the blob's sole live reference (decided inside the same
-/// transaction that flips the row, so a duplicate concurrent verdict
-/// cannot refund twice), and then reclaims the blob itself.
+/// it never saw. A rejection records the reason and refunds the
+/// archive's bytes to its publisher in the same transaction that flips
+/// the row, so a duplicate concurrent verdict cannot refund twice. The
+/// archive itself is left to the UPLOADS bucket's expiry.
 /// Deliberately **not** gated by the budget breaker, unlike publish
 /// and yank: a verdict stores no new bytes (a rejection frees them),
 /// so blocking it would only stall the pending queue - verification
@@ -261,7 +258,6 @@ pub(super) async fn verdict_authn(
 /// changed it.
 pub(super) async fn verdict_response(
     req: &mut Request,
-    env: &Env,
     db: &D1Database,
     scope: &str,
     name: &str,
@@ -313,25 +309,12 @@ pub(super) async fn verdict_response(
             );
             return error_response(409, detail);
         }
-        verify::Transition::NoOp => {
-            // A repeat rejection re-drives the blob reclaim: the first
-            // rejection's row flip and refund commit in one D1
-            // transaction, but the reclaim runs after it and can fail
-            // (a D1 error in its refcount read; the R2 delete itself is
-            // logged and swallowed) - the driver
-            // never re-lists a rejected row, so this is the operator's
-            // or a retrying client's path to the orphan. Idempotent
-            // when the first attempt already reclaimed it.
-            if parsed.verdict == verify::Verdict::Rejected {
-                delete_blob_if_unreferenced(env, db, &target.checksum).await?;
-            }
-            false
-        }
+        verify::Transition::NoOp => false,
         verify::Transition::Apply => {
-            if !apply_verdict(env, db, scope, name, version, &revision, &parsed, &target).await? {
+            if !apply_verdict(db, scope, name, version, &revision, &parsed).await? {
                 // The row moved between this request's read and its
-                // guarded update: a concurrent conflicting verdict or a
-                // replacement won the race.
+                // guarded update: a concurrent conflicting verdict, a
+                // replacement, or the verification timeout won the race.
                 console_error!(
                     "verdict for {scope}/{name}@{version}#{revision} lost the race: \
                      the row moved between the read and the guarded update"
@@ -364,79 +347,29 @@ pub(super) async fn verdict_response(
 /// listed - the body's binding, which `verdict_binding_matches` found
 /// equal to the row this request read, so D1 enforces the listing
 /// binding as well as the read-to-update race); `false` means the row
-/// moved first and nothing was changed.
-#[allow(clippy::too_many_arguments)] // the revision quad plus the verdict plumbing
+/// moved first and nothing was changed. A rejection's refund follows
+/// the row flip in one batch and applies only when the flip did
+/// (`sql::REFUND_USER_STORED_BYTES`).
 async fn apply_verdict(
-    env: &Env,
     db: &D1Database,
     scope: &str,
     name: &str,
     version: &str,
     revision: &str,
     parsed: &verify::ParsedVerdict,
-    target: &VerdictTargetRecord,
 ) -> worker::Result<bool> {
-    match parsed.verdict {
-        verify::Verdict::Verified => {
-            let mark = db
-                .prepare(sql::MARK_REVISION_VERIFIED)
-                .bind(&[
-                    now_iso8601().as_str().into(),
-                    scope.into(),
-                    name.into(),
-                    version.into(),
-                    parsed.checksum.as_str().into(),
-                    parsed.published_at.as_str().into(),
-                    revision.into(),
-                ])?
-                .run()
-                .await?;
-            Ok(changed_rows(mark.meta()?) > 0)
-        }
-        verify::Verdict::Rejected => {
-            let applied =
-                apply_rejection(db, scope, name, version, revision, parsed, target).await?;
-            if applied {
-                delete_blob_if_unreferenced(env, db, &target.checksum).await?;
-            }
-            Ok(applied)
-        }
-    }
-}
-
-/// The rejection transaction: the storage refund is decided **before**
-/// the row flips (statement order inside one atomic batch), so it fires
-/// exactly when this row - still pending, still storing the bytes the
-/// verdict was read against - is the checksum's sole live reference: a
-/// concurrent duplicate rejection sees the row already rejected and
-/// refunds nothing, a replacement that swapped the bytes disarms both
-/// statements, and a shared blob (another live row with the same bytes)
-/// is never refunded. The row-flip carries the same guards; `false`
-/// means it lost such a race and nothing changed. `MAX(..., 0)` keeps
-/// the counter integer-parseable even under drift; the breaker treats a
-/// non-numeric value as unavailable and fails closed.
-#[allow(clippy::too_many_arguments)] // the revision quad plus the verdict plumbing
-async fn apply_rejection(
-    db: &D1Database,
-    scope: &str,
-    name: &str,
-    version: &str,
-    revision: &str,
-    parsed: &verify::ParsedVerdict,
-    target: &VerdictTargetRecord,
-) -> worker::Result<bool> {
-    let archive_size = js_int(target.archive_size);
-    let results = db
-        .batch(vec![
-            db.prepare(sql::REFUND_STORED_BYTES_ON_REJECTION).bind(&[
-                parsed.checksum.as_str().into(),
-                scope.into(),
-                name.into(),
-                version.into(),
-                archive_size,
-                parsed.published_at.as_str().into(),
-                revision.into(),
-            ])?,
+    let now = now_iso8601();
+    let statements = match parsed.verdict {
+        verify::Verdict::Verified => vec![db.prepare(sql::MARK_REVISION_VERIFIED).bind(&[
+            now.as_str().into(),
+            scope.into(),
+            name.into(),
+            version.into(),
+            parsed.checksum.as_str().into(),
+            parsed.published_at.as_str().into(),
+            revision.into(),
+        ])?],
+        verify::Verdict::Rejected => vec![
             db.prepare(sql::MARK_REVISION_REJECTED).bind(&[
                 parsed.reason.as_deref().unwrap_or_default().into(),
                 scope.into(),
@@ -445,6 +378,7 @@ async fn apply_rejection(
                 parsed.checksum.as_str().into(),
                 parsed.published_at.as_str().into(),
                 revision.into(),
+                now.as_str().into(),
             ])?,
             db.prepare(sql::REFUND_USER_STORED_BYTES).bind(&[
                 scope.into(),
@@ -452,57 +386,11 @@ async fn apply_rejection(
                 version.into(),
                 revision.into(),
             ])?,
-        ])
-        .await?;
+        ],
+    };
+    let results = db.batch(statements).await?;
     let row_flip = results
-        .get(1)
-        .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
+        .first()
+        .ok_or_else(|| worker::Error::RustError("missing batch result 0".to_owned()))?;
     Ok(changed_rows(row_flip.meta()?) > 0)
-}
-
-/// Deletes `checksum`'s blob from the primary bucket when no live
-/// (non-rejected) version row references it any more. Best-effort and
-/// idempotent: a failed or crashed delete leaves an orphaned blob (the
-/// same harmless, content-addressed garbage a crashed publish leaves -
-/// see `docs/runbook.md`), and later reclaim paths retry it. Never
-/// touches the meta counter - the caller accounts for the bytes when it
-/// flips the row states.
-///
-/// ponytail: the refcount read and the delete are not atomic with
-/// publishes' R2 writes (two stores, no shared transaction). Publishers
-/// close the practical window by re-checking their blob after their D1
-/// batch commits and re-uploading if this delete beat them to it; a
-/// delete that lands even later is loud (the artifact route's
-/// missing-blob 500) and recoverable by the publisher's byte-identical
-/// re-publish (`heal_blobs_on_retry`).
-/// A reclaim queue with a grace period is the upgrade if
-/// reclaim/publish races ever become a real operational pattern.
-async fn delete_blob_if_unreferenced(
-    env: &Env,
-    db: &D1Database,
-    checksum: &str,
-) -> worker::Result<()> {
-    let references: CountRecord = db
-        .prepare(sql::COUNT_LIVE_BLOB_REFERENCES)
-        .bind(&[checksum.into()])?
-        .first(None)
-        .await?
-        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
-    if references.n > 0 {
-        return Ok(());
-    }
-    let key = crate::checksum::blob_key(checksum);
-    // R2 deletes are not billable, so no consumption rides them. The
-    // ledger entry deliberately stays committed: a successful delete is
-    // NOT proof the key stays gone - a concurrent same-checksum publish
-    // can recreate the content-addressed object at any moment, and a
-    // release here could strand that publish's bytes outside the ledger
-    // if it crashed before its own settle. Reconciliation reports the
-    // entry as unreferenced, and releasing it is the operator's
-    // explicit, evidence-backed action (`docs/runbook.md`, "The cost
-    // governor").
-    if let Err(err) = env.bucket("BLOBS")?.delete(&key).await {
-        console_error!("reclaiming blob {key} failed (left as an orphan): {err}");
-    }
-    Ok(())
 }
