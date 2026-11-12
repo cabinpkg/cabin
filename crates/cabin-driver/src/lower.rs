@@ -360,7 +360,10 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     // more than 65,279 sections (C1128), which template-heavy headers
     // reach.  `clang-cl` accepts the flag and ignores it: LLVM picks
     // the object format from the section count.
-    out.push("/bigobj".to_owned());
+    // PROBE ONLY, never merged: lets one binary build both ways.
+    if std::env::var_os("CABIN_PROBE_NO_BIGOBJ").is_none() {
+        out.push("/bigobj".to_owned());
+    }
     out.extend(args.provider_flags.iter().cloned());
     out.push(msvc_std_flag(compile.standard).to_owned());
     if compile.standard.language() == SourceLanguage::Cxx {
