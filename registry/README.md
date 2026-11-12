@@ -4,8 +4,8 @@ The hosted side of Cabin's experimental remote registry: a Cloudflare Worker
 (Rust, [`workers-rs`](https://github.com/cloudflare/workers-rs)) serving the
 sparse HTTP file-registry contract in
 [`../docs/remote-registry.md`](../docs/remote-registry.md) - the authoritative
-protocol document - with D1 as the canonical store and R2 for immutable
-archive blobs: the read routes (verified
+protocol document - with D1 as the canonical store and R2 for the package
+archives: the read routes (verified
 content; during the private alpha, closed to every account
 `ALLOWED_GITHUB_IDS` does not admit) plus the authenticated `publish` and `yank`
 API routes and the verifier's `verify`-scoped admin routes (publish
@@ -34,15 +34,14 @@ the registry remains closed to allowlisted maintainers:
 | --- | --- |
 | Index domain | `registry.cabinpkg.com` |
 | Browser/API origin | `https://cabinpkg.com` (zone routes `/api/*`, `/login`, `/callback*`, `/claim/*`) |
-| D1 database | `cabin-registry` |
-| R2 buckets | `cabin-registry-blobs`, `cabin-registry-backup` |
+| D1 database | `registry` |
+| R2 buckets | `registry-archives`, `registry-uploads`, `registry-download-logs`, `registry-index` |
 
 **The disposable/permanent data boundary is temporal, not spatial.** Until
-launch (`meta.launched` = `'false'`), the database, the primary blob
-data, and the whole backup bucket are wiped and recreated instead of
+launch (`meta.launched` = `'false'`), the database and every object in
+the four buckets are wiped and recreated instead of
 migrated whenever the storage format changes; from launch onward the
-data is permanent and never wiped, and the backup bucket keeps its
-append-only retention. The launch guard in
+data is permanent and never wiped. The launch guard in
 `cargo registry-wipe` enforces the boundary, and flipping the flag is a
 launch-checklist item ([`docs/runbook.md`](docs/runbook.md), "Launch
 checklist").
@@ -61,7 +60,7 @@ Sign-in is restricted to the numeric GitHub user ids listed in
 `ALLOWED_GITHUB_IDS` (a plain var in `wrangler.jsonc`); adding a user later
 means adding their numeric id there and redeploying. The first sign-in
 creates a registry-native user - it additionally requires the GitHub
-account to be at least 30 days old (`src/signup.rs`; a younger account
+account to be at least 90 days old (`src/signup.rs`; a younger account
 is told the date it becomes eligible) - bound to the GitHub account
 through the `identities` table - the numeric id (never the login, which can be renamed
 and reassigned) is the external identity, and everything package- or
@@ -110,7 +109,7 @@ on the website origin under the just-claimed scope (first publish,
 idempotent re-publish, immutability conflict, yank transitions,
 artifact checksum) -
 and the verification lifecycle (pending -> verify -> resolvable with a
-verify-scoped token, plus the reject -> reclaim -> refund -> republish
+verify-scoped token, plus the reject -> refund -> republish
 flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
 and Node, then `npm ci --ignore-scripts` in this directory (again after
 `package-lock.json` changes) to install the wrangler `package.json` pins,

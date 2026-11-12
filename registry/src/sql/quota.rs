@@ -25,27 +25,23 @@ statements! {
                AND created_at >= ?2 AND created_at < substr(?2, 1, 10) || 'U') END \
          AS new_today FROM users WHERE id = ?1";
 
-    /// Counts the package
-    /// [`INSERT_PACKAGE`](super::packages::INSERT_PACKAGE) just created
-    /// toward its creator. It must directly follow that insert in the
-    /// batch: the `changes()` coupling of
-    /// [`INSERT_TRUSTPUB_TOKEN`](super::trustpub::INSERT_TRUSTPUB_TOKEN),
-    /// so an ignored or twin-suppressed insert counts nothing.
-    COUNT_USER_PACKAGE =
-        "UPDATE users SET package_count = package_count + 1 \
-         WHERE id = ?1 AND (SELECT changes()) = 1";
-
-    /// Charges an archive to its publisher, directly after the
-    /// [`INSERT_REVISION`](super::packages::INSERT_REVISION) or
-    /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)
-    /// that made the row live (same `changes()` coupling; a revival is
-    /// byte-identical, so `?2` is the row's own `archive_size`).
+    /// Charges an archive to its publisher, directly after the gate
+    /// that made an existing row live again
+    /// ([`REVIVE_REJECTED_UPLOAD`](super::admission::REVIVE_REJECTED_UPLOAD)
+    /// or
+    /// [`RESUME_RELEASED_UPLOAD`](super::admission::RESUME_RELEASED_UPLOAD);
+    /// the `changes()` coupling of `sql::admission`). The bytes are the
+    /// row's own, so `?2` is its `archive_size`.
     COUNT_USER_STORED_BYTES =
         "UPDATE users SET stored_bytes = stored_bytes + ?2 \
          WHERE id = ?1 AND (SELECT changes()) = 1";
 
-    /// Refunds a rejected archive to the row's publisher, directly after
-    /// the [`MARK_REVISION_REJECTED`](super::packages::MARK_REVISION_REJECTED) that flipped it.
+    /// Refunds an archive to the row's publisher, directly after the
+    /// statement that turned the row `rejected`
+    /// ([`MARK_REVISION_REJECTED`](super::packages::MARK_REVISION_REJECTED),
+    /// [`RELEASE_EXPIRED_RESERVATION`](super::admission::RELEASE_EXPIRED_RESERVATION),
+    /// or
+    /// [`REJECT_UNARCHIVED_REVISION`](super::publication::REJECT_UNARCHIVED_REVISION)).
     REFUND_USER_STORED_BYTES =
         "UPDATE users SET stored_bytes = stored_bytes - \
          (SELECT archive_size FROM revisions \
@@ -72,10 +68,14 @@ statements! {
     /// `REPLACE` in the query, not a normalized column: the
     /// `packages_folded_name` expression index serves it. The
     /// self-exclusion keeps the predicate identical to the in-batch
-    /// guard on [`INSERT_PACKAGE`](super::packages::INSERT_PACKAGE).
+    /// guard of [`ADMIT_NEW_UPLOAD`](super::admission::ADMIT_NEW_UPLOAD).
     TWIN_PACKAGE_EXISTS =
         "SELECT COUNT(*) AS n FROM packages WHERE scope = ?1 AND name != ?2 \
          AND REPLACE(name, '_', '-') = REPLACE(?2, '_', '-')";
+
+    /// The bytes charged to every publisher: the breaker's storage
+    /// metric.
+    TOTAL_STORED_BYTES = "SELECT COALESCE(SUM(stored_bytes), 0) AS n FROM users";
 
     /// The dashboard usage aggregate over everything the user published.
     USER_USAGE =

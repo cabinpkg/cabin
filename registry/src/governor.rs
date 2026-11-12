@@ -30,16 +30,18 @@ use serde::{Deserialize, Serialize};
 // Pools
 // ---------------------------------------------------------------------
 
-/// Storage pools: stocks of bytes, one ledger row per R2 object.
+/// Storage pools: stocks of bytes, one ledger row per R2 object. No
+/// caller reserves storage: the publish admission bounds stored bytes
+/// in D1 (`crate::quota`), so the pools remain only as the engine's
+/// storage half.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StoragePool {
-    /// Primary archive blobs (`BLOBS`, `blobs/sha256/<hex>`).
+    /// Archive objects.
     Primary,
-    /// Verified-artifact backup blobs (`BACKUP`, same keys).
+    /// Copies of verified archives.
     Backup,
-    /// The D1 dumps and sidecars a retired nightly job left (`BACKUP`,
-    /// `d1/...`).
+    /// Database dumps and their sidecars.
     Dump,
 }
 
@@ -56,16 +58,15 @@ impl StoragePool {
 /// Billable-operation pools: monthly flows, consumed immediately before
 /// each billable R2 call. Split so abuse of one channel can exhaust
 /// only its own allowance: the publish path, the read plane, the source
-/// viewer, the verifier, and the operator-side infrastructure jobs
-/// (backup replication, reconciliation) each draw from
-/// their own pool, and nothing reachable with an ordinary credential
-/// can touch the infrastructure pools.
+/// viewer, the verifier, and infrastructure (the cron's sweep of
+/// expired reservations and the publication passes) each draw from
+/// their own pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpPool {
-    /// Class A (writes/lists) on the publish path: blob puts.
+    /// Class A (writes/lists) on the publish path: archive puts.
     APublish,
-    /// Class A for infrastructure: backup replication puts.
+    /// Class A for infrastructure: the publication passes' puts.
     AInfra,
     /// Class B (reads) for ordinary artifact downloads (cache misses).
     BOrdinary,
@@ -75,7 +76,8 @@ pub enum OpPool {
     BVerifier,
     /// Class B on the publish path: existence heads.
     BPublish,
-    /// Class B for infrastructure: replication heads and source reads.
+    /// Class B for infrastructure: the cron's object checks of expired
+    /// reservations and the publication passes' reads.
     BInfra,
 }
 
@@ -110,7 +112,12 @@ const LIMIT_CLAMP: u64 = i64::MAX as u64 / 4;
 /// Hard per-pool ceilings. Env-overridable (`GOVERNOR_*`; see
 /// [`Limits::from_lookup`]) with in-code defaults sized comfortably
 /// under the R2 free-tier limits, leaving headroom for orphan drift and
-/// out-of-band operator work.
+/// out-of-band operator work. The two infrastructure defaults cover a
+/// month of the cron (2,976 invocations) with every pass at the ceiling
+/// its work list's `LIMIT` sets: 142 class A operations an invocation
+/// and 212 class B. Yank has no quota and can hold the publish pass at
+/// its ceiling, so a limit that did not cover it could be exhausted
+/// through yanks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub storage_primary_bytes: u64,
@@ -132,12 +139,12 @@ impl Default for Limits {
             storage_backup_bytes: 4 * 1024 * 1024 * 1024,
             storage_dump_bytes: 512 * 1024 * 1024,
             a_publish_month: 200_000,
-            a_infra_month: 200_000,
+            a_infra_month: 500_000,
             b_ordinary_month: 4_000_000,
             b_source_month: 500_000,
             b_verifier_month: 500_000,
             b_publish_month: 200_000,
-            b_infra_month: 200_000,
+            b_infra_month: 700_000,
         }
     }
 }
@@ -844,7 +851,7 @@ pub struct OpUsage {
     pub used: u64,
 }
 
-/// The `/usage` snapshot: the ledger as the reconciliation cron and the
+/// The `/usage` snapshot: the ledger as the cron's log line and the
 /// operator see it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageSnapshot {

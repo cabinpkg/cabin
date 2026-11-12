@@ -5,9 +5,8 @@
 //! and no decision interleaves with another.
 //!
 //! Protocol (internal, Worker-to-object only):
-//! `POST /decide` with a [`governor::Decision`], `GET /usage`,
-//! `POST /reconcile` with a [`governor::ReconcileRequest`], `POST /wipe`.
-//! Every handled response is 200 JSON; anything else means the governor is
+//! `POST /decide` with a [`governor::Decision`], `GET /usage`. Every
+//! handled response is 200 JSON; anything else means the governor is
 //! unavailable and callers fail closed (`crate::governor_client`).
 
 use worker::{
@@ -99,16 +98,6 @@ impl DurableObject for Governor {
             },
             (Method::Get, "/usage") => governor::usage(&mut store)
                 .map(|snapshot| serde_json::to_string(&snapshot).unwrap_or_default()),
-            (Method::Post, "/reconcile") => match req.json::<governor::ReconcileRequest>().await {
-                Ok(request) => governor::reconcile(&mut store, &now, &request)
-                    .map(|report| serde_json::to_string(&report).unwrap_or_default()),
-                Err(err) => return Response::error(format!("bad reconcile body: {err}"), 400),
-            },
-            // The pre-launch ledger wipe; the Worker-side admin route
-            // owns the meta.launched guard.
-            (Method::Post, "/wipe") => {
-                governor::wipe(&mut store).map(|()| r#"{"ok":true}"#.to_owned())
-            }
             _ => return Response::error("unknown governor route", 404),
         };
         match result {

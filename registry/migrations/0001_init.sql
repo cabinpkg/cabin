@@ -1,11 +1,9 @@
--- Canonical registry state. D1 is the source of truth; R2 only holds
--- immutable, content-addressed archive blobs at blobs/sha256/<hex> -
--- the bare hex tail of the canonical `sha256:<64 lowercase hex>`
--- checksum value; key derivation strips the algorithm prefix.
+-- Canonical registry state. D1 is the source of truth; R2 holds each
+-- admitted upload's archive under its own key, uploads/<upload_id>.zip.
 --
 -- One from-zero baseline on purpose: pre-launch the registry's data is
 -- disposable and the operator wipes and re-migrates from zero
--- (scripts/wipe.sh; docs/runbook.md, "Data policy"), so schema changes
+-- (cargo registry-wipe; docs/runbook.md, "Data policy"), so schema changes
 -- edit this file in place instead of accreting ALTER TABLE layers.
 -- Editing it deliberately leaves `migrations-applied` stale, which
 -- keeps CI's Worker deploy skipped until the operator wipes/applies
@@ -34,9 +32,10 @@ CREATE TABLE users (
     -- Exact tallies of the rows the per-user quotas count: packages
     -- with created_by = id, and archive_size summed over revisions with
     -- published_by = id that are not rejected. Every batch that writes
-    -- such a row adjusts them in the same transaction (src/sql/quota.rs),
-    -- so the publish preflight reads one row instead of the account's
-    -- whole history (docs/runbook.md, "Quota tallies").
+    -- such a row adjusts them in the same transaction
+    -- (src/sql/admission.rs, src/sql/quota.rs), so the publish preflight
+    -- reads one row instead of the account's whole history
+    -- (docs/runbook.md, "Quota tallies").
     package_count INTEGER NOT NULL DEFAULT 0,
     stored_bytes INTEGER NOT NULL DEFAULT 0
 );
@@ -310,6 +309,10 @@ CREATE TABLE packages (
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     created_by INTEGER NOT NULL REFERENCES users,
+    -- The registry's generation (meta, 'catalog_generation') as of the
+    -- last change to what the package's document says; 0 until one of
+    -- its revisions is served.
+    generation INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (scope, name)
 );
 -- created_at serves the created-today quota count as a range scan.
@@ -344,6 +347,9 @@ CREATE TABLE versions (
 -- of its hex tail, so byte-identical republication maps onto the
 -- existing row; bytes for a given key never change once the row is
 -- pending or verified.
+--
+-- The row is also the record of the upload operation that admitted it
+-- (docs/remote-registry.md, "Publish"); no second ledger exists.
 CREATE TABLE revisions (
     scope TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -356,56 +362,121 @@ CREATE TABLE revisions (
     published_by INTEGER NOT NULL REFERENCES users,
     -- The asynchronous verification lifecycle (docs/architecture.md,
     -- "The verification lifecycle"): 'pending' (published, not yet
-    -- resolvable), 'verified' (part of the registry, immutable), or
-    -- 'rejected' (never became part of the registry; its blob is
-    -- reclaimed and the revision may be republished).
+    -- resolvable), 'verified' (passed verification; part of the
+    -- registry, and immutable, once archived_at is set), or 'rejected'
+    -- (never became part of the registry; the revision may be
+    -- republished).
     verification TEXT NOT NULL DEFAULT 'pending',
     verification_reason TEXT,
     verified_at TEXT,
+    -- When the row turned 'rejected'; NULL otherwise. With verified_at
+    -- it dates the terminal state the upload-id prune counts from.
+    rejected_at TEXT,
+    -- The client's `Cabin-Upload-Id` (32 lowercase hex) of the upload
+    -- operation that produced the row's current generation. It names
+    -- the stored object, uploads/<upload_id>.zip, and is cleared thirty
+    -- days after the row turns terminal.
+    upload_id TEXT,
+    -- When that operation first charged the daily upload allowances,
+    -- and to which quota class. A resumed operation keeps both: it is
+    -- never charged twice, and may store only within fourteen days of
+    -- charged_at.
+    charged_at TEXT,
+    charged_class TEXT,
+    -- When the archive was confirmed stored in UPLOADS. A 'pending' row
+    -- with NULL here is a reservation: admitted and counted, not yet
+    -- something the verifier may see.
+    stored_at TEXT,
+    -- When the archive was confirmed in ARCHIVES under the revision's
+    -- own key. A 'verified' row with NULL here passed verification and
+    -- is not served yet; the row is part of the registry from the
+    -- moment this is set, and it is never cleared.
+    archived_at TEXT CHECK (archived_at IS NULL OR verification = 'verified'),
     PRIMARY KEY (scope, name, version, revision),
     FOREIGN KEY (scope, name, version) REFERENCES versions (scope, name, version)
 );
 CREATE INDEX revisions_published_by ON revisions (published_by);
+-- One upload id names one operation.
+CREATE UNIQUE INDEX revisions_upload_id ON revisions (upload_id)
+    WHERE upload_id IS NOT NULL;
+-- The per-user pending limit's count, reservations included.
+CREATE INDEX revisions_pending_by_publisher ON revisions (published_by)
+    WHERE verification = 'pending';
+-- The cron's three sweeps, each a range scan: reservations past their
+-- expiry, pending uploads past the verification deadline, and terminal
+-- rows whose upload id is due to be cleared.
+CREATE INDEX revisions_reservations ON revisions (published_at)
+    WHERE verification = 'pending' AND stored_at IS NULL;
+CREATE INDEX revisions_pending_stored ON revisions (stored_at)
+    WHERE verification = 'pending';
+CREATE INDEX revisions_settled_uploads ON revisions (COALESCE(verified_at, rejected_at))
+    WHERE upload_id IS NOT NULL;
 -- The daily per-package version quota's day count, which the publish
 -- preflight and every publish batch statement's quota guard run: a
 -- range over the package's revisions of one day, not its history.
 CREATE INDEX revisions_published_at ON revisions (scope, name, published_at);
--- The checksum index serves the storage self-accounting's
--- first-reference check at publish.
-CREATE INDEX revisions_checksum ON revisions (checksum);
 CREATE INDEX revisions_verification ON revisions (verification);
+-- The archive placement's work list: verified revisions not yet in
+-- ARCHIVES, oldest verdict first.
+CREATE INDEX revisions_unarchived ON revisions (verified_at)
+    WHERE verification = 'verified' AND archived_at IS NULL;
 
 -- The single definition of "the revision the read plane serves": per
--- verified version, the verified revision with the newest
+-- version, the verified revision in ARCHIVES with the newest
 -- published_at (revision id as the deterministic tie-break).  Every
 -- read projection - package documents, search, package detail,
 -- reverse dependencies, the source viewer, stats - selects through
 -- this view, so "current" can never mean different things on
--- different routes.  Pending and rejected rows are invisible here by
+-- different routes.  Pending and rejected rows, and verified ones
+-- whose archive is not in ARCHIVES yet, are invisible here by
 -- construction.
 CREATE VIEW current_revisions AS
 SELECT r.* FROM revisions r
-WHERE r.verification = 'verified'
+WHERE r.verification = 'verified' AND r.archived_at IS NOT NULL
 AND NOT EXISTS (
     SELECT 1 FROM revisions s
     WHERE s.scope = r.scope AND s.name = r.name AND s.version = r.version
-    AND s.verification = 'verified'
+    AND s.verification = 'verified' AND s.archived_at IS NOT NULL
     AND (s.published_at > r.published_at
          OR (s.published_at = r.published_at AND s.revision > r.revision))
 );
 
--- The verified-artifact backup queue (see docs/runbook.md, "Disaster
--- recovery"). The verdict batch that marks a version verified enqueues
--- its blob here in the same transaction; the drain (verdict waitUntil
--- plus every breaker cron pass) copies each blob to the BACKUP bucket
--- and deletes the row on success, so a crash between the transition
--- and the copy can never lose the work. Only verified content is ever
--- replicated - pending uploads stay out of the backup set. The breaker
--- cron alerts while rows older than an hour exist.
-CREATE TABLE backup_pending (
-    key TEXT PRIMARY KEY,
+-- One row per change to what a package's document and the catalog
+-- say: a revision becoming served, a yank, an un-yank. `generation` is
+-- the registry's generation the change produced. The row is open until
+-- a publish pass that started 15 minutes or more after `created_at`
+-- has seen the INDEX bucket hold the package's document and the
+-- catalog, rendered at that generation or a later one.
+CREATE TABLE publication_jobs (
+    generation INTEGER PRIMARY KEY,
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (scope, name) REFERENCES packages (scope, name)
+);
+-- The publish pass's work list and its completing write.
+CREATE INDEX publication_jobs_open ON publication_jobs (scope, name, generation)
+    WHERE completed_at IS NULL;
+
+-- The daily upload allowances (docs/remote-registry.md, "Publish"):
+-- bytes and upload count admitted per user and per quota class on one
+-- UTC day ('YYYY-MM-DD'). A new day is a new row, so nothing resets
+-- them; the cron only deletes rows older than yesterday. Charges are
+-- never refunded, whatever becomes of the upload.
+CREATE TABLE user_daily_upload_usage (
+    usage_date TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users,
     bytes INTEGER NOT NULL,
-    enqueued_at TEXT NOT NULL
+    uploads INTEGER NOT NULL,
+    PRIMARY KEY (usage_date, user_id)
+);
+CREATE TABLE shared_daily_upload_usage (
+    usage_date TEXT NOT NULL,
+    quota_class TEXT NOT NULL,
+    bytes INTEGER NOT NULL,
+    uploads INTEGER NOT NULL,
+    PRIMARY KEY (usage_date, quota_class)
 );
 
 CREATE TABLE meta (
@@ -415,15 +486,15 @@ CREATE TABLE meta (
 
 -- service_mode is the budget-breaker state ('normal' | 'warn' |
 -- 'writes_blocked' | 'reads_blocked'; see src/breaker.rs) with its
--- human-readable reason, and total_stored_bytes the exact
--- self-accounted R2 storage in bytes. launched is the data-policy flag
+-- human-readable reason. launched is the data-policy flag
 -- (docs/runbook.md, "Data policy"): 'false' while the registry's data
 -- is disposable (pre-launch), flipped to 'true' exactly once, by hand,
 -- as a launch-checklist item; every destructive maintenance path
--- (scripts/launch-guard.sh) reads it first and refuses while 'true'.
+-- (cargo registry-launch-guard) reads it first and refuses while 'true'.
+-- catalog_generation counts the changes to what the package documents
+-- and the catalog say (publication_jobs); it only grows.
 INSERT INTO meta (key, value) VALUES
-    ('registry_generation', '1'),
+    ('catalog_generation', '0'),
     ('service_mode', 'normal'),
     ('service_mode_reason', ''),
-    ('total_stored_bytes', '0'),
     ('launched', 'false');

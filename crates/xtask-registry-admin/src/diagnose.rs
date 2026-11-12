@@ -19,10 +19,13 @@ use xtask_workflow_guard::migrations_pending;
 
 use crate::{display, key_value, output, registry_dir, repo_root, results, step, wrangler};
 
+// The stored total is what the breaker reads: the sum of what every
+// publisher is charged.
 const SERVICE_STATE: &str = "
   SELECT key, value FROM meta WHERE key IN
-    ('service_mode', 'service_mode_reason', 'registry_generation',
-     'launched', 'total_stored_bytes')
+    ('service_mode', 'service_mode_reason', 'launched')
+  UNION ALL
+  SELECT 'total_stored_bytes', COALESCE(SUM(stored_bytes), 0) FROM users
   ORDER BY key";
 
 const COUNTS: &str = "
@@ -36,8 +39,7 @@ const COUNTS: &str = "
     (SELECT COUNT(*) FROM revisions WHERE verification = 'verified') AS verified,
     (SELECT COUNT(*) FROM revisions WHERE verification = 'rejected') AS rejected,
     (SELECT COUNT(*) FROM versions WHERE yanked = 1) AS yanked,
-    (SELECT COUNT(*) FROM tokens) AS tokens,
-    (SELECT COUNT(*) FROM backup_pending) AS backup_pending";
+    (SELECT COUNT(*) FROM tokens) AS tokens";
 
 /// # Errors
 ///
@@ -81,7 +83,7 @@ pub fn run() -> Result<()> {
         println!("    {key}: {value}");
     }
 
-    step("corpus and queue counts (D1)");
+    step("corpus counts (D1)");
     let counts = output(&mut wrangler(&[
         "d1",
         "execute",
@@ -99,7 +101,7 @@ pub fn run() -> Result<()> {
         println!("    {key}: {}", display(value));
     }
 
-    governor_ledger()?;
+    governor_usage()?;
 
     step("worker deployments (wrangler deployments list)");
     match output(wrangler(&["deployments", "list"]).stderr(Stdio::null())) {
@@ -141,14 +143,14 @@ fn migrations_stamp() {
 /// A token that is present but does not work is an error: a bundle
 /// that says `diagnose OK` after a section failed is worse than no
 /// bundle.
-fn governor_ledger() -> Result<()> {
+fn governor_usage() -> Result<()> {
     // The token is read from the environment by the governor itself;
     // this only decides whether the section runs at all.
     if std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).is_none_or(|token| token.is_empty()) {
-        step("governor ledger: skipped (CABIN_REGISTRY_TOKEN unset)");
+        step("governor usage: skipped (CABIN_REGISTRY_TOKEN unset)");
         return Ok(());
     }
-    step("governor ledger (cargo registry-governor usage)");
+    step("governor usage (cargo registry-governor usage)");
     for line in crate::governor::usage_lines().context("read the governor usage snapshot")? {
         println!("    {line}");
     }

@@ -1,4 +1,4 @@
-//! The breaker cron's budget evaluation, governor reconciliation, and
+//! The breaker cron's budget evaluation, upload lifecycle pass, and
 //! website catalog refresh.
 
 use serde::Deserialize;
@@ -6,101 +6,152 @@ use sha2::{Digest, Sha256};
 use worker::{D1Database, Env, Fetch, Method, Request, RequestInit, console_error, console_log};
 
 use crate::catalog_refresh::{self, Target};
-use crate::governor::{self, StoragePool};
-use crate::governor_client::{self};
+use crate::governor::OpPool;
+use crate::governor_client::{self, Gate};
 use crate::routes::Route;
-use crate::{analytics, auth, backup, breaker, sql, verify};
+use crate::{analytics, auth, breaker, sql, upload, verify};
 
 use super::{
-    CountRecord, non_negative, now_iso8601, post_json, read_meta, upsert_meta, web_origin,
+    CountRecord, changed_rows, consume_one, iso8601_from_ms, non_negative, now_iso8601, post_json,
+    read_meta, upsert_meta, web_origin,
 };
 
-#[derive(Deserialize)]
-struct LiveBlobRecord {
-    checksum: String,
-    size: i64,
+/// One summary line of the governor's operation windows per pass, next
+/// to the analytics-based evaluation.
+pub(super) async fn log_governor_usage(env: &Env) {
+    let Some(snapshot) = governor_client::usage(env).await else {
+        return;
+    };
+    let ops: Vec<String> = snapshot
+        .ops
+        .iter()
+        .map(|row| format!("{}[{}]={}", row.pool, row.window, row.used))
+        .collect();
+    console_log!(
+        "governor usage: ops {}",
+        if ops.is_empty() {
+            "-".to_owned()
+        } else {
+            ops.join(" ")
+        },
+    );
 }
 
-/// The governor reconciliation pass: pushes D1's authoritative
-/// live-blob set so the ledger records every referenced blob as
-/// committed usage. Increase-only by construction - the governor adds
-/// and settles, but a ledger entry D1 does not name is only reported
-/// here (a candidate orphan or leaked reservation), and releasing it is
-/// the operator's explicit, evidence-backed action (`docs/runbook.md`,
-/// "The cost governor").
-pub(super) async fn reconcile_governor(env: &Env, db: &D1Database) {
-    // Operator visibility: one summary line per pass, so `wrangler
-    // tail` shows the ledger next to the analytics-based evaluation.
-    if let Some(snapshot) = governor_client::usage(env).await {
-        let storage: Vec<String> = snapshot
-            .storage
-            .iter()
-            .map(|row| format!("{}/{}={}B", row.pool, row.state, row.bytes))
-            .collect();
-        let ops: Vec<String> = snapshot
-            .ops
-            .iter()
-            .map(|row| format!("{}[{}]={}", row.pool, row.window, row.used))
-            .collect();
-        console_log!(
-            "governor usage: storage {}; ops {}",
-            if storage.is_empty() {
-                "-".to_owned()
-            } else {
-                storage.join(" ")
-            },
-            if ops.is_empty() {
-                "-".to_owned()
-            } else {
-                ops.join(" ")
-            },
-        );
+/// The upload lifecycle pass. Failures only log; the next pass retries.
+pub(super) async fn settle_uploads(env: &Env, db: &D1Database) {
+    let now = now_iso8601();
+    // The sweeps that need only D1 run first, so an R2 or governor
+    // outage in the reservation pass cannot hold them back.
+    if let Err(err) = sweep_uploads(db, &now).await {
+        console_error!("upload sweep: {err}");
     }
-    match push_live_set_to_governor(env, db).await {
-        Err(err) => console_error!("governor reconciliation: live-set query failed: {err}"),
-        Ok(None) => console_error!("governor reconciliation: the governor did not answer"),
-        Ok(Some(report)) => {
-            if !report.added.is_empty() {
-                console_log!(
-                    "governor reconciliation recorded {} previously unledgered blob(s)",
-                    report.added.len()
-                );
+    if let Err(err) = settle_reservations(env, db, &now).await {
+        console_error!("reservation pass: {err}");
+    }
+}
+
+/// Times out the uploads whose objects are about to expire and prunes
+/// what the admission no longer needs.
+async fn sweep_uploads(db: &D1Database, now: &str) -> worker::Result<()> {
+    let timed_out = [now.into(), upload::PENDING_TIMEOUT.into()];
+    db.batch(vec![
+        db.prepare(sql::REFUND_TIMED_OUT_UPLOADS).bind(&timed_out)?,
+        db.prepare(sql::TIME_OUT_PENDING_UPLOADS).bind(&timed_out)?,
+        db.prepare(sql::PRUNE_USER_DAILY_UPLOADS)
+            .bind(&[now.into()])?,
+        db.prepare(sql::PRUNE_SHARED_DAILY_UPLOADS)
+            .bind(&[now.into()])?,
+        db.prepare(sql::PRUNE_SETTLED_UPLOAD_IDS)
+            .bind(&[now.into(), upload::UPLOAD_ID_RETENTION.into()])?,
+    ])
+    .await?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct ReservationRecord {
+    scope: String,
+    name: String,
+    version: String,
+    revision: String,
+    upload_id: String,
+    published_at: String,
+}
+
+/// Settles the reservations whose request never confirmed its store:
+/// one whose object is in UPLOADS becomes a stored upload, as of the
+/// object's own upload time; one without an object is released and its
+/// storage refunded. Both writes are guarded on the listed generation,
+/// so a request that confirms or retakes the reservation meanwhile
+/// wins.
+async fn settle_reservations(env: &Env, db: &D1Database, now: &str) -> worker::Result<()> {
+    let expired: Vec<ReservationRecord> = db
+        .prepare(sql::EXPIRED_RESERVATIONS)
+        .bind(&[now.into(), upload::RESERVATION_TTL.into()])?
+        .all()
+        .await?
+        .results()?;
+    if expired.is_empty() {
+        return Ok(());
+    }
+    let bucket = env.bucket("UPLOADS")?;
+    for reservation in &expired {
+        if let Gate::Refused(_) = governor_client::decide(env, &consume_one(OpPool::BInfra)).await {
+            console_error!("reservation pass: the governor refused the object check; stopping");
+            return Ok(());
+        }
+        let ReservationRecord {
+            scope,
+            name,
+            version,
+            revision,
+            upload_id,
+            published_at,
+        } = reservation;
+        let settled = match bucket.head(upload::object_key(upload_id)).await? {
+            Some(object) => {
+                db.prepare(sql::CONFIRM_UPLOAD_STORED)
+                    .bind(&[
+                        iso8601_from_ms(object.uploaded().as_millis()).into(),
+                        scope.into(),
+                        name.into(),
+                        version.into(),
+                        revision.into(),
+                        upload_id.into(),
+                        published_at.into(),
+                    ])?
+                    .run()
+                    .await?
             }
-            if !report.unreferenced.is_empty() || !report.mismatched.is_empty() {
-                console_error!(
-                    "governor ledger divergence: {} unreferenced entr(ies), {} byte \
-                     mismatch(es); see docs/runbook.md, \"The cost governor\"",
-                    report.unreferenced.len(),
-                    report.mismatched.len()
-                );
-            }
+            None => db
+                .batch(vec![
+                    db.prepare(sql::RELEASE_EXPIRED_RESERVATION).bind(&[
+                        now.into(),
+                        scope.into(),
+                        name.into(),
+                        version.into(),
+                        revision.into(),
+                        published_at.into(),
+                    ])?,
+                    db.prepare(sql::REFUND_USER_STORED_BYTES).bind(&[
+                        scope.into(),
+                        name.into(),
+                        version.into(),
+                        revision.into(),
+                    ])?,
+                ])
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| worker::Error::RustError("missing batch result 0".to_owned()))?,
+        };
+        if changed_rows(settled.meta()?) == 0 {
+            console_log!(
+                "reservation pass: {scope}/{name}@{version}#{revision} moved on before it settled"
+            );
         }
     }
-}
-
-/// The reconciliation core the cron pass and the admin endpoint's
-/// on-demand `{"reconcile":true}` action share: pushes D1's
-/// authoritative live-blob set (primary pool only - operation windows,
-/// backup, and dump accounting have their own recovery paths;
-/// `docs/runbook.md`, "Known ceilings") and returns the governor's
-/// report. `None` means the governor did not answer.
-pub(super) async fn push_live_set_to_governor(
-    env: &Env,
-    db: &D1Database,
-) -> worker::Result<Option<governor::ReconcileReport>> {
-    let rows: Vec<LiveBlobRecord> = db.prepare(sql::LIVE_BLOB_SIZES).all().await?.results()?;
-    let live = rows
-        .into_iter()
-        .map(|row| governor::LiveObject {
-            key: crate::checksum::blob_key(&row.checksum),
-            bytes: non_negative(row.size),
-        })
-        .collect();
-    let request = governor::ReconcileRequest {
-        pool: StoragePool::Primary,
-        live,
-    };
-    Ok(governor_client::reconcile(env, &request).await)
+    Ok(())
 }
 
 /// The website catalog refresh ([`catalog_refresh`]), dormant until the
@@ -180,22 +231,17 @@ async fn try_refresh_website(env: &Env, db: &D1Database, hook: &str) -> worker::
     Ok(())
 }
 
-/// One usage snapshot: the exact self-accounted storage plus the
+/// One usage snapshot: the self-accounted storage plus the
 /// analytics-sourced metrics.
 #[allow(clippy::similar_names)] // r2_class_{a,b}_month mirror the Usage fields
 async fn gather_usage(env: &Env, db: &D1Database, now: &str) -> worker::Result<breaker::Usage> {
-    // Storage is the exact self-accounted meta row, never analytics. A
-    // missing or non-numeric row is unavailable data - never zero - so a
-    // corrupt counter can only keep or escalate the mode, not reopen
-    // writes.
-    let stored_bytes = read_meta(db, "total_stored_bytes")
+    // Storage is the sum of what every publisher is charged, never
+    // analytics. A negative sum is corrupt, and reads as unavailable.
+    let stored_bytes = db
+        .prepare(sql::TOTAL_STORED_BYTES)
+        .first::<CountRecord>(None)
         .await?
-        .and_then(|value| value.parse::<u64>().ok());
-    if stored_bytes.is_none() {
-        console_error!(
-            "meta.total_stored_bytes is missing or non-numeric; treating as unavailable"
-        );
-    }
+        .and_then(|record| u64::try_from(record.n).ok());
 
     let account = env
         .var("CF_ACCOUNT_ID")
@@ -334,17 +380,9 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     ])
     .await?;
 
-    // Backup health rides every pass (docs/runbook.md, "Disaster
-    // recovery"): an unhealthy backup logs and notifies on every pass
-    // until resolved - a backup system's classic failure mode is
-    // stopping silently - while mode changes notify once.
-    let overdue_backups = read_overdue_backups(&db).await.ok();
-    let backup_alert = backup::alert(overdue_backups);
-    if let Some(alert) = &backup_alert {
-        console_error!("backup health: {alert}");
-    }
-    // Verification health rides every pass too: revisions pending for
-    // over an hour mean the verifier is stuck or absent, and the
+    // Verification health rides every pass, logging and notifying
+    // until resolved, while mode changes notify once: revisions pending
+    // for over an hour mean the verifier is stuck or absent, and the
     // fail-safe direction (nothing pending ever becomes resolvable on
     // its own) makes that invisible to users unless it alerts here.
     let stale_pending = read_stale_pending(&db).await.ok();
@@ -359,15 +397,13 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
             next.as_str()
         );
     }
-    if next != current || backup_alert.is_some() || verification_alert.is_some() {
+    if next != current || verification_alert.is_some() {
         notify_webhook(
             env,
             current,
             next,
             &reason,
             &usage,
-            overdue_backups,
-            backup_alert.as_deref(),
             stale_pending,
             verification_alert.as_deref(),
         )
@@ -383,17 +419,6 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
 async fn read_stale_pending(db: &D1Database) -> worker::Result<u64> {
     let record: CountRecord = db
         .prepare(sql::COUNT_STALE_PENDING)
-        .first(None)
-        .await?
-        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
-    Ok(non_negative(record.n))
-}
-
-/// How many verified-archive backups have sat in the replication queue
-/// for over an hour.
-async fn read_overdue_backups(db: &D1Database) -> worker::Result<u64> {
-    let record: CountRecord = db
-        .prepare(sql::COUNT_STALE_BACKUP_PENDING)
         .first(None)
         .await?
         .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
@@ -444,17 +469,14 @@ async fn fetch_metric(
 }
 
 /// POSTs a summary to `NOTIFY_WEBHOOK_URL` when it is configured, on
-/// service-mode changes (`from != to`), backup alerts, and
-/// stuck-verifier alerts alike; failures only log.
-#[allow(clippy::too_many_arguments)] // one cron pass's full snapshot
+/// service-mode changes (`from != to`) and stuck-verifier alerts
+/// alike; failures only log.
 async fn notify_webhook(
     env: &Env,
     from: breaker::Mode,
     to: breaker::Mode,
     reason: &str,
     usage: &breaker::Usage,
-    overdue_backups: Option<u64>,
-    backup_alert: Option<&str>,
     stale_pending: Option<u64>,
     verification_alert: Option<&str>,
 ) {
@@ -471,10 +493,6 @@ async fn notify_webhook(
         "r2_class_a_month": usage.r2_class_a_month,
         "d1_rows_read_today": usage.d1_rows_read_today,
         "r2_class_b_month": usage.r2_class_b_month,
-        "backup": {
-            "overdue_backups": overdue_backups,
-            "alert": backup_alert,
-        },
         "verification": {
             "stale_pending": stale_pending,
             "alert": verification_alert,

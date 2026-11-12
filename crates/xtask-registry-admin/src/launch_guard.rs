@@ -8,11 +8,11 @@
 //!
 //! Remote reads go through the `DB` binding, because wrangler resolves
 //! even a database *name* through the config, so the binding is the
-//! only real path.  `d1 delete cabin-registry` resolves the name through
+//! only real path.  `d1 delete registry` resolves the name through
 //! the config as well, falling back to the account only when the config
 //! has no such entry or the entry has no id, while the wipe's `d1 create` and `d1 list` act on
 //! the account's database of that name.  So the guard first proves the
-//! two agree: the account's database named `cabin-registry` must carry
+//! two agree: the account's database named `registry` must carry
 //! exactly the id the config binds, and a config/account drift refuses
 //! before any delete.  Local mode has no name resolution - the `DB`
 //! binding is the local state - so it skips that check.
@@ -20,9 +20,9 @@
 //! Nothing reaches stdout: a passing guard is silent, and every
 //! refusal is one `launch guard:` line on stderr.
 //!
-//! Both wipes - [`crate::wipe`] and the governor's - call it
-//! in-process, so nothing stands between its refusal and the delete it
-//! guards but a function call.  What the environment does reach -
+//! [`crate::wipe`] calls it in-process, so nothing stands between its
+//! refusal and the delete it guards but a function call.  What the
+//! environment does reach -
 //! `wrangler` through `node` on `PATH` - the guard does not defend
 //! against: it exists to stop a launched registry and a stale config,
 //! not its own operator.
@@ -46,7 +46,7 @@ use crate::{declared_database_id, display, output, registry_root, results, wrang
 
 /// The database whose two resolutions - the config's binding and the
 /// account's name lookup - the remote check proves identical.
-const DATABASE: &str = "cabin-registry";
+const DATABASE: &str = "registry";
 
 const LAUNCHED: &str = "SELECT value FROM meta WHERE key = 'launched'";
 
@@ -156,7 +156,7 @@ fn launched(rows: &[serde_json::Map<String, serde_json::Value>]) -> String {
     }
 }
 
-/// Proves the account's `cabin-registry` is the database the config
+/// Proves the account's `registry` is the database the config
 /// binds, so the database the wipe recreates and lists by name is the
 /// one the guard read and `d1 delete` removes.
 fn same_database() -> Result<()> {

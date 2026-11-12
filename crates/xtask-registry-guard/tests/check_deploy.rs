@@ -80,9 +80,29 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""binding": "DATABASE""#,
     ),
     (
-        "lost_blobs_bucket",
-        r#""binding": "BLOBS""#,
-        r#""binding": "BLOBSTORE""#,
+        "lost_archives_bucket",
+        r#""binding": "ARCHIVES""#,
+        r#""binding": "ARCHIVE""#,
+    ),
+    (
+        "lost_uploads_bucket",
+        r#""binding": "UPLOADS""#,
+        r#""binding": "UPLOAD""#,
+    ),
+    (
+        "lost_download_logs_bucket",
+        r#""binding": "DOWNLOAD_LOGS""#,
+        r#""binding": "LOGS""#,
+    ),
+    (
+        "lost_index_bucket",
+        r#""binding": "INDEX""#,
+        r#""binding": "INDEXES""#,
+    ),
+    (
+        "binding_moved_to_another_bucket",
+        r#""bucket_name": "registry-uploads""#,
+        r#""bucket_name": "registry-scratch""#,
     ),
     (
         "edited_v1_migration",
@@ -203,11 +223,6 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""migrations": [{ "tag": 1, "new_sqlite_classes": ["Governor"] }]"#,
     ),
     (
-        "lost_backup_bucket",
-        r#""binding": "BACKUP""#,
-        r#""binding": "BACKUPS""#,
-    ),
-    (
         // A lost admission binding fails closed at runtime: the gated
         // endpoints (exchange, verdict, session mint) refuse everything
         // and the queue cannot drain.
@@ -252,8 +267,8 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
     ),
     (
         "renamed_database",
-        r#""database_name": "cabin-registry""#,
-        r#""database_name": "cabin-registry-2""#,
+        r#""database_name": "registry""#,
+        r#""database_name": "registry-2""#,
     ),
     (
         // A second bound class that no migration ever introduces, with

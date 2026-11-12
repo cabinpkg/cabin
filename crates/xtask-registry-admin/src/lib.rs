@@ -20,12 +20,10 @@
 //! D1 and the R2 object commands go through the pinned `wrangler`
 //! ([`wrangler`]), the only supported path to them from outside the
 //! Worker.  Listing a bucket is the exception: wrangler exposes no
-//! command for it, and no bulk mode for deleting one - so the audit, the
-//! governor's evidence checks and the wipe's sweep call Cloudflare's R2
-//! REST API directly with the operator's `CLOUDFLARE_API_TOKEN`.
+//! command for it, and no bulk mode for deleting one - so the wipe's
+//! sweep calls Cloudflare's R2 REST API directly with the operator's
+//! `CLOUDFLARE_API_TOKEN`.
 
-pub mod audit;
-pub mod backfill;
 pub mod diagnose;
 pub mod governor;
 pub mod launch_guard;
@@ -33,6 +31,7 @@ pub mod migrate;
 pub mod verify;
 pub mod wipe;
 
+mod r2;
 #[cfg(test)]
 mod r2_mock;
 
@@ -41,21 +40,17 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-/// The BACKUP bucket, which more than one command reaches: the
-/// backfill writes to it, the audit and the governor's evidence checks
-/// read it, and the pre-launch wipe empties it.
-/// Outside that wipe its `blobs/` namespace is append-only
-/// (`registry/docs/runbook.md`, "Disaster recovery"), so nothing else
-/// here deletes from it.
-pub const BACKUP_BUCKET: &str = "cabin-registry-backup";
-
-/// The PRIMARY blob bucket, which more than one command reaches: the
-/// governor's evidence checks list it, the wipe sweeps it, and the
-/// backfill copies out of it.  The deploy guard
-/// (`xtask-registry-guard`) keeps its own literal on purpose - it
-/// asserts `wrangler.jsonc` declares this binding, and a guard
-/// importing the value it checks would check it against itself.
-pub const BLOBS_BUCKET: &str = "cabin-registry-blobs";
+/// The registry's buckets, one per role - archives, uploads, download
+/// logs, index - which the wipe empties.  The deploy guard
+/// (`xtask-registry-guard`) keeps its own literals on purpose - it
+/// asserts `wrangler.jsonc` declares these bindings, and a guard
+/// importing the values it checks would check them against themselves.
+pub const BUCKETS: [&str; 4] = [
+    "registry-archives",
+    "registry-uploads",
+    "registry-download-logs",
+    "registry-index",
+];
 
 /// The repository this tool was built from.
 ///
@@ -87,20 +82,6 @@ pub fn registry_root() -> PathBuf {
     std::env::var_os(cabin_env::CABIN_REGISTRY_DIR)
         .filter(|value| !value.is_empty())
         .map_or_else(registry_dir, PathBuf::from)
-}
-
-/// The Cloudflare account the registry is deployed to, read from
-/// `wrangler.jsonc` for the REST calls wrangler exposes no command
-/// for.
-///
-/// # Errors
-///
-/// If `wrangler.jsonc` cannot be read, or declares no such id.
-pub fn account_id() -> Result<String> {
-    let path = registry_dir().join("wrangler.jsonc");
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    declared_account_id(&text).context("CF_ACCOUNT_ID not found in wrangler.jsonc")
 }
 
 /// The account id a wrangler config declares: the first
@@ -165,6 +146,17 @@ fn js_whitespace(character: char) -> bool {
     )
 }
 
+/// The agent behind this crate's R2 and governor reads.  No redirects:
+/// a redirect is the answer, never a step on the way to one - and a
+/// redirected read is the one way a command could inspect a bucket or a
+/// registry other than the one it names.  `ureq` returns the 3xx as
+/// `Ok` with this set: the R2 listing then fails to parse and the
+/// governor read fails its status check, each with the body the
+/// redirect carried.
+pub(crate) fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new().redirects(0).build()
+}
+
 /// `wrangler` as `npm ci` installed it from `registry/package-lock.json`,
 /// run from `registry/`.  The entry point is named by path, not resolved
 /// through `npx`, which falls back to any other wrangler on the machine
@@ -181,7 +173,7 @@ pub fn wrangler(arguments: &[&str]) -> Command {
         // wrangler runs attached to the operator's terminal.
         .stdin(Stdio::inherit())
         // A registry credential the operator's shell may export for
-        // the governor commands; no wrangler invocation needs it.
+        // the governor command; no wrangler invocation needs it.
         .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
         .current_dir(registry_dir());
     command
@@ -281,7 +273,7 @@ pub fn column_lines(
         text.push('\n');
     }
     // NULs are dropped, so `sha256:<32 hex>\0<32 hex>` reaches the caller as
-    // 64 hex digits and passes the backfill's grammar.
+    // 64 hex digits.
     text.retain(|character| character != '\0');
     // An empty enumeration still yields a single blank line, and a
     // value carrying a newline becomes two lines.

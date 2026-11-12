@@ -52,7 +52,7 @@ impl Shim {
     /// canned response, or the `node` script.
     ///
     /// The shim serves `d1 list` from its own canned response (a
-    /// one-database account whose `cabin-registry` carries the config's
+    /// one-database account whose `registry` carries the config's
     /// bound id, so the guard's consistency check passes); `behavior`
     /// governs every other wrangler invocation.
     fn new(behavior: FakeWrangler<'_>) -> Self {
@@ -64,7 +64,7 @@ impl Shim {
         };
         fs::write(dir.join("response"), response).expect("write response");
         let list = format!(
-            r#"[{{"name":"cabin-registry","uuid":"{}"}}]"#,
+            r#"[{{"name":"registry","uuid":"{}"}}]"#,
             config_database_id()
         );
         fs::write(dir.join("response-list"), list).expect("write list response");
@@ -100,10 +100,10 @@ cat "{response}"
         Self { dir: temp }
     }
 
-    /// Rewrites the `d1 list` response so the account's `cabin-registry`
+    /// Rewrites the `d1 list` response so the account's `registry`
     /// carries `uuid` instead of the config's bound id.
     fn set_account_database_id(&self, uuid: &str) {
-        let list = format!(r#"[{{"name":"cabin-registry","uuid":"{uuid}"}}]"#);
+        let list = format!(r#"[{{"name":"registry","uuid":"{uuid}"}}]"#);
         fs::write(self.dir.path().join("response-list"), list).expect("rewrite list response");
     }
 

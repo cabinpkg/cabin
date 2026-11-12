@@ -7,7 +7,7 @@
 
 /// Minimum GitHub account age, in days, before a first sign-in may
 /// create a Cabin account.
-pub const MIN_ACCOUNT_AGE_DAYS: u64 = 30;
+pub const MIN_ACCOUNT_AGE_DAYS: u64 = 90;
 
 const SECS_PER_DAY: u64 = 86_400;
 
@@ -23,9 +23,10 @@ pub enum Gate {
     /// is never a false promise, whatever their sign-in's time of day.
     IneligibleUntil(String),
     /// A new Cabin account whose GitHub profile is missing a parseable
-    /// `created_at`. The real GitHub API always sends one, so this
-    /// only arises from a mangled response - refuse uniformly (fail
-    /// closed) rather than guess an age.
+    /// `created_at`, or names one in the future. The real GitHub API
+    /// always sends a past one, so this only arises from a mangled
+    /// response - refuse uniformly (fail closed) rather than guess an
+    /// age.
     Deny,
 }
 
@@ -41,6 +42,9 @@ pub fn gate(existing_user: bool, created_at: Option<&str>, now_secs: u64) -> Gat
     let Some(created_secs) = created_at.and_then(parse_utc_secs) else {
         return Gate::Deny;
     };
+    if created_secs > now_secs {
+        return Gate::Deny;
+    }
     let eligible_secs = created_secs + MIN_ACCOUNT_AGE_DAYS * SECS_PER_DAY;
     if now_secs >= eligible_secs {
         return Gate::Proceed;
@@ -138,7 +142,7 @@ fn civil_from_days(days: u64) -> (u64, u64, u64) {
 mod tests {
     use super::*;
 
-    const THIRTY_DAYS: u64 = MIN_ACCOUNT_AGE_DAYS * SECS_PER_DAY;
+    const NINETY_DAYS: u64 = MIN_ACCOUNT_AGE_DAYS * SECS_PER_DAY;
     // GitHub's canonical example `created_at`.
     const OCTOCAT_CREATED: &str = "2008-01-14T04:33:35Z";
     const OCTOCAT_SECS: u64 = 1_200_285_215;
@@ -151,42 +155,63 @@ mod tests {
     }
 
     #[test]
-    fn a_new_user_needs_thirty_days_exactly() {
-        let eligible = OCTOCAT_SECS + THIRTY_DAYS;
+    fn a_new_user_needs_ninety_days_exactly() {
+        let eligible = OCTOCAT_SECS + NINETY_DAYS;
         assert_eq!(gate(false, Some(OCTOCAT_CREATED), eligible), Gate::Proceed);
         assert_eq!(
             gate(false, Some(OCTOCAT_CREATED), eligible - 1),
-            Gate::IneligibleUntil("2008-02-14".to_owned())
+            Gate::IneligibleUntil("2008-04-14".to_owned())
         );
     }
 
     #[test]
-    fn the_named_date_rounds_up_to_a_full_utc_day() {
-        // Created 04:33:35 on Jan 14: thirty days end mid-day Feb 13,
-        // so the first *whole* eligible day is Feb 14.
+    fn a_created_at_in_the_future_denies_a_new_user() {
         assert_eq!(
-            gate(false, Some(OCTOCAT_CREATED), 0),
-            Gate::IneligibleUntil("2008-02-14".to_owned())
+            gate(false, Some(OCTOCAT_CREATED), OCTOCAT_SECS - 1),
+            Gate::Deny
+        );
+        assert_eq!(
+            gate(false, Some(OCTOCAT_CREATED), OCTOCAT_SECS),
+            Gate::IneligibleUntil("2008-04-14".to_owned())
+        );
+    }
+
+    /// The gate's answer at the instant the account was created.
+    fn at_creation(created_at: &str) -> Gate {
+        gate(false, Some(created_at), parse_utc_secs(created_at).unwrap())
+    }
+
+    #[test]
+    fn the_named_date_rounds_up_to_a_full_utc_day() {
+        // Created 04:33:35 on Jan 14: ninety days end mid-day Apr 13,
+        // so the first *whole* eligible day is Apr 14.
+        assert_eq!(
+            at_creation(OCTOCAT_CREATED),
+            Gate::IneligibleUntil("2008-04-14".to_owned())
         );
         // Created exactly at midnight: the instant is a midnight
         // itself, and that day is named as-is.
         assert_eq!(
-            gate(false, Some("2008-01-14T00:00:00Z"), 0),
-            Gate::IneligibleUntil("2008-02-13".to_owned())
+            at_creation("2008-01-14T00:00:00Z"),
+            Gate::IneligibleUntil("2008-04-13".to_owned())
+        );
+        assert_eq!(
+            at_creation("2008-01-14T00:00:01Z"),
+            Gate::IneligibleUntil("2008-04-14".to_owned())
         );
     }
 
     #[test]
     fn the_named_date_crosses_month_and_year_ends() {
         assert_eq!(
-            gate(false, Some("2025-12-15T12:00:00Z"), 0),
-            Gate::IneligibleUntil("2026-01-15".to_owned())
+            at_creation("2025-12-15T12:00:00Z"),
+            Gate::IneligibleUntil("2026-03-16".to_owned())
         );
-        // Across a leap February: thirty days from mid-day Jan 31
-        // 2024 end mid-day Mar 1, so the named day is Mar 2.
+        // Across a leap February: ninety days from mid-day Jan 31
+        // 2024 end mid-day Apr 30, so the named day is May 1.
         assert_eq!(
-            gate(false, Some("2024-01-31T12:00:00Z"), 0),
-            Gate::IneligibleUntil("2024-03-02".to_owned())
+            at_creation("2024-01-31T12:00:00Z"),
+            Gate::IneligibleUntil("2024-05-01".to_owned())
         );
     }
 
@@ -226,7 +251,13 @@ mod tests {
             "20o8-01-14T04:33:35Z",
             "+008-01-14T04:33:35Z",
         ] {
-            assert_eq!(gate(false, Some(malformed), 0), Gate::Deny, "{malformed:?}");
+            // At the end of time, so a timestamp the parser wrongly
+            // accepted would proceed instead of reading as a future one.
+            assert_eq!(
+                gate(false, Some(malformed), u64::MAX),
+                Gate::Deny,
+                "{malformed:?}"
+            );
         }
     }
 

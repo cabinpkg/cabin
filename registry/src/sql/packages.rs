@@ -1,12 +1,13 @@
 //! packages/versions: the read plane, publish, yank, verification.
 
 statements! {
-    /// The package document's per-version base rows: each verified
+    /// The package document's per-version base rows: each served
     /// version's **current** revision (the `current_revisions` view is
     /// the single "served revision" definition) with the version-level
-    /// yank flag.  Pending and rejected revisions never reach
-    /// composition, and a pending respin leaves the previously served
-    /// revision in place here.  `CROSS JOIN` makes `versions` the outer
+    /// yank flag.  Pending and rejected revisions, and verified ones
+    /// not yet in ARCHIVES, never reach composition, and a respin
+    /// leaves the previously served revision in place here until its
+    /// own archive is placed.  `CROSS JOIN` makes `versions` the outer
     /// loop (SQLite never reorders it), so the read seeks the package
     /// by primary key: the registry never runs `ANALYZE`, and without
     /// `sqlite_stat1` the planner drives the flattened view from
@@ -19,36 +20,45 @@ statements! {
            ON c.scope = v.scope AND c.name = v.name AND c.version = v.version \
          WHERE v.scope = ?1 AND v.name = ?2";
 
-    /// Every **verified** revision of the package, for the composed
-    /// document's per-version `revisions` maps: superseded revisions
-    /// stay listed (and fetchable) so pinned lockfiles keep building,
-    /// and their stored documents give them their own `resolution`.
+    /// Every **served** revision of the package (verified, its archive
+    /// in ARCHIVES), for the composed document's per-version
+    /// `revisions` maps: superseded revisions stay listed (and
+    /// fetchable) so pinned lockfiles keep building, and their stored
+    /// documents give them their own `resolution`.
     VERIFIED_REVISIONS_BY_PACKAGE =
         "SELECT version, revision, checksum, published_at, metadata_json FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND verification = 'verified' \
+         AND archived_at IS NOT NULL \
          ORDER BY version, revision";
 
     /// The yank handler's current-state read: the version-level yank
-    /// flag plus whether any revision is verified (yank applies to
+    /// flag plus whether any revision is served (yank applies to
     /// versions the registry actually serves).
     VERSION_YANK_STATE =
         "SELECT v.yanked, EXISTS(SELECT 1 FROM revisions r \
          WHERE r.scope = v.scope AND r.name = v.name AND r.version = v.version \
-         AND r.verification = 'verified') AS verified \
+         AND r.verification = 'verified' AND r.archived_at IS NOT NULL) AS verified \
          FROM versions v WHERE v.scope = ?1 AND v.name = ?2 AND v.version = ?3";
 
     /// Applies a yank or un-yank; the `yanked` column is the single home
-    /// of yank state.
+    /// of yank state. It changes a row only when the flag changes, which
+    /// is what the statements after it in the batch count
+    /// ([`ADVANCE_CATALOG_GENERATION`](super::publication::ADVANCE_CATALOG_GENERATION)).
     SET_VERSION_YANKED =
-        "UPDATE versions SET yanked = ?1 WHERE scope = ?2 AND name = ?3 AND version = ?4";
+        "UPDATE versions SET yanked = ?1 \
+         WHERE scope = ?2 AND name = ?3 AND version = ?4 AND yanked != ?1";
 
     /// The verifier's deterministic work list, filtered by status.
     /// One row per revision: a pending respin lists beside the
     /// version's already-verified revisions without disturbing them.
+    /// A reservation - pending, its archive not yet confirmed stored -
+    /// is not work yet and is never listed.
     REVISIONS_BY_VERIFICATION_STATUS =
         "SELECT scope, name, version, revision, checksum, published_by, published_at, \
          metadata_json \
-         FROM revisions WHERE verification = ?1 ORDER BY scope, name, version, revision";
+         FROM revisions WHERE verification = ?1 \
+         AND (verification != 'pending' OR stored_at IS NOT NULL) \
+         ORDER BY scope, name, version, revision";
 
     /// The admin corpus listing (`docs/remote-registry.md`, "Admin API
     /// (scope `verify`)"): every package with whether any of its
@@ -66,10 +76,12 @@ statements! {
          FROM packages p ORDER BY p.scope, p.name";
 
     /// The verdict handler's read of the revision row a verdict
-    /// targets (the body's required checksum names the revision).
+    /// targets (the body's required checksum names the revision). A
+    /// reservation was never listed, so it is no target.
     VERDICT_TARGET =
-        "SELECT verification, checksum, published_at, archive_size FROM revisions \
-         WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?4";
+        "SELECT verification, checksum, published_at FROM revisions \
+         WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?4 \
+         AND (verification != 'pending' OR stored_at IS NOT NULL)";
 
     /// Applies a `verified` verdict, guarded on the revision row still
     /// being the pending generation the verdict names (the listing's
@@ -81,18 +93,25 @@ statements! {
          AND verification = 'pending' AND checksum = ?5 \
          AND published_at = ?6";
 
-    /// Applies a `rejected` verdict under the same generation guards.
+    /// Applies a `rejected` verdict (`?8` the time) under the same
+    /// generation guards.
     MARK_REVISION_REJECTED =
         "UPDATE revisions SET verification = 'rejected', verification_reason = ?1, \
-         verified_at = NULL \
+         verified_at = NULL, rejected_at = ?8 \
          WHERE scope = ?2 AND name = ?3 AND version = ?4 AND revision = ?7 \
          AND verification = 'pending' AND checksum = ?5 AND published_at = ?6";
 
-    /// The publish handler's idempotency/immutability read of every
-    /// existing revision of `(scope, name, version)`, deterministic
-    /// for the re-read after a lost in-batch race.
+    /// The publish handler's read of every existing revision of
+    /// `(scope, name, version)` with its upload operation
+    /// (`crate::upload::dispose`), deterministic for the re-read after
+    /// a lost in-batch race. `resumable` is whether the operation was
+    /// first charged within `?5` of `?4` (the request's clock sample
+    /// and `crate::upload::RETRY_WINDOW`).
     EXISTING_REVISIONS =
-        "SELECT revision, checksum, verification FROM revisions \
+        "SELECT revision, checksum, verification, upload_id, published_at, published_by, \
+         stored_at IS NOT NULL AS stored, \
+         COALESCE(charged_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ?4, ?5), 0) AS resumable \
+         FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3 ORDER BY revision";
 
     /// Whether the token's user is a member (any role) of the scope: the
@@ -102,122 +121,12 @@ statements! {
     SCOPE_MEMBERSHIP =
         "SELECT COUNT(*) AS n FROM scope_members WHERE scope_name = ?1 AND user_id = ?2";
 
-    /// Creates the package row on its first published version - unless
-    /// that would create a `-`/`_` twin of an existing same-scope
-    /// package ([`TWIN_PACKAGE_EXISTS`](super::quota::TWIN_PACKAGE_EXISTS)
-    /// is the preflight that renders the `400`; this in-batch guard
-    /// closes the race between two concurrent twin publishes, whose
-    /// preflights both saw neither) - or that would exceed the
-    /// creator's quotas: the storage half of the [`INSERT_REVISION`]
-    /// quota guard (`?5` the archive size, `?6` the limit; a new
-    /// package has no versions today), then the daily (`?7` the UTC
-    /// day prefix, `?8` the limit) and total (`?9`) new-package quotas
-    /// over the exact tallies. The exact-key `NOT EXISTS` only
-    /// keeps a publish into an existing package, which `OR IGNORE`
-    /// would drop anyway, from paying for the day count.
-    INSERT_PACKAGE =
-        "INSERT OR IGNORE INTO packages (scope, name, created_at, created_by) \
-         SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS \
-         (SELECT 1 FROM packages WHERE scope = ?1 AND name != ?2 \
-          AND REPLACE(name, '_', '-') = REPLACE(?2, '_', '-')) \
-         AND NOT EXISTS (SELECT 1 FROM packages WHERE scope = ?1 AND name = ?2) \
-         AND (SELECT stored_bytes FROM users WHERE id = ?4) + ?5 <= ?6 \
-         AND (SELECT COUNT(*) FROM packages WHERE created_by = ?4 \
-              AND created_at >= ?7 AND created_at < substr(?7, 1, 10) || 'U') < ?8 \
-         AND (SELECT package_count FROM users WHERE id = ?4) < ?9";
-
-    /// Creates the version row on its first published revision,
-    /// guarded on its own package row existing (the batch runs
-    /// [`INSERT_PACKAGE`] first, so the package is absent exactly when
-    /// the twin or a quota guard suppressed it) and on the
-    /// [`INSERT_REVISION`] quota guard (`?4` the publisher, `?5`..`?8`
-    /// as there), so a quota-refused version leaves no empty row.
-    /// `INSERT OR IGNORE`: an existing version row is the respin case,
-    /// not an error.
-    INSERT_VERSION_ROW =
-        "INSERT OR IGNORE INTO versions (scope, name, version, yanked, downloads) \
-         SELECT ?1, ?2, ?3, 0, 0 WHERE EXISTS \
-         (SELECT 1 FROM packages WHERE scope = ?1 AND name = ?2) \
-         AND (SELECT stored_bytes FROM users WHERE id = ?4) + ?5 <= ?6 \
-         AND (SELECT COUNT(*) FROM revisions \
-              WHERE scope = ?1 AND name = ?2 AND published_at >= ?7 \
-                    AND published_at < substr(?7, 1, 10) || 'U') < ?8";
-
-    /// Inserts a genuinely new revision row, starting `pending`.
-    /// Four guards are enforced *inside* the transaction, so
-    /// concurrent publishes cannot race past the preflight reads:
-    /// the version row must exist (it is absent after
-    /// [`INSERT_VERSION_ROW`] exactly when the twin or a quota guard
-    /// suppressed it, and then nothing is persisted); no row may
-    /// already hold this revision id (a racing byte-identical publish
-    /// whose twin committed first must lose to the re-read, not fail
-    /// the primary key and abort the whole batch); unless `?10`
-    /// carries the `new-revision` opt-in, no live (pending or
-    /// verified) revision with different bytes may exist; and the
-    /// publisher's quotas (`crate::quota::check_publish`'s storage and
-    /// daily per-package version checks: `?11` the storage limit,
-    /// `?12` the UTC day prefix, whose one calendar day is the window
-    /// (`crate::quota::utc_day_prefix`), `?13` the version limit) must still
-    /// hold over the exact tallies, so concurrent publishes - from one
-    /// token or many - cannot all land on one preflight's headroom.
-    /// The quota guard reads nothing this batch writes before
-    /// [`COUNT_USER_STORED_BYTES`](super::quota::COUNT_USER_STORED_BYTES),
-    /// so its repeats on the earlier statements agree with it.  A
-    /// respin may change what resolution reads: each revision keeps
-    /// its own stored document, which the read plane serves as that
-    /// revision's `resolution`.  Zero changed rows sends the glue back
-    /// to [`EXISTING_REVISIONS`] and the quota preflight to answer
-    /// no-op, conflict, twin `400`, or quota `403` from what it
-    /// re-reads.
-    INSERT_REVISION =
-        "INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json, \
-         published_at, archive_size, published_by, verification) \
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending' WHERE EXISTS \
-         (SELECT 1 FROM versions WHERE scope = ?1 AND name = ?2 AND version = ?3) \
-         AND NOT EXISTS \
-             (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-              AND revision = ?4) \
-         AND (?10 OR NOT EXISTS \
-              (SELECT 1 FROM revisions WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-               AND verification IN ('pending', 'verified') AND checksum <> ?5)) \
-         AND (SELECT stored_bytes FROM users WHERE id = ?9) + ?8 <= ?11 \
-         AND (SELECT COUNT(*) FROM revisions \
-              WHERE scope = ?1 AND name = ?2 AND published_at >= ?12 \
-                    AND published_at < substr(?12, 1, 10) || 'U') < ?13";
-
-    /// Revives a rejected revision in place (back to `pending`),
-    /// guarded on the row still being rejected (any rejected generation
-    /// of these bytes revives alike) and on the new stamp (`?2`)
-    /// exceeding the row's: a revival never repeats the `published_at`
-    /// of the generation it replaces, so `(checksum, published_at)` names
-    /// one publish event however the sampling Workers' clocks relate (an
-    /// equal or earlier sample loses like any other race; a retry lands
-    /// once its sample is later than the stored stamp). The revision id
-    /// derives from the bytes, so a revival is always byte-identical to
-    /// what was rejected - `checksum` never changes - and the opt-in
-    /// guard (`?6`, like [`INSERT_REVISION`]'s) keeps an unflagged
-    /// revival from slipping a different-bytes revision back beside a
-    /// live one. The quota guard is [`INSERT_REVISION`]'s, charged to
-    /// the reviver (`?3`; `?10` the archive size, `?11`..`?13` as
-    /// there): the rejection refunded the row's bytes.
-    REVIVE_REJECTED_REVISION =
-        "UPDATE revisions SET metadata_json = ?1, published_at = ?2, published_by = ?3, \
-         verification = 'pending', verification_reason = NULL, verified_at = NULL \
-         WHERE scope = ?4 AND name = ?5 AND version = ?7 AND revision = ?8 \
-         AND verification = 'rejected' AND checksum = ?9 AND published_at < ?2 \
-         AND (?6 OR NOT EXISTS \
-              (SELECT 1 FROM revisions WHERE scope = ?4 AND name = ?5 AND version = ?7 \
-               AND verification IN ('pending', 'verified') AND checksum <> ?9)) \
-         AND (SELECT stored_bytes FROM users WHERE id = ?3) + ?10 <= ?11 \
-         AND (SELECT COUNT(*) FROM revisions \
-              WHERE scope = ?4 AND name = ?5 AND published_at >= ?12 \
-                    AND published_at < substr(?12, 1, 10) || 'U') < ?13";
-
-    /// How many revisions have sat `pending` for over an hour (the
-    /// stuck-verifier alert).
+    /// How many stored uploads have sat `pending` for over an hour (the
+    /// stuck-verifier alert). `stored_at` is in the ISO 8601 shape the
+    /// cutoff is rendered in, so the comparison stays lexicographic.
     COUNT_STALE_PENDING =
         "SELECT COUNT(*) AS n FROM revisions WHERE verification = 'pending' \
-         AND published_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')";
+         AND stored_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')";
 
     /// The dashboard search's row set: every verified version of every
     /// package whose canonical `<scope>/<name>` name contains the term
@@ -269,13 +178,14 @@ statements! {
            ON c.scope = v.scope AND c.name = v.name AND c.version = v.version \
          WHERE v.scope = ?1 AND v.name = ?2";
 
-    /// Whether the package is visible at all (>= 1 verified version):
+    /// Whether the package is visible at all (>= 1 served version):
     /// the reverse-dependencies target gate.  The unary `+` keeps the
     /// planner off `revisions_verification`, which without
     /// `sqlite_stat1` it would otherwise prefer to the primary key.
     HAS_VERIFIED_VERSION =
         "SELECT COUNT(*) AS n FROM revisions \
-         WHERE scope = ?1 AND name = ?2 AND +verification = 'verified'";
+         WHERE scope = ?1 AND name = ?2 AND +verification = 'verified' \
+         AND archived_at IS NOT NULL";
 
     /// The verified versions whose stored `dependencies` map contains
     /// the canonical `<scope>/<name>` key in `?1`: a `json_each` walk

@@ -27,10 +27,12 @@
     // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account
     // Analytics Read; the budget cron degrades gracefully without it),
     // and optionally NOTIFY_WEBHOOK_URL (POSTed a JSON summary on
-    // service-mode changes, backup-replication alerts, and
-    // stuck-verifier alerts) and
+    // service-mode changes and stuck-verifier alerts) and
     // WEBSITE_DEPLOY_HOOK (the website's Workers Builds deploy hook, POSTed
     // when its package pages fall behind the catalog).
+    // CACHE_PURGE_TOKEN (the zone's Cache Purge) is required from the
+    // deploy that adds INDEX_ORIGIN to `vars` (docs/runbook.md, "Upload
+    // lifecycle").
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
     // The breaker budgets BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
@@ -39,13 +41,12 @@
     // against a warn-only default; setting it is what arms the read-side
     // breaker (docs/runbook.md, "Read budgets and paid-plan
     // activation") - do not set it before that procedure.
-    // The governor's hard R2 limits (GOVERNOR_STORAGE_*_BYTES and
-    // GOVERNOR_R2_CLASS_{A,B}_*_MONTH; src/governor.rs) follow the same
-    // in-code-default pattern, with one deliberate difference: a var
-    // that is set but unparsable fails closed to a ZERO limit - a typo
-    // in a hard spending cap blocks its pool loudly instead of
-    // silently reverting to a default (docs/runbook.md, "The cost
-    // governor").
+    // The governor's hard R2 limits (GOVERNOR_R2_CLASS_{A,B}_*_MONTH;
+    // src/governor.rs) follow the same in-code-default pattern, with one
+    // deliberate difference: a var that is set but unparsable fails
+    // closed to a ZERO limit - a typo in a hard spending cap blocks its
+    // pool loudly instead of silently reverting to a default
+    // (docs/runbook.md, "The cost governor").
     // One Worker, one role per hostname (docs/remote-registry.md, "One
     // role per hostname"): the registry custom domain serves only the
     // machine read plane, and the website origin (cabinpkg.com) serves
@@ -115,14 +116,18 @@
     "d1_databases": [
         {
             "binding": "DB",
-            "database_name": "cabin-registry",
-            "database_id": "1ce51c6e-c62d-47e3-88dc-7bb8eabbee71",
+            "database_name": "registry",
+            "database_id": "7d9e918c-825c-45b2-8d7e-2c8dbf0d7279",
             "migrations_dir": "migrations"
         }
     ],
+    // One bucket per role. UPLOADS and DOWNLOAD_LOGS expire their
+    // objects after fourteen days (docs/runbook.md, "First-time provisioning").
     "r2_buckets": [
-        { "binding": "BLOBS", "bucket_name": "cabin-registry-blobs" },
-        { "binding": "BACKUP", "bucket_name": "cabin-registry-backup" }
+        { "binding": "ARCHIVES", "bucket_name": "registry-archives" },
+        { "binding": "UPLOADS", "bucket_name": "registry-uploads" },
+        { "binding": "DOWNLOAD_LOGS", "bucket_name": "registry-download-logs" },
+        { "binding": "INDEX", "bucket_name": "registry-index" }
     ],
     // The cost governor: one named SQLite-backed Durable Object is the
     // serialized authority for the hard R2 budgets (src/governor.rs,

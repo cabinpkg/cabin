@@ -14,7 +14,7 @@ use crate::error;
 use crate::governor::{Consume, Decision, OpPool};
 use crate::governor_client::{self, Gate};
 use crate::routes::{Route, match_route};
-use crate::{breaker, quota, sql, telemetry, verify};
+use crate::{breaker, publication, quota, sql, telemetry, upload, verify};
 
 use super::{
     Authn, authenticate, error_response, error_response_with_code, governor_refusal_response,
@@ -23,7 +23,7 @@ use super::{
 };
 
 #[derive(Deserialize)]
-struct VersionRecord {
+pub(super) struct VersionRecord {
     version: String,
     revision: String,
     metadata_json: String,
@@ -31,7 +31,7 @@ struct VersionRecord {
 }
 
 #[derive(Deserialize)]
-struct RevisionListRecord {
+pub(super) struct RevisionListRecord {
     version: String,
     revision: String,
     checksum: String,
@@ -41,8 +41,9 @@ struct RevisionListRecord {
 
 #[derive(Deserialize)]
 struct ArtifactRecord {
-    checksum: String,
     verification: String,
+    upload_id: Option<String>,
+    archived: i64,
 }
 
 /// The registry custom domain: only the machine read plane exists here.
@@ -215,6 +216,23 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
         .all()
         .await?
         .results()?;
+    match package_document(scope, name, records, revision_records) {
+        Ok(body) => json_response(&body),
+        Err(detail) => {
+            console_error!("package document for {scope}/{name}: {detail}");
+            error_response(500, error::INTERNAL)
+        }
+    }
+}
+
+/// A package's document from its [`sql::CURRENT_REVISIONS_BY_PACKAGE`]
+/// and [`sql::VERIFIED_REVISIONS_BY_PACKAGE`] rows.
+pub(super) fn package_document(
+    scope: &str,
+    name: &str,
+    records: Vec<VersionRecord>,
+    revision_records: Vec<RevisionListRecord>,
+) -> Result<String, String> {
     let rows: Vec<VersionRow> = records
         .into_iter()
         .map(|record| VersionRow {
@@ -234,13 +252,7 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
             metadata_json: record.metadata_json,
         })
         .collect();
-    match documents::package_json(scope, name, &rows, &revisions) {
-        Ok(body) => json_response(&body),
-        Err(detail) => {
-            console_error!("package document for {scope}/{name}: {detail}");
-            error_response(500, error::INTERNAL)
-        }
-    }
+    documents::package_json(scope, name, &rows, &revisions)
 }
 
 /// `GET /catalog.json`: [`documents::catalog_json`] over every
@@ -259,21 +271,18 @@ pub(super) async fn catalog_response(db: &D1Database) -> worker::Result<Response
 }
 
 /// The synthetic edge-cache identity for immutable verified archives:
-/// derived from the content checksum only, never from the outward URL
-/// or query string, so no request input can alias or bust an entry.
+/// derived from the stored object's key only, never from the outward
+/// URL or query string, so no request input can alias or bust an entry.
 /// The path exists on no route (the registry host answers its uniform
 /// 401 there), and the Worker runs on every request to its hostnames,
 /// so the entry is reachable only through this handler, after the D1
 /// verified-version gate.
-fn blob_cache_url(checksum: &str) -> String {
-    format!(
-        "https://registry.cabinpkg.com/__cache/blobs/sha256/{}",
-        crate::checksum::hex(checksum)
-    )
+fn blob_cache_url(key: &str) -> String {
+    format!("https://registry.cabinpkg.com/__cache/{key}")
 }
 
-/// The stored copy's freshness. Archives are content-addressed and
-/// immutable, but the TTL is one day, not forever: an operator
+/// The stored copy's freshness. Archives are immutable, but the TTL is
+/// one day, not forever: an operator
 /// takedown (direct R2/D1 surgery) cannot purge warm colos, so the
 /// entry must age out on its own within an operationally useful
 /// window. Re-fills are governor-bounded and cheap at one charged
@@ -290,7 +299,7 @@ const BLOB_CACHE_CONTROL: &str = "public, max-age=86400, immutable";
 const BLOB_CACHE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
 thread_local! {
-    /// Checksums with an R2 read in flight in this isolate, for the
+    /// Object keys with an R2 read in flight in this isolate, for the
     /// cache-stampede single-flight ([`artifact_response`]).
     static INFLIGHT_BLOB_READS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
@@ -315,38 +324,40 @@ async fn artifact_response(
     let Some(record) = record else {
         return error_response(404, error::NOT_FOUND);
     };
-    // Verified versions download for everyone; pending ones only with
-    // the `verify` scope (the verifier fetches the bytes it inspects);
-    // rejected ones - whose blob is reclaimed - and rows with an
+    // Verified revisions download for everyone once their archive is in
+    // ARCHIVES; pending ones only with the `verify` scope (the verifier
+    // fetches the bytes it inspects); rejected ones and rows with an
     // unreadable status gate like missing rows.
     let status = verify::Status::parse(&record.verification);
     let readable = status.is_some_and(|status| {
-        verify::artifact_readable(status, auth.is_some_and(has_verify_scope))
+        verify::artifact_readable(
+            status,
+            record.archived != 0,
+            auth.is_some_and(has_verify_scope),
+        )
     });
     if !readable {
         return error_response(404, error::NOT_FOUND);
     }
 
-    // Archives are immutable and content-addressed; yanked versions stay
-    // downloadable on purpose (docs/remote-registry.md, "Yank").
-    let key = crate::checksum::blob_key(&record.checksum);
+    // Archives are immutable; yanked versions stay downloadable on
+    // purpose (docs/remote-registry.md, "Yank").
     if status == Some(verify::Status::Verified) {
-        let response = verified_artifact_response(
-            env,
-            auth,
-            client_ip,
-            &key,
-            &record.checksum,
-            scope,
-            name,
-            version,
-        )
-        .await?;
+        let key = publication::archive_key(scope, name, version, revision);
+        let response =
+            verified_artifact_response(env, auth, client_ip, &key, scope, name, version).await?;
         if response.status_code() == 200 {
             count_download(env, ctx, scope, name, version);
         }
         return Ok(response);
     }
+
+    // A pending row always names its upload: the id is cleared only
+    // after the row turned terminal.
+    let Some(key) = record.upload_id.as_deref().map(upload::object_key) else {
+        console_error!("{scope}/{name}@{version} no longer names a stored object");
+        return error_response(500, error::INTERNAL);
+    };
 
     // Pending is readable only with the `verify` scope, so a credential
     // is present here by construction; gate like a missing row if not.
@@ -375,7 +386,7 @@ async fn artifact_response(
         Gate::Allowed => {}
         Gate::Refused(refusal) => return governor_refusal_response(refusal.as_ref(), false),
     }
-    let Some(object) = env.bucket("BLOBS")?.get(&key).execute().await? else {
+    let Some(object) = env.bucket("UPLOADS")?.get(&key).execute().await? else {
         console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
         return error_response(500, error::INTERNAL);
     };
@@ -416,18 +427,16 @@ fn thaw_cached(mut cached: Response) -> worker::Result<Response> {
 /// charged R2 read that fills the cache for everyone else. On a
 /// governor refusal or outage the R2 read is never initiated - only
 /// already-cached bodies keep serving.
-#[allow(clippy::too_many_arguments)] // the caller identity plus the artifact triple
 async fn verified_artifact_response(
     env: &Env,
     auth: Option<&AuthContext>,
     client_ip: Option<&str>,
     key: &str,
-    checksum: &str,
     scope: &str,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
-    let cache_url = blob_cache_url(checksum);
+    let cache_url = blob_cache_url(key);
     let cache = worker::Cache::default();
     // Cache errors read as misses: the charged path is admission-
     // controlled, so failing open here risks one governed R2 read, not
@@ -437,7 +446,7 @@ async fn verified_artifact_response(
         return thaw_cached(cached);
     }
 
-    // In-isolate single-flight: one uncached checksum must not fan out
+    // In-isolate single-flight: one uncached archive must not fan out
     // into simultaneous R2 reads. The first request becomes the loader;
     // the rest poll the cache briefly and fall through to their own
     // (charged, admission-controlled) read once the loader vanished or
@@ -446,25 +455,24 @@ async fn verified_artifact_response(
     // must not clear the loader's marker, or later requests would stop
     // waiting entirely. Cross-isolate concurrency stays possible and
     // stays correct: every actual R2 read is charged.
-    let mut owns_marker =
-        INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().insert(checksum.to_owned()));
+    let mut owns_marker = INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().insert(key.to_owned()));
     if !owns_marker {
         for _ in 0..20 {
             Delay::from(Duration::from_millis(100)).await;
             if let Ok(Some(cached)) = cache.get(cache_url.as_str(), false).await {
                 return thaw_cached(cached);
             }
-            let gone = INFLIGHT_BLOB_READS.with(|set| !set.borrow().contains(checksum));
+            let gone = INFLIGHT_BLOB_READS.with(|set| !set.borrow().contains(key));
             if gone {
                 break;
             }
         }
-        owns_marker = INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().insert(checksum.to_owned()));
+        owns_marker = INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().insert(key.to_owned()));
     }
     let result =
         charged_blob_read(env, auth, client_ip, key, &cache_url, scope, name, version).await;
     if owns_marker {
-        INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().remove(checksum));
+        INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().remove(key));
     }
     result
 }
@@ -506,7 +514,7 @@ async fn charged_blob_read(
         Gate::Refused(refusal) => return governor_refusal_response(refusal.as_ref(), false),
     }
 
-    let Some(object) = env.bucket("BLOBS")?.get(key).execute().await? else {
+    let Some(object) = env.bucket("ARCHIVES")?.get(key).execute().await? else {
         console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
         return error_response(500, error::INTERNAL);
     };
