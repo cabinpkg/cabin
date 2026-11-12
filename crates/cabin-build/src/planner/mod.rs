@@ -338,7 +338,11 @@ struct PreparedAssembly {
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     let selected = select_targets(req)?;
     let resolved = resolve_dependencies(&selected, req)?;
-    shadowing::reject_standard_header_shadowing(&resolved.resolved_deps, req.graph)?;
+    shadowing::reject_standard_header_shadowing(
+        &resolved.resolved_deps,
+        req.graph,
+        req.build_script_outputs,
+    )?;
     let graph = emit_actions(&selected, resolved, req)?;
     tracing::Span::current().record("actions", graph.actions.len());
     Ok(graph)

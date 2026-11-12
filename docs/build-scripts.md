@@ -34,18 +34,40 @@ exact, so `build.cc` or `Build.c` is an ordinary file.
 
 ## Which build scripts run
 
-Cabin runs the build scripts of the packages on your machine that the build reaches: the workspace's
-own packages, `path` dependencies, and `[patch]`ed packages.  A package the build builds no target
-of, as another workspace member under `cabin run --bin app`, has its script neither built nor run.
+Cabin runs the build scripts of the packages the build reaches.  A package the build builds no
+target of, as another workspace member under `cabin run --bin app`, has its script neither built nor
+run.
 
-**The build script of a package taken from a registry is not run.**  `cabin package` treats the
-file like any other, but a build that takes the package from a registry compiles the package
-without running it.  Do not publish a package that needs its build script.
+- A package on your machine - one of the workspace's own, a `path` dependency, or a `[patch]`ed
+  package - has a build script when its root holds one.
+- A package taken from a registry has a build script when its
+  [index entry](package-index.md#package-file-shape) declares one (`build-script`).  Depending on such a
+  package runs its script on your machine, [confined](#confinement) like your own.  A `build.c` in
+  an archive whose entry declares none is an ordinary file: a version published before Cabin
+  recorded the key never runs one.  An entry declaring a script its archive does not hold is an
+  error.
 
-`cabin build`, `cabin run`, `cabin test`, and `cabin check` build and run build scripts.  No other
-command does: `cabin metadata`, `cabin tree`, `cabin fetch`, `cabin package`, and the rest neither
-compile nor run one.  [`cabin tidy`](tidy.md) analyzes a package without what its build script
-reports, so a source that includes a generated header does not compile there.
+## Publishing a package with a build script
+
+`cabin package` and `cabin publish` archive the root build script whatever
+[`[package] include`](manifest.md#package) lists, as they do `cabin.toml`, and record it in the
+package's metadata as `build-script`.  What the script reads from the package is archived like any
+other file: list it in `include` when the package has one.  Neither command builds or runs the
+script, and neither does the registry.
+
+The hosted registry's [verifier](remote-registry.md#verification-lifecycle) requires the declared
+script to be the one in the archive.  For a package with
+[`[package.upstream]`](manifest.md#packageupstream) it also refuses a script that is the upstream
+archive's own file at that path, unchanged (`upstream_build_script`): a build script there is one a
+declared copy step or patch puts there or changes, and a patch deletes an upstream `build.c` that is
+not meant to be one.
+
+## Which commands run build scripts
+
+`cabin build`, `cabin run`, `cabin test`, `cabin check`, and `cabin install` build and run build
+scripts.  No other command does: `cabin metadata`, `cabin tree`, `cabin fetch`, `cabin package`, and
+the rest neither compile nor run one.  [`cabin tidy`](tidy.md) analyzes a package without what its
+build script reports, so a source that includes a generated header does not compile there.
 
 ## How a script is built
 
@@ -159,7 +181,8 @@ includes it compiles again.
 ## Confinement
 
 A build script is code a package supplies, so Cabin runs it confined, and only confined: where the
-platform cannot confine it, the build fails instead of running the script.
+platform cannot confine it, the build fails instead of running the script.  A registry package's
+script runs under the same confinement, with the same limits, as one of your own.
 
 | Platform | Mechanism |
 |---|---|
@@ -190,6 +213,8 @@ Limits to know:
 - **Only the run is confined.**  What a script generates is compiled, linked, and run like the
   package's own sources, with your access.  Read a build script before you build a package you do
   not trust, as you would its sources.
+- **The limits below are within reach of every dependency that declares a build script.**  A
+  registry package's script runs the first time you build what depends on it, without asking.
 - Each platform leaves some locations readable whatever Cabin grants.  macOS denies reads only
   where user data lives (`/Users`, `/Volumes`, the temporary directories, and your home), so a
   script of a package kept elsewhere can read the package's neighbors and the build directory.

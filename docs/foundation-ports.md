@@ -174,9 +174,11 @@ pin before use, so a stale or corrupt entry is a miss, never a substitution.
 - Not a place for build scripts.  Ports describe libraries whose source layout
   already fits Cabin's target model (a fixed list of sources plus include directories), optionally
   placing a prebuilt file with a static `[[package.upstream.copy]]` step or correcting one with a
-  declared byte-exact patch.  Libraries that need configure-time generation, CMake / Meson / Autotools
-  driving, or custom build commands cannot be ported: the [build script](build-scripts.md) of a
-  registry package is not run.
+  declared byte-exact patch.  A registry package's [build script](build-scripts.md) runs for whoever
+  depends on it, but no port carries one, so libraries that need configure-time generation, CMake /
+  Meson / Autotools driving, or custom build commands are not ported.  A port whose upstream archive
+  ships a root `build.c` or `build.cpp` deletes that file with a declared patch: the verifier
+  refuses an upstream file as a build script (`upstream_build_script`).
 - Not a variant-selection mechanism.  A published port carries whatever `[features]` its manifest
   declares (`cabin-ports/sqlite3` ships a `single-threaded` feature), but nothing in the port
   vocabulary selects a shared or static build.

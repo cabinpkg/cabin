@@ -71,7 +71,7 @@ deps = ["greet", "fmt"]
 | `interface-c-standard` | string or `{ min, max }` table | no | Package-wide default C interface requirement for `library` / `header-only` targets: a string minimum (`"c11"`), a bounded inclusive range (`{ min = "c99", max = "c17" }`, `max` optional), or `"none"` (headers not consumable from C). |
 | `interface-cxx-standard` | string or `{ min, max }` table | no | Package-wide default C++ interface requirement for `library` / `header-only` targets; same forms as the C field. |
 | `gnu-extensions` | boolean | no | Package-wide default for the per-target GNU-extensions dialect knob (default `false`).  See [Language standards](language-standards.md). |
-| `include` | array of strings | no | The files and directories, relative to the package root, that `cabin package` archives besides the root `cabin.toml`; omitted, the whole tree is archived.  Each entry is a literal forward-slash path (no `.` or `..` component, no trailing `/`, and no `*` or `?`); list the `patches` directory too when the package declares patches.  See [Package format](package-format.md#include--exclude-policy). |
+| `include` | array of strings | no | The files and directories, relative to the package root, that `cabin package` archives besides the root `cabin.toml` and the root [build script](build-scripts.md); omitted, the whole tree is archived.  Each entry is a literal forward-slash path (no `.` or `..` component, no trailing `/`, and no `*` or `?`); list the `patches` directory too when the package declares patches.  See [Package format](package-format.md#include--exclude-policy). |
 
 Inside a workspace, each of the four standard fields also accepts the `{ workspace = true }` opt-in
 form, inheriting the literal declared on the workspace root's `[workspace]` table - see
@@ -403,8 +403,9 @@ semantics.
 allow = ["acme/polyfill"]
 ```
 
-A build refuses a registry package with a file directly in one of its `include-dirs` that a C or
-C++ standard library header include would open - its name matches the header's ignoring letter
+A build refuses a registry package with a file directly in one of its `include-dirs`, or in an
+include directory its [build script](build-scripts.md) reports, that a C or C++ standard library
+header include would open - its name matches the header's ignoring letter
 case, or the host file system resolves the header's name to it - because every compile that
 depends on the package would open that file instead of the standard header.  Implementation-internal
 headers (`__config`, `bits/*`, `sys/cdefs.h`, ...) are not checked: this guards against accidental

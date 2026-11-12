@@ -111,7 +111,12 @@ pub(crate) fn check(
     // equality gate above pins that checksum to the archive bytes, so
     // an honest document compares equal without the listing's
     // `revision` being threaded in separately.
-    let expected = serde_json::to_value(canonical_metadata(&package, archive))
+    // An archive holding both build scripts derives none: declaring
+    // either is then a mismatch, and neither runs undeclared.
+    let build_script = cabin_package::archive::build_script(files.keys().map(String::as_str))
+        .ok()
+        .flatten();
+    let expected = serde_json::to_value(canonical_metadata(&package, archive, build_script))
         .expect("manifest-derived metadata always serializes");
     let expected = expected
         .as_object()

@@ -364,8 +364,9 @@ pub(crate) struct PreparedWorkspace {
     /// The interfaces of the system-provided targets the target
     /// context uses.
     pub system_targets: HashMap<(usize, String), cabin_build::SystemTargetInterface>,
-    /// The build scripts of the local packages the build reaches, never
-    /// a registry package's: each as its package's index, whether it
+    /// The build scripts of the packages the build reaches, a registry
+    /// package's only when its index entry declares it
+    /// ([`find_build_scripts`]): each as its package's index, whether it
     /// prepares the package's build-context units, and its file.  Those
     /// preparing build-context units come first, and within a context a
     /// package's dependencies come before it.
@@ -541,70 +542,73 @@ pub(crate) fn prepare_workspace(
     })?;
     let has_versioned = seed.has_versioned_deps();
 
-    let (registry, lockfile_pinned, checksums, activated_patches, system) = if has_versioned {
-        let inputs = super::config::resolve_pipeline_inputs(
-            resolved_index_source.as_ref(),
-            &effective_config,
-            resolved_cache_dir.as_ref(),
-            offline,
-            args.locked,
-            args.frozen,
-            args.no_patches,
-            false,
-        )?;
-        let pipeline = super::run_artifact_pipeline(&super::ArtifactPipelineRequest {
-            manifest_path: &manifest_path,
-            initial_graph: probe_graph,
-            index_source: &inputs.index_source,
-            index_user_chosen: inputs.index_user_chosen,
-            policy: if args.install && !args.locked {
-                super::LockPolicy::ReadOnly
-            } else {
-                inputs.policy
-            },
-            cache_dir: &inputs.cache_dir,
-            reporter,
-            seed: &seed,
-            patched_names: &patched_names,
-            active_patches: &active_patches,
-            source_replacements: &effective_config.source_replacements,
-            incompatible_standards: super::config::resolve_incompatible_standards(
+    let (registry, lockfile_pinned, checksums, activated_patches, system, registry_scripts) =
+        if has_versioned {
+            let inputs = super::config::resolve_pipeline_inputs(
+                resolved_index_source.as_ref(),
                 &effective_config,
-            )?,
-            no_patches: args.no_patches,
-            dev_for: &dev_for,
-            system_provided: &initial_graph.root_settings.system_provided,
-        })?;
-        (
-            pipeline.registry_sources(),
-            pipeline.lockfile_pinned,
-            pipeline
-                .fetched
-                .iter()
-                .map(|p| {
-                    let key = (p.name.as_str().to_owned(), p.version.to_string());
-                    (key, p.checksum.to_string())
-                })
-                .collect(),
-            pipeline.activated_patches,
-            pipeline.system,
-        )
-    } else {
-        super::enforce_locked_patch_state(
-            &manifest_path,
-            &super::LockPolicy::from_flags(args.locked, args.frozen),
-            &active_patches,
-            &effective_config.source_replacements,
-            args.no_patches,
-        )?;
-        (
-            Vec::new(),
-            BTreeSet::new(),
-            BTreeMap::new(),
-            seed.patched_deps.activated.clone(),
-            super::system_provided::SystemSplit::default(),
-        )
-    };
+                resolved_cache_dir.as_ref(),
+                offline,
+                args.locked,
+                args.frozen,
+                args.no_patches,
+                false,
+            )?;
+            let pipeline = super::run_artifact_pipeline(&super::ArtifactPipelineRequest {
+                manifest_path: &manifest_path,
+                initial_graph: probe_graph,
+                index_source: &inputs.index_source,
+                index_user_chosen: inputs.index_user_chosen,
+                policy: if args.install && !args.locked {
+                    super::LockPolicy::ReadOnly
+                } else {
+                    inputs.policy
+                },
+                cache_dir: &inputs.cache_dir,
+                reporter,
+                seed: &seed,
+                patched_names: &patched_names,
+                active_patches: &active_patches,
+                source_replacements: &effective_config.source_replacements,
+                incompatible_standards: super::config::resolve_incompatible_standards(
+                    &effective_config,
+                )?,
+                no_patches: args.no_patches,
+                dev_for: &dev_for,
+                system_provided: &initial_graph.root_settings.system_provided,
+            })?;
+            (
+                pipeline.registry_sources(),
+                pipeline.lockfile_pinned,
+                pipeline
+                    .fetched
+                    .iter()
+                    .map(|p| {
+                        let key = (p.name.as_str().to_owned(), p.version.to_string());
+                        (key, p.checksum.to_string())
+                    })
+                    .collect(),
+                pipeline.activated_patches,
+                pipeline.system,
+                pipeline.build_scripts,
+            )
+        } else {
+            super::enforce_locked_patch_state(
+                &manifest_path,
+                &super::LockPolicy::from_flags(args.locked, args.frozen),
+                &active_patches,
+                &effective_config.source_replacements,
+                args.no_patches,
+            )?;
+            (
+                Vec::new(),
+                BTreeSet::new(),
+                BTreeMap::new(),
+                seed.patched_deps.activated.clone(),
+                super::system_provided::SystemSplit::default(),
+                BTreeMap::new(),
+            )
+        };
 
     // Re-load the workspace, this time stitching in the resolved
     // registry packages plus active patches.
@@ -846,6 +850,7 @@ pub(crate) fn prepare_workspace(
         &graph,
         &feature_resolution.included,
         &build_features.included,
+        &registry_scripts,
     )?;
     // A script preparing target units needs the build context to be
     // built in, whatever the command.
@@ -934,21 +939,34 @@ pub(crate) fn prepare_workspace(
 /// The build scripts of the local packages among `target`, the target
 /// context's packages, and `build_machine`, the build context's
 /// ([`PreparedWorkspace::build_scripts`]).  A registry package's script
-/// is not run, so it is not looked for.
+/// is the one `registry_scripts` holds for it, which its index entry
+/// declares: a `build.c` the entry does not declare is not a build
+/// script, whatever the archive holds.
 fn find_build_scripts(
     graph: &PackageGraph,
     target: &BTreeSet<usize>,
     build_machine: &BTreeSet<usize>,
+    registry_scripts: &BTreeMap<cabin_core::PackageName, &'static str>,
 ) -> Result<Vec<(usize, bool, &'static str)>> {
     let mut scripts = Vec::new();
     for (build_context, included) in [(true, build_machine), (false, target)] {
         for &idx in included {
             let package = &graph.packages[idx];
-            if package.kind != cabin_workspace::PackageKind::Local {
+            let local = package.kind == cabin_workspace::PackageKind::Local;
+            let declared = registry_scripts.get(&package.package.name);
+            if !local && declared.is_none() {
                 continue;
             }
             let root = <&camino::Utf8Path>::try_from(package.manifest_dir.as_path())?;
-            if let Some(script) = cabin_build_script::find(root)? {
+            let found = cabin_build_script::find(root)?;
+            if let Some(declared) = declared.filter(|declared| !local && found != Some(**declared))
+            {
+                bail!(
+                    "the index declares the build script `{declared}` for package `{}`, which its archive does not hold",
+                    package.package.name.as_str()
+                );
+            }
+            if let Some(script) = found {
                 scripts.push((idx, build_context, script));
             }
         }

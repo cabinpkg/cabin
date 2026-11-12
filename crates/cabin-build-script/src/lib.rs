@@ -160,7 +160,8 @@ fn shown(path: &Path) -> String {
 
 /// The build script of the package in `root`: `build.c` or `build.cpp`,
 /// as the root's listing spells it, so one file is a build script on
-/// every file system or on none.
+/// every file system or on none.  A directory of the name is not
+/// one, as it is not to `cabin package`.
 ///
 /// # Errors
 /// [`Error::Ambiguous`] when the root holds both, and [`Error::Io`]
@@ -168,12 +169,12 @@ fn shown(path: &Path) -> String {
 pub fn find(root: &Utf8Path) -> Result<Option<&'static str>, Error> {
     let mut found = None;
     for entry in fs::read_dir(root).map_err(failed("read", root.as_std_path()))? {
-        let name = entry
-            .map_err(failed("read", root.as_std_path()))?
-            .file_name();
+        let entry = entry.map_err(failed("read", root.as_std_path()))?;
+        let name = entry.file_name();
         if let Some(script) = ["build.c", "build.cpp"]
             .into_iter()
             .find(|script| name == *script)
+            && !entry.file_type().is_ok_and(|kind| kind.is_dir())
             && found.replace(script).is_some()
         {
             return Err(Error::Ambiguous(root.to_owned()));

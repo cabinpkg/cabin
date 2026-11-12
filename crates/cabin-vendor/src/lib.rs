@@ -642,6 +642,7 @@ fn rewrite_vendored_revision(
         for field in [
             "dependencies",
             "build-dependencies",
+            "build-script",
             "features",
             "standards",
             "links",
@@ -813,6 +814,7 @@ mod tests {
         let mut value = serde_json::json!({
             "dependencies": { "acme/dep": "^1" },
             "build-dependencies": { "acme/gen": "^1" },
+            "build-script": "build.c",
             "yanked": false,
             "revision": "bbbbbbbbbbbbbbbb",
             "revisions": {
@@ -831,6 +833,7 @@ mod tests {
         assert_eq!(value["dependencies"], serde_json::json!({}));
         assert_eq!(value["links"], serde_json::json!({ "fmt": "fmt" }));
         assert!(value.get("build-dependencies").is_none());
+        assert!(value.get("build-script").is_none());
         assert!(value.get("standards").is_none());
         assert!(value["revisions"][revision].get("resolution").is_none());
     }

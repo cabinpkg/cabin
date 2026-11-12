@@ -509,6 +509,17 @@ impl UpstreamProvenance {
     pub fn patches(&self) -> &[Utf8PathBuf] {
         &self.patches
     }
+
+    /// This declaration without its copy steps and patches: the
+    /// archive as upstream ships it.
+    #[must_use]
+    pub fn pristine(&self) -> Self {
+        Self {
+            copies: Vec::new(),
+            patches: Vec::new(),
+            ..self.clone()
+        }
+    }
 }
 
 /// Wire shape shared by the manifest-adjacent JSON surfaces (canonical

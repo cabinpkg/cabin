@@ -4,6 +4,7 @@ use std::collections::btree_map::Entry;
 use std::path::PathBuf;
 
 use cabin_core::{Condition, DependencyKind, PackageName};
+use serde::Deserialize;
 
 /// A loaded JSON package index.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +134,29 @@ pub struct VersionMetadata {
     /// entry published without one, which is accepted until the
     /// public launch.
     pub license: Option<String>,
+    /// The build script the archive holds in its root.  A build runs
+    /// a registry package's script only when its entry declares it.
+    pub build_script: Option<BuildScript>,
+}
+
+/// A `build-script` value of an index entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum BuildScript {
+    #[serde(rename = "build.c")]
+    C,
+    #[serde(rename = "build.cpp")]
+    Cpp,
+}
+
+impl BuildScript {
+    /// The script's file name in the package root.
+    #[must_use]
+    pub fn file_name(self) -> &'static str {
+        match self {
+            Self::C => "build.c",
+            Self::Cpp => "build.cpp",
+        }
+    }
 }
 
 impl VersionMetadata {
@@ -183,6 +207,7 @@ impl VersionMetadata {
         };
         self.dependencies = resolution.dependencies;
         self.build_dependencies = resolution.build_dependencies;
+        self.build_script = resolution.build_script;
         self.features = resolution.features;
         self.standards = resolution.standards;
         self.links = resolution.links;
@@ -222,6 +247,7 @@ pub struct RevisionMetadata {
 pub struct ResolutionMetadata {
     pub dependencies: BTreeMap<PackageName, IndexPackageDependency>,
     pub build_dependencies: BTreeMap<PackageName, IndexPackageDependency>,
+    pub build_script: Option<BuildScript>,
     pub features: cabin_core::Features,
     pub standards: cabin_core::StandardsMetadata,
     pub links: BTreeMap<String, String>,
