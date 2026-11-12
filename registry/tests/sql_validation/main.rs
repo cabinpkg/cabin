@@ -14,11 +14,12 @@
 //! domain; the every-statement guarantee stays here, global.
 #![cfg(not(target_arch = "wasm32"))]
 
+mod admission;
 mod auth;
-mod backup;
 mod common;
 mod downloads;
 mod packages;
+mod publication;
 mod quota;
 mod scopes;
 mod trustpub;

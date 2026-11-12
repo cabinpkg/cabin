@@ -606,8 +606,9 @@ fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {
     }
     std::fs::remove_file(&sentinel).context("remove the wipe-guard sentinel")?;
     // Sentinel: the database survived the refusal (and the servers with
-    // it).
-    let rows = crate::servers::d1_rows("SELECT value FROM meta WHERE key = 'registry_generation'")?;
+    // it); a recreated one would hold the baseline's 'false'.
+    let rows =
+        crate::servers::d1_rows("SELECT 1 FROM meta WHERE key = 'launched' AND value = 'true'")?;
     if rows.len() != 1 {
         bail!("the refused wipe still touched the database");
     }

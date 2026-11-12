@@ -45,5 +45,13 @@ macro_rules! groups {
 }
 
 groups!(
-    auth, backup, downloads, meta, packages, quota, scopes, trustpub
+    admission,
+    auth,
+    downloads,
+    meta,
+    packages,
+    publication,
+    quota,
+    scopes,
+    trustpub
 );

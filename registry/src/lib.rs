@@ -9,7 +9,6 @@
 pub mod allowlist;
 pub mod analytics;
 pub mod auth;
-pub mod backup;
 pub mod breaker;
 pub mod catalog_refresh;
 pub mod checksum;
@@ -18,6 +17,7 @@ pub mod documents;
 pub mod error;
 pub mod governor;
 pub mod names;
+pub mod publication;
 pub mod publish;
 pub mod quota;
 pub mod routes;
@@ -29,14 +29,13 @@ pub mod sql;
 pub mod stats;
 pub mod telemetry;
 pub mod trustpub;
+pub mod upload;
 pub mod user_api;
 pub mod verify;
 
 #[cfg(test)]
 mod test_db;
 
-#[cfg(target_arch = "wasm32")]
-mod backup_glue;
 #[cfg(target_arch = "wasm32")]
 mod glue;
 #[cfg(target_arch = "wasm32")]

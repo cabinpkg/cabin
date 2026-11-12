@@ -6,21 +6,18 @@
 //!   cargo registry-wipe --local    the local .wrangler/ state (smoke, dev)
 //! ```
 //!
-//! Remote first empties both buckets - the primary's archive blobs and
-//! every object in the BACKUP bucket, the backups of a registry whose
-//! data is disposable - then drops and recreates the database,
-//! reapplies every migration, bakes the recreated id into
-//! `wrangler.jsonc`, bumps the registry generation and redeploys.
-//! `--local` is the same reset of the local emulated state, the emulated
-//! backup bucket included.  Once `meta.launched` is `true`, neither
-//! runs, and the backup bucket's append-only retention is the only
-//! thing that ever happens to it.
+//! Remote first empties the registry's four buckets - archives,
+//! uploads, download logs and index - then drops and recreates the
+//! database, bakes the recreated id into `wrangler.jsonc`, reapplies
+//! every migration and redeploys.
+//! `--local` is the same reset of the local emulated state.  Once
+//! `meta.launched` is `true`, neither runs.
 //!
 //! Pre-launch only: [`launch_guard`] refuses once `meta.launched` is
 //! `true`.  It runs AFTER the confirmation prompt and immediately before
 //! anything destructive, so a flag flipped while the prompt sat waiting
 //! still refuses.  On remote it also proves the `DB` binding and the
-//! account's database named `cabin-registry` are the same database, so
+//! account's database named `registry` are the same database, so
 //! the `d1 create` and `d1 list` below act on the database the guard
 //! read and the `d1 delete` removes.
 //!
@@ -38,19 +35,10 @@
 //!
 //! Properties:
 //!
-//! - **The generation is read before the wipe and written after it.**
-//!   `cargo registry-diagnose` reports it, so an operator can tell the
-//!   wipe happened; a run that read it afterwards would have nothing to
-//!   bump.
-//! - **That read is not rendered through [`display`].**  The two
-//!   coercions differ on exactly the values the numeric guard exists to
-//!   catch - see `logged` below.
-//! - **The bump is 64-bit and wrapping**, and reads a leading zero as
-//!   octal - see `increment` below.
 //! - **The `--local` reset deletes four subtrees and nothing else.**  The
-//!   governor Durable Object's ledger and the emulated edge cache go with
-//!   the D1 and R2 state: a wiped registry must not keep accounting for
-//!   (or serving) deleted blobs.
+//!   governor Durable Object's state and the emulated edge cache go with
+//!   the D1 and R2 state: a wiped registry must not keep serving deleted
+//!   archives.
 //! - **The textual `wrangler.jsonc` rewrite targets the FIRST
 //!   `database_id`**, which is only the `DB` binding's while it is the
 //!   only one - so a count guards it beforehand, and a second count
@@ -76,8 +64,8 @@
 //!
 //! Ceilings:
 //!
-//! - the R2 sweep goes through the audit's pinned `ureq` agent, so a
-//!   proxy named only in the environment is not read;
+//! - the R2 sweep's `ureq` agent does not read a proxy named only in
+//!   the environment;
 //! - a key the delete URL cannot carry verbatim - one with a `.` or
 //!   `..` path segment, which URL parsing resolves away - cannot be
 //!   swept: the run names it and stops before sending its delete.  No
@@ -85,13 +73,6 @@
 //!   `wrangler r2 object delete` builds the same URL;
 //! - the base of that API is `CF_API_BASE`, defaulting to Cloudflare's,
 //!   so the environment names where `CLOUDFLARE_API_TOKEN` is sent;
-//! - the comment in `registry/migrations/0001_init.sql` still names the
-//!   deleted `scripts/wipe.sh`.  Applied migrations are byte-frozen: the
-//!   deploy gate compares `migrations-applied` against the files'
-//!   content, so editing that comment would block every deploy until
-//!   an operator re-runs this very command against the live database.
-//!   The wording follows the next baseline edit that ships through a
-//!   wipe, which re-stamps as part of the procedure;
 //! - `wrangler.jsonc` is read as UTF-8; a config carrying invalid bytes
 //!   ends the run;
 //! - the four local state directories are removed in order and the
@@ -113,17 +94,12 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use serde::Deserialize;
 use xtask_workflow_guard::migrations_pending;
 
-use crate::governor::Buckets;
 use crate::launch_guard::{self, Mode};
-use crate::{
-    BACKUP_BUCKET, BLOBS_BUCKET, declared_account_id, display, output, registry_root, results,
-    status, step, wrangler,
-};
+use crate::r2::Buckets;
+use crate::{BUCKETS, declared_account_id, display, output, registry_root, status, step, wrangler};
 
 /// The database this drops and recreates.
-const DATABASE: &str = "cabin-registry";
-
-const GENERATION: &str = "SELECT value FROM meta WHERE key = 'registry_generation'";
+const DATABASE: &str = "registry";
 
 /// This module's own refusal text on stderr, exit 1.
 ///
@@ -150,9 +126,8 @@ pub fn run(mode: Mode) -> Result<()> {
     if matches!(mode, Mode::Remote) {
         // The one follow-up that must happen BEFORE the wipe, so it is
         // printed before the confirmation rather than with the others:
-        // a ports publish run mints its own publish token through the
-        // trusted-publishing exchange, and the post-wipe governor wipe
-        // refuses while any live publish token exists.
+        // a ports publish landing after a bucket's sweep would leave an
+        // object the recreated database has no row for.
         println!(
             "before wiping: gh workflow disable publish.yml -R cabin-ports/ports and gh \
              workflow disable registry-verify.yml, and cancel every queued or in-flight run of \
@@ -164,23 +139,16 @@ pub fn run(mode: Mode) -> Result<()> {
     step("launch guard");
     launch_guard::run(mode)?;
 
-    step("reading the pre-wipe registry generation");
-    let old = generation(mode)?;
-    if !numeric(&old) {
-        fail(&format!("meta.registry_generation is not numeric: '{old}'"));
-    }
-    let new = increment(&old)?;
-
     match mode {
-        Mode::Local => local(&old, new),
-        Mode::Remote => remote(&old, new),
+        Mode::Local => local(),
+        Mode::Remote => remote(),
     }
 }
 
 /// The local analogue of the whole remote procedure: the emulated D1,
 /// R2, Durable Object and cache state under `.wrangler/` goes away, and
 /// migrations recreate the schema from zero.  No config ids, no deploy.
-fn local(old: &str, new: i64) -> Result<()> {
+fn local() -> Result<()> {
     let root = registry_root();
     step("deleting the local D1, R2, Durable Object, and cache state");
     for state in ["d1", "r2", "do", "cache"] {
@@ -199,14 +167,11 @@ fn local(old: &str, new: i64) -> Result<()> {
         Show::Stdout,
     )?;
 
-    step(&format!("bumping the registry generation to {new}"));
-    bump(Mode::Local, new)?;
-
-    println!("local wipe OK (generation {old} -> {new})");
+    println!("local wipe OK");
     Ok(())
 }
 
-fn remote(old: &str, new: i64) -> Result<()> {
+fn remote() -> Result<()> {
     let root = registry_root();
     // The account id anchors the R2 REST calls below; it is a plain var
     // in `wrangler.jsonc` (not a secret - it is in every dashboard URL).
@@ -221,12 +186,13 @@ fn remote(old: &str, new: i64) -> Result<()> {
     // guard's flag - still exists: a sweep that fails partway, a token
     // that cannot list or delete included, leaves nothing a re-run of
     // this command cannot finish.
-    step(&format!("deleting blobs/ from {BLOBS_BUCKET}"));
-    let primary = or_fail(sweep(&buckets, BLOBS_BUCKET, "blobs/"));
-    println!("    deleted {primary} object(s); none is listed any more");
-    step(&format!("deleting every object from {BACKUP_BUCKET}"));
-    let backup = or_fail(sweep(&buckets, BACKUP_BUCKET, ""));
-    println!("    deleted {backup} object(s); none is listed any more");
+    let mut deleted = 0;
+    for bucket in BUCKETS {
+        step(&format!("deleting every object from {bucket}"));
+        let swept = or_fail(sweep(&buckets, bucket));
+        println!("    deleted {swept} object(s); none is listed any more");
+        deleted += swept;
+    }
 
     step(&format!("dropping and recreating the {DATABASE} database"));
     wrangler_run(&["d1", "delete", DATABASE, "-y"], Show::Stdout)?;
@@ -279,14 +245,11 @@ fn remote(old: &str, new: i64) -> Result<()> {
     step("refreshing the migrations-applied stamp");
     stamp(&root)?;
 
-    step(&format!("bumping the registry generation to {new}"));
-    bump(Mode::Remote, new)?;
-
     step("redeploying (bakes the new database id into the bindings)");
     wrangler_run(&["deploy"], Show::Stdout)?;
 
     print!(
-        r#"wipe OK (generation {old} -> {new}; {primary} primary and {backup} backup object(s) deleted)
+        r#"wipe OK ({deleted} object(s) deleted)
 
 Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"):
   1. commit the wrangler.jsonc database-id change and the refreshed
@@ -297,27 +260,16 @@ Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"
      OAuth app grant survives the wipe, so re-claims grant immediately);
      the cabin-ports claim is what re-arms ports publishing - the
      trusted-publishing exchange refuses an unclaimed scope
-  3. mint a login-session token for the governor step below as the
-     operator - only the operator's session carries the verify scope that
-     authenticates the admin endpoint; the verifier workflow needs no
-     secret of its own -
-     each run mints its own through the trusted-publishing exchange, and
-     the baseline migration seeds the backing identity it resolves
-  4. run cargo registry-governor wipe (from the repository root): it
-     resets every storage pool only while both buckets are still
-     empty.  Its no-delayed-publisher evidence gate requires zero live
-     publish tokens and a login-session token carries publish, so block
-     writes first, wait out the in-flight window (~5 min), then run under
-     writes_blocked - the gate clears on that path; the ports publish
-     workflow stays disabled until the next step
-  5. start the ports receipts log over while publishing is still
+  3. start the ports receipts log over while publishing is still
      disabled (its docs/publishing.md, "Registry wipe"), re-enable it (gh
      workflow enable publish.yml -R cabin-ports/ports), prove the
      binding with an exchange-check dispatch, then dispatch it plainly
      from main to republish the set - no publish token or secret to
-     mint: each run's OIDC exchange is the credential; then re-enable
-     the verifier (gh workflow enable registry-verify.yml)
-  6. rerun whatever main CI went red against the old registry
+     mint: each run's OIDC exchange is the credential; then, no sooner
+     than 15 minutes after this wipe, delete whatever the
+     registry-index bucket lists other than config.json and
+     re-enable the verifier (gh workflow enable registry-verify.yml)
+  4. rerun whatever main CI went red against the old registry
      (gh run rerun <id> --failed)
 "#
     );
@@ -331,8 +283,9 @@ fn confirm() -> Result<()> {
         return Ok(());
     }
     print!(
-        "About to WIPE the deployed registry ({DATABASE}, {BLOBS_BUCKET}, and every object \
-         in {BACKUP_BUCKET}). Type \"wipe\" to confirm: "
+        "About to WIPE the deployed registry (the {DATABASE} database and every object in {}). \
+         Type \"wipe\" to confirm: ",
+        BUCKETS.join(", ")
     );
     std::io::stdout().flush().context("write the prompt")?;
     let mut answer = String::new();
@@ -356,72 +309,6 @@ fn confirmed(answer: &str) -> bool {
     answer.trim_matches([' ', '\t']) == "wipe"
 }
 
-/// The pre-wipe generation, as `logged` renders it.  A missing row, an
-/// unparsable answer or an answer that is not the documented shape is an
-/// incidental failure, not one of this module's refusals.
-fn generation(mode: Mode) -> Result<String> {
-    let answer = output(
-        wrangler(&[
-            "d1",
-            "execute",
-            "DB",
-            mode.flag(),
-            "--json",
-            "--command",
-            GENERATION,
-        ])
-        .current_dir(registry_root()),
-    )?;
-    let rows = results(&answer)?;
-    let row = rows
-        .first()
-        .context("meta.registry_generation has no row")?;
-    Ok(logged(row.get("value")))
-}
-
-/// A value as text, which is NOT [`display`]'s coercion: an array or an
-/// object renders as its JSON text, never as the bare element, where
-/// `String(["1"])` IS `"1"` - so routing one through [`display`] would
-/// let `["1"]` pass the numeric guard and wipe against a generation that
-/// is not a number.
-fn logged(value: Option<&serde_json::Value>) -> String {
-    match value {
-        None => "undefined".to_owned(),
-        Some(value @ (serde_json::Value::Array(_) | serde_json::Value::Object(_))) => {
-            value.to_string()
-        }
-        Some(value) => display(value),
-    }
-}
-
-/// `^[0-9]+$`.
-fn numeric(text: &str) -> bool {
-    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-/// The generation plus one, 64-bit and wrapping - while reading a
-/// literal too wide to hold, and again at the signed edge - and reading
-/// a literal with a leading zero as octal, so `010` increments to 9 and
-/// `08` is not a number at all (an incidental failure).  The numeric
-/// guard admits all three, so this is where the distinction is made; no
-/// generation the registry itself writes carries a leading zero.
-fn increment(digits: &str) -> Result<i64> {
-    let radix = if digits.len() > 1 && digits.starts_with('0') {
-        8
-    } else {
-        10
-    };
-    let mut value: i64 = 0;
-    for byte in digits.bytes() {
-        let digit = byte.checked_sub(b'0').map_or(radix, i64::from);
-        if digit >= radix {
-            bail!("meta.registry_generation is not a base-{radix} number: '{digits}'");
-        }
-        value = value.wrapping_mul(radix).wrapping_add(digit);
-    }
-    Ok(value.wrapping_add(1))
-}
-
 /// The account id.  A missing file and a config that binds no id carry
 /// the same message.
 fn account(root: &Path) -> Result<String> {
@@ -441,7 +328,7 @@ struct Database {
     id: Option<serde_json::Value>,
 }
 
-/// `list.find((db) => db.name === "cabin-registry")` and then
+/// `list.find((db) => db.name === "registry")` and then
 /// `db.uuid || db.database_id`, rendered by `logged`.  The FIRST entry of
 /// that name wins, as it does for the launch guard's own cross-check.
 ///
@@ -461,6 +348,20 @@ fn listed_id(answer: &str) -> Option<String> {
     Some(logged(
         held(database.uuid).or_else(|| held(database.id)).as_ref(),
     ))
+}
+
+/// A value as text, which is NOT [`display`]'s coercion: an array or an
+/// object renders as its JSON text, never as the bare element, where
+/// `String(["x"])` IS `"x"` - so routing one through [`display`] would
+/// let an id wrapped in an array pass the id grammar.
+fn logged(value: Option<&serde_json::Value>) -> String {
+    match value {
+        None => "undefined".to_owned(),
+        Some(value @ (serde_json::Value::Array(_) | serde_json::Value::Object(_))) => {
+            value.to_string()
+        }
+        Some(value) => display(value),
+    }
 }
 
 /// JavaScript truthiness over the values JSON can carry: `null`, `""`,
@@ -521,18 +422,18 @@ fn stamp(root: &Path) -> Result<()> {
     stamp.map(drop)
 }
 
-/// The sweep: list `prefix` (the whole bucket when it is empty), delete
-/// every listed key, and list again until a listing comes back empty -
-/// the only way it ends without an error.
+/// The sweep: list the bucket, delete every listed key, and list again
+/// until a listing comes back empty - the only way it ends without an
+/// error.
 ///
 /// Deleting drains the listing, so the first page is re-fetched each
 /// time and no cursor is handled (opaque cursors carry URL-hostile
 /// characters).  A key listed again after its delete answered success
 /// ends the run rather than looping: a writer is putting it back.
-fn sweep(buckets: &Buckets, bucket: &str, prefix: &str) -> Result<u64> {
+fn sweep(buckets: &Buckets, bucket: &str) -> Result<u64> {
     let mut deleted = HashSet::new();
     loop {
-        let keys = buckets.keys(bucket, prefix, 500)?;
+        let keys = buckets.keys(bucket)?;
         if keys.is_empty() {
             return Ok(deleted.len() as u64);
         }
@@ -552,24 +453,7 @@ fn api_base() -> String {
     std::env::var("CF_API_BASE")
         .ok()
         .filter(|base| !base.is_empty())
-        .unwrap_or_else(|| crate::governor::API_BASE.to_owned())
-}
-
-/// `wrangler d1 execute DB <flag> --command "UPDATE meta …"`.  The value
-/// is interpolated into the statement: it is a number this run computed,
-/// not an answer from anywhere.
-fn bump(mode: Mode, new: i64) -> Result<()> {
-    wrangler_run(
-        &[
-            "d1",
-            "execute",
-            "DB",
-            mode.flag(),
-            "--command",
-            &format!("UPDATE meta SET value = '{new}' WHERE key = 'registry_generation'"),
-        ],
-        Show::Stdout,
-    )
+        .unwrap_or_else(|| crate::r2::API_BASE.to_owned())
 }
 
 /// Whether a wrangler call's stdout is the operator's sign of life or
@@ -598,45 +482,9 @@ mod tests {
     const NEW: &str = "1234abcd-1234-abcd-1234-abcd1234abcd";
     const OLD: &str = "00000000-0000-0000-0000-000000000000";
 
-    #[test]
-    fn a_composite_generation_never_passes_the_numeric_guard() {
-        use serde_json::json;
-        assert_eq!(logged(Some(&json!("7"))), "7");
-        assert_eq!(logged(Some(&json!(7))), "7");
-        assert_eq!(logged(None), "undefined");
-        assert_eq!(logged(Some(&json!(null))), "null");
-        // The trap: `String(["7"])` is `"7"`, so rendering an array
-        // through `display` would pass the numeric guard and wipe against
-        // a generation that is an array.
-        assert!(!numeric(&logged(Some(&json!(["7"])))));
-        assert!(!numeric(&logged(Some(&json!({ "value": 7 })))));
-        assert!(!numeric(&logged(None)));
-        assert!(!numeric(&logged(Some(&json!(null)))));
-        assert!(!numeric(""), "an empty capture is not a number");
-        assert!(!numeric("7 "), "the pattern carries its own anchors");
-        assert!(!numeric("-7"));
-        assert!(numeric("0"));
-    }
-
-    #[test]
-    fn the_bump_wraps_at_64_bits_and_reads_a_leading_zero_as_octal() {
-        assert_eq!(increment("0").unwrap(), 1);
-        assert_eq!(increment("7").unwrap(), 8);
-        // A leading zero is octal: `010` is eight.
-        assert_eq!(increment("010").unwrap(), 9);
-        assert_eq!(increment("007").unwrap(), 8);
-        assert_eq!(increment("000").unwrap(), 1);
-        // Which makes `08` no number at all.
-        assert!(increment("08").is_err());
-        assert!(increment("09").is_err());
-        // 64-bit and wrapping, both at the signed edge and while reading
-        // a literal too wide to hold.
-        assert_eq!(increment("9223372036854775807").unwrap(), i64::MIN);
-        assert_eq!(
-            increment("99999999999999999999").unwrap(),
-            7_766_279_631_452_241_920
-        );
-    }
+    /// The bucket the sweep tests empty, and one they must leave alone.
+    const SWEPT: &str = BUCKETS[1];
+    const OTHER: &str = BUCKETS[0];
 
     #[test]
     fn the_confirmation_is_one_blank_trimmed_newline_terminated_line() {
@@ -658,7 +506,7 @@ mod tests {
     #[test]
     fn the_listed_id_falls_back_past_a_falsy_uuid() {
         assert_eq!(
-            listed_id(&format!(r#"[{{"name":"cabin-registry","uuid":"{NEW}"}}]"#)),
+            listed_id(&format!(r#"[{{"name":"registry","uuid":"{NEW}"}}]"#)),
             Some(NEW.to_owned())
         );
         // Every falsy `uuid` falls through to `database_id`, a missing
@@ -666,41 +514,43 @@ mod tests {
         for falsy in ["\"\"", "null", "0", "false"] {
             assert_eq!(
                 listed_id(&format!(
-                    r#"[{{"name":"cabin-registry","uuid":{falsy},"database_id":"{NEW}"}}]"#
+                    r#"[{{"name":"registry","uuid":{falsy},"database_id":"{NEW}"}}]"#
                 )),
                 Some(NEW.to_owned()),
                 "uuid {falsy} is falsy"
             );
         }
         assert_eq!(
-            listed_id(&format!(
-                r#"[{{"name":"cabin-registry","database_id":"{NEW}"}}]"#
-            )),
+            listed_id(&format!(r#"[{{"name":"registry","database_id":"{NEW}"}}]"#)),
             Some(NEW.to_owned())
         );
         // A truthy `uuid` wins even when it is not an id at all, and the
         // grammar refuses it rather than reaching for the other field.
         assert_eq!(
             listed_id(&format!(
-                r#"[{{"name":"cabin-registry","uuid":"nope","database_id":"{NEW}"}}]"#
+                r#"[{{"name":"registry","uuid":"nope","database_id":"{NEW}"}}]"#
             )),
             Some("nope".to_owned())
         );
         // The first entry of the name wins, as it does for the guard.
         assert_eq!(
             listed_id(&format!(
-                r#"[{{"name":"cabin-registry","uuid":"{NEW}"}},
-                    {{"name":"cabin-registry","uuid":"{OLD}"}}]"#
+                r#"[{{"name":"registry","uuid":"{NEW}"}},
+                    {{"name":"registry","uuid":"{OLD}"}}]"#
             )),
             Some(NEW.to_owned())
         );
         // Found, but carrying neither: the word `undefined`, which the
         // id grammar then refuses.
         assert_eq!(
-            listed_id(r#"[{"name":"cabin-registry"}]"#),
+            listed_id(r#"[{"name":"registry"}]"#),
             Some("undefined".to_owned())
         );
         assert!(!database_id("undefined"));
+        // An id wrapped in an array is not that id: it renders as its
+        // JSON text, which the id grammar refuses.
+        let wrapped = listed_id(&format!(r#"[{{"name":"registry","uuid":["{NEW}"]}}]"#));
+        assert!(!database_id(&wrapped.expect("the entry is found")));
         // No such database, and an answer that is not a listing at all:
         // the other refusal.
         assert_eq!(listed_id(r#"[{"name":"other","uuid":"x"}]"#), None);
@@ -759,37 +609,32 @@ mod tests {
         assert_eq!(bake(&late, NEW).matches(NEW).count(), 1);
     }
 
-    /// Both sweeps, over pages of two: the primary loses its `blobs/`
-    /// and keeps anything else, the backup loses everything - dumps,
-    /// sidecars, and keys under prefixes nothing expects - including
-    /// keys that need escaping, and a second sweep has nothing left.
+    /// A sweep over pages of two takes everything its bucket holds -
+    /// keys under any prefix, keys that need escaping - and nothing
+    /// another bucket holds, and a second sweep has nothing left.
     #[test]
-    fn the_sweeps_empty_the_primary_blobs_and_the_whole_backup_bucket() {
+    fn a_sweep_empties_its_bucket_and_no_other() {
         use crate::r2_mock::{Mock, State};
         let mock = Mock::start(State {
             page_cap: 2,
             ..State::holding(&[
-                (BLOBS_BUCKET, "blobs/sha256/aa"),
-                (BLOBS_BUCKET, "blobs/sha256/bb"),
-                (BLOBS_BUCKET, "blobs/sha256/cc"),
-                (BLOBS_BUCKET, "unrelated/kept"),
-                (BACKUP_BUCKET, "blobs/sha256/aa"),
-                (BACKUP_BUCKET, "d1/2026-10-26.sql"),
-                (BACKUP_BUCKET, "d1/2026-10-26.sql.sha256"),
-                (BACKUP_BUCKET, "rehearsal/notes.txt"),
-                (BACKUP_BUCKET, "odd key/a+b%c?d#e&f=g;ü"),
-                (BACKUP_BUCKET, "nested//empty/segment"),
-                (BACKUP_BUCKET, "x"),
+                (SWEPT, "uploads/aa.zip"),
+                (SWEPT, "uploads/bb.zip"),
+                (SWEPT, "uploads/cc.zip"),
+                (SWEPT, "rehearsal/notes.txt"),
+                (SWEPT, "odd key/a+b%c?d#e&f=g;ü"),
+                (SWEPT, "nested//empty/segment"),
+                (SWEPT, "x"),
+                (OTHER, "uploads/aa.zip"),
             ])
         });
         let buckets = mock.buckets();
-        assert_eq!(sweep(&buckets, BLOBS_BUCKET, "blobs/").unwrap(), 3);
-        assert_eq!(sweep(&buckets, BACKUP_BUCKET, "").unwrap(), 7);
+        assert_eq!(sweep(&buckets, SWEPT).unwrap(), 7);
         assert_eq!(
             mock.remaining(),
-            [(BLOBS_BUCKET.to_owned(), "unrelated/kept".to_owned())]
+            [(OTHER.to_owned(), "uploads/aa.zip".to_owned())]
         );
-        assert_eq!(sweep(&buckets, BACKUP_BUCKET, "").unwrap(), 0);
+        assert_eq!(sweep(&buckets, SWEPT).unwrap(), 0);
     }
 
     /// No answer short of a successful empty last page ends a sweep, so
@@ -818,12 +663,9 @@ mod tests {
         ] {
             let mock = Mock::start(State {
                 list_answer: Some((status, body.to_owned())),
-                ..State::holding(&[(BACKUP_BUCKET, "d1/2026-10-26.sql")])
+                ..State::holding(&[(SWEPT, "uploads/aa.zip")])
             });
-            assert!(
-                sweep(&mock.buckets(), BACKUP_BUCKET, "").is_err(),
-                "{status} {body}"
-            );
+            assert!(sweep(&mock.buckets(), SWEPT).is_err(), "{status} {body}");
         }
     }
 
@@ -834,17 +676,13 @@ mod tests {
         use crate::r2_mock::{Mock, State};
         let mock = Mock::start(State {
             undeletable: Some("b".to_owned()),
-            ..State::holding(&[
-                (BACKUP_BUCKET, "a"),
-                (BACKUP_BUCKET, "b"),
-                (BACKUP_BUCKET, "c"),
-            ])
+            ..State::holding(&[(SWEPT, "a"), (SWEPT, "b"), (SWEPT, "c")])
         });
-        let error = sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap_err();
+        let error = sweep(&mock.buckets(), SWEPT).unwrap_err();
         assert!(format!("{error:#}").contains("deleting b"), "{error:#}");
         assert_eq!(mock.remaining().len(), 2, "a is gone, b and c are not");
         mock.state().undeletable = None;
-        assert_eq!(sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap(), 2);
+        assert_eq!(sweep(&mock.buckets(), SWEPT).unwrap(), 2);
         assert!(mock.remaining().is_empty());
     }
 
@@ -854,27 +692,25 @@ mod tests {
     fn a_delete_that_succeeds_without_deleting_ends_the_sweep() {
         use crate::r2_mock::{Mock, State};
         let mock = Mock::start(State {
-            sticky: Some("d1/2026-10-26.sql".to_owned()),
-            ..State::holding(&[(BACKUP_BUCKET, "d1/2026-10-26.sql")])
+            sticky: Some("uploads/aa.zip".to_owned()),
+            ..State::holding(&[(SWEPT, "uploads/aa.zip")])
         });
-        let error = sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap_err();
+        let error = sweep(&mock.buckets(), SWEPT).unwrap_err();
         assert!(
-            error
-                .to_string()
-                .contains("d1/2026-10-26.sql is still listed"),
+            error.to_string().contains("uploads/aa.zip is still listed"),
             "{error:#}"
         );
     }
 
     /// A key whose delete URL would resolve to another path of the API -
-    /// `../..` from a backup key is the primary bucket's own URL - is
-    /// refused before any delete goes out.
+    /// `../..` from a key is another bucket's own URL - is refused
+    /// before any delete goes out.
     #[test]
     fn a_dot_segment_key_is_refused_before_its_delete_is_sent() {
         use crate::r2_mock::{Mock, State};
-        for key in ["../../cabin-registry-blobs", "blobs/./a", "blobs/.."] {
-            let mock = Mock::start(State::holding(&[(BACKUP_BUCKET, key)]));
-            let error = sweep(&mock.buckets(), BACKUP_BUCKET, "").unwrap_err();
+        for key in ["../../registry-archives", "uploads/./a", "uploads/.."] {
+            let mock = Mock::start(State::holding(&[(SWEPT, key)]));
+            let error = sweep(&mock.buckets(), SWEPT).unwrap_err();
             assert!(error.to_string().contains("dot segment"), "{error:#}");
             assert!(
                 !mock

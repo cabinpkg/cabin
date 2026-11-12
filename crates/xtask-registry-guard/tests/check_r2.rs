@@ -37,7 +37,7 @@ fn the_canonical_call_sites_pass() {
         "glue/read.rs",
         concat!(
             "async fn artifact_response(env: &Env) -> worker::Result<Response> {\n",
-            "    let Some(object) = env.bucket(\"BLOBS\")?.get(&key).execute().await? else {\n",
+            "    let Some(object) = env.bucket(\"UPLOADS\")?.get(&key).execute().await? else {\n",
             "        return not_found();\n",
             "    };\n",
             "}\n",
@@ -45,25 +45,13 @@ fn the_canonical_call_sites_pass() {
             // method, and a comment describing one is not code.
             "fn bucket_from_columns(auth: &AuthContext) -> Option<quota::Bucket> {\n",
             "    if auth.bucket.is_some() { return None; }\n",
-            "    // The call sites go through env.bucket(\"BLOBS\") after a decide.\n",
+            "    // The call sites go through env.bucket(\"UPLOADS\") after a decide.\n",
             "    let doc = r#\"{\"call\":\"env.bucket(x)\"}\"#;\n",
             "    read_bucket(db, &auth.token_id)\n",
             "}\n",
         ),
     );
     assert!(accepted, "the guard rejected the canonical call sites");
-    // The queue drain's double acquisition is pinned under
-    // backup_glue.rs, where the drain lives.
-    let accepted = guard_accepts_in(
-        "backup_glue.rs",
-        concat!(
-            "async fn drain_backup_queue(env: &Env) {\n",
-            "    let (Ok(db), Ok(blobs), Ok(backup)) =\n",
-            "        (env.d1(\"DB\"), env.bucket(\"BLOBS\"), env.bucket(\"BACKUP\"));\n",
-            "}\n",
-        ),
-    );
-    assert!(accepted, "the guard rejected the backup_glue drain");
 }
 
 #[test]
@@ -73,7 +61,7 @@ fn unsanctioned_acquisitions_are_caught() {
     let cases: &[(&str, &str)] = &[
         (
             "new_function",
-            "async fn sneaky_reader(env: &Env) { let b = env.bucket(\"BLOBS\")?; }",
+            "async fn sneaky_reader(env: &Env) { let b = env.bucket(\"UPLOADS\")?; }",
         ),
         (
             // The pin is a count: a second acquisition inside a
@@ -81,22 +69,22 @@ fn unsanctioned_acquisitions_are_caught() {
             "second_acquisition_in_a_pinned_fn",
             concat!(
                 "async fn artifact_response(env: &Env) {\n",
-                "    let a = env.bucket(\"BLOBS\")?;\n",
-                "    let b = env.bucket(\"BACKUP\")?;\n",
+                "    let a = env.bucket(\"UPLOADS\")?;\n",
+                "    let b = env.bucket(\"OTHER\")?;\n",
                 "}\n",
             ),
         ),
         (
             "ufcs",
-            "fn f(env: &Env) { let b = worker::Env::bucket(env, \"BLOBS\"); }",
+            "fn f(env: &Env) { let b = worker::Env::bucket(env, \"UPLOADS\"); }",
         ),
         (
             "raw_identifier",
-            "fn f(env: &Env) { let b = env.r#bucket(\"BLOBS\"); }",
+            "fn f(env: &Env) { let b = env.r#bucket(\"UPLOADS\"); }",
         ),
         (
             "comment_between_receiver_and_name",
-            "fn f(env: &Env) { let b = env./* sneaky */bucket(\"BLOBS\"); }",
+            "fn f(env: &Env) { let b = env./* sneaky */bucket(\"UPLOADS\"); }",
         ),
         (
             // A line-oriented match would miss this.
@@ -105,30 +93,30 @@ fn unsanctioned_acquisitions_are_caught() {
     let b = env.
 /* explanation */
 bucket
-("BLOBS");
+("UPLOADS");
 }"#,
         ),
         (
             // A `//` inside a string starts no comment: the call after
             // it on the same line must still be seen.
             "after_a_url_string",
-            "fn f(env: &Env) { let u = \"https://api.cloudflare.com\"; let b = env.bucket(\"BLOBS\"); }",
+            "fn f(env: &Env) { let u = \"https://api.cloudflare.com\"; let b = env.bucket(\"UPLOADS\"); }",
         ),
         (
             "outside_any_fn",
-            "static B: () = { env.bucket(\"BLOBS\") };",
+            "static B: () = { env.bucket(\"UPLOADS\") };",
         ),
         (
             // A path-form method item aliases the method; every later
             // call through the alias would evade the call scan.
             "method_item_alias",
-            "fn f(env: &Env) { let acquire = worker::Env::bucket; acquire(env, \"BLOBS\"); }",
+            "fn f(env: &Env) { let acquire = worker::Env::bucket; acquire(env, \"UPLOADS\"); }",
         ),
         (
             // The generic binding accessor yields a Bucket without the
             // `bucket` token ever appearing.
             "generic_get_binding",
-            "fn f(env: &Env) { let b: worker::Bucket = env.get_binding(\"BLOBS\").unwrap(); }",
+            "fn f(env: &Env) { let b: worker::Bucket = env.get_binding(\"UPLOADS\").unwrap(); }",
         ),
         (
             // So does an unchecked JS cast over the raw env object.
@@ -154,7 +142,7 @@ bucket
 fn the_pins_are_file_scoped_and_track_drift() {
     assert!(!guard_accepts_in(
         "verify.rs",
-        "async fn artifact_response(env: &Env) { let b = env.bucket(\"BLOBS\")?; }",
+        "async fn artifact_response(env: &Env) { let b = env.bucket(\"UPLOADS\")?; }",
     ));
     assert!(!guard_accepts_in(
         "glue/read.rs",
@@ -167,42 +155,24 @@ fn the_pins_are_file_scoped_and_track_drift() {
 #[test]
 fn a_drifted_pin_names_its_counts() {
     let dir = scratch(
-        "backup_glue.rs",
-        "async fn drain_backup_queue(env: &Env) { let b = env.bucket(\"BLOBS\"); }",
+        "web_glue.rs",
+        "async fn package_source(env: &Env) { serve_from_cache(env).await }",
     );
     let violations = r2::check(dir.path()).expect("run the guard");
     assert_eq!(
         violations,
         vec![
-            "src/backup_glue.rs: drain_backup_queue is pinned for 2 acquisition(s) \
-             but has 1; update crates/xtask-registry-guard/src/r2.rs"
+            "src/web_glue.rs: package_source is pinned for 1 acquisition(s) \
+             but has 0; update crates/xtask-registry-guard/src/r2.rs"
         ]
     );
-}
-
-/// Several drifted pins in one file come out sorted by function name.
-#[test]
-fn drifted_pins_are_reported_in_name_order() {
-    let dir = scratch(
-        "glue/bearer/package.rs",
-        // Chosen so the allowlist order and the alphabetical order
-        // disagree: `persist_new_revision` is pinned before
-        // `heal_blobs_on_retry` but sorts after it.
-        "fn persist_new_revision() {}\nfn heal_blobs_on_retry() {}\n",
-    );
-    let violations = r2::check(dir.path()).expect("run the guard");
-    let names: Vec<&str> = violations
-        .iter()
-        .map(|line| line.split_whitespace().nth(1).expect("the function name"))
-        .collect();
-    assert_eq!(names, vec!["heal_blobs_on_retry", "persist_new_revision"]);
 }
 
 /// An acquisition outside every function is attributed to no function
 /// rather than silently landing in the previous one.
 #[test]
 fn an_acquisition_outside_any_function_says_so() {
-    let dir = scratch("verify.rs", "static B: () = { env.bucket(\"BLOBS\") };");
+    let dir = scratch("verify.rs", "static B: () = { env.bucket(\"UPLOADS\") };");
     let violations = r2::check(dir.path()).expect("run the guard");
     assert_eq!(
         violations,
@@ -226,7 +196,7 @@ fn the_committed_worker_sources_pass() {
 /// and exits non-zero - the contract CI depends on.
 #[test]
 fn the_binary_reports_and_exits_non_zero() {
-    let dir = scratch("verify.rs", "fn f(env: &Env) { env.bucket(\"BLOBS\"); }");
+    let dir = scratch("verify.rs", "fn f(env: &Env) { env.bucket(\"UPLOADS\"); }");
     Command::new(env!("CARGO_BIN_EXE_xtask-registry-guard"))
         .args(["check-r2", "--registry-dir"])
         .arg(dir.path())

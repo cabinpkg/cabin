@@ -1,13 +1,12 @@
-//! A local stand-in for the two HTTP services the wipe and the governor
-//! wipe drive: Cloudflare's R2 REST object API (list and delete) and the
-//! registry's admin governor endpoint.  Requests reach it through the
-//! real [`Buckets`] and [`crate::governor::Api`] clients, so key encoding
-//! and URL handling are exercised as they run.
+//! A local stand-in for the HTTP service the wipe drives: Cloudflare's
+//! R2 REST object API (list and delete).  Requests reach it through the
+//! real [`Buckets`] client, so key encoding and URL handling are
+//! exercised as they run.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::governor::Buckets;
+use crate::r2::Buckets;
 
 /// The account every [`Mock::buckets`] client names.
 const ACCOUNT: &str = "acct";
@@ -27,9 +26,6 @@ pub(crate) struct State {
     /// A key whose delete answers success and leaves it in place, as a
     /// writer putting it straight back would.
     pub(crate) sticky: Option<String>,
-    /// Put into the store when the admin endpoint takes its POST: a
-    /// writer landing inside the reset window.
-    pub(crate) on_post: Option<(String, String)>,
     /// Every request, as `METHOD url`.
     pub(crate) log: Vec<String>,
 }
@@ -47,7 +43,7 @@ impl State {
 }
 
 pub(crate) struct Mock {
-    pub(crate) url: String,
+    url: String,
     state: Arc<Mutex<State>>,
 }
 
@@ -90,14 +86,6 @@ impl Mock {
 
 fn answer(state: &mut State, method: &tiny_http::Method, url: &str) -> (u16, String) {
     state.log.push(format!("{method} {url}"));
-    if url == "/api/v1/admin/governor" {
-        if *method == tiny_http::Method::Post
-            && let Some(object) = state.on_post.take()
-        {
-            state.objects.insert(object);
-        }
-        return (200, r#"{"ok":true}"#.to_owned());
-    }
     let Some(rest) = url.strip_prefix(&format!("/accounts/{ACCOUNT}/r2/buckets/")) else {
         return (404, "no such route".to_owned());
     };
@@ -125,22 +113,18 @@ fn answer(state: &mut State, method: &tiny_http::Method, url: &str) -> (u16, Str
             if let Some(answer) = state.list_answer.clone() {
                 return answer;
             }
-            let mut prefix = String::new();
-            let mut per_page = usize::MAX;
-            for pair in query.split('&') {
-                match pair.split_once('=') {
-                    Some(("prefix", value)) => prefix = decode(value),
-                    Some(("per_page", value)) => per_page = value.parse().expect("per_page"),
-                    _ => {}
-                }
-            }
+            let mut per_page: usize = query
+                .strip_prefix("per_page=")
+                .expect("a listing names only its page size")
+                .parse()
+                .expect("per_page");
             if state.page_cap != 0 {
                 per_page = per_page.min(state.page_cap);
             }
             let matching: Vec<&String> = state
                 .objects
                 .iter()
-                .filter(|(held, key)| *held == bucket && key.starts_with(&prefix))
+                .filter(|(held, _)| *held == bucket)
                 .map(|(_, key)| key)
                 .collect();
             let page: Vec<serde_json::Value> = matching

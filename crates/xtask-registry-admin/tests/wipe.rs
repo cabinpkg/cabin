@@ -30,9 +30,9 @@ const OLD_ID: &str = "00000000-0000-0000-0000-000000000000";
 const NEW_ID: &str = "1234abcd-1234-abcd-1234-abcd1234abcd";
 
 /// A scratch registry root plus a fake `node` that logs every call and
-/// answers the two `SELECT`s the wipe makes with canned rows.  For the
+/// answers the one `SELECT` the wipe makes with canned rows.  For the
 /// remote mode the root also carries a `wrangler.jsonc` and a migration,
-/// and the fake account lists `cabin-registry` under [`OLD_ID`] until a
+/// and the fake account lists `registry` under [`OLD_ID`] until a
 /// `d1 create` swaps in [`NEW_ID`].
 struct World {
     dir: assert_fs::TempDir,
@@ -79,10 +79,9 @@ impl World {
 printf '%s\n' "$*" >>"{log}"
 case "$*" in
 *"d1 list"*) if [[ -e "{created}" ]]; then id={NEW_ID}; else id={OLD_ID}; fi
-echo "[{{\"name\":\"cabin-registry\",\"uuid\":\"$id\"}}]" ;;
+echo "[{{\"name\":\"registry\",\"uuid\":\"$id\"}}]" ;;
 *"d1 create"*) touch "{created}" ;;
 *"SELECT value"*launched*) echo '[{{"results":{rows},"success":true}}]' ;;
-*"SELECT value"*registry_generation*) echo '[{{"results":[{{"value":"7"}}],"success":true}}]' ;;
 *) echo '[{{"results":[],"success":true}}]' ;;
 esac
 "#,
@@ -143,15 +142,9 @@ esac
     /// deployment ran.
     fn destroyed(&self) -> bool {
         self.log().iter().any(|call| {
-            [
-                "d1 delete",
-                "d1 create",
-                "migrations apply",
-                "UPDATE meta",
-                " deploy",
-            ]
-            .iter()
-            .any(|fragment| call.contains(fragment))
+            ["d1 delete", "d1 create", "migrations apply", " deploy"]
+                .iter()
+                .any(|fragment| call.contains(fragment))
         })
     }
 
@@ -205,7 +198,7 @@ impl R2 {
         Self { url, requests }
     }
 
-    /// An account whose buckets are both already empty.
+    /// An account whose buckets are all already empty.
     fn empty() -> Self {
         Self::answering(200, r#"{"success":true,"errors":[],"result":[]}"#)
     }
@@ -262,50 +255,44 @@ fn a_refused_r2_listing_stops_the_remote_wipe_before_the_database() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "FAIL: listing cabin-registry-blobs failed",
+            "FAIL: listing registry-archives failed",
         ));
     assert!(!world.destroyed(), "{:?}", world.log());
     assert_eq!(world.config(), before);
 }
 
-/// The whole remote procedure, in order: both buckets swept (the backup
-/// one without a prefix) before the database is dropped, then the
-/// recreated id baked into both config sites, the migrations applied and
-/// stamped, the generation bumped, and the Worker redeployed.
+/// The whole remote procedure, in order: the four buckets swept, each
+/// as a whole, before the database is dropped, then the recreated id
+/// baked into the config, the migrations applied and stamped, and the
+/// Worker redeployed.
 #[test]
-fn a_remote_wipe_sweeps_both_buckets_before_recreating_the_database() {
+fn a_remote_wipe_sweeps_the_four_buckets_before_recreating_the_database() {
     let world = World::new("false");
     let r2 = R2::empty();
     world
         .remote(&r2)
         .assert()
         .success()
-        .stdout(predicates::str::contains(
-            "wipe OK (generation 7 -> 8; 0 primary and 0 backup object(s) deleted)",
-        ));
+        .stdout(predicates::str::contains("wipe OK (0 object(s) deleted)"));
     let account = "0123456789abcdef".repeat(2);
     assert_eq!(
         r2.requests(),
         [
-            format!(
-                "GET /accounts/{account}/r2/buckets/cabin-registry-blobs/objects\
-                 ?per_page=500&prefix=blobs/"
-            ),
-            format!(
-                "GET /accounts/{account}/r2/buckets/cabin-registry-backup/objects?per_page=500"
-            ),
+            "registry-archives",
+            "registry-uploads",
+            "registry-download-logs",
+            "registry-index",
         ]
+        .map(|bucket| format!("GET /accounts/{account}/r2/buckets/{bucket}/objects?per_page=500"))
     );
     let log = world.log();
     let expected = [
         " d1 list --json",
         "SELECT value FROM meta WHERE key = 'launched'",
-        "SELECT value FROM meta WHERE key = 'registry_generation'",
-        " d1 delete cabin-registry -y",
-        " d1 create cabin-registry",
+        " d1 delete registry -y",
+        " d1 create registry",
         " d1 list --json",
         " d1 migrations apply DB --remote",
-        "UPDATE meta SET value = '8' WHERE key = 'registry_generation'",
         " deploy",
     ];
     assert_eq!(log.len(), expected.len(), "{log:?}");
@@ -360,9 +347,7 @@ fn a_local_wipe_clears_the_emulated_state_and_nothing_else() {
         .wipe(&["--local"])
         .assert()
         .success()
-        .stdout(predicates::str::contains(
-            "local wipe OK (generation 7 -> 8)",
-        ));
+        .stdout(predicates::str::contains("local wipe OK"));
     let decoys: Vec<&str> = EMULATED
         .iter()
         .filter(|(_, decoy)| *decoy)
@@ -372,9 +357,7 @@ fn a_local_wipe_clears_the_emulated_state_and_nothing_else() {
     let log = world.log();
     let expected = [
         "SELECT value FROM meta WHERE key = 'launched'",
-        "SELECT value FROM meta WHERE key = 'registry_generation'",
         "d1 migrations apply DB --local",
-        "UPDATE meta SET value = '8' WHERE key = 'registry_generation'",
     ];
     assert_eq!(log.len(), expected.len(), "{log:?}");
     for (call, fragment) in log.iter().zip(expected) {

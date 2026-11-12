@@ -99,6 +99,12 @@ const signinUsers = () => {
     "fresh-old": { id: 4, login: "veteran", created_at: "2008-01-14T04:33:35Z" },
   };
 };
+// The Cloudflare purge API, which the registry reaches through
+// CLOUDFLARE_API_BASE: POST /zones/smoke-zone/purge_cache records the
+// URLs it accepted and GET /__purge/urls lists them. POST /__purge/fail
+// makes it report failure until POST /__purge/ok.
+const purged = [];
+let purgeFails = false;
 http.createServer((req, res) => {
   res.setHeader("content-type", "application/json");
   if (req.method === "POST" && (req.url === "/__drift/on" || req.url === "/__drift/off")) {
@@ -113,6 +119,23 @@ http.createServer((req, res) => {
     }
     signin = mode;
     res.end("{}");
+  } else if (req.method === "POST" && (req.url === "/__purge/fail" || req.url === "/__purge/ok")) {
+    purgeFails = req.url === "/__purge/fail";
+    res.end("{}");
+  } else if (req.method === "GET" && req.url === "/__purge/urls") {
+    res.end(JSON.stringify({ urls: purged }));
+  } else if (req.method === "POST" && req.url === "/zones/smoke-zone/purge_cache") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      if (req.headers.authorization !== "Bearer smoke-purge-token" || purgeFails) {
+        res.statusCode = purgeFails ? 500 : 403;
+        res.end(JSON.stringify({ success: false, errors: [{ code: 0, message: "refused" }] }));
+        return;
+      }
+      purged.push(...JSON.parse(body).files);
+      res.end(JSON.stringify({ success: true, errors: [], messages: [], result: { id: "smoke" } }));
+    });
   } else if (req.method === "GET" && req.url === "/.well-known/jwks") {
     // Unauthenticated, like GitHub's real JWKS. Counted, so the
     // admission leg can bound how many upstream fetches an

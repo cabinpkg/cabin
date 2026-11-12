@@ -30,10 +30,18 @@ use std::path::Path;
 use serde_json::Value;
 
 /// The bindings the Worker code looks up by name (`src/glue/`,
-/// `src/web_glue.rs`, `src/backup_glue.rs`, `src/governor_client.rs`).
-const DATABASE: &str = "cabin-registry";
-const BLOBS_BUCKET: &str = "cabin-registry-blobs";
-const BACKUP_BUCKET: &str = "cabin-registry-backup";
+/// `src/web_glue.rs`, `src/governor_client.rs`).
+const DATABASE: &str = "registry";
+
+/// (binding, bucket).  The wipe tooling empties the buckets by these
+/// names, so a binding moved to another bucket would point at one the
+/// wipe leaves full.
+const BUCKETS: [(&str, &str); 4] = [
+    ("ARCHIVES", "registry-archives"),
+    ("UPLOADS", "registry-uploads"),
+    ("DOWNLOAD_LOGS", "registry-download-logs"),
+    ("INDEX", "registry-index"),
+];
 
 /// The scheduled handler runs its jobs on the exact breaker expression
 /// and nothing on any other schedule (`src/glue/mod.rs`).
@@ -240,7 +248,7 @@ fn validate_bindings<'a>(config: &'a Value, failures: &mut Vec<String>) -> Optio
         failures,
     );
 
-    for (binding, bucket) in [("BLOBS", BLOBS_BUCKET), ("BACKUP", BACKUP_BUCKET)] {
+    for (binding, bucket) in BUCKETS {
         require(
             array(config, "r2_buckets").iter().any(|entry| {
                 entry.get("binding") == Some(&Value::from(binding))

@@ -1,13 +1,49 @@
-//! Executed-semantics tests for `src/sql/packages.rs` (and the meta
-//! accounting its write path drives): publish, yank, verification,
-//! search, and the revision guards.
+//! Executed-semantics tests for `src/sql/packages.rs`: yank,
+//! verification, search, and how the admission gates treat a package's
+//! names and a version's revisions.
 
 use cabin_registry_worker::sql;
 
-use crate::common::{Limits, migrated_connection, seed_scope_collision};
+use crate::common::{
+    Limits, Op, admit_new, admit_revival, archive_verified, migrated_connection, reject, rows,
+    seed_scope_collision,
+};
 
-/// The UTC day the seeded and test stamps fall in.
-const DAY: &str = "2026-07-15T";
+/// One 10-byte default-class upload by the seeded user 2, under an
+/// upload id named after its revision.
+fn upload<'a>(
+    scope: &'a str,
+    name: &'a str,
+    version: &'a str,
+    revision: &'a str,
+    opt_in: bool,
+    stamp: &'a str,
+) -> Op<'a> {
+    Op {
+        user: 2.0,
+        class: "default",
+        scope,
+        name,
+        version,
+        revision,
+        metadata: "{}",
+        size: 10.0,
+        opt_in,
+        stamp,
+        upload_id: revision,
+    }
+}
+
+/// Whether a batch was admitted: every statement changed one row, or
+/// none changed any.
+fn admitted(results: &[(usize, i32)]) -> bool {
+    let changed: Vec<usize> = results.iter().map(|&(changed, _)| changed).collect();
+    assert!(
+        changed.iter().all(|&n| n == changed[0]) && changed[0] <= 1,
+        "{changed:?}"
+    );
+    changed[0] == 1
+}
 
 /// The scoped statements executed against colliding `(name, version)`
 /// rows: `prepare` alone cannot catch a missing scope predicate or a
@@ -21,14 +57,17 @@ fn scoped_statements_never_cross_scopes() {
     seed_scope_collision(&conn);
 
     // Reads address exactly one scope's row.
-    let checksum: String = conn
+    let artifact: (String, Option<String>) = conn
         .query_row(
             sql::ARTIFACT_BY_REVISION,
             rusqlite::params!["alpha", "pkg", "1.0.0", "aa"],
-            |row| row.get(0),
+            |row| Ok((row.get("verification")?, row.get("upload_id")?)),
         )
         .expect("alpha artifact row");
-    assert_eq!(checksum, "aa");
+    assert_eq!(
+        artifact,
+        ("verified".to_owned(), Some("seed-aa".to_owned()))
+    );
     let verified: i64 = conn
         .query_row(
             &format!(
@@ -94,48 +133,32 @@ fn scoped_statements_never_cross_scopes() {
         .expect("verify beta");
     assert_eq!(changed, 1);
 
-    // The rejection refund's guards address one scope's row: refunding
-    // with the wrong scope bound must be a no-op even though the other
-    // scope holds the same (name, version).
+    // The rejection batch addresses one scope's row: bound to the wrong
+    // scope it flips and refunds nothing, though the other scope holds
+    // the same (name, version).
     conn.execute(
         "UPDATE revisions SET verification = 'pending' WHERE scope = 'beta'",
         [],
     )
     .expect("reset beta to pending");
-    conn.execute(
-        sql::REFUND_STORED_BYTES_ON_REJECTION,
-        rusqlite::params![
-            "bb",
-            "alpha",
-            "pkg",
-            "1.0.0",
-            20,
-            "2026-07-15T00:00:00.000Z",
-            "bb"
-        ],
-    )
-    .expect("refund bound to the wrong scope");
-    let stored: String = conn
-        .query_row(sql::META_VALUE, ["total_stored_bytes"], |row| row.get(0))
-        .expect("stored bytes");
-    assert_eq!(stored, "30", "a wrong-scope refund must not fire");
-    conn.execute(
-        sql::REFUND_STORED_BYTES_ON_REJECTION,
-        rusqlite::params![
-            "bb",
-            "beta",
-            "pkg",
-            "1.0.0",
-            20,
-            "2026-07-15T00:00:00.000Z",
-            "bb"
-        ],
-    )
-    .expect("refund bound to the right scope");
-    let stored: String = conn
-        .query_row(sql::META_VALUE, ["total_stored_bytes"], |row| row.get(0))
-        .expect("stored bytes");
-    assert_eq!(stored, "10", "the right-scope refund fires exactly once");
+    let stored = || rows(&conn, "SELECT stored_bytes FROM users WHERE id = 2");
+    let rejection = |scope: &str| {
+        let listed = "2026-07-15T00:00:00.000Z";
+        let op = upload(scope, "pkg", "1.0.0", "bb", false, listed);
+        reject(&conn, &op, listed, "2026-07-15T02:00:00.000Z")
+    };
+    assert_eq!(rejection("alpha"), 0);
+    assert_eq!(
+        stored(),
+        ["Integer(30)"],
+        "a wrong-scope refund must not fire"
+    );
+    assert_eq!(rejection("beta"), 1);
+    assert_eq!(
+        stored(),
+        ["Integer(10)"],
+        "the right-scope refund fires once"
+    );
 }
 
 /// Seeds one user plus the packages and versions the search,
@@ -206,6 +229,7 @@ fn seed_search_corpus(conn: &rusqlite::Connection) {
             '2026-07-18T00:00:00.000Z', 10, 2, 'verified');"#,
     )
     .expect("seed the search corpus");
+    archive_verified(conn);
 }
 
 /// Runs [`sql::SEARCH_VERIFIED_VERSIONS`] with the term the session
@@ -286,6 +310,7 @@ fn catalog_rows_are_the_current_revisions_of_unyanked_verified_versions() {
         [],
     )
     .expect("pending respin and superseded revision");
+    archive_verified(&conn);
 
     let mut statement = conn
         .prepare(sql::CATALOG_VERSIONS)
@@ -394,11 +419,15 @@ fn reverse_dependencies_match_exact_scoped_keys_on_verified_rows_only() {
 }
 
 /// The `-`/`_` twin fold, its per-scope and self-exclusion rules, and
-/// the matching in-batch guards on the publish inserts are invisible
-/// to `prepare`, so they are executed here.
+/// the matching condition of the admission gate are invisible to
+/// `prepare`, so they are executed here.
 #[test]
 fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
-    let limits = Limits::of("default");
+    // Room for every upload below to stay pending.
+    let limits = Limits {
+        pending: 100.0,
+        ..Limits::of("default")
+    };
     let conn = migrated_connection();
     seed_scope_collision(&conn);
 
@@ -425,231 +454,36 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
     );
     assert_eq!(twins("beta", "foo_bar"), 0, "the collision is per scope");
 
-    // The guarded inserts suppress a twin (both statements, zero
-    // changes), pass an unrelated name, and keep accepting the
-    // existing name itself - the self exclusion.
-    let insert_package = |scope: &str, name: &str| -> usize {
-        conn.execute(
-            sql::INSERT_PACKAGE,
-            rusqlite::params![
-                scope,
-                name,
-                "2026-07-15T01:00:00.000Z",
-                2,
-                10,
-                limits.bytes,
-                DAY,
-                limits.packages_daily,
-                limits.packages_total
-            ],
-        )
-        .expect("guarded package insert")
+    // The gate refuses a twin, admits an unrelated name and the same
+    // name in another scope, and keeps admitting the existing name
+    // itself - the self exclusion.
+    let admit = |scope: &str, name: &str, version: &str, revision: &str| -> bool {
+        let op = upload(
+            scope,
+            name,
+            version,
+            revision,
+            false,
+            "2026-07-15T01:00:00.000Z",
+        );
+        admitted(&admit_new(&conn, &op, &limits))
     };
-    // The version-row + revision pair, exactly as one publish batch
-    // runs them; the returned count is the revision insert's (the
-    // twin signal).
-    let insert_version = |scope: &str, name: &str, version: &str| -> usize {
-        conn.execute(
-            sql::INSERT_VERSION_ROW,
-            rusqlite::params![
-                scope,
-                name,
-                version,
-                2,
-                10,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded version-row insert");
-        conn.execute(
-            sql::INSERT_REVISION,
-            rusqlite::params![
-                scope,
-                name,
-                version,
-                "ee",
-                "ee",
-                "{}",
-                "2026-07-15T01:00:00.000Z",
-                10,
-                2,
-                0,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded revision insert")
-    };
-    assert_eq!(insert_package("alpha", "foo_bar"), 0);
-    assert_eq!(insert_version("alpha", "foo_bar", "1.0.0"), 0);
-    assert_eq!(insert_package("alpha", "other"), 1);
-    assert_eq!(insert_version("alpha", "other", "1.0.0"), 1);
-    assert_eq!(
-        insert_package("alpha", "foo-bar"),
-        0,
-        "OR IGNORE on the existing row"
-    );
-    assert_eq!(insert_version("alpha", "foo-bar", "2.0.0"), 1);
+    assert!(!admit("alpha", "foo_bar", "1.0.0", "e1"));
+    assert!(admit("alpha", "other", "1.0.0", "e2"));
+    assert!(admit("beta", "foo_bar", "1.0.0", "e3"));
+    assert!(admit("alpha", "foo-bar", "2.0.0", "e4"));
 
     // Legacy twins (possible only through operator surgery or restored
     // data) keep receiving new versions: the twin policy gates package
-    // creation, and the version guard only requires its own package
-    // row.
+    // creation, not a publish into a package that exists.
     conn.execute(
         "INSERT INTO packages (scope, name, created_at, created_by)
            VALUES ('alpha', 'foo_bar', '2026-07-15T00:00:00.000Z', 2)",
         [],
     )
     .expect("seed the legacy twin directly");
-    assert_eq!(insert_version("alpha", "foo-bar", "3.0.0"), 1);
-    assert_eq!(insert_version("alpha", "foo_bar", "3.0.0"), 1);
-}
-
-/// The publish accounting decides before the insert, against the same
-/// pre-insert state and under the same guards - invisible to
-/// `prepare`, so the batches' statements are executed here in glue
-/// order.  Three losing shapes must add nothing: a suppressed twin, a
-/// racing byte-identical publish of the same revision key (which must
-/// lose by zero changed rows, not by aborting the batch on the
-/// primary key), and a shared blob already counted by another live
-/// row.
-#[test]
-#[allow(clippy::too_many_lines)] // the batch statements' full bind lists
-fn publish_accounting_mirrors_the_insert_guards() {
-    let limits = Limits::of("default");
-    let conn = migrated_connection();
-    seed_scope_collision(&conn);
-    let stored = |conn: &rusqlite::Connection| -> String {
-        conn.query_row(
-            "SELECT value FROM meta WHERE key = 'total_stored_bytes'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("stored bytes")
-    };
-    let account = |scope: &str, name: &str, version: &str, checksum: &str, size: i64| {
-        conn.execute(
-            sql::COUNT_STORED_BYTES_ON_PUBLISH,
-            rusqlite::params![
-                checksum,
-                size,
-                scope,
-                name,
-                version,
-                checksum,
-                0,
-                2,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("accounting upsert");
-    };
-    let insert = |scope: &str, name: &str, version: &str, stamp: &str| -> usize {
-        conn.execute(
-            sql::INSERT_REVISION,
-            rusqlite::params![
-                scope,
-                name,
-                version,
-                "ee",
-                "ee",
-                "{}",
-                stamp,
-                40,
-                2,
-                0,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded revision insert")
-    };
-
-    let package = |name: &str, stamp: &str| -> usize {
-        conn.execute(
-            sql::INSERT_PACKAGE,
-            rusqlite::params![
-                "alpha",
-                name,
-                stamp,
-                2,
-                40,
-                limits.bytes,
-                DAY,
-                limits.packages_daily,
-                limits.packages_total
-            ],
-        )
-        .expect("guarded package insert")
-    };
-    let version_row = |name: &str, version: &str| -> usize {
-        conn.execute(
-            sql::INSERT_VERSION_ROW,
-            rusqlite::params![
-                "alpha",
-                name,
-                version,
-                2,
-                40,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded version-row insert")
-    };
-
-    // The winner's batch: package + version land, no live reference
-    // to checksum 'ee' exists yet, so the accounting counts the bytes
-    // and the insert applies.
-    package("foo-bar", "2026-07-15T01:00:00.000Z");
-    version_row("foo-bar", "1.0.0");
-    account("alpha", "foo-bar", "1.0.0", "ee", 40);
-    assert_eq!(
-        insert("alpha", "foo-bar", "1.0.0", "2026-07-15T01:00:00.000Z"),
-        1
-    );
-    assert_eq!(stored(&conn), "70", "30 seeded + the winner's 40");
-
-    // A racing byte-identical publish of the same version: its
-    // preflight raced the winner's commit, so its batch still runs -
-    // the same-key guard suppresses the insert cleanly (zero rows, no
-    // primary-key abort) and the mirrored accounting adds nothing.
-    account("alpha", "foo-bar", "1.0.0", "ee", 40);
-    assert_eq!(
-        insert("alpha", "foo-bar", "1.0.0", "2026-07-15T01:00:01.000Z"),
-        0,
-        "the same-key race must lose by the guard, not the primary key"
-    );
-    assert_eq!(stored(&conn), "70", "the racing loser must add nothing");
-
-    // The twin's batch: package and version row suppressed, so the
-    // version-exists conjunct refuses both the count and the insert.
-    assert_eq!(package("foo_bar", "2026-07-15T01:00:01.000Z"), 0);
-    assert_eq!(version_row("foo_bar", "1.0.0"), 0);
-    account("alpha", "foo_bar", "1.0.0", "ee", 40);
-    assert_eq!(
-        insert("alpha", "foo_bar", "1.0.0", "2026-07-15T01:00:01.000Z"),
-        0
-    );
-    assert_eq!(stored(&conn), "70", "the suppressed twin must add nothing");
-
-    // A different version publishing the same bytes: the insert lands
-    // (its own revision key), but the blob is already a live row's -
-    // no double count.
-    version_row("foo-bar", "2.0.0");
-    account("alpha", "foo-bar", "2.0.0", "ee", 40);
-    assert_eq!(
-        insert("alpha", "foo-bar", "2.0.0", "2026-07-15T01:00:02.000Z"),
-        1
-    );
-    assert_eq!(stored(&conn), "70", "a shared blob is counted once");
+    assert!(admit("alpha", "foo-bar", "3.0.0", "e5"));
+    assert!(admit("alpha", "foo_bar", "3.0.0", "e6"));
 }
 
 /// The corpus listing's vetted flag and deterministic order are
@@ -691,88 +525,67 @@ fn admin_packages_reports_names_and_vetted_flags_deterministically() {
     );
 }
 
-/// The `new-revision` opt-in guard lives inside [`sql::INSERT_REVISION`]
-/// itself, so two concurrent publishes cannot both slip past a stale
-/// preflight read: without the flag, an insert beside a live
-/// different-bytes revision changes zero rows; with it, the respin
-/// lands and the superseded revision stays.
+/// The `new-revision` opt-in is a condition of the admission gates
+/// themselves, so two concurrent publishes cannot both slip past a
+/// stale preflight read: without the flag, an upload beside a live
+/// different-bytes revision is refused; with it, the respin lands and
+/// the superseded revision stays.
 #[test]
-fn revision_opt_in_guard_is_enforced_inside_the_insert() {
+fn revision_opt_in_is_enforced_inside_the_gates() {
     let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
-
-    let insert = |revision: &str, checksum: &str, opt_in: i64| -> usize {
-        conn.execute(
-            sql::INSERT_REVISION,
-            rusqlite::params![
-                "alpha",
-                "pkg",
-                "1.0.0",
-                revision,
-                checksum,
-                "{}",
-                "2026-07-15T02:00:00.000Z",
-                10,
-                2,
-                opt_in,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded revision insert")
+    let new = |revision: &str, opt_in: bool| -> bool {
+        let op = upload(
+            "alpha",
+            "pkg",
+            "1.0.0",
+            revision,
+            opt_in,
+            "2026-07-15T02:00:00.000Z",
+        );
+        admitted(&admit_new(&conn, &op, &limits))
     };
 
     // alpha/pkg@1.0.0 already has verified revision 'aa': different
-    // bytes without the opt-in are suppressed by the guard.
-    assert_eq!(insert("a2", "a2", 0), 0);
+    // bytes without the opt-in are refused.
+    assert!(!new("a2", false));
     // The opt-in lands the respin; the original revision remains.
-    assert_eq!(insert("a2", "a2", 1), 1);
-    let revisions: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM revisions WHERE scope = 'alpha' AND name = 'pkg'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("revision count");
-    assert_eq!(revisions, 2);
+    assert!(new("a2", true));
+    assert_eq!(
+        rows(
+            &conn,
+            "SELECT revision FROM revisions WHERE scope = 'alpha' ORDER BY 1"
+        ),
+        ["Text(\"a2\")", "Text(\"aa\")"]
+    );
 
     // A version whose only revisions are rejected accepts a fresh one
     // without the flag - the recovery path.
     conn.execute(
-        "UPDATE revisions SET verification = 'rejected' WHERE scope = 'alpha'",
+        "UPDATE revisions SET verification = 'rejected', archived_at = NULL \
+         WHERE scope = 'alpha'",
         [],
     )
     .expect("reject both revisions");
-    assert_eq!(insert("a3", "a3", 0), 1);
+    assert!(new("a3", false));
 
-    // The revival guard mirrors the insert's: an unflagged revival of a
-    // rejected revision beside the now-live different-bytes 'a3' row is
-    // suppressed; the flag lets it through.
-    let revive = |revision: &str, checksum: &str, opt_in: i64| -> usize {
-        conn.execute(
-            sql::REVIVE_REJECTED_REVISION,
-            rusqlite::params![
-                "{}",
-                "2026-07-15T03:00:00.000Z",
-                2,
-                "alpha",
-                "pkg",
-                opt_in,
-                "1.0.0",
-                revision,
-                checksum,
-                10,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded revival")
+    // The revival gate holds the same condition: an unflagged revival
+    // of a rejected revision beside the now-live different-bytes 'a3'
+    // is refused; the flag lets it through.
+    let revive = |opt_in: bool| -> bool {
+        let op = upload(
+            "alpha",
+            "pkg",
+            "1.0.0",
+            "aa",
+            opt_in,
+            "2026-07-15T03:00:00.000Z",
+        );
+        admitted(&admit_revival(&conn, &op, &limits))
     };
-    assert_eq!(revive("aa", "aa", 0), 0);
-    assert_eq!(revive("aa", "aa", 1), 1);
+    assert!(!revive(false));
+    assert!(revive(true));
 }
 
 /// `current_revisions` is the single served-revision definition: per
@@ -811,13 +624,17 @@ fn current_revisions_view_serves_the_newest_verified_revision() {
     .expect("pending respin");
     assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
 
-    // Once verified, the newer publish time takes over, and both
-    // revisions stay listed for the composed document.
+    // Nor does a verified one whose archive is not in ARCHIVES yet.
     conn.execute(
         "UPDATE revisions SET verification = 'verified' WHERE revision = 'a2'",
         [],
     )
     .expect("verify the respin");
+    assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
+
+    // Once its archive is placed, the newer publish time takes over,
+    // and both revisions stay listed for the composed document.
+    archive_verified(&conn);
     assert_eq!(current(), Some(("a2".to_owned(), "a2".to_owned())));
     let listed: i64 = conn
         .query_row(
@@ -874,67 +691,41 @@ fn package_document_reads_seek_the_package() {
 }
 
 /// A respin may change what resolution reads: under the opt-in, a
-/// revision whose `dependencies` differ from the live one's inserts and
-/// counts its bytes, and the read plane lists each revision's own
-/// stored document for its `resolution`.
+/// revision whose `dependencies` differ from the live one's is admitted
+/// and charged, and the read plane lists each revision's own stored
+/// document for its `resolution`.
 #[test]
 fn a_respin_may_change_resolution_metadata() {
-    let limits = Limits::of("default");
     let conn = migrated_connection();
     seed_scope_collision(&conn);
     let changed = r#"{"dependencies":{"acme/b":"^1"}}"#;
-    conn.execute(
-        sql::COUNT_STORED_BYTES_ON_PUBLISH,
-        rusqlite::params![
-            "cc",
-            5,
+    let respin = Op {
+        metadata: changed,
+        size: 5.0,
+        ..upload(
             "alpha",
             "pkg",
             "1.0.0",
             "cc",
-            1,
-            2,
-            limits.bytes,
-            DAY,
-            limits.versions_daily
-        ],
-    )
-    .expect("accounting upsert");
-    let inserted = conn
-        .execute(
-            sql::INSERT_REVISION,
-            rusqlite::params![
-                "alpha",
-                "pkg",
-                "1.0.0",
-                "cc",
-                "cc",
-                changed,
-                "2026-07-15T02:00:00.000Z",
-                5,
-                2,
-                1,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
+            true,
+            "2026-07-15T02:00:00.000Z",
         )
-        .expect("respin insert");
-    assert_eq!(inserted, 1, "a dependency-changing respin must land");
-    let stored: String = conn
-        .query_row(
-            "SELECT value FROM meta WHERE key = 'total_stored_bytes'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("stored bytes");
-    assert_eq!(stored, "35");
+    };
+    assert!(
+        admitted(&admit_new(&conn, &respin, &Limits::of("default"))),
+        "a dependency-changing respin must land"
+    );
+    assert_eq!(
+        rows(&conn, "SELECT stored_bytes FROM users WHERE id = 2"),
+        ["Integer(35)"]
+    );
 
     conn.execute(
         "UPDATE revisions SET verification = 'verified' WHERE revision = 'cc'",
         [],
     )
     .expect("verify the respin");
+    archive_verified(&conn);
     let mut listed = conn
         .prepare(sql::VERIFIED_REVISIONS_BY_PACKAGE)
         .expect("prepare listing");
@@ -987,197 +778,6 @@ fn version_yank_state_serves_the_yanked_and_verified_columns() {
     assert_eq!(verified, 0, "a pending-only version is not yankable");
 }
 
-/// The revival accounting's guards mirror the revival flip's - the
-/// opt-in conjunct included - so a batch whose flip the opt-in guard
-/// refuses adds nothing to `total_stored_bytes` even though both
-/// statements commit in the same transaction.
-#[test]
-fn a_refused_revival_never_counts_its_bytes() {
-    let limits = Limits::of("default");
-    let conn = migrated_connection();
-    seed_scope_collision(&conn);
-    // Reject alpha's revision, refund its 10 bytes, then land a live
-    // different-bytes sibling: the revival of 'aa' now needs the
-    // opt-in.
-    conn.execute_batch(
-        "UPDATE revisions SET verification = 'rejected' WHERE scope = 'alpha';
-         UPDATE meta SET value = '20' WHERE key = 'total_stored_bytes';
-         INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
-                                published_at, archive_size, published_by, verification)
-           VALUES ('alpha', 'pkg', '1.0.0', 'a2', 'a2', '{}',
-                   '2026-07-15T02:00:00.000Z', 10, 2, 'pending');",
-    )
-    .expect("reject alpha and land a live sibling");
-    let stored = || -> String {
-        conn.query_row(sql::META_VALUE, ["total_stored_bytes"], |row| row.get(0))
-            .expect("stored bytes")
-    };
-
-    // The losing batch, statement order as in the glue: accounting
-    // first, then the guarded flip - both with opt-in 0.
-    conn.execute(
-        sql::COUNT_STORED_BYTES_ON_REVIVAL,
-        rusqlite::params![
-            "alpha",
-            "pkg",
-            "1.0.0",
-            "aa",
-            "aa",
-            10,
-            "aa",
-            0,
-            "2026-07-15T03:00:00.000Z",
-            2,
-            limits.bytes,
-            DAY,
-            limits.versions_daily
-        ],
-    )
-    .expect("revival accounting");
-    let flipped = conn
-        .execute(
-            sql::REVIVE_REJECTED_REVISION,
-            rusqlite::params![
-                "{}",
-                "2026-07-15T03:00:00.000Z",
-                2,
-                "alpha",
-                "pkg",
-                0,
-                "1.0.0",
-                "aa",
-                "aa",
-                10,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded revival");
-    assert_eq!(flipped, 0, "the opt-in guard must refuse the flip");
-    assert_eq!(stored(), "20", "a refused revival must add nothing");
-
-    // With the opt-in both fire together and the bytes are re-counted.
-    conn.execute(
-        sql::COUNT_STORED_BYTES_ON_REVIVAL,
-        rusqlite::params![
-            "alpha",
-            "pkg",
-            "1.0.0",
-            "aa",
-            "aa",
-            10,
-            "aa",
-            1,
-            "2026-07-15T03:00:00.000Z",
-            2,
-            limits.bytes,
-            DAY,
-            limits.versions_daily
-        ],
-    )
-    .expect("revival accounting");
-    let flipped = conn
-        .execute(
-            sql::REVIVE_REJECTED_REVISION,
-            rusqlite::params![
-                "{}",
-                "2026-07-15T03:00:00.000Z",
-                2,
-                "alpha",
-                "pkg",
-                1,
-                "1.0.0",
-                "aa",
-                "aa",
-                10,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded revival");
-    assert_eq!(flipped, 1);
-    assert_eq!(stored(), "30");
-}
-
-/// A revival must advance the rejected generation's `published_at`: an
-/// equal or earlier stamp (a Worker clock behind the one that stamped
-/// the rejected generation) changes zero rows and counts zero bytes, so
-/// `(checksum, published_at)` names one publish event and a verdict
-/// listed against the rejected generation can never bind the revival.
-#[test]
-fn revival_must_advance_the_rejected_generations_stamp() {
-    let limits = Limits::of("default");
-    let conn = migrated_connection();
-    seed_scope_collision(&conn);
-    conn.execute(
-        "UPDATE revisions SET verification = 'rejected' WHERE revision = 'aa'",
-        [],
-    )
-    .expect("reject aa");
-    let stored = || -> String {
-        conn.query_row(
-            "SELECT value FROM meta WHERE key = 'total_stored_bytes'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("stored bytes")
-    };
-    let revive_count = |stamp: &str| {
-        conn.execute(
-            sql::COUNT_STORED_BYTES_ON_REVIVAL,
-            rusqlite::params![
-                "alpha",
-                "pkg",
-                "1.0.0",
-                "aa",
-                "aa",
-                10,
-                "aa",
-                1,
-                stamp,
-                2,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("revival accounting");
-    };
-    let revive = |stamp: &str| -> usize {
-        conn.execute(
-            sql::REVIVE_REJECTED_REVISION,
-            rusqlite::params![
-                "{}",
-                stamp,
-                2,
-                "alpha",
-                "pkg",
-                1,
-                "1.0.0",
-                "aa",
-                "aa",
-                10,
-                limits.bytes,
-                DAY,
-                limits.versions_daily
-            ],
-        )
-        .expect("guarded revival")
-    };
-
-    // The seeded row was stamped 2026-07-15T00:00:00.000Z.
-    for stale in ["2026-07-15T00:00:00.000Z", "2026-07-14T23:59:59.999Z"] {
-        revive_count(stale);
-        assert_eq!(revive(stale), 0, "a stamp that does not advance must lose");
-        assert_eq!(stored(), "30", "a refused revival must add nothing");
-    }
-    revive_count("2026-07-15T00:00:00.001Z");
-    assert_eq!(revive("2026-07-15T00:00:00.001Z"), 1);
-    assert_eq!(stored(), "40", "the applied revival re-counts its bytes");
-}
-
 /// A verdict lands only on the pending generation the verifier listed:
 /// a stale `published_at` (a byte-identical revival), other bytes, or a
 /// row no longer pending changes nothing, for either verdict.
@@ -1187,24 +787,20 @@ fn verdicts_apply_only_to_the_listed_pending_generation() {
     seed_scope_collision(&conn);
     let listed = "2026-07-15T00:00:00.000Z";
     let stale = "2026-07-14T00:00:00.000Z";
+    let now = "2026-07-15T01:00:00.000Z";
     let apply = |statement: &str, checksum: &str, published_at: &str| {
-        conn.execute(
-            statement,
-            rusqlite::params![
-                if statement == sql::MARK_REVISION_VERIFIED {
-                    "2026-07-15T01:00:00.000Z"
-                } else {
-                    "unsafe archive"
-                },
-                "beta",
-                "pkg",
-                "1.0.0",
-                checksum,
-                published_at,
-                "bb"
-            ],
-        )
-        .expect("apply the verdict")
+        let scoped = ["beta", "pkg", "1.0.0", checksum, published_at, "bb"];
+        let binds: Vec<&str> = if statement == sql::MARK_REVISION_VERIFIED {
+            [now].into_iter().chain(scoped).collect()
+        } else {
+            ["unsafe archive"]
+                .into_iter()
+                .chain(scoped)
+                .chain([now])
+                .collect()
+        };
+        conn.execute(statement, rusqlite::params_from_iter(binds))
+            .expect("apply the verdict")
     };
     for statement in [sql::MARK_REVISION_VERIFIED, sql::MARK_REVISION_REJECTED] {
         conn.execute(

@@ -120,10 +120,8 @@ pub enum ApiRoute<'a> {
         name: &'a str,
         version: &'a str,
     },
-    /// `GET`/`POST /api/v1/admin/governor`: the governor ledger's
-    /// operator surface - usage snapshot, evidence-backed release, the
-    /// pre-launch ledger wipe, and the on-demand reconcile
-    /// (`docs/runbook.md`, "The cost governor").
+    /// `GET /api/v1/admin/governor`: the governor's usage snapshot for
+    /// the operator (`docs/runbook.md`, "The cost governor").
     AdminGovernor,
     /// [`TRUSTPUB_TOKENS_PATH`]: `PUT` exchanges a GitHub Actions OIDC
     /// JWT for a short-lived `trustpub` token (a Bearer-plane route

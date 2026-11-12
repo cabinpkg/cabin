@@ -1,9 +1,6 @@
-//! The audit's public surface: the account id it reads out of
-//! `wrangler.jsonc` before it can list anything, and the CLI shim.
-//! What a listing and a D1 answer are then *read* to mean is not this
-//! crate's API, and is tested beside the code in `src/audit.rs`.
+//! The ids the commands read out of `wrangler.jsonc` before they can
+//! reach the account's buckets or its database.
 
-use assert_cmd::Command;
 use xtask_registry_admin::{declared_account_id, declared_database_id};
 
 /// The account id is read out of `wrangler.jsonc` because no wrangler
@@ -31,23 +28,6 @@ fn the_account_id_is_the_first_matching_occurrence() {
     ] {
         assert_eq!(declared_account_id(text), None, "accepted {text}");
     }
-    // The deployed config still declares one, which is what the
-    // command reads at runtime.
-    assert!(xtask_registry_admin::account_id().is_ok());
-}
-
-/// With the flag accepted, the run reaches its first requirement.
-#[test]
-fn the_audit_needs_a_cloudflare_token() {
-    Command::cargo_bin("xtask-registry-admin")
-        .unwrap()
-        .args(["backup-audit", "--keys"])
-        .env_remove("CLOUDFLARE_API_TOKEN")
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains(
-            "CLOUDFLARE_API_TOKEN is required",
-        ));
 }
 
 /// The two config-id matchers separate whitespace as JavaScript's `\s`
