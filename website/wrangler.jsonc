@@ -1,7 +1,7 @@
 {
     "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "cabin-website",
-    "compatibility_date": "2026-05-03",
+    "name": "website",
+    "compatibility_date": "2026-11-12",
     "workers_dev": false,
     "preview_urls": false,
     "previews": {},
