@@ -114,7 +114,7 @@ pub fn load_and_validate_with_project(
 /// # Errors
 ///
 /// Returns the [`PackageError`] naming the violated rule: version
-/// build metadata, `[patch]` table, build / path / unresolved
+/// build metadata, `[patch]` table, path / unresolved
 /// workspace dependency, unresolved workspace standard marker,
 /// interface-standard contradiction, or a target source path
 /// escaping the package root.
@@ -152,11 +152,6 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
     }
 
     for dep in &package.dependencies {
-        if dep.kind == cabin_core::DependencyKind::Build {
-            return Err(PackageError::BuildDependencyNotPublishable {
-                name: dep.name.as_str().to_owned(),
-            });
-        }
         match &dep.source {
             DependencySource::Path(_) => {
                 return Err(PackageError::PathDependencyNotPublishable {

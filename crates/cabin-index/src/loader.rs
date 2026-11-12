@@ -334,6 +334,8 @@ pub fn parse_package_entry(
             });
         }
         let dependencies = parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dependencies)?;
+        let build_dependencies =
+            parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.build_dependencies)?;
         let dev_dependencies =
             parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dev_dependencies)?;
         let system_dependencies =
@@ -362,6 +364,7 @@ pub fn parse_package_entry(
             version,
             VersionMetadata {
                 dependencies,
+                build_dependencies,
                 dev_dependencies,
                 system_dependencies,
                 yanked: raw_ver.yanked,
@@ -659,6 +662,7 @@ fn parse_resolution(
     raw: RawResolution,
 ) -> Result<ResolutionMetadata, IndexError> {
     let dependencies = parse_kinded_dependencies(package, version, raw.dependencies)?;
+    let build_dependencies = parse_kinded_dependencies(package, version, raw.build_dependencies)?;
     validate_links(package, version, &raw.links, &raw.standards)?;
     raw.features
         .validate()
@@ -669,6 +673,7 @@ fn parse_resolution(
         })?;
     Ok(ResolutionMetadata {
         dependencies,
+        build_dependencies,
         features: raw.features,
         standards: raw.standards,
         links: raw.links,
@@ -742,6 +747,8 @@ struct RawVersion {
     /// Normal-kind dependencies.
     #[serde(default)]
     dependencies: BTreeMap<String, RawIndexPackageDep>,
+    #[serde(default, rename = "build-dependencies")]
+    build_dependencies: BTreeMap<String, RawIndexPackageDep>,
     #[serde(default, rename = "dev-dependencies")]
     dev_dependencies: BTreeMap<String, RawIndexPackageDep>,
     /// `system-dependencies` field of this version.  Each entry
@@ -838,6 +845,8 @@ struct RawRevision {
 struct RawResolution {
     #[serde(default)]
     dependencies: BTreeMap<String, RawIndexPackageDep>,
+    #[serde(default, rename = "build-dependencies")]
+    build_dependencies: BTreeMap<String, RawIndexPackageDep>,
     #[serde(default)]
     features: cabin_core::Features,
     #[serde(default)]
@@ -972,13 +981,17 @@ mod tests {
                 "versions": {{
                     "10.2.1": {{
                         "dependencies": {{ "acme/b": "^1" }},
+                        "build-dependencies": {{ "acme/t": "^1" }},
                         "revision": "{current}",
                         "revisions": {{
                             "aaaaaaaaaaaaaaaa": {{
                                 "checksum": "sha256:{a}",
                                 "published-at": "2026-01-01T00:00:00Z",
                                 "source": {{ "type": "archive", "path": "a.zip", "format": "zip" }},
-                                "resolution": {{ "dependencies": {{ "acme/c": "{dep_req}" }} }}
+                                "resolution": {{
+                                    "dependencies": {{ "acme/c": "^2" }},
+                                    "build-dependencies": {{ "acme/u": "{dep_req}" }}
+                                }}
                             }},
                             "bbbbbbbbbbbbbbbb": {{
                                 "checksum": "sha256:{b}",
@@ -997,19 +1010,20 @@ mod tests {
         let (rev_a, rev_b) = ("aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb");
         let entry = parse_package_entry(&doc(2, rev_b, "^2"), None, &context, None).unwrap();
         let meta = &entry.versions[&semver::Version::new(10, 2, 1)];
-        let names = |meta: &VersionMetadata| {
-            meta.dependencies
-                .keys()
+        let names = |deps: &BTreeMap<PackageName, IndexPackageDependency>| {
+            deps.keys()
                 .map(PackageName::as_str)
                 .map(str::to_owned)
                 .collect::<Vec<_>>()
         };
         let mut current = meta.clone();
         current.select_revision(meta.checksum.as_ref().unwrap());
-        assert_eq!(names(&current), ["acme/b"]);
+        assert_eq!(names(&current.dependencies), ["acme/b"]);
+        assert_eq!(names(&current.build_dependencies), ["acme/t"]);
         let mut pinned = meta.clone();
         pinned.select_revision(&meta.revisions[rev_a].checksum);
-        assert_eq!(names(&pinned), ["acme/c"]);
+        assert_eq!(names(&pinned.dependencies), ["acme/c"]);
+        assert_eq!(names(&pinned.build_dependencies), ["acme/u"]);
 
         let err = parse_package_entry(&doc(2, rev_b, "not a requirement"), None, &context, None)
             .unwrap_err();

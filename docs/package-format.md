@@ -236,6 +236,9 @@ publishing a version the registry verifier rejects as `missing_source`.
   "dev-dependencies": {
     "cabin-ports/googletest": "^1.17"
   },
+  "build-dependencies": {
+    "cabin-ports/re2c": "^4"
+  },
   "system-dependencies": {
     "openssl": { "version": ">=3" }
   },
@@ -259,6 +262,7 @@ publishing a version the registry verifier rejects as `missing_source`.
 | `name`, `version` | From `[package].name` and `[package].version`. |
 | `dependencies` | Normal-kind versioned registry dependencies (`[dependencies]`).  Path / workspace dependencies cause validation to fail before metadata is generated. |
 | `dev-dependencies` *(optional)* | `[dev-dependencies]` versioned dependencies.  Omitted when empty. |
+| `build-dependencies` *(optional)* | `[build-dependencies]` versioned dependencies.  Omitted when empty. |
 | `system-dependencies` *(optional)* | Entries declared with `system = true` in any of the dependency tables, keyed by pkg-config module name: `{ name -> { "version", "dependency_kind" } }`.  Omitted when empty.  Every declared system dependency is required; the metadata document has no `required` field.  Cabin never resolves or fetches these - they round-trip purely as metadata, and `cabin build` probes them via `pkg-config`. |
 | `target` *(optional, per-entry)* | Canonical inner-expression form of a `cfg(...)` predicate copied from `[target.'cfg(...)'.<kind>]`.  Present on Cabin package and system dep entries declared under a target table; absent otherwise.  The wrapping `cfg(...)` is implicit.  See [`target-dependencies.md`](target-dependencies.md). |
 | `features` *(optional)* | The package's `[features]` declarations.  Omitted from the JSON when no features are declared. |
@@ -336,7 +340,7 @@ Behavioral notes specific to registry publish:
   this so static sparse-HTTP serving can read the same layout without rewriting.
 - The immutable unit is `(name, version, revision)`.  Republishing byte-identical bytes is a no-op
   onto the recorded revision; changed bytes for an already-published version require
-  `--new-revision`.  A respin may change `dependencies`, `features`, `standards`, or `links`;
+  `--new-revision`.  A respin may change `dependencies`, `build-dependencies`, `features`, `standards`, or `links`;
   every superseded revision keeps resolving as it was published.  See
   [`package-index.md`](package-index.md#packaging-revisions).
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a

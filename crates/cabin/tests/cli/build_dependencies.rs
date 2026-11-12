@@ -712,35 +712,116 @@ sources = ["src/main.c"]
     );
 }
 
+/// A published package's build dependencies reach its index entry,
+/// and a consumer resolves, locks, and vendors them with its normal
+/// ones.
 #[test]
-fn packaging_refuses_build_dependencies() {
+fn a_published_package_brings_its_build_dependencies() {
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    let root = assert_fs::fixture::ChildPath::new(dir.path());
-    root.child("cabin.toml")
+    let registry = dir.path().join("registry");
+    let publish = |name: &str, manifest: &str, source: &str| {
+        let root = assert_fs::fixture::ChildPath::new(dir.path().join(name));
+        root.child("cabin.toml").write_str(manifest).unwrap();
+        root.child("src/main.c").write_str(source).unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(root.path().join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(&registry)
+            .assert()
+            .success();
+    };
+    publish(
+        "gen",
+        r#"[package]
+name = "acme/gen"
+version = "1.0.0"
+c-standard = "c11"
+
+[target.gen]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        "int main(void) { return 0; }\n",
+    );
+    publish(
+        "lib",
+        r#"[package]
+name = "acme/lib"
+version = "1.0.0"
+c-standard = "c11"
+
+[build-dependencies]
+"acme/gen" = "^1"
+
+[target.lib]
+type = "library"
+sources = ["src/main.c"]
+"#,
+        "int lib_value(void) { return 7; }\n",
+    );
+    let entry = fs::read_to_string(registry.join("packages/acme/lib.json")).unwrap();
+    assert!(entry.contains("\"build-dependencies\""), "{entry}");
+
+    let app = assert_fs::fixture::ChildPath::new(dir.path().join("app"));
+    app.child("cabin.toml")
         .write_str(
             r#"[package]
 name = "app"
 version = "0.1.0"
 c-standard = "c11"
 
-[build-dependencies]
-gen = "1"
+[dependencies]
+"acme/lib" = "^1"
 
 [target.app]
-type = "library"
-sources = ["src/app.c"]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["acme/lib"]
 "#,
         )
         .unwrap();
-    root.child("src/app.c").write_str("int app;\n").unwrap();
+    app.child("src/main.c")
+        .write_str("int lib_value(void);\nint main(void) { return lib_value() == 7 ? 0 : 1; }\n")
+        .unwrap();
     cabin()
-        .current_dir(dir.path())
-        .arg("package")
+        .current_dir(app.path())
+        .args(["build", "--index-path"])
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "cannot package build dependency `gen`",
-        ));
+        .success();
+    let lockfile = fs::read_to_string(app.path().join("cabin.lock")).unwrap();
+    assert!(
+        lockfile.contains("name = \"acme/gen\"\nversion = \"1.0.0\""),
+        "{lockfile}"
+    );
+    assert!(
+        lockfile.contains("dependencies = [\"acme/gen\"]"),
+        "{lockfile}"
+    );
+
+    // The vendored index keeps the edge: an offline build resolves the
+    // same graph from it.
+    cabin()
+        .current_dir(app.path())
+        .args(["vendor", "--vendor-dir", "vendor", "--index-path"])
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    assert!(app.path().join("vendor/packages/acme/gen.json").is_file());
+    fs::remove_dir_all(&registry).unwrap();
+    cabin()
+        .current_dir(app.path())
+        .args(["build", "--offline", "--locked", "--index-path", "vendor"])
+        .arg("--cache-dir")
+        .arg(dir.path().join("vendor-cache"))
+        .assert()
+        .success();
 }
 
 /// The command of the link edge whose output path ends with `tail`.

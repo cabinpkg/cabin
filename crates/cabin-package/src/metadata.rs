@@ -38,6 +38,12 @@ pub struct PackageMetadata {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub dev_dependencies: BTreeMap<String, PackageDependencyEntry>,
+    /// Versioned `[build-dependencies]`.  Omitted when empty.
+    #[serde(
+        rename = "build-dependencies",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub build_dependencies: BTreeMap<String, PackageDependencyEntry>,
     /// `system-dependencies` field.  Each entry is
     /// `name -> { version, dependency_kind, target }`.  Omitted when
     /// empty.
@@ -148,8 +154,8 @@ impl SystemDependencyEntry {
 }
 
 /// On-disk shape of one Cabin package dependency entry inside
-/// `dependencies` / `dev-dependencies` of the canonical metadata
-/// document.
+/// `dependencies` / `dev-dependencies` / `build-dependencies` of the
+/// canonical metadata document.
 ///
 /// The simplest case - a bare version requirement with no
 /// optional / features / default-features / target overrides -
@@ -250,6 +256,7 @@ pub struct SourceMetadata {
 pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) -> PackageMetadata {
     let mut dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
     let mut dev_dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
+    let mut build_dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
     for dep in &package.dependencies {
         let Some(entry) = PackageDependencyEntry::from_dependency(dep) else {
             // Path / workspace deps are rejected during
@@ -259,8 +266,7 @@ pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) ->
         let target = match dep.kind {
             DependencyKind::Normal => &mut dependencies,
             DependencyKind::Dev => &mut dev_dependencies,
-            // Rejected during validation, like path deps.
-            DependencyKind::Build => continue,
+            DependencyKind::Build => &mut build_dependencies,
         };
         target.insert(dep.name.as_str().to_owned(), entry);
     }
@@ -295,6 +301,7 @@ pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) ->
         version,
         dependencies,
         dev_dependencies,
+        build_dependencies,
         system_dependencies,
         features: package.features.clone(),
         profiles: package.profiles.clone(),
@@ -630,6 +637,24 @@ mod tests {
         let proj = package("fmt", "10.2.1", Vec::new());
         let body = render_canonical_json(&canonical_metadata(&proj, &test_checksum())).unwrap();
         assert!(!body.contains("\"features\""));
+        assert!(!body.contains("\"build-dependencies\""));
+    }
+
+    #[test]
+    fn metadata_keeps_build_dependencies_in_their_own_table() {
+        let build = Dependency {
+            kind: cabin_core::DependencyKind::Build,
+            ..version_dep("acme/gen", "^1")
+        };
+        let proj = package("demo", "0.1.0", vec![version_dep("fmt", "^10"), build]);
+        let meta = canonical_metadata(&proj, &test_checksum());
+        assert_eq!(meta.dependencies.keys().collect::<Vec<_>>(), ["fmt"]);
+        assert_eq!(
+            meta.build_dependencies.keys().collect::<Vec<_>>(),
+            ["acme/gen"]
+        );
+        let body = render_canonical_json(&meta).unwrap();
+        assert!(body.contains("\"build-dependencies\""), "{body}");
     }
 
     #[test]

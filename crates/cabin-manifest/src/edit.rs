@@ -331,7 +331,8 @@ fn swap_workspace_for_version(table: &mut toml_edit::InlineTable, requirement: &
 
 /// The dependency pass of [`normalize_workspace_markers`]: rewrite
 /// `{ workspace = true }` dependency markers in `[dependencies]` /
-/// `[dev-dependencies]` to the workspace requirement strings.
+/// `[build-dependencies]` / `[dev-dependencies]` to the workspace
+/// requirement strings.
 /// Returns whether the document changed.
 fn substitute_dependency_markers_in(
     doc: &mut DocumentMut,
@@ -340,6 +341,7 @@ fn substitute_dependency_markers_in(
     let mut changed = false;
     for (header, kind) in [
         ("dependencies", cabin_core::DependencyKind::Normal),
+        ("build-dependencies", cabin_core::DependencyKind::Build),
         ("dev-dependencies", cabin_core::DependencyKind::Dev),
     ] {
         let Some(table) = doc.get_mut(header).and_then(Item::as_table_like_mut) else {

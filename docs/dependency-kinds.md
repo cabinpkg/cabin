@@ -120,14 +120,15 @@ dependency's `targets`.
 
 `cabin build`, `run`, and `test` build build dependencies.  What runs a build dependency's
 executable, or links its library, is the package's [build script](build-scripts.md); without one,
-the build runs nothing.  `cabin check` checks only the selected packages' own sources, and builds
-build dependencies only when a build script has to run first.  Not yet supported:
+the build runs nothing.  A package taken from a registry has its build dependencies resolved,
+fetched, and built the same way, but its build script is
+[not run](build-scripts.md#which-build-scripts-run), so nothing uses them.  `cabin check` checks
+only the selected packages' own sources, and builds build dependencies only when a build script has
+to run first.  Not yet supported:
 
 - system dependencies in the build context: `system = true` under `[build-dependencies]`, and a
   workspace member built there that declares one, are rejected,
-- `[features]` entries that name a build dependency (`gen/x`, `dep:gen`),
-- publishing a package with build dependencies: `cabin package` refuses it, because package indexes
-  do not carry them yet.
+- `[features]` entries that name a build dependency (`gen/x`, `dep:gen`).
 
 ## Lockfile behavior
 
@@ -182,7 +183,7 @@ use `workspace = true`; the two flags are mutually exclusive (the parser rejects
 | `cabin resolve` / `update` / `fetch` | Walks normal and build deps; excludes dev deps; never sees system deps.                                  |
 | `cabin build`                        | Same resolution as above.  Only **normal**-kind edges link into ordinary C/C++ targets - dev and build deps cannot resolve through `target.<X>.deps`.  Build deps build for the build machine (see [Build dependencies](#build-dependencies)). |
 | `cabin test`                         | Walks normal deps **plus** `[dev-dependencies]` of the selected primary packages, so `test` targets can depend on test-only packages.  Dev-dep activation never propagates to transitive deps. |
-| `cabin package`                      | Includes per-kind dependency tables and `system-dependencies` in the canonical metadata document; refuses build deps. |
+| `cabin package`                      | Includes per-kind dependency tables and `system-dependencies` in the canonical metadata document. |
 | `cabin publish --dry-run`            | Validates the same metadata; never touches the registry.                                                  |
 | `cabin publish --registry-dir`       | Publishes the per-kind metadata into the local file registry.                                             |
 
@@ -201,6 +202,7 @@ The on-disk shape is:
   "version": "0.1.0",
   "dependencies":      { "fmt":     ">=10 <11" },
   "dev-dependencies":  { "gtest":   "^1.14" },
+  "build-dependencies": { "gen":    "^2" },
   "system-dependencies": {
     "zlib": { "version": ">=1.2" }
   },
