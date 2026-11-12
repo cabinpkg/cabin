@@ -439,8 +439,8 @@ const BREAKER_CRON: &str = "*/15 * * * *";
 /// budgets, persist the resulting service mode - failed analytics
 /// queries leave their metric unset, which can escalate but never
 /// unblock writes, [`breaker::next_mode`]), then the governor
-/// reconciliation pass, the website catalog refresh, and a backup-queue
-/// drain. A schedule no job is registered for runs nothing.
+/// reconciliation pass and the website catalog refresh. A schedule no
+/// job is registered for runs nothing.
 #[event(scheduled)]
 pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let cron = event.cron();
@@ -458,7 +458,6 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
         }
         Err(err) => console_error!("governor reconciliation: no DB binding: {err}"),
     }
-    crate::backup_glue::drain_backup_queue(&env).await;
 }
 
 /// A JSON POST, optionally with a bearer token; used for the analytics

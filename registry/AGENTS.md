@@ -37,13 +37,13 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | D1 SQL statements (one authoritative home; the governor's Durable Object SQL stays in `src/governor.rs` and `src/governor_do.rs`) | `src/sql/` (one module per domain), validated by `tests/sql_validation/` |
 | Cost governor / budget breaker | `src/governor.rs`, `src/breaker.rs` (operator admin surface in `src/glue/bearer/governor.rs`) |
 | Browser cookies, CSRF, session plane | `src/session.rs` (runtime in `src/web_glue.rs`) |
-| Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer/` mutation/admin planes (`package.rs` publish/yank, `tokens.rs` token mint/revocation, `verifier.rs` listings/verdict, `governor.rs` ledger admin), `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |
+| Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer/` mutation/admin planes (`package.rs` publish/yank, `tokens.rs` token mint/revocation, `verifier.rs` listings/verdict, `governor.rs` ledger admin), `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/governor_client.rs`, `src/governor_do.rs` |
 
 The table routes the common areas; for anything else, the module doc
 comments in `src/` identify the owner.
 
 Unless the task is about them, do not read or touch the governor and
-breaker, the backup modules, `migrations/` (schema-change policy in
+breaker, `migrations/` (schema-change policy in
 `docs/runbook.md`), `wrangler.jsonc` (deployment), or the root-workspace
 `crates/xtask-*` registry tooling.
 

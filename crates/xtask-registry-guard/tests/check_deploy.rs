@@ -203,11 +203,6 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""migrations": [{ "tag": 1, "new_sqlite_classes": ["Governor"] }]"#,
     ),
     (
-        "lost_backup_bucket",
-        r#""binding": "BACKUP""#,
-        r#""binding": "BACKUPS""#,
-    ),
-    (
         // A lost admission binding fails closed at runtime: the gated
         // endpoints (exchange, verdict, session mint) refuse everything
         // and the queue cannot drain.

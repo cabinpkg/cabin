@@ -1,11 +1,10 @@
 //! The publish and verification core: the validation 400s that refuse
 //! before any write, the first publish, the pending version's
 //! invisibility to every reader without a verify scope, the verifier's
-//! listing/download/verdict round trip, download counting, backup
-//! replication, and the idempotent re-publish that heals the primary
-//! blob only.
+//! listing/download/verdict round trip, download counting, and the
+//! idempotent re-publish that heals the blob.
 //!
-//! Two shapes here look like they could be tidied and cannot be.
+//! One shape here looks like it could be tidied and cannot be.
 //!
 //! The **oversized verdict** must reach the Worker with no
 //! `Content-Length`, because the leg's whole subject is that the body
@@ -17,11 +16,6 @@
 //! test).  So the ordinary [`Smoke::http`] carries this leg;
 //! `send(reader)` would work too, but only because an unsized reader
 //! lands in the same branch.
-//!
-//! **The two `SETTLE` pauses** precede *negative* assertions: no
-//! backup blob for a pending version, and no backup rewrite by a
-//! re-publish.  Trimming either one turns a real assertion into a race
-//! that passes for the wrong reason.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -31,7 +25,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
-use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, output, results, wrangler};
+use xtask_registry_admin::{BLOBS_BUCKET, display, output, results, wrangler};
 
 use crate::bytes::{frame, replace_all, sha256_hex};
 use crate::context::{Base, Smoke};
@@ -40,16 +34,9 @@ use crate::servers::d1_json;
 use crate::step;
 use crate::text::{capture, contains, grep_anywhere, grep_lines, read, text, write};
 
-/// `--file /dev/null`: the two sites that only ask whether the object
-/// exists still make `wrangler` write it somewhere.
-const DEV_NULL: &str = "/dev/null";
-
-/// Every poll budget and pause in this span: `await_row_downloads`,
-/// `await_backup_blob` and the `backup_pending` drain are each
-/// 20 × 0.5s, and the two `SETTLE` pauses guard negative assertions.
+/// The poll budget of `await_row_downloads`: 20 × 0.5s.
 const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
-const SETTLE: Duration = Duration::from_secs(1);
 
 /// The unbound verdict body, sent twice: once with the publisher's
 /// bearer (the uniform 401) and once with a verifier JWT (400).
@@ -102,8 +89,7 @@ pub fn run(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     verdict_idempotence(smoke, inputs, &entry, &verdict_verified)?;
     download_counting(smoke, inputs)?;
     closed_to_outsiders(smoke, inputs)?;
-    backup_replication(inputs)?;
-    heal_primary_only(smoke, inputs, &publish_body)?;
+    heal_blob(smoke, inputs, &publish_body)?;
     byte_identical_no_op(smoke, inputs, &publish_body)
 }
 
@@ -211,13 +197,6 @@ fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
         bail!("the catalog lists a pending package: {}", text(&smoke.body));
     }
     smoke.as_publisher();
-    // And they have no backup copy: only versions that become verified
-    // enter the durable backup set (the verdict batch enqueues the
-    // work).
-    sleep(SETTLE);
-    if r2_get(BACKUP_BUCKET, &blob_key(inputs), Path::new(DEV_NULL), true)? {
-        bail!("a pending version's blob was replicated to the BACKUP bucket");
-    }
     // The source viewer gates on verified the same way; a valid range
     // makes sure the 404 is the gate, not the range policy (checked
     // first).
@@ -601,64 +580,25 @@ fn closed_to_outsiders(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<
     Ok(())
 }
 
-fn backup_replication(inputs: &PublishInputs<'_>) -> Result<()> {
-    // The verdict batch enqueued the backup work transactionally with
-    // the verified transition, and the verdict's waitUntil drain
-    // replicated it.
-    step("the verified blob replicates to the BACKUP bucket and drains its queue row");
-    let replicated = inputs.work.join("replicated.zip");
-    await_backup_blob(&blob_key(inputs), &replicated)?;
-    if read(&replicated)? != read(inputs.fixture_archive)? {
-        bail!("replicated blob differs from the published archive");
-    }
-    let mut queue_rows = String::new();
-    for _ in 0..POLLS {
-        queue_rows = backup_pending_rows(inputs)?;
-        if queue_rows == "0" {
-            break;
-        }
-        sleep(HALF_SECOND);
-    }
-    if queue_rows != "0" {
-        bail!("the drained backup queue row was not deleted");
-    }
-    Ok(())
-}
-
-fn heal_primary_only(
-    smoke: &mut Smoke,
-    inputs: &PublishInputs<'_>,
-    publish_body: &[u8],
-) -> Result<()> {
-    // The backup set is durable through the queue, not through
-    // re-publish: an idempotent no-op heals a reclaim-raced primary blob
-    // (the retry holds the bytes), while the append-only backup bucket
-    // is never rewritten by the publish path - a lost backup object is
-    // `cargo registry-backup-backfill` territory.
-    step("an idempotent re-publish heals the primary blob only");
+fn heal_blob(smoke: &mut Smoke, inputs: &PublishInputs<'_>, publish_body: &[u8]) -> Result<()> {
+    // An idempotent no-op heals a reclaim-raced blob: the retry holds
+    // the bytes.
+    step("an idempotent re-publish heals the blob");
     let key = blob_key(inputs);
-    r2_delete(BACKUP_BUCKET, &key)?;
     r2_delete(BLOBS_BUCKET, &key)?;
     smoke.wrequest("PUT", inputs.publish_path, publish_body, &[200])?;
     smoke.expect_body(r#""no_op":true"#)?;
     smoke.expect_body(r#""verification":"verified""#)?;
-    // The heal runs before the response, so the primary object itself is
-    // back (the artifact route could otherwise answer from the edge
-    // cache).
+    // The heal runs before the response, so the object itself is back
+    // (the artifact route could otherwise answer from the edge cache).
     let healed = inputs.work.join("healed.zip");
-    if !r2_get(BLOBS_BUCKET, &key, &healed, false)? {
-        bail!("the idempotent re-publish did not heal the primary blob");
+    if !r2_get(BLOBS_BUCKET, &key, &healed)? {
+        bail!("the idempotent re-publish did not heal the blob");
     }
     if read(&healed)? != read(inputs.fixture_archive)? {
-        bail!("the healed primary blob differs from the published archive");
+        bail!("the healed blob differs from the published archive");
     }
-    smoke.check(inputs.artifact_path, &[200])?;
-    sleep(SETTLE);
-    if r2_get(BACKUP_BUCKET, &key, Path::new(DEV_NULL), true)? {
-        bail!("a re-publish rewrote the append-only BACKUP bucket");
-    }
-    // Put the copy back so later legs and the local state stay coherent.
-    r2_put(BACKUP_BUCKET, &key, inputs.fixture_archive)
+    smoke.check(inputs.artifact_path, &[200])
 }
 
 fn byte_identical_no_op(
@@ -810,28 +750,6 @@ fn row_downloads_now() -> Result<String> {
     column(&json, "downloads")
 }
 
-/// Replication runs via `waitUntil` after the response, so poll the
-/// BACKUP bucket briefly.
-fn await_backup_blob(key: &str, out: &Path) -> Result<()> {
-    for _ in 0..POLLS {
-        if r2_get(BACKUP_BUCKET, key, out, true)? {
-            return Ok(());
-        }
-        sleep(HALF_SECOND);
-    }
-    bail!("blob {key} never appeared in the BACKUP bucket")
-}
-
-/// The `backup_pending` rows still queued for this blob.
-fn backup_pending_rows(inputs: &PublishInputs<'_>) -> Result<String> {
-    let json = d1_json(&format!(
-        "SELECT COUNT(*) AS n FROM backup_pending
-     WHERE key = 'blobs/sha256/{}'",
-        inputs.blob_hash
-    ))?;
-    column(&json, "n")
-}
-
 /// The first row's `name` column, as display text.
 fn column(json: &str, name: &str) -> Result<String> {
     let rows = results(json)?;
@@ -852,10 +770,8 @@ fn refund() -> Result<()> {
 }
 
 /// `wrangler r2 object get <bucket>/<key> --file <out> --local`, and
-/// whether it succeeded.  Three of the four sites expect a failure: two
-/// assert the object is absent, and the backup poll retries until it
-/// appears.  `quiet` discards stderr for those three.
-fn r2_get(bucket: &str, key: &str, out: &Path, quiet: bool) -> Result<bool> {
+/// whether it succeeded.
+fn r2_get(bucket: &str, key: &str, out: &Path) -> Result<bool> {
     let target = format!("{bucket}/{key}");
     let mut command = wrangler(&[
         "r2",
@@ -867,9 +783,6 @@ fn r2_get(bucket: &str, key: &str, out: &Path, quiet: bool) -> Result<bool> {
         "--local",
     ]);
     command.stdout(Stdio::null());
-    if quiet {
-        command.stderr(Stdio::null());
-    }
     Ok(command.status().context("run wrangler")?.success())
 }
 
@@ -878,21 +791,6 @@ fn r2_delete(bucket: &str, key: &str) -> Result<()> {
     let target = format!("{bucket}/{key}");
     output(&mut wrangler(&[
         "r2", "object", "delete", &target, "--local",
-    ]))?;
-    Ok(())
-}
-
-/// `wrangler r2 object put <bucket>/<key> --file <file> --local`.
-fn r2_put(bucket: &str, key: &str, file: &Path) -> Result<()> {
-    let target = format!("{bucket}/{key}");
-    output(&mut wrangler(&[
-        "r2",
-        "object",
-        "put",
-        &target,
-        "--file",
-        utf8(file)?,
-        "--local",
     ]))?;
     Ok(())
 }

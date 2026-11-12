@@ -5,7 +5,7 @@
 --
 -- One from-zero baseline on purpose: pre-launch the registry's data is
 -- disposable and the operator wipes and re-migrates from zero
--- (scripts/wipe.sh; docs/runbook.md, "Data policy"), so schema changes
+-- (cargo registry-wipe; docs/runbook.md, "Data policy"), so schema changes
 -- edit this file in place instead of accreting ALTER TABLE layers.
 -- Editing it deliberately leaves `migrations-applied` stale, which
 -- keeps CI's Worker deploy skipped until the operator wipes/applies
@@ -394,20 +394,6 @@ AND NOT EXISTS (
          OR (s.published_at = r.published_at AND s.revision > r.revision))
 );
 
--- The verified-artifact backup queue (see docs/runbook.md, "Disaster
--- recovery"). The verdict batch that marks a version verified enqueues
--- its blob here in the same transaction; the drain (verdict waitUntil
--- plus every breaker cron pass) copies each blob to the BACKUP bucket
--- and deletes the row on success, so a crash between the transition
--- and the copy can never lose the work. Only verified content is ever
--- replicated - pending uploads stay out of the backup set. The breaker
--- cron alerts while rows older than an hour exist.
-CREATE TABLE backup_pending (
-    key TEXT PRIMARY KEY,
-    bytes INTEGER NOT NULL,
-    enqueued_at TEXT NOT NULL
-);
-
 CREATE TABLE meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -420,7 +406,7 @@ CREATE TABLE meta (
 -- (docs/runbook.md, "Data policy"): 'false' while the registry's data
 -- is disposable (pre-launch), flipped to 'true' exactly once, by hand,
 -- as a launch-checklist item; every destructive maintenance path
--- (scripts/launch-guard.sh) reads it first and refuses while 'true'.
+-- (cargo registry-launch-guard) reads it first and refuses while 'true'.
 INSERT INTO meta (key, value) VALUES
     ('registry_generation', '1'),
     ('service_mode', 'normal'),

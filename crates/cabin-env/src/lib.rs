@@ -180,9 +180,9 @@ pub const ACTIONS_ID_TOKEN_REQUEST_TOKEN: &str = "ACTIONS_ID_TOKEN_REQUEST_TOKEN
 pub const CABIN_API_ORIGIN: &str = "CABIN_API_ORIGIN";
 
 /// Escape hatch for the governor release's extra confirmation on the
-/// BACKUP pool.  Set to exactly `1` to skip the prompt.  Releasing
-/// backup-pool accounting marks an incident rather than maintenance,
-/// which is why it carries a prompt the other pools do not.  Read by
+/// BACKUP pool.  Set to exactly `1` to skip the prompt.  Nothing
+/// recreates a backup-pool entry once it is released, which is why it
+/// carries a prompt the other pools do not.  Read by
 /// the repository's own maintainer tooling
 /// (`xtask-registry-admin`), never by the shipped `cabin` binary.
 pub const CABIN_GOVERNOR_RELEASE_BACKUP_YES: &str = "CABIN_GOVERNOR_RELEASE_BACKUP_YES";

@@ -9,7 +9,6 @@
 pub mod allowlist;
 pub mod analytics;
 pub mod auth;
-pub mod backup;
 pub mod breaker;
 pub mod catalog_refresh;
 pub mod checksum;
@@ -35,8 +34,6 @@ pub mod verify;
 #[cfg(test)]
 mod test_db;
 
-#[cfg(target_arch = "wasm32")]
-mod backup_glue;
 #[cfg(target_arch = "wasm32")]
 mod glue;
 #[cfg(target_arch = "wasm32")]

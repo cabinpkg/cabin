@@ -30,10 +30,9 @@ use std::path::Path;
 use serde_json::Value;
 
 /// The bindings the Worker code looks up by name (`src/glue/`,
-/// `src/web_glue.rs`, `src/backup_glue.rs`, `src/governor_client.rs`).
+/// `src/web_glue.rs`, `src/governor_client.rs`).
 const DATABASE: &str = "cabin-registry";
 const BLOBS_BUCKET: &str = "cabin-registry-blobs";
-const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
 /// The scheduled handler runs its jobs on the exact breaker expression
 /// and nothing on any other schedule (`src/glue/mod.rs`).
@@ -240,16 +239,14 @@ fn validate_bindings<'a>(config: &'a Value, failures: &mut Vec<String>) -> Optio
         failures,
     );
 
-    for (binding, bucket) in [("BLOBS", BLOBS_BUCKET), ("BACKUP", BACKUP_BUCKET)] {
-        require(
-            array(config, "r2_buckets").iter().any(|entry| {
-                entry.get("binding") == Some(&Value::from(binding))
-                    && entry.get("bucket_name") == Some(&Value::from(bucket))
-            }),
-            &format!("r2_buckets must bind {binding} to {bucket}"),
-            failures,
-        );
-    }
+    require(
+        array(config, "r2_buckets").iter().any(|entry| {
+            entry.get("binding") == Some(&Value::from("BLOBS"))
+                && entry.get("bucket_name") == Some(&Value::from(BLOBS_BUCKET))
+        }),
+        &format!("r2_buckets must bind BLOBS to {BLOBS_BUCKET}"),
+        failures,
+    );
     require(
         durable_object_bindings(config).iter().any(|entry| {
             entry.get("name") == Some(&Value::from("GOVERNOR"))

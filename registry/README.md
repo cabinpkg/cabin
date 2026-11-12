@@ -41,8 +41,7 @@ the registry remains closed to allowlisted maintainers:
 launch (`meta.launched` = `'false'`), the database, the primary blob
 data, and the whole backup bucket are wiped and recreated instead of
 migrated whenever the storage format changes; from launch onward the
-data is permanent and never wiped, and the backup bucket keeps its
-append-only retention. The launch guard in
+data is permanent and never wiped. The launch guard in
 `cargo registry-wipe` enforces the boundary, and flipping the flag is a
 launch-checklist item ([`docs/runbook.md`](docs/runbook.md), "Launch
 checklist").

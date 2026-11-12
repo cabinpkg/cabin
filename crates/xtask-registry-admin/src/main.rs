@@ -39,16 +39,6 @@ impl Target {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Read-only audit of the backup bucket
-    /// (`cargo registry-backup-audit`).
-    BackupAudit {
-        /// List the divergent keys.
-        #[arg(long)]
-        keys: bool,
-    },
-    /// Copy verified blobs missing from the backup bucket
-    /// (`cargo registry-backup-backfill`).
-    BackupBackfill,
     /// Safe diagnostics bundle (`cargo registry-diagnose`).
     Diagnose,
     /// The cost governor's ledger: usage | compare | reconcile
@@ -108,8 +98,6 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Command::BackupAudit { keys } => xtask_registry_admin::audit::run(keys),
-        Command::BackupBackfill => xtask_registry_admin::backfill::run(),
         Command::Diagnose => xtask_registry_admin::diagnose::run(),
         Command::Governor { rest } => governor(&rest),
         Command::LaunchGuard { target } => xtask_registry_admin::launch_guard::run(target.mode()),
