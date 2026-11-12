@@ -14,7 +14,8 @@ int main(int argc, char **argv) {
         printf("%d,", byte);
     }
     puts("0};");
-    // Flushed, not closed: started by a build script on Windows, a program
-    // that has closed its standard output fails as it exits.
+    // Flushed, not closed, to sidestep a Windows limit: a program a build
+    // script starts with `_spawnl` can fail as it exits once it has closed
+    // its standard output (docs/build-scripts.md, "Confinement").
     return ferror(input) || fflush(stdout) != 0;
 }
