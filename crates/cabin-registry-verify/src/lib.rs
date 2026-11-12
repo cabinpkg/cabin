@@ -236,6 +236,9 @@ pub enum Reason {
     /// `file contents`, or `extra file` (the archive carries a file
     /// upstream does not explain).
     UpstreamTreeMismatch(&'static str),
+    /// The archive's build script is the upstream archive's own file
+    /// of that name, unchanged.
+    UpstreamBuildScript,
 }
 
 impl Reason {
@@ -273,6 +276,7 @@ impl Reason {
             Reason::UpstreamCopyInvalid(_) => "upstream_copy_invalid",
             Reason::UpstreamPatchInvalid(_) => "upstream_patch_invalid",
             Reason::UpstreamTreeMismatch(_) => "upstream_tree_mismatch",
+            Reason::UpstreamBuildScript => "upstream_build_script",
         }
     }
 

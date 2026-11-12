@@ -702,6 +702,7 @@ mod tests {
                     links: BTreeMap::new(),
                     upstream: None,
                     license: None,
+                    build_script: None,
                 },
             );
         }
@@ -1275,6 +1276,7 @@ mod tests {
                 links: BTreeMap::new(),
                 upstream: None,
                 license: None,
+                build_script: None,
             },
         );
         IndexEntry {
@@ -1802,6 +1804,7 @@ mod tests {
                 links: BTreeMap::new(),
                 upstream: None,
                 license: None,
+                build_script: None,
             },
         );
         IndexEntry {

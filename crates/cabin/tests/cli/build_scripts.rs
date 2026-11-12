@@ -498,8 +498,8 @@ fn a_build_script_runs_again_only_when_what_it_depends_on_changes() {
 }
 
 /// Only the building commands build and run a build script, `cabin
-/// check` among them; a root holding both spellings is refused; and a
-/// file of another name is no build script.
+/// check` among them, and publishing is not one; a root holding both
+/// spellings is refused; and a file of another name is no build script.
 #[test]
 fn check_runs_a_build_script_and_inspection_does_not() {
     require_c_and_cxx_build_tools();
@@ -521,6 +521,23 @@ fn check_runs_a_build_script_and_inspection_does_not() {
         cabin_in(dir.path(), &[inspection]).assert().success();
     }
     cabin_in(dir.path(), &["check"]).assert().failure();
+
+    // Publishing declares the script without building it either.
+    let registry = TempDir::new().unwrap();
+    let manifest = fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
+    dir.child("cabin.toml")
+        .write_str(&manifest.replace("name = \"app\"", "name = \"acme/app\"\nlicense = \"MIT\""))
+        .unwrap();
+    cabin_in(dir.path(), &["publish", "--dry-run"])
+        .assert()
+        .success();
+    cabin_in(dir.path(), &["publish", "--registry-dir"])
+        .arg(registry.path())
+        .assert()
+        .success();
+    let entry = fs::read_to_string(registry.path().join("packages/acme/app.json")).unwrap();
+    let entry: serde_json::Value = serde_json::from_str(&entry).unwrap();
+    assert_eq!(entry["versions"]["0.1.0"]["build-script"], "build.c");
 
     dir.child("build.cpp").write_str(broken).unwrap();
     cabin_in(dir.path(), &["build"])
@@ -614,10 +631,324 @@ int main(void) {
     );
 }
 
-/// The build script in a registry package's archive is not run: the
-/// one here would not even compile.
+/// Publish `acme/helper`, `acme/gen`, and `acme/lib` to a file registry
+/// under `dir` and return it.  `acme/helper` says "HELLO" when its
+/// build script sees the feature `loud` and "hello" otherwise.
+/// `acme/lib` links it without the feature, and its build script links
+/// it with the feature, to generate the `MADE` the library returns
+/// from that greeting and from whether it was offered `acme/gen`'s
+/// executable.
+fn publish_packages_with_build_scripts(dir: &Path) -> PathBuf {
+    let registry = dir.join("registry");
+    let publish = |name: &str, files: &[(&str, &str)]| {
+        let root = assert_fs::fixture::ChildPath::new(dir.join(name));
+        for (path, text) in files {
+            root.child(path).write_str(text).unwrap();
+        }
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(root.path().join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(&registry)
+            .assert()
+            .success();
+    };
+    publish(
+        "helper",
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "acme/helper"
+version = "1.0.0"
+license = "MIT"
+c-standard = "c11"
+
+[features]
+loud = []
+
+[target.helper]
+type = "library"
+sources = ["src/helper.c"]
+include-dirs = ["include"]
+"#,
+            ),
+            ("include/helper.h", "const char *greeting(void);\n"),
+            (
+                "src/helper.c",
+                r#"#include <helper.h>
+const char *greeting(void) { return LOUD ? "HELLO" : "hello"; }
+"#,
+            ),
+            (
+                "build.c",
+                r#"#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+    FILE *file = fopen(getenv("CABIN_RESULT_FILE"), "w");
+    if (!file) return 1;
+    fprintf(file, "define helper LOUD=%d\n", getenv("CABIN_FEATURE_LOUD") != NULL);
+    return fclose(file) != 0;
+}
+"#,
+            ),
+        ],
+    );
+    publish(
+        "gen",
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "acme/gen"
+version = "1.0.0"
+license = "MIT"
+c-standard = "c11"
+
+[target.gen]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+            ),
+            ("src/main.c", "int main(void) { return 0; }\n"),
+        ],
+    );
+    publish(
+        "lib",
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "acme/lib"
+version = "1.0.0"
+license = "MIT"
+c-standard = "c11"
+include = ["src", "include"]
+
+[dependencies]
+"acme/helper" = "^1"
+
+[build-dependencies]
+"acme/helper" = { version = "^1", features = ["loud"] }
+"acme/gen" = "^1"
+
+[target.lib]
+type = "library"
+sources = ["src/lib.c"]
+include-dirs = ["include"]
+deps = ["acme/helper"]
+"#,
+            ),
+            ("include/lib.h", "const char *lib_made(void);\n"),
+            (
+                "src/lib.c",
+                r#"#include <helper.h>
+#include <lib.h>
+#include <stdio.h>
+#include "generated.h"
+const char *lib_made(void) {
+    static char made[64];
+    snprintf(made, sizeof made, "%s %s", greeting(), MADE);
+    return made;
+}
+"#,
+            ),
+            (
+                "build.c",
+                r##"#define _CRT_SECURE_NO_WARNINGS
+#include <helper.h>
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+    const char *out = getenv("CABIN_OUT_DIR");
+    char path[4096];
+    FILE *file;
+    snprintf(path, sizeof path, "%s/generated.h", out);
+    if (!(file = fopen(path, "w"))) return 1;
+    fprintf(file, "#define MADE \"%s %s\"\n", greeting(),
+            getenv("CABIN_BIN_GEN") ? "tool" : "none");
+    fclose(file);
+    if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+    fprintf(file, "include-dir lib %s\n", out);
+    return fclose(file) != 0;
+}
+"##,
+            ),
+        ],
+    );
+    registry
+}
+
+/// `app`, which prints what `acme/lib` made.
+fn write_registry_app(root: &Path) {
+    let root = assert_fs::fixture::ChildPath::new(root);
+    root.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/lib" = "^1"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["acme/lib"]
+"#,
+        )
+        .unwrap();
+    root.child("src/main.c")
+        .write_str(
+            r#"#include <lib.h>
+#include <stdio.h>
+int main(void) { puts(lib_made()); return 0; }
+"#,
+        )
+        .unwrap();
+}
+
+/// A published package's build script runs for whoever depends on the
+/// package, in each context with that context's features, with the
+/// library and the executable of its registry build dependencies:
+/// from a file registry, again with no network and the lockfile
+/// fixed, from a vendored copy, and from an HTTP registry into an
+/// empty cache.  `include` does not list the script, which is archived
+/// regardless.
 #[test]
-fn a_registry_packages_build_script_is_not_run() {
+fn a_published_packages_build_script_runs_for_its_dependents() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let registry = publish_packages_with_build_scripts(dir.path());
+    let app = dir.path().join("app");
+    write_registry_app(&app);
+    let run = |args: &[&str], index: &std::ffi::OsStr, cache: &str| {
+        let assert = cabin_in(&app, &["run"])
+            .args(args)
+            .arg(index)
+            .arg("--cache-dir")
+            .arg(dir.path().join(cache))
+            .assert()
+            .success();
+        let printed = printed(&assert);
+        for line in [
+            "\nhello HELLO tool\n",
+            "Running build script of acme/helper",
+            "Running build script (build machine) of acme/helper",
+            "Running build script of acme/lib",
+        ] {
+            assert!(printed.contains(line), "no `{line}` in: {printed}");
+        }
+    };
+
+    // Each later run builds from nothing, in a build directory of its
+    // own: Windows may refuse to delete one a program just ran from.
+    run(&["--index-path"], registry.as_os_str(), "cache");
+    run(
+        &[
+            "--build-dir",
+            "offline",
+            "--offline",
+            "--locked",
+            "--index-path",
+        ],
+        registry.as_os_str(),
+        "cache",
+    );
+
+    let vendor = dir.path().join("vendor");
+    cabin_in(&app, &["vendor", "--vendor-dir"])
+        .arg(&vendor)
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    run(
+        &[
+            "--build-dir",
+            "vendored",
+            "--offline",
+            "--locked",
+            "--index-path",
+        ],
+        vendor.as_os_str(),
+        "vendor-cache",
+    );
+
+    fs::remove_file(app.join("cabin.lock")).unwrap();
+    let server = super::sparse_http::TestServer::serve(registry);
+    run(
+        &["--build-dir", "http", "--index-url"],
+        server.url().as_ref(),
+        "http-cache",
+    );
+}
+
+/// A respin may drop the build script.  A lockfile pinning the
+/// revision before it keeps running the script that revision declares,
+/// and `cabin update` moves to the revision without one.
+#[test]
+fn a_respin_that_drops_the_build_script_leaves_old_pins_running_it() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let registry = publish_packages_with_build_scripts(dir.path());
+    let app = dir.path().join("app");
+    write_registry_app(&app);
+    let run = |args: &[&str]| {
+        let assert = cabin_in(&app, &["run", "--index-path"])
+            .arg(&registry)
+            .args(args)
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .assert()
+            .success();
+        printed(&assert)
+    };
+    assert!(run(&[]).contains("\nhello HELLO tool\n"));
+
+    let helper = dir.path().join("helper");
+    fs::remove_file(helper.join("build.c")).unwrap();
+    fs::write(
+        helper.join("src/helper.c"),
+        "#include <helper.h>\nconst char *greeting(void) { return \"quiet\"; }\n",
+    )
+    .unwrap();
+    cabin()
+        .args(["publish", "--new-revision", "--manifest-path"])
+        .arg(helper.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+
+    // A build directory of its own, so the pinned revision builds
+    // from nothing.
+    let pinned = run(&["--locked", "--build-dir", "pinned"]);
+    assert!(pinned.contains("\nhello HELLO tool\n"), "{pinned}");
+    assert!(
+        pinned.contains("Running build script of acme/helper"),
+        "{pinned}"
+    );
+
+    cabin_in(&app, &["update", "--index-path"])
+        .arg(&registry)
+        .assert()
+        .success();
+    let updated = run(&[]);
+    assert!(updated.contains("\nquiet quiet tool\n"), "{updated}");
+    assert!(!updated.contains("of acme/helper"), "{updated}");
+}
+
+/// A `build.c` in a registry package's archive that the package's
+/// index entry does not declare is not run: the one here would not
+/// even compile.  An entry declaring a script the archive does not
+/// hold under that name is refused.
+#[test]
+fn a_registry_build_script_the_index_does_not_declare_is_not_run() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let index = dir.path().join("index");
@@ -644,11 +975,11 @@ sources = ["src/dep.c"]
         ],
     );
     let revision = &checksum[..16];
-    assert_fs::fixture::ChildPath::new(index.join("packages/dep.json"))
-        .write_str(&format!(
-            "{{\"schema\": 1, \"name\": \"dep\", \"versions\": {{\"1.0.0\": {{\"dependencies\": {{}}, \"yanked\": false, \"standards\": {{\"targets\": {{\"dep\": {{\"interface\": {{\"c\": {{\"min\": \"c11\"}}}}}}}}}}, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../archives/dep/dep-1.0.0.zip\", \"format\": \"zip\"}}}}}}}}}}}}\n"
-        ))
-        .unwrap();
+    let entry = format!(
+        "{{\"schema\": 1, \"name\": \"dep\", \"versions\": {{\"1.0.0\": {{\"dependencies\": {{}}, \"yanked\": false, \"standards\": {{\"targets\": {{\"dep\": {{\"interface\": {{\"c\": {{\"min\": \"c11\"}}}}}}}}}}, \"revision\": \"{revision}\", \"revisions\": {{\"{revision}\": {{\"checksum\": \"sha256:{checksum}\", \"published-at\": \"2026-01-01T00:00:00Z\", \"source\": {{\"type\": \"archive\", \"path\": \"../archives/dep/dep-1.0.0.zip\", \"format\": \"zip\"}}}}}}}}}}}}\n"
+    );
+    let entry_file = assert_fs::fixture::ChildPath::new(index.join("packages/dep.json"));
+    entry_file.write_str(&entry).unwrap();
     let proj = assert_fs::fixture::ChildPath::new(dir.path().join("proj"));
     proj.child("cabin.toml")
         .write_str(
@@ -671,13 +1002,109 @@ deps = ["dep:dep"]
         .write_str("int dep(void);\nint main(void) { return dep(); }\n")
         .unwrap();
 
-    let assert = cabin_in(proj.path(), &["run", "--index-path"])
-        .arg(&index)
+    let run = || {
+        cabin_in(proj.path(), &["run", "--index-path"])
+            .arg(&index)
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .assert()
+    };
+    assert!(!printed(&run().success()).contains(RAN));
+
+    entry_file
+        .write_str(&entry.replace(
+            "\"yanked\": false,",
+            "\"yanked\": false, \"build-script\": \"build.cpp\",",
+        ))
+        .unwrap();
+    run().failure().stderr(predicate::str::contains(
+        "the index declares the build script `build.cpp` for package `dep`, which its archive does not hold",
+    ));
+}
+
+/// A registry package's build script cannot put a file named like a
+/// standard header where the package's dependents would include it.
+#[test]
+fn a_registry_build_script_cannot_shadow_a_standard_header() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let registry = dir.path().join("registry");
+    let shadow = assert_fs::fixture::ChildPath::new(dir.path().join("shadow"));
+    shadow
+        .child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "acme/shadow"
+version = "1.0.0"
+license = "MIT"
+c-standard = "c11"
+
+[target.shadow]
+type = "library"
+sources = ["src/shadow.c"]
+"#,
+        )
+        .unwrap();
+    shadow
+        .child("src/shadow.c")
+        .write_str("int shadow(void) { return 0; }\n")
+        .unwrap();
+    shadow
+        .child("build.c")
+        .write_str(
+            r#"#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+    const char *out = getenv("CABIN_OUT_DIR");
+    char path[4096];
+    FILE *file;
+    snprintf(path, sizeof path, "%s/stdint.h", out);
+    if (!(file = fopen(path, "w"))) return 1;
+    fclose(file);
+    if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+    fprintf(file, "include-dir shadow %s\n", out);
+    return fclose(file) != 0;
+}
+"#,
+        )
+        .unwrap();
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(shadow.path().join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    let app = assert_fs::fixture::ChildPath::new(dir.path().join("app"));
+    app.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/shadow" = "^1"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["acme/shadow"]
+"#,
+        )
+        .unwrap();
+    app.child("src/main.c")
+        .write_str("int shadow(void);\nint main(void) { return shadow(); }\n")
+        .unwrap();
+
+    cabin_in(app.path(), &["build", "--index-path"])
+        .arg(&registry)
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
         .assert()
-        .success();
-    assert!(!printed(&assert).contains(RAN));
+        .failure()
+        .stderr(predicate::str::contains("so `#include <stdint.h>`"));
 }
 
 /// Two builds of one build directory at once both succeed: one runs

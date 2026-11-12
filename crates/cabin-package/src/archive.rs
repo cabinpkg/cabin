@@ -11,6 +11,10 @@ use crate::error::PackageError;
 /// Conventional package-archive root entry.
 pub const ROOT_MANIFEST_NAME: &str = "cabin.toml";
 
+/// The names a package root's build script goes by; a root holds at
+/// most one.
+pub const BUILD_SCRIPT_NAMES: [&str; 2] = ["build.c", "build.cpp"];
+
 const CREDENTIALS_FILE_NAME: &str = "credentials.toml";
 
 /// Directory names excluded from package archives.  Matched at any
@@ -61,8 +65,8 @@ pub struct PackageFile {
 /// next archive.
 ///
 /// A non-empty `include` (the manifest's `[package] include`) keeps
-/// only the root manifest and the files at or below a listed path,
-/// matched by exact spelling.  The walk never enters a directory
+/// only the root manifest, the root build script, and the files at or
+/// below a listed path, matched by exact spelling.  The walk never enters a directory
 /// outside the list, so nothing inside one can refuse the package.
 ///
 /// The returned list is sorted lexicographically by `rel_path` so
@@ -167,6 +171,28 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
     Ok(())
 }
 
+/// The build script of a package whose archive holds `paths`: its root
+/// `build.c` or `build.cpp`.
+///
+/// # Errors
+/// Returns [`PackageError::TwoBuildScripts`] when the archive holds
+/// both.
+pub fn build_script<'a>(
+    paths: impl IntoIterator<Item = &'a str>,
+) -> Result<Option<&'static str>, PackageError> {
+    let mut found = None;
+    for path in paths {
+        if let Some(script) = BUILD_SCRIPT_NAMES
+            .into_iter()
+            .find(|script| path == *script)
+            && found.replace(script).is_some()
+        {
+            return Err(PackageError::TwoBuildScripts);
+        }
+    }
+    Ok(found)
+}
+
 /// Reject an `include` entry no collected file is at or below: it
 /// would silently ship a package without the files it was meant to
 /// carry (a header-only target declares no sources to catch it).
@@ -260,10 +286,11 @@ fn below(path: &str, base: &str) -> bool {
 }
 
 /// Whether the walk keeps `rel` under a non-empty `include`: the root
-/// manifest, anything at or below a listed path, and a directory on
-/// the way down to one.
+/// manifest, the root build script, anything at or below a listed
+/// path, and a directory on the way down to one.
 fn included(rel: &str, is_dir: bool, include: &[Utf8PathBuf]) -> bool {
     rel == ROOT_MANIFEST_NAME
+        || (!is_dir && BUILD_SCRIPT_NAMES.contains(&rel))
         || include
             .iter()
             .any(|entry| below(rel, entry.as_str()) || (is_dir && below(entry.as_str(), rel)))
@@ -443,6 +470,34 @@ mod tests {
             paths(&files),
             vec!["cabin.toml", "include/a.h", "include/sub/b.h", "src/x.cc"]
         );
+    }
+
+    /// The root build script is archived whatever `include` lists, and
+    /// only there is `build.c` a build script; a package has one.
+    #[test]
+    fn the_root_build_script_is_always_archived() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("build.cpp").write_str("b").unwrap();
+        dir.child("src/build.c").write_str("s").unwrap();
+        dir.child("tools/build.c").write_str("t").unwrap();
+        let files = collect_package_files(dir.path(), None, &[Utf8PathBuf::from("src")]).unwrap();
+        assert_eq!(
+            paths(&files),
+            vec!["build.cpp", "cabin.toml", "src/build.c"]
+        );
+        let script =
+            |files: &[PackageFile]| build_script(files.iter().map(|f| f.rel_path.as_str()));
+        assert_eq!(script(&files).unwrap(), Some("build.cpp"));
+        assert_eq!(script(&files[1..]).unwrap(), None);
+
+        dir.child("build.c").write_str("b").unwrap();
+        let files = collect_package_files(dir.path(), None, &[Utf8PathBuf::from("src")]).unwrap();
+        assert!(matches!(script(&files), Err(PackageError::TwoBuildScripts)));
+
+        // A directory of the name is an unlisted directory like any
+        // other: the walk does not enter it.
+        assert!(!included("build.c", true, &[Utf8PathBuf::from("src")]));
     }
 
     /// A non-UTF-8 name outside every listed path is skipped like any

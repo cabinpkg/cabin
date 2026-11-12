@@ -857,6 +857,10 @@ pub(crate) struct ArtifactPipeline {
     pub(crate) activated_patches: BTreeSet<String>,
     /// What resolution left to the system.
     pub(crate) system: crate::cli::system_provided::SystemSplit,
+    /// The build script each fetched package's index entry declares,
+    /// for the packaging revision fetched.  A registry package's
+    /// script runs only when it is listed here.
+    pub(crate) build_scripts: BTreeMap<PackageName, &'static str>,
 }
 
 impl ArtifactPipeline {
@@ -906,6 +910,7 @@ pub(crate) fn run_artifact_pipeline(
             lockfile_pinned: BTreeSet::new(),
             activated_patches: seed.patched_deps.activated.clone(),
             system: crate::cli::system_provided::SystemSplit::default(),
+            build_scripts: BTreeMap::new(),
         });
     }
     let lockfile_path = lockfile_path_for(manifest_path);
@@ -1025,10 +1030,24 @@ pub(crate) fn run_artifact_pipeline(
             frozen: request.policy.frozen(),
         },
     )?;
+    // `resolve_with_lazy_index` gave every version the lockfile keeps
+    // the metadata of its pinned revision, the one fetched above.
+    let build_scripts = result
+        .packages
+        .iter()
+        .filter_map(|fetched| {
+            let meta = index
+                .package(&fetched.name)?
+                .versions
+                .get(&fetched.version)?;
+            Some((fetched.name.clone(), meta.build_script?.file_name()))
+        })
+        .collect();
     Ok(ArtifactPipeline {
         fetched: result.packages,
         activated_patches,
         system,
+        build_scripts,
         // `PreferLocked` falls back to a fresh selection when a pin
         // no longer satisfies its constraint, so membership is
         // checked selection by selection - a re-resolved package

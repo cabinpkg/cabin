@@ -316,7 +316,7 @@ fn keep_superseded_resolution(
 /// on the stored entry).
 fn resolution_fields(
     metadata: &PackageMetadata,
-) -> Result<[(&'static str, serde_json::Value); 5], RegistryError> {
+) -> Result<[(&'static str, serde_json::Value); 6], RegistryError> {
     let dependencies = serde_json::to_value(&metadata.dependencies)?;
     let build_dependencies = (!metadata.build_dependencies.is_empty())
         .then(|| serde_json::to_value(&metadata.build_dependencies))
@@ -338,6 +338,7 @@ fn resolution_fields(
     Ok([
         ("dependencies", dependencies),
         ("build-dependencies", build_dependencies),
+        ("build-script", serde_json::to_value(metadata.build_script)?),
         ("features", features),
         ("standards", standards),
         ("links", links),
@@ -375,6 +376,8 @@ struct IndexVersionWire<'a, D: Serialize> {
     dependencies: &'a D,
     #[serde(rename = "build-dependencies", skip_serializing_if = "Option::is_none")]
     build_dependencies: Option<&'a D>,
+    #[serde(rename = "build-script", skip_serializing_if = "Option::is_none")]
+    build_script: Option<&'static str>,
     yanked: bool,
     /// Current packaging revision (in a file registry: the one
     /// published last; there is no verification lifecycle).
@@ -448,6 +451,7 @@ fn version_value_from_metadata(
         dependencies: &metadata.dependencies,
         build_dependencies: (!metadata.build_dependencies.is_empty())
             .then_some(&metadata.build_dependencies),
+        build_script: metadata.build_script,
         yanked,
         revision,
         revisions,
@@ -538,6 +542,7 @@ mod tests {
             links: Default::default(),
             upstream: None,
             license: None,
+            build_script: None,
             yanked: false,
             checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
             source: SourceMetadata {
@@ -721,10 +726,12 @@ mod tests {
             "acme/gen".to_owned(),
             PackageDependencyEntry::Bare("^2".to_owned()),
         );
+        with_dep.build_script = Some("build.c");
         let (index, _) = insert_version(Some(initial), &with_dep, STAMP, true).unwrap();
         assert_eq!(index.schema, REVISION_RESOLUTION_SCHEMA);
         let entry = &index.versions["10.2.1"];
         assert_eq!(entry["dependencies"]["acme/dep"], "^1");
+        assert_eq!(entry["build-script"], "build.c");
         let first = entry["revisions"]["aaaaaaaaaaaaaaaa"].clone();
         assert_eq!(
             first["resolution"],
@@ -742,6 +749,7 @@ mod tests {
         let entry = &index.versions["10.2.1"];
         assert_eq!(entry["dependencies"], serde_json::json!({}));
         assert_eq!(entry["links"]["fmt"], "fmt");
+        assert!(entry.get("build-script").is_none());
         let revisions = &entry["revisions"];
         assert_eq!(revisions["aaaaaaaaaaaaaaaa"], first);
         assert_eq!(
@@ -749,9 +757,22 @@ mod tests {
             serde_json::json!({
                 "dependencies": { "acme/dep": "^1" },
                 "build-dependencies": { "acme/gen": "^2" },
+                "build-script": "build.c",
             })
         );
         assert!(revisions["cccccccccccccccc"].get("resolution").is_none());
+
+        // A respin that only adds a build script moves the version on too.
+        let mut with_script = metadata_with_bytes("fmt", "10.2.1", 'd');
+        with_script.links = with_links.links;
+        with_script.build_script = Some("build.cpp");
+        let (index, _) = insert_version(Some(index), &with_script, STAMP, true).unwrap();
+        let entry = &index.versions["10.2.1"];
+        assert_eq!(entry["build-script"], "build.cpp");
+        assert_eq!(
+            entry["revisions"]["cccccccccccccccc"]["resolution"],
+            serde_json::json!({ "dependencies": {}, "links": { "fmt": "fmt" } })
+        );
     }
 
     #[test]

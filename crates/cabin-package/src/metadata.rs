@@ -125,6 +125,12 @@ pub struct PackageMetadata {
     /// refuses a package without one (`cabin_publish::require_license`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<cabin_core::LicenseExpression>,
+    /// The build script in the archive's root, `build.c` or
+    /// `build.cpp`.  A build runs the script of a registry package
+    /// only when the package's index entry carries this key.  Omitted
+    /// when the archive holds none.
+    #[serde(rename = "build-script", skip_serializing_if = "Option::is_none")]
+    pub build_script: Option<&'static str>,
     pub yanked: bool,
     pub checksum: cabin_core::Checksum,
     pub source: SourceMetadata,
@@ -244,7 +250,9 @@ pub struct SourceMetadata {
 }
 
 /// Build the canonical [`PackageMetadata`] document for `package`,
-/// referring to a freshly-archived source tree by `checksum`.
+/// referring to a freshly-archived source tree by `checksum`, with
+/// `build_script` as [`crate::archive::build_script`] finds it in that
+/// archive.
 ///
 /// `source.path` is the file-registry relative reference
 /// (`../archives/<name>/<name>-<version>-<revision>.zip`, the
@@ -252,7 +260,11 @@ pub struct SourceMetadata {
 /// Dry-run staging records the same shape as a package-index
 /// `source` block, without publishing that path, so registry publish
 /// can reuse the metadata without re-deriving it.
-pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) -> PackageMetadata {
+pub fn canonical_metadata(
+    package: &Package,
+    checksum: &cabin_core::Checksum,
+    build_script: Option<&'static str>,
+) -> PackageMetadata {
     let mut dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
     let mut dev_dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
     let mut build_dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
@@ -312,6 +324,7 @@ pub fn canonical_metadata(package: &Package, checksum: &cabin_core::Checksum) ->
         links: links_from_package(package),
         upstream: package.upstream.clone(),
         license: package.license.clone(),
+        build_script,
         yanked: false,
         checksum: checksum.clone(),
         source: SourceMetadata {
@@ -412,7 +425,7 @@ mod tests {
     #[test]
     fn metadata_carries_schema_name_version_and_checksum() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         assert_eq!(meta.schema, 1);
         assert_eq!(meta.name, "fmt");
         assert_eq!(meta.version, "10.2.1");
@@ -446,7 +459,7 @@ mod tests {
                     ..Default::default()
                 },
             });
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         let json = serde_json::to_string(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(
@@ -471,7 +484,7 @@ mod tests {
             "1.13.0",
             vec![version_dep("fmt", ">=10.0.0, <11.0.0")],
         );
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         assert_eq!(meta.dependencies.len(), 1);
         assert!(meta.dependencies.contains_key("fmt"));
     }
@@ -483,7 +496,7 @@ mod tests {
             "0.1.0",
             vec![path_dep("local", "../local"), version_dep("fmt", "^10")],
         );
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         assert_eq!(meta.dependencies.len(), 1);
         assert!(meta.dependencies.contains_key("fmt"));
         assert!(!meta.dependencies.contains_key("local"));
@@ -492,7 +505,7 @@ mod tests {
     #[test]
     fn metadata_source_path_is_file_registry_relative() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         assert_eq!(meta.source.kind, "archive");
         assert_eq!(meta.source.format, "zip");
         assert_eq!(
@@ -504,7 +517,7 @@ mod tests {
     #[test]
     fn scoped_metadata_source_path_embeds_the_scope_twice() {
         let proj = package("fmtlib/fmt", "1.0.0", Vec::new());
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         assert_eq!(meta.name, "fmtlib/fmt");
         assert_eq!(
             meta.source.path,
@@ -519,7 +532,7 @@ mod tests {
                 wrapper: ToolSpec::Name("ccache".into()),
             },
         ));
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
@@ -537,7 +550,7 @@ mod tests {
             kind: cabin_core::DependencyKind::Dev,
             condition: None,
         });
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
@@ -553,7 +566,7 @@ mod tests {
             "1.13.0",
             vec![version_dep("fmt", ">=10.0.0, <11.0.0")],
         );
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         let a = render_canonical_json(&meta).unwrap();
         let b = render_canonical_json(&meta).unwrap();
         assert_eq!(a, b);
@@ -573,7 +586,7 @@ mod tests {
     #[test]
     fn render_ends_with_newline() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         let body = render_canonical_json(&meta).unwrap();
         assert!(body.ends_with('\n'));
     }
@@ -594,7 +607,8 @@ mod tests {
         )
         .unwrap();
         let proj = package("fmt", "10.2.1", Vec::new()).with_upstream(Some(upstream));
-        let body = render_canonical_json(&canonical_metadata(&proj, &test_checksum())).unwrap();
+        let body =
+            render_canonical_json(&canonical_metadata(&proj, &test_checksum(), None)).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
             value["upstream"],
@@ -613,7 +627,8 @@ mod tests {
     #[test]
     fn metadata_omits_absent_upstream() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let body = render_canonical_json(&canonical_metadata(&proj, &test_checksum())).unwrap();
+        let body =
+            render_canonical_json(&canonical_metadata(&proj, &test_checksum(), None)).unwrap();
         assert!(!body.contains("\"upstream\""));
     }
 
@@ -622,19 +637,22 @@ mod tests {
         let license = "Apache-2.0 AND (GPL-3.0-or-later WITH GCC-exception-3.1)";
         let proj = package("fmt", "10.2.1", Vec::new())
             .with_license(Some(cabin_core::LicenseExpression::new(license).unwrap()));
-        let body = render_canonical_json(&canonical_metadata(&proj, &test_checksum())).unwrap();
+        let body =
+            render_canonical_json(&canonical_metadata(&proj, &test_checksum(), None)).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["license"], license);
 
         let bare = package("fmt", "10.2.1", Vec::new());
-        let body = render_canonical_json(&canonical_metadata(&bare, &test_checksum())).unwrap();
+        let body =
+            render_canonical_json(&canonical_metadata(&bare, &test_checksum(), None)).unwrap();
         assert!(!body.contains("\"license\""));
     }
 
     #[test]
     fn metadata_omits_empty_declarations() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let body = render_canonical_json(&canonical_metadata(&proj, &test_checksum())).unwrap();
+        let body =
+            render_canonical_json(&canonical_metadata(&proj, &test_checksum(), None)).unwrap();
         assert!(!body.contains("\"features\""));
         assert!(!body.contains("\"build-dependencies\""));
     }
@@ -646,7 +664,7 @@ mod tests {
             ..version_dep("acme/gen", "^1")
         };
         let proj = package("demo", "0.1.0", vec![version_dep("fmt", "^10"), build]);
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         assert_eq!(meta.dependencies.keys().collect::<Vec<_>>(), ["fmt"]);
         assert_eq!(
             meta.build_dependencies.keys().collect::<Vec<_>>(),
@@ -680,13 +698,14 @@ mod tests {
             Vec::new(),
         )
         .unwrap();
-        let meta = canonical_metadata(&proj, &test_checksum());
+        let meta = canonical_metadata(&proj, &test_checksum(), None);
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["links"], serde_json::json!({ "z": "z" }));
 
         let bare = package("fmt", "10.2.1", Vec::new());
-        let body = render_canonical_json(&canonical_metadata(&bare, &test_checksum())).unwrap();
+        let body =
+            render_canonical_json(&canonical_metadata(&bare, &test_checksum(), None)).unwrap();
         assert!(!body.contains("\"links\""));
     }
 
@@ -709,7 +728,7 @@ mod tests {
             features,
         })
         .unwrap();
-        let meta = canonical_metadata(&package, &test_checksum());
+        let meta = canonical_metadata(&package, &test_checksum(), None);
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["features"]["default"][0], "simd");

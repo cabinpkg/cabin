@@ -152,7 +152,8 @@ Cabin matches directory names anywhere in the tree.  Nested submodules and build
 the archive.
 
 A manifest can narrow the walk with [`[package] include`](manifest.md#package): the archive then
-holds the root `cabin.toml` plus only the files at or below a listed path, matched by whole path
+holds the root `cabin.toml`, the root [build script](build-scripts.md) (`build.c` or `build.cpp`)
+when there is one, and only the files at or below a listed path, matched by whole path
 components and exact spelling (`include` matches neither `includes/` nor `Include/`).  The walk
 never enters a directory outside the list and skips every unlisted entry, so nothing outside the
 listed paths can refuse the package, while the exclusions above still apply inside them.  An entry that matches no file, and a list that leaves out
@@ -272,6 +273,7 @@ publishing a version the registry verifier rejects as `missing_source`.
 | `links` *(optional)* | Declared per-target [`links`](manifest.md#links) claims, as a `{ "<target>": "<identity>" }` map sorted by target name.  A pure projection of the manifest so index consumers can run the post-resolution uniqueness check without downloading the archive.  Omitted when no target declares one. |
 | `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), the upstream archive's algorithm-prefixed `checksum` (distinct from the document's own published-archive `checksum` below), `format`, optional `strip-prefix`, the `patches` list, and the `copy` steps (`patches` and `copy` are each omitted when empty; `patches` renders between `strip-prefix` and `copy`, matching the manifest's only valid layout).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
 | `license` *(optional)* | The manifest's [`license`](manifest.md#license) SPDX expression, exactly as written.  Omitted when the manifest declares none, which only local staging with `cabin package` allows: every publish requires it ([`manifest.md`](manifest.md#license)). |
+| `build-script` *(optional)* | The [build script](build-scripts.md) in the archive's root, `"build.c"` or `"build.cpp"`.  Omitted when the archive holds none.  A package whose root holds both is not packaged. |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced.  Its leading 16 hex characters are the [packaging revision](package-index.md#packaging-revisions) this document describes. |
 | `source.type` | Always `"archive"`. |
@@ -343,7 +345,7 @@ Behavioral notes specific to registry publish:
   this so static sparse-HTTP serving can read the same layout without rewriting.
 - The immutable unit is `(name, version, revision)`.  Republishing byte-identical bytes is a no-op
   onto the recorded revision; changed bytes for an already-published version require
-  `--new-revision`.  A respin may change `dependencies`, `build-dependencies`, `features`, `standards`, or `links`;
+  `--new-revision`.  A respin may change `dependencies`, `build-dependencies`, `build-script`, `features`, `standards`, or `links`;
   every superseded revision keeps resolving as it was published.  See
   [`package-index.md`](package-index.md#packaging-revisions).
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a

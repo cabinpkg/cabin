@@ -169,7 +169,8 @@ pub fn stage_with_project(
     let archive_bytes = archive::build_zip(&files, manifest_substitute.as_deref())?;
     let checksum = cabin_core::Checksum::of_bytes(&archive_bytes);
 
-    let metadata = metadata::canonical_metadata(&validated.package, &checksum);
+    let build_script = archive::build_script(files.iter().map(|file| file.rel_path.as_str()))?;
+    let metadata = metadata::canonical_metadata(&validated.package, &checksum, build_script);
 
     Ok(StagedPackage {
         name: validated.package.name.clone(),

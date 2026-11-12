@@ -14,7 +14,7 @@ fuzz_target!(|text: &str| {
         && cabin_package::validate::validate_publishable(&package).is_ok()
     {
         let metadata =
-            cabin_package::metadata::canonical_metadata(&package, &Checksum::of_bytes(b""));
+            cabin_package::metadata::canonical_metadata(&package, &Checksum::of_bytes(b""), None);
         serde_json::to_vec(&metadata).expect("canonical metadata serializes");
     }
 });
