@@ -833,7 +833,12 @@ Sizing rules - the degrade-before-pay policy:
 - **Storage fits the fallback tier.** Storage is a stock, not a flow:
   the breaker can stop new bytes but cannot un-spend stored ones, so
   the storage budget must always fit within the capacity of the tier
-  the registry would fall back to if the grant ended.
+  the registry would fall back to if the grant ended. The budget counts
+  the bytes publishers are charged. The archives of rejected, released,
+  and timed-out uploads that UPLOADS keeps until its lifecycle rule
+  removes them are outside it, bounded only by the daily allowances
+  ("What stays in UPLOADS"), and at today's allowances that bound is
+  above the fallback tier's 10 GB.
 - **No stored payment method on free/granted plans.** The breaker
   closes the variable spend channels; the absent payment method closes
   everything else. Adding one is part of the same deliberate activation

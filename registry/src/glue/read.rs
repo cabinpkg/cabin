@@ -495,6 +495,10 @@ async fn charged_blob_read(
         Gate::Refused(refusal) => return governor_refusal_response(refusal.as_ref(), false),
     }
 
+    // shortcut: a verified archive is still read from its UPLOADS object,
+    // which the bucket expires fourteen days after the put; upgrade when
+    // the publication job that copies verified archives to ARCHIVES lands,
+    // before this branch is deployed.
     let Some(object) = env.bucket("UPLOADS")?.get(key).execute().await? else {
         console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
         return error_response(500, error::INTERNAL);
