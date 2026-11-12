@@ -6080,6 +6080,7 @@ fn what_a_build_script_reported_applies_to_its_target() {
                 Utf8PathBuf::from("src/codec.c"),
                 Utf8PathBuf::from("table.c"),
             ],
+            ..Default::default()
         },
     )]);
     let tc = toolchain_with_cc();
@@ -6145,6 +6146,77 @@ fn what_a_build_script_reported_applies_to_its_target() {
             .map(|compile| compile.object.clone())
             .collect::<Vec<_>>()
     );
+}
+
+/// A library a build script supplies is not built: nothing of it is
+/// compiled or archived, what depends on it sees what the script
+/// reported and none of what the manifest declares, and a link takes
+/// the script's files where the archive would go, before the libraries
+/// the target depends on.
+#[test]
+fn a_library_a_build_script_supplies_is_linked_and_not_built() {
+    let mut z = target("z", TargetKind::Library, &["src/z.c"], &["base"]);
+    z.include_dirs = vec![Utf8PathBuf::from("include")];
+    z.interface_defines = vec!["Z_BUNDLED".to_owned()];
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target("base", TargetKind::Library, &["src/base.c"], &[]),
+            z,
+            target("app", TargetKind::Executable, &["src/main.c"], &["z"]),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/demo");
+    let outputs = HashMap::from([(
+        (0, "z".to_owned()),
+        BuildScriptOutput {
+            include_dirs: vec![Utf8PathBuf::from("/sdk/include")],
+            interface_defines: vec!["Z_SYSTEM".to_owned()],
+            external: true,
+            link_files: vec![
+                Utf8PathBuf::from("/sdk/lib/libz.a"),
+                Utf8PathBuf::from("/sdk/lib/libm.a"),
+            ],
+            ..Default::default()
+        },
+    )]);
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_script_outputs = &outputs;
+    let bg = plan(&req).unwrap();
+
+    let demo = "/abs/build/dev/packages/demo";
+    let compiles = compile_actions(&bg);
+    assert_eq!(
+        compiles
+            .iter()
+            .map(|compile| compile.source.as_str())
+            .collect::<Vec<_>>(),
+        ["/abs/demo/src/base.c", "/abs/demo/src/main.c"]
+    );
+    let app = compiles[1];
+    assert_eq!(app.arguments.include_dirs, ["/sdk/include"]);
+    assert_eq!(app.arguments.defines, ["Z_SYSTEM"]);
+    assert_eq!(
+        link_action(&bg).inputs,
+        [
+            format!("{demo}/obj/app/src/main.c.o"),
+            "/sdk/lib/libz.a".to_owned(),
+            "/sdk/lib/libm.a".to_owned(),
+            format!("{demo}/libbase.a"),
+        ]
+    );
+    // Its language is the one its manifest's sources are in.
+    assert_eq!(link_command(&bg)[0], "/usr/bin/cc");
+    let mut package = graph.packages[0].package.clone();
+    package.targets[1].sources = vec![Utf8PathBuf::from("src/z.cc")];
+    let graph = single_package_graph(package, "/abs/demo");
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_script_outputs = &outputs;
+    assert_eq!(link_command(&plan(&req).unwrap())[0], "/usr/bin/g++");
 }
 
 /// A build script links a build dependency's library when there is one

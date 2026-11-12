@@ -505,6 +505,54 @@ int main(void) {
             )));
     }
 
+    /// A library a build script supplies is one for the machine the
+    /// build is for: the target's under `--target`, the build machine's
+    /// without, and the other's is refused before any link.
+    #[test]
+    fn a_build_script_supplies_a_library_for_the_machine_the_build_is_for() {
+        use crate::build_scripts::{build_greet_sdk, write_greet_app};
+        require_c_and_cxx_build_tools();
+        let dir = TempDir::new().unwrap();
+        write_greet_app(dir.path());
+        let (triple, arch, cpu_type) = cross();
+        build_greet_sdk(dir.path(), "sdk-native", "native", None);
+        build_greet_sdk(dir.path(), "sdk-cross", "cross", Some(triple));
+        let app = dir.path().join("app");
+        let cabin_build = |sdk: &str, target: bool| {
+            let mut command = cabin();
+            command
+                .current_dir(&app)
+                .arg("build")
+                .env("CABIN_SDK_GREET", dir.path().join(sdk));
+            if target {
+                command.args(["--target", triple]);
+            }
+            command.assert()
+        };
+        let host_arch = std::env::consts::ARCH;
+
+        cabin_build("sdk-cross", true).success();
+        let profile = app.join("build/.targets").join(triple).join("dev");
+        for program in ["app", "appxx"] {
+            let program = profile.join("packages/app").join(program);
+            assert_eq!(mach_o_cpu_type(&program), cpu_type);
+        }
+        for (sdk, target, built, machine) in [
+            ("sdk-native", true, host_arch, arch),
+            ("sdk-cross", false, arch, host_arch),
+        ] {
+            let refused = cabin_build(sdk, target).failure();
+            let stderr = String::from_utf8_lossy(&refused.get_output().stderr).into_owned();
+            let phrase =
+                format!("libgreet.a` is built for {built}, and this build is for {machine}");
+            assert!(
+                crate::standard_compat::flat_contains(&stderr, &phrase),
+                "{stderr}"
+            );
+        }
+        cabin_build("sdk-native", false).success();
+    }
+
     #[test]
     fn run_target_naming_the_build_machine_runs() {
         require_c_and_cxx_build_tools();

@@ -134,6 +134,18 @@ pub(crate) fn run(
             let package = &prepared.graph.packages[script.package];
             let name = package.package.name.as_str();
             let (features, detection, platform) = side(script);
+            // What the compilers say they build for, but for the target
+            // units of a `--target` build, whose compilers build what it
+            // names.  A build without `--target` may run compilers for
+            // another machine than Cabin's, as an x64 MSVC prompt on an
+            // ARM machine does.
+            let banner = detection.lead().identity.target.as_deref();
+            let banner =
+                banner.and_then(|triple| cabin_core::TargetPlatform::from_triple(triple).ok());
+            let machine = match &banner {
+                Some(banner) if script.build_context || !context.cross => &banner.arch,
+                _ => &platform.arch,
+            };
             let dir = cabin_build::layout::package_dir(
                 &profile_dir,
                 script.build_context,
@@ -151,6 +163,7 @@ pub(crate) fn run(
                 platform,
                 msvc: cabin_build::Dialect::from_compiler_kind(detection.lead().identity.kind)
                     == cabin_build::Dialect::Msvc,
+                machine,
                 tools,
                 inherited: &inherited,
             };

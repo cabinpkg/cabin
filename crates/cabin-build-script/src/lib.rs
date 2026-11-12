@@ -15,7 +15,9 @@
 //!   may run, and each file and directory in the package's root, but for
 //!   symlinks, what a package archive leaves out by name (`.git`,
 //!   `build`, ...), and what holds the build directory.  The root's own
-//!   listing is not among them;
+//!   listing is not among them.  And each directory a `CABIN_SDK_*`
+//!   variable names, unless it holds the package's root or the build
+//!   directory, or its path leads through one of them;
 //! - to write: four directories of its own in [`Script::dir`], made
 //!   anew for each run: `out` (`CABIN_OUT_DIR`), `result` (holding
 //!   `CABIN_RESULT_FILE`), `home`, and `tmp`;
@@ -43,6 +45,7 @@
 //! choose the order scripts run in, and prints nothing.  A caller holds
 //! the build directory's lock around [`run`] and [`load`].
 
+mod library;
 pub mod result;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -103,6 +106,10 @@ pub struct Script<'a> {
     pub platform: &'a TargetPlatform,
     /// Whether the package's compiler takes MSVC-style commands.
     pub msvc: bool,
+    /// The [`TargetPlatform::arch`] the package's compilers build for,
+    /// which is not `platform`'s when a build without `--target` runs a
+    /// compiler for another machine.
+    pub machine: &'a str,
     /// The build-dependency executables the script may run, by target
     /// name.
     pub tools: &'a [(String, Utf8PathBuf)],
@@ -320,10 +327,14 @@ impl Script<'_> {
             tools: &named,
         };
         let env = build_script_env(&inputs, self.inherited.iter().cloned())?;
-        let sdks = env
+        let offered: Vec<PathBuf> = env
             .iter()
             .filter(|(name, value)| names_sdk(name) && Path::new(value).is_absolute())
-            .flat_map(|(_, value)| [Some(value.into()), cabin_fs::canonicalize(value).ok()])
+            .map(|(_, value)| value.into())
+            .collect();
+        let sdks = offered
+            .iter()
+            .flat_map(|sdk| [Some(sdk.clone()), cabin_fs::canonicalize(sdk).ok()])
             .flatten()
             .collect();
         let regions = Regions {
@@ -334,6 +345,7 @@ impl Script<'_> {
             out,
             tools,
             sdks,
+            offered,
         };
         Ok((env, regions))
     }
@@ -366,12 +378,42 @@ impl Regions {
             .collect())
     }
 
-    /// The paths the script may read.
+    /// The paths the script may read.  A `CABIN_SDK_*` directory is
+    /// one, but for these:
+    ///
+    /// - one whose path, as the user spelled it, leads through the
+    ///   build directory, where a script could have put a link in its
+    ///   way, or through the package's root, of which the script reads
+    ///   only what [`Self::entries`] grants;
+    /// - one that holds either, which a script reads neither of whole;
+    /// - one where an entry [`Self::hidden`] hides leads: a hidden path
+    ///   may hold no granted one.
     pub(crate) fn readable(&self) -> Result<Vec<PathBuf>, Error> {
         let programs = std::iter::once(&self.executable).chain(&self.tools);
         let entries = self.entries()?.into_iter();
         let granted = entries.filter_map(|(path, granted)| granted.then_some(path));
-        Ok(programs.cloned().chain(granted).collect())
+        let resolved = |path: &Path| cabin_fs::canonicalize(path).ok();
+        let kept = [&self.root, &self.build_dir];
+        let hidden: Vec<_> = self
+            .hidden()?
+            .iter()
+            .filter_map(|path| resolved(path))
+            .collect();
+        let mut sdks: Vec<_> = self
+            .offered
+            .iter()
+            .filter_map(|sdk| {
+                let real = resolved(sdk).filter(|real| real.is_dir())?;
+                let mut through = sdk.ancestors().filter_map(resolved);
+                let apart = through.all(|part| kept.iter().all(|kept| !part.starts_with(kept)))
+                    && kept.iter().all(|kept| !kept.starts_with(&real))
+                    && hidden.iter().all(|hidden| !real.starts_with(hidden));
+                apart.then_some(real)
+            })
+            .collect();
+        sdks.sort();
+        sdks.dedup();
+        Ok(programs.cloned().chain(granted).chain(sdks).collect())
     }
 
     /// The entries of the root a package archive leaves out by name,

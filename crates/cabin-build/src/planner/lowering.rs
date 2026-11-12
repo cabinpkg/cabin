@@ -291,9 +291,13 @@ pub(super) fn collect_interface(
             let third_party = dep_pkg.kind == cabin_workspace::PackageKind::Registry;
             let dep_manifest = promote_dir(&dep_pkg.manifest_dir)?;
             let provided = system_targets.get(tid);
+            // What the manifest declares describes the library Cabin
+            // would build, not the one a script supplies in its place.
+            let built = !reported(tid).any(|r| r.external);
             let declared = dep_target
                 .include_dirs
                 .iter()
+                .filter(|_| built)
                 .map(|inc| dep_manifest.join(inc))
                 .chain(reported(tid).flat_map(|r| r.include_dirs.iter().cloned()))
                 .map(|inc| (inc, third_party));
@@ -323,6 +327,7 @@ pub(super) fn collect_interface(
             for define in dep_target
                 .interface_defines
                 .iter()
+                .filter(|_| built)
                 .chain(reported_defines)
                 .chain(supplied_defines)
             {
@@ -500,20 +505,29 @@ pub(super) fn collect_system_link_args(
         .collect()
 }
 
+/// The libraries the link of `start` takes, dependents before
+/// dependencies: each library target's archive, or the files a build
+/// script supplies in its place.
 #[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn collect_link_libs(
     start: &TargetId,
     resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
-    graph: &PackageGraph,
+    req: &PlanRequest<'_>,
     output_for_target: &HashMap<TargetId, Utf8PathBuf>,
 ) -> Vec<Utf8PathBuf> {
     link_closure(start, resolved)
         .into_iter()
         .filter(|tid| {
-            find_target(&graph.packages[tid.0].package, &tid.1)
+            find_target(&req.graph.packages[tid.0].package, &tid.1)
                 .is_some_and(|target| target.kind.produces_archive())
         })
-        .filter_map(|tid| output_for_target.get(tid).cloned())
+        .flat_map(|tid| {
+            let supplied = req.build_script_outputs.get(tid);
+            let files = supplied
+                .into_iter()
+                .flat_map(|reported| &reported.link_files);
+            output_for_target.get(tid).into_iter().chain(files).cloned()
+        })
         .collect()
 }
 

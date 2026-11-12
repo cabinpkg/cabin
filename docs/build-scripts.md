@@ -1,9 +1,10 @@
 # Build scripts
 
 A package can carry a **build script**: a program Cabin builds and runs before it compiles the
-package, to generate headers and sources or to compute preprocessor definitions.  The script is the
-file `build.c` or `build.cpp` in the package's root, beside `cabin.toml`.  No manifest key declares
-it; the file is the declaration.
+package, to generate headers and sources, to compute preprocessor definitions, or to take a library
+from an SDK on the machine instead of building it.  The script is the file `build.c` or `build.cpp`
+in the package's root, beside `cabin.toml`.  No manifest key declares it; the file is the
+declaration.
 
 ```c
 // build.c
@@ -130,6 +131,8 @@ the rest of the line, so a path may contain spaces.
 | `define <target> <NAME[=value]>` | A further entry of the target's `defines`. |
 | `interface-define <target> <NAME[=value]>` | A further entry of a library's `interface-defines`, for a macro it does not define yet. |
 | `source <target> <file>` | A source file under `CABIN_OUT_DIR` that the target compiles after its own. |
+| `external <target>` | The script supplies this library, and Cabin builds nothing of it.  See [Supplying a library](#supplying-a-library). |
+| `link-file <target> <file>` | A library file an `external` target is linked from, in the order of the lines.  It is under `CABIN_OUT_DIR`, or under a directory a `CABIN_SDK_*` variable names. |
 | `rerun-if-changed <path>` | A file or directory of the package, or under a directory a `CABIN_SDK_*` variable names, that the result depends on.  See [When a script runs again](#when-a-script-runs-again). |
 
 Every path is absolute, starts with a directory the script was given (`CABIN_OUT_DIR`,
@@ -147,6 +150,44 @@ library that takes every source from its build script declares the interface it 
 [language standards](language-standards.md)), and a generated source in a language none of the
 listed sources is in needs that language's standard declared.  A target built for the build
 machine, as part of a build dependency, lists at least one source of its own.
+
+### Supplying a library
+
+A script can take a library from outside the package, such as an SDK you point it at, in place of
+the one the manifest describes.  It reports `external <target>` before any other line that names
+the target, and then what stands for the library:
+
+```text
+external z
+include-dir z /opt/zlib/include
+link-file z /opt/zlib/lib/libz.a
+```
+
+- Cabin compiles and archives nothing of an external target.  What depends on it compiles with the
+  `include-dir` and `interface-define` lines the script reports, and with none of the manifest's
+  `include-dirs` and `interface-defines`, which describe the library Cabin would have built: the
+  script may report an `interface-define` for a macro the manifest defines.  A link takes the
+  `link-file` files where the target's archive would go.
+- The rest of the target stands: its `deps`, its declared interface standards, its
+  [`links`](manifest.md#links) claim, and the `link-libs` and `frameworks` of its package's
+  profile.  A link uses the C++ driver when one of the manifest's sources is C++.
+- An external target takes at least one `link-file` line, and no `define` or `source` line.
+- Cabin plans the build from the manifest before the script has run, so the manifest's description
+  of the target has to plan without error on its own, even where the script replaces it.
+- With `CABIN_TARGET_DIALECT=msvc`, a `link-file` is a `.lib` file.  A file of another name there
+  is a GNU toolchain's library, or a DLL, which is linked through its import library.
+- Cabin refuses a `link-file` built for another machine than the build is for, where the file
+  says which: an object archive, an import library, a shared library, or a universal binary with
+  no slice for it.  The build is for the machine `--target` names, and without `--target` for
+  the one its compiler reports, the C++ compiler where there is one.  A GCC reports none and is
+  taken to build for the build machine, and a flag that makes a compiler build for another
+  machine (`-m32`, `-arch`) is not seen: use `--target` for such a build.  Cabin does not check
+  anything else about the file: not the C runtime it was built against (`/MD`, `/MT`), a debug or
+  release configuration, or a C++ standard library.
+- A link takes the file by its path.  Finding a shared library when the program runs is left to
+  the platform's loader, and on Windows to `PATH`.
+- A link runs again when a `link-file` changes.  The script itself runs again for a change in an
+  SDK only where it names the file with `rerun-if-changed`.
 
 ## When a script runs
 
@@ -199,6 +240,8 @@ A running script:
   `.svn`, `.cabin`, `build`, `dist`, or `node_modules`, or the one that holds the build directory,
   and it follows a symbolic link in the root only to what it may read anyway.  The system's own
   files stay readable;
+- reads each directory a `CABIN_SDK_*` variable names, unless that directory holds the package's
+  root or the build directory, or its path leads through one of them;
 - writes only `CABIN_OUT_DIR`, the directory of `CABIN_RESULT_FILE`, and its home and temporary
   directories, each emptied before a run;
 - reaches no network;
@@ -229,8 +272,17 @@ Limits to know:
   times, and extended attributes of any file you own, and read every process's command line.
   Before Linux 6.12 it can signal any process of yours.  On Windows it can see whether any path
   exists.
-- A directory a `CABIN_SDK_*` variable names is one the script may point Cabin at
-  (`include-dir`, `rerun-if-changed`).  Cabin does not grant the script itself access to it.
+- **Every build script of a build reads every directory a `CABIN_SDK_*` variable names**, not
+  only the script the variable is meant for.  Name the SDK's own directory, not one that holds
+  anything else.  A variable that names a file opens nothing to a script, and neither does one
+  that names a directory holding the package's root or the build directory, or reached through
+  one of them, a symbolic link there included: a directory in the package's root is read as the
+  root is.  A script may still point Cabin at what such a variable names (`include-dir`,
+  `link-file`, `rerun-if-changed`).
+- On Windows, Cabin opens a `CABIN_SDK_*` directory to a script by changing its access-control
+  list for the run, which takes longer the more the directory holds.  A directory whose list you
+  may not change, as one under `Program Files`, fails the build: copy the SDK to a directory of
+  yours.
 - A script cannot list the package's root, only what is in it, and on macOS `getcwd` fails there:
   use `CABIN_MANIFEST_DIR`.
 - A script that opens its standard output or standard error again by name (`/dev/stderr`) is

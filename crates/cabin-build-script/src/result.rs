@@ -15,6 +15,16 @@
 //!   library's `interface-defines`, of a macro it does not define yet;
 //! - `source <target> <file>`: a source under `CABIN_OUT_DIR` the target
 //!   compiles after its own;
+//! - `external <target>`: the script supplies this library.  Cabin
+//!   builds nothing of the target, and what depends on it gets what the
+//!   script's lines say and none of what the manifest declares.  It
+//!   comes before every other line naming the target, which takes no
+//!   `define` or `source` and at least one `link-file`;
+//! - `link-file <target> <file>`: a library file an `external` target is
+//!   linked from, under `CABIN_OUT_DIR` or under the directory a
+//!   `CABIN_SDK_*` variable names, in the order of the lines.  It is a
+//!   `.lib` for an MSVC-style link, and is not built for another
+//!   machine;
 //! - `rerun-if-changed <path>`: a file or directory the script's
 //!   result depends on.  Once a script names one, it runs again only
 //!   when one it named changes, not whenever a file of the package
@@ -69,6 +79,25 @@ pub enum Invalid {
     Define(String),
     #[error("target `{target}` already defines `{name}` for what depends on it")]
     Redefined { target: String, name: String },
+    #[error("`external {0}` comes before every other line that names `{0}`")]
+    ExternalLate(String),
+    #[error(
+        "`{directive}` does not apply to `{target}`, which `external` says Cabin does not build"
+    )]
+    External {
+        directive: &'static str,
+        target: String,
+    },
+    #[error("`link-file` applies to a library an `external {0}` line names first")]
+    NotExternal(String),
+    #[error("`external {0}` needs a `link-file` line for `{0}`")]
+    NothingToLink(String),
+    #[error("`{}` is built for {built}, and this build is for {machine}", escape_control_chars(.path))]
+    Machine {
+        path: String,
+        built: &'static str,
+        machine: String,
+    },
     #[error("`{}` {problem}", escape_control_chars(.path))]
     Path { path: String, problem: &'static str },
 }
@@ -98,6 +127,8 @@ pub(crate) struct Regions {
     /// The directories `CABIN_SDK_*` variables name, each as spelled,
     /// where a script's paths start, and as resolved, where they lead.
     pub(crate) sdks: Vec<PathBuf>,
+    /// The same directories, as spelled only.
+    pub(crate) offered: Vec<PathBuf>,
 }
 
 impl Regions {
@@ -120,6 +151,9 @@ pub(crate) fn left_out(name: &OsStr) -> bool {
 
 pub(crate) const NOT_OUTPUT: &str = "is not under `CABIN_OUT_DIR`";
 pub(crate) const NOT_OFFERED: &str = "is neither under `CABIN_OUT_DIR` nor under a directory a `CABIN_SDK_*` variable names; the manifest's `include-dirs` list the package's own";
+pub(crate) const NOT_LINKABLE: &str =
+    "is neither under `CABIN_OUT_DIR` nor under a directory a `CABIN_SDK_*` variable names";
+pub(crate) const NOT_LIB: &str = "is not a `.lib` file, which is what an MSVC-style link takes";
 pub(crate) const UNWATCHED: &str = "is neither a file of the package the script may read nor under a directory a `CABIN_SDK_*` variable names";
 
 /// Read a result file, refusing it whole at the first line that breaks
@@ -138,12 +172,22 @@ pub(crate) fn parse(
     })?;
     let mut report = Report::default();
     let mut seen = HashSet::new();
+    // Each `external` line's target and number, in the lines' order.
+    let mut external = Vec::new();
     for (index, line) in text.split('\n').enumerate() {
         let line = line.strip_suffix('\r').unwrap_or(line);
         if line.is_empty() || line.starts_with('#') || !seen.insert(line) {
             continue;
         }
         directive(line, script, regions, &mut report).map_err(|invalid| (index + 1, invalid))?;
+        if let Some(target) = line.strip_prefix("external ") {
+            external.push((target, index + 1));
+        }
+    }
+    for (target, line) in external {
+        if report.targets[target].link_files.is_empty() {
+            return Err((line, Invalid::NothingToLink(target.to_owned())));
+        }
     }
     Ok(report)
 }
@@ -159,15 +203,24 @@ fn directive(
         report.inputs.push(input(rest, regions)?);
         return Ok(());
     }
-    let Some(directive) = ["include-dir", "define", "interface-define", "source"]
-        .into_iter()
-        .find(|directive| *directive == name)
-    else {
+    let Some(directive) = [
+        "include-dir",
+        "define",
+        "interface-define",
+        "source",
+        "external",
+        "link-file",
+    ]
+    .into_iter()
+    .find(|directive| *directive == name) else {
         return Err(Invalid::UnknownDirective(name.to_owned()));
     };
-    let (target_name, value) = rest
-        .split_once(' ')
-        .ok_or(Invalid::MissingValue(directive))?;
+    let (target_name, value) = if directive == "external" {
+        (rest, "")
+    } else {
+        rest.split_once(' ')
+            .ok_or(Invalid::MissingValue(directive))?
+    };
     let target = script
         .package
         .targets
@@ -185,6 +238,7 @@ fn directive(
     let applies = match directive {
         "interface-define" => target.kind.is_library_like(),
         "define" | "source" => !target.kind.is_header_only(),
+        "external" | "link-file" => target.kind.produces_archive(),
         _ => true,
     };
     if !applies {
@@ -194,8 +248,27 @@ fn directive(
             kind: target.kind.as_str(),
         });
     }
+    if directive == "external" && report.targets.contains_key(target_name) {
+        return Err(Invalid::ExternalLate(target_name.to_owned()));
+    }
     let output = report.targets.entry(target_name.to_owned()).or_default();
     match directive {
+        "external" => output.external = true,
+        "define" | "source" if output.external => {
+            return Err(Invalid::External {
+                directive,
+                target: target_name.to_owned(),
+            });
+        }
+        "link-file" if !output.external => {
+            return Err(Invalid::NotExternal(target_name.to_owned()));
+        }
+        "link-file" => {
+            let file = link_file(value, script, regions)?;
+            if !output.link_files.contains(&file) {
+                output.link_files.push(file);
+            }
+        }
         "include-dir" => output
             .include_dirs
             .push(include_dir(value, script, regions)?),
@@ -210,9 +283,11 @@ fn directive(
         "define" => output.defines.push(value.to_owned()),
         _ => {
             let name = macro_name(value);
-            if target
-                .interface_defines
-                .iter()
+            // An external target's manifest defines nothing for what
+            // depends on it.
+            let declared = target.interface_defines.iter();
+            if declared
+                .filter(|_| !output.external)
                 .chain(&output.interface_defines)
                 .any(|define| macro_name(define) == name)
             {
@@ -271,23 +346,53 @@ fn rebase(base: &Utf8Path, below: &Path, path: &str) -> Result<Utf8PathBuf, Inva
     })
 }
 
-fn include_dir(path: &str, script: &Script<'_>, regions: &Regions) -> Result<Utf8PathBuf, Invalid> {
-    let problem = |problem| Invalid::Path {
-        path: path.to_owned(),
-        problem,
-    };
-    let real = real(path, &regions.out, &regions.sdks, NOT_OFFERED)?;
-    if !real.is_dir() {
-        return Err(problem("is not a directory"));
-    }
+/// `real`, where the path a directive names leads, as the build spells
+/// it: under `CABIN_OUT_DIR` as the build spells that directory, and
+/// under an SDK directory as written.
+fn placed(
+    path: &str,
+    real: &Path,
+    elsewhere: &'static str,
+    script: &Script<'_>,
+    regions: &Regions,
+) -> Result<Utf8PathBuf, Invalid> {
     if let Ok(below) = real.strip_prefix(&regions.out) {
         return rebase(&script.out(), below, path);
     }
     if regions.sdks.iter().any(|sdk| real.starts_with(sdk)) {
         Ok(path.into())
     } else {
-        Err(problem(NOT_OFFERED))
+        Err(Invalid::Path {
+            path: path.to_owned(),
+            problem: elsewhere,
+        })
     }
+}
+
+fn include_dir(path: &str, script: &Script<'_>, regions: &Regions) -> Result<Utf8PathBuf, Invalid> {
+    let real = real(path, &regions.out, &regions.sdks, NOT_OFFERED)?;
+    if !real.is_dir() {
+        return Err(Invalid::Path {
+            path: path.to_owned(),
+            problem: "is not a directory",
+        });
+    }
+    placed(path, &real, NOT_OFFERED, script, regions)
+}
+
+fn link_file(path: &str, script: &Script<'_>, regions: &Regions) -> Result<Utf8PathBuf, Invalid> {
+    let real = real(path, &regions.out, &regions.sdks, NOT_LINKABLE)?;
+    if !real.is_file() {
+        return Err(Invalid::Path {
+            path: path.to_owned(),
+            problem: "is not a file",
+        });
+    }
+    // Placed first: a link beneath `CABIN_OUT_DIR` may lead to a file the
+    // script may not read, which is then not opened.
+    let placed = placed(path, &real, NOT_LINKABLE, script, regions)?;
+    crate::library::check(path, &real, script.msvc, script.machine)?;
+    Ok(placed)
 }
 
 /// A generated source, relative to `CABIN_OUT_DIR`.

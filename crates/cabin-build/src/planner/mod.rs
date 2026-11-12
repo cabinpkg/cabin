@@ -164,6 +164,13 @@ pub struct BuildScriptOutput {
     /// manifest lists, which is all the registry index derives a
     /// published package's from.
     pub sources: Vec<Utf8PathBuf>,
+    /// The script supplies this library: nothing of the target is
+    /// compiled or archived, its manifest's `include-dirs` and
+    /// `interface-defines` do not reach what depends on it, and a link
+    /// takes [`Self::link_files`] where the target's archive would go.
+    pub external: bool,
+    /// Absolute library files, in link order.
+    pub link_files: Vec<Utf8PathBuf>,
 }
 
 /// Inputs to the build planner.
@@ -620,6 +627,19 @@ fn emit_actions(
             target_languages.insert(tid.clone(), linked_through);
             continue;
         }
+        // A library a build script supplies was compiled elsewhere, from
+        // what the manifest's sources stand for: a link taking it needs
+        // the C++ runtime when one of them is C++.  C adds nothing, and
+        // nothing here was compiled with `cc`.
+        if reported.is_some_and(|reported| reported.external) {
+            let mut linked = linked_through;
+            let mut sources = target.sources_for(&req.platform);
+            if sources.any(|source| classify_source(source) == Some(SourceLanguage::Cxx)) {
+                linked.insert(SourceLanguage::Cxx);
+            }
+            target_languages.insert(tid.clone(), linked);
+            continue;
+        }
 
         let mut prepared: Vec<PreparedSource> = Vec::new();
         let mut assembly: Vec<PreparedAssembly> = Vec::new();
@@ -1002,8 +1022,7 @@ fn emit_actions(
                     req.dialect
                         .executable_name(target.name.as_str(), &req.platform),
                 );
-                let lib_paths =
-                    collect_link_libs(tid, &resolved_deps, req.graph, &output_for_target);
+                let lib_paths = collect_link_libs(tid, &resolved_deps, req, &output_for_target);
 
                 let mut inputs = objects;
                 inputs.extend(lib_paths);

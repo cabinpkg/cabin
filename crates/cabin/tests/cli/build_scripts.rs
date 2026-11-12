@@ -1191,6 +1191,197 @@ int main(void) {
     }
 }
 
+/// `sdk-src`, a C library `greet` that says `said`, built by Cabin for
+/// `target` into the SDK directory `sdk`: `include/greet.h` and
+/// `lib/<the archive>`.
+pub(crate) fn build_greet_sdk(root: &Path, sdk: &str, said: &str, target: Option<&str>) {
+    let dir = assert_fs::fixture::ChildPath::new(root);
+    dir.child("sdk-src/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "greet"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.greet]
+type = "library"
+sources = ["src/greet.c"]
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+    let header = r#"#define GREET_FROM "sdk"
+#ifdef __cplusplus
+extern "C"
+#endif
+const char *greet(void);
+"#;
+    dir.child("sdk-src/include/greet.h")
+        .write_str(header)
+        .unwrap();
+    dir.child("sdk-src/src/greet.c")
+        .write_str(&format!(
+            "#include <greet.h>\nconst char *greet(void) {{ return \"{said}\"; }}\n"
+        ))
+        .unwrap();
+    let mut cmd = cabin_in(&root.join("sdk-src"), &["build", "--build-dir"]);
+    cmd.arg(root.join("sdk-build"));
+    let mut built = root.join("sdk-build");
+    if let Some(target) = target {
+        cmd.args(["--target", target]);
+        built.extend([".targets", target]);
+    }
+    cmd.assert().success();
+    let archive = fs::read_dir(built.join("dev/packages/greet"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|ext| ext == "a" || ext == "lib")
+        })
+        .unwrap();
+    // Written once: an SDK built again changes its library alone.
+    let installed = dir.child(sdk).child("include/greet.h");
+    if !installed.exists() {
+        installed.write_str(header).unwrap();
+    }
+    let lib = dir.child(sdk).child("lib");
+    fs::create_dir_all(lib.path()).unwrap();
+    fs::copy(&archive, lib.join(archive.file_name().unwrap())).unwrap();
+}
+
+/// `app`, whose library `greet` its build script takes from the
+/// directory `CABIN_SDK_GREET` names when there is one, and Cabin
+/// builds from the package's own source otherwise.  A C program `app`
+/// and a C++ program `appxx` print whose header they saw and what the
+/// library says.
+pub(crate) fn write_greet_app(root: &Path) {
+    let dir = assert_fs::fixture::ChildPath::new(root);
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+
+[target.greet]
+type = "library"
+sources = ["src/greet.c"]
+include-dirs = ["include"]
+interface-defines = ["GREET_BUNDLED"]
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["greet"]
+
+[target.appxx]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["greet"]
+"#,
+        )
+        .unwrap();
+    dir.child("app/include/greet.h")
+        .write_str(
+            r#"#define GREET_FROM "bundled"
+#ifdef __cplusplus
+extern "C"
+#endif
+const char *greet(void);
+"#,
+        )
+        .unwrap();
+    dir.child("app/src/greet.c")
+        .write_str("#include <greet.h>\nconst char *greet(void) { return \"bundled\"; }\n")
+        .unwrap();
+    let body = r#"
+#ifdef GREET_BUNDLED
+#define SEEN "the bundled"
+#else
+#define SEEN "an"
+#endif
+int main(void) { printf("%s %s: %s\n", SEEN, GREET_FROM, greet()); return 0; }
+"#;
+    dir.child("app/src/main.c")
+        .write_str(&format!("#include <stdio.h>\n#include <greet.h>\n{body}"))
+        .unwrap();
+    dir.child("app/src/main.cc")
+        .write_str(&format!("#include <cstdio>\n#include <greet.h>\n{body}"))
+        .unwrap();
+    dir.child("app/build.c")
+        .write_str(
+            r#"#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main(void) {
+    const char *sdk = getenv("CABIN_SDK_GREET");
+    int msvc = strcmp(getenv("CABIN_TARGET_DIALECT"), "msvc") == 0;
+    char path[4096];
+    FILE *file;
+    if (!sdk) return 0;
+    /* The script reads the SDK it is pointed at. */
+    snprintf(path, sizeof path, "%s/include/greet.h", sdk);
+    if (!(file = fopen(path, "r"))) return 1;
+    fclose(file);
+    if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+    fprintf(file, "external greet\n");
+    fprintf(file, "include-dir greet %s/include\n", sdk);
+    fprintf(file, "link-file greet %s/lib/%s\n", sdk, msvc ? "greet.lib" : "libgreet.a");
+    return fclose(file) != 0;
+}
+"#,
+        )
+        .unwrap();
+}
+
+/// A build script supplies a library from an SDK directory in place of
+/// the one its package would build: the programs see the SDK's header,
+/// not the manifest's interface, and link the SDK's file, again when
+/// that file changes.
+#[test]
+fn a_build_script_supplies_a_library_from_an_sdk() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_greet_app(dir.path());
+    let app = dir.path().join("app");
+    let run = |bin: &str, sdk: bool| {
+        let mut cmd = cabin_in(&app, &["run", "--bin", bin]);
+        if sdk {
+            cmd.env("CABIN_SDK_GREET", dir.path().join("sdk"));
+        }
+        printed(&cmd.assert().success())
+    };
+
+    for bin in ["app", "appxx"] {
+        let bundled = run(bin, false);
+        assert!(
+            bundled.contains("\nthe bundled bundled: bundled\n"),
+            "{bundled}"
+        );
+    }
+
+    build_greet_sdk(dir.path(), "sdk", "one", None);
+    for bin in ["app", "appxx"] {
+        let supplied = run(bin, true);
+        assert!(supplied.contains("\nan sdk: one\n"), "{supplied}");
+    }
+
+    // The SDK's library, all that changed, is an input of the link, not
+    // of the script.
+    build_greet_sdk(dir.path(), "sdk", "two", None);
+    for bin in ["app", "appxx"] {
+        let relinked = run(bin, true);
+        assert!(
+            relinked.contains("\nan sdk: two\n") && !relinked.contains(RAN),
+            "{relinked}"
+        );
+    }
+}
+
 /// A build needs the scripts of what it builds, and no other is built,
 /// run, or asked what it links: `cabin check` leaves a build
 /// dependency's alone when no script links it, and a build leaves alone

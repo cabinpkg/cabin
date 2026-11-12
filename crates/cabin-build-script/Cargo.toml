@@ -18,6 +18,7 @@ cabin-fs = { workspace = true }
 cabin-package = { workspace = true }
 cabin-sandbox = { workspace = true }
 camino = { workspace = true }
+object = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 
