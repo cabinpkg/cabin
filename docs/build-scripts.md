@@ -103,13 +103,15 @@ else, whatever the platform:
 | `CABIN_PROFILE` | The active profile (`dev`, `release`, ...). |
 | `CABIN_TARGET_OS`, `CABIN_TARGET_ARCH`, `CABIN_TARGET_FAMILY`, `CABIN_TARGET_ENV` | The platform the script prepares the package for, as a `cfg(...)` condition spells each; empty when the platform leaves one unset. |
 | `CABIN_TARGET_DIALECT` | `gnu` or `msvc`: the command dialect of the compiler that builds the package. |
+| `CABIN_CC`, `CABIN_CXX`, `CABIN_AR` | Absolute paths of the C compiler, the C++ compiler, and the archiver that build the package.  A compiler the build has none of is unset. |
 | `CABIN_FEATURE_<NAME>` | Set to `1` for each feature of the package the build enables.  `<NAME>` is the feature's name in upper case, with every character other than an ASCII letter or digit as `_`. |
 | `CABIN_BIN_<NAME>` | Absolute path of each build-dependency executable the script may run, named after its target the same way. |
 | `HOME`, `USERPROFILE` | An empty directory of the script's own. |
 | `TMPDIR`, `TMP`, `TEMP` | A directory of the script's own for temporary files. |
 | `CABIN_SDK_*` | Every variable of yours whose name starts with `CABIN_SDK_`, unchanged. |
-| `PATH`, `LANG`, `LC_ALL`, `LC_CTYPE`, `DEVELOPER_DIR`, `SDKROOT` | Yours, unchanged. |
-| `SystemRoot`, `windir`, `SystemDrive`, `ComSpec`, `PATHEXT`, `NUMBER_OF_PROCESSORS`, `PROCESSOR_ARCHITECTURE`, `INCLUDE`, `LIB`, `LIBPATH` | Yours, unchanged: what Windows and its compilers read. |
+| `PATH`, `LANG`, `LC_ALL`, `LC_CTYPE`, `DEVELOPER_DIR` | Yours, unchanged, but for `PATH` on Windows as told below. |
+| `SDKROOT` | The Apple SDK Cabin builds the package against: the one it found for Apple Clang, or your sysroot for an Apple platform.  Without one, yours, unchanged. |
+| `SystemRoot`, `windir`, `SystemDrive`, `ComSpec`, `PATHEXT`, `NUMBER_OF_PROCESSORS`, `PROCESSOR_ARCHITECTURE`, `INCLUDE`, `LIB`, `LIBPATH` | Yours, unchanged, but for `INCLUDE` and `LIB` as told below: what Windows and its compilers read. |
 | `LOCALAPPDATA` | On Windows only, a directory Windows makes for the run. |
 
 A package built in both contexts, as a dependency of the program and as a build dependency, runs
@@ -118,6 +120,21 @@ that prepares the program's copy is told the target platform, and the run that p
 machine's copy is told the build machine.
 
 Two features, or two executables, whose names give the same variable fail the build.
+
+A script that compiles something itself, as one that runs a library's own build system does, starts
+`CABIN_CC`, `CABIN_CXX`, and `CABIN_AR`, so that what it builds matches the package.  It chooses
+its own flags: the profile's, and those `--target` adds, are not passed on.  The
+[confinement](#confinement) holds for what it starts: a toolchain installed where the script reads
+nothing, such as under your home directory, does not work from it.
+
+On macOS, `/usr/bin/cc` and the other tools Xcode puts there look the real tool up each time they
+start, which takes seconds under the confinement.  Where Cabin sets `SDKROOT`, a variable that
+would name one of them names the real tool instead, which finds the SDK through `SDKROOT`.  The
+build machine's copy of a package is the exception in a build with `--target` or a sysroot of your
+choosing: its variables name the tools as Cabin starts them, and its `SDKROOT` is yours.
+
+On Windows, where Cabin [found Visual Studio itself](toolchains.md#toolchain-discovery), `INCLUDE`,
+`LIB`, and `PATH` are those it starts the compilers with, in place of yours.
 
 ## What a script reports
 
@@ -257,8 +274,8 @@ run leaves no result, and the next build runs the script again.
 
 Once a script has succeeded, later builds reuse its result until something it depended on changes:
 
-- Cabin itself, the script's executable (so its source, and the libraries it links), or an
-  executable it may run;
+- Cabin itself, the script's executable (so its source, and the libraries it links), an
+  executable it may run, or the version of a compiler or of the archiver it is told;
 - any variable of its environment, which covers the package's enabled features, the profile, the
   platform, and every `CABIN_SDK_*` variable;
 - the files it wrote into `CABIN_OUT_DIR`;

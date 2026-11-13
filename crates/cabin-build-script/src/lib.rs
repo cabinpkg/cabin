@@ -64,7 +64,9 @@ use cabin_core::{
     Package, TargetPlatform, escape_control_chars, escape_control_chars_keeping_lines,
 };
 use cabin_env::build_script::names_sdk;
-use cabin_env::{BuildScriptEnvError, BuildScriptEnvInputs, build_script_env};
+use cabin_env::{
+    BuildScriptEnvError, BuildScriptEnvInputs, BuildScriptToolchain, build_script_env,
+};
 use cabin_sandbox::{Confinement, SandboxError};
 use camino::{Utf8Path, Utf8PathBuf};
 use sha2::{Digest as _, Sha256};
@@ -111,6 +113,11 @@ pub struct Script<'a> {
     /// which is not `platform`'s when a build without `--target` runs a
     /// compiler for another machine.
     pub machine: &'a str,
+    /// The compilers and archiver building the package.
+    pub toolchain: &'a BuildScriptToolchain,
+    /// What tells those tools from other versions of them at the same
+    /// paths: a script that built with them runs again for another.
+    pub toolchain_identity: &'a str,
     /// The build-dependency executables the script may run, by target
     /// name.
     pub tools: &'a [(String, Utf8PathBuf)],
@@ -193,8 +200,8 @@ pub fn find(root: &Utf8Path) -> Result<Option<&'static str>, Error> {
 
 /// What `script` reported when it last ran, while that still holds:
 /// the run succeeded, and since then neither Cabin, the script's
-/// executable, its environment, an executable it may run, a file it
-/// read, nor its output has changed.  The files it read are those its
+/// executable, its environment, an executable it may run, the compilers
+/// and archiver it is told, a file it read, nor its output has changed.  The files it read are those its
 /// `rerun-if-changed` lines named, compared by content, or with none,
 /// all it may read of the package, compared by size and modification
 /// time as its output is, and where each symlink there leads.  The
@@ -204,7 +211,7 @@ pub fn load(script: &Script<'_>) -> Option<Outputs> {
     let end = stamp.iter().position(|byte| *byte == b'\n')?;
     let (env, regions) = script.prepare().ok()?;
     let report = result::parse(&stamp[end + 1..], script, &regions).ok()?;
-    let key = key(&env, &regions, &report.inputs).ok()?;
+    let key = key(&env, &regions, script.toolchain_identity, &report.inputs).ok()?;
     (key.as_bytes() == &stamp[..end]).then_some(report.targets)
 }
 
@@ -270,7 +277,7 @@ pub fn run(script: &Script<'_>) -> Result<Outputs, Error> {
     let report = result::parse(&text, script, &regions)
         .map_err(|(line, invalid)| Error::Result { line, invalid })?;
     restore(out, &before);
-    let key = key(&env, &regions, &report.inputs)?;
+    let key = key(&env, &regions, script.toolchain_identity, &report.inputs)?;
     cabin_fs::write_atomic(&stamp, [key.as_bytes(), b"\n", &text].concat())
         .map_err(failed("write", &stamp))?;
     Ok(report.targets)
@@ -324,6 +331,7 @@ impl Script<'_> {
             target_family: &self.platform.family,
             target_env: &self.platform.env,
             msvc: self.msvc,
+            toolchain: self.toolchain,
             features: &features,
             tools: &named,
         };
@@ -440,10 +448,12 @@ impl Regions {
 fn key(
     env: &BTreeMap<String, OsString>,
     regions: &Regions,
+    toolchain_identity: &str,
     inputs: &[PathBuf],
 ) -> Result<String, Error> {
     let mut key = Sha256::new();
     add(&mut key, env!("CARGO_PKG_VERSION"));
+    add(&mut key, toolchain_identity);
     for (name, value) in env {
         add(&mut key, name);
         add(&mut key, value.as_encoded_bytes());
