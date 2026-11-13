@@ -81,6 +81,17 @@ statements! {
          SELECT ?1, ?2, ?3, ?4, 'verify', ?5, ?6, 'trustpub' \
          WHERE (SELECT changes()) = 1";
 
+    /// The verifier's heartbeat (`meta.verifier_seen_at`, read by
+    /// [`PIPELINE_HEALTH`](super::publication::PIPELINE_HEALTH)), with
+    /// the same batch coupling one step on: it must directly follow
+    /// [`INSERT_TRUSTPUB_VERIFY_TOKEN`] and writes only when that mint
+    /// stored its row. In the mint's transaction, a replayed jti leaves
+    /// it alone and the token's answer waits on no second write.
+    RECORD_VERIFIER_SEEN =
+        "INSERT INTO meta (key, value) SELECT 'verifier_seen_at', ?1 \
+         WHERE (SELECT changes()) = 1 \
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value";
+
     /// The verifier arm's backing user: the operator identity the
     /// `VERIFIER_BACKING_ACCOUNT_ID` var names, by its immutable
     /// numeric GitHub id. The baseline migration seeds this identity,

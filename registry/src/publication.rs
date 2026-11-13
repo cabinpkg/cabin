@@ -99,6 +99,36 @@ pub fn purged(body: &str) -> bool {
 /// after the change (`glue/publication.rs` argues why).
 pub const SETTLE_MS: u64 = 15 * 60 * 1000;
 
+/// How long a completed change keeps its row, as an `SQLite` time
+/// modifier; the cron deletes it after. An open change is never deleted
+/// for its age.
+pub const JOB_RETENTION: &str = "-30 days";
+
+/// How long a verified archive may stay unplaced, or a change open,
+/// before the cron reports the publication as stalled, as an `SQLite`
+/// time modifier. The placement runs at the first pass after the
+/// verdict, and a change completes at the first pass [`SETTLE_MS`]
+/// after it was recorded, so neither is half an hour old while the
+/// passes keep up. A pass places and publishes a bounded batch, so a
+/// backlog larger than the passes drain in that time also reads as
+/// stalled until it clears.
+pub const STALL: &str = "-45 minutes";
+
+/// The stalled-publication alert for the cron's webhook payload, from
+/// the oldest stalled times `sql::PIPELINE_HEALTH` read: the verdict
+/// time of a verified archive not placed, and the recording time of a
+/// change still open.
+#[must_use]
+pub fn stall_alert(stalled_archive: Option<&str>, stalled_job: Option<&str>) -> Option<String> {
+    let archive = stalled_archive
+        .map(|since| format!("a verified archive has not been placed since {since}"));
+    let job = stalled_job.map(|since| format!("a change has been open since {since}"));
+    match (archive, job) {
+        (Some(archive), Some(job)) => Some(format!("{archive}; {job}")),
+        (alert, None) | (None, alert) => alert,
+    }
+}
+
 /// The custom metadata key under which an INDEX object records the
 /// generation its document was rendered at.
 pub const GENERATION: &str = "generation";
@@ -116,6 +146,26 @@ pub fn holds_document(held: Option<&str>, generation: i64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stall_alert_names_each_stalled_stage_and_its_time() {
+        assert_eq!(stall_alert(None, None), None);
+        assert_eq!(
+            stall_alert(Some("T1"), None).as_deref(),
+            Some("a verified archive has not been placed since T1")
+        );
+        assert_eq!(
+            stall_alert(None, Some("T2")).as_deref(),
+            Some("a change has been open since T2")
+        );
+        assert_eq!(
+            stall_alert(Some("T1"), Some("T2")).as_deref(),
+            Some(
+                "a verified archive has not been placed since T1; \
+                 a change has been open since T2"
+            )
+        );
+    }
 
     const CHECKSUM: &str =
         "sha256:00ff10a0b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72";

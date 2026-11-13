@@ -230,6 +230,10 @@ pub fn packages_json(packages: &[CorpusPackage]) -> String {
     serde_json::json!({ "packages": entries }).to_string()
 }
 
+/// How long a stored upload may await its verdict before the cron
+/// reports the verifier as stuck, as an `SQLite` time modifier.
+pub const STALE_PENDING: &str = "-1 hour";
+
 /// The stuck-verifier alert for the breaker cron's webhook payload:
 /// revisions pending for over an hour mean the verifier is not keeping
 /// up (or not running), and an unreadable count must alert rather than

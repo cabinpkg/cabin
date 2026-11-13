@@ -217,7 +217,8 @@ enum ExchangeMint<'a> {
 /// The exchange's terminal transaction, shared by both arms: the
 /// once-only jti consume, the mint (guarded inside the SQL on the
 /// consume's `changes()`, so it must stay the immediately following
-/// statement), then the lazy expiry prunes (no cron). A replayed jti
+/// statement), on the verifier arm its heartbeat (guarded the same way
+/// on the mint), then the lazy expiry prunes (no cron). A replayed jti
 /// answers as zero consumed rows without minting - the uniform 401;
 /// any batch failure rolls the consume back with everything else, so a
 /// transient 500 never burns a still-valid JWT.
@@ -234,6 +235,7 @@ async fn exchange_mint(
     let token = auth::format_trustpub_token(&web_glue::random_bytes()?);
     let (created_at, expires_at) = token_window(trustpub::TOKEN_TTL_SECS);
     let name = format!("trusted-publishing: {workflow_filename}");
+    let verifier = matches!(mint, ExchangeMint::Verify);
     let minted = match mint {
         ExchangeMint::Publish { scope, quota_class } => {
             db.prepare(sql::INSERT_TRUSTPUB_TOKEN).bind(&[
@@ -256,17 +258,24 @@ async fn exchange_mint(
             expires_at.as_str().into(),
         ])?,
     };
-    let results = db
-        .batch(vec![
-            db.prepare(sql::CONSUME_OIDC_JTI)
-                .bind(&[claims.jti.as_str().into(), js_int(claims.verifiable_until)])?,
-            minted,
-            db.prepare(sql::PRUNE_EXPIRED_OIDC_JTIS)
-                .bind(&[js_int(now_secs)])?,
-            db.prepare(sql::PRUNE_EXPIRED_SHORT_LIVED_TOKENS)
+    let mut statements = vec![
+        db.prepare(sql::CONSUME_OIDC_JTI)
+            .bind(&[claims.jti.as_str().into(), js_int(claims.verifiable_until)])?,
+        minted,
+    ];
+    if verifier {
+        statements.push(
+            db.prepare(sql::RECORD_VERIFIER_SEEN)
                 .bind(&[created_at.as_str().into()])?,
-        ])
-        .await?;
+        );
+    }
+    statements.extend([
+        db.prepare(sql::PRUNE_EXPIRED_OIDC_JTIS)
+            .bind(&[js_int(now_secs)])?,
+        db.prepare(sql::PRUNE_EXPIRED_SHORT_LIVED_TOKENS)
+            .bind(&[created_at.as_str().into()])?,
+    ]);
+    let results = db.batch(statements).await?;
     let changed = |index: usize| -> usize {
         results
             .get(index)
@@ -284,7 +293,6 @@ async fn exchange_mint(
         console_error!("trustpub exchange consumed a jti without minting");
         return Ok((error_response(500, error::INTERNAL)?, None));
     }
-
     // The plaintext is rendered exactly once, here; D1 holds only the
     // SHA-256 hex.
     let body = serde_json::json!({ "token": token, "expires_at": expires_at }).to_string();

@@ -27,7 +27,7 @@
     // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account
     // Analytics Read; the budget cron degrades gracefully without it),
     // and optionally NOTIFY_WEBHOOK_URL (POSTed a JSON summary on
-    // service-mode changes and stuck-verifier alerts) and
+    // service-mode changes and pipeline alerts) and
     // WEBSITE_DEPLOY_HOOK (the website's Workers Builds deploy hook, POSTed
     // when its package pages fall behind the catalog).
     // CACHE_PURGE_TOKEN (the zone's Cache Purge) is required from the

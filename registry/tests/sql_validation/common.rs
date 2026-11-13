@@ -3,7 +3,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use cabin_registry_worker::{quota, sql, upload};
+use cabin_registry_worker::{publication, quota, sql, upload};
 use rusqlite::types::Value;
 use rusqlite::{Connection, StatementStatus};
 
@@ -316,6 +316,10 @@ pub fn sweep(conn: &Connection, now: &str) {
             (
                 sql::PRUNE_SETTLED_UPLOAD_IDS,
                 vec![text(now), text(upload::UPLOAD_ID_RETENTION)],
+            ),
+            (
+                sql::PRUNE_COMPLETED_PUBLICATION_JOBS,
+                vec![text(now), text(publication::JOB_RETENTION)],
             ),
         ],
     );

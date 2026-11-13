@@ -93,4 +93,42 @@ statements! {
         "UPDATE publication_jobs SET completed_at = ?1 \
          WHERE scope = ?2 AND name = ?3 AND generation <= ?4 AND completed_at IS NULL \
          AND created_at <= ?5";
+
+    /// Deletes every change completed longer ago than `?2` (an `SQLite`
+    /// time modifier, `crate::publication::JOB_RETENTION`; `?1` the
+    /// time). An open change has no completion time and is never
+    /// selected, however old.
+    PRUNE_COMPLETED_PUBLICATION_JOBS =
+        "DELETE FROM publication_jobs INDEXED BY publication_jobs_completed \
+         WHERE completed_at < strftime('%Y-%m-%dT%H:%M:%fZ', ?1, ?2)";
+
+    /// The pipeline's health at `?1`, one row. `stale_pending` counts
+    /// the stored uploads that have awaited a verdict for longer than
+    /// `?2`, and `oldest_pending` is when the longest-waiting one was
+    /// stored. `stalled_archive` is the verdict time of the oldest
+    /// verified archive unplaced for longer than `?3`, and
+    /// `stalled_job` the recording time of the oldest change open for
+    /// longer than `?3`; each is NULL when there is none.
+    /// `last_completed_job` is the newest completion, and
+    /// `verifier_seen_at` when the verifier last exchanged its identity
+    /// for a token. `?2` and `?3` are `SQLite` time modifiers
+    /// (`crate::verify::STALE_PENDING`, `crate::publication::STALL`).
+    /// Each part reads one partial index, named because the registry
+    /// never runs ANALYZE.
+    PIPELINE_HEALTH =
+        "SELECT \
+         (SELECT COUNT(*) FROM revisions INDEXED BY revisions_pending_stored \
+          WHERE verification = 'pending' \
+          AND stored_at < strftime('%Y-%m-%dT%H:%M:%fZ', ?1, ?2)) AS stale_pending, \
+         (SELECT MIN(stored_at) FROM revisions INDEXED BY revisions_pending_stored \
+          WHERE verification = 'pending') AS oldest_pending, \
+         (SELECT MIN(verified_at) FROM revisions INDEXED BY revisions_unarchived \
+          WHERE verification = 'verified' AND archived_at IS NULL \
+          AND verified_at < strftime('%Y-%m-%dT%H:%M:%fZ', ?1, ?3)) AS stalled_archive, \
+         (SELECT MIN(created_at) FROM publication_jobs INDEXED BY publication_jobs_open \
+          WHERE completed_at IS NULL \
+          AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', ?1, ?3)) AS stalled_job, \
+         (SELECT MAX(completed_at) FROM publication_jobs INDEXED BY publication_jobs_completed \
+          WHERE completed_at IS NOT NULL) AS last_completed_job, \
+         (SELECT value FROM meta WHERE key = 'verifier_seen_at') AS verifier_seen_at";
 }

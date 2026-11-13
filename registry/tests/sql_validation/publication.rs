@@ -3,11 +3,11 @@
 //! the placement pass's two writes, and the generations and jobs of the
 //! publish pass.
 
-use cabin_registry_worker::{publication, sql};
+use cabin_registry_worker::{publication, sql, verify};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 
-use crate::common::{batch, migrated_connection, rows, seed_scope_collision};
+use crate::common::{batch, migrated_connection, rows, seed_scope_collision, sweep};
 
 const NOW: &str = "2026-07-16T00:00:00.000Z";
 /// The seed rows' `published_at`.
@@ -326,5 +326,112 @@ fn a_job_is_listed_until_its_generation_is_published() {
             "SELECT COUNT(*) FROM publication_jobs WHERE completed_at = '2026-07-16T00:00:00.000Z'"
         ),
         ["Integer(3)"]
+    );
+}
+
+/// The cron deletes a change thirty days after it completes, and never
+/// an open one.
+#[test]
+fn a_completed_job_is_deleted_after_thirty_days_and_an_open_one_never() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    assert_eq!(yank(&conn, 1.0), [1; 4]);
+    assert_eq!(yank(&conn, 0.0), [1; 4]);
+    assert_eq!(complete(&conn, "alpha", 1.0, NOW), 1, "completed at NOW");
+    let jobs = |conn: &Connection| {
+        rows(
+            conn,
+            "SELECT generation FROM publication_jobs ORDER BY generation",
+        )
+    };
+
+    sweep(&conn, "2026-08-15T00:00:00.000Z");
+    assert_eq!(jobs(&conn), ["Integer(1)", "Integer(2)"], "thirty days");
+    sweep(&conn, "2026-08-15T00:00:00.001Z");
+    assert_eq!(jobs(&conn), ["Integer(2)"]);
+    sweep(&conn, "2036-07-16T00:00:00.000Z");
+    assert_eq!(jobs(&conn), ["Integer(2)"], "open, whatever its age");
+}
+
+/// `sql::PIPELINE_HEALTH` at `now`: its one row.
+fn health(conn: &Connection, now: &str) -> String {
+    conn.query_row(
+        sql::PIPELINE_HEALTH,
+        rusqlite::params![now, verify::STALE_PENDING, publication::STALL],
+        |row| {
+            (0..6)
+                .map(|column| row.get::<_, Value>(column).map(|cell| format!("{cell:?}")))
+                .collect::<Result<Vec<_>, _>>()
+        },
+    )
+    .expect("PIPELINE_HEALTH")
+    .join(" | ")
+}
+
+/// The health read counts an upload as stale once it has awaited its
+/// verdict for over an hour, and names a verified archive or an open
+/// change once it is over forty-five minutes old; a completed change
+/// only moves the newest completion.
+#[test]
+fn the_health_read_names_what_has_waited_too_long() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    let stored = r#"Text("2026-07-15T00:00:00.000Z")"#;
+    let at_now = r#"Text("2026-07-16T00:00:00.000Z")"#;
+    assert_eq!(
+        health(&conn, "2026-07-15T01:00:00.000Z"),
+        format!("Integer(0) | {stored} | Null | Null | Null | Null")
+    );
+    assert_eq!(
+        health(&conn, "2026-07-15T01:00:00.001Z"),
+        format!("Integer(1) | {stored} | Null | Null | Null | Null")
+    );
+
+    // Verified at `NOW`, not placed.
+    verify_beta(&conn);
+    let healthy = "Integer(0) | Null | Null | Null | Null | Null";
+    assert_eq!(health(&conn, "2026-07-16T00:45:00.000Z"), healthy);
+    assert_eq!(
+        health(&conn, "2026-07-16T00:45:00.001Z"),
+        format!("Integer(0) | Null | {at_now} | Null | Null | Null")
+    );
+
+    // Placed, which records a change at `NOW`.
+    let mark = vec![
+        text(NOW),
+        text("beta"),
+        text("pkg"),
+        text("1.0.0"),
+        text("bb"),
+    ];
+    assert_eq!(
+        change(&conn, sql::MARK_REVISION_ARCHIVED, mark, "beta"),
+        [1; 4]
+    );
+    assert_eq!(health(&conn, "2026-07-16T00:45:00.000Z"), healthy);
+    assert_eq!(
+        health(&conn, "2026-07-16T00:45:00.001Z"),
+        format!("Integer(0) | Null | Null | {at_now} | Null | Null")
+    );
+
+    assert_eq!(complete(&conn, "beta", 1.0, NOW), 1);
+    assert_eq!(
+        health(&conn, "2036-07-16T00:00:00.000Z"),
+        format!("Integer(0) | Null | Null | Null | {at_now} | Null")
+    );
+
+    // Of several, the open change named is the oldest and the
+    // completion the newest.
+    conn.execute_batch(
+        "INSERT INTO publication_jobs (generation, scope, name, created_at, completed_at) VALUES
+         (11, 'beta', 'pkg', '2026-07-16T00:20:00.000Z', NULL),
+         (12, 'beta', 'pkg', '2026-07-16T00:10:00.000Z', NULL),
+         (13, 'beta', 'pkg', '2026-07-16T00:05:00.000Z', '2026-07-16T00:40:00.000Z'),
+         (14, 'beta', 'pkg', '2026-07-16T00:05:00.000Z', '2026-07-16T00:30:00.000Z');",
+    )
+    .expect("more jobs");
+    assert_eq!(
+        health(&conn, "2036-07-16T00:00:00.000Z"),
+        r#"Integer(0) | Null | Null | Text("2026-07-16T00:10:00.000Z") | Text("2026-07-16T00:40:00.000Z") | Null"#
     );
 }

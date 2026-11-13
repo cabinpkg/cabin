@@ -332,6 +332,15 @@ pub fn verifier_exchange_surface(smoke: &mut Smoke) -> Result<()> {
     {
         bail!("no expires_at in the exchange answer: {minted}");
     }
+    // The mint's batch also recorded the verifier's heartbeat: the
+    // minted row's own creation time, which no earlier run's is.
+    let heartbeat = crate::servers::d1_rows(
+        "SELECT 1 FROM meta WHERE key = 'verifier_seen_at' \
+         AND value = (SELECT MAX(created_at) FROM tokens WHERE scopes = 'verify')",
+    )?;
+    if heartbeat.is_empty() {
+        bail!("the verifier exchange did not record its heartbeat");
+    }
     // The jti burned on the mint: the same JWT never exchanges twice.
     uniform_401_with(
         smoke,
