@@ -137,7 +137,10 @@ fn shared<'data>(data: impl ReadRef<'data>) -> bool {
             FileKind::Pe32 | FileKind::Pe64 => {
                 let at = u64::from(pe::ImageDosHeader::parse(data).ok()?.nt_headers_offset()) + 4;
                 let header = data.read_at::<pe::ImageFileHeader>(at).ok()?;
-                header.characteristics.get(LittleEndian) & pe::IMAGE_FILE_DLL != 0
+                header
+                    .characteristics
+                    .get(LittleEndian)
+                    .contains(pe::IMAGE_FILE_DLL)
             }
             kind => kind == FileKind::CoffImport,
         })
@@ -145,7 +148,7 @@ fn shared<'data>(data: impl ReadRef<'data>) -> bool {
     header().unwrap_or(false)
 }
 
-fn dylib(filetype: u32) -> bool {
+fn dylib(filetype: macho::FileType) -> bool {
     matches!(filetype, macho::MH_DYLIB | macho::MH_DYLIB_STUB)
 }
 
@@ -200,7 +203,7 @@ fn macho(header: &impl MachHeader<Endian = Endianness>) -> Option<Architecture> 
     })
 }
 
-fn coff(machine: u16) -> Architecture {
+fn coff(machine: pe::Machine) -> Architecture {
     match machine {
         pe::IMAGE_FILE_MACHINE_ARM64 | pe::IMAGE_FILE_MACHINE_ARM64EC => Architecture::Aarch64,
         pe::IMAGE_FILE_MACHINE_ARMNT => Architecture::Arm,
