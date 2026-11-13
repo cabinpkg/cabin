@@ -42,7 +42,10 @@
 //!   the names of the extended attributes, the access-control list) of
 //!   each directory leading to a granted path, which resolving a path it
 //!   is given takes (`realpath(3)`), and of the files its standard output
-//!   and error go to.
+//!   and error go to.  It sees whether a path beneath its working
+//!   directory exists, a [`Confinement::hidden`] one excepted; in a
+//!   directory leading to a granted path, a path that is missing is
+//!   refused like one that is there.
 //!   The program can read the command line and environment any
 //!   process of its user was started with (`sysctl` `KERN_PROCARGS2`),
 //!   which Seatbelt cannot deny.  A process that leaves the program's
