@@ -30,17 +30,6 @@
                     "dev-dependencies": {
                         "acme/testkit": "^1"
                     },
-                    "system-dependencies": {
-                        "pthread": {
-                            "version": "",
-                            "dependency_kind": "normal",
-                            "target": "os = \"linux\""
-                        },
-                        "valgrind": {
-                            "version": ">=3",
-                            "dependency_kind": "dev"
-                        }
-                    },
                     "features": {
                         "default": ["fast"],
                         "features": {

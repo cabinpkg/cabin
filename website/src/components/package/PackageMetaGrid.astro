@@ -33,9 +33,8 @@ const { package: pack, versions, currentVersion } = Astro.props;
                     Dependencies
                 </dt>
                 <dd>
-                    {/* Normal-kind edges, system and cfg-conditioned ones
-                        included; dev edges appear only in the
-                        Dependencies card. */}
+                    {/* Normal-kind edges, cfg-conditioned ones included;
+                        dev edges appear only in the Dependencies card. */}
                     <Badge tone="muted">
                         {
                             pack.manifest.dependencies.filter(

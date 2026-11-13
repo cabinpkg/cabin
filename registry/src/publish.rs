@@ -133,8 +133,6 @@ pub struct VersionMetadata {
     /// Like `dev-dependencies`, for `[build-dependencies]`.
     #[serde(rename = "build-dependencies", default)]
     pub build_dependencies: serde_json::Map<String, serde_json::Value>,
-    #[serde(rename = "system-dependencies")]
-    pub system_dependencies: Option<serde_json::Value>,
     pub features: Option<serde_json::Value>,
     pub profiles: Option<serde_json::Value>,
     pub toolchain: Option<serde_json::Value>,
@@ -402,7 +400,7 @@ pub fn source_path(scope: &str, name: &str, version: &str, revision: &str) -> St
 /// packaging revision), scope and
 /// name charsets, the reserved-name list (`crate::names`, package
 /// part only), `SemVer`, `dependencies` / `dev-dependencies` /
-/// `build-dependencies` keys (`system-dependencies` is exempt), the
+/// `build-dependencies` keys, the
 /// `build-script` name, the `links` claims
 /// (`validate_links`), the optional `upstream` block's lexical
 /// provenance rules ([`validate_upstream`]), `yanked`. The
@@ -462,9 +460,7 @@ pub fn validate_metadata(
     // so one admitted here would be a permanent dark edge in the
     // reverse-dependency graph. Dev- and build-dependency keys denote
     // registry packages too (they resolve when building the package's
-    // own tests, or its build script), so the same grammar applies;
-    // `system-dependencies` is exempt - its keys name system packages,
-    // not registry packages.
+    // own tests, or its build script), so the same grammar applies.
     for map in [
         &parsed.dependencies,
         &parsed.dev_dependencies,
@@ -762,7 +758,6 @@ mod tests {
   "dependencies": {"madler/zlib": "^1.3", "acme/rich": {"version": "^2", "optional": true}},
   "dev-dependencies": {"catchorg/catch2": "^3"},
   "build-dependencies": {"acme/gen": {"version": "^1", "features": ["fast"]}},
-  "system-dependencies": {"openssl": {"version": ">=3", "dependency_kind": "normal"}},
   "features": {"default": [], "features": {}},
   "profiles": {},
   "toolchain": {},
@@ -1459,16 +1454,23 @@ mod tests {
             );
         }
         // Canonical scoped keys pass in both maps (the optional-blocks
-        // test covers the rich-value shapes), and system-dependencies
-        // is exempt - its keys name system packages, not registry
-        // packages.
+        // test covers the rich-value shapes).
         let scoped = metadata_json("fmtlib", "fmt", "1.0.0").replace(
             "\"dependencies\": {}",
             r#""dependencies": {"madler/zlib": "^1"},
-  "dev-dependencies": {"catchorg/catch2": "^3"},
-  "system-dependencies": {"openssl": {"version": ">=3"}}"#,
+  "dev-dependencies": {"catchorg/catch2": "^3"}"#,
         );
         assert!(validate_metadata("fmtlib", "fmt", "1.0.0", REV, scoped.as_bytes()).is_ok());
+        // The key of the removed system dependencies, which an older
+        // Cabin still writes, is refused like any unknown one.
+        let system = scoped.replace(
+            r#""dev-dependencies": {"catchorg/catch2": "^3"}"#,
+            r#""system-dependencies": {"openssl": {"version": ">=3"}}"#,
+        );
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, system.as_bytes()).unwrap_err(),
+            METADATA_NOT_CANONICAL
+        );
         // The dev- and build-dependencies maps are typed for the key
         // check, so a non-object value is not canonical - and an
         // explicit `null` must not alias the omitted-when-empty form.

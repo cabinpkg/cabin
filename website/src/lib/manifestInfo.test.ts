@@ -7,7 +7,7 @@ import { groupDependencies, versionManifestInfo } from "./manifestInfo.ts";
 
 const CONTEXT = "acme/widget@1.0.0";
 
-test("every dependency kind, source, condition, and flag maps", () => {
+test("every dependency kind, condition, and flag maps", () => {
     const info = versionManifestInfo(
         {
             dependencies: {
@@ -21,14 +21,6 @@ test("every dependency kind, source, condition, and flag maps", () => {
                 },
             },
             "dev-dependencies": { "cabin-ports/catch2": { version: "^3" } },
-            "system-dependencies": {
-                pthread: {
-                    version: "",
-                    dependency_kind: "normal",
-                    target: 'os = "linux"',
-                },
-                valgrind: { version: ">=3", dependency_kind: "dev" },
-            },
         },
         CONTEXT,
     );
@@ -43,13 +35,11 @@ test("every dependency kind, source, condition, and flag maps", () => {
             ...plain,
             name: "cabin-ports/zlib",
             kind: "normal",
-            source: "registry",
             req: "^1.3",
         },
         {
             name: "cabin-ports/fmt",
             kind: "normal",
-            source: "registry",
             req: "^12",
             condition: 'os = "linux"',
             optional: true,
@@ -60,23 +50,7 @@ test("every dependency kind, source, condition, and flag maps", () => {
             ...plain,
             name: "cabin-ports/catch2",
             kind: "dev",
-            source: "registry",
             req: "^3",
-        },
-        {
-            ...plain,
-            name: "pthread",
-            kind: "normal",
-            source: "system",
-            req: "",
-            condition: 'os = "linux"',
-        },
-        {
-            ...plain,
-            name: "valgrind",
-            kind: "dev",
-            source: "system",
-            req: ">=3",
         },
     ]);
     // No features block: the section is hidden rather than claiming none.
@@ -141,14 +115,6 @@ test("a block outside the index shape fails the build", () => {
             "a non-boolean optional flag",
             { dependencies: { a: { version: "^1", optional: "yes" } } },
         ],
-        [
-            "an unknown system dependency kind",
-            {
-                "system-dependencies": {
-                    z: { version: "", dependency_kind: "build" },
-                },
-            },
-        ],
         ["a non-list feature", { features: { features: { x: "y" } } }],
         // The manifest's flat `[features]` table is not the stored shape.
         ["a flat features table", { features: { default: [], x: [] } }],
@@ -170,9 +136,10 @@ test("grouping renders unconditional first, then conditions lexically", () => {
                     target: 'family = "unix"',
                 },
                 "cabin-ports/fmt": "^12",
-            },
-            "system-dependencies": {
-                systemd: { version: ">=240", target: 'os = "linux"' },
+                "cabin-ports/systemd": {
+                    version: ">=240",
+                    target: 'os = "linux"',
+                },
             },
         },
         CONTEXT,
@@ -185,7 +152,7 @@ test("grouping renders unconditional first, then conditions lexically", () => {
         [
             { condition: null, names: ["cabin-ports/fmt"] },
             { condition: 'family = "unix"', names: ["cabin-ports/zlib"] },
-            { condition: 'os = "linux"', names: ["systemd"] },
+            { condition: 'os = "linux"', names: ["cabin-ports/systemd"] },
         ],
     );
 });

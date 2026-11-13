@@ -1,23 +1,16 @@
 // A catalog version's dependency and feature declarations, mapped for
 // rendering.  The catalog copies them verbatim from the registry's stored
 // index entry (crates/cabin-index/src/loader.rs `RawVersion`): registry
-// dependencies by kind, system dependencies with their own kind, a
-// `cfg(...)` condition as its inner expression in `target`, and the
-// `[features]` table.  The registry validated all of it at publish, so
-// only the shape this module reads is checked.
+// dependencies by kind, a `cfg(...)` condition as its inner expression
+// in `target`, and the `[features]` table.  The registry validated all
+// of it at publish, so only the shape this module reads is checked.
 
 export type DependencyKind = "normal" | "dev";
 
 export interface DependencyInfo {
     name: string;
     kind: DependencyKind;
-    /** `registry` resolves through the registry; `system` probes pkg-config. */
-    source: "registry" | "system";
-    /**
-     * The version requirement as the index stores it (free-form
-     * pkg-config spelling for system deps, where blank means
-     * unconstrained).
-     */
+    /** The version requirement as the index stores it. */
     req: string;
     /** Inner expression of a `cfg(...)` condition, or null when unconditional. */
     condition: string | null;
@@ -67,7 +60,6 @@ export function versionManifestInfo(
         dependencies: [
             ...registryDependencies(entry.dependencies, "normal", context),
             ...registryDependencies(entry["dev-dependencies"], "dev", context),
-            ...systemDependencies(entry["system-dependencies"], context),
         ],
         features: features(entry.features, context),
     };
@@ -120,7 +112,6 @@ function registryDependencies(
             return {
                 name,
                 kind,
-                source: "registry",
                 req: spec,
                 condition: null,
                 optional: false,
@@ -141,7 +132,6 @@ function registryDependencies(
         return {
             name,
             kind,
-            source: "registry",
             req: spec.version,
             condition: (spec.target as string | undefined) ?? null,
             optional: spec.optional === true,
@@ -149,40 +139,6 @@ function registryDependencies(
             defaultFeatures: spec["default-features"] !== false,
         };
     });
-}
-
-// `{ name: { version, dependency_kind?, target? } }`
-function systemDependencies(value: unknown, context: string): DependencyInfo[] {
-    return Object.entries(table(value, "system", context)).map(
-        ([name, spec]) => {
-            if (
-                !isRecord(spec) ||
-                typeof spec.version !== "string" ||
-                !optional(spec.target, "string") ||
-                !(
-                    spec.dependency_kind === undefined ||
-                    spec.dependency_kind === "normal" ||
-                    spec.dependency_kind === "dev"
-                )
-            ) {
-                throw new Error(
-                    `Malformed system dependency ${name} in ${context}.`,
-                );
-            }
-            return {
-                name,
-                kind:
-                    (spec.dependency_kind as DependencyKind | undefined) ??
-                    "normal",
-                source: "system",
-                req: spec.version,
-                condition: (spec.target as string | undefined) ?? null,
-                optional: false,
-                features: [],
-                defaultFeatures: true,
-            };
-        },
-    );
 }
 
 // `{ default?: [...], features?: { name: [...] } }` (cabin-core

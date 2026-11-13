@@ -27,10 +27,7 @@ const { package: pack } = Astro.props;
 const groups = groupDependencies(pack.manifest.dependencies);
 const knownPackages = new Set(getCatalog().packages.map((entry) => entry.name));
 const hrefFor = (dependency: DependencyInfo): string | null => {
-    // A system dependency is probed from the host via pkg-config; a
-    // registry page sharing its name would be an unrelated package,
-    // so system edges never link.
-    if (dependency.source === "system" || !knownPackages.has(dependency.name)) {
+    if (!knownPackages.has(dependency.name)) {
         return null;
     }
     try {
@@ -42,7 +39,6 @@ const hrefFor = (dependency: DependencyInfo): string | null => {
 const badgeLabels = (dependency: DependencyInfo): string[] =>
     [
         dependency.kind === "dev" && "dev",
-        dependency.source === "system" && "system",
         dependency.optional && "optional",
         !dependency.defaultFeatures && "no default features",
         ...dependency.features.map((feature) => `+${feature}`),
@@ -82,15 +78,9 @@ const badgeLabels = (dependency: DependencyInfo): string[] =>
                                                 {dependency.name}
                                             </span>
                                         )}{" "}
-                                        {/* A blank req is a legal
-                                            unconstrained system
-                                            requirement - render no
-                                            empty code element. */}
-                                        {dependency.req.trim() !== "" && (
-                                            <code class="font-mono text-sm text-ink-muted">
-                                                {dependency.req}
-                                            </code>
-                                        )}{" "}
+                                        <code class="font-mono text-sm text-ink-muted">
+                                            {dependency.req}
+                                        </code>{" "}
                                         {labels.length > 0 && (
                                             <span class="flex flex-wrap items-center gap-1.5">
                                                 {labels.map((label) => (

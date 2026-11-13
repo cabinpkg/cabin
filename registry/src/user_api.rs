@@ -302,9 +302,9 @@ pub struct PackageDetailRow {
 /// `GET /api/v1/user/package/<scope>/<name>`: the package's verified
 /// versions, newest first (latest `published_at`, version string
 /// breaking ties), plus the newest version's runtime `dependencies`
-/// as a `name -> requirement` map with sorted keys (dev- and
-/// system-dependencies are deliberately absent, matching the
-/// reverse-dependencies contract). A rich stored entry contributes
+/// as a `name -> requirement` map with sorted keys (dev-dependencies
+/// are deliberately absent, matching the reverse-dependencies
+/// contract). A rich stored entry contributes
 /// its `version` field; verified metadata is canonical by the
 /// verifier's equality check, so other shapes only arise from an
 /// invariant break and render as an empty requirement rather than
