@@ -41,10 +41,10 @@ const APPLY: &str = "An operator applies the changed migrations by hand from the
      carries them (pre-launch, an edited already-applied migration ships through \
      `cargo registry-wipe` instead)";
 const REPAIR: &str = "Repair what the error names through a pull request";
-const NEVER: &str = "Never edit the stamp by hand. registry/docs/runbook.md, \"Deploy skew\"";
+const NEVER: &str = "Never edit the stamp by hand. api/docs/runbook.md, \"Deploy skew\"";
 
 /// Pass when the committed D1 migrations still match the stamp the
-/// operator recorded in `registry/migrations-applied`.
+/// operator recorded in `api/migrations-applied`.
 ///
 /// # Errors
 ///
@@ -57,17 +57,17 @@ pub fn run() -> Result<()> {
 /// The whole gate against one repository root; [`run`] passes the
 /// working directory.
 fn run_in(base: &Path) -> Result<()> {
-    let (cause, recovery) = match current(&base.join("registry")) {
+    let (cause, recovery) = match current(&base.join("api")) {
         Ok(true) => return Ok(()),
         Ok(false) => (
-            "registry/migrations/ no longer matches the registry/migrations-applied stamp, so \
+            "api/migrations/ no longer matches the api/migrations-applied stamp, so \
              the live D1 schema may predate this Worker"
                 .to_owned(),
             APPLY,
         ),
         Err(error) => (
             format!(
-                "the gate cannot compare registry/migrations/ with its stamp ({error:#}), so \
+                "the gate cannot compare api/migrations/ with its stamp ({error:#}), so \
                  the live D1 schema is unknown"
             ),
             REPAIR,

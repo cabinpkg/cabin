@@ -22,7 +22,7 @@ use crate::cli::config::resolve_index_source;
 use crate::cli::term_verbosity::Reporter;
 
 /// Public client id of the hosted registry's GitHub OAuth App (the
-/// same app the registry's own web sign-in uses; `registry/wrangler.jsonc`
+/// same app the registry's own web sign-in uses; `api/wrangler.jsonc`
 /// pins the identical value).  Public by design - the device flow
 /// authenticates the *user*, never the client - so it ships in the
 /// binary.

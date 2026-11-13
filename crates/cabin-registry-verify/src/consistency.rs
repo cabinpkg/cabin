@@ -17,7 +17,7 @@
 //! The registry dependency-key grammar (canonical `<scope>/<name>`
 //! keys in each dependency table) needs no
 //! independent check here: the stored document already passed the
-//! hosted publish path's key validation (`registry/src/publish.rs`),
+//! hosted publish path's key validation (`api/src/publish.rs`),
 //! and the equality below forces the manifest-derived maps to match
 //! it, so an archive whose manifest carries a bare dependency key can
 //! only ever reject as `dependency_mismatch`.

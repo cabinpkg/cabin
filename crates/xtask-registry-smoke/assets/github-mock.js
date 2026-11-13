@@ -5,7 +5,7 @@ const port = process.argv[2];
 // run, served as the JWKS the worker's GITHUB_JWKS_URL override points
 // at, with a local-only mint endpoint in place of Actions' token URL.
 // Claim defaults mirror the production VERIFIER_* pins in
-// registry/wrangler.jsonc so the deployed pin values are what the run
+// api/wrangler.jsonc so the deployed pin values are what the run
 // exercises; the negative legs override individual claims.
 const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const jwk = { ...publicKey.export({ format: "jwk" }), kid: "smoke-oidc", alg: "RS256", use: "sig" };

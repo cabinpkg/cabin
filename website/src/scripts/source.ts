@@ -1,6 +1,6 @@
 // Drives /dashboard/source: settles the shared auth probe, then browses
 // one published version's archive through the session source route
-// (registry/src/source.rs). The server is a byte proxy; everything zip
+// (api/src/source.rs). The server is a byte proxy; everything zip
 // happens here - the end-of-central-directory tail is range-read first,
 // then the central directory, then one file's compressed span at a
 // time, decompressed with DecompressionStream. Content renders as text
@@ -28,7 +28,7 @@ import {
 // (percent-escapes would fail the server's charset checks). Registry
 // versions are plain upstream versions: pre-releases are legal, and
 // build metadata is refused because the packaging axis is the revision
-// id (registry/src/routes.rs is_valid_version).
+// id (api/src/routes.rs is_valid_version).
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]*)?$/;
 
 const params = new URLSearchParams(window.location.search);

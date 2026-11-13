@@ -1,5 +1,5 @@
 //! Apply D1 migrations and keep the deploy gate's stamp honest
-//! (`registry/docs/runbook.md`, "Integrated topology and route
+//! (`api/docs/runbook.md`, "Integrated topology and route
 //! management"):
 //!
 //! ```text
@@ -179,7 +179,7 @@ fn remote() -> Result<()> {
     println!("Follow-ups:");
     println!("  - commit the migrations-applied change to the pull request that changes the");
     println!("    migrations, or to one of its own when main already carries them, and merge");
-    println!("    it now (registry/docs/runbook.md, \"Integrated topology\")");
+    println!("    it now (api/docs/runbook.md, \"Integrated topology\")");
     Ok(())
 }
 

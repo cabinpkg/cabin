@@ -27,7 +27,7 @@ where the reverse holds: a trap TLC does not report violated fails it
 ## Running it
 
 ```sh
-cd registry/proofs
+cd api/proofs
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
   --output tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
 sha256sum --check tla2tools.jar.sha256
@@ -45,14 +45,14 @@ no violation.
 ## What is modeled
 
 The model follows the registry sources as of the commit this file ships
-in (`registry/src/glue/bearer/package.rs`, `registry/src/glue/bearer/verifier.rs`,
-`registry/src/glue/cron.rs`, `registry/src/glue/publication.rs`,
-`registry/src/glue/read.rs`, `registry/src/upload.rs`,
-`registry/src/publication.rs`,
-`registry/src/verify.rs`, `registry/src/sql/admission.rs`,
-`registry/src/sql/packages.rs`, `registry/src/sql/publication.rs`,
-`registry/src/sql/quota.rs`, `registry/src/sql/downloads.rs`,
-`registry/migrations/0001_init.sql`) and the verifier
+in (`api/src/glue/bearer/package.rs`, `api/src/glue/bearer/verifier.rs`,
+`api/src/glue/cron.rs`, `api/src/glue/publication.rs`,
+`api/src/glue/read.rs`, `api/src/upload.rs`,
+`api/src/publication.rs`,
+`api/src/verify.rs`, `api/src/sql/admission.rs`,
+`api/src/sql/packages.rs`, `api/src/sql/publication.rs`,
+`api/src/sql/quota.rs`, `api/src/sql/downloads.rs`,
+`api/migrations/0001_init.sql`) and the verifier
 (`crates/xtask-registry-admin/src/verify.rs`, `crates/cabin-registry-verify/src/lib.rs`,
 `.github/workflows/registry-verify.yml`).
 
@@ -73,7 +73,7 @@ user, for any bytes, under any upload id, and may converge on any
 reservation it read. Every property below therefore holds whatever the
 handler decides; the D1 gates and a request's store-then-confirm order
 carry them. Which outcome `dispose` picks for which rows is
-`registry/src/upload.rs`'s own unit tests' claim, and a retry of an
+`api/src/upload.rs`'s own unit tests' claim, and a retry of an
 upload is simply another request.
 
 State:
@@ -356,7 +356,7 @@ their outcomes as given.
   in its own transaction before the business logic, so a replayed `PATCH`
   is refused before any read (the exchange consumes its own JWT's `jti`
   too, coupled to the token mint). That split is the structure of the workflow and the
-  handlers, not a property TLC can establish here; `registry/src/trustpub.rs`
+  handlers, not a property TLC can establish here; `api/src/trustpub.rs`
   and the `check_oidc` diagnostic test it.
 - `MaxStamps` bounds the stamps one execution samples. A sample no
   admission commits stays in `spare`, so the bound counts samples, not
@@ -473,10 +473,10 @@ alone, and fails if TLC does not report one violated. From the
 repository root:
 
 ```sh
-cargo check-tlc-witnesses --jar registry/proofs/tla2tools.jar \
-  registry/proofs/RegistryLifecycle.tla \
-  registry/proofs/RegistryLifecycle_witness.cfg \
-  registry/proofs/RegistryLifecycleShared_witness.cfg
+cargo check-tlc-witnesses --jar api/proofs/tla2tools.jar \
+  api/proofs/RegistryLifecycle.tla \
+  api/proofs/RegistryLifecycle_witness.cfg \
+  api/proofs/RegistryLifecycleShared_witness.cfg
 ```
 
 To see one witness's trace, keep only its line in a copy of the
@@ -598,7 +598,7 @@ placement's two writes, its two `holds_archive` comparisons, the read
 plane's `archived` conditions, and the `changes()` chain of the
 admission and refund batches) silently invalidates the result, which
 is why a change to any of them must keep the model faithful
-(`registry/AGENTS.md`, "Checks"). The SQL validation tests
+(`api/AGENTS.md`, "Checks"). The SQL validation tests
 (`tests/sql_validation/`) check the individual statements against the
 schema; the Kani harnesses check the quota functions; `upload.rs`'s
 unit tests check which outcome a publish picks; `publication.rs`'s

@@ -1,7 +1,7 @@
 # Threat model
 
 Cabin is a package manager and build system for C/C++: the `cabin` CLI
-(`crates/`), a hosted registry (`registry/`, one Cloudflare Worker), and an
+(`crates/`), a hosted registry (`api/`, one Cloudflare Worker), and an
 archive verifier run from GitHub Actions (the driver
 `crates/xtask-registry-admin/src/verify.rs` and the inspector
 `crates/cabin-registry-verify`). All three and their interactions are in scope;
@@ -11,9 +11,9 @@ file points rather than restates: the crate-level `//!` docs and
 ("Extraction safety contract"), `docs/remote-registry.md` (the protocol, its
 routes, authentication, and caps; "One role per hostname"; "Publish";
 "Verification lifecycle"; "The verifier's checks"; "Server checks versus client
-extraction"), `registry/docs/archive-format.md`, `registry/docs/runbook.md`
+extraction"), `api/docs/archive-format.md`, `api/docs/runbook.md`
 ("Data policy", "The cost governor"), and the module table in
-`registry/AGENTS.md` with the module docs it names.
+`api/AGENTS.md` with the module docs it names.
 
 ## Trust boundaries and attacker-controlled input
 
@@ -35,10 +35,10 @@ trusted-publishing mints, whose credential is the body, and the verdict route,
 whose bearer is an OIDC JWT); the bearer plane (publish, yank, admin); the
 session plane (`/api/v1/user`, including the source viewer); and stored rows
 read back later. Routes and the bearer plane are specified in
-`docs/remote-registry.md`, the session plane in `registry/src/session.rs`; body
-caps are constants in `registry/src/`. `wrangler.jsonc` vars and secrets are
+`docs/remote-registry.md`, the session plane in `api/src/session.rs`; body
+caps are constants in `api/src/`. `wrangler.jsonc` vars and secrets are
 operator input, and so is the deploy toolchain: the deploy job installs
-`wrangler` through npm at deploy time, locked by `registry/package-lock.json`,
+`wrangler` through npm at deploy time, locked by `api/package-lock.json`,
 so its dependency closure runs with the deploy token. That is an accepted
 boundary, not a hardened one.
 
@@ -61,7 +61,7 @@ statically; the session API itself runs under `wrangler dev` (below).
 
 **Cross-component.** `crates/cabin-package` (used by `crates/cabin-publish` and
 the verifier) owns canonical metadata and the archive rules;
-`registry/src/publish.rs` re-implements the checks independently, kept in step
+`api/src/publish.rs` re-implements the checks independently, kept in step
 only by `cargo gen-fixtures` plus the `publish_validation` conformance test. A
 disagreement between client, server, and verifier that changes what gets
 verified, served, or extracted is a finding. The documented asymmetries (the
@@ -121,8 +121,8 @@ what it lets an attacker do; otherwise report it as a correctness issue. Context
 rather than exemptions: a cap at a value you would set differently; an
 allowlisted user exhausting their own quota; anything needing the operator's
 Cloudflare credentials or an edited `wrangler.jsonc`; the smoke test's
-placeholder secrets and `registry/tests/fixtures/`; RUSTSEC-2023-0071 (the
-Worker only verifies RS256 with public keys; see `registry/Cargo.toml`); and the
+placeholder secrets and `api/tests/fixtures/`; RUSTSEC-2023-0071 (the
+Worker only verifies RS256 with public keys; see `api/Cargo.toml`); and the
 documented residuals (per-colo rate-limit counters; the `Sec-Fetch-Site: none`
 arm of claim initiation, through which a mailed link can spend one of a
 signed-in user's lifetime claim slots on a name that user owns; unsynced GitHub
@@ -132,7 +132,7 @@ can show an exploit beyond what is documented.
 ## Private alpha: current versus future conditions
 
 Sign-in is allowed only for the GitHub ids in `ALLOWED_GITHUB_IDS`
-(`registry/wrangler.jsonc`; today one maintainer account), which gates sessions,
+(`api/wrangler.jsonc`; today one maintainer account), which gates sessions,
 session-token minting, scope claims, and so every publish and yank except
 trusted publishing, which needs an operator-registered `trustpub_configs` row;
 the verdict route accepts only the workflow identity the `VERIFIER_*` vars pin.
@@ -150,7 +150,7 @@ report them, but not as currently exploitable.
 ## Reproduce offline
 
 No network at scan time; `cargo` resolves from its cache and wrangler from
-`/src/registry/node_modules`. `/src` is the checkout; put `/src/target/debug`
+`/src/api/node_modules`. `/src` is the checkout; put `/src/target/debug`
 (the `cabin` binary) on `PATH`.
 
 - `cargo test --workspace --all-targets --all-features --locked --no-fail-fast`:
@@ -163,11 +163,11 @@ No network at scan time; `cargo` resolves from its cache and wrangler from
 - `cabin build` in `examples/hello-c` or `examples/hello-cpp`; `cabin package`
   writes a conforming archive to mutate; `cabin publish --registry-dir <dir>`
   publishes into a local file registry.
-- `cd /src/registry && cargo test --locked`; `cargo clippy --target
+- `cd /src/api && cargo test --locked`; `cargo clippy --target
   wasm32-unknown-unknown --locked -- -D warnings`; `worker-build --release`.
   From `/src`, `cargo check-sql`, `cargo check-r2`, and `cargo check-deploy
   --require-bundle` are the repository's own guards for the SQL and R2 admission
-  invariants, and `cargo gen-fixtures /tmp/fixtures && cd registry &&
+  invariants, and `cargo gen-fixtures /tmp/fixtures && cd api &&
   CABIN_REGISTRY_FIXTURES=/tmp/fixtures cargo test --locked --test
   publish_validation -- --include-ignored` runs archives the in-tree `cabin`
   built through the server's publish validation.

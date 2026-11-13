@@ -1,4 +1,4 @@
-//! Guards over the hosted registry Worker (`registry/`), run by
+//! Guards over the hosted registry Worker (`api/`), run by
 //! `registry.yml` on every registry-relevant pull request (the
 //! `registry-build` filter in `.github/path-filters.yml`; the witness guard
 //! runs with TLC under the narrower `tlc` filter).
@@ -25,12 +25,12 @@ pub mod tlc;
 
 use std::path::{Path, PathBuf};
 
-/// The `registry/` directory of the checkout this tool was built from.
+/// The `api/` directory of the checkout this tool was built from.
 ///
 /// Resolved from the crate's own manifest directory rather than the
 /// working directory: the Cargo aliases are run from the repository
 /// root, but nothing about the guards should depend on that.
 #[must_use]
 pub fn registry_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../registry")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../api")
 }

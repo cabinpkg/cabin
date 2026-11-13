@@ -3,7 +3,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use cabin_registry_worker::{publication, quota, sql, upload};
+use cabin_api_worker::{publication, quota, sql, upload};
 use rusqlite::types::Value;
 use rusqlite::{Connection, StatementStatus};
 

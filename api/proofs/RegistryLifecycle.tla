@@ -2,7 +2,7 @@
 (***************************************************************************)
 (* The hosted registry's publish / verification lifecycle for one package  *)
 (* (docs/remote-registry.md, "Publish" and "Verification lifecycle"), as   *)
-(* the D1 statements in registry/src/sql/ execute it, with the UPLOADS and *)
+(* the D1 statements in api/src/sql/ execute it, with the UPLOADS and *)
 (* ARCHIVES buckets as the separate, non-transactional stores they are.    *)
 (* README.md maps every action to the Rust and SQL it abstracts and lists  *)
 (* what the model leaves out.                                              *)

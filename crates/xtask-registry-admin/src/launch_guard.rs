@@ -1,4 +1,4 @@
-//! The launch guard (`registry/docs/runbook.md`, "Data policy"):
+//! The launch guard (`api/docs/runbook.md`, "Data policy"):
 //! destructive maintenance runs this before touching anything.  It
 //! reads `meta.launched` and succeeds only when the value is exactly
 //! `false`.  `true` means the registry is launched and its data is
@@ -121,7 +121,7 @@ pub fn run(mode: Mode) -> Result<()> {
         "false" => Ok(()),
         "true" => Err(anyhow::anyhow!(
             "launch guard: the registry is launched (meta.launched = 'true'); its data is \
-             permanent and destructive maintenance is forbidden (registry/docs/runbook.md, \
+             permanent and destructive maintenance is forbidden (api/docs/runbook.md, \
              \"Data policy\")"
         )),
         "__MISSING__" => Err(refusal(

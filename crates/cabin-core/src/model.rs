@@ -86,7 +86,7 @@ impl PackageName {
     /// Each part of a name is a directory under a build's `packages/`,
     /// so none may be a Windows device name.  The grammar leaves that
     /// the only way a part fails to be portable.  The registry refuses
-    /// the same names (`registry/src/names.rs`).
+    /// the same names (`api/src/names.rs`).
     fn with_portable_components(value: String) -> Result<Self, ValidationError> {
         match value
             .split('/')
@@ -200,7 +200,7 @@ pub fn is_path_safe_name(name: &str) -> bool {
 
 /// Scope validity predicate for scoped package names.
 ///
-/// Mirrors the registry's scope grammar (`registry/src/routes.rs`,
+/// Mirrors the registry's scope grammar (`api/src/routes.rs`,
 /// `is_valid_scope`): `[a-z0-9]([a-z0-9-]*[a-z0-9])?`, at most 39
 /// bytes.  The grammar is GitHub-login-compatible on purpose: a scope
 /// is granted by proving control of the same-named GitHub account
@@ -220,7 +220,7 @@ pub fn is_valid_package_scope(scope: &str) -> bool {
 /// one: `^[a-z0-9][a-z0-9_-]*$`.  Every package identity - manifests,
 /// dependency keys, lockfiles, indexes, both registry kinds - goes
 /// through [`PackageName`], which enforces it; the hosted registry
-/// mirrors it (`registry/src/routes.rs`, `is_valid_name`).
+/// mirrors it (`api/src/routes.rs`, `is_valid_name`).
 pub fn is_valid_package_base_name(name: &str) -> bool {
     !name.is_empty()
         && name.as_bytes()[0].is_ascii_alphanumeric()

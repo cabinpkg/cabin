@@ -3,7 +3,7 @@
 ## Scope
 
 This policy covers the Cabin client - the Rust crates in this repository and the released
-`cabin` binaries - and the hosted registry service under `registry/` (the Cloudflare Worker
+`cabin` binaries - and the hosted registry service under `api/` (the Cloudflare Worker
 behind `registry.cabinpkg.com` plus its browser and API planes
 mounted on `cabinpkg.com` - `/login`, `/callback`, and `/api/*` - including authentication,
 publish/yank/verification APIs, and stored package data).

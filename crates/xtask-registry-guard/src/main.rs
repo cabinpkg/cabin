@@ -16,7 +16,7 @@ use xtask_registry_guard::{deploy, kani, r2, registry_dir, sql, tlc};
 struct Cli {
     #[command(subcommand)]
     guard: Guard,
-    /// The registry checkout to inspect (default: the `registry/` of
+    /// The registry checkout to inspect (default: the `api/` of
     /// this tool's own checkout).
     #[arg(long, global = true)]
     registry_dir: Option<PathBuf>,

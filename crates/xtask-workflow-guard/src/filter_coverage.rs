@@ -22,7 +22,7 @@
 //! list covers. A reached package inside the repository must also be a
 //! member of the root or the registry workspace: what it inherits
 //! (`workspace = true`) then comes from `Cargo.toml` or
-//! `registry/Cargo.toml`, both covered, where another workspace's root
+//! `api/Cargo.toml`, both covered, where another workspace's root
 //! manifest would be a path no list is checked for; and each of its
 //! targets must lie inside its directory, for the same reason. The
 //! guard fails when a list misses a path. The roots and the non-Cargo
@@ -86,7 +86,7 @@ const SHARED_INPUTS: &[&str] = &[
     FILTER_FILE,
 ];
 const REGISTRY_INPUTS: &[&str] = &[
-    "registry/",
+    "api/",
     ".github/workflows/registry.yml",
     ".github/actions/required-gate/",
 ];
@@ -139,7 +139,7 @@ pub fn run() -> Result<()> {
     let root = metadata(&repo)?;
     // From inside the workspace, so Cargo reads its config as the
     // registry jobs do.
-    let registry = metadata(&repo.join("registry"))?;
+    let registry = metadata(&repo.join("api"))?;
     let text =
         std::fs::read_to_string(FILTER_FILE).with_context(|| format!("reading {FILTER_FILE}"))?;
 
@@ -308,7 +308,7 @@ fn escaping<'a>(
 }
 
 /// `dirs` resolved: Cargo reports a directory source's packages
-/// unnormalized (`registry/../crates/...`), and `missing` compares
+/// unnormalized (`api/../crates/...`), and `missing` compares
 /// paths lexically.
 fn resolved(dirs: Vec<&Path>) -> Result<Vec<PathBuf>> {
     dirs.into_iter()
@@ -602,13 +602,13 @@ mod tests {
             .map(dir)
             .collect();
         let rust = with_inputs(&["crates/**"]);
-        let registry = list(&["registry/**", "crates/**"]);
+        let registry = list(&["api/**", "crates/**"]);
         assert_eq!(
             unguarded(Path::new("/repo"), &dirs, &rust, &registry).unwrap(),
             ["local/anyhow/"]
         );
         // Either list may see it.
-        let registry = list(&["registry/**", "crates/**", "local/**"]);
+        let registry = list(&["api/**", "crates/**", "local/**"]);
         assert!(
             unguarded(Path::new("/repo"), &dirs, &rust, &registry)
                 .unwrap()

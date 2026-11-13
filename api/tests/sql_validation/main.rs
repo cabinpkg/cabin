@@ -1,7 +1,7 @@
 //! Host-target schema validation for every SQL statement the Worker
 //! executes: apply every file in `migrations/` in filename order (a
 //! from-zero migration test in itself), then `prepare` each statement
-//! in [`cabin_registry_worker::sql::ALL`] against the migrated schema.
+//! in [`cabin_api_worker::sql::ALL`] against the migrated schema.
 //! `prepare` validates syntax and table/column existence without
 //! executing and accepts D1's `?N` placeholders, so a typo, a wrong
 //! column name, or schema drift fails here instead of in production -
@@ -25,7 +25,7 @@ mod quota;
 mod scopes;
 mod trustpub;
 
-use cabin_registry_worker::sql;
+use cabin_api_worker::sql;
 
 use crate::common::migrated_connection;
 

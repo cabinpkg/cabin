@@ -1,13 +1,13 @@
 # Registry Service Runbook
 
-All wrangler commands run with `registry/` as the working directory against
+All wrangler commands run with `api/` as the working directory against
 the single top-level configuration in `wrangler.jsonc` (no wrangler
 environments, no `--env`), as `node_modules/.bin/wrangler`: the version
 `package.json` pins, installed by `npm ci --ignore-scripts` there (again
 after `package-lock.json` changes). Every `wrangler deploy` without
 `CABIN_WORKER_PREBUILT`, including the one `cargo registry-wipe` runs after
 recreating the database, builds the Worker with `worker-build` from `PATH`: install the version CI pins first
-(`registry/README.md`, "Development"). Authentication: `CLOUDFLARE_API_TOKEN` in the
+(`api/README.md`, "Development"). Authentication: `CLOUDFLARE_API_TOKEN` in the
 environment (scopes: Workers Scripts Edit, D1 Edit, R2 Edit, and DNS Edit
 on the cabinpkg.com zone).
 
@@ -777,7 +777,7 @@ bundle really exporting `Governor`, and every `GOVERNOR_*`/`BUDGET_*`
 var name and value valid.
 
 **Validating a governor change.** Before merging, run the registry
-checks (`registry/AGENTS.md`, "Checks") and the full local smoke run
+checks (`api/AGENTS.md`, "Checks") and the full local smoke run
 with local state wiped first, so the windows and edge cache start empty.
 After the deploy lands ("Integrated topology and route management"),
 run the smoke checks from "First-time provisioning" and read the
@@ -819,7 +819,7 @@ resources). Two rules bound what a rollback may target:
 - **Adjacent governor-era versions only.** The DO's stored schema and
   the worker's protocol evolve together; roll back only to a version
   whose governor protocol matches what is deployed today (compare
-  `registry/src/governor.rs` and `registry/src/governor_do.rs` between
+  `api/src/governor.rs` and `api/src/governor_do.rs` between
   the two versions), and prefer a `git revert`
   through CI - it keeps the freshness and migrations gates and leaves
   an auditable trail. `node_modules/.bin/wrangler rollback` is for the
@@ -1176,7 +1176,7 @@ with the revision selector, `-f resolve='<scope>/<name>@<version>#<revision>'`,
 copying the revision from the refusal message or the pending listing.
 
 **Name fidelity knobs.** The reserved-name list is an in-code,
-operator-maintained const (`registry/src/names.rs`); extend it when
+operator-maintained const (`api/src/names.rs`); extend it when
 the project starts speaking a new name, never shrink it. The claim
 flow's skeleton confusability refusal has one override:
 `CLAIM_SKELETON_EXEMPT_SCOPES` (`wrangler.jsonc` `vars`,

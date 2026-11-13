@@ -306,7 +306,7 @@ pub enum PackageKind {
 /// only, but it must not name a package the resolution reaches, or the
 /// resolver would read that package as the root.  Every valid name is
 /// one some registry could publish, so it lives under `cabin`, a scope
-/// the hosted registry reserves (`registry/src/names.rs`), and the
+/// the hosted registry reserves (`api/src/names.rs`), and the
 /// resolve path refuses any other index that carries or depends on it.
 ///
 /// # Panics

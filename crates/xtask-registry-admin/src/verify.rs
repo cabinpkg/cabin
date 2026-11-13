@@ -1,12 +1,12 @@
 //! The verification pass
-//! (`.github/workflows/registry-verify.yml`, `registry/docs/runbook.md`
+//! (`.github/workflows/registry-verify.yml`, `api/docs/runbook.md`
 //! "Verification pipeline"): read the pending versions off the admin
 //! plane, hand each one's archive to `cabin-registry-verify`, and PATCH
 //! back the verdict it renders.  A rejection is the verifier working,
 //! not a failure; only operational trouble - a download that would not
 //! come, a verifier that would not run, a PATCH the service refused -
 //! counts, and every one of those leaves its version pending for the
-//! next pass.  The TLA+ lifecycle model (`registry/proofs/README.md`,
+//! next pass.  The TLA+ lifecycle model (`api/proofs/README.md`,
 //! "The verifier") abstracts this pass step by step; a change to its
 //! order or outcomes must keep that model faithful.
 //!
@@ -16,11 +16,11 @@
 //! the verdicts and reason codes its own verifier run computes for
 //! them - and never a credential, the corpus, or archive bytes.
 //!
-//! Two credentials, two planes (`registry/docs/runbook.md`,
+//! Two credentials, two planes (`api/docs/runbook.md`,
 //! "Verification pipeline"): the listings and downloads ride a
 //! `verify`-scoped registry token the run mints for itself at start -
 //! one exchange-audience JWT through the trusted-publishing exchange's
-//! verifier arm (`registry/src/trustpub.rs`), revoked best-effort at
+//! verifier arm (`api/src/trustpub.rs`), revoked best-effort at
 //! every clean exit and left to its half-hour expiry on an abort -
 //! while each verdict PATCH carries a GitHub Actions OIDC JWT minted
 //! fresh for it (`Minter`) - the registry consumes each token's `jti`
@@ -65,15 +65,15 @@
 //!   outside `i64`/`u64`.  Both are re-parsed by their only consumer,
 //!   and every listing field this loop reads (`name`, `version`,
 //!   `revision`, `checksum`, `published_at`) the production listing
-//!   types as a string (`registry/src/glue/bearer/verifier.rs`,
+//!   types as a string (`api/src/glue/bearer/verifier.rs`,
 //!   `AdminVersionRecord`); `published_by` is its one integer, and
 //!   nothing here reads it; `metadata.upstream.url`, read from the
 //!   embedded document, is typed as a string by publish validation
-//!   (`registry/src/publish.rs`, `UpstreamMetadata`);
+//!   (`api/src/publish.rs`, `UpstreamMetadata`);
 //! - every parse here carries `serde_json`'s 128-level recursion cap.
 //!   The registry parses each metadata document with the same cap at
 //!   publish and again when the listing embeds it
-//!   (`registry/src/publish.rs`, `registry/src/glue/bearer/verifier.rs`),
+//!   (`api/src/publish.rs`, `api/src/glue/bearer/verifier.rs`),
 //!   so only a document within the listing wrapper's few levels of the
 //!   cap can thread the needle - and it aborts the run fail-safe
 //!   (everything stays pending, the run goes red);
@@ -364,7 +364,7 @@ impl Plane {
 
     /// The verdict - the one request whose credential is not
     /// the plane's token: verdicts authenticate only the workflow's own
-    /// OIDC JWT (`registry/src/trustpub.rs`, `VERIFIER_AUDIENCE`).  A
+    /// OIDC JWT (`api/src/trustpub.rs`, `VERIFIER_AUDIENCE`).  A
     /// 409 means the row changed since the listing (a republish, a
     /// competing verdict) and the next run sees the replacement.
     /// The response body is drained, so one that cuts out mid-way is a
@@ -403,14 +403,14 @@ impl Plane {
     }
 }
 
-/// The audience the verdict endpoint pins (`registry/src/trustpub.rs`,
+/// The audience the verdict endpoint pins (`api/src/trustpub.rs`,
 /// `VERIFIER_AUDIENCE`).  Appended to the mint URL raw: a `/` is legal
 /// in a query value, and GitHub echoes the parameter back verbatim as
 /// the `aud` claim.
 const AUDIENCE: &str = "cabinpkg.com/verifier";
 
 /// The audience the trusted-publishing exchange verifies
-/// (`registry/src/trustpub.rs`, `DEFAULT_AUDIENCE`): the same pinned
+/// (`api/src/trustpub.rs`, `DEFAULT_AUDIENCE`): the same pinned
 /// identity, minted for the registry's own audience, is what the
 /// exchange's verifier arm answers with a verify-scoped token.
 const EXCHANGE_AUDIENCE: &str = "cabinpkg.com";
@@ -773,7 +773,7 @@ impl Pass {
     /// listing entry per pass and never a re-download.  Abstain
     /// renders no verdict and is deliberately not a failure: the
     /// version stays pending until the stuck-pending alert summons an
-    /// operator (`registry/docs/runbook.md`, "Verification pipeline").
+    /// operator (`api/docs/runbook.md`, "Verification pipeline").
     /// `None` proceeds to the download; `Some(counted)` leaves the
     /// version pending, counted as an operational failure or not.
     fn name_advisories(
@@ -886,7 +886,7 @@ enum RunAdvisories {
     Waived,
 }
 
-/// One dispatched operator resolution (`registry/docs/runbook.md`,
+/// One dispatched operator resolution (`api/docs/runbook.md`,
 /// "Verification pipeline"): the abstained version it names - plus
 /// the revision selector when two pending revisions share it - and
 /// what to do about it.

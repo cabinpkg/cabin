@@ -393,7 +393,7 @@ fn resume_released(
     }
     // The rejection refunds like any other, and frees the pending slot
     // the legs after this one need: the default class holds three
-    // pending uploads at a time (`registry/src/quota.rs`).
+    // pending uploads at a time (`api/src/quota.rs`).
     if stored_bytes()? != before_bytes {
         bail!("the lost upload was not refunded: {}", stored_bytes()?);
     }

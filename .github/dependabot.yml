@@ -63,7 +63,7 @@ updates:
       include: "scope"
 
   - package-ecosystem: "cargo"
-    directory: "/registry/"
+    directory: "/api/"
     schedule:
       interval: monthly
     cooldown:
@@ -108,7 +108,7 @@ updates:
       include: "scope"
 
   - package-ecosystem: "npm"
-    directory: "/registry/"
+    directory: "/api/"
     schedule:
       interval: monthly
     cooldown:

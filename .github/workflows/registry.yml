@@ -48,7 +48,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: registry
+        working-directory: api
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -68,7 +68,7 @@ jobs:
           # xtask crate from it.
           cache-workspaces: |
             .
-            registry
+            api
           rustflags: ""
 
       - name: Check formatting
@@ -125,7 +125,7 @@ jobs:
   # The deploy job's migrations gate, run before the merge over the
   # candidate's whole tree. Ungated: a main whose stamp no longer
   # matches blocks every merge, not only registry ones, until the
-  # stamp is repaired (registry/docs/runbook.md, "Deploy skew").
+  # stamp is repaired (api/docs/runbook.md, "Deploy skew").
   merge-readiness:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
@@ -224,19 +224,19 @@ jobs:
         run: cargo gen-fixtures "$RUNNER_TEMP/fixtures"
 
       # rust.yml's run is gated on filters that match nothing under
-      # registry/, so a registry/Cargo.toml change is checked here.
+      # api/, so an api/Cargo.toml change is checked here.
       - name: Filter coverage guard
         run: cargo workflow-filter-coverage
 
       - name: Validate the generated fixtures against the server rules
-        working-directory: registry
+        working-directory: api
         run: cargo test --locked --verbose --test publish_validation -- --include-ignored --show-output
         env:
           CABIN_REGISTRY_FIXTURES: ${{ runner.temp }}/fixtures
           RUSTFLAGS: -D warnings
 
   # Runs every Kani proof harness in the registry crate (the
-  # `#[cfg(kani)]` modules under registry/src). Kani brings its own
+  # `#[cfg(kani)]` modules under api/src). Kani brings its own
   # pinned nightly and compiles the crate again, so it gets its own
   # runner; the version matches the one the proofs were written against.
   kani:
@@ -246,7 +246,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: registry
+        working-directory: api
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -276,7 +276,7 @@ jobs:
         working-directory: .
 
   # Model-checks the TLA+ specification of the publish/verification
-  # lifecycle (registry/proofs) with the pinned TLC release; the runner's
+  # lifecycle (api/proofs) with the pinned TLC release; the runner's
   # default JDK runs it. An exhaustive check must finish: the timeout
   # fails the job, never passes it. Gated on its own `tlc` filter: the
   # model's inputs rarely change. One job per configuration, side by
@@ -290,7 +290,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: registry/proofs
+        working-directory: api/proofs
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -314,7 +314,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: registry/proofs
+        working-directory: api/proofs
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -339,7 +339,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: registry/proofs
+        working-directory: api/proofs
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -362,14 +362,14 @@ jobs:
           cache: false
           rustflags: ""
 
-      # Each trap must be violated (registry/proofs/README.md, "Non-vacuity").
+      # Each trap must be violated (api/proofs/README.md, "Non-vacuity").
       - name: Check the witness traps
-        run: cargo check-tlc-witnesses --jar registry/proofs/tla2tools.jar registry/proofs/RegistryLifecycle.tla registry/proofs/RegistryLifecycle_witness.cfg registry/proofs/RegistryLifecycleShared_witness.cfg
+        run: cargo check-tlc-witnesses --jar api/proofs/tla2tools.jar api/proofs/RegistryLifecycle.tla api/proofs/RegistryLifecycle_witness.cfg api/proofs/RegistryLifecycleShared_witness.cfg
         working-directory: .
 
   # Builds the Worker for a registry-relevant main push. It holds no
   # deploy credential: build scripts and proc-macros run only here
-  # (registry/docs/runbook.md, "Deploy credential boundary").
+  # (api/docs/runbook.md, "Deploy credential boundary").
   build-registry-worker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true'
     needs: changes
@@ -400,7 +400,7 @@ jobs:
           # crates from it.
           cache-workspaces: |
             .
-            registry
+            api
           rustflags: ""
 
       # Skip early when main already carries a newer registry-relevant
@@ -410,10 +410,10 @@ jobs:
         run: cargo workflow-superseded --relevant-to registry --emit-pathspecs
 
       # Changed D1 migrations must be applied by hand before the Worker
-      # ships (registry/docs/runbook.md, "Deploy skew"): the deploy
+      # ships (api/docs/runbook.md, "Deploy skew"): the deploy
       # token cannot apply them, and activating Worker code built for
       # the new schema first would break the live database.
-      # registry/migrations-applied is the operator's stamp of what the
+      # api/migrations-applied is the operator's stamp of what the
       # live database runs; until it matches the migrations' content
       # again this step fails the job with the recovery as an error
       # annotation. Content, not filenames: the pre-launch wipe policy
@@ -430,7 +430,7 @@ jobs:
 
       - name: Build the Worker
         if: steps.freshness.outputs.superseded != 'true'
-        working-directory: registry
+        working-directory: api
         run: worker-build --release
 
       - name: Deploy-config guard
@@ -439,14 +439,14 @@ jobs:
 
       - name: Install wrangler
         if: steps.freshness.outputs.superseded != 'true'
-        working-directory: registry
+        working-directory: api
         run: npm ci --ignore-scripts
 
       # Bundling runs here, never next to the token: deploy-registry
       # uploads this output as-is with --no-bundle.
       - name: Bundle the Worker
         if: steps.freshness.outputs.superseded != 'true'
-        working-directory: registry
+        working-directory: api
         env:
           CABIN_WORKER_PREBUILT: "1"
         run: node_modules/.bin/wrangler deploy --dry-run --outdir dist
@@ -457,14 +457,14 @@ jobs:
         id: manifest
         if: steps.freshness.outputs.superseded != 'true'
         shell: bash
-        working-directory: registry/dist
+        working-directory: api/dist
         run: echo "digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7.0.2
         if: steps.freshness.outputs.superseded != 'true'
         with:
           name: registry-worker-${{ github.run_attempt }}
-          path: registry/dist
+          path: api/dist
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -516,21 +516,21 @@ jobs:
 
       - name: Install wrangler
         if: env.SKIP != 'true'
-        working-directory: registry
+        working-directory: api
         run: npm ci --ignore-scripts
 
       - uses: actions/download-artifact@v8.0.2
         if: env.SKIP != 'true'
         with:
           name: registry-worker-${{ github.run_attempt }}
-          path: registry/build
+          path: api/build
 
       # Only regular files: the digest skips anything else, and wrangler
       # would read a symlink's target into the upload.
       - name: Verify the artifact digest
         if: env.SKIP != 'true'
         shell: bash
-        working-directory: registry/build
+        working-directory: api/build
         env:
           EXPECTED: ${{ needs.build-registry-worker.outputs.digest }}
         run: |
@@ -558,7 +558,7 @@ jobs:
       # no-op, and --no-bundle uploads the artifact without bundling.
       - name: Deploy
         if: env.SKIP != 'true' && steps.fresh.outputs.newer == ''
-        working-directory: registry
+        working-directory: api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
           CABIN_WORKER_PREBUILT: "1"
@@ -571,7 +571,7 @@ jobs:
         if: env.SKIP != 'true' && steps.fresh.outputs.newer == ''
         continue-on-error: true
         shell: bash
-        working-directory: registry
+        working-directory: api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
         run: |
@@ -582,7 +582,7 @@ jobs:
         id: reconfirm
         if: steps.confirm.outcome == 'failure'
         shell: bash
-        working-directory: registry
+        working-directory: api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
         run: |
@@ -592,4 +592,4 @@ jobs:
 
       - name: Report an unconfirmed deploy
         if: failure() && steps.reconfirm.outcome == 'failure'
-        run: echo "::error title=Registry deploy unconfirmed::The Deploy step exited 0, but Cloudflare does not show this run's version serving all traffic. Re-run all jobs, which rebuilds and redeploys under a fresh tag (or skips when superseded); if it fails again, read node_modules/.bin/wrangler deployments list from registry/ and run the smoke checks (registry/docs/runbook.md, \"Deploy skew\")."
+        run: echo "::error title=Registry deploy unconfirmed::The Deploy step exited 0, but Cloudflare does not show this run's version serving all traffic. Re-run all jobs, which rebuilds and redeploys under a fresh tag (or skips when superseded); if it fails again, read node_modules/.bin/wrangler deployments list from api/ and run the smoke checks (api/docs/runbook.md, \"Deploy skew\")."

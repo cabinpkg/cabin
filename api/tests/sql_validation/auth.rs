@@ -1,7 +1,7 @@
 //! Executed-semantics tests for `src/sql/auth.rs`: identity sign-in,
 //! bearer-token lookup, and the token shapes across kinds.
 
-use cabin_registry_worker::sql;
+use cabin_api_worker::sql;
 
 use crate::common::{count, migrated_connection, resolve, sign_in};
 

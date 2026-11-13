@@ -2,7 +2,7 @@
 //! verification, search, and how the admission gates treat a package's
 //! names and a version's revisions.
 
-use cabin_registry_worker::sql;
+use cabin_api_worker::sql;
 
 use crate::common::{
     Limits, Op, admit_new, admit_revival, archive_verified, migrated_connection, reject, rows,
@@ -238,8 +238,8 @@ fn seed_search_corpus(conn: &rusqlite::Connection) {
 /// assertion; the statement itself returns rows in table order and
 /// the host ranks them).
 fn search_names(conn: &rusqlite::Connection, term: &str) -> Vec<String> {
-    let query = cabin_registry_worker::user_api::parse_search_query(Some(term))
-        .expect("a valid search term");
+    let query =
+        cabin_api_worker::user_api::parse_search_query(Some(term)).expect("a valid search term");
     let mut statement = conn
         .prepare(sql::SEARCH_VERIFIED_VERSIONS)
         .expect("prepare search");

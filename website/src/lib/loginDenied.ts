@@ -1,7 +1,7 @@
 // The account-age refusal is the one sign-in refusal the registry
 // annotates: /login/denied/?reason=account-age&eligible=<YYYY-MM-DD>,
 // the first UTC date on which the whole day is eligible
-// (registry/src/signup.rs). Anyone can craft the URL, so the date is
+// (api/src/signup.rs). Anyone can craft the URL, so the date is
 // validated to the exact shape the registry emits before it is
 // displayed; anything else falls back to the generic copy.
 export function accountAgeEligibleDate(params: URLSearchParams): string | null {

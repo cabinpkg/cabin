@@ -90,7 +90,7 @@ fn the_database_id_is_the_first_candidate_that_fits_the_shape() {
     // The deployed config still binds one, which is what the guard
     // cross-checks the account listing against at runtime.
     let config = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../registry/wrangler.jsonc"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../api/wrangler.jsonc"),
     )
     .expect("wrangler.jsonc");
     assert!(declared_database_id(&config).is_some());

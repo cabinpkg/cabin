@@ -1,5 +1,5 @@
 //! Every trap in a TLC witness configuration must be violated
-//! (`registry/proofs/README.md`, "Non-vacuity"): each negates a
+//! (`api/proofs/README.md`, "Non-vacuity"): each negates a
 //! behavior the model must reach, so a trap TLC passes means the model
 //! lost that behavior.  TLC stops at the first violation, so each trap
 //! runs alone, from a copy of the configuration that keeps only it.

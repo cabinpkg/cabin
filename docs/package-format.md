@@ -18,7 +18,7 @@
 
 ## Source archive format
 
-Archives are zip files in the strict profile `registry/docs/archive-format.md` defines, conforming
+Archives are zip files in the strict profile `api/docs/archive-format.md` defines, conforming
 to the extractor contract:
 
 - the archive root contains a file named `cabin.toml`;
@@ -110,7 +110,7 @@ cap bounds real memory and disk regardless of any trailing bytes.
 ## Determinism
 
 The same logical input always produces byte-identical archives.  The archive is a zip in the strict
-profile `registry/docs/archive-format.md` defines; the producer pins the bytes that make it
+profile `api/docs/archive-format.md` defines; the producer pins the bytes that make it
 reproducible:
 
 - the file enumeration is sorted lexicographically by relative path;

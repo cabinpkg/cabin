@@ -8,7 +8,7 @@
 //!   path, so client and server cannot silently drift. CI runs it as the
 //!   dedicated `conformance` job in `.github/workflows/registry.yml`.
 
-use cabin_registry_worker::publish::{
+use cabin_api_worker::publish::{
     CHECKSUM_MISMATCH, IDENTITY_MISMATCH, METADATA_NOT_CANONICAL, decode_frame, validate_metadata,
     verify_checksum,
 };
@@ -30,7 +30,7 @@ fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
 /// What the wasm glue computes with `SubtleCrypto`, the host computes
 /// with `sha2`: the lowercase SHA-256 hex of the archive bytes.
 fn sha256_hex(bytes: &[u8]) -> String {
-    cabin_registry_worker::auth::hex(&Sha256::digest(bytes))
+    cabin_api_worker::auth::hex(&Sha256::digest(bytes))
 }
 
 /// The full server-side validation path for one framed publish body, as
@@ -48,12 +48,12 @@ fn validate_pair(
     // The digest comes first, exactly as in the glue: the packaging
     // revision is its leading hex prefix, and the canonical source
     // path the metadata must carry embeds it.
-    let computed = cabin_registry_worker::checksum::from_hex(&sha256_hex(frame.archive));
+    let computed = cabin_api_worker::checksum::from_hex(&sha256_hex(frame.archive));
     let parsed = validate_metadata(
         scope,
         name,
         version,
-        cabin_registry_worker::checksum::revision_id(&computed),
+        cabin_api_worker::checksum::revision_id(&computed),
         frame.metadata,
     )?;
     verify_checksum(&parsed, &computed)

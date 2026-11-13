@@ -177,7 +177,7 @@ pub fn require_license(
 /// registry packages too (they resolve when building the package's
 /// own tests, or its build script), so one grammar covers the maps.
 /// The hosted registry
-/// enforces the same rule server-side (`registry/src/publish.rs`), so
+/// enforces the same rule server-side (`api/src/publish.rs`), so
 /// failing here is the local, pre-network version of the same `400`.
 ///
 /// # Errors

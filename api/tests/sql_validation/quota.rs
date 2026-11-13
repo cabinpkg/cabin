@@ -1,7 +1,7 @@
 //! Executed-semantics tests for `src/sql/quota.rs`: the publish token
 //! bucket's compare-and-swap and the per-user quota tallies.
 
-use cabin_registry_worker::{quota, sql};
+use cabin_api_worker::{quota, sql};
 use rusqlite::{Connection, StatementStatus, params};
 
 use crate::common::{

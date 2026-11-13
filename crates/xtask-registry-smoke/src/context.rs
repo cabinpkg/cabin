@@ -649,7 +649,7 @@ mod tests {
     }
 
     /// The registry takes exactly 32 lower-case hex digits
-    /// (`registry/src/upload.rs`, `parse_id`), and a new operation must
+    /// (`api/src/upload.rs`, `parse_id`), and a new operation must
     /// not reuse an earlier one's.
     #[test]
     fn a_publish_carries_a_fresh_well_formed_upload_id() {
