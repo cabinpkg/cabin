@@ -234,18 +234,30 @@ pub fn packages_json(packages: &[CorpusPackage]) -> String {
 /// reports the verifier as stuck, as an `SQLite` time modifier.
 pub const STALE_PENDING: &str = "-1 hour";
 
-/// The stuck-verifier alert for the breaker cron's webhook payload:
+/// The stuck-verifier alert the cron records (`crate::alerts`):
 /// revisions pending for over an hour mean the verifier is not keeping
 /// up (or not running), and an unreadable count must alert rather than
-/// pass as healthy.
-pub fn stale_pending_alert(stale_pending: Option<u64>) -> Option<String> {
-    match stale_pending {
-        Some(0) => None,
-        Some(count) => Some(format!(
-            "{count} revision(s) have been pending verification for over an hour"
-        )),
-        None => Some("the stale-pending count could not be read from d1".to_owned()),
-    }
+/// pass as healthy. The time of the verifier's last token tells one
+/// that has not run since from one that runs and leaves them pending.
+pub fn stale_pending_alert(
+    stale_pending: Option<u64>,
+    oldest_pending: Option<&str>,
+    verifier_seen_at: Option<&str>,
+) -> Option<String> {
+    let count = match stale_pending {
+        Some(0) => return None,
+        Some(count) => count,
+        None => return Some("the stale-pending count could not be read from d1".to_owned()),
+    };
+    let oldest =
+        oldest_pending.map_or_else(String::new, |since| format!(", the oldest since {since}"));
+    let verifier = verifier_seen_at.map_or_else(
+        || "the verifier has obtained no token".to_owned(),
+        |at| format!("the verifier last obtained a token at {at}"),
+    );
+    Some(format!(
+        "{count} revision(s) have been pending verification for over an hour{oldest}; {verifier}"
+    ))
 }
 
 #[cfg(test)]
@@ -455,11 +467,21 @@ mod tests {
 
     #[test]
     fn stale_pending_alerts_on_counts_and_on_unreadable_data() {
-        assert_eq!(stale_pending_alert(Some(0)), None);
+        assert_eq!(stale_pending_alert(Some(0), Some("T1"), Some("T2")), None);
         assert_eq!(
-            stale_pending_alert(Some(3)),
-            Some("3 revision(s) have been pending verification for over an hour".to_owned())
+            stale_pending_alert(Some(3), Some("T1"), Some("T2")).as_deref(),
+            Some(
+                "3 revision(s) have been pending verification for over an hour, \
+                 the oldest since T1; the verifier last obtained a token at T2"
+            )
         );
-        assert!(stale_pending_alert(None).is_some());
+        assert_eq!(
+            stale_pending_alert(Some(1), Some("T1"), None).as_deref(),
+            Some(
+                "1 revision(s) have been pending verification for over an hour, \
+                 the oldest since T1; the verifier has obtained no token"
+            )
+        );
+        assert!(stale_pending_alert(None, None, None).is_some());
     }
 }

@@ -114,19 +114,29 @@ pub const JOB_RETENTION: &str = "-30 days";
 /// stalled until it clears.
 pub const STALL: &str = "-45 minutes";
 
-/// The stalled-publication alert for the cron's webhook payload, from
-/// the oldest stalled times `sql::PIPELINE_HEALTH` read: the verdict
-/// time of a verified archive not placed, and the recording time of a
-/// change still open.
+/// The stalled-publication alert the cron records (`crate::alerts`),
+/// from the times `sql::PIPELINE_HEALTH` read: the verdict time of the
+/// oldest verified archive not placed, the recording time of the
+/// oldest change still open, and when a change last completed.
 #[must_use]
-pub fn stall_alert(stalled_archive: Option<&str>, stalled_job: Option<&str>) -> Option<String> {
+pub fn stall_alert(
+    stalled_archive: Option<&str>,
+    stalled_job: Option<&str>,
+    last_completed_job: Option<&str>,
+) -> Option<String> {
     let archive = stalled_archive
         .map(|since| format!("a verified archive has not been placed since {since}"));
     let job = stalled_job.map(|since| format!("a change has been open since {since}"));
-    match (archive, job) {
-        (Some(archive), Some(job)) => Some(format!("{archive}; {job}")),
-        (alert, None) | (None, alert) => alert,
-    }
+    let stalled = match (archive, job) {
+        (Some(archive), Some(job)) => format!("{archive}; {job}"),
+        (Some(alert), None) | (None, Some(alert)) => alert,
+        (None, None) => return None,
+    };
+    let last = last_completed_job.map_or_else(
+        || "no completed change is on record".to_owned(),
+        |at| format!("the last change completed at {at}"),
+    );
+    Some(format!("{stalled}; {last}"))
 }
 
 /// The custom metadata key under which an INDEX object records the
@@ -149,20 +159,23 @@ mod tests {
 
     #[test]
     fn a_stall_alert_names_each_stalled_stage_and_its_time() {
-        assert_eq!(stall_alert(None, None), None);
+        assert_eq!(stall_alert(None, None, Some("T3")), None);
         assert_eq!(
-            stall_alert(Some("T1"), None).as_deref(),
-            Some("a verified archive has not been placed since T1")
-        );
-        assert_eq!(
-            stall_alert(None, Some("T2")).as_deref(),
-            Some("a change has been open since T2")
-        );
-        assert_eq!(
-            stall_alert(Some("T1"), Some("T2")).as_deref(),
+            stall_alert(Some("T1"), None, None).as_deref(),
             Some(
                 "a verified archive has not been placed since T1; \
-                 a change has been open since T2"
+                 no completed change is on record"
+            )
+        );
+        assert_eq!(
+            stall_alert(None, Some("T2"), Some("T3")).as_deref(),
+            Some("a change has been open since T2; the last change completed at T3")
+        );
+        assert_eq!(
+            stall_alert(Some("T1"), Some("T2"), Some("T3")).as_deref(),
+            Some(
+                "a verified archive has not been placed since T1; \
+                 a change has been open since T2; the last change completed at T3"
             )
         );
     }

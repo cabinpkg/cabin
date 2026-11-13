@@ -295,8 +295,9 @@ during the private alpha, to use the registry at all - every Bearer token
 is re-checked against it on use);
 the wrangler secrets are the client secret, the session secret, and
 `ANALYTICS_API_TOKEN` for the budget cron (plus the optional
-`NOTIFY_WEBHOOK_URL` and `WEBSITE_DEPLOY_HOOK`; see "Budget breaker and
-service mode" and "Integrated topology and route management").
+`WEBSITE_DEPLOY_HOOK`; see "Budget breaker and service mode" and
+"Integrated topology and route management"). The cron's alert mail
+needs Email Sending enabled for the zone ("Alerts").
 `CACHE_PURGE_TOKEN` joins them once the edge serves the buckets ("Upload
 lifecycle", the publish pass).
 
@@ -629,9 +630,8 @@ with the new value, and only then delete the old token in the dashboard -
 revoking first would have the cron running degraded in between. Without a
 working token the cron logs the skip, evaluates on the exact
 self-accounted storage alone, and never de-escalates the persisted mode on
-the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
-a JSON summary POST on every mode change and on every pass that finds
-the verifier stuck or the publication stalled.
+the missing data. A mode other than `normal` is the `service_mode`
+alert ("Alerts").
 
 ## The cost governor
 
@@ -859,7 +859,9 @@ this order:
    rules below.
 4. **Set the `BUDGET_*` vars** in `wrangler.jsonc` and deploy. Setting
    `BUDGET_R2_CLASS_B_MONTH` is what arms `reads_blocked`.
-5. **Monthly review.** Compare the cron's webhook/usage numbers against
+5. **Monthly review.** Compare the usage (`cargo registry-diagnose`
+   prints the governor's counts; the account's analytics have the
+   request and row totals) against
    the grants and adjust upward as growth justifies. Lowering an
    established read budget is a community-visible event (CI installs
    start hitting `503`) - avoid it; size conservatively at activation
@@ -961,15 +963,15 @@ in UPLOADS. A revision row is in one of five states
   for 15 to 30 minutes, longer while more than 100 packages have open
   rows. One open for 45 minutes with fewer than that means a document
   is not getting into INDEX or its purge is failing; the pass logs why
-  (`document publication: ...`). The cron reports a row open that
-  long, and a verified archive unplaced that long, on every pass until
-  it clears (`publication health: ...`, and `publication.alert` in the
-  webhook's summary). The report does not tell a backlog from a
-  failure. Both passes take the oldest first, so a backlog shows as
-  `publication.stalled_archive` or `publication.stalled_job` moving on
-  from pass to pass (`cargo registry-diagnose` prints `open_jobs`);
-  a time that stays the same is an archive or a row the pass cannot
-  finish. A completed row is deleted 30 days after its
+  (`document publication: ...`). A row open that long, and a verified
+  archive unplaced that long, is the `publication` alert ("Alerts"),
+  which the cron also logs on every pass until it clears
+  (`alert publication: ...`). The alert does not tell a backlog from a
+  failure. Both passes take the oldest first, so in a backlog the times
+  in the alert's summary move on from pass to pass
+  (`cargo registry-diagnose` prints the latest summary, and
+  `open_jobs`); a time that stays the same is an archive or a row the
+  pass cannot finish. A completed row is deleted 30 days after its
   `completed_at`; an open row is never deleted for its age.
 
   The same pass keeps `config.json` in INDEX: it reads the object every
@@ -1091,8 +1093,8 @@ verify token included - can deliver a verdict, and each JWT
 authenticates exactly one request (its `jti` is consumed on use).
 
 Fail-safe: a failed or skipped run leaves versions pending, which only
-keeps content unexposed. The breaker cron's stuck-pending webhook
-alert ("N revision(s) have been pending verification for over an hour")
+keeps content unexposed. The cron's `verification` alert ("N
+revision(s) have been pending verification for over an hour"; "Alerts")
 is the detection mechanism, never "the workflow ran recently" - GitHub
 cron schedules are **best-effort** and can be delayed or dropped under
 load. On the alert, dispatch a run:
@@ -1102,9 +1104,8 @@ gh workflow run registry-verify.yml
 gh run list --workflow registry-verify.yml --limit 5
 ```
 
-The alert's summary carries `verification.verifier_seen_at`
-(`meta.verifier_seen_at`), the last time the verifier exchanged its
-identity for a token: it tells a verifier that has obtained no token
+The alert's summary says when the verifier last exchanged its
+identity for a token (`meta.verifier_seen_at`): it tells a verifier that has obtained no token
 since (it did not run, or its exchange was refused) from one that
 runs and leaves the versions pending. It is not itself an alert.
 
@@ -1217,6 +1218,53 @@ expected API origin, defaulting to `https://cabinpkg.com`. The workflow
 requires the index's `config.json` to declare that exact API origin before
 it sends the verify token there; artifact downloads stay on the index
 origin. Set both variables together when targeting a different deployment.
+
+## Alerts
+
+Every cron pass records what it observed of each alert kind in the D1
+table `alerts`, and sends the operator one mail for what changed
+(`src/alerts.rs`, `src/sql/alerts.rs`).
+
+| Kind | Level | Fires when |
+| --- | --- | --- |
+| `service_mode` | WARNING at `warn`, CRITICAL at `writes_blocked` and at `reads_blocked` | the mode is not `normal` ("Budget breaker and service mode") |
+| `verification` | WARNING | a revision has been pending for over an hour, or the count could not be read ("Verification pipeline") |
+| `publication` | CRITICAL | a verified archive has been unplaced, or a change open, for over 45 minutes ("Upload lifecycle") |
+
+A kind is mailed when it first fires, when its level rises (the step
+from `writes_blocked` to `reads_blocked` is a rise), and once when it
+recovers, if a mail about its firing went out. It is not mailed while
+it stays as it is, nor when its level
+falls without recovering. A kind that fires again before its recovery
+went out is mailed as a first firing. A CRITICAL kind that stays is
+mailed again every 24 hours. A pass sends at most one mail: it lists every kind
+owed one, the most severe first, under the subject
+`[Cabin][CRITICAL]`, `[Cabin][WARNING]` or `[Cabin][RECOVERED]` and
+the kinds. When the pass cannot read the pipeline's state,
+`publication` keeps the level it had and `verification` fires: a count
+that could not be read is not a healthy one.
+
+The mail goes from `noreply@cabinpkg.com` to `ops@cabinpkg.com` through
+the `NOTIFY_EMAIL` binding (`wrangler.jsonc`, `send_email`), which
+allows no other sender and no other recipient. The binding needs
+Cloudflare Email Sending enabled for the zone and nothing else: no
+secret, and not Email Routing. Enabling it adds Cloudflare's own
+records under `cf-bounce` (MX, SPF, DKIM). The records the domain
+already has for its incoming mail (MX, SPF, DKIM, DMARC) stay as they
+are, and Email Routing stays off.
+
+A mail the binding does not accept is not recorded as sent. The next
+passes try it again, four passes in all (`alert pass failed: ...` in
+the log each time); after that the row is tried once every 24 hours,
+until a mail is accepted or the kind's level changes, which starts the
+four over. `cargo registry-diagnose` prints the rows: `level` (0 is
+healthy again), `notified_level` (the level the last mail named,
+lowered without a mail when the level falls below it, and 0 again once
+the kind fires from healthy), `attempts` (the
+passes in a row whose mail for the row failed: at 4 or more, the mail
+path is down and the row's latest change or reminder has not gone
+out), and the latest pass's summary. A failed mail undoes no publish,
+verdict or service mode, and the passes after it still run.
 
 ## Disaster recovery
 

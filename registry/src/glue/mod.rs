@@ -456,7 +456,7 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
 }
 
 /// A JSON POST, optionally with a bearer token; used for the analytics
-/// queries, the state-change webhook and the edge purge.
+/// queries and the edge purge.
 pub(crate) async fn post_json(
     url: &str,
     body: &str,

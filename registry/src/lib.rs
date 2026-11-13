@@ -6,6 +6,7 @@
 //! that compile and unit-test on the host target; the Cloudflare-specific
 //! glue in [`glue`] and [`web_glue`] only compiles for wasm32.
 
+pub mod alerts;
 pub mod allowlist;
 pub mod analytics;
 pub mod auth;
