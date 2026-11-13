@@ -26,10 +26,10 @@
     // Secrets, set via `wrangler secret put <NAME>` (never in this file):
     // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account
     // Analytics Read; the budget cron degrades gracefully without it),
-    // and optionally NOTIFY_WEBHOOK_URL (POSTed a JSON summary on
-    // service-mode changes and pipeline alerts) and
-    // WEBSITE_DEPLOY_HOOK (the website's Workers Builds deploy hook, POSTed
-    // when its package pages fall behind the catalog).
+    // ALERT_RECIPIENT_EMAIL (the one address the cron's alert mail goes to;
+    // docs/runbook.md, "Alerts"),
+    // and optionally WEBSITE_DEPLOY_HOOK (the website's Workers Builds
+    // deploy hook, POSTed when its package pages fall behind the catalog).
     // CACHE_PURGE_TOKEN (the zone's Cache Purge) is required from the
     // deploy that adds INDEX_ORIGIN to `vars` (docs/runbook.md, "Upload
     // lifecycle").
@@ -128,6 +128,16 @@
         { "binding": "UPLOADS", "bucket_name": "registry-uploads" },
         { "binding": "DOWNLOAD_LOGS", "bucket_name": "registry-download-logs" },
         { "binding": "INDEX", "bucket_name": "registry-index" }
+    ],
+    // The cron's alert mail (src/alerts.rs; docs/runbook.md, "Alerts"):
+    // this binding sends from the one sender and from no other. The
+    // recipient is the ALERT_RECIPIENT_EMAIL secret, so its address is not in
+    // this file.
+    "send_email": [
+        {
+            "name": "NOTIFY_EMAIL",
+            "allowed_sender_addresses": ["noreply@cabinpkg.com"]
+        }
     ],
     // The cost governor: one named SQLite-backed Durable Object is the
     // serialized authority for the hard R2 budgets (src/governor.rs,

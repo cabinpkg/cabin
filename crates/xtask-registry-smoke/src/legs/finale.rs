@@ -1,4 +1,4 @@
-//! The run's tail: the breaker cron leg, the strict
+//! The run's tail: the breaker cron leg, the alert mail leg, the strict
 //! zip-container profile, the governor's hard limits across two mid-run
 //! dev-server restarts, the admin governor endpoint, the real
 //! verification driver's pass over two fresh versions (`driver_pass`),
@@ -145,6 +145,7 @@ struct Fixtures {
 /// The first failed check.
 pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     breaker_cron(smoke, inputs)?;
+    alert_mail(smoke)?;
     zip_profile(smoke, inputs)?;
     driver_pass(smoke, inputs)?;
     let fixtures = governor_fixtures(smoke, inputs)?;
@@ -170,6 +171,36 @@ fn breaker_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     smoke.check(BREAKER_CRON, &[200])?;
     if !await_log(inputs.servers.dev_log(), mark, "governor usage:")? {
         bail!("the breaker cron pass never logged the governor usage snapshot");
+    }
+    Ok(())
+}
+
+/// The cron mails the operator when the service mode leaves normal,
+/// and once when it returns. A row reads as mailed once the local
+/// `NOTIFY_EMAIL` binding has accepted the pass's mail, which it does
+/// from the binding's sender and no other, to the run's
+/// `ALERT_RECIPIENT_EMAIL` (`.dev.vars`);
+/// the binding keeps no copy to read, so what the mail says is
+/// `alerts::digest`'s own test. Without the analytics token the cron
+/// leaves a stored `writes_blocked` as it is, so the forced mode stays
+/// for its pass.
+fn alert_mail(smoke: &mut Smoke) -> Result<()> {
+    step("the cron mails a blocked service mode, then its recovery");
+    let mailed = |levels: &str| -> Result<bool> {
+        let rows = crate::servers::d1_rows(&format!(
+            "SELECT 1 FROM alerts WHERE kind = 'service_mode' AND attempts = 0 AND {levels}"
+        ))?;
+        Ok(!rows.is_empty())
+    };
+    d1("UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';")?;
+    smoke.check(BREAKER_CRON, &[200])?;
+    if !mailed("level = 2 AND notified_level = 2")? {
+        bail!("the cron did not mail the blocked service mode");
+    }
+    d1("UPDATE meta SET value = 'normal' WHERE key = 'service_mode';")?;
+    smoke.check(BREAKER_CRON, &[200])?;
+    if !mailed("level = 0 AND notified_level = 0")? {
+        bail!("the cron did not mail the service mode's recovery");
     }
     Ok(())
 }

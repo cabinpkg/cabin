@@ -49,6 +49,12 @@ const COUNTS: &str = "
       WHERE completed_at IS NULL) AS oldest_open_job,
     (SELECT MAX(completed_at) FROM publication_jobs) AS last_completed_job";
 
+// One row per alert kind the cron has seen firing; level 0 is healthy
+// again, and attempts counts the passes whose mail failed.
+const ALERTS: &str = "
+  SELECT kind, level, since, notified_level, notified_at, attempts, summary
+  FROM alerts ORDER BY kind";
+
 /// # Errors
 ///
 /// If a D1 read fails or answers in an unexpected shape.  A failing
@@ -107,6 +113,24 @@ pub fn run() -> Result<()> {
     let row = counts.first().context("the counts query answered no row")?;
     for (key, value) in row {
         println!("    {key}: {}", display(value));
+    }
+
+    step("alerts (D1; registry/docs/runbook.md \"Alerts\")");
+    let alerts = output(&mut wrangler(&[
+        "d1",
+        "execute",
+        "DB",
+        "--remote",
+        "--json",
+        "--command",
+        ALERTS,
+    ]))?;
+    for row in results(&alerts)? {
+        let cells: Vec<String> = row
+            .iter()
+            .map(|(key, value)| format!("{key}={}", display(value)))
+            .collect();
+        println!("    {}", cells.join(" "));
     }
 
     governor_usage()?;

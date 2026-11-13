@@ -3,17 +3,20 @@
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use worker::{D1Database, Env, Fetch, Method, Request, RequestInit, console_error, console_log};
+use worker::{
+    D1Database, D1PreparedStatement, EmailAddress, Env, Fetch, Method, Request, RequestInit,
+    SendEmailBuilder, console_error, console_log,
+};
 
 use crate::catalog_refresh::{self, Target};
 use crate::governor::OpPool;
 use crate::governor_client::{self, Gate};
 use crate::routes::Route;
-use crate::{analytics, auth, breaker, publication, sql, upload, verify};
+use crate::{alerts, analytics, auth, breaker, publication, sql, upload, verify};
 
 use super::{
-    CountRecord, changed_rows, consume_one, iso8601_from_ms, non_negative, now_iso8601, post_json,
-    read_meta, upsert_meta, web_origin,
+    CountRecord, changed_rows, consume_one, iso8601_from_ms, js_int, non_negative, now_iso8601,
+    post_json, read_meta, upsert_meta, web_origin,
 };
 
 /// One summary line of the governor's operation windows per pass, next
@@ -389,57 +392,143 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
             next.as_str()
         );
     }
-    let (pipeline, alerting) = pipeline_health(&db).await;
-    if next != current || alerting {
-        notify_webhook(env, current, next, &reason, &usage, &pipeline).await;
+    if let Err(err) = report_alerts(env, &db, &now, next, &reason).await {
+        console_error!("alert pass failed: {err}");
     }
     Ok(())
 }
 
-/// The webhook payload's `verification` and `publication` objects, and
-/// whether either alerts. Pipeline health rides every pass, logging and
-/// notifying until resolved, while mode changes notify once: revisions
-/// pending for over an hour mean the verifier is stuck or absent, and
-/// the fail-safe direction (nothing pending ever becomes resolvable on
-/// its own) makes that invisible to users unless it alerts here. A
-/// verified archive that is not placed, or a change that stays open,
-/// fails as quietly: no request errors over it.
-async fn pipeline_health(db: &D1Database) -> (serde_json::Value, bool) {
+/// Records what this pass observed of every alert kind and mails what
+/// changed (`src/alerts.rs`; `docs/runbook.md`, "Alerts"). The
+/// pipeline's two kinds are here because they fail quietly: revisions
+/// pending for over an hour mean the verifier is stuck or absent, a
+/// verified archive that is not placed or a change that stays open
+/// means the publication is, and no request errors over either. When
+/// the health read fails, `publication` is not recorded and its row
+/// keeps the level it had, while `verification` fires: an unreadable
+/// count must not pass as healthy. The claim counts the attempt
+/// before the mail is sent, and only a mail the binding accepted is
+/// recorded as delivered: a failed one, or one the `ALERT_RECIPIENT_EMAIL`
+/// secret gives no address for, is tried again by the next passes.
+async fn report_alerts(
+    env: &Env,
+    db: &D1Database,
+    now: &str,
+    mode: breaker::Mode,
+    reason: &str,
+) -> worker::Result<()> {
     let health = read_health(db)
         .await
         .inspect_err(|err| console_error!("pipeline health read: {err}"))
         .ok();
     let health = health.as_ref();
-    let stale_pending = health.map(|health| non_negative(health.stale_pending));
-    let verification_alert = verify::stale_pending_alert(stale_pending);
-    if let Some(alert) = &verification_alert {
-        console_error!("verification health: {alert}");
-    }
-    let publication_alert = health.and_then(|health| {
-        publication::stall_alert(
+    let mode_level = alerts::service_mode_level(mode);
+    let verification = verify::stale_pending_alert(
+        health.map(|health| non_negative(health.stale_pending)),
+        health.and_then(|health| health.oldest_pending.as_deref()),
+        health.and_then(|health| health.verifier_seen_at.as_deref()),
+    );
+    let mut statements = vec![
+        observe(
+            db,
+            now,
+            alerts::Kind::ServiceMode,
+            (mode_level > 0).then(|| (mode_level, format!("{}: {reason}", mode.as_str()))),
+        )?,
+        observe(
+            db,
+            now,
+            alerts::Kind::Verification,
+            verification.map(|alert| (alerts::WARNING, alert)),
+        )?,
+    ];
+    if let Some(health) = health {
+        let publication = publication::stall_alert(
             health.stalled_archive.as_deref(),
             health.stalled_job.as_deref(),
-        )
-    });
-    if let Some(alert) = &publication_alert {
-        console_error!("publication health: {alert}");
+            health.last_completed_job.as_deref(),
+        );
+        statements.push(observe(
+            db,
+            now,
+            alerts::Kind::Publication,
+            publication.map(|alert| (alerts::CRITICAL, alert)),
+        )?);
     }
-    let alerting = verification_alert.is_some() || publication_alert.is_some();
-    let pipeline = serde_json::json!({
-        "verification": {
-            "stale_pending": stale_pending,
-            "oldest_pending": health.map(|health| &health.oldest_pending),
-            "verifier_seen_at": health.map(|health| &health.verifier_seen_at),
-            "alert": verification_alert,
-        },
-        "publication": {
-            "stalled_archive": health.map(|health| &health.stalled_archive),
-            "stalled_job": health.map(|health| &health.stalled_job),
-            "last_completed_job": health.map(|health| &health.last_completed_job),
-            "alert": publication_alert,
-        },
-    });
-    (pipeline, alerting)
+    statements.push(db.prepare(sql::CLAIM_ALERTS).bind(&[
+        now.into(),
+        alerts::RENOTIFY.into(),
+        alerts::ATTEMPTS.into(),
+        alerts::CRITICAL.into(),
+    ])?);
+    let results = db.batch(statements).await?;
+    let claimed: Vec<alerts::Claimed> = match results.last() {
+        Some(claim) => claim.results()?,
+        None => Vec::new(),
+    };
+    if claimed.is_empty() {
+        return Ok(());
+    }
+    // The errors name the secret and never its value.
+    let recipient = env
+        .secret("ALERT_RECIPIENT_EMAIL")
+        .map_err(|_| {
+            worker::Error::RustError("the ALERT_RECIPIENT_EMAIL secret is not set".to_owned())
+        })?
+        .to_string();
+    if !alerts::is_address(&recipient) {
+        return Err(worker::Error::RustError(
+            "the ALERT_RECIPIENT_EMAIL secret is not one plain email address".to_owned(),
+        ));
+    }
+    let mail = alerts::digest(&claimed);
+    let message = SendEmailBuilder::builder_with_email_address_and_str(
+        &EmailAddress::new(alerts::SENDER_NAME, alerts::SENDER),
+        &recipient,
+        &mail.subject,
+    )
+    .text(&mail.text)
+    .build();
+    env.send_email("NOTIFY_EMAIL")?
+        .send_with_builder(&message)
+        .await?;
+    console_log!("alert mail sent: {}", mail.subject);
+    let marks = claimed
+        .iter()
+        .map(|row| {
+            db.prepare(sql::MARK_ALERT_NOTIFIED).bind(&[
+                row.kind.as_str().into(),
+                js_int(row.level),
+                now.into(),
+            ])
+        })
+        .collect::<worker::Result<Vec<_>>>()?;
+    db.batch(marks).await?;
+    Ok(())
+}
+
+/// The statement that records one kind as this pass saw it: firing at
+/// a level with the line that says why, or healthy.
+fn observe(
+    db: &D1Database,
+    now: &str,
+    kind: alerts::Kind,
+    firing: Option<(u8, String)>,
+) -> worker::Result<D1PreparedStatement> {
+    match firing {
+        Some((level, summary)) => {
+            console_error!("alert {}: {summary}", kind.as_str());
+            db.prepare(sql::FIRE_ALERT).bind(&[
+                kind.as_str().into(),
+                level.into(),
+                now.into(),
+                summary.into(),
+            ])
+        }
+        None => db
+            .prepare(sql::CLEAR_ALERT)
+            .bind(&[kind.as_str().into(), now.into()]),
+    }
 }
 
 /// One row of `sql::PIPELINE_HEALTH`.
@@ -510,38 +599,4 @@ async fn fetch_metric(
         console_error!("analytics {dataset} response did not parse; treating as unavailable");
     }
     sum
-}
-
-/// POSTs a summary to `NOTIFY_WEBHOOK_URL` when it is configured, on
-/// service-mode changes (`from != to`) and pipeline alerts alike
-/// (`pipeline` holds the payload's `verification` and `publication`
-/// objects); failures only log.
-async fn notify_webhook(
-    env: &Env,
-    from: breaker::Mode,
-    to: breaker::Mode,
-    reason: &str,
-    usage: &breaker::Usage,
-    pipeline: &serde_json::Value,
-) {
-    let Ok(url) = env.secret("NOTIFY_WEBHOOK_URL") else {
-        return;
-    };
-    let body = serde_json::json!({
-        "service": "cabin-registry",
-        "from": from.as_str(),
-        "to": to.as_str(),
-        "reason": reason,
-        "stored_bytes": usage.stored_bytes,
-        "workers_requests_today": usage.workers_requests_today,
-        "r2_class_a_month": usage.r2_class_a_month,
-        "d1_rows_read_today": usage.d1_rows_read_today,
-        "r2_class_b_month": usage.r2_class_b_month,
-        "verification": pipeline["verification"],
-        "publication": pipeline["publication"],
-    })
-    .to_string();
-    if post_json(&url.to_string(), &body, None).await.is_err() {
-        console_error!("state-change webhook POST failed");
-    }
 }

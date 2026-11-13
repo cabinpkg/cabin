@@ -46,6 +46,7 @@ macro_rules! groups {
 
 groups!(
     admission,
+    alerts,
     auth,
     downloads,
     meta,
