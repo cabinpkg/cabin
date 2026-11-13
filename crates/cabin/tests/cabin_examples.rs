@@ -332,6 +332,21 @@ fn build_script_generator_builds_and_runs() {
         .stdout(predicates::str::contains("Hello from an embedded file"));
 }
 
+/// With `vendored`, the example needs no system zlib.  Its other ways
+/// to supply the library are covered in `cli/sdk_package.rs`.
+#[test]
+fn build_script_sdk_builds_and_runs_with_the_vendored_zlib() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("build-script-sdk");
+    run_example(&dir)
+        .args(["--features", "vendored"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "packed by zlib 1.3.1, unpacked by zlib 1.3.1 (header 1.3.1)",
+        ));
+}
+
 #[test]
 fn workspace_basic_builds_workspace() {
     require_cxx_build_tools();

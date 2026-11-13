@@ -25,10 +25,11 @@ int main(void) {
 }
 ```
 
-With this file in its root, the package's `hello` target can `#include "build_info.h"`.  Three
+With this file in its root, the package's `hello` target can `#include "build_info.h"`.  Four
 runnable examples are under `examples/`: `build-script-header` (a C script that generates a
-header), `build-script-helper-lib` (a C++ script that links a helper library), and
-`build-script-generator` (a script that runs a code generator the package declares).
+header), `build-script-helper-lib` (a C++ script that links a helper library),
+`build-script-generator` (a script that runs a code generator the package declares), and
+`build-script-sdk` (a script that takes a library from the system, or leaves Cabin to build it).
 
 A root holds `build.c` or `build.cpp`, not both: Cabin refuses a package with both.  The names are
 exact, so `build.cc` or `Build.c` is an ordinary file.
@@ -218,6 +219,26 @@ pkg-config z zlib >=1.2.11
   [system dependency](system-dependencies.md#manifest-declaration).  A library a build dependency
   links there is built for the build machine, and cannot come from pkg-config.
 
+### A package for a system library
+
+A package can offer a library both ways: the system's copy, and one Cabin builds from sources the
+package carries.  The manifest describes the library built from the sources, a
+[feature](features.md) of the package chooses, and the script reports `external` only when the
+system's copy is wanted.  The `build-script-sdk` example is such a package for zlib, with a
+feature it names `vendored`; Cabin gives no feature name a meaning of its own.
+
+- The target and its [`links`](manifest.md#links) claim are the same both ways, so dependents name
+  one target, and a program links one copy of the library.
+- A build enables a feature for every dependent of a package at once.  When any of them asks for
+  the sources, all of them link the library built from the sources.
+- A build dependency is resolved by itself: a build script or a tool of the build machine can link
+  the library built from the sources while the program links the system's.
+- The script decides what a usable system copy is, and fails when there is none.  Switching to the
+  sources by itself would hide which library a program got.
+- The version the script asks of the system's copy is a requirement of its own, not the
+  package's `version`.  `cabin.lock` records nothing of the system's copy: that is whatever the
+  machine holds when the build runs.
+
 ## When a script runs
 
 Cabin runs a package's script before it compiles the package, and after the scripts of the
@@ -307,7 +328,9 @@ Limits to know:
   that names a directory holding the package's root or the build directory, or reached through
   one of them, a symbolic link there included: a directory in the package's root is read as the
   root is.  A script may still point Cabin at what such a variable names (`include-dir`,
-  `link-file`, `rerun-if-changed`).
+  `link-file`, `rerun-if-changed`).  On macOS a script cannot follow a symbolic link kept where
+  it reads nothing, such as your home: name the SDK's directory itself there, not such a link to
+  it.
 - On Windows, Cabin opens a `CABIN_SDK_*` directory to a script by changing its access-control
   list for the run, which takes longer the more the directory holds.  A directory whose list you
   may not change, as one under `Program Files`, fails the build: copy the SDK to a directory of

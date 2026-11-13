@@ -553,6 +553,62 @@ int main(void) {
         cabin_build("sdk-native", false).success();
     }
 
+    /// The `build-script-sdk` example in a `--target` build.  The zlib
+    /// the program links is the target's: the package's sources compiled
+    /// for it, or a system zlib built for it, and one built for the build
+    /// machine is refused.  The zlib `app`'s build script links is the
+    /// build machine's, and the script runs.
+    #[test]
+    fn the_sdk_example_links_the_targets_zlib_and_runs_the_build_machines() {
+        use crate::sdk_package::{build_sdk, example};
+        require_c_and_cxx_build_tools();
+        let dir = example();
+        let scratch = TempDir::new().unwrap();
+        let (triple, arch, cpu_type) = cross();
+        let native = build_sdk(scratch.path(), "native", "1.3.1-sdk", None);
+        let crossed = build_sdk(scratch.path(), "crossed", "1.3.1-sdk", Some(triple));
+        let build = |sdk: Option<&Path>| {
+            let mut command = cabin();
+            command
+                .current_dir(dir.path())
+                .args(["build", "-p", "app", "--target", triple]);
+            match sdk {
+                Some(sdk) => command.env("CABIN_SDK_ZLIB_DIR", sdk),
+                None => command.args(["--features", "vendored"]),
+            };
+            command.assert()
+        };
+        let profile = dir.path().join("build/.targets").join(triple).join("dev");
+        let program = profile.join("packages/app/app");
+
+        // A program holds the version string of the zlib it links, and
+        // that of the header it compiled against: the SDK's header
+        // names another, so the string searched for is the library's.
+        let header = crossed.join("include/zlib.h");
+        let text = fs::read_to_string(&header).unwrap();
+        assert!(text.contains("1.3.1-sdk"));
+        fs::write(&header, text.replace("1.3.1-sdk", "1.3.1-hdr")).unwrap();
+
+        // The system's zlib first, while the build holds no other for
+        // the target.
+        for (sdk, system) in [(Some(crossed.as_path()), true), (None, false)] {
+            build(sdk).success();
+            assert_eq!(mach_o_cpu_type(&program), cpu_type);
+            let linked = fs::read(&program).unwrap();
+            assert_eq!(linked.windows(9).any(|bytes| bytes == b"1.3.1-sdk"), system);
+        }
+        assert!(profile.join("build-machine/packages/zlib/libz.a").is_file());
+
+        let refused = build(Some(&native)).failure();
+        let stderr = String::from_utf8_lossy(&refused.get_output().stderr).into_owned();
+        let host_arch = std::env::consts::ARCH;
+        let phrase = format!("libz.a` is built for {host_arch}, and this build is for {arch}");
+        assert!(
+            crate::standard_compat::flat_contains(&stderr, &phrase),
+            "{stderr}"
+        );
+    }
+
     /// A `--target` build asks the pkg-config it is given, the target's,
     /// for a library a build script supplies.  A build dependency's
     /// script cannot ask it: its library is the build machine's.

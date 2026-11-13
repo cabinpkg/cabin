@@ -74,7 +74,7 @@ fn cabin_in(root: &Path, args: &[&str]) -> Command {
 
 /// What `cabin` printed: status lines and the program's own output on
 /// standard output, then diagnostics on standard error.
-fn printed(assert: &assert_cmd::assert::Assert) -> String {
+pub(crate) fn printed(assert: &assert_cmd::assert::Assert) -> String {
     let output = assert.get_output();
     format!(
         "{}{}",

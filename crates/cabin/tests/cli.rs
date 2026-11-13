@@ -2334,6 +2334,8 @@ mod build_dependencies;
 mod build_scripts;
 #[path = "cli/install.rs"]
 mod install;
+#[path = "cli/sdk_package.rs"]
+mod sdk_package;
 
 #[path = "cli/optional_dependencies_and_features.rs"]
 mod optional_dependencies_and_features;

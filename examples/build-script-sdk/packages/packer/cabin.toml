@@ -1,0 +1,14 @@
+[package]
+name = "packer"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+zlib = { path = "../zlib" }
+
+[target.packer]
+type = "library"
+sources = ["src/packer.c"]
+include-dirs = ["include"]
+# Public: `packer.h` includes `zlib.h`.
+deps = [{ name = "zlib:z", public = true }]
