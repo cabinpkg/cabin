@@ -369,6 +369,35 @@ pub fn planned_packages(req: &PlanRequest<'_>) -> Result<BTreeSet<usize>, BuildE
     Ok(resolved.reachable.into_iter().map(|tid| tid.0).collect())
 }
 
+/// What a plan made without running build scripts takes in place of
+/// their reports ([`PlanRequest::build_script_outputs`]): each library
+/// with no source for `platform`, in a package of `scripted` (those
+/// with a build script, by `graph.packages` index), is one its script
+/// supplies ([`BuildScriptOutput::external`]).  Such a plan lacks
+/// whatever else the scripts would report.
+#[must_use]
+pub fn libraries_left_to_build_scripts(
+    graph: &PackageGraph,
+    scripted: &BTreeSet<usize>,
+    platform: &cabin_core::TargetPlatform,
+) -> HashMap<(usize, String), BuildScriptOutput> {
+    let mut supplied = HashMap::new();
+    for &idx in scripted {
+        for target in &graph.packages[idx].package.targets {
+            if target.kind == TargetKind::Library && target.sources_for(platform).next().is_none() {
+                supplied.insert(
+                    (idx, target.name.to_string()),
+                    BuildScriptOutput {
+                        external: true,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+    }
+    supplied
+}
+
 /// Phase one: resolve the requested selection (or enumerate the
 /// default-buildable set) into concrete target IDs, hard-erroring on
 /// missing required features for explicitly named targets.

@@ -267,30 +267,18 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         );
     }
 
-    // No build script runs here, so a library that lists no source in
-    // a package with a build script is taken as one its script supplies.
-    // A lookup that fails supplies nothing, and the planner refuses the
-    // library when the plan reaches it, as it does without a script.
-    let mut supplied = std::collections::HashMap::new();
-    for &idx in selected_closure {
-        let package = &graph.packages[idx];
-        let scripted = <&camino::Utf8Path>::try_from(package.manifest_dir.as_path())
-            .is_ok_and(|root| matches!(cabin_build_script::find(root), Ok(Some(_))));
-        for target in &package.package.targets {
-            if scripted
-                && target.kind == TargetKind::Library
-                && target.sources_for(&platform).next().is_none()
-            {
-                supplied.insert(
-                    (idx, target.name.to_string()),
-                    cabin_build::BuildScriptOutput {
-                        external: true,
-                        ..Default::default()
-                    },
-                );
-            }
-        }
-    }
+    // No build script runs here.  A lookup that fails counts as no
+    // script, and the planner refuses a library without a source when
+    // the plan reaches it, as it does in a package without a script.
+    let scripted: BTreeSet<usize> = selected_closure
+        .iter()
+        .copied()
+        .filter(|&idx| {
+            <&camino::Utf8Path>::try_from(graph.packages[idx].manifest_dir.as_path())
+                .is_ok_and(|root| matches!(cabin_build_script::find(root), Ok(Some(_))))
+        })
+        .collect();
+    let supplied = cabin_build::libraries_left_to_build_scripts(&graph, &scripted, &platform);
 
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
