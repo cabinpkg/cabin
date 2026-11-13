@@ -1131,38 +1131,6 @@ version = "0.1.0"
     }
 }
 
-/// A `system = true` key is a pkg-config module name, so it keeps its
-/// upstream spelling and only the path-safe rules apply.
-#[test]
-fn system_dependency_keys_keep_the_pkg_config_grammar() {
-    let manifest = r#"[package]
-name = "boa"
-version = "0.1.0"
-[dependencies]
-"glib-2.0" = { version = ">=2", system = true }
-SDL2 = { version = ">=2", system = true }
-"#;
-    let package = parse_manifest_str(manifest).unwrap().package.unwrap();
-    let mut names: Vec<&str> = package
-        .system_dependencies
-        .iter()
-        .map(|dep| dep.name.as_str())
-        .collect();
-    names.sort_unstable();
-    assert_eq!(names, ["SDL2", "glib-2.0"]);
-
-    let manifest = r#"[package]
-name = "boa"
-version = "0.1.0"
-[dependencies]
-"-lz" = { version = "", system = true }
-"#;
-    assert!(matches!(
-        parse_manifest_str(manifest).unwrap_err(),
-        ManifestError::Validation(ValidationError::InvalidSystemDependencyName(_))
-    ));
-}
-
 #[test]
 fn empty_target_name_errors() {
     let manifest = r#"
@@ -1679,9 +1647,14 @@ fn dependency_table_with_truly_unknown_field_errors_at_toml_layer() {
             fmt = { version = "1.0", "made-up-key" = true }
         "#;
     // Fields that aren't in the typed `RawDependencyTable` shape
-    // are still rejected at the TOML layer via `deny_unknown_fields`.
+    // are still rejected at the TOML layer via `deny_unknown_fields`,
+    // by name.
     let err = parse_manifest_str(manifest).unwrap_err();
     assert!(matches!(err, ManifestError::Toml(_)));
+    assert!(
+        err.to_string().contains("unknown field `made-up-key`"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -2212,74 +2185,38 @@ fn unknown_top_level_table_is_rejected_by_deny_unknown_fields() {
     );
 }
 
+/// An entry that still carries `system` asked for a library of the
+/// system.  Read past, it would name a registry package instead, so
+/// it is refused in every dependency table, whatever it is set to.
 #[test]
-fn parses_system_dependencies() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
+fn the_removed_system_key_is_refused_in_every_dependency_table() {
+    for table in [
+        "[dependencies]",
+        "[dev-dependencies]",
+        "[build-dependencies]",
+        r#"[target.'cfg(os = "linux")'.dependencies]"#,
+    ] {
+        for value in ["true", "false"] {
+            let manifest = format!(
+                r#"[package]
+name = "app"
+version = "0.1.0"
 
-            [dependencies]
-            zlib = { version = ">=1.2", system = true }
-            openssl = { version = ">=3", system = true }
-        "#,
-    );
-    assert_eq!(package.system_dependencies.len(), 2);
-    let by_name: BTreeMap<&str, &cabin_core::SystemDependency> = package
-        .system_dependencies
-        .iter()
-        .map(|sd| (sd.name.as_str(), sd))
-        .collect();
-    assert_eq!(by_name["openssl"].version, ">=3");
-    assert_eq!(by_name["openssl"].kind, DependencyKind::Normal);
-    assert_eq!(by_name["zlib"].version, ">=1.2");
-    assert_eq!(by_name["zlib"].kind, DependencyKind::Normal);
-}
-
-#[test]
-fn system_dependency_rejects_required_field() {
-    // Every `system = true` dep is required, so `required` is an
-    // unknown field; the diagnostic must name it so users know what
-    // to remove.
-    let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [dependencies]
-            openssl = { version = ">=3", system = true, required = false }
-        "#;
-    let err = parse_project_err(manifest);
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("unknown field `required`"),
-        "diagnostic should name the unknown field; got {rendered}",
-    );
-}
-
-#[test]
-fn system_flag_routes_per_kind() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { version = ">=1.2", system = true }
-
-            [dev-dependencies]
-            gtest = { version = "^1.14", system = true }
-        "#,
-    );
-    let by_name: BTreeMap<&str, &cabin_core::SystemDependency> = package
-        .system_dependencies
-        .iter()
-        .map(|sd| (sd.name.as_str(), sd))
-        .collect();
-    assert_eq!(by_name["zlib"].kind, DependencyKind::Normal);
-    assert_eq!(by_name["gtest"].kind, DependencyKind::Dev);
+{table}
+zlib = {{ version = ">=1.2", system = {value} }}
+"#
+            );
+            let err = parse_manifest_str(&manifest).unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    ManifestError::SystemDependencyRemoved { name, table: at }
+                        if name == "zlib" && at == table
+                ),
+                "{table} {value}: {err:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -2438,43 +2375,6 @@ fn build_dependencies_parse_as_the_build_kind() {
         build[1].condition.as_ref().map(ToString::to_string),
         Some("os = \"linux\"".to_owned()),
     );
-
-    let err = parse_manifest_str(
-        r#"[package]
-name = "app"
-version = "0.1.0"
-
-[build-dependencies]
-zlib = { version = ">=1.2", system = true }
-"#,
-    )
-    .unwrap_err();
-    match err {
-        ManifestError::SystemNotSupportedForKind { kind, .. } => {
-            assert_eq!(kind, DependencyKind::Build);
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
-}
-
-#[test]
-fn optional_on_system_dependency_is_rejected() {
-    let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { version = ">=1.2", system = true, optional = true }
-        "#;
-    let err = parse_manifest_str(manifest).unwrap_err();
-    match err {
-        ManifestError::SystemConflictsWith { name, field, .. } => {
-            assert_eq!(name, "zlib");
-            assert_eq!(field, "optional");
-        }
-        other => panic!("expected SystemConflictsWith, got {other:?}"),
-    }
 }
 
 #[test]
@@ -2540,25 +2440,6 @@ fn ignore_interface_standard_is_parsed_on_conditional_dependencies() {
 }
 
 #[test]
-fn ignore_interface_standard_on_system_dependency_is_rejected() {
-    let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { version = ">=1.2", system = true, ignore-interface-standard = true }
-        "#;
-    match parse_manifest_str(manifest).unwrap_err() {
-        ManifestError::SystemConflictsWith { name, field, .. } => {
-            assert_eq!(name, "zlib");
-            assert_eq!(field, "ignore-interface-standard");
-        }
-        other => panic!("expected SystemConflictsWith, got {other:?}"),
-    }
-}
-
-#[test]
 fn unsupported_dependency_section_yields_toml_error() {
     // `[test-dependencies]` is not a recognized top-level
     // section.  `RawManifest` declares `deny_unknown_fields`
@@ -2596,9 +2477,6 @@ fn target_cfg_dependency_round_trips_condition() {
 
             [target.'cfg(arch = "x86_64")'.dev-dependencies]
             gtest = "^1.14"
-
-            [target.'cfg(arch = "aarch64")'.dependencies]
-            zlib = { version = ">=1.2", system = true }
         "#,
     );
     let normal = deps_of_kind(&package, DependencyKind::Normal);
@@ -2613,13 +2491,6 @@ fn target_cfg_dependency_round_trips_condition() {
     assert_eq!(
         dev[0].condition.as_ref().map(ToString::to_string),
         Some("arch = \"x86_64\"".to_owned()),
-    );
-    assert_eq!(package.system_dependencies.len(), 1);
-    let sys = &package.system_dependencies[0];
-    assert_eq!(sys.name.as_str(), "zlib");
-    assert_eq!(
-        sys.condition.as_ref().map(ToString::to_string),
-        Some("arch = \"aarch64\"".to_owned()),
     );
 }
 

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use cabin_core::{
     CompilerWrapperRequest, Condition, Dependency, DependencyKind, DependencySource, Features,
     LanguageStandardSettings, Package, ProfileDefinition, ProfileName, ProfileSettings,
-    StandardsMetadata, SystemDependency, ToolchainSettings,
+    StandardsMetadata, ToolchainSettings,
 };
 use serde::Serialize;
 
@@ -44,14 +44,6 @@ pub struct PackageMetadata {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub build_dependencies: BTreeMap<String, PackageDependencyEntry>,
-    /// `system-dependencies` field.  Each entry is
-    /// `name -> { version, dependency_kind, target }`.  Omitted when
-    /// empty.
-    #[serde(
-        rename = "system-dependencies",
-        skip_serializing_if = "BTreeMap::is_empty"
-    )]
-    pub system_dependencies: BTreeMap<String, SystemDependencyEntry>,
     /// Declared `[features]`.  Omitted when the package has none.
     #[serde(skip_serializing_if = "is_empty_features")]
     pub features: Features,
@@ -134,28 +126,6 @@ pub struct PackageMetadata {
     pub yanked: bool,
     pub checksum: cabin_core::Checksum,
     pub source: SourceMetadata,
-}
-
-/// On-disk shape of one `system-dependencies` entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SystemDependencyEntry {
-    pub version: String,
-    /// Dependency table the system declaration came from.
-    pub dependency_kind: DependencyKind,
-    /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate.  Omitted when absent.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target: Option<Condition>,
-}
-
-impl SystemDependencyEntry {
-    fn from(dep: &SystemDependency) -> Self {
-        Self {
-            version: dep.version.clone(),
-            dependency_kind: dep.kind,
-            target: dep.condition.clone(),
-        }
-    }
 }
 
 /// On-disk shape of one Cabin package dependency entry inside
@@ -281,10 +251,6 @@ pub fn canonical_metadata(
         };
         target.insert(dep.name.as_str().to_owned(), entry);
     }
-    let mut system_dependencies: BTreeMap<String, SystemDependencyEntry> = BTreeMap::new();
-    for sd in &package.system_dependencies {
-        system_dependencies.insert(sd.name.clone(), SystemDependencyEntry::from(sd));
-    }
 
     let name = package.name.as_str().to_owned();
     let version = package.version.to_string();
@@ -313,7 +279,6 @@ pub fn canonical_metadata(
         dependencies,
         dev_dependencies,
         build_dependencies,
-        system_dependencies,
         features: package.features.clone(),
         profiles: package.profiles.clone(),
         toolchain: package.toolchain.clone(),
@@ -377,8 +342,7 @@ mod tests {
 
     use super::*;
     use cabin_core::{
-        CompilerWrapperRequest, Dependency, DependencySource, Package, PackageName,
-        SystemDependency, ToolSpec,
+        CompilerWrapperRequest, Dependency, DependencySource, Package, PackageName, ToolSpec,
     };
     use camino::Utf8PathBuf;
 
@@ -538,24 +502,6 @@ mod tests {
         assert_eq!(
             value["compiler_wrapper"],
             serde_json::json!({"kind": "use", "wrapper": "ccache"})
-        );
-    }
-
-    #[test]
-    fn metadata_preserves_system_dependency_kind() {
-        let mut proj = package("fmt", "10.2.1", Vec::new());
-        proj.system_dependencies.push(SystemDependency {
-            name: "openssl".to_owned(),
-            version: ">=3".to_owned(),
-            kind: cabin_core::DependencyKind::Dev,
-            condition: None,
-        });
-        let meta = canonical_metadata(&proj, &test_checksum(), None);
-        let body = render_canonical_json(&meta).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(
-            value["system-dependencies"]["openssl"]["dependency_kind"],
-            "dev"
         );
     }
 
@@ -724,7 +670,6 @@ mod tests {
             version: ver("1.0.0"),
             targets: Vec::new(),
             dependencies: Vec::new(),
-            system_dependencies: Vec::new(),
             features,
         })
         .unwrap();

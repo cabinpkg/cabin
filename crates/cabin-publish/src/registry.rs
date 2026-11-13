@@ -175,9 +175,8 @@ pub fn require_license(
 /// names.  The keys come from validated `PackageName`s, so only the
 /// scope can be missing.  Dev- and build-dependency keys denote
 /// registry packages too (they resolve when building the package's
-/// own tests, or its build script), so one grammar covers the maps;
-/// `system-dependencies` is deliberately not checked - its keys name
-/// system packages, not registry packages.  The hosted registry
+/// own tests, or its build script), so one grammar covers the maps.
+/// The hosted registry
 /// enforces the same rule server-side (`registry/src/publish.rs`), so
 /// failing here is the local, pre-network version of the same `400`.
 ///
@@ -411,8 +410,7 @@ version = "10.2.1"
 
     /// The registry dependency maps key on canonical scoped names:
     /// both file workflows reject a bare key in every dependency
-    /// table alike, while system dependencies are exempt (their keys
-    /// name system packages).
+    /// table alike.
     #[test]
     fn file_registry_workflows_reject_non_canonical_dependency_names() {
         let dir = TempDir::new().unwrap();
@@ -469,9 +467,7 @@ catch2 = "^3"
             .child("config.json")
             .assert(predicates::path::missing());
 
-        // Scoped registry dependencies and bare system dependencies
-        // both publish fine: a `system = true` entry lands in the
-        // metadata's exempt `system-dependencies` map.
+        // A scoped registry dependency publishes fine.
         let report = publish_to_file_registry(workflow(
             r#"[package]
 name = "fmtlib/fmt"
@@ -479,7 +475,6 @@ version = "10.2.1"
 license = "MIT"
 [dependencies]
 "madler/zlib" = "^1.3"
-openssl = { system = true, version = ">=3" }
 "#,
         ))
         .unwrap();

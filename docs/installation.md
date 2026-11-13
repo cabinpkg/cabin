@@ -53,7 +53,7 @@ it backs:
 | C compiler - GCC/Clang (`cc`, `clang`, `gcc`) on Unix; MSVC (`cl`) on Windows | the same commands when the selected targets contain `.c` sources | `CC` |
 | Static-library archiver - `ar` on Unix; `lib` on Windows | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` / `cabin metadata` / `cabin explain build-config` | `AR` |
 | Ninja (≥ 1.10) | `cabin build` / `cabin run` / `cabin test` | `NINJA` |
-| `pkg-config` | targets that declare `system = true` dependencies | `CABIN_PKG_CONFIG` |
+| `pkg-config` | builds in which a build script reports a [`pkg-config` line](system-dependencies.md) | `CABIN_PKG_CONFIG` |
 | `clang-format` | [`cabin fmt`](fmt.md) | `CABIN_FMT` |
 | `run-clang-tidy` | [`cabin tidy`](tidy.md) | `CABIN_TIDY` |
 

@@ -200,7 +200,7 @@ pub fn cabin() -> Command {
         "CABIN_CACHE_HOME",
         "CABIN_FMT",
         "CABIN_TIDY",
-        // System dependency probing reads `CABIN_PKG_CONFIG`
+        // A pkg-config lookup reads `CABIN_PKG_CONFIG`
         // and Cabin passes the rest of the standard pkg-config
         // environment through to its child process.  Strip every
         // one of them so an integration test sees only the

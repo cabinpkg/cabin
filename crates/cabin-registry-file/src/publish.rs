@@ -320,7 +320,6 @@ mod tests {
                 dependencies: BTreeMap::new(),
                 dev_dependencies: BTreeMap::new(),
                 build_dependencies: BTreeMap::new(),
-                system_dependencies: BTreeMap::new(),
                 features: Default::default(),
                 profiles: Default::default(),
                 toolchain: Default::default(),

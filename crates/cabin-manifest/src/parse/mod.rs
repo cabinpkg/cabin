@@ -1,6 +1,6 @@
 use crate::error::ManifestError;
 use crate::raw::{RawDependency, RawManifest, RawPackage, RawStandardField, RawTarget};
-use cabin_core::{Dependency, DependencyKind, Package, PackageName, SystemDependency};
+use cabin_core::{Dependency, DependencyKind, Package, PackageName};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,7 +13,7 @@ mod target;
 mod tests;
 
 use self::build::compiler_wrapper_request_from_raw;
-use self::dependency::route_dependency_from_raw;
+use self::dependency::package_dependency_from_raw;
 use self::profile::{
     build_flags_decl_from_raw_ref, features_from_raw, patch_settings_from_raw, profiles_from_raw,
     toolchain_decl_from_raw_ref,
@@ -237,12 +237,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             conditional_targets.push(parse_conditional_target_entry(&raw_target_name, raw_value)?);
         } else {
             if let Some(table) = raw_value.as_table() {
-                for forbidden in [
-                    "dependencies",
-                    "dev-dependencies",
-                    "build-dependencies",
-                    "system-dependencies",
-                ] {
+                for forbidden in ["dependencies", "dev-dependencies", "build-dependencies"] {
                     if table.contains_key(forbidden) {
                         return Err(ManifestError::TargetSpecificDependenciesNotSupported {
                             section: format!("[target.{raw_target_name}.{forbidden}]"),
@@ -487,8 +482,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     attach_conditional_sources(&mut target_models, &conditional_targets)?;
     validate_language_standard_coverage(&target_models, language)?;
 
-    let (dep_models, system_models) =
-        collect_dependency_models(dependency_tables, &conditional_targets)?;
+    let dep_models = collect_dependency_models(dependency_tables, &conditional_targets)?;
 
     let features = features_from_raw(raw_features);
 
@@ -542,7 +536,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         version: parsed_version,
         targets: target_models,
         dependencies: dep_models,
-        system_dependencies: system_models,
         features,
     })?
     .with_profiles(profiles)
@@ -838,20 +831,10 @@ fn workspace_standards_from_raw(
 /// conditional `[target.'cfg(...)'.<kind>]` block in
 /// declaration order - but each conditional dep carries its
 /// own `Condition`, so consumers filter at iteration time.
-///
-/// Each entry routes to one of two homes based on the
-/// `system` flag on its table form:
-/// - `system = true` → typed `SystemDependency` value
-///   (probed via pkg-config at build time), routed onto
-///   `Package.system_dependencies` and carrying the
-///   surrounding `DependencyKind` so per-kind activation
-///   filtering matches the Cabin-package rules.
-/// - default (or `system = false`) → typed `Dependency`
-///   value, routed onto `Package.dependencies`.
 fn collect_dependency_models(
     dependency_tables: [(DependencyKind, BTreeMap<String, RawDependency>); 3],
     conditional_targets: &[RawConditionalTarget],
-) -> Result<(Vec<Dependency>, Vec<SystemDependency>), ManifestError> {
+) -> Result<Vec<Dependency>, ManifestError> {
     let unconditional_capacity: usize = dependency_tables.iter().map(|(_, t)| t.len()).sum();
     let conditional_capacity: usize = conditional_targets
         .iter()
@@ -859,17 +842,9 @@ fn collect_dependency_models(
         .sum();
     let mut dep_models: Vec<Dependency> =
         Vec::with_capacity(unconditional_capacity + conditional_capacity);
-    let mut system_models: Vec<SystemDependency> = Vec::new();
     for (kind, raw_table) in dependency_tables {
         for (dep_name, raw_dep) in raw_table {
-            route_dependency_from_raw(
-                dep_name,
-                raw_dep,
-                kind,
-                None,
-                &mut dep_models,
-                &mut system_models,
-            )?;
+            dep_models.push(package_dependency_from_raw(dep_name, raw_dep, kind, None)?);
         }
     }
     for cond_target in conditional_targets {
@@ -880,16 +855,14 @@ fn collect_dependency_models(
             (DependencyKind::Build, &cond_target.build_deps),
         ] {
             for (dep_name, raw_dep) in raw_table {
-                route_dependency_from_raw(
+                dep_models.push(package_dependency_from_raw(
                     dep_name.clone(),
                     raw_dep.clone(),
                     kind,
                     condition.clone(),
-                    &mut dep_models,
-                    &mut system_models,
-                )?;
+                )?);
             }
         }
     }
-    Ok((dep_models, system_models))
+    Ok(dep_models)
 }

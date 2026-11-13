@@ -66,8 +66,8 @@ GCC/Clang - and the archiver and the other compiler must agree (see
 
 ## System include directories
 
-Include directories contributed by third-party code - extracted registry packages and
-`pkg-config`-probed `system = true` dependencies - are marked as *system* search paths on every
+Include directories contributed by third-party code - extracted registry packages and the
+libraries build scripts take from `pkg-config` - are marked as *system* search paths on every
 consuming compile: `-isystem <dir>` in the GCC/Clang dialect, `/external:W0 /external:I <dir>` in
 the MSVC dialect.  Compilers suppress warnings whose location is inside a system header, so a strict
 warning profile (`-Wall -Wextra -Werror`) keeps gating the user's own code without failing on
@@ -237,8 +237,8 @@ cabin build --target aarch64-unknown-linux-gnu \
   (`macosx`, `iphoneos`, or `iphonesimulator`).  A sysroot is part of every command line, so
   switching it, or switching Xcode's SDK, rebuilds.  `cabin metadata` reports it under
   `toolchain.sysroot`, with a `source` of `cli`, the config file's source, or `detected`.  Build
-  dependencies build with the compilers' own default.  [System dependencies](system-dependencies.md) need a
-  pkg-config for the target.
+  dependencies build with the compilers' own default.  A build script's `pkg-config` line needs a
+  [pkg-config for the target](system-dependencies.md#building-for-another-machine).
 
 Without `--target`, a compiler whose `--version` banner names another machine draws a warning:
 `cfg(...)` conditions still evaluate for the build machine, so pass `--target` to match them to the
@@ -255,7 +255,7 @@ choose the build machine's tools for
 Cabin also honors `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and `LDFLAGS` as conventional C/C++ build flag
 sources.  Each variable is parsed into argv tokens using POSIX shell-style word splitting (via the
 [`shlex`] crate; no real shell is invoked) and the parsed tokens are appended to the corresponding
-`[profile]` bucket *after* the manifest and pkg-config layers have already contributed.  The build
+`[profile]` bucket *after* the manifest layers have already contributed.  The build
 configuration fingerprint folds in the per-bucket values, so changing a relevant variable moves the
 fingerprint exactly the way changing the matching `[profile]` field would.  See
 [`environment-variables.md`](environment-variables.md) for the full per-variable routing table,
@@ -547,7 +547,7 @@ folds in:
 | compiler-wrapper         | kind, spec, version (or `none`)                                                         |
 | target                   | the `--target` triple; absent for a build-machine build                                 |
 | sysroot                  | the `--sysroot` or `[sysroot]` value as written; absent for none or a detected Apple SDK |
-| build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from environment and system dependencies |
+| build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, `link-libs`, `frameworks`, plus language-neutral compile args from the environment |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
 | instruction-sets         | Every target's per-source [`instruction-sets`](targets.md#per-source-instruction-sets), as declared |
 
@@ -779,18 +779,18 @@ explicitly selected toolset is honored.
   Without `--target`, `cfg(target_env)` evaluates `msvc` on Windows whatever the compiler; with it,
   conditions evaluate for MinGW, and build dependencies then need `HOST_CC`, `HOST_CXX`, and
   `HOST_AR`, since the build machine's default is `cl`.  Clang targeting MinGW, MSYS2's other
-  environments, and build or `system = true` dependencies under MinGW are untested.
+  environments, and build dependencies and `pkg-config` lines under MinGW are untested.
 - **Batch-file tools are rejected.** A C compiler, C++ compiler, archiver, or compiler wrapper that
   resolves to a `.bat` or `.cmd` file (such as a `zig-cc.cmd` shim) fails resolution.  Windows runs
   a batch file through `cmd.exe`, which re-parses its command line and acts on `&`, `|`, `%`, and
   other characters inside arguments that Cabin cannot quote safely, so a dependency's define could
   run commands.  Point the tool at an executable (`.exe`) instead.
-- **`system = true` dependencies are not supported under MSVC.** They are resolved with pkg-config,
-  whose GNU-style `-L` / `-lfoo` / `-pthread` output the MSVC `cl` / `link` command line cannot
-  consume; on Windows the `.pc` files also come from MinGW/msys2 and reference the MinGW ABI, so
-  translating the tokens would link the wrong libraries.  A build, run, or test that needs an active
-  system dependency under an MSVC toolchain is rejected with a clear error before any probe runs.
-  Use a GCC/Clang toolchain for packages with system dependencies.
+- **pkg-config is not asked under MSVC.** A build script's `pkg-config` line is refused in a build
+  with an MSVC toolchain: the MSVC `cl` / `link` command line cannot consume pkg-config's GNU-style
+  `-L` / `-lfoo` / `-pthread` output, and on Windows the `.pc` files come from MinGW/msys2 and
+  reference the MinGW ABI, so translating the tokens would link the wrong libraries.  A package
+  supplies a [system library](system-dependencies.md#writing-a-package-for-a-system-library) there
+  by reporting the library's files.
 - **Very old MSVC is rejected, not supported.** A `cl` older than the `/std:` switch it would emit
   (Visual Studio 2017 15.3 for `/std:c++17`, Visual Studio 2019 16.8 for `/std:c11`) is refused at
   validation with a clear error rather than down-shifting the standard.  Cabin targets a current

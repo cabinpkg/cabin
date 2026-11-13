@@ -85,7 +85,6 @@ fn make_project(name: &str, deps: Vec<Dependency>, fts: Features) -> Package {
         version: ver(),
         targets: Vec::new(),
         dependencies: deps,
-        system_dependencies: Vec::new(),
         features: fts,
     })
     .unwrap()
@@ -749,7 +748,6 @@ fn unknown_local_feature_in_chain_errors_clearly() {
         version: ver(),
         targets: Vec::new(),
         dependencies: Vec::new(),
-        system_dependencies: Vec::new(),
         features: Features::default(),
     })
     .unwrap();

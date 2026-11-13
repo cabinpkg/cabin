@@ -319,8 +319,6 @@ where
 /// (typically the `cabin test` selection); other dev dependencies
 /// stay declaration-only so a workspace member's dev-only
 /// requirement cannot break an ordinary `cabin build` / `cabin fetch`.
-/// System dependencies live in `system_dependencies` and never reach
-/// this walk.
 ///
 /// Optional dependencies are filtered using `is_optional_dep_enabled`:
 /// the closure is `(declaring_package_index, dep_name) -> included`.

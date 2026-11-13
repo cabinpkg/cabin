@@ -25,14 +25,10 @@ gtest = "^1.14"
 
 [target.'cfg(os = "linux")'.build-dependencies]
 gen = { path = "tools/gen" }
-
-[target.'cfg(env = "musl")'.dependencies]
-zlib = { version = ">=1.2", system = true }
 ```
 
 Each dependency entry inside a conditional table accepts the same fields as the top-level kind table
-(per-edge `features`, `optional`, `default-features` for Cabin package deps; `system = true` with
-`version` for system deps).  Every declared system dependency is required.
+(per-edge `features`, `optional`, `default-features`).
 
 The same `[target.'cfg(...)']` machinery also applies to the `[toolchain]` and `[profile]` tables
 introduced for explicit toolchain selection and conditional build flags:
@@ -200,7 +196,6 @@ out of the build:
 - the build's feature resolution (`cabin_feature::resolve_features` skips it when computing `dep:`
   entries and per-edge requests);
 - the build planner (a target dependency resolves only through a matching edge);
-- `pkg-config` probing of conditional system dependencies;
 - `cabin tree`, which follows only the edges active on the build machine, and `cabin explain`, which
   follows those active on the build machine or the `--target` platform;
 - the `cabin metadata` JSON view's "active" flag.
@@ -213,8 +208,8 @@ view can still surface it as `target` plus an `active: false` marker.
 `cabin package` and `cabin publish` carry the predicate through the canonical
 [`PackageMetadata`](package-format.md) document under a `target` field on each dependency table
 entry, and the local-file plus sparse-HTTP index loaders parse the same field back into
-`IndexPackageDependency::condition` / `IndexSystemDependency::condition`.  Older metadata that omits
-`target` continues to load - the field is optional in every schema.
+`IndexPackageDependency::condition`.  Older metadata that omits `target` continues to load - the
+field is optional in every schema.
 
 The on-disk encoding of a `Condition` is its canonical inner-expression form (`os = "linux"`,
 `all(os = "linux", arch = "x86_64")`, ...).  The wrapping `cfg(...)` is implicit because the field

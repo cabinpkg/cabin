@@ -265,7 +265,6 @@ writes anything (see [target names](manifest.md#targetname)).
 | -------------------- | ------------- | ------------ |
 | `[dependencies]`     | included      | included     |
 | `[dev-dependencies]`   | declaration-only | included for selected packages |
-| `system = true` deps | active normal declarations are probed with `pkg-config`; flags merge into build configuration | same, plus selected packages' dev-kind system declarations |
 
 `cabin test` activates the selected packages' `[dev-dependencies]` as real graph edges.  The
 activation never propagates: a transitive dep's own dev-deps stay declaration-only.  `cabin build`

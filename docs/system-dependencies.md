@@ -1,105 +1,117 @@
 # System dependencies
 
-System dependencies are external libraries that Cabin does not fetch, build, or install.  Users
-provide them through their OS package manager (or any other local installation mechanism) and Cabin
-discovers their compile / link flags by querying `pkg-config`.
+A system dependency is a library Cabin does not fetch, build, or install.  The machine holds it
+already, from an OS package manager or any other installation.  A build takes one through a package
+whose [build script](build-scripts.md#supplying-a-library) finds the library, by asking
+`pkg-config` or by reading a directory it is pointed at, and reports it to Cabin in place of a
+library built from sources.
 
-See [`docs/dependency-kinds.md`](dependency-kinds.md) for the dependency kinds and the declaration
-syntax; this page covers the build-time behavior of system-sourced (`system = true`) entries
-specifically.
+## Using a system library
 
-> **Not supported with an MSVC toolchain.** `pkg-config` emits
-> GNU-style `-L` / `-lfoo` / `-pthread` flags that the MSVC
-> `cl` / `link` command line cannot consume, and on Windows the
-> `.pc` files come from MinGW/msys2 and reference the MinGW ABI.
-> A build, run, or test that needs an active system dependency
-> under MSVC is therefore rejected with a clear error before any
-> probe runs.  Use a GCC/Clang toolchain for packages with system
-> dependencies.  See
-> [`docs/toolchains.md`](toolchains.md#windows--msvc).
+Depend on a package that supplies the library, as on any other package, and name its target in
+`deps`.
 
-## Manifest declaration
+- A package that offers both the system's copy and its own sources chooses between them by a
+  [feature](features.md) it documents; see
+  [A package for a system library](build-scripts.md#a-package-for-a-system-library).
+- The library is looked for only by a build that builds a target of the package that supplies it,
+  since only then does that package's [build script run](build-scripts.md#which-build-scripts-run).
+  A package under `[dev-dependencies]` is needed by `cabin test` alone, and one under
+  `[target.'cfg(...)'.dependencies]` only on the platforms its condition matches; see
+  [dependency kinds](dependency-kinds.md) and [target dependencies](target-dependencies.md).
+- A library that is missing, or is older than the package's script accepts, fails the build.
+  Cabin never leaves it out of the build, and builds no other copy in its place.
 
-A system-sourced dependency lives in one of the regular dependency tables (`[dependencies]`,
-`[dev-dependencies]`) with `system = true` set:
+## Writing a package for a system library
+
+When no package supplies the library, write one.  It needs no source of its own, only a `library`
+target for dependents to name and a build script that says where the library is:
 
 ```toml
+# zlib-sys/cabin.toml
+[package]
+name = "zlib-sys"
+version = "0.1.0"
+interface-c-standard = "c89"
+interface-cxx-standard = "c++98"
+
+[target.z]
+type = "library"
+sources = []
+links = "z"
+```
+
+```c
+/* zlib-sys/build.c */
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    FILE *file = fopen(getenv("CABIN_RESULT_FILE"), "w");
+    if (!file) return 1;
+    fputs("external z\npkg-config z zlib >=1.2\n", file);
+    return fclose(file) != 0;
+}
+```
+
+A package that needs zlib depends on it:
+
+```toml
+# app/cabin.toml
 [dependencies]
-zlib    = { version = ">=1.2", system = true }
-fmt     = { version = "^9.0",  system = true }
+zlib-sys = { path = "../zlib-sys" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["zlib-sys"]
 ```
 
-The key is the `pkg-config` module name, probed verbatim.  It is not a package name: module names
-keep their upstream spelling (`glib-2.0`, `SDL2`), so the key follows the path-safe grammar (ASCII
-letters, digits, `_`, `-`, and `.`, not starting with `.` or `-`) rather than the lowercase
-package-name grammar.
+- `external z` says Cabin builds nothing for the target, and the `pkg-config` line names the module
+  whose flags stand for it and the version it has to have.
+  [Supplying a library](build-scripts.md#supplying-a-library) lists everything a script may report.
+- A library with no listed source declares the [interface standards](language-standards.md) its
+  headers need, so that Cabin can check them against the C and C++ dependents.
+- [`links`](manifest.md#links) claims the native library, so a build that reaches two packages for
+  the same one stops.
+- One package serves every package that needs the library: a workspace member, a `path`
+  dependency, or a published package.
+- pkg-config's flags are a GNU toolchain's, so a `pkg-config` line is refused in a build with an
+  MSVC toolchain.  A script that supports one reports `include-dir` and `link-file` lines for a
+  directory it is given through a `CABIN_SDK_*` variable, as the `build-script-sdk` example does.
 
-Every declared `system = true` dependency is required.  There is no `required` field; declaring
-`required` on any dependency entry is rejected with a clear "unknown field" diagnostic.
+## What Cabin asks pkg-config
 
-Per-kind activation matches the Cabin-package rule for the table the entry lives in:
+For each `pkg-config` line of a build script that ran, Cabin invokes `pkg-config` to:
 
-| Table                  | Probed by `cabin build` / `run` / `metadata` | Probed by `cabin test` |
-| ---------------------- | -------------------------------------------- | ---------------------- |
-| `[dependencies]`       | always                                       | always                 |
-| `[dev-dependencies]`   | **no**                                       | selected primaries     |
-
-A test-only system dep (e.g.  `gtest`) is declared under `[dev-dependencies]` with `system = true`,
-so an ordinary `cabin build` does not require it to be installed.
-
-Conditional declarations work the same way as the other dependency kinds:
-
-```toml
-[target.'cfg(os = "linux")'.dependencies]
-systemd = { version = ">=240", system = true }
-```
-
-A conditional system dependency is probed only when its condition matches the platform the build
-is for.
-
-pkg-config reports the build machine's libraries, so a `--target` build for another machine with
-an active system dependency fails unless `PKG_CONFIG_LIBDIR` points pkg-config into the target
-sysroot (usually together with `PKG_CONFIG_SYSROOT_DIR`) or `CABIN_PKG_CONFIG` names a pkg-config
-for the target, such as `aarch64-linux-gnu-pkg-config`.  A triple naming another `env` counts as
-another machine, and Cabin assumes `gnu` for every Linux build machine: on a musl host, an explicit
-`--target x86_64-unknown-linux-musl` needs `CABIN_PKG_CONFIG=pkg-config`.
-
-## What Cabin does with system-sourced entries
-
-When the selected primary packages declare at least one active system dependency, Cabin invokes
-`pkg-config` (once per dependency) to:
-
-1. verify the library is present (`pkg-config --exists 'name op version'`),
+1. verify the module is present at an accepted version (`pkg-config --exists 'name op version'`),
 2. retrieve compile-time flags (`pkg-config --cflags name`),
 3. retrieve link-time flags (`pkg-config --libs name`).
 
-Discovered include directories from `--cflags` are added to the package's *system* include-dir set
-and reach the compile commands as `-isystem <dir>`, so diagnostics inside the system library's
-headers stay quiet (see [System include directories](toolchains.md#system-include-directories)).
-The compiler's default search directories (`/usr/include`, `/usr/local/include`) are the one
-exception: GCC documents that re-spelling them `-isystem` reorders the system include chain and
-breaks `#include_next` in libc headers, so when a `.pc` file forces one through it stays in the
-plain `-I` bucket - which the compiler then ignores for directories it already searches.  All other
-`--cflags` tokens are appended verbatim to the package's language-neutral compile argument bucket.
-All `--libs` tokens are appended verbatim to the package's `ldflags` list, preserving the order
-`pkg-config` emitted them so C/C++ link semantics are not disturbed.
+What depends on the library compiles and links with those flags:
 
-Probe scope is intentionally primary-only.  For a single-package project, the root package is
-primary; for a workspace, the members selected by the command are primary.  Local path dependencies
-and registry / extracted dependencies may preserve `system = true` declarations in metadata, package
-archives, and index entries, but those dependency manifests do not trigger `pkg-config` probing for
-the downstream build.
+- Include directories from `--cflags` reach the compile commands as `-isystem <dir>`, so
+  diagnostics inside the system library's headers stay quiet (see
+  [System include directories](toolchains.md#system-include-directories)).  The compiler's default
+  search directories (`/usr/include`, `/usr/local/include`) are the one exception: GCC documents
+  that re-spelling them `-isystem` reorders the system include chain and breaks `#include_next` in
+  libc headers, so when a `.pc` file forces one through it stays a plain `-I`, which the compiler
+  then ignores for directories it already searches.
+- Every other `--cflags` token is passed to those compile commands as written, and every `--libs`
+  token to the link, in the order `pkg-config` emitted them.
 
-Probing happens for every command that produces compile or link commands (`cabin build`, `cabin
-run`, `cabin test`, `cabin tidy`) and for `cabin metadata` and `cabin explain build-config` so the
-build-configuration fingerprint stays consistent across those commands.  Other `cabin explain`
-subcommands (`package`, `target`, `source`, `feature`) do not invoke `pkg-config` because they never
-materialize a build configuration.
+Cabin asks on every command that [runs build scripts](build-scripts.md#which-commands-run-build-scripts),
+whether or not the script itself runs again, so a module that is gone or answers other flags is
+seen at once.  `cabin metadata`, `cabin tree`, and `cabin explain` run no build script and ask
+nothing.  [`cabin tidy`](tidy.md) runs no build script either: it refuses a library that lists no
+source, as `zlib-sys` above does, and otherwise sees a system library's headers only where the
+compiler finds them by itself.
 
 ## Version requirements
 
-Cabin tries to convert each Cabin / npm-flavored SemVer requirement into a list of
-`pkg-config`-native operator pairs:
+The requirement of a `pkg-config` line is written as a Cabin version requirement.  Cabin tries to
+convert each Cabin / npm-flavored SemVer requirement into a list of `pkg-config`-native operator
+pairs:
 
 | Cabin requirement | pkg-config form                |
 |-------------------|--------------------------------|
@@ -131,11 +143,14 @@ dropped.
 
 `pkg-config` itself does the version comparison.
 
-## Missing dependency semantics
+## Building for another machine
 
-A declared `system = true` dependency that fails to probe stops the build with an actionable
-diagnostic that names the package, the requirement Cabin attempted, and the installed version when
-available.  Cabin never silently drops a missing system dependency from the build graph.
+pkg-config reports the build machine's libraries, so a `--target` build for another machine that
+asks it fails unless `PKG_CONFIG_LIBDIR` points pkg-config into the target sysroot (usually
+together with `PKG_CONFIG_SYSROOT_DIR`) or `CABIN_PKG_CONFIG` names a pkg-config for the target,
+such as `aarch64-linux-gnu-pkg-config`.  A triple naming another `env` counts as another machine,
+and Cabin assumes `gnu` for every Linux build machine: on a musl host, an explicit
+`--target x86_64-unknown-linux-musl` needs `CABIN_PKG_CONFIG=pkg-config`.
 
 ## Executable resolution
 
@@ -146,10 +161,9 @@ variable overrides the default with a verbatim executable path or command name:
 CABIN_PKG_CONFIG=/opt/pkgconf/bin/pkg-config cabin build
 ```
 
-If a build has no active `system = true` entry and no build script that reports a
-[`pkg-config` line](build-scripts.md#supplying-a-library), Cabin never spawns `pkg-config` and the
-executable is not required.  When the project does declare system dependencies and the resolved
-executable is missing, Cabin produces a single diagnostic suggesting the install / override fix.
+A build in which no build script reports a `pkg-config` line never spawns `pkg-config`, and the
+executable is not required.  When one does and the executable is missing, Cabin produces a single
+diagnostic suggesting the install / override fix.
 
 ## Pkg-config environment
 
@@ -158,39 +172,55 @@ Cabin does not sanitize the standard `pkg-config` environment.  Variables `PKG_C
 point Cabin at custom `.pc` search paths the same way they would for any other `pkg-config`
 consumer.
 
-## Fingerprint and rebuild
-
-Discovered compile / link flags participate in `cabin_core::BuildConfiguration::fingerprint` through
-the per-package `ResolvedProfileFlags`.  When `pkg-config` reports different flags (for example
-because the user upgraded the system library or changed `PKG_CONFIG_PATH`), the build configuration
-fingerprint moves; Ninja then rebuilds from the changed command lines.
-
-## Output / diagnostics
-
-Normal mode: Cabin prints no probe-specific output on successful runs.
-
-Verbose mode (`cabin -v ...`): Cabin prints one line per probed dependency naming the resolved
-version, and one summary line per workspace identifying the `pkg-config` executable that was used.
-
-Very-verbose mode (`cabin -vv ...`): Cabin also prints the per-dependency probe request (name,
-version requirement) before the probe runs.
-
-All probe-related output is written to stderr so that machine-readable stdout (`cabin metadata`,
-`cabin explain --format json`) stays a parseable document.
-
-Quiet mode (`cabin -q ...`): probe status output is suppressed.  Errors are not.
-
 ## Diagnostics
 
 | Code                                            | When                                                                |
 |-------------------------------------------------|---------------------------------------------------------------------|
 | `cabin::system_deps::executable_not_found`      | Cabin tried to spawn pkg-config but the binary was missing.         |
-| `cabin::system_deps::package_not_found`         | `pkg-config --exists` reported the package as absent.               |
-| `cabin::system_deps::version_mismatch`          | The installed version does not satisfy the manifest requirement.    |
+| `cabin::system_deps::package_not_found`         | `pkg-config --exists` reported the module as absent.                |
+| `cabin::system_deps::version_mismatch`          | The installed version does not satisfy the requirement.             |
 | `cabin::system_deps::invalid_version_requirement` | The requirement string could not be interpreted.                  |
 | `cabin::system_deps::pkg_config_failed`         | `pkg-config` exited non-zero for `--cflags` / `--libs`.             |
 | `cabin::system_deps::invocation_failed`         | A `pkg-config` invocation failed for a reason other than not-found. |
 | `cabin::system_deps::malformed_output`          | `pkg-config` produced output Cabin could not split into argv tokens. |
+
+## The removed `system` key
+
+Cabin used to read `system = true` on a dependency entry, and asked pkg-config for a module of the
+entry's name:
+
+```toml
+[dependencies]
+zlib = { version = ">=1.2", system = true }
+```
+
+It no longer does.  A dependency entry that sets `system`, to either value, is an error
+(`cabin::manifest::system_dependency_removed`): read past, the entry would name a package of the
+registry.  Replace the entry with a dependency on a package that supplies the library, such as the
+`zlib-sys` package [above](#writing-a-package-for-a-system-library), and add that package to the
+`deps` of the targets that use the library.  That differs from the key:
+
+- The module name and the version requirement move from the entry into the supplying package's
+  build script.  A dependent no longer states a requirement on the system's copy.
+- The library reaches the targets that list the package in `deps`, and their dependents by the
+  ordinary [visibility rules](manifest.md#edge-visibility).  The key gave the flags to every target
+  of the declaring package, and only when that package was one the command selected: a dependency's
+  own `system = true` entries were never applied.
+- A supplying package that comes from a registry is resolved, fetched, and recorded in
+  `cabin.lock` like any other.  The system's copy is still not recorded.
+- `cabin metadata` no longer has `system_dependencies` in a package, and neither it nor
+  `cabin explain` asks pkg-config.  `cabin tidy` no longer adds pkg-config's flags, and refuses a
+  library that lists no source.
+- `cabin -v` no longer prints a line for each module.
+- A build with an MSVC toolchain can now take a system library, from a package whose script
+  reports the library's files.
+
+A package's metadata no longer has a `system-dependencies` field.  A version published earlier
+with one stays in the registry unchanged, and nothing supplies the modules it listed now.  Where
+the registry's index carries the field, as the hosted registry's does, resolving to such a version
+is an error that names it and those modules; require a version published without them.  A file
+registry's index never carried the field, so there the version is refused when its own manifest is
+read, by the error above.
 
 ## The removed `[system-provided]` table
 

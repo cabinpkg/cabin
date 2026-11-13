@@ -610,14 +610,16 @@ int main(void) {
     }
 
     /// A `--target` build asks the pkg-config it is given, the target's,
-    /// for a library a build script supplies.  A build dependency's
-    /// script cannot ask it: its library is the build machine's.
+    /// for a library a build script supplies, and stops when it is given
+    /// none: the build machine's knows the build machine's libraries.  A
+    /// build dependency's script cannot ask it: its library is the build
+    /// machine's.
     #[test]
     fn a_build_script_takes_a_library_from_the_targets_pkg_config() {
         use crate::build_scripts::{
             build_greet_sdk, write_greet_app, write_greet_consumer, write_greet_module,
         };
-        use crate::system_deps_pkg_config::{Fixtures, cabin_with_fake_pkg_config};
+        use crate::pkg_config::{Fixtures, cabin_with_fake_pkg_config};
         require_c_and_cxx_build_tools();
         let dir = TempDir::new().unwrap();
         write_greet_app(dir.path());
@@ -634,6 +636,31 @@ int main(void) {
                 .args(args);
             command.assert()
         };
+
+        let ungiven = |given: Option<(&str, &std::ffi::OsStr)>| {
+            let mut command = cabin();
+            command.current_dir(dir.path().join("app")).args([
+                "build",
+                "--target",
+                triple,
+                "--features",
+                "system",
+            ]);
+            if let Some((key, value)) = given {
+                command.env(key, value);
+            }
+            let refused = command.assert().failure();
+            let stderr = String::from_utf8_lossy(&refused.get_output().stderr).into_owned();
+            crate::standard_compat::flat_contains(&stderr, "need a pkg-config for that platform")
+        };
+        assert!(ungiven(None));
+        // A search path redirected into the target's sysroot is one, and
+        // so is naming the executable, the default's name included.
+        assert!(!ungiven(Some((
+            "PKG_CONFIG_LIBDIR",
+            dir.path().as_os_str()
+        ))));
+        assert!(!ungiven(Some(("CABIN_PKG_CONFIG", "pkg-config".as_ref()))));
 
         cabin_build("app", &["--features", "system"]).success();
         let built = dir.path().join("app/build/.targets").join(triple);

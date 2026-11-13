@@ -367,10 +367,10 @@ pub struct PackageIndex {
 /// when non-empty, matching the shape older readers and existing
 /// fixtures expect for packages without that metadata.
 ///
-/// `dev_dependencies` and `system_dependencies` are not projected: the
-/// version document carries only the dependencies resolution follows,
-/// `dependencies` and `build-dependencies`.  `cabin-index` reads an
-/// absent `dev-dependencies` or `system-dependencies` key as empty.
+/// `dev_dependencies` are not projected: the version document carries
+/// only the dependencies resolution follows, `dependencies` and
+/// `build-dependencies`.  `cabin-index` reads an absent
+/// `dev-dependencies` key as empty.
 #[derive(Serialize)]
 struct IndexVersionWire<'a, D: Serialize> {
     dependencies: &'a D,
@@ -531,7 +531,6 @@ mod tests {
             dependencies: BTreeMap::new(),
             dev_dependencies: BTreeMap::new(),
             build_dependencies: BTreeMap::new(),
-            system_dependencies: BTreeMap::new(),
             features: Default::default(),
             profiles: Default::default(),
             toolchain: Default::default(),

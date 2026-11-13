@@ -23,8 +23,8 @@ mod walk;
 pub use error::IndexError;
 pub use loader::{FileIndex, SourceContext, parse_package_entry};
 pub use model::{
-    BuildScript, IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex,
-    ResolutionMetadata, RevisionMetadata, SourceLocation, VersionMetadata,
+    BuildScript, IndexEntry, IndexPackageDependency, PackageIndex, ResolutionMetadata,
+    RevisionMetadata, SourceLocation, VersionMetadata,
 };
 pub use walk::walk_dependencies;
 // Re-exported so index consumers can name the standard-metadata types

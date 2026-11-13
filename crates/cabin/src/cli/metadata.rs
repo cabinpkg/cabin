@@ -146,12 +146,6 @@ pub(crate) struct PackageView<'a> {
     /// without re-parsing the manifest.  The list is sorted by
     /// `(dependency_kind, name)` for deterministic output.
     dependencies: Vec<DependencyView<'a>>,
-    /// `system = true` declarations.  Externally provided
-    /// (system libraries, SDKs, installed tools) - never resolved
-    /// through the Cabin registry.  Sorted by name.  Omitted when
-    /// no system dependencies are declared.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    system_dependencies: Vec<SystemDependencyView<'a>>,
     targets: &'a [cabin_core::Target],
     pub(crate) is_root: bool,
     pub(crate) is_primary: bool,
@@ -233,22 +227,6 @@ enum DependencySourceView<'a> {
     Workspace,
 }
 
-#[derive(Serialize)]
-struct SystemDependencyView<'a> {
-    name: &'a str,
-    /// Manifest section the system dependency was declared in.
-    dependency_kind: cabin_core::DependencyKind,
-    version: &'a str,
-    /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate copied from the manifest.  Omitted when absent.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target: Option<String>,
-    /// Whether the `target` predicate matches the platform in
-    /// `target_platform`.  `true` for unconditional system
-    /// declarations.
-    active: bool,
-}
-
 /// Bundle of inputs the metadata JSON view needs.
 pub(crate) struct MetadataInputs<'a> {
     pub(crate) graph: &'a PackageGraph,
@@ -322,25 +300,10 @@ fn build_package_view<'a>(
     } else {
         None
     };
-    let mut system_dependencies: Vec<SystemDependencyView<'_>> = package
-        .system_dependencies
-        .iter()
-        .map(|sd| SystemDependencyView {
-            name: sd.name.as_str(),
-            dependency_kind: sd.kind,
-            version: sd.version.as_str(),
-            target: sd.condition.as_ref().map(ToString::to_string),
-            active: sd
-                .condition
-                .as_ref()
-                .is_none_or(|c| c.evaluate(&cabin_core::ConditionContext::platform_only(platform))),
-        })
-        .collect();
-    // The stable sorts below uphold the documented ordering contract
+    // The stable sort below upholds the documented ordering contract
     // on `PackageView` even when conditional (target-specific)
     // declarations sit interleaved in manifest order; ties keep
     // declaration order.
-    system_dependencies.sort_by(|a, b| a.name.cmp(b.name));
     let mut dependencies: Vec<DependencyView<'_>> = package
         .dependencies
         .iter()
@@ -374,7 +337,6 @@ fn build_package_view<'a>(
             .map(cabin_core::LicenseExpression::as_str),
         manifest_path: &pkg.manifest_path,
         dependencies,
-        system_dependencies,
         targets: &package.targets,
         is_root: graph.root_package == Some(idx),
         is_primary: graph.primary_packages.contains(&idx),
@@ -627,11 +589,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         &feature_resolution,
         detection_report.as_ref(),
     );
-    // `cabin metadata` does not opt into dev-dep activation;
-    // dev-kind system deps stay declaration-only here so the
-    // probe step matches the Cabin-package activation rule.
-    let dev_for: BTreeSet<String> = BTreeSet::new();
-    let build_flags = augment_build_flags(&graph, &platform, &dev_for, build_flags, reporter)?;
+    let build_flags = augment_build_flags(&graph, build_flags, reporter)?;
     let configurations = resolve_build_configurations(
         &graph,
         &feature_resolution,

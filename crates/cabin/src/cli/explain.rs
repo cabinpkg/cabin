@@ -181,9 +181,6 @@ pub(crate) fn explain(
             )?;
             let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
             let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
-            // `cabin explain` does not opt into dev-dep activation;
-            // dev-kind system deps stay declaration-only here.
-            let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
             let prep = crate::cli::build_prep::resolve_build_prep(
                 crate::cli::build_prep::BuildConfigInputs {
                     graph: &graph,
@@ -199,7 +196,6 @@ pub(crate) fn explain(
                     manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
                     effective_config: &effective_config,
                     profile: &inspection.profile,
-                    dev_for: &dev_for,
                     feature_resolution: &feature_resolution,
                     reporter,
                 },

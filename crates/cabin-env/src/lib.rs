@@ -125,10 +125,10 @@ pub const CABIN_FMT: &str = "CABIN_FMT";
 /// `PATH`.
 pub const CABIN_TIDY: &str = "CABIN_TIDY";
 
-/// Override for the `pkg-config` executable Cabin spawns when
-/// probing `system = true` dependencies; same semantics as
-/// [`CABIN_FMT`].  Cabin only invokes `pkg-config` when the
-/// workspace declares at least one `system = true` entry.
+/// Override for the `pkg-config` executable Cabin spawns for a build
+/// script's `pkg-config` lines; same semantics as [`CABIN_FMT`].
+/// Cabin only invokes `pkg-config` when a build script that ran
+/// reports such a line.
 pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 
 /// Bearer token override for the remote-registry client.  When set

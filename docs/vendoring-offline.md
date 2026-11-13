@@ -127,8 +127,8 @@ Vendored builds preserve every C/C++ contract documented in `docs/toolchains.md`
   was sourced;
 - public include directories propagate from a vendored dependency to its consumers exactly as they
   would from a registry consumer;
-- system dependency declarations are not vendored; later build / test / metadata commands still
-  probe active `system = true` entries through `pkg-config`.
+- a [system library](system-dependencies.md) is not vendored: the build script of the package that
+  supplies it still looks for the library on the machine when the build runs.
 
 Because vendoring re-uses the existing artifact pipeline, every fingerprint input documented in
 `docs/toolchains.md` continues to participate in `BuildConfiguration::fingerprint` for vendor

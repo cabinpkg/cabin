@@ -214,8 +214,7 @@ layers append to earlier ones; nothing replaces or erases an earlier layer):
 2. The package's own `[profile]` table.
 3. The package's matching `[target.'cfg(...)'.profile]` blocks.
 4. The selected profile's `[profile.<name>]` block.
-5. `pkg-config` contributions from `system = true` deps.
-6. `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` - the environment layer described above.
+5. `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` - the environment layer described above.
 
 Environment flags only contribute to **primary** packages - the workspace members the user owns.
 Registry and path dependencies still observe their own `[profile]` declarations but are not

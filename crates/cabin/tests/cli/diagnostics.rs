@@ -214,6 +214,49 @@ cxx-standard = "c++17"
     );
 }
 
+/// A dependency entry that still sets `system` asked pkg-config for a
+/// library.  Reading past the key would look its name up as a package
+/// of the registry.
+#[test]
+fn the_removed_system_key_stops_a_root_and_a_member_manifest() {
+    const PACKAGE: &str = r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+zlib = { version = ">=1.2", system = true }
+"#;
+    let dir = TempDir::new().unwrap();
+    dir.child("root/cabin.toml").write_str(PACKAGE).unwrap();
+    dir.child("workspace/cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["app"]
+"#,
+        )
+        .unwrap();
+    dir.child("workspace/app/cabin.toml")
+        .write_str(PACKAGE)
+        .unwrap();
+
+    for project in ["root", "workspace"] {
+        let assertion = cabin()
+            .args(["metadata", "--color", "never", "--manifest-path"])
+            .arg(dir.path().join(project).join("cabin.toml"))
+            .assert()
+            .failure();
+        // The helper drops the spaces along with the line wrapping.
+        let stderr = stderr_with_wrapping_joined(&assertion);
+        for expected in [
+            "cabin::manifest::system_dependency_removed",
+            "dependency\"zlib\"in[dependencies]sets`system`,whichisnolongersupported",
+            "help:replacetheentry",
+        ] {
+            assert!(stderr.contains(expected), "{project}: {stderr}");
+        }
+    }
+}
+
 /// A file that still carries `[system-provided]` asks for a library
 /// from the system.  Reading past the table would build that library
 /// from its sources instead, with no word of the change.

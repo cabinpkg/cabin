@@ -1,39 +1,10 @@
 use crate::error::ManifestError;
 use crate::raw::{RawDependency, RawDependencyTable};
 use cabin_core::{
-    Condition, Dependency, DependencyKind, DependencySource, PackageName, SystemDependency,
-    TargetName,
+    Condition, Dependency, DependencyKind, DependencySource, PackageName, TargetName,
 };
 use camino::Utf8PathBuf;
 use std::collections::BTreeSet;
-
-/// Inspect `raw` and route it onto either `dep_models`
-/// (Cabin-package dependency) or `system_models` (system-sourced
-/// dependency, probed via pkg-config at build time).  The
-/// `system = true` flag on a `RawDependencyTable` is the only
-/// signal that selects the system path; bare-string entries
-/// (`name = "^1"`) always mean registry source.
-pub(super) fn route_dependency_from_raw(
-    name: String,
-    raw: RawDependency,
-    kind: DependencyKind,
-    condition: Option<Condition>,
-    dep_models: &mut Vec<Dependency>,
-    system_models: &mut Vec<SystemDependency>,
-) -> Result<(), ManifestError> {
-    match raw {
-        RawDependency::Table(table) if table.system => {
-            if kind == DependencyKind::Build {
-                return Err(ManifestError::SystemNotSupportedForKind { name, kind });
-            }
-            system_models.push(system_dependency_from_raw_table(
-                name, table, kind, condition,
-            )?);
-        }
-        other => dep_models.push(package_dependency_from_raw(name, other, kind, condition)?),
-    }
-    Ok(())
-}
 
 /// Resolved dependency fields before assembling the final
 /// `Dependency`.
@@ -62,9 +33,12 @@ pub(super) fn package_dependency_from_raw(
             targets: BTreeSet::new(),
         },
         RawDependency::Table(table) => {
-            // `route_dependency_from_raw` sends `system = true`
-            // tables to the system path.
-            debug_assert!(!table.system, "router should have routed system deps");
+            if table.system.is_some() {
+                return Err(ManifestError::SystemDependencyRemoved {
+                    name,
+                    table: kind.manifest_table(condition.as_ref()),
+                });
+            }
             ordinary_dep_from_table(&name, table, kind)?
         }
     };
@@ -187,65 +161,6 @@ fn ordinary_dep_from_table(
         default_features: default_features_flag,
         ignore_interface_standard: ignore_interface_standard.unwrap_or(false),
         targets,
-    })
-}
-
-/// Produce a `SystemDependency` from a `[dependencies]` /
-/// `[dev-dependencies]` entry that
-/// carries `system = true`.  Only `version` is permitted
-/// alongside the flag; every other field is rejected.
-pub(super) fn system_dependency_from_raw_table(
-    name: String,
-    table: RawDependencyTable,
-    kind: DependencyKind,
-    condition: Option<Condition>,
-) -> Result<SystemDependency, ManifestError> {
-    let section = kind.manifest_section();
-    let RawDependencyTable {
-        path,
-        version,
-        workspace,
-        system,
-        optional,
-        features,
-        default_features,
-        ignore_interface_standard,
-        targets,
-    } = table;
-    debug_assert!(system, "router only dispatches here when system = true");
-
-    // Fields with no meaning alongside `system = true`.  When
-    // several are present, the first in this fixed order is
-    // reported, regardless of their order in the table.
-    let forbidden: &[(&'static str, bool)] = &[
-        ("path", path.is_some()),
-        ("workspace", workspace.is_some()),
-        ("features", features.is_some()),
-        ("default-features", default_features.is_some()),
-        ("optional", optional.is_some()),
-        (
-            "ignore-interface-standard",
-            ignore_interface_standard.is_some(),
-        ),
-        ("targets", targets.is_some()),
-    ];
-    for &(field, present) in forbidden {
-        if present {
-            return Err(ManifestError::SystemConflictsWith {
-                name,
-                section,
-                field,
-            });
-        }
-    }
-
-    let version = version
-        .ok_or_else(|| ManifestError::SystemDependencyMissingVersion { name: name.clone() })?;
-    Ok(SystemDependency {
-        name,
-        version,
-        kind,
-        condition,
     })
 }
 

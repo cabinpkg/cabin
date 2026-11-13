@@ -199,25 +199,26 @@ external z
 pkg-config z zlib >=1.2.11
 ```
 
-- Cabin asks pkg-config itself, outside the script's confinement, as it does for a
-  [system dependency](system-dependencies.md): the same executable (`CABIN_PKG_CONFIG`), the same
-  [version requirements](system-dependencies.md#version-requirements), the same diagnostics.  What
-  depends on the target compiles and links with the flags pkg-config answers, after the script's
-  own `include-dir` and `link-file` lines.  Several lines for one target are asked in their order.
+- Cabin asks pkg-config itself, outside the script's confinement.
+  [System dependencies](system-dependencies.md) describes the executable it runs
+  (`CABIN_PKG_CONFIG`), the [version requirements](system-dependencies.md#version-requirements),
+  and the diagnostics.  What depends on the target compiles and links with the flags pkg-config
+  answers, after the script's own `include-dir` and `link-file` lines.  Several lines for one
+  target are asked in their order.
 - A link names what pkg-config answers after every library file, and after that, except on Apple
   platforms, the libraries the target's `deps` reach once more, where a static library from
   pkg-config finds them.  A symbol that both that library and one of them define comes from the
   latter.
-- A module's name is written as a [system dependency's](system-dependencies.md#manifest-declaration)
-  is, in ASCII letters, digits, `_`, `-`, and `.`, and is not the path of a `.pc` file.
+- A module's name keeps its upstream spelling (`glib-2.0`, `SDL2`): ASCII letters, digits, `_`,
+  `-`, and `.`, not starting with `.` or `-`.  It is not the path of a `.pc` file.
 - Cabin asks on every build, whether or not the script runs again, so a module that is gone or
   answers other flags is seen at once.  A library that changes behind the same flags links
   nothing again.
 - With `CABIN_TARGET_DIALECT=msvc` a `pkg-config` line is refused: the flags pkg-config reports
   are a GNU toolchain's.  Report `include-dir` and `link-file` lines there.
-- In a `--target` build, pkg-config has to describe the target's libraries, as for a
-  [system dependency](system-dependencies.md#manifest-declaration).  A library a build dependency
-  links there is built for the build machine, and cannot come from pkg-config.
+- In a `--target` build, pkg-config has to
+  [describe the target's libraries](system-dependencies.md#building-for-another-machine).  A library
+  a build dependency links there is built for the build machine, and cannot come from pkg-config.
 
 ### A package for a system library
 

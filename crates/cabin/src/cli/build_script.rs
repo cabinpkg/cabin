@@ -190,13 +190,13 @@ pub(crate) fn run(
                         prepared.platform.target,
                     );
                 }
-                output.provided = super::system_deps::probe_reported(&output.pkg_config, platform)
+                output.provided = super::pkg_config::probe_reported(&output.pkg_config, platform)
                     .with_context(|| {
-                        format!(
-                            "{} of package `{name}`: `{target}` comes from pkg-config",
-                            script.name()
-                        )
-                    })?;
+                    format!(
+                        "{} of package `{name}`: `{target}` comes from pkg-config",
+                        script.name()
+                    )
+                })?;
             }
             outputs[usize::from(script.build_context)].extend(
                 report

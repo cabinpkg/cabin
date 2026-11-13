@@ -59,11 +59,6 @@ pub enum ValidationError {
     TargetNamesDifferOnlyInCase(String, String),
 
     #[error(
-        "system dependency name {0:?} is not valid; a pkg-config module name must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must not start with `.` or `-`, and must not be `.` or `..`"
-    )]
-    InvalidSystemDependencyName(String),
-
-    #[error(
         "invalid `links` value {0:?}; a native-library identity must be non-empty and consist only of ASCII letters, ASCII digits, `.`, `_`, `+`, and `-`"
     )]
     InvalidLinksValue(String),
@@ -106,9 +101,6 @@ pub enum ValidationError {
 
     #[error("duplicate dependency {name:?} in {section}", section = kind.manifest_section())]
     DuplicateDependency { name: String, kind: DependencyKind },
-
-    #[error("duplicate system dependency: {0:?}")]
-    DuplicateSystemDependency(String),
 
     // ---- Features ----------------------------------------------
     #[error("{0} name must not be empty")]

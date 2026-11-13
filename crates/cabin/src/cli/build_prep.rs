@@ -59,7 +59,6 @@ pub(crate) struct BuildConfigInputs<'a> {
     pub manifest_compiler_wrapper: Option<&'a cabin_core::CompilerWrapperRequest>,
     pub effective_config: &'a cabin_config::EffectiveConfig,
     pub profile: &'a cabin_core::ResolvedProfile,
-    pub dev_for: &'a BTreeSet<String>,
     /// Resolved features for the selected closure.  Gates each
     /// package's `[target.'cfg(feature = "...")'.profile]` flag
     /// layers; must be computed before this preamble so the build
@@ -99,13 +98,7 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         inputs.feature_resolution,
         inputs.detection,
     );
-    let build_flags = augment_build_flags(
-        inputs.graph,
-        inputs.platform,
-        inputs.dev_for,
-        build_flags,
-        inputs.reporter,
-    )?;
+    let build_flags = augment_build_flags(inputs.graph, build_flags, inputs.reporter)?;
     let compiler_wrapper = resolve_compiler_wrapper_layered(
         inputs.cli_compiler_wrapper,
         inputs.manifest_compiler_wrapper,
@@ -673,8 +666,8 @@ pub(crate) fn prepare_workspace(
     // consumes the selected indices through `PlanRequest::selected_packages`
     // so default-target enumeration narrows to the picked packages instead
     // of every primary - and the backend checks below scope to the
-    // selected closure so an unselected member's C source or pkg-config
-    // dependency never gates the command.
+    // selected closure so an unselected member's C source never gates
+    // the command.
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     // Resolve features for the selected closure before toolchain
@@ -800,17 +793,6 @@ pub(crate) fn prepare_workspace(
     let manifest_profiles = super::workspace_profile_definitions(&graph);
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
 
-    // The MSVC backend cannot consume pkg-config's GNU-style flags;
-    // reject a command that would need them before probing.  Scoped
-    // to the selected closure so an unrelated member's system
-    // dependency does not block `-p other` under MSVC.
-    super::system_deps::ensure_dialect_supports_system_deps(
-        &graph,
-        &platform,
-        &dev_for,
-        cabin_build::Dialect::from_compiler_kind(detection_report.lead().identity.kind),
-        selected_closure,
-    )?;
     let prep = resolve_build_prep(BuildConfigInputs {
         graph: &graph,
         platform: &platform,
@@ -822,7 +804,6 @@ pub(crate) fn prepare_workspace(
         manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
         effective_config: &effective_config,
         profile: &profile,
-        dev_for: &dev_for,
         feature_resolution: &feature_resolution,
         reporter,
     })?;
@@ -1313,13 +1294,6 @@ pub(crate) fn plan_build_context(
     scripts: &[cabin_build::BuildScript],
     reported: &HashMap<(usize, String), cabin_build::BuildScriptOutput>,
 ) -> Result<cabin_build::BuildGraph> {
-    // shortcut: build-context units get no pkg-config probe until
-    // providers are per context, so a system dependency there fails here.
-    super::system_deps::reject_build_context_system_deps(
-        &prepared.graph,
-        &context.platform,
-        &context.features.included,
-    )?;
     super::plan(&super::PlanRequest {
         graph: &prepared.graph,
         toolchain: &context.toolchain,
@@ -1723,9 +1697,9 @@ pub(crate) fn resolve_per_package_build_flags(
         // The documented escape-hatch conflict *candidates*: a
         // first-class standard declaration plus an explicit
         // `-std=` / `/std:` in the same package's manifest-derived
-        // flags.  Detected before the system-dep / env augmentation
-        // layers so CFLAGS / CXXFLAGS and pkg-config output stay
-        // exempt; the build planner surfaces a candidate only when
+        // flags.  Detected before the environment's flags are added,
+        // so CFLAGS / CXXFLAGS stay exempt; the build planner
+        // surfaces a candidate only when
         // a compile its scope covers is planned.
         let pkg_conflicts = cabin_core::find_standard_flag_conflicts(
             pkg.package.name.as_str(),
@@ -1741,25 +1715,13 @@ pub(crate) fn resolve_per_package_build_flags(
     (out, conflicts)
 }
 
-/// Apply the documented post-profile build-flag layers - `pkg-config`
-/// probes for active system dependencies, then `CPPFLAGS` / `CFLAGS`
-/// / `CXXFLAGS` / `LDFLAGS` from the process environment - in the
-/// order both layers must run for the resulting
-/// `BuildConfiguration::fingerprint` to stay stable across commands.
+/// Apply the post-profile build-flag layer: `CPPFLAGS` / `CFLAGS` /
+/// `CXXFLAGS` / `LDFLAGS` from the process environment.
 pub(crate) fn augment_build_flags(
     graph: &PackageGraph,
-    platform: &cabin_core::TargetPlatform,
-    dev_for: &BTreeSet<String>,
     build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
     reporter: Reporter,
 ) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
-    let build_flags = crate::cli::system_deps::augment_build_flags_with_system_deps(
-        graph,
-        platform,
-        dev_for,
-        build_flags,
-        reporter,
-    )?;
     crate::cli::env_flags::augment_build_flags_with_env(
         graph,
         build_flags,

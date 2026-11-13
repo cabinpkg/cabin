@@ -151,8 +151,8 @@ impl PackageName {
 /// (a) a single filesystem path component on every supported
 /// host OS (no separator, not `.` or `..`), (b) a single
 /// sparse-HTTP URL path segment, and (c) a fragment of an artifact
-/// filename.  It guards [`TargetName`], system-dependency names
-/// (pkg-config module names such as `glib-2.0` or `SDL2`), and the
+/// filename.  It guards [`TargetName`], pkg-config module names (such
+/// as `glib-2.0` or `SDL2`), and the
 /// sparse-HTTP index client, which re-vets each `/`-separated part
 /// of a package name.  Package names themselves use the stricter
 /// [`is_valid_package_base_name`] and [`is_valid_package_scope`]
@@ -245,25 +245,6 @@ fn validate_path_safe_name(
         return Err(unsafe_name(value));
     }
     Ok(value)
-}
-
-/// Grammar for a system-dependency name: the `pkg-config` module a
-/// `system = true` dependency probes.  Deliberately not the package
-/// grammar - module names are upstream identities (`glib-2.0`,
-/// `SDL2`), and pkg-config looks them up case-sensitively - so it is
-/// the path-safe grammar, which also keeps a leading `-` out of the
-/// pkg-config argv.
-///
-/// # Errors
-/// Returns [`ValidationError::InvalidSystemDependencyName`] echoing
-/// the offending value.
-pub fn validate_system_dependency_name(value: &str) -> Result<(), ValidationError> {
-    if !is_path_safe_name(value) {
-        return Err(ValidationError::InvalidSystemDependencyName(
-            value.to_owned(),
-        ));
-    }
-    Ok(())
 }
 
 /// Whether `raw` is a valid `interface-defines` entry: `NAME` or
@@ -841,11 +822,6 @@ fn default_true() -> bool {
 
 /// A package-level Cabin dependency declared in `[dependencies]`,
 /// `[dev-dependencies]`, or `[build-dependencies]`.
-///
-/// System dependencies (`system = true` entries) are *not*
-/// represented here - they live in [`SystemDependency`] because
-/// they have a different schema and never enter Cabin
-/// resolution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dependency {
     /// The dependency alias used in the manifest.  The alias must
@@ -930,14 +906,6 @@ impl Dependency {
 }
 
 /// Which kind of dependency is declared.
-///
-/// Cabin distinguishes package dependency kinds (`Normal`, `Dev`,
-/// `Build`) - all sourced from other Cabin packages - from
-///   system dependencies, which are externally provided and never
-///   enter Cabin resolution.  System declarations live alongside the
-///   package kinds as a separate `system = true` flag on a regular
-///   `[dependencies]` / `[dev-dependencies]` entry and are modeled
-///   by [`SystemDependency`].
 ///
 /// The wire format mirrors the manifest section names: `"normal"`,
 /// `"dev"`, `"build"`.
@@ -1054,45 +1022,6 @@ impl WorkspaceDepRequirements {
     }
 }
 
-/// A system dependency declared with `system = true` on a
-/// `[dependencies]` / `[dev-dependencies]` entry.
-///
-/// System dependencies are externally provided (system libraries,
-/// SDKs, installed tools).  Cabin never resolves, fetches,
-/// downloads, or installs them - `cabin-system-deps` probes them
-/// via `pkg-config` at build time, and the resulting cflags /
-/// ldflags are merged into the per-package build flags before
-/// the planner runs.  The typed value round-trips through
-/// `cabin metadata`, the canonical package metadata, and the
-/// index metadata so external tooling sees the system-dep set
-/// alongside the Cabin-package deps.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SystemDependency {
-    /// The dependency name as written in the manifest: a pkg-config
-    /// module name, validated by [`validate_system_dependency_name`]
-    /// rather than the package grammar.
-    pub name: String,
-    /// Version requirement string for `pkg-config`.  Cabin does
-    /// not interpret it as a `SemVer` constraint; the system-deps
-    /// layer translates the supported comparators for
-    /// `pkg-config` and reports unsupported forms as errors.
-    pub version: String,
-    /// Which dependency table the entry was declared in
-    /// (`[dependencies]` or `[dev-dependencies]`).  Drives per-kind
-    /// activation: a dev-kind system dep is only probed when
-    /// `cabin test` is running, mirroring the Cabin-package
-    /// dev-dep rule.
-    #[serde(default)]
-    pub kind: DependencyKind,
-    /// Optional target condition.  `Some` when the system
-    /// dependency was declared inside a
-    /// `[target.'cfg(...)'.<kind>-dependencies]` table.  The
-    /// condition is preserved so package / index metadata stays
-    /// portable across platforms.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub condition: Option<crate::Condition>,
-}
-
 /// Where a dependency is sourced from.
 ///
 /// Covers [`DependencySource::Path`] for local path dependencies,
@@ -1137,12 +1066,6 @@ pub struct Package {
     /// by `(kind, name)` so callers see deterministic output.
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
-    /// `system = true` declarations.  Empty if not
-    /// declared.  System dependencies never enter the resolver,
-    /// the lockfile, or the artifact cache; they are
-    /// declaration-only and round-trip through metadata.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub system_dependencies: Vec<SystemDependency>,
     /// `[features]` declarations.  Empty if the manifest has
     /// no `[features]` table.
     #[serde(default, skip_serializing_if = "is_empty_features")]
@@ -1218,8 +1141,7 @@ fn is_empty_features(f: &Features) -> bool {
 }
 
 impl Package {
-    /// Build a validated [`Package`] with no system dependencies and
-    /// no `[features]` table.
+    /// Build a validated [`Package`] with no `[features]` table.
     ///
     /// Target-dep references (same-package, cross-package, or
     /// qualified `package:target`) are resolved by `cabin-build`
@@ -1239,7 +1161,6 @@ impl Package {
             version,
             targets,
             dependencies,
-            system_dependencies: Vec::new(),
             features: Features::default(),
         })
     }
@@ -1265,9 +1186,7 @@ impl Package {
     /// non-`library`, or duplicate `links` claim;
     /// [`ValidationError::DuplicateDependency`] for a duplicate
     /// dependency within a kind;
-    /// [`ValidationError::InvalidSystemDependencyName`] or
-    /// [`ValidationError::DuplicateSystemDependency`] for an invalid or
-    /// duplicate system dependency; any error from validating the
+    /// any error from validating the
     /// `[features]` table; or [`ValidationError::UnknownRequiredFeature`]
     /// for a target's `required-features`.
     pub fn with_config(input: PackageConfigInput) -> Result<Self, ValidationError> {
@@ -1276,12 +1195,10 @@ impl Package {
             version,
             targets,
             dependencies,
-            system_dependencies,
             features,
         } = input;
         Self::validate_targets(&targets)?;
         Self::validate_dependencies(&dependencies)?;
-        Self::validate_system_dependencies(&system_dependencies)?;
         features.validate()?;
         Self::validate_required_features(&targets, &features)?;
         Ok(Self {
@@ -1289,7 +1206,6 @@ impl Package {
             version,
             targets,
             dependencies,
-            system_dependencies,
             features,
             profiles: BTreeMap::new(),
             toolchain: ToolchainSettings::default(),
@@ -1331,8 +1247,6 @@ pub struct PackageConfigInput {
     /// Parsed `[dependencies]` / `[dev-dependencies]` /
     /// `[build-dependencies]`.
     pub dependencies: Vec<Dependency>,
-    /// Parsed `system = true` dependency entries.
-    pub system_dependencies: Vec<SystemDependency>,
     /// Parsed `[features]`.
     pub features: Features,
 }
@@ -1493,19 +1407,6 @@ impl Package {
                     name: dep.name.as_str().to_owned(),
                     kind: dep.kind,
                 });
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_system_dependencies(deps: &[SystemDependency]) -> Result<(), ValidationError> {
-        let mut seen: HashSet<&str> = HashSet::with_capacity(deps.len());
-        for dep in deps {
-            validate_system_dependency_name(&dep.name)?;
-            if !seen.insert(dep.name.as_str()) {
-                return Err(ValidationError::DuplicateSystemDependency(
-                    dep.name.as_str().to_owned(),
-                ));
             }
         }
         Ok(())
@@ -1943,25 +1844,6 @@ mod tests {
         }
     }
 
-    /// pkg-config module names keep the path-safe grammar: uppercase
-    /// and `.` are part of real module names, a leading `-` would
-    /// reach the pkg-config argv as a flag.
-    #[test]
-    fn system_dependency_name_uses_the_path_safe_grammar() {
-        for raw in ["zlib", "glib-2.0", "SDL2", "Qt6Core"] {
-            assert!(validate_system_dependency_name(raw).is_ok(), "{raw:?}");
-        }
-        for raw in ["", "-lfoo", ".hidden", "..", "a/b", "glib 2"] {
-            assert!(
-                matches!(
-                    validate_system_dependency_name(raw).unwrap_err(),
-                    ValidationError::InvalidSystemDependencyName(_)
-                ),
-                "{raw:?} should be rejected"
-            );
-        }
-    }
-
     #[test]
     fn package_name_rejects_control_chars() {
         for raw in ["foo\u{0000}bar", "foo\u{0007}bar", "foo\u{007F}bar"] {
@@ -2194,7 +2076,6 @@ mod tests {
             version: version(),
             targets: vec![gated],
             dependencies: Vec::new(),
-            system_dependencies: Vec::new(),
             features: Features::default(),
         })
         .unwrap_err();
@@ -2221,7 +2102,6 @@ mod tests {
             version: version(),
             targets: vec![gated],
             dependencies: Vec::new(),
-            system_dependencies: Vec::new(),
             features,
         })
         .unwrap();
@@ -2240,7 +2120,6 @@ mod tests {
             version: version(),
             targets: vec![gated],
             dependencies: Vec::new(),
-            system_dependencies: Vec::new(),
             features: Features::default(),
         })
         .unwrap_err();
@@ -2313,29 +2192,6 @@ mod tests {
         )
         .expect("same name across distinct kinds is allowed");
         assert_eq!(package.dependencies.len(), 2);
-    }
-
-    #[test]
-    fn project_rejects_duplicate_system_dependencies() {
-        let sys = |n: &str| SystemDependency {
-            name: n.to_owned(),
-            version: ">=1".into(),
-            kind: DependencyKind::Normal,
-            condition: None,
-        };
-        let err = Package::with_config(PackageConfigInput {
-            name: pkg("hello"),
-            version: version(),
-            targets: Vec::new(),
-            dependencies: Vec::new(),
-            system_dependencies: vec![sys("zlib"), sys("zlib")],
-            features: Features::default(),
-        })
-        .unwrap_err();
-        assert_eq!(
-            err,
-            ValidationError::DuplicateSystemDependency("zlib".into())
-        );
     }
 
     #[test]

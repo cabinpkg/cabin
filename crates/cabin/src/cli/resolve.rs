@@ -80,12 +80,42 @@ fn resolve_with_lazy_index(
                 index.packages.extend(loaded.packages);
             }
             result => {
-                return result
-                    .map(|output| (output, index))
-                    .context("dependency resolution failed");
+                let output = result.context("dependency resolution failed")?;
+                refuse_system_dependencies(&output, &index)?;
+                return Ok((output, index));
             }
         }
     }
+}
+
+/// A version published while Cabin read `system = true` lists the
+/// libraries it expected of the system.  Nothing supplies them now, so
+/// selecting such a version is an error, never a build that goes
+/// without them.  The package's other versions stay selectable.
+fn refuse_system_dependencies(output: &ResolveOutput, index: &PackageIndex) -> Result<()> {
+    for resolved in &output.packages {
+        if resolved.source != ResolvedSource::Index {
+            continue;
+        }
+        let listed = index
+            .package(&resolved.name)
+            .and_then(|entry| entry.versions.get(&resolved.version))
+            .map_or(&[][..], |meta| &meta.system_dependencies);
+        if !listed.is_empty() {
+            let name = resolved.name.as_str();
+            bail!(
+                "`{name} {}` was published with system dependencies ({}), which Cabin no \
+                 longer supports; require a version of `{name}` published without them",
+                resolved.version,
+                listed
+                    .iter()
+                    .map(|module| format!("`{}`", cabin_core::escape_control_chars(module)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The resolver input every resolving command builds from its seed:

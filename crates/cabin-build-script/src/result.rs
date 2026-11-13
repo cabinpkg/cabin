@@ -296,9 +296,13 @@ fn directive(
         "pkg-config" if script.msvc => return Err(Invalid::PkgConfigMsvc),
         "pkg-config" => {
             let (module, requirement) = value.split_once(' ').unwrap_or((value, ""));
+            // A module's name is its upstream's (`glib-2.0`, `SDL2`),
+            // which pkg-config looks up as written, so it takes the
+            // path-safe grammar and not a package name's; that also
+            // keeps a leading `-` out of pkg-config's arguments.
             // pkg-config reads a name ending in `.pc` as a file's path,
             // and the script does not choose the file its flags come from.
-            if cabin_core::validate_system_dependency_name(module).is_err()
+            if !cabin_core::is_path_safe_name(module)
                 || module.to_ascii_lowercase().ends_with(".pc")
             {
                 return Err(Invalid::Module(module.to_owned()));

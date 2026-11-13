@@ -12,13 +12,10 @@
 //! 2. parses them once, mapping any parse error onto the
 //!    typed [`EnvBuildFlagsError`];
 //! 3. appends the parsed tokens to every **primary** package's
-//!    [`ResolvedProfileFlags`] entry, *after* `pkg-config`
-//!    contributions have already been merged.
+//!    [`ResolvedProfileFlags`] entry.
 //!
 //! Every command that resolves a build configuration reaches this
 //! helper through `crate::cli::build_prep::augment_build_flags`,
-//! which calls it right after
-//! `crate::cli::system_deps::augment_build_flags_with_system_deps`
 //! so the resulting `BuildConfiguration::fingerprint` observes
 //! the user's environment.  `build_prep::build_context_prep` also
 //! calls it directly for a build context that is not a cross build.
@@ -323,11 +320,9 @@ mod tests {
     }
 
     #[test]
-    fn env_flag_append_preserves_pkg_config_order() {
-        // pkg-config's contribution is already in
-        // ResolvedProfileFlags before this helper is called.
-        // Verify env flags land *after* it, preserving
-        // pkg-config's link-line order.
+    fn env_flags_append_after_the_flags_already_there() {
+        // The flags a package already has keep their order, which a
+        // link line depends on, and the environment's land after them.
         let graph = one_primary_graph();
         let start: HashMap<usize, ResolvedProfileFlags> = HashMap::from_iter([(
             0,

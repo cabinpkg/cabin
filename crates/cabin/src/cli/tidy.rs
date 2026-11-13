@@ -222,31 +222,12 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         &feature_resolution,
         detection_report.as_ref(),
     );
-    // `cabin tidy` does not opt into dev-dep activation;
-    // dev-kind system deps stay declaration-only here.
+    // `cabin tidy` does not opt into dev-dep activation.
     let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-
-    // The MSVC backend cannot consume pkg-config's GNU-style flags, so
-    // reject before `augment_build_flags` probes pkg-config and merges
-    // them into a compile database clang-tidy would then read.  Scoped to
-    // the selected closure exactly as `cabin build` is: a path
-    // dependency's system-dep flags propagate into the selected packages'
-    // compile commands, so the closure is the set that can corrupt the
-    // database, while an unrelated member's dependency never gates
-    // `cabin tidy -p other`.  The check uses the dialect tidy plans with,
-    // including the fail-soft host-default fallback above.
     // Feature resolution's `included` set is the closure through edges
     // active on this platform; the graph also holds other platforms' edges.
     let selected_closure = &feature_resolution.included;
-    crate::cli::system_deps::ensure_dialect_supports_system_deps(
-        &graph,
-        &platform,
-        &dev_for,
-        dialect,
-        selected_closure,
-    )?;
-    let build_flags =
-        crate::cli::augment_build_flags(&graph, &platform, &dev_for, build_flags, reporter)?;
+    let build_flags = crate::cli::augment_build_flags(&graph, build_flags, reporter)?;
 
     // The planner's default selection only emits compile commands
     // for default-buildable kinds (library, header-only, executable),

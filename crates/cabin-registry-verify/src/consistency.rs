@@ -145,7 +145,6 @@ const CHECK_ORDER: &[&str] = &[
     "dependencies",
     "build-dependencies",
     "dev-dependencies",
-    "system-dependencies",
     "language",
     "standards",
     "upstream",
@@ -156,9 +155,7 @@ fn field_reason(key: &str) -> Reason {
     match key {
         "name" => Reason::NameMismatch,
         "version" => Reason::VersionMismatch,
-        "dependencies" | "build-dependencies" | "dev-dependencies" | "system-dependencies" => {
-            Reason::DependencyMismatch
-        }
+        "dependencies" | "build-dependencies" | "dev-dependencies" => Reason::DependencyMismatch,
         "language" | "standards" => Reason::LanguageStandardMismatch,
         "upstream" => Reason::UpstreamMismatch,
         "checksum" => Reason::ChecksumMismatch,
@@ -174,12 +171,7 @@ mod tests {
     fn specific_fields_map_to_their_reason_codes() {
         assert_eq!(field_reason("name"), Reason::NameMismatch);
         assert_eq!(field_reason("version"), Reason::VersionMismatch);
-        for key in [
-            "dependencies",
-            "build-dependencies",
-            "dev-dependencies",
-            "system-dependencies",
-        ] {
+        for key in ["dependencies", "build-dependencies", "dev-dependencies"] {
             assert_eq!(field_reason(key), Reason::DependencyMismatch);
         }
         for key in ["language", "standards"] {

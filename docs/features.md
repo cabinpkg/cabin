@@ -74,7 +74,7 @@ full = ["ssl", "openssl/legacy"]
 ```
 
 - `optional = true` declares an optional Cabin package dependency (supported in `[dependencies]`
-  and `[build-dependencies]`; rejected in `[dev-dependencies]` and `system = true` deps).
+  and `[build-dependencies]`; rejected in `[dev-dependencies]`).
 - `features = ["..."]` requests features on the dependency package; entries must be feature names
   declared by that dependency.
 - `default-features = false` drops *this edge's* request for the dependency's `default` feature.  It
@@ -98,7 +98,7 @@ Effects on commands:
 - **`cabin resolve` / `update` / `fetch` / `vendor`** carry the same feature state into dependency
   resolution (see [Registry packages](#registry-packages)): a disabled optional dependency, local
   or registry, never enters the resolver's selection, the fetch plan, or the lockfile.  Dev
-  dependencies remain excluded by default; system dependencies remain declaration-only.
+  dependencies remain excluded by default.
 - **`cabin build`** sees the same filtered dep set, so a disabled optional dependency never enters
   the build graph or links into ordinary C++ targets.
 - **`cabin package`** preserves `optional`, `features`, and `default-features` per dependency in the

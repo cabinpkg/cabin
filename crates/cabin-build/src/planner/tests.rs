@@ -1932,7 +1932,6 @@ fn package_with_features(
         version: version(),
         targets,
         dependencies,
-        system_dependencies: Vec::new(),
         features,
     })
     .unwrap()
@@ -3112,7 +3111,6 @@ fn target_dep_cycle_within_package_is_reported() {
             target("b", TargetKind::Library, &["b.cc"], &["a"]),
         ],
         dependencies: Vec::new(),
-        system_dependencies: Vec::new(),
         features: Default::default(),
         profiles: Default::default(),
         toolchain: Default::default(),

@@ -1398,7 +1398,7 @@ int main(void) {
 /// Publishes the pkg-config module `greet` at `version`, which is the
 /// SDK directory `sdk` of `root`.
 pub(crate) fn write_greet_module(
-    fixtures: &super::system_deps_pkg_config::Fixtures,
+    fixtures: &super::pkg_config::Fixtures,
     root: &Path,
     sdk: &str,
     version: &str,
@@ -1642,7 +1642,7 @@ fn build_scripts_needing_each_other_are_a_package_cycle() {
 /// there as well.
 #[test]
 fn a_build_script_supplies_a_library_from_pkg_config() {
-    use super::system_deps_pkg_config::{Fixtures, cabin_with_fake_pkg_config};
+    use super::pkg_config::{Fixtures, cabin_with_fake_pkg_config};
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_greet_app(dir.path());
