@@ -52,7 +52,7 @@ jobs:
       with:
         persist-credentials: false
 
-    - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+    - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
       with:
         cache: false
         rustflags: ""

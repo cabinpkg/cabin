@@ -51,7 +51,7 @@ jobs:
           path: perf checkout
       # No caches: a pull request's saves serve only that pull request,
       # which rarely restores them.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache: false
           rustflags: ""
@@ -94,7 +94,7 @@ jobs:
         run: git merge-base --is-ancestor "$BASE" HEAD
         env:
           BASE: ${{ inputs.base }}
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache-on-failure: false
           rustflags: ""

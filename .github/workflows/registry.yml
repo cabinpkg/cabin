@@ -57,7 +57,7 @@ jobs:
 
       # Restore-only: registry-cache.yml seeds this key on main, the
       # one scope both pull requests and the merge queue can restore.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           target: wasm32-unknown-unknown
           cache-on-failure: false
@@ -135,7 +135,7 @@ jobs:
           persist-credentials: false
 
       # No caches, like conformance below.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache: false
           rustflags: ""
@@ -215,7 +215,7 @@ jobs:
 
       # No caches: a pull request's saves serve only that pull request,
       # which rarely restores them.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache: false
           rustflags: ""
@@ -255,7 +255,7 @@ jobs:
 
       # No caches: a pull request's saves serve only that pull request,
       # which rarely restores them.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache: false
           rustflags: ""
@@ -357,7 +357,7 @@ jobs:
 
       # No caches: a pull request's saves serve only that pull request,
       # which rarely restores them.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache: false
           rustflags: ""
@@ -392,7 +392,7 @@ jobs:
       # main-branch job restore main-scoped entries (PR caches are
       # unreachable), and dropping the cache would roughly double
       # production deploy latency.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with: # zizmor: ignore[cache-poisoning] -- accepted: low-trust runs cannot write main-scoped caches; see comment above
           target: wasm32-unknown-unknown
           cache-on-failure: false
