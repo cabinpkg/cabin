@@ -214,6 +214,8 @@ registry.  Replace the entry with a dependency on a package that supplies the li
 - `cabin -v` no longer prints a line for each module.
 - A build with an MSVC toolchain can now take a system library, from a package whose script
   reports the library's files.
+- The build flags that `cabin metadata` and `cabin explain build-config` print for a package no
+  longer have a `system_include_dirs` list.
 
 A package's metadata no longer has a `system-dependencies` field.  A version published earlier
 with one stays in the registry unchanged, and nothing supplies the modules it listed now.  Where

@@ -202,11 +202,11 @@ pub struct PlanRequest<'a> {
     /// standard is then rejected at its compile site.
     pub language_standards: &'a HashMap<usize, ResolvedLanguageStandards>,
     /// Per-package standard-flag conflict candidates, detected by
-    /// the CLI on the manifest-derived flags *before* env /
-    /// pkg-config augmentation (so `CFLAGS` / `CXXFLAGS` stay
-    /// exempt).  The planner records a violation for each planned
-    /// compile a candidate's scope covers; candidates whose scope
-    /// is never planned (an unbuilt sibling target) gate nothing.
+    /// the CLI on the manifest-derived flags *before* env
+    /// augmentation (so `CFLAGS` / `CXXFLAGS` stay exempt).  The
+    /// planner records a violation for each planned compile a
+    /// candidate's scope covers; candidates whose scope is never
+    /// planned (an unbuilt sibling target) gate nothing.
     pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
     /// The build scripts to build.  Only a build-context plan
     /// (`build_context`) has any: a script runs on the build machine.
@@ -735,9 +735,8 @@ fn emit_actions(
 
         // Per-package resolved build flags from the manifest's
         // `[profile]`, `[target.'cfg(...)'.profile]`, and the active
-        // `[profile.<name>]` table, plus any `pkg-config` and
-        // `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS` layers the
-        // CLI applies.
+        // `[profile.<name>]` table, plus any `CPPFLAGS` / `CFLAGS` /
+        // `CXXFLAGS` / `LDFLAGS` layers the CLI applies.
         let pkg_flags = match script {
             Some(script) => Some(&script.flags),
             None => req.build_flags.get(&tid.0),
@@ -757,16 +756,6 @@ fn emit_actions(
                 };
                 if !include_dirs.contains(&absolute) && !system_include_dirs.contains(&absolute) {
                     include_dirs.push(absolute);
-                }
-            }
-            for inc in &flags.system_include_dirs {
-                let absolute = if inc.is_absolute() {
-                    inc.clone()
-                } else {
-                    manifest_dir.join(inc)
-                };
-                if !include_dirs.contains(&absolute) && !system_include_dirs.contains(&absolute) {
-                    system_include_dirs.push(absolute);
                 }
             }
         }

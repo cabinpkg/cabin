@@ -22,11 +22,10 @@
 //!
 //! ## Why primary-only
 //!
-//! Environment flags apply only to the user's own workspace members,
-//! as `pkg-config` contributions do: a stray `-Werror` in `CXXFLAGS`
-//! must not break a dependency the user did not write.  Registry and
-//! path dependencies still observe their own `[profile]` declarations
-//! and any flag they own.
+//! Environment flags apply only to the user's own workspace members:
+//! a stray `-Werror` in `CXXFLAGS` must not break a dependency the
+//! user did not write.  Registry and path dependencies still observe
+//! their own `[profile]` declarations and any flag they own.
 
 use std::collections::HashMap;
 

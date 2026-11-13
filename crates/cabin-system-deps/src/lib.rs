@@ -13,8 +13,7 @@
 //!   and emits typed outcomes ([`SystemDependencyResolution`]);
 //! - it never reads Cabin's configuration files, walks the
 //!   filesystem, or merges resolved flags into the build planner;
-//!   the orchestration layer threads the report into
-//!   `ResolvedProfileFlags`.
+//!   the orchestration layer hands the report to the planner.
 //!
 //! Cabin spawns `pkg-config` only when a build script that ran
 //! reports a `pkg-config` line.
@@ -148,9 +147,8 @@ pub struct SystemDependencyResolution {
 }
 
 /// Typed flag contributions derived from a successful
-/// `pkg-config` probe.  The orchestration layer merges these into
-/// the per-package [`cabin_core::ResolvedProfileFlags`] before the
-/// build planner consumes them.
+/// `pkg-config` probe.  The orchestration layer hands these to the
+/// build planner for the library a build script supplies.
 ///
 /// All vectors preserve the order `pkg-config` reported because
 /// link ordering and include-path ordering are load-bearing for
@@ -160,16 +158,11 @@ pub struct SystemDependencyFlags {
     /// Include directories from `-I` tokens in `--cflags` that must
     /// stay plain `-I` search paths: the compiler's default search
     /// dirs (`/usr/include`, `/usr/local/include`), which must not be
-    /// re-spelled `-isystem`.  The `-I`
-    /// prefix has been stripped so the orchestration layer can hand
-    /// them to [`cabin_core::ResolvedProfileFlags::include_dirs`]
-    /// verbatim.
+    /// re-spelled `-isystem`.  The `-I` prefix has been stripped.
     pub include_dirs: Vec<Utf8PathBuf>,
     /// Every other include directory extracted from `-I` tokens in
-    /// `--cflags`.  System libraries are third-party code, so these
-    /// route to
-    /// [`cabin_core::ResolvedProfileFlags::system_include_dirs`] and
-    /// the build marks them as system search paths (`-isystem`),
+    /// `--cflags`.  System libraries are third-party code, so the
+    /// build marks these as system search paths (`-isystem`),
     /// keeping diagnostics inside the library's headers quiet.
     pub system_include_dirs: Vec<Utf8PathBuf>,
     /// Remaining compile arguments from `--cflags` after include

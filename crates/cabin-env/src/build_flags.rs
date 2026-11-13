@@ -26,8 +26,7 @@ use thiserror::Error;
 /// `CPPFLAGS` - preprocessor flags applied to **both** C/C++
 /// compile commands.  Cabin appends parsed tokens to each
 /// primary package's language-neutral `extra_compile_args`
-/// bucket, after profile / manifest / dependency / pkg-config
-/// flags.
+/// bucket, after profile / manifest / dependency flags.
 pub const CPPFLAGS: &str = "CPPFLAGS";
 
 /// `CFLAGS` - flags applied **only** to C compile commands.
