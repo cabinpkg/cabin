@@ -72,7 +72,7 @@ clap = { version = "4", features = ["derive"] }
 humantime = "2"
 ignore = "0.4"
 icu_normalizer = "2"
-object = { version = "0.37", default-features = false, features = [
+object = { version = "0.40", default-features = false, features = [
   "archive",
   "coff",
   "elf",
