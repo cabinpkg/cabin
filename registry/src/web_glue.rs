@@ -11,6 +11,7 @@ use serde::Deserialize;
 use worker::wasm_bindgen::JsValue;
 use worker::{
     D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response, console_error,
+    console_log,
 };
 
 use crate::glue::{changed_rows, github_id_allowed, js_int, non_negative, now_iso8601};
@@ -338,15 +339,20 @@ fn github_api_base(env: &Env) -> String {
 /// hold account creation to the sign-up age gate ([`crate::signup`]).
 /// The access token is used for that one `/user` call and dropped.
 /// Every refusal is the same redirect to the website's `/login/denied/`
-/// page with no account details, except the age refusal, which appends
-/// the first eligible UTC date for the page to render; success
-/// redirects to `/dashboard/`. All targets are fixed relative paths
+/// page with no account details, and logs the check that refused and
+/// nothing of the account; the exception is the age refusal, which
+/// appends the first eligible UTC date for the page to render and logs
+/// nothing. Success redirects to `/dashboard/`. All targets are fixed relative paths
 /// ([`crate::routes::POST_LOGIN_REDIRECT`]), never derived from request
 /// input, so the callback cannot be turned into an open redirect.
 async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
     let secret = session_secret(env)?;
     // The state cookie is one-shot: cleared on every outcome.
     let clear_state = session::set_cookie(session::STATE_COOKIE, "", 0, session::STATE_COOKIE_PATH);
+    let refused = |check: &str| {
+        console_log!("sign-in refused: {check}");
+        denied(std::slice::from_ref(&clear_state))
+    };
 
     let url = req.url()?;
     let mut code = None;
@@ -366,21 +372,21 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         .and_then(|sealed| session::open_state(&secret, sealed, now_secs()));
     let (Some(code), Some(state_param), Some(expected_state)) = (code, state_param, expected_state)
     else {
-        return denied(&[clear_state]);
+        return refused("no code, state, or valid state cookie");
     };
     if state_param != expected_state {
-        return denied(&[clear_state]);
+        return refused("the state is not the cookie's");
     }
 
     let Some(access_token) = github_access_token(env, &code, &callback_url(env)?).await? else {
-        return denied(&[clear_state]);
+        return refused("the GitHub code exchange failed");
     };
     let Some(user) = github_user(env, &access_token).await? else {
-        return denied(&[clear_state]);
+        return refused("the GitHub user read failed");
     };
     // The numeric id is the identity; the login name is display-only.
     if !github_id_allowed(env, user.id)? {
-        return denied(&[clear_state]);
+        return refused("the account is not allowlisted");
     }
     // A first sign-in is also account creation, which the sign-up gate
     // holds to a minimum GitHub account age; a returning user has an
@@ -395,7 +401,7 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
                 &[clear_state],
             );
         }
-        signup::Gate::Deny => return denied(&[clear_state]),
+        signup::Gate::Deny => return refused("the account's creation time is unusable"),
     }
 
     // The identity upsert and the new session row: one transaction,

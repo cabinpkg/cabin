@@ -454,8 +454,11 @@ and every pass replaces one that differs.
    migrations (or to one of their own when main already carries them)
    and merge it; its main push deploys the Worker bound to the new
    database ("Deploy skew").
-2. Sign in and re-claim scopes (`/claim/<scope>`). Type or paste the URL
-   rather than following a link from another site: initiation refuses a
+2. Sign in and re-claim scopes (`/claim/<scope>`). A sign-in that lands
+   on `/login/denied` with no reason in the URL has its refusing check
+   in the Worker's log (`sign-in refused: ...`; `node_modules/.bin/wrangler
+   tail` while retrying, since the stored logs are sampled). Type or
+   paste the claim URL rather than following a link from another site: initiation refuses a
    cross-site navigation, and does it with the same uniform
    `?claim=denied` redirect as a genuinely refused claim. A GitHub org's
    OAuth app grant survives the wipe, so an org-backed re-claim grants
