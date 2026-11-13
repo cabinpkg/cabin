@@ -46,7 +46,7 @@ workflows:
         - 'ilammy/msvc-dev-cmd@v1.13.0'
     '.github/workflows/proofs.yml':
         - 'actions/checkout@v7.0.1'
-        - 'leanprover/lean-action@v1.6.2'
+        - 'leanprover/lean-action@v1.7.1'
     '.github/workflows/registry-cache.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v2.0.0'
         - 'actions/checkout@v7.0.1'
@@ -185,9 +185,9 @@ dependencies:
         commit: 'sha1-0b201ec74fa43914dc39ae48a89fd1d8cb592756'
         owner_id: 1256587
         repo_id: 212181767
-    'leanprover/lean-action@v1.6.2':
-        ref: 'v1.6.2'
-        commit: 'sha1-24581d74d674803a25a81b10b059c5c0cdd344c6'
+    'leanprover/lean-action@v1.7.1':
+        ref: 'v1.7.1'
+        commit: 'sha1-ba3fdfe5c4476c925da13bf11a005ddb47e47aee'
         owner_id: 7233018
         repo_id: 795738301
         uses:
