@@ -56,11 +56,26 @@ pub const RENOTIFY: &str = "-24 hours";
 /// [`RENOTIFY`]: an hour of the 15-minute cron.
 pub const ATTEMPTS: u8 = 4;
 
-/// The one sender and the one recipient. The `NOTIFY_EMAIL` binding in
-/// `wrangler.jsonc` allows no other pair.
+/// The one sender: the `NOTIFY_EMAIL` binding in `wrangler.jsonc`
+/// allows no other. The recipient is the `ALERT_RECIPIENT_EMAIL` secret.
 pub const SENDER: &str = "noreply@cabinpkg.com";
 pub const SENDER_NAME: &str = "Cabin";
-pub const OPERATIONS: &str = "ops@cabinpkg.com";
+
+/// Whether `value` is one plain address, `local@domain.tld`: the form
+/// `ALERT_RECIPIENT_EMAIL` must have. A display name, a list, or stray
+/// whitespace is not one.
+pub fn is_address(value: &str) -> bool {
+    let plain = !value
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || ",;<>".contains(c));
+    plain
+        && value.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty()
+                && !domain.contains('@')
+                && domain.contains('.')
+                && domain.split('.').all(|label| !label.is_empty())
+        })
+}
 
 /// One row a pass claimed for its mail (`sql::CLAIM_ALERTS`).
 #[derive(Debug, Deserialize)]
@@ -178,6 +193,33 @@ registry/docs/runbook.md, "Alerts"
         assert_eq!(warning.subject, "[Cabin][WARNING] verification");
         let recovered = digest(&[row(Kind::Publication, 0, 2, "open")]);
         assert_eq!(recovered.subject, "[Cabin][RECOVERED] publication");
+    }
+
+    #[test]
+    fn the_recipient_is_one_plain_address() {
+        assert!(is_address("alerts@example.com"));
+        assert!(is_address("first.last+tag@mail.example.com"));
+        for not_one in [
+            "",
+            "example.com",
+            "@example.com",
+            "alerts@",
+            "alerts@localhost",
+            "alerts@example.",
+            "alerts@.com",
+            "alerts@@example.com",
+            "alerts@example.com\n",
+            " alerts@example.com",
+            "alerts@example.com\0",
+            "a,b@example.com",
+            "a;b@example.com",
+            "<alerts@example.com",
+            "alerts@example.com>",
+            "a@example.com,b@example.com",
+            "Alerts <alerts@example.com>",
+        ] {
+            assert!(!is_address(not_one), "{not_one:?}");
+        }
     }
 
     /// Each step up the service modes is a rise, so each is mailed, and

@@ -293,10 +293,11 @@ public and lives in `wrangler.jsonc` (`vars.GITHUB_CLIENT_ID`), next to
 `ALLOWED_GITHUB_IDS` (the numeric GitHub user ids allowed to sign in and,
 during the private alpha, to use the registry at all - every Bearer token
 is re-checked against it on use);
-the wrangler secrets are the client secret, the session secret, and
-`ANALYTICS_API_TOKEN` for the budget cron (plus the optional
+the wrangler secrets are the client secret, the session secret,
+`ANALYTICS_API_TOKEN` for the budget cron, and `ALERT_RECIPIENT_EMAIL` for
+the cron's alert mail (plus the optional
 `WEBSITE_DEPLOY_HOOK`; see "Budget breaker and service mode" and
-"Integrated topology and route management"). The cron's alert mail
+"Integrated topology and route management"). The alert mail also
 needs Email Sending enabled for the zone ("Alerts").
 `CACHE_PURGE_TOKEN` joins them once the edge serves the buckets ("Upload
 lifecycle", the publish pass).
@@ -321,6 +322,7 @@ node_modules/.bin/wrangler deploy
 printf '%s' "$GITHUB_CLIENT_SECRET" | node_modules/.bin/wrangler secret put GITHUB_CLIENT_SECRET
 openssl rand -base64 32 | node_modules/.bin/wrangler secret put SESSION_SECRET
 printf '%s' "$ANALYTICS_API_TOKEN" | node_modules/.bin/wrangler secret put ANALYTICS_API_TOKEN
+printf '%s' "$ALERT_RECIPIENT_EMAIL" | node_modules/.bin/wrangler secret put ALERT_RECIPIENT_EMAIL
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
@@ -1244,16 +1246,22 @@ the kinds. When the pass cannot read the pipeline's state,
 `publication` keeps the level it had and `verification` fires: a count
 that could not be read is not a healthy one.
 
-The mail goes from `noreply@cabinpkg.com` to `ops@cabinpkg.com` through
-the `NOTIFY_EMAIL` binding (`wrangler.jsonc`, `send_email`), which
-allows no other sender and no other recipient. The binding needs
-Cloudflare Email Sending enabled for the zone and nothing else: no
-secret, and not Email Routing. Enabling it adds Cloudflare's own
+The mail goes from `noreply@cabinpkg.com` to the address in the
+`ALERT_RECIPIENT_EMAIL` secret through the `NOTIFY_EMAIL` binding
+(`wrangler.jsonc`, `send_email`), which allows no other sender. The
+address is a secret so that it is not published with the source: it is
+one plain address (`alerts@example.com`, not a list and not
+`Name <address>`), and the Worker reads it nowhere but here. The
+binding needs Cloudflare Email Sending enabled for the zone, and not
+Email Routing. Enabling it adds Cloudflare's own
 records under `cf-bounce` (MX, SPF, DKIM). The records the domain
 already has for its incoming mail (MX, SPF, DKIM, DMARC) stay as they
 are, and Email Routing stays off.
 
-A mail the binding does not accept is not recorded as sent. The next
+A mail the binding does not accept is not recorded as sent, and
+neither is one the pass could not address: the log then reads
+`alert pass failed: the ALERT_RECIPIENT_EMAIL secret is not set` or `... is
+not one plain email address`, and never the value. The next
 passes try it again, four passes in all (`alert pass failed: ...` in
 the log each time); after that the row is tried once every 24 hours,
 until a mail is accepted or the kind's level changes, which starts the

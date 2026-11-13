@@ -178,7 +178,8 @@ fn breaker_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
 /// The cron mails the operator when the service mode leaves normal,
 /// and once when it returns. A row reads as mailed once the local
 /// `NOTIFY_EMAIL` binding has accepted the pass's mail, which it does
-/// from the binding's sender to its recipient and for no other pair;
+/// from the binding's sender and no other, to the run's
+/// `ALERT_RECIPIENT_EMAIL` (`.dev.vars`);
 /// the binding keeps no copy to read, so what the mail says is
 /// `alerts::digest`'s own test. Without the analytics token the cron
 /// leaves a stored `writes_blocked` as it is, so the forced mode stays

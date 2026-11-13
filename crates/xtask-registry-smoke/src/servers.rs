@@ -660,6 +660,7 @@ fn render_dev_vars(ports: &Ports) -> String {
     let Ports { github, .. } = ports;
     format!(
         r#"SESSION_SECRET="smoke-session-secret-not-for-production"
+ALERT_RECIPIENT_EMAIL="alerts@example.com"
 ALLOWED_GITHUB_IDS="0,1,3,4"
 SERVICE_MODE_TTL_SECS="0"
 STATS_CACHE_TTL_SECS="0"

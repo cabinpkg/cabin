@@ -408,8 +408,8 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
 /// keeps the level it had, while `verification` fires: an unreadable
 /// count must not pass as healthy. The claim counts the attempt
 /// before the mail is sent, and only a mail the binding accepted is
-/// recorded as delivered: a failed one is tried again by the next
-/// passes.
+/// recorded as delivered: a failed one, or one the `ALERT_RECIPIENT_EMAIL`
+/// secret gives no address for, is tried again by the next passes.
 async fn report_alerts(
     env: &Env,
     db: &D1Database,
@@ -469,10 +469,22 @@ async fn report_alerts(
     if claimed.is_empty() {
         return Ok(());
     }
+    // The errors name the secret and never its value.
+    let recipient = env
+        .secret("ALERT_RECIPIENT_EMAIL")
+        .map_err(|_| {
+            worker::Error::RustError("the ALERT_RECIPIENT_EMAIL secret is not set".to_owned())
+        })?
+        .to_string();
+    if !alerts::is_address(&recipient) {
+        return Err(worker::Error::RustError(
+            "the ALERT_RECIPIENT_EMAIL secret is not one plain email address".to_owned(),
+        ));
+    }
     let mail = alerts::digest(&claimed);
     let message = SendEmailBuilder::builder_with_email_address_and_str(
         &EmailAddress::new(alerts::SENDER_NAME, alerts::SENDER),
-        alerts::OPERATIONS,
+        &recipient,
         &mail.subject,
     )
     .text(&mail.text)
