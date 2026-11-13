@@ -206,44 +206,42 @@ pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
 }
 
 /// A matched OAuth (browser-plane) route, served on the website origin
-/// only. These never accept bearer tokens, and the data routes above
-/// never accept the session cookie.
+/// only, under `/api/auth/`. These never accept bearer tokens, and the
+/// data routes above never accept the session cookie.
 #[derive(Debug, PartialEq, Eq)]
 pub enum WebRoute<'a> {
     Login,
+    /// `GET /api/auth/callback`: the one OAuth callback. The sealed
+    /// state cookie, not the path, says which flow is returning.
     Callback,
-    /// `GET /claim/<scope>`: start a scope claim's dedicated OAuth
-    /// roundtrip. The scope is validated here, before a cookie is
+    /// `GET /api/auth/claim/<scope>`: start a scope claim's dedicated
+    /// OAuth roundtrip. The scope is validated here, before a cookie is
     /// minted or a redirect built.
     Claim {
         scope: &'a str,
     },
-    /// `GET /callback/claim`: the claim flow's OAuth callback. A
-    /// subdirectory of `/callback` on purpose: GitHub only accepts a
-    /// `redirect_uri` at or under the OAuth app's registered callback
-    /// URL, and the `cabinpkg.com/callback*` zone route already covers
-    /// it.
-    ClaimCallback,
 }
 
-/// Matches `path` against the OAuth routes.
+/// Matches `path` against the OAuth routes. The website dispatch asks
+/// this first, so these paths never reach the Bearer handler that owns
+/// the rest of `/api/`; anything else under `/api/auth/` does, and is
+/// refused there like any unknown API path.
 pub fn match_web_route(path: &str) -> Option<WebRoute<'_>> {
-    match path {
+    match path.strip_prefix("/api/auth")? {
         "/login" => Some(WebRoute::Login),
         "/callback" => Some(WebRoute::Callback),
-        "/callback/claim" => Some(WebRoute::ClaimCallback),
-        _ => {
-            let scope = path.strip_prefix("/claim/")?;
+        rest => {
+            let scope = rest.strip_prefix("/claim/")?;
             is_valid_scope(scope).then_some(WebRoute::Claim { scope })
         }
     }
 }
 
-/// Where `/callback` sends the browser after a successful sign-in and on
-/// a refused one, and where `/callback/claim` sends it after a granted
-/// and a refused claim. All are relative paths rendered by the website;
-/// they are never derived from request input, so neither callback can be
-/// turned into an open redirect. Each keeps the trailing slash the
+/// Where the OAuth callback sends the browser after a successful
+/// sign-in and on a refused one, and after a granted and a refused
+/// claim. All are relative paths rendered by the website; they are never
+/// derived from request input, so the callback cannot be turned into an
+/// open redirect. Each keeps the trailing slash the
 /// website serves its pages under, which saves the browser a second hop.
 pub const POST_LOGIN_REDIRECT: &str = "/dashboard/";
 pub const LOGIN_DENIED_REDIRECT: &str = "/login/denied/";
@@ -257,7 +255,7 @@ pub const CLAIM_DENIED_REDIRECT: &str = "/dashboard/?claim=denied";
 
 /// A matched session-plane route: the JSON user API under
 /// `/api/v1/user`, session-cookie authenticated on the website origin.
-/// This subtree is session-only; every other `/api/` path is
+/// This subtree is session-only; every other `/api/v1/` path is
 /// Bearer-only ([`is_session_path`] draws the line).
 #[derive(Debug, PartialEq, Eq)]
 pub enum SessionRoute<'a> {
@@ -400,9 +398,9 @@ pub enum Role {
     /// The machine read plane only: `/config.json`, `/packages/*`,
     /// `/archives/*`, `/healthz`.
     Registry,
-    /// The website origin: the OAuth routes (`/login`, `/callback*`,
-    /// `/claim/*`) and `/api/*` (the Bearer mutation routes, the session
-    /// user API, and the stats).
+    /// The website origin: `/api/*` - the OAuth routes under
+    /// `/api/auth/`, the Bearer mutation routes, the session user API,
+    /// and the stats.
     Website,
 }
 
@@ -636,47 +634,51 @@ mod tests {
 
     #[test]
     fn matches_the_web_routes() {
-        assert_eq!(match_web_route("/login"), Some(WebRoute::Login));
-        assert_eq!(match_web_route("/callback"), Some(WebRoute::Callback));
+        assert_eq!(match_web_route("/api/auth/login"), Some(WebRoute::Login));
         assert_eq!(
-            match_web_route("/claim/fmtlib"),
+            match_web_route("/api/auth/callback"),
+            Some(WebRoute::Callback)
+        );
+        assert_eq!(
+            match_web_route("/api/auth/claim/fmtlib"),
             Some(WebRoute::Claim { scope: "fmtlib" })
         );
         assert_eq!(
-            match_web_route("/claim/my-org"),
+            match_web_route("/api/auth/claim/my-org"),
             Some(WebRoute::Claim { scope: "my-org" })
         );
-        // The claim callback and a claim of the scope "claim" are
-        // distinct routes.
+        // A claim of the scope "callback" or "login" is its own route.
         assert_eq!(
-            match_web_route("/callback/claim"),
-            Some(WebRoute::ClaimCallback)
-        );
-        assert_eq!(
-            match_web_route("/claim/claim"),
-            Some(WebRoute::Claim { scope: "claim" })
+            match_web_route("/api/auth/claim/callback"),
+            Some(WebRoute::Claim { scope: "callback" })
         );
     }
 
     #[test]
     fn rejects_malformed_web_paths() {
-        // `/me` is gone on purpose: the pre-1.0 no-deprecation convention
-        // means no redirect shim either.
+        // The pre-move paths are gone on purpose: the pre-1.0
+        // no-deprecation convention means no redirect shim either.
         for path in [
             "/",
-            "/login/",
-            "/callback/",
+            "/login",
+            "/callback",
+            "/callback/claim",
+            "/claim/fmtlib",
             "/me",
-            "/me/tokens",
-            "/claim",
-            "/claim/",
-            "/claim/Fmtlib",
-            "/claim/fmt.lib",
-            "/claim/-fmtlib",
-            "/claim/fmtlib/extra",
-            "/claim/..%2fescape",
-            "/callback/claim/",
-            "/callback/other",
+            "/api/auth",
+            "/api/auth/",
+            "/api/authlogin",
+            "/api/auth/login/",
+            "/api/auth/callback/",
+            "/api/auth/callback/claim",
+            "/api/auth/claim",
+            "/api/auth/claim/",
+            "/api/auth/claim/Fmtlib",
+            "/api/auth/claim/fmt.lib",
+            "/api/auth/claim/-fmtlib",
+            "/api/auth/claim/fmtlib/extra",
+            "/api/auth/claim/..%2fescape",
+            "/api/v1/auth/login",
         ] {
             assert_eq!(match_web_route(path), None, "path: {path:?}");
         }

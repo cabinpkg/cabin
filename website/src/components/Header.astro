@@ -94,8 +94,9 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
             untouched without JS or with the registry unreachable. */}
         <div class="flex shrink-0 items-center" data-account-nav>
             <span data-account-signed-out>
-                {/* prefetch opt-out: /login is the Worker's stateful OAuth
-                    route (mints the state cookie), never a static page. */}
+                {/* prefetch opt-out: the sign-in link is the Worker's
+                    stateful OAuth route (mints the state cookie), never a
+                    static page. */}
                 <Button
                     href={ACCOUNT_URLS.signIn}
                     variant="ghost"

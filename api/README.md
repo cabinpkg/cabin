@@ -33,7 +33,7 @@ the registry remains closed to allowlisted maintainers:
 | | |
 | --- | --- |
 | Index domain | `registry.cabinpkg.com` |
-| Browser/API origin | `https://cabinpkg.com` (zone routes `/api/*`, `/login`, `/callback*`, `/claim/*`) |
+| Browser/API origin | `https://cabinpkg.com` (zone route `/api/*`) |
 | D1 database | `registry` |
 | R2 buckets | `registry-archives`, `registry-uploads`, `registry-download-logs`, `registry-index` |
 
@@ -68,7 +68,7 @@ token-related keys on the registry's own user id.
 Package names are scoped (`<scope>/<name>`), and publish/yank
 authorization is per scope: the token's user must be a member of the
 target scope. A scope is claimed from the website
-(`https://cabinpkg.com/claim/<scope>`) by proving control of the
+(`https://cabinpkg.com/api/auth/claim/<scope>`) by proving control of the
 same-named GitHub account through a dedicated OAuth roundtrip: the
 scope must be your own login (lowercased) or an organization you are an
 active admin of. The claim freezes the scope string to that account's

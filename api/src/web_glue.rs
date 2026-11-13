@@ -1,6 +1,7 @@
 //! Cloudflare glue for the browser plane on the website origin: GitHub
-//! OAuth sign-in (`/login`, `/callback`), the scope-claim flow's
-//! dedicated OAuth roundtrip (`/claim/<scope>`, `/callback/claim`), and
+//! OAuth sign-in (`/api/auth/login`), the scope-claim flow's dedicated
+//! OAuth roundtrip (`/api/auth/claim/<scope>`), the callback the two
+//! share (`/api/auth/callback`), and
 //! the session-cookie user API (`/api/v1/user/*`) - JSON except the
 //! source viewer's ranged byte reads ([`package_source`]) - and the
 //! stats plane (`/api/v1/stats`, behind bearer admission). The bearer-token planes live
@@ -40,7 +41,6 @@ pub async fn respond_web(
         (WebRoute::Login, Method::Get) => login(env),
         (WebRoute::Callback, Method::Get) => callback(req, env, &db).await,
         (WebRoute::Claim { scope }, Method::Get) => claim_start(req, env, scope),
-        (WebRoute::ClaimCallback, Method::Get) => claim_callback(req, env, &db).await,
         _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
 }
@@ -222,7 +222,7 @@ async fn logout(
     Ok(response)
 }
 
-/// `GET /login`: mint a random `state`, seal it into a short-lived cookie,
+/// `GET /api/auth/login`: mint a random `state`, seal it into a short-lived cookie,
 /// and send the browser to GitHub's authorize page. No extra OAuth scopes:
 /// the public profile is all the callback reads.
 fn login(env: &Env) -> worker::Result<Response> {
@@ -251,8 +251,8 @@ fn login(env: &Env) -> worker::Result<Response> {
     redirect_response(302, &location, &[cookie])
 }
 
-/// `GET /claim/<scope>`: start a scope claim's dedicated OAuth roundtrip.
-/// Mirrors `/login`, except that the sealed state also carries the
+/// `GET /api/auth/claim/<scope>`: start a scope claim's dedicated OAuth
+/// roundtrip. Mirrors the sign-in start, except that the sealed state also carries the
 /// scope being claimed (so the callback grants exactly what this route
 /// validated), and the authorize request asks for
 /// `read:org` - the org-claim check reads the user's own membership -
@@ -290,33 +290,30 @@ fn claim_start(req: &Request, env: &Env, scope: &str) -> worker::Result<Response
         now_secs() + session::STATE_MAX_AGE_SECS,
     );
     let cookie = session::set_cookie(
-        session::CLAIM_STATE_COOKIE,
+        session::STATE_COOKIE,
         &sealed,
         session::STATE_MAX_AGE_SECS,
-        session::CLAIM_STATE_COOKIE_PATH,
+        session::STATE_COOKIE_PATH,
     );
     let location = format!(
         "{oauth_base}/login/oauth/authorize?client_id={client_id}&state={state}\
          &redirect_uri={redirect_uri}&scope={oauth_scope}",
         oauth_base = github_oauth_base(env),
         client_id = url_encode(&client_id),
-        redirect_uri = url_encode(&claim_callback_url(env)?),
+        redirect_uri = url_encode(&callback_url(env)?),
         oauth_scope = url_encode("read:org"),
     );
     redirect_response(302, &location, &[cookie])
 }
 
-/// `<WEB_ORIGIN>/callback`, the OAuth app's registered callback URL.
+/// `<WEB_ORIGIN>/api/auth/callback`: the callback URL registered with
+/// the GitHub OAuth app, and both flows' exact `redirect_uri`.
 fn callback_url(env: &Env) -> worker::Result<String> {
     let origin = env.var("WEB_ORIGIN")?.to_string();
-    Ok(format!("{}/callback", origin.trim_end_matches('/')))
-}
-
-/// `<WEB_ORIGIN>/callback/claim`, the claim flow's own callback: a
-/// subdirectory of the registered callback URL, which is as far as a
-/// GitHub OAuth app's `redirect_uri` may deviate from it.
-fn claim_callback_url(env: &Env) -> worker::Result<String> {
-    Ok(format!("{}/claim", callback_url(env)?))
+    Ok(format!(
+        "{}/api/auth/callback",
+        origin.trim_end_matches('/')
+    ))
 }
 
 /// GitHub's OAuth and API endpoints, overridable for the local smoke
@@ -333,26 +330,19 @@ fn github_api_base(env: &Env) -> String {
     )
 }
 
-/// `GET /callback`: verify the `state` against the sealed cookie, trade
-/// the `code` for an access token, read the numeric GitHub id, admit
-/// only allowlisted ids, and - when the id has no Cabin account yet -
-/// hold account creation to the sign-up age gate ([`crate::signup`]).
-/// The access token is used for that one `/user` call and dropped.
-/// Every refusal is the same redirect to the website's `/login/denied/`
-/// page with no account details, and logs the check that refused and
-/// nothing of the account; the exception is the age refusal, which
-/// appends the first eligible UTC date for the page to render and logs
-/// nothing. Success redirects to `/dashboard/`. All targets are fixed relative paths
-/// ([`crate::routes::POST_LOGIN_REDIRECT`]), never derived from request
-/// input, so the callback cannot be turned into an open redirect.
+/// `GET /api/auth/callback`: the one OAuth callback, for sign-in and
+/// for scope claims. The sealed state cookie names the flow that is
+/// returning ([`session::open_flow_state`]) - never the path or a query
+/// parameter, which a crafted link could choose - and the `state` must
+/// be that cookie's before the flow's half runs ([`sign_in`],
+/// [`claim_scope`]). A return without a `code` (GitHub sends
+/// `error=access_denied` when the visitor cancels) or with another
+/// state is refused as its cookie's flow; a request without a usable
+/// cookie belongs to no flow and gets the sign-in refusal.
 async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
     let secret = session_secret(env)?;
     // The state cookie is one-shot: cleared on every outcome.
     let clear_state = session::set_cookie(session::STATE_COOKIE, "", 0, session::STATE_COOKIE_PATH);
-    let refused = |check: &str| {
-        console_log!("sign-in refused: {check}");
-        denied(std::slice::from_ref(&clear_state))
-    };
 
     let url = req.url()?;
     let mut code = None;
@@ -364,21 +354,55 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
             _ => {}
         }
     }
-    let expected_state = req
+    let opened = req
         .headers()
         .get("cookie")?
         .as_deref()
         .and_then(|header| session::cookie_value(header, session::STATE_COOKIE))
-        .and_then(|sealed| session::open_state(&secret, sealed, now_secs()));
-    let (Some(code), Some(state_param), Some(expected_state)) = (code, state_param, expected_state)
-    else {
-        return refused("no code, state, or valid state cookie");
+        .and_then(|sealed| session::open_flow_state(&secret, sealed, now_secs()));
+    let Some((flow, expected_state)) = opened else {
+        console_log!("sign-in refused: no valid state cookie");
+        return denied(&[clear_state]);
     };
-    if state_param != expected_state {
-        return refused("the state is not the cookie's");
+    let code = code.filter(|_| state_param.as_deref() == Some(expected_state.as_str()));
+    match (flow, code) {
+        (session::Flow::Login, Some(code)) => sign_in(env, db, &secret, &code, clear_state).await,
+        (session::Flow::Claim { scope }, Some(code)) => {
+            claim_scope(env, db, &code, &scope, clear_state).await
+        }
+        (session::Flow::Login, None) => {
+            console_log!("sign-in refused: no code, or the state is not the cookie's");
+            denied(&[clear_state])
+        }
+        (session::Flow::Claim { .. }, None) => claim_denied(&[clear_state]),
     }
+}
 
-    let Some(access_token) = github_access_token(env, &code, &callback_url(env)?).await? else {
+/// The sign-in half of the callback: trade
+/// the `code` for an access token, read the numeric GitHub id, admit
+/// only allowlisted ids, and - when the id has no Cabin account yet -
+/// hold account creation to the sign-up age gate ([`crate::signup`]).
+/// The access token is used for that one `/user` call and dropped.
+/// Every refusal is the same redirect to the website's `/login/denied/`
+/// page with no account details, and logs the check that refused and
+/// nothing of the account; the exception is the age refusal, which
+/// appends the first eligible UTC date for the page to render and logs
+/// nothing. Success redirects to `/dashboard/`. All targets are fixed relative paths
+/// ([`crate::routes::POST_LOGIN_REDIRECT`]), never derived from request
+/// input, so the callback cannot be turned into an open redirect.
+async fn sign_in(
+    env: &Env,
+    db: &D1Database,
+    secret: &[u8],
+    code: &str,
+    clear_state: String,
+) -> worker::Result<Response> {
+    let refused = |check: &str| {
+        console_log!("sign-in refused: {check}");
+        denied(std::slice::from_ref(&clear_state))
+    };
+
+    let Some(access_token) = github_access_token(env, code, &callback_url(env)?).await? else {
         return refused("the GitHub code exchange failed");
     };
     let Some(user) = github_user(env, &access_token).await? else {
@@ -435,7 +459,7 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
     ])
     .await?;
 
-    let sealed = session::seal_session(&secret, user.id, &session_id, expires_at);
+    let sealed = session::seal_session(secret, user.id, &session_id, expires_at);
     let cookie = session::set_cookie(
         session::SESSION_COOKIE,
         &sealed,
@@ -445,9 +469,9 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
     redirect_response(302, POST_LOGIN_REDIRECT, &[cookie, clear_state])
 }
 
-/// `GET /callback/claim`: the claim flow's OAuth callback. Verifies the
-/// sealed claim state (which names the scope), then - with the transient
-/// access token - proves control of the same-named GitHub account:
+/// The claim half of the callback, for the `scope` the claim's start
+/// route validated and sealed into the state cookie. Proves, with the
+/// transient access token, control of the same-named GitHub account:
 /// self-claim when the scope equals the authenticated user's lowercased
 /// login, org claim when the user is an active admin of the same-named
 /// organization ([`crate::claim`]). A granted claim freezes the scope to
@@ -458,43 +482,14 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
 /// the token is dropped at the end of this scope, never stored -
 /// membership was proved *now*; the registry never holds GitHub
 /// credentials.
-async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
-    let secret = session_secret(env)?;
-    // The claim-state cookie is one-shot: cleared on every outcome.
-    let clear_state = session::set_cookie(
-        session::CLAIM_STATE_COOKIE,
-        "",
-        0,
-        session::CLAIM_STATE_COOKIE_PATH,
-    );
-
-    let url = req.url()?;
-    let mut code = None;
-    let mut state_param = None;
-    for (key, value) in url.query_pairs() {
-        match key.as_ref() {
-            "code" => code = Some(value.into_owned()),
-            "state" => state_param = Some(value.into_owned()),
-            _ => {}
-        }
-    }
-    let opened = req
-        .headers()
-        .get("cookie")?
-        .as_deref()
-        .and_then(|header| session::cookie_value(header, session::CLAIM_STATE_COOKIE))
-        .and_then(|sealed| session::open_claim_state(&secret, sealed, now_secs()));
-    let (Some(code), Some(state_param), Some((scope, expected_state))) =
-        (code, state_param, opened)
-    else {
-        return claim_denied(&[clear_state]);
-    };
-    if state_param != expected_state {
-        return claim_denied(&[clear_state]);
-    }
-
-    let Some(access_token) = github_access_token(env, &code, &claim_callback_url(env)?).await?
-    else {
+async fn claim_scope(
+    env: &Env,
+    db: &D1Database,
+    code: &str,
+    scope: &str,
+    clear_state: String,
+) -> worker::Result<Response> {
+    let Some(access_token) = github_access_token(env, code, &callback_url(env)?).await? else {
         return claim_denied(&[clear_state]);
     };
     let Some(user) = github_user(env, &access_token).await? else {
@@ -522,7 +517,7 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
     let Some(proof_account_id) = resolved else {
         return claim_denied(&[clear_state]);
     };
-    let bound = if claim::is_self_claim(&scope, &user.login) {
+    let bound = if claim::is_self_claim(scope, &user.login) {
         proof_account_id == user.id
     } else {
         let membership_path = format!(
@@ -540,7 +535,7 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
 
     // Permanence pre-check: an already-claimed scope refuses before
     // touching anything, whoever asks.
-    if scope_exists(db, &scope).await? {
+    if scope_exists(db, scope).await? {
         return claim_denied(&[clear_state]);
     }
     // Name fidelity (`claim::scope_refusal`): reserved vocabulary and
@@ -553,17 +548,17 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
             .map(|value| value.to_string())
             .unwrap_or_default(),
     );
-    if claim::scope_refusal(&scope, &claimed_scope_names(db).await?, &exempt) {
+    if claim::scope_refusal(scope, &claimed_scope_names(db).await?, &exempt) {
         return claim_denied(&[clear_state]);
     }
-    let skeleton = if exempt.contains(&scope) {
+    let skeleton = if exempt.iter().any(|exempt| exempt == scope) {
         JsValue::NULL
     } else {
-        names::skeleton(&scope).into()
+        names::skeleton(scope).into()
     };
 
     let account_id = proof_account_id.to_string();
-    if !persist_claim_grant(db, &scope, skeleton, &account_id, &claimant).await? {
+    if !persist_claim_grant(db, scope, skeleton, &account_id, &claimant).await? {
         return claim_denied(&[clear_state]);
     }
     redirect_response(302, CLAIM_GRANTED_REDIRECT, &[clear_state])

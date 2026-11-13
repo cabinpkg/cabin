@@ -104,7 +104,7 @@ mod tests {
     fn grep_keeps_every_duplicate_and_the_carriage_return() {
         let cookies = concat!(
             "HTTP/1.1 302 Found\r\n",
-            "Set-Cookie: cabin_oauth_state=a; Path=/callback; HttpOnly\r\n",
+            "Set-Cookie: cabin_oauth_state=a; Path=/api/auth/callback; HttpOnly\r\n",
             "set-cookie: cabin_oauth_state=b; Path=/; Domain=cabinpkg.com\r\n",
             "\r\n",
         );

@@ -74,14 +74,10 @@ export default defineConfig({
         // Dev-server-only (`astro dev`; Vite server options never reach the
         // static build): forward the registry routes mounted on the website
         // origin to production, so the account pages' relative fetches and
-        // the host-only session cookie work from localhost. `/login` is
-        // matched exactly - `/login/denied` is a static page of this site
-        // and must not be proxied.
+        // the host-only session cookie work from localhost.
         server: {
             proxy: {
                 "^/api/": proxyToProduction,
-                "^/login(?:\\?|$)": proxyToProduction,
-                "^/callback(?:\\?|$)": proxyToProduction,
             },
         },
     },

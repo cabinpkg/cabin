@@ -16,12 +16,10 @@ use crate::auth::hex;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Cookie carrying the sealed OAuth `state` between `/login` and
-/// `/callback`.
+/// Cookie carrying the sealed OAuth `state` of the one roundtrip in
+/// flight - a sign-in or a scope claim ([`Flow`]) - from its start
+/// route to `/api/auth/callback`. Starting either flow replaces it.
 pub const STATE_COOKIE: &str = "cabin_oauth_state";
-/// Cookie carrying the sealed claim `state` (which also names the scope
-/// being claimed) between `/claim/<scope>` and `/callback/claim`.
-pub const CLAIM_STATE_COOKIE: &str = "cabin_claim_state";
 /// Cookie carrying the sealed session after a successful sign-in.
 pub const SESSION_COOKIE: &str = "cabin_session";
 /// The state cookies live just long enough to complete the OAuth dance.
@@ -113,6 +111,30 @@ pub fn open_claim_state(secret: &[u8], sealed: &str, now: u64) -> Option<(String
         .then(|| (scope.to_owned(), state.to_owned()))
 }
 
+/// The OAuth roundtrip a state cookie was sealed for.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Flow {
+    Login,
+    /// A claim of `scope`, which the claim's start route validated.
+    Claim {
+        scope: String,
+    },
+}
+
+/// Opens the state cookie at the callback both flows share, returning
+/// the flow it was sealed for and its state. The MAC purpose is what
+/// names the flow - a value sealed by one start route never opens as
+/// the other's - so the callback learns the flow from the seal and from
+/// nothing in the request.
+pub fn open_flow_state(secret: &[u8], sealed: &str, now: u64) -> Option<(Flow, String)> {
+    open_state(secret, sealed, now)
+        .map(|state| (Flow::Login, state))
+        .or_else(|| {
+            open_claim_state(secret, sealed, now)
+                .map(|(scope, state)| (Flow::Claim { scope }, state))
+        })
+}
+
 /// Seals a session into the session-cookie value.
 pub fn seal_session(secret: &[u8], github_id: i64, id: &str, expires_at: u64) -> String {
     seal(secret, "session", &format!("{github_id}:{id}:{expires_at}"))
@@ -200,14 +222,11 @@ pub const FETCH_MODE_HEADER: &str = "sec-fetch-mode";
 pub const FETCH_PURPOSE_HEADER: &str = "sec-purpose";
 
 /// The session cookie only ever travels to the session-plane subtree,
-/// and each state cookie only to its own callback: even the website
-/// origin's own page loads never carry any of them, so the website
-/// Worker never sees a session. (`Path=/callback` also cookie-matches
-/// `/callback/claim`, which reads only the claim cookie - distinct
-/// names and MAC purposes keep the two states apart regardless.)
+/// and the state cookie only to the OAuth callback: even the website
+/// origin's own page loads never carry either, so the website Worker
+/// never sees a session.
 pub const SESSION_COOKIE_PATH: &str = "/api/v1/user";
-pub const STATE_COOKIE_PATH: &str = "/callback";
-pub const CLAIM_STATE_COOKIE_PATH: &str = "/callback/claim";
+pub const STATE_COOKIE_PATH: &str = "/api/auth/callback";
 
 /// `Set-Cookie` value for a browser-plane cookie. Host-only on purpose:
 /// no `Domain` attribute, so the cookie never flows to registry
@@ -314,6 +333,30 @@ mod tests {
             let sealed = seal(SECRET, "claim", payload);
             assert_eq!(open_claim_state(SECRET, &sealed, 0), None, "{payload:?}");
         }
+    }
+
+    #[test]
+    fn the_callback_takes_the_flow_from_the_seal() {
+        let login = seal_state(SECRET, "a1b2c3", 1_000);
+        assert_eq!(
+            open_flow_state(SECRET, &login, 999),
+            Some((Flow::Login, "a1b2c3".to_owned()))
+        );
+        let claim = seal_claim_state(SECRET, "fmtlib", "a1b2c3", 1_000);
+        let claim_flow = Flow::Claim {
+            scope: "fmtlib".to_owned(),
+        };
+        assert_eq!(
+            open_flow_state(SECRET, &claim, 999),
+            Some((claim_flow, "a1b2c3".to_owned()))
+        );
+        // Expired, re-keyed, and other-purpose values belong to no flow.
+        assert_eq!(open_flow_state(SECRET, &login, 1_000), None);
+        assert_eq!(open_flow_state(SECRET, &claim, 1_000), None);
+        assert_eq!(open_flow_state(b"another-secret", &login, 999), None);
+        assert_eq!(open_flow_state(b"another-secret", &claim, 999), None);
+        let session = seal_session(SECRET, 42, "5e55", 2_000);
+        assert_eq!(open_flow_state(SECRET, &session, 0), None);
     }
 
     #[test]

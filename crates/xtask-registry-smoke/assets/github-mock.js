@@ -194,7 +194,7 @@ http.createServer((req, res) => {
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       const redirect = new URLSearchParams(body).get("redirect_uri");
-      const registered = ["https://cabinpkg.com/callback", "https://cabinpkg.com/callback/claim"];
+      const registered = ["https://cabinpkg.com/api/auth/callback"];
       if (!registered.includes(redirect)) {
         res.statusCode = 400;
         res.end(JSON.stringify({ error: "redirect_uri_mismatch" }));

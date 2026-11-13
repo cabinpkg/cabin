@@ -27,9 +27,11 @@ use package::{publish_response, yank_response};
 use tokens::{self_revoke_response, session_mint_response, trustpub_exchange_response};
 use verifier::{admin_packages_response, admin_versions_response, verdict_authn, verdict_response};
 
-/// The website origin: the OAuth plane (`/login`, `/callback`, and the
-/// claim flow's `/claim/<scope>` and `/callback/claim`), the
-/// session-only `/api/v1/user` subtree, and the Bearer mutation plane.
+/// The website origin: the OAuth plane (`/api/auth/login`,
+/// `/api/auth/callback`, and the claim flow's
+/// `/api/auth/claim/<scope>`), matched first so no Bearer check ever
+/// sees it; the session-only `/api/v1/user` subtree; and the Bearer
+/// mutation plane.
 /// The read plane does not exist here - nothing outside those planes
 /// matches a data route, so this origin never serves `/config.json`,
 /// `/packages/*`, or `/archives/*`.

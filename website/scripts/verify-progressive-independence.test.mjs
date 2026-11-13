@@ -38,6 +38,24 @@ test("functional /api/ references are caught", () => {
     );
 });
 
+test("the sign-in link is the one functional exception", () => {
+    assert.deepEqual(
+        apiReferences('<a href="/api/auth/login">Sign in</a>'),
+        [],
+    );
+    // Only as a link the visitor follows, and only that exact route.
+    assert.deepEqual(apiReferences('<form action="/api/auth/login">'), [
+        "action=/api/auth/login",
+    ]);
+    assert.deepEqual(
+        apiReferences('<link rel="prefetch" href="/api/auth/login">'),
+        ["href=/api/auth/login"],
+    );
+    assert.deepEqual(apiReferences('<a href="/api/auth/claim/fmtlib">x</a>'), [
+        "href=/api/auth/claim/fmtlib",
+    ]);
+});
+
 test("prose and look-alike attributes are exempt", () => {
     for (const html of [
         // Documentation prose (angle brackets in rendered prose arrive

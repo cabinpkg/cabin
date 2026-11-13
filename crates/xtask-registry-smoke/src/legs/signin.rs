@@ -62,17 +62,17 @@ pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     signin_mode(smoke, github_port, "off")
 }
 
-/// Drives `/login` -> `/callback` the way the claim leg drives its own
-/// callback: capture the sealed state cookie and the authorize
+/// Drives `/api/auth/login` -> `/api/auth/callback` the way the claim
+/// leg drives its own roundtrip: capture the sealed state cookie and the authorize
 /// redirect's `state`, replay both, and hand back the callback's
 /// header block.  Neither hop follows the redirect: the 302 *is* the
 /// subject.
 fn callback_roundtrip(smoke: &mut Smoke) -> Result<String> {
-    let url = smoke.url(Base::Web, "/login");
+    let url = smoke.url(Base::Web, "/api/auth/login");
     smoke.http("GET", &url, &[], None)?;
     let block = text(&smoke.headers).into_owned();
     if !status_line_is(&block, 302) {
-        bail!("/login did not answer 302: {}", first_line(&block));
+        bail!("/api/auth/login did not answer 302: {}", first_line(&block));
     }
     let state = state_value(&location_value(&block));
     if state.is_empty() {
@@ -83,15 +83,24 @@ fn callback_roundtrip(smoke: &mut Smoke) -> Result<String> {
     }
     let cookie = oauth_state_value(&block);
     if cookie.is_empty() {
-        bail!("/login set no state cookie: {}", capture(&smoke.headers));
+        bail!(
+            "/api/auth/login set no state cookie: {}",
+            capture(&smoke.headers)
+        );
     }
 
-    let url = smoke.url(Base::Web, &format!("/callback?code=smoke&state={state}"));
+    let url = smoke.url(
+        Base::Web,
+        &format!("/api/auth/callback?code=smoke&state={state}"),
+    );
     let headers = vec![("Cookie".to_owned(), format!("cabin_oauth_state={cookie}"))];
     smoke.http("GET", &url, &headers, None)?;
     let block = text(&smoke.headers).into_owned();
     if !status_line_is(&block, 302) {
-        bail!("/callback did not answer 302: {}", first_line(&block));
+        bail!(
+            "/api/auth/callback did not answer 302: {}",
+            first_line(&block)
+        );
     }
     // The state cookie is one-shot: cleared on every outcome.
     if !grep_lines(&block, "set-cookie: cabin_oauth_state=")
@@ -118,7 +127,7 @@ fn expect_dashboard(smoke: &Smoke, block: &str, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// The cookie `/callback` itself minted - not one this harness sealed -
+/// The cookie `/api/auth/callback` itself minted - not one this harness sealed -
 /// authenticates, logs out, and is dead on replay: the session row the
 /// callback inserted must be the one the cookie names.
 fn minted_session_lifecycle(smoke: &mut Smoke, block: &str) -> Result<()> {

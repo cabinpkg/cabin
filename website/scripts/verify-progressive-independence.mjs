@@ -2,7 +2,9 @@
 // account pages, which exist to talk to the registry) must render from
 // static HTML that never depends on the registry API - no link, form
 // action, or embedded resource pointing under /api/. Prose is exempt
-// (the docs document the API). The check covers markup, not page
+// (the docs document the API), and so is the header's sign-in link: a
+// navigation the visitor chooses, which no page needs in order to
+// render. The check covers markup, not page
 // scripts: the header's auth enhancer is an external script that only
 // upgrades the page when the registry answers.
 import { readFile } from "node:fs/promises";
@@ -29,6 +31,8 @@ function isAccountPage(relativePath) {
 // with scripting on, <noscript> children are one raw-text node and a
 // functional /api/ link inside a noscript fallback would evade the walk.
 const TARGET_ATTRIBUTES = new Set(["href", "src", "action", "formaction"]);
+// ACCOUNT_URLS.signIn (src/lib/constants.ts).
+const SIGN_IN_HREF = "/api/auth/login";
 
 export function apiReferences(html) {
     const references = [];
@@ -36,7 +40,12 @@ export function apiReferences(html) {
         for (const attribute of node.attrs ?? []) {
             if (
                 TARGET_ATTRIBUTES.has(attribute.name) &&
-                attribute.value.includes("/api/")
+                attribute.value.includes("/api/") &&
+                !(
+                    node.nodeName === "a" &&
+                    attribute.name === "href" &&
+                    attribute.value === SIGN_IN_HREF
+                )
             ) {
                 references.push(`${attribute.name}=${attribute.value}`);
             }

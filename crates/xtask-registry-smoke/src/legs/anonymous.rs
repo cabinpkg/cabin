@@ -527,17 +527,17 @@ fn closed_stats(smoke: &mut Smoke) -> Result<()> {
 
 fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     step("the oauth plane lives on the website origin with host-only cookies");
-    headers_only(smoke, Base::Web, "/login")?;
+    headers_only(smoke, Base::Web, "/api/auth/login")?;
     let block = text(&smoke.headers).into_owned();
     if !status_line_is(&block, 302) {
-        bail!("/login did not answer 302: {}", first_line(&block));
+        bail!("/api/auth/login did not answer 302: {}", first_line(&block));
     }
     // The authorize base is the GitHub mock (GITHUB_OAUTH_BASE); deployed
     // environments use the real https://github.com default.
     let authorize = format!("location: http://127.0.0.1:{github_port}/login/oauth/authorize");
     if grep_lines(&block, &authorize).is_empty() {
         bail!(
-            "/login redirect is not the authorize page: {}",
+            "/api/auth/login redirect is not the authorize page: {}",
             capture(&smoke.headers)
         );
     }
@@ -547,7 +547,17 @@ fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
         .any(|line| line.contains("scope="))
     {
         bail!(
-            "/login must not request an oauth scope: {}",
+            "/api/auth/login must not request an oauth scope: {}",
+            capture(&smoke.headers)
+        );
+    }
+    // The one registered callback, exactly: the redirect's last parameter.
+    if !grep_lines(&block, "location: ").iter().any(|line| {
+        line.trim_end()
+            .ends_with("&redirect_uri=https%3A%2F%2Fcabinpkg.com%2Fapi%2Fauth%2Fcallback")
+    }) {
+        bail!(
+            "the sign-in redirect_uri is not /api/auth/callback: {}",
             capture(&smoke.headers)
         );
     }
@@ -555,10 +565,13 @@ fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     // attribute checks below rather than hidden behind the first.
     let state_cookie = grep_lines(&block, "set-cookie: cabin_oauth_state=").join("\n");
     if state_cookie.is_empty() {
-        bail!("/login set no state cookie: {}", capture(&smoke.headers));
+        bail!(
+            "/api/auth/login set no state cookie: {}",
+            capture(&smoke.headers)
+        );
     }
-    if !state_cookie.contains("Path=/callback") {
-        bail!("state cookie is not scoped to /callback: {state_cookie}");
+    if !state_cookie.contains("Path=/api/auth/callback") {
+        bail!("state cookie is not scoped to /api/auth/callback: {state_cookie}");
     }
     for attribute in ["HttpOnly", "Secure", "SameSite=Lax"] {
         if !state_cookie.contains(attribute) {
@@ -573,16 +586,28 @@ fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
 
 fn parameterless_callback(smoke: &mut Smoke) -> Result<()> {
     step("a parameterless callback redirects to the denied page");
-    headers_only(smoke, Base::Web, "/callback")?;
+    headers_only(smoke, Base::Web, "/api/auth/callback")?;
     if grep_lines(&text(&smoke.headers), "location: /login/denied/").is_empty() {
         bail!(
-            "/callback refusal is not /login/denied/: {}",
+            "/api/auth/callback refusal is not /login/denied/: {}",
             capture(&smoke.headers)
         );
     }
-    // /login is absent from the registry host like everything
+    // The oauth plane is absent from the registry host like everything
     // non-read-plane.
-    uniform_401(smoke, Base::Registry, "/login")
+    for path in [
+        "/api/auth/login",
+        "/api/auth/callback",
+        "/api/auth/claim/smoke",
+    ] {
+        uniform_401(smoke, Base::Registry, path)?;
+    }
+    // The pre-move paths, and anything else under /api/auth/, are no
+    // oauth route: the Bearer check refuses them like any unknown path.
+    for path in ["/login", "/callback", "/claim/smoke", "/api/auth/other"] {
+        uniform_401(smoke, Base::Web, path)?;
+    }
+    Ok(())
 }
 
 /// The launch guard end to end (`api/docs/runbook.md`, "Data

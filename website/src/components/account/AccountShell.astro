@@ -63,8 +63,8 @@ const { title } = Astro.props;
             <p class="mx-auto mb-8 max-w-xl text-ink-muted">
                 {SIGNIN_RESTRICTION}
             </p>
-            {/* prefetch opt-out: /login is the Worker's stateful OAuth
-                route (mints the state cookie), never a static page. */}
+            {/* prefetch opt-out: the sign-in URL is the Worker's stateful
+                OAuth route (mints the state cookie), never a static page. */}
             <Button href={ACCOUNT_URLS.signIn} data-astro-prefetch="false">
                 Sign in with GitHub
             </Button>

@@ -52,10 +52,13 @@ dashboard.
 
 A dashboard-managed WAF custom rule (Security -> WAF -> Custom rules)
 challenges requests to `cabinpkg.com` that do not come from a verified
-bot, except the registry's zone routes (`/api/*`, `/login`,
-`/callback*`, `/claim/*`), `/catalog-provenance.json`, which the
+bot, except the registry's zone route (`/api/*`, which carries the
+OAuth routes under `/api/auth/`), `/catalog-provenance.json`, which the
 registry's cron reads ("Website catalog refresh" below), and `/demo.gif`,
-which the repository README embeds. The rule matches
+which the repository README embeds. It also still excepts `/login`,
+`/callback*`, and `/claim/*`, where the OAuth routes used to live; those
+are website paths now, and the exclusions can be removed by hand. The
+rule matches
 `http.host eq "cabinpkg.com"`, so `registry.cabinpkg.com` is outside it.
 A new zone route in `wrangler.jsonc`, or another website path a machine
 client fetches, needs a hand edit of the rule's exclusions; until then
@@ -77,8 +80,10 @@ requests per 10 seconds:
 - Same characteristics: IP. Rate: 50 requests per 10 seconds. Action:
   Block, mitigation timeout 10 seconds.
 - The rule is dashboard-managed: a change to the website origin's
-  registry routes needs a hand edit of the expression. `/callback/claim`
-  is covered by the `/callback` arm.
+  registry routes needs a hand edit of the expression. Only its `/api/`
+  arm matches the registry now (the OAuth routes moved under
+  `/api/auth/`); the other three arms match website paths and can be
+  cut by hand.
 
 The rule keys on `cabinpkg.com` because the hostname-role split put the
 whole write/auth surface on the website origin; it deliberately guards
@@ -120,9 +125,8 @@ Two hostnames, one zone:
 - **`cabinpkg.com`** - the website Worker (`website`, deployed by
   Workers Builds from `website/` on every push to `main`) serves the
   marketing site, docs, and the account pages; the registry Worker
-  (`api`) takes exactly `/api/*`, `/login`, `/callback*`,
-  and `/claim/*` via the zone routes below. This one origin is the
-  registry's browser plane.
+  (`api`) takes exactly `/api/*` via the zone route below. This one
+  origin is the registry's browser plane.
 - **`registry.cabinpkg.com`** - the registry's machine read plane
   (custom domain of `api`), nothing else.
 
@@ -240,23 +244,22 @@ by their pre-migration script paths for that reason - read
 an applied migration's prose as a record of what was true when it was
 applied.
 
-The Worker reaches the website origin through **zone routes** on
-cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
-`cabinpkg.com/login`, `cabinpkg.com/callback*` (which also covers the
-claim flow's `/callback/claim`), and `cabinpkg.com/claim/*`. Route
-facts that matter operationally:
+The Worker reaches the website origin through one **zone route** on
+cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`. The OAuth routes
+live under it (`/api/auth/login`, `/api/auth/callback`,
+`/api/auth/claim/<scope>`). Route facts that matter operationally:
 
-- Path routes are more specific than the website Worker's own domain,
-  so they take precedence on exactly these paths and nothing else
+- A path route is more specific than the website Worker's own domain,
+  so it takes precedence on exactly `/api/*` and nothing else
   (Cloudflare picks the most specific matching route). Verify after any
-  route change: `/api/*` answers the registry Worker (uniform 401
-  envelope), while `/` and `/login/denied` still render the website.
+  route change: `/api/v1/user` answers the registry Worker (uniform 401
+  envelope) and `/api/auth/login` redirects to GitHub, while `/` and
+  `/login/denied` still render the website.
 - A pattern without a trailing `*` never matches a URL carrying a query
-  string - GitHub redirects to `/callback?code=...&state=...`, hence
-  `cabinpkg.com/callback*`. `/login` deliberately stays exact so the
-  website keeps serving `/login/denied`.
-- A route pattern can point at only **one** Worker; all four patterns
-  belong to `api`.
+  string, and GitHub redirects to
+  `/api/auth/callback?code=...&state=...`.
+- A route pattern can point at only **one** Worker; this one belongs
+  to `api`.
 - The website's `/dashboard`, `/settings/*`, and `/login/denied` pages
   are live on the origin ("Account pages" in `website/README.md`). For
   ops debugging, the session API also works directly: `curl -H "Cookie:
@@ -284,11 +287,11 @@ next pass; delete the secret first to keep one.
 ## First-time provisioning
 
 Prerequisite besides the API token: the GitHub OAuth app (homepage
-`https://cabinpkg.com`, authorization callback
-`https://cabinpkg.com/callback` - the browser plane lives on the website
-origin, see "Integrated topology and route management"; the claim
-flow's `/callback/claim` needs no OAuth-app change, because GitHub
-accepts a `redirect_uri` under the registered callback's path). Its client id is
+`https://cabinpkg.com`, one authorization callback,
+`https://cabinpkg.com/api/auth/callback`, with wildcard matching off -
+the browser plane lives on the website origin, see "Integrated topology
+and route management"; sign-in and the claim flow both send exactly
+that `redirect_uri`). Its client id is
 public and lives in `wrangler.jsonc` (`vars.GITHUB_CLIENT_ID`), next to
 `ALLOWED_GITHUB_IDS` (the numeric GitHub user ids allowed to sign in and,
 during the private alpha, to use the registry at all - every Bearer token
@@ -419,8 +422,8 @@ Tokens and browser sessions live in the dropped database, so a wipe
 revokes everything; users re-authenticate afterward
 (`docs/remote-registry.md`). A browser still holding a pre-wipe session
 cookie - the operator's included - gets 401 from the session API until
-it visits `/login`: GitHub auto-approves the already-authorized OAuth
-app, and `/callback` recreates the user row and a fresh session. The
+it visits `/api/auth/login`: GitHub auto-approves the already-authorized
+OAuth app, and the callback recreates the user row and a fresh session. The
 verifier needs no re-provisioning, only re-enabling in step 3 (see
 "Verification pipeline").
 
@@ -458,7 +461,7 @@ and every pass replaces one that differs.
    migrations (or to one of their own when main already carries them)
    and merge it; its main push deploys the Worker bound to the new
    database ("Deploy skew").
-2. Sign in and re-claim scopes (`/claim/<scope>`). A sign-in that lands
+2. Sign in and re-claim scopes (`/api/auth/claim/<scope>`). A sign-in that lands
    on `/login/denied` with no reason in the URL has its refusing check
    in the Worker's log (`sign-in refused: ...`; `node_modules/.bin/wrangler
    tail` while retrying, since the stored logs are sampled). Type or
