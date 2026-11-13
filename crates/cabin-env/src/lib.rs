@@ -49,7 +49,9 @@ pub use build_flags::{
     CFLAGS, CPPFLAGS, CXXFLAGS, EnvBuildFlags, EnvBuildFlagsError, LDFLAGS, parse_env_build_flags,
     split_flag_text,
 };
-pub use build_script::{BuildScriptEnvError, BuildScriptEnvInputs, build_script_env};
+pub use build_script::{
+    BuildScriptEnvError, BuildScriptEnvInputs, BuildScriptToolchain, build_script_env,
+};
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};

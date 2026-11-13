@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
@@ -30,6 +30,13 @@ pub const CABIN_TARGET_ENV: &str = "CABIN_TARGET_ENV";
 /// `gnu` or `msvc`: the command dialect of the compiler building the
 /// script's package.
 pub const CABIN_TARGET_DIALECT: &str = "CABIN_TARGET_DIALECT";
+
+/// Absolute path of the C compiler building the script's package;
+/// `CABIN_CXX` is the C++ compiler's and `CABIN_AR` the archiver's.  A
+/// compiler the build has none of leaves its variable unset.
+pub const CABIN_CC: &str = "CABIN_CC";
+pub const CABIN_CXX: &str = "CABIN_CXX";
+pub const CABIN_AR: &str = "CABIN_AR";
 
 /// Starts the variable set to `1` for each feature of the package this
 /// build enables: `CABIN_FEATURE_` and the feature's name in upper case,
@@ -87,12 +94,25 @@ pub struct BuildScriptEnvInputs<'a> {
     pub target_env: &'a str,
     /// Whether the package's compiler takes MSVC-style commands.
     pub msvc: bool,
+    pub toolchain: &'a BuildScriptToolchain,
     /// Every feature the package declares, and whether this build
     /// enables it.
     pub features: &'a [(&'a str, bool)],
     /// The build-dependency executables the script may run, by target
     /// name.
     pub tools: &'a [(&'a str, &'a Path)],
+}
+
+/// The tools building a script's package, as the script is told them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildScriptToolchain {
+    /// `None` for a compiler the build has none of.
+    pub cc: Option<PathBuf>,
+    pub cxx: Option<PathBuf>,
+    pub ar: PathBuf,
+    /// The Apple SDK Cabin names to the compilers, when it names one:
+    /// the script's `SDKROOT`, whatever Cabin's own is.
+    pub sdkroot: Option<PathBuf>,
 }
 
 /// Two names a build script could not tell apart.
@@ -158,6 +178,17 @@ pub fn build_script_env(
         ("TEMP", path(inputs.tmp)),
     ] {
         env.insert(name.to_owned(), value);
+    }
+    let toolchain = inputs.toolchain;
+    for (name, tool) in [
+        (CABIN_CC, toolchain.cc.as_ref()),
+        (CABIN_CXX, toolchain.cxx.as_ref()),
+        (CABIN_AR, Some(&toolchain.ar)),
+        ("SDKROOT", toolchain.sdkroot.as_ref()),
+    ] {
+        if let Some(tool) = tool {
+            env.insert(name.to_owned(), path(tool));
+        }
     }
 
     // A feature the build leaves off still claims its variable: the
@@ -229,6 +260,17 @@ fn variable(prefix: &str, name: &str) -> String {
 mod tests {
     use super::*;
 
+    fn toolchain() -> &'static BuildScriptToolchain {
+        static TOOLCHAIN: std::sync::LazyLock<BuildScriptToolchain> =
+            std::sync::LazyLock::new(|| BuildScriptToolchain {
+                cc: Some("/abs/bin/cc".into()),
+                cxx: Some("/abs/bin/c++".into()),
+                ar: "/abs/bin/ar".into(),
+                sdkroot: None,
+            });
+        &TOOLCHAIN
+    }
+
     fn inputs<'a>(
         features: &'a [(&'a str, bool)],
         tools: &'a [(&'a str, &'a Path)],
@@ -247,6 +289,7 @@ mod tests {
             target_family: "unix",
             target_env: "",
             msvc: false,
+            toolchain: toolchain(),
             features,
             tools,
         }
@@ -270,7 +313,10 @@ mod tests {
         let tools = [("gen-table.v2", generator)];
         let env = build_script_env(&inputs(&features, &tools), inherited).unwrap();
         let expected = [
+            ("CABIN_AR", "/abs/bin/ar"),
             ("CABIN_BIN_GEN_TABLE_V2", "/abs/tools/gen-table.v2"),
+            ("CABIN_CC", "/abs/bin/cc"),
+            ("CABIN_CXX", "/abs/bin/c++"),
             ("CABIN_FEATURE_FAST_MATH", "1"),
             ("CABIN_MANIFEST_DIR", "/abs/app"),
             ("CABIN_OUT_DIR", "/abs/run/out"),
@@ -293,6 +339,27 @@ mod tests {
         ]
         .map(|(name, value)| (name.to_owned(), OsString::from(value)));
         assert_eq!(env.into_iter().collect::<Vec<_>>(), expected);
+    }
+
+    /// The SDK Cabin builds against is the script's, over the user's,
+    /// and a compiler the build has none of is not named.
+    #[test]
+    fn the_sdk_of_the_build_replaces_an_inherited_sdkroot() {
+        let inherited = || [("SDKROOT".into(), "/sdks/mine".into())];
+        let env = build_script_env(&inputs(&[], &[]), inherited()).unwrap();
+        assert_eq!(env["SDKROOT"], "/sdks/mine");
+        let toolchain = BuildScriptToolchain {
+            cxx: None,
+            sdkroot: Some("/sdks/chosen".into()),
+            ..toolchain().clone()
+        };
+        let inputs = BuildScriptEnvInputs {
+            toolchain: &toolchain,
+            ..inputs(&[], &[])
+        };
+        let env = build_script_env(&inputs, inherited()).unwrap();
+        assert_eq!(env["SDKROOT"], "/sdks/chosen");
+        assert!(!env.contains_key("CABIN_CXX"));
     }
 
     /// Windows spells `PATH` as `Path`, and matches names in any case.

@@ -91,6 +91,28 @@ pub(crate) fn discovered_msvc_install_applies(
     }
 }
 
+/// What the build's commands run with over Cabin's own environment.
+///
+/// Only an MSVC build graph gets the MSVC environment overlay
+/// (`VSLANG`, and the auto-discovered `INCLUDE` / `LIB` / `PATH`).
+/// A GNU-style toolchain on Windows must run in the environment it
+/// was resolved under: overlaying MSVC headers/libs and PATH could
+/// silently switch `clang++` / `g++` to MSVC behavior while Cabin is
+/// still emitting `.a` archives and GNU link lines.  Empty (a no-op)
+/// off Windows.  See `cabin_toolchain::msvc_environment`.
+pub(crate) fn msvc_overlay(
+    req: &NinjaInvocationRequest<'_>,
+) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    if req.plan_graph.dialect == cabin_build::Dialect::Msvc {
+        cabin_toolchain::msvc_environment(discovered_msvc_install_applies(
+            req.toolchain,
+            req.detection.lead().identity.kind,
+        ))
+    } else {
+        Vec::new()
+    }
+}
+
 /// Run Ninja and filter its housekeeping lines (`ninja: Entering
 /// directory …`, `ninja: no work to do.`, `[N/M] …` progress)
 /// from stdout so the default surface stays terse.  Compiler
@@ -679,21 +701,7 @@ fn write_and_run(
 
     let ninja_file = profile_build_root.join("build.ninja");
     let stamp = profile_build_root.join(cabin_ninja::writer::TOOLCHAIN_STAMP);
-    // Only an MSVC build graph gets the MSVC environment overlay
-    // (`VSLANG`, and the auto-discovered `INCLUDE` / `LIB` / `PATH`).
-    // A GNU-style toolchain on Windows must run in the environment it
-    // was resolved under: overlaying MSVC headers/libs and PATH could
-    // silently switch `clang++` / `g++` to MSVC behavior while Cabin is
-    // still emitting `.a` archives and GNU link lines.  Empty (a no-op)
-    // off Windows.  See `cabin_toolchain::msvc_environment`.
-    let ninja_env = if req.plan_graph.dialect == cabin_build::Dialect::Msvc {
-        cabin_toolchain::msvc_environment(discovered_msvc_install_applies(
-            req.toolchain,
-            req.detection.lead().identity.kind,
-        ))
-    } else {
-        Vec::new()
-    };
+    let ninja_env = msvc_overlay(req);
     let mut identity = req.detection.build_identity();
     // `cl`, `clang-cl`, and `link` search `INCLUDE` and `LIB` for what no
     // command names, so a change to either rebuilds every edge, as a new

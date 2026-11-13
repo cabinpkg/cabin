@@ -56,6 +56,15 @@ sources = ["src/gated.c"]
 required-features = ["extras"]
 "#;
 
+/// No script of these tests runs a compiler.
+static TOOLCHAIN: std::sync::LazyLock<cabin_env::BuildScriptToolchain> =
+    std::sync::LazyLock::new(|| cabin_env::BuildScriptToolchain {
+        cc: None,
+        cxx: None,
+        ar: "ar".into(),
+        sdkroot: None,
+    });
+
 /// A package in a temporary directory, its build directory inside it
 /// under `work/`, and this test binary as its build script.  Each path
 /// is spelled as resolved.
@@ -164,6 +173,8 @@ impl Fixture {
             platform: &self.platform,
             msvc: false,
             machine: &self.platform.arch,
+            toolchain: &TOOLCHAIN,
+            toolchain_identity: "",
             tools: &self.tools,
             inherited: &self.inherited,
         }
@@ -501,7 +512,8 @@ fn an_unchanged_output_keeps_its_time_and_any_file_the_script_reads_reruns_one_t
     assert_ne!(modified(&copied), earlier);
 
     assert!(load(&script).is_some());
-    // Another executable, or another environment, is another run.
+    // Another executable, another environment, or another version of
+    // the compilers, is another run.
     let rebuilt = Script {
         executable: &fixture.tools[0].1,
         ..script
@@ -512,6 +524,11 @@ fn an_unchanged_output_keeps_its_time_and_any_file_the_script_reads_reruns_one_t
         ..script
     };
     assert!(load(&reconfigured).is_none());
+    let upgraded = Script {
+        toolchain_identity: "newer",
+        ..script
+    };
+    assert!(load(&upgraded).is_none());
     // What the script cannot read is none of its files; what it can
     // is, under whatever name.
     fs::write(fixture.root.join(".git").join("config"), "changed").unwrap();

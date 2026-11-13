@@ -9,7 +9,8 @@ use std::thread;
 use cabin_core::{
     CompilerKind, ResolvedToolchain, Sysroot, TargetPlatform, ToolchainDetectionReport,
 };
-use camino::Utf8PathBuf;
+use cabin_env::BuildScriptToolchain;
+use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
 use crate::detect::{DetectionError, ToolRunner, detect_toolchain};
@@ -126,6 +127,45 @@ fn apple_sdk(
         path: Utf8PathBuf::from(path),
         apple: true,
     })
+}
+
+/// The compilers and archiver of `report` as a build script is told
+/// them, with `apple_sdk`, the Apple SDK Cabin names to them when it
+/// names one.
+///
+/// On macOS, Xcode's shims in `/usr/bin` (`cc`, `ar`, ...) look up the
+/// tool they start on every run, which takes seconds where they cannot
+/// reach their lookup cache, as under a build script's confinement.  So
+/// with an SDK, each shim is named as the tool `xcrun` finds for it,
+/// which started directly finds that SDK through `SDKROOT` alone.  A
+/// compiler is looked up as `clang` or `clang++`, the tool every shim
+/// for one starts: what `xcrun` finds for `gcc` is another shim.
+pub fn build_script_toolchain(
+    report: &ToolchainDetectionReport,
+    apple_sdk: Option<&Sysroot>,
+    runner: &dyn ToolRunner,
+) -> BuildScriptToolchain {
+    let apple_sdk = apple_sdk.filter(|sdk| sdk.apple);
+    let tool = |path: &Utf8Path, name: Option<&str>| {
+        let shim = cfg!(target_os = "macos") && path.parent() == Some(Utf8Path::new("/usr/bin"));
+        let sdk = apple_sdk.filter(|_| shim);
+        let found = sdk.zip(name.or(path.file_name())).and_then(|(sdk, name)| {
+            let find = ["--sdk", sdk.path.as_str(), "--find", name];
+            let output = runner.run(Path::new("xcrun"), &find).ok()?;
+            let found = Path::new(output.stdout.trim());
+            (output.status == 0 && found.is_absolute()).then(|| found.to_owned())
+        });
+        found.unwrap_or_else(|| path.into())
+    };
+    BuildScriptToolchain {
+        cc: report.cc.as_ref().map(|cc| tool(&cc.path, Some("clang"))),
+        cxx: report
+            .cxx
+            .as_ref()
+            .map(|cxx| tool(&cxx.path, Some("clang++"))),
+        ar: tool(&report.ar.path, None),
+        sdkroot: apple_sdk.map(|sdk| sdk.path.clone().into()),
+    }
 }
 
 fn is_apple(platform: &TargetPlatform) -> bool {
@@ -278,5 +318,42 @@ mod tests {
         assert_eq!(discover("arm64-apple-macos13", &mixed, None), None);
         assert_eq!(discover("aarch64-unknown-linux-gnu", &apple, None), None);
         assert_eq!(discover("arm64-apple-ios17.0", &apple, None), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_build_script_is_told_the_tools_behind_xcodes_shims() {
+        let find = |name| ["--sdk", "/sdks/MacOSX.sdk", "--find", name];
+        let runner = FakeRunner::new()
+            .with("xcrun", &find("clang"), "/xcode/bin/clang\n", "", 0)
+            .with("xcrun", &find("ar"), "", "xcrun: error", 1);
+        let mut report = report(CompilerKind::AppleClang, Some(CompilerKind::AppleClang));
+        report.cxx.as_mut().unwrap().path = "/opt/llvm/bin/clang++".into();
+        let sdk = |apple| Sysroot {
+            path: "/sdks/MacOSX.sdk".into(),
+            apple,
+        };
+
+        // A tool elsewhere, and a shim `xcrun` finds nothing for, stay.
+        let told = build_script_toolchain(&report, Some(&sdk(true)), &runner);
+        let expected = BuildScriptToolchain {
+            cc: Some("/xcode/bin/clang".into()),
+            cxx: Some("/opt/llvm/bin/clang++".into()),
+            ar: "/usr/bin/ar".into(),
+            sdkroot: Some("/sdks/MacOSX.sdk".into()),
+        };
+        assert_eq!(told, expected);
+        // Without an Apple SDK, every tool does.
+        report.cxx = None;
+        for sdk in [None, Some(sdk(false))] {
+            let told = build_script_toolchain(&report, sdk.as_ref(), &runner);
+            let expected = BuildScriptToolchain {
+                cc: Some("/usr/bin/cc".into()),
+                cxx: None,
+                ar: "/usr/bin/ar".into(),
+                sdkroot: None,
+            };
+            assert_eq!(told, expected);
+        }
     }
 }

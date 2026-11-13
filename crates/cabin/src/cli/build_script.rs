@@ -43,7 +43,6 @@ pub(crate) fn run(
     let Some(context) = &prepared.build_context else {
         return Ok((outputs, locks));
     };
-    let inherited: Vec<_> = std::env::vars_os().collect();
     // What a script is told of the context it prepares units of.
     let side = |script: &cabin_build::BuildScript| {
         if script.build_context {
@@ -60,6 +59,10 @@ pub(crate) fn run(
             )
         }
     };
+    // The build context builds against the same SDK as the target's when
+    // its compilers are the target's and that SDK is their default.
+    let shared_sdk = !context.cross && !prepared.configured_sysroot;
+    let mut toolchains = [None, None];
     let profile_dir = cabin_build::layout::profile_dir(&prepared.build_dir, &prepared.profile.name);
     let build_root = utf8(&prepared.build_root)?;
 
@@ -128,12 +131,34 @@ pub(crate) fn run(
             .map(Utf8PathBuf::as_path)
             .collect();
         ninja::build_targets(&request, &targets)?;
+        // A script starts the build's compilers in the environment Cabin
+        // starts them in.  Windows matches a variable's name in any case.
+        let overlay = ninja::msvc_overlay(&request);
+        let set = |name: &std::ffi::OsStr| {
+            overlay
+                .iter()
+                .any(|(set, _)| set.eq_ignore_ascii_case(name))
+        };
+        let inherited: Vec<_> = std::env::vars_os()
+            .filter(|(name, _)| !set(name))
+            .chain(overlay.iter().cloned())
+            .collect();
 
         let empty = std::collections::BTreeSet::new();
         for (script, executable, tools) in &runs {
             let package = &prepared.graph.packages[script.package];
             let name = package.package.name.as_str();
             let (features, detection, platform) = side(script);
+            // One answer serves both contexts where they share an SDK.
+            let apart = script.build_context && !shared_sdk;
+            let (toolchain, identity) = toolchains[usize::from(apart)].get_or_insert_with(|| {
+                let toolchain = cabin_toolchain::build_script_toolchain(
+                    detection,
+                    prepared.sysroot.as_ref().filter(|_| !apart),
+                    &cabin_toolchain::ProcessRunner,
+                );
+                (toolchain, detection.build_identity().to_string())
+            });
             // What the compilers say they build for, but for the target
             // units of a `--target` build, whose compilers build what it
             // names.  A build without `--target` may run compilers for
@@ -164,6 +189,8 @@ pub(crate) fn run(
                 msvc: cabin_build::Dialect::from_compiler_kind(detection.lead().identity.kind)
                     == cabin_build::Dialect::Msvc,
                 machine,
+                toolchain,
+                toolchain_identity: identity,
                 tools,
                 inherited: &inherited,
             };
