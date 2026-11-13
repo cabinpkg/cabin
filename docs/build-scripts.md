@@ -322,7 +322,9 @@ Limits to know:
 - On Linux a script can see whether any path exists, with its size and times, change the mode,
   times, and extended attributes of any file you own, and read every process's command line.
   Before Linux 6.12 it can signal any process of yours.  On Windows it can see whether any path
-  exists.
+  exists.  On macOS it can read the metadata of each directory that leads to what it reads or
+  writes, and of the files its standard output and standard error go to: what `stat` reports, the
+  names of the extended attributes, and the access-control list.
 - **Every build script of a build reads every directory a `CABIN_SDK_*` variable names**, not
   only the script the variable is meant for.  Name the SDK's own directory, not one that holds
   anything else.  A variable that names a file opens nothing to a script, and neither does one

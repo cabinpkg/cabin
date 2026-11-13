@@ -26,7 +26,7 @@
 //!   `TMP` name a directory Windows makes for the run instead of `tmp`.
 //!
 //! Beside those four, [`Script::dir`] holds what the script cannot
-//! reach: `stdout` and `stderr`, what the last run printed, and `stamp`,
+//! open: `stdout` and `stderr`, what the last run printed, and `stamp`,
 //! the last successful run's result under the key of what that run
 //! depended on.
 //!
