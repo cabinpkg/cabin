@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::path::PathBuf;
 
-use cabin_core::{Condition, DependencyKind, PackageName};
+use cabin_core::{Condition, PackageName};
 use serde::Deserialize;
 
 /// A loaded JSON package index.
@@ -44,13 +44,12 @@ pub struct VersionMetadata {
     pub build_dependencies: BTreeMap<PackageName, IndexPackageDependency>,
     /// `[dev-dependencies]` of this version.
     pub dev_dependencies: BTreeMap<PackageName, IndexPackageDependency>,
-    /// `system = true` dependencies of this version.  Each entry is
-    /// a declaration the consumer is responsible for resolving
-    /// outside Cabin (system probe, package manager, etc.) - they
-    /// never enter the Cabin resolver / fetcher / cache.  Keyed by
-    /// pkg-config module name, which keeps its own grammar
-    /// (`cabin_core::validate_system_dependency_name`).
-    pub system_dependencies: BTreeMap<String, IndexSystemDependency>,
+    /// The libraries this version expected of the system, by the
+    /// names it was published with while Cabin read `system = true`.
+    /// Nothing supplies them now, so a build refuses a version that
+    /// lists any.  Still read, since an index document that carries
+    /// the key holds the package's other versions too.
+    pub system_dependencies: Vec<String>,
     /// Whether this version has been yanked.  Yanked versions are
     /// excluded from resolver candidate sets.
     pub yanked: bool,
@@ -251,21 +250,6 @@ pub struct ResolutionMetadata {
     pub features: cabin_core::Features,
     pub standards: cabin_core::StandardsMetadata,
     pub links: BTreeMap<String, String>,
-}
-
-/// One `system = true` dependency entry as it appears in an index
-/// version metadata document.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IndexSystemDependency {
-    /// Free-form version requirement string.  Not interpreted as a
-    /// `SemVer` constraint.
-    pub version: String,
-    /// Dependency table the system declaration came from.
-    /// Defaults to `normal` when omitted by older registries.
-    pub dependency_kind: DependencyKind,
-    /// Optional `cfg(...)` predicate copied from the on-disk
-    /// `target` field.
-    pub condition: Option<Condition>,
 }
 
 /// One Cabin package dependency entry inside an index version

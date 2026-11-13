@@ -385,7 +385,6 @@ mod consumer_standards_tests {
             version: semver::Version::new(1, 0, 0),
             targets,
             dependencies: Vec::new(),
-            system_dependencies: Vec::new(),
             features,
         })
         .unwrap();

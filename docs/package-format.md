@@ -240,9 +240,6 @@ publishing a version the registry verifier rejects as `missing_source`.
   "build-dependencies": {
     "cabin-ports/re2c": "^4"
   },
-  "system-dependencies": {
-    "openssl": { "version": ">=3" }
-  },
   "features": {
     "default": ["simd"],
     "features": { "simd": [], "ssl": [] }
@@ -264,8 +261,7 @@ publishing a version the registry verifier rejects as `missing_source`.
 | `dependencies` | Normal-kind versioned registry dependencies (`[dependencies]`).  Path / workspace dependencies cause validation to fail before metadata is generated. |
 | `dev-dependencies` *(optional)* | `[dev-dependencies]` versioned dependencies.  Omitted when empty. |
 | `build-dependencies` *(optional)* | `[build-dependencies]` versioned dependencies.  Omitted when empty. |
-| `system-dependencies` *(optional)* | Entries declared with `system = true` in any of the dependency tables, keyed by pkg-config module name: `{ name -> { "version", "dependency_kind" } }`.  Omitted when empty.  Every declared system dependency is required; the metadata document has no `required` field.  Cabin never resolves or fetches these - they round-trip purely as metadata, and `cabin build` probes them via `pkg-config`. |
-| `target` *(optional, per-entry)* | Canonical inner-expression form of a `cfg(...)` predicate copied from `[target.'cfg(...)'.<kind>]`.  Present on Cabin package and system dep entries declared under a target table; absent otherwise.  The wrapping `cfg(...)` is implicit.  See [`target-dependencies.md`](target-dependencies.md). |
+| `target` *(optional, per-entry)* | Canonical inner-expression form of a `cfg(...)` predicate copied from `[target.'cfg(...)'.<kind>]`.  Present on entries declared under a target table; absent otherwise.  The wrapping `cfg(...)` is implicit.  See [`target-dependencies.md`](target-dependencies.md). |
 | `features` *(optional)* | The package's `[features]` declarations.  Omitted from the JSON when no features are declared. |
 | `toolchain` *(optional)* | The workspace root's `[toolchain]` plus any `[target.'cfg(...)'.toolchain]` overrides, exactly as written in the manifest.  Environment- or CLI-derived selections are deliberately not written here.  Omitted when no `[toolchain]` table was declared.  See [`toolchains.md`](toolchains.md). |
 | `build` *(optional)* | The package's `[profile]` plus any general `[target.'cfg(...)'.profile]` and named `[target.'cfg(...)'.profile.<name>]` overrides.  Named entries carry an optional profile-name discriminator.  Omitted when empty. |

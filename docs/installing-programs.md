@@ -68,7 +68,6 @@ A registry package is built as a dependency is, so less of its manifest applies 
 - The raw `cflags`, `cxxflags`, and `ldflags` it declares are dropped, and the
   [environment's flags](environment-variables.md#cppflags--cflags--cxxflags--ldflags) do not reach
   it.
-- Its `system = true` dependencies are not probed, so a program that needs one does not link.
 - `--profile` names `dev` or `release`.
 
 Install such a package from a copy of its sources with `--path`.

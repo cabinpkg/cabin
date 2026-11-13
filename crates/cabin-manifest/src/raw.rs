@@ -405,15 +405,11 @@ pub(crate) struct RawDependencyTable {
     /// `[workspace.dependencies]` for normal deps).
     #[serde(default)]
     pub(crate) workspace: Option<bool>,
-    /// `{ system = true }` marks this dependency as
-    /// system-sourced: Cabin probes it via `pkg-config` at
-    /// build time instead of resolving it through the registry
-    /// or workspace tables.  Mutually exclusive with `path`,
-    /// `workspace`, `features`, `default-features`, and
-    /// `optional` (the parser rejects each combination
-    /// individually).
+    /// `system`, which Cabin no longer reads.  Named so that an
+    /// entry still carrying it is refused with the error that says
+    /// where a system library comes from now, whatever it is set to.
     #[serde(default)]
-    pub(crate) system: bool,
+    pub(crate) system: Option<serde::de::IgnoredAny>,
     /// `optional = true` marks a normal or build dependency as
     /// inactive until a feature implication enables it.
     #[serde(default)]
@@ -427,8 +423,7 @@ pub(crate) struct RawDependencyTable {
     pub(crate) default_features: Option<bool>,
     /// `ignore-interface-standard = true` exempts exactly this
     /// dependency edge from the standard-compatibility check (the
-    /// edge is reported as unchecked instead).  Mutually exclusive
-    /// with `system` (system deps never enter the check).
+    /// edge is reported as unchecked instead).
     #[serde(default, rename = "ignore-interface-standard")]
     pub(crate) ignore_interface_standard: Option<bool>,
     /// `targets = [...]` on a build dependency: the dependency's

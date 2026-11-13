@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 use cabin_core::registry::{
     REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, api_url_error, relative_subdir_is_safe,
 };
-use cabin_core::{Condition, DependencyKind, PackageName};
+use cabin_core::{Condition, PackageName};
 use serde::Deserialize;
 
 use crate::error::IndexError;
 use crate::model::{
-    BuildScript, IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex,
-    ResolutionMetadata, RevisionMetadata, SourceLocation, VersionMetadata,
+    BuildScript, IndexEntry, IndexPackageDependency, PackageIndex, ResolutionMetadata,
+    RevisionMetadata, SourceLocation, VersionMetadata,
 };
 use crate::walk::walk_dependencies;
 
@@ -269,12 +269,12 @@ fn load_package_file(path: &Path, scope: Option<&str>) -> Result<IndexEntry, Ind
 /// `2`,
 /// [`IndexError::NameMismatch`] when `name_hint` disagrees with the
 /// declared `name`, [`IndexError::InvalidPackageName`] for an invalid
-/// package, dependency, or system-dependency name,
+/// package or dependency name,
 /// [`IndexError::InvalidVersion`] for a non-SemVer version,
 /// [`IndexError::VersionBuildMetadata`] for a version carrying build
 /// metadata, [`IndexError::InvalidRequirement`] for an unparsable
 /// dependency requirement, [`IndexError::CompilerConditionedDependency`]
-/// when a dependency or system-dependency `target` references the
+/// when a dependency `target` references the
 /// compiler, [`IndexError::InvalidRevision`] for an invalid `revision`
 /// / `revisions` pair, and [`IndexError::InvalidLinks`] /
 /// [`IndexError::InvalidFeatures`] for an invalid `links` or
@@ -338,8 +338,6 @@ pub fn parse_package_entry(
             parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.build_dependencies)?;
         let dev_dependencies =
             parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dev_dependencies)?;
-        let system_dependencies =
-            parse_system_dependencies(&raw.name, &ver_str, raw_ver.system_dependencies)?;
         let (revision, revisions) = parse_revisions(
             &raw.name,
             &ver_str,
@@ -366,7 +364,7 @@ pub fn parse_package_entry(
                 dependencies,
                 build_dependencies,
                 dev_dependencies,
-                system_dependencies,
+                system_dependencies: raw_ver.system_dependencies.into_keys().collect(),
                 yanked: raw_ver.yanked,
                 revision,
                 revisions,
@@ -507,39 +505,6 @@ fn parse_kinded_dependencies(
                 features,
                 default_features,
                 condition,
-            },
-        );
-    }
-    Ok(deps)
-}
-
-/// Parse the `system-dependencies` table of one index version
-/// document into typed [`IndexSystemDependency`] entries.  Mirrors
-/// [`parse_kinded_dependencies`]; `package` and `version` only feed
-/// the error context.
-fn parse_system_dependencies(
-    package: &str,
-    version: &str,
-    raw_table: BTreeMap<String, RawIndexSystemDependency>,
-) -> Result<BTreeMap<String, IndexSystemDependency>, IndexError> {
-    let mut deps: BTreeMap<String, IndexSystemDependency> = BTreeMap::new();
-    for (sys_name, raw_sys) in raw_table {
-        cabin_core::validate_system_dependency_name(&sys_name).map_err(|err| {
-            IndexError::InvalidPackageName {
-                package: package.to_owned(),
-                message: err.to_string(),
-            }
-        })?;
-        // Same platform-only invariant as package dependencies:
-        // system-dependency activation never sees toolchain
-        // detection, so a compiler-conditioned gate is rejected.
-        reject_compiler_condition(package, version, &sys_name, raw_sys.target.as_ref())?;
-        deps.insert(
-            sys_name,
-            IndexSystemDependency {
-                version: raw_sys.version,
-                dependency_kind: raw_sys.dependency_kind,
-                condition: raw_sys.target,
             },
         );
     }
@@ -753,11 +718,12 @@ struct RawVersion {
     build_dependencies: BTreeMap<String, RawIndexPackageDep>,
     #[serde(default, rename = "dev-dependencies")]
     dev_dependencies: BTreeMap<String, RawIndexPackageDep>,
-    /// `system-dependencies` field of this version.  Each entry
-    /// uses the system-dep schema (free-form `version`).  Defaults
-    /// to empty.
+    /// `system-dependencies` of a version published while Cabin read
+    /// `system = true`.  Only the names are kept; see
+    /// [`VersionMetadata::system_dependencies`].
     #[serde(default, rename = "system-dependencies")]
-    system_dependencies: BTreeMap<String, RawIndexSystemDependency>,
+    #[allow(clippy::zero_sized_map_values)] // a JSON object's keys, whatever its values
+    system_dependencies: BTreeMap<String, serde::de::IgnoredAny>,
     #[serde(default)]
     yanked: bool,
     /// Current packaging-revision id; must name a `revisions` key.
@@ -861,19 +827,6 @@ struct RawResolution {
     standards: cabin_core::StandardsMetadata,
     #[serde(default)]
     links: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawIndexSystemDependency {
-    version: String,
-    #[serde(default)]
-    dependency_kind: DependencyKind,
-    /// Canonical inner-expression form of a `cfg(...)` predicate.
-    /// Optional so older registries that do not use target-
-    /// specific system declarations stay readable.
-    #[serde(default)]
-    target: Option<Condition>,
 }
 
 /// On-disk shape of one Cabin package dependency entry inside an
@@ -1247,8 +1200,12 @@ mod tests {
         );
     }
 
+    /// A version published while Cabin read `system = true` lists the
+    /// libraries it expected of the system.  Its document still loads,
+    /// so the package's other versions stay usable, and the version
+    /// keeps the names for the error that refuses it.
     #[test]
-    fn loads_system_dependency_with_dependency_kind_field() {
+    fn a_versions_legacy_system_dependencies_load_as_names() {
         let dir = TempDir::new().unwrap();
         dir.child("demo.json")
             .write_str(
@@ -1259,65 +1216,22 @@ mod tests {
                     "0.1.0": {
                         "dependencies": {},
                         "system-dependencies": {
-                            "openssl": {
-                                "version": ">=3",
-                                "dependency_kind": "dev"
-                            }
+                            "openssl": { "version": ">=3", "dependency_kind": "dev" },
+                            "glib-2.0": { "version": ">=2", "target": "cc = \"unknown\"" }
                         }
-                    }
+                    },
+                    "0.2.0": { "dependencies": {} }
                 }
             }"#,
             )
             .unwrap();
         let index = load(dir.path(), &["demo"]).unwrap();
         let entry = index.package(&PackageName::new("demo").unwrap()).unwrap();
-        let meta = entry
-            .versions
-            .get(&semver::Version::parse("0.1.0").unwrap())
-            .unwrap();
-        let dep = meta.system_dependencies.get("openssl").unwrap();
-        assert_eq!(dep.version, ">=3");
-        assert_eq!(dep.dependency_kind, DependencyKind::Dev);
-    }
-
-    /// Index system-dependency keys are pkg-config module names, so an
-    /// upstream spelling outside the package grammar still loads, while
-    /// a package-dependency key in that spelling does not.
-    #[test]
-    fn system_dependency_keys_keep_the_pkg_config_grammar() {
-        let entry = |deps: &str| {
-            let dir = TempDir::new().unwrap();
-            dir.child("demo.json")
-                .write_str(&format!(
-                    r#"{{"schema": 1, "name": "demo", "versions": {{"0.1.0": {deps}}}}}"#
-                ))
-                .unwrap();
-            load(dir.path(), &["demo"])
+        let listed = |version: &str| {
+            &entry.versions[&semver::Version::parse(version).unwrap()].system_dependencies
         };
-        let index = entry(
-            r#"{"dependencies": {}, "system-dependencies": {"glib-2.0": {"version": ">=2"}, "SDL2": {"version": ">=2"}}}"#,
-        )
-        .unwrap();
-        let meta = index
-            .package(&PackageName::new("demo").unwrap())
-            .unwrap()
-            .versions
-            .get(&semver::Version::parse("0.1.0").unwrap())
-            .unwrap();
-        assert!(meta.system_dependencies.contains_key("glib-2.0"));
-        assert!(meta.system_dependencies.contains_key("SDL2"));
-
-        let err = entry(r#"{"dependencies": {"acme/SDL2": {"version": "^2"}}}"#).unwrap_err();
-        assert!(
-            matches!(err, IndexError::InvalidPackageName { .. }),
-            "{err:?}"
-        );
-        let err = entry(r#"{"dependencies": {}, "system-dependencies": {"-lz": {"version": ""}}}"#)
-            .unwrap_err();
-        assert!(
-            matches!(err, IndexError::InvalidPackageName { .. }),
-            "{err:?}"
-        );
+        assert_eq!(listed("0.1.0"), &["glib-2.0", "openssl"]);
+        assert!(listed("0.2.0").is_empty());
     }
 
     #[test]
@@ -1355,35 +1269,6 @@ mod tests {
                 assert_eq!(version, "1.0.0");
                 assert_eq!(dep, "fmt");
                 assert_eq!(condition, r#"not(cxx = "gcc")"#);
-            }
-            other => panic!("expected CompilerConditionedDependency, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn compiler_conditioned_system_dependency_target_is_rejected() {
-        let dir = TempDir::new().unwrap();
-        dir.child("demo.json")
-            .write_str(
-                r#"{
-                "schema": 1,
-                "name": "demo",
-                "versions": {
-                    "0.1.0": {
-                        "dependencies": {},
-                        "system-dependencies": {
-                            "openssl": { "version": ">=3", "target": "cc = \"unknown\"" }
-                        }
-                    }
-                }
-            }"#,
-            )
-            .unwrap();
-        let err = load(dir.path(), &["demo"]).unwrap_err();
-        match err {
-            IndexError::CompilerConditionedDependency { dep, condition, .. } => {
-                assert_eq!(dep, "openssl");
-                assert_eq!(condition, r#"cc = "unknown""#);
             }
             other => panic!("expected CompilerConditionedDependency, got {other:?}"),
         }

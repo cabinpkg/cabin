@@ -284,8 +284,8 @@ spdlog = { version = "^1.13.0" }
 Each entry declares a package-level dependency.  The dependency value is either:
 
 - a **string** - interpreted as a SemVer requirement;
-- a **table** - must specify exactly one source: `path`, `version`, `workspace = true`, or
-  `system = true`.  The source may be combined with `features`, `default-features`, `optional`,
+- a **table** - must specify exactly one source: `path`, `version`, or `workspace = true`.  The
+  source may be combined with `features`, `default-features`, `optional`,
   `ignore-interface-standard`, or, on build dependencies, `targets` (see
   [Dependency kinds](dependency-kinds.md#build-dependencies)), subject to per-source rules below.  Unknown keys are rejected by
   the manifest parser.
@@ -299,9 +299,6 @@ package-name grammar.  Registry dependency keys are always the scoped `<scope>/<
 `cabin publish` rejects a bare versioned dependency key in `[dependencies]` or
 `[dev-dependencies]` (dev-dependency keys denote registry packages too - they resolve when
 building the package's own tests), and the hosted registry enforces the same rule server-side.
-System dependencies (`system = true`) are exempt: their keys name pkg-config modules, not
-packages, and keep a path-safe grammar that allows uppercase and `.` (`glib-2.0`, `SDL2`; see
-[`system-dependencies.md`](system-dependencies.md)).
 
 ### `ignore-interface-standard`
 
@@ -316,8 +313,7 @@ or a path or `[patch]` package always prints it.  The exemption covers this chec
 interface enforcement is unaffected, so it can unblock the interface-`"none"` and cross-language
 violation classes but not interface-range violations - below the declared minimum or above the
 declared maximum - which that enforcement independently rejects.  The field is deliberately per-edge: there is no package-wide or global variant.  It is accepted on every package-sourced
-form (path, version, workspace) in `[dependencies]` and `[dev-dependencies]`, and rejected
-alongside `system = true` (system dependencies never enter the check).
+form (path, version, workspace) in `[dependencies]` and `[dev-dependencies]`.
 
 ### Version requirement syntax
 
@@ -505,10 +501,10 @@ The parser and downstream tools reject manifests when:
 - two targets of one package claim the same `links` value
 - `[package].license` is not a valid SPDX license expression (see [`license`](#license))
 - the same dependency key appears twice
-- a dependency entry has neither `path`, `version`, `workspace`, nor `system = true`
+- a dependency entry has neither `path`, `version`, nor `workspace`
 - a dependency entry combines mutually exclusive source forms
-- a dependency table combines `system = true` with another source form (`path`, `workspace`,
-  `features`, `default-features`, or `optional`)
+- a dependency entry sets `system`, which Cabin
+  [no longer reads](system-dependencies.md#the-removed-system-key)
 - a versioned dependency requirement is not parseable
 - a referenced local manifest does not exist
 - a dependency key does not match the referenced package's name

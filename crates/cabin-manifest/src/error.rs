@@ -128,17 +128,18 @@ pub enum ManifestError {
     // -----------------------------------------------------------------
     // Dependency-kind errors.
     // -----------------------------------------------------------------
-    #[error(
-        "dependency {name:?} in {section} sets `system = true` but also declares {field:?}; the field is incompatible with `system = true`"
+    /// The `system` key of a dependency entry, which had Cabin ask
+    /// pkg-config for the library until a package could supply a
+    /// system library from its build script.  Refused whatever it is
+    /// set to: read past, the entry would name a registry package.
+    #[error("dependency {name:?} in {table} sets `system`, which is no longer supported")]
+    #[diagnostic(
+        code(cabin::manifest::system_dependency_removed),
+        help(
+            "replace the entry with a dependency on a package that supplies the library, one whose build script reports it with `external` and `pkg-config` lines"
+        )
     )]
-    SystemConflictsWith {
-        name: String,
-        section: &'static str,
-        field: &'static str,
-    },
-
-    #[error("system dependency {name:?} requires a `version` requirement string")]
-    SystemDependencyMissingVersion { name: String },
+    SystemDependencyRemoved { name: String, table: String },
 
     #[error("target-specific dependency table {section:?} is not supported")]
     TargetSpecificDependenciesNotSupported { section: String },
@@ -157,15 +158,6 @@ pub enum ManifestError {
     CompilerConditionNotAllowedHere {
         condition: String,
         table: &'static str,
-    },
-
-    #[error(
-        "system dependencies are not supported in {section}; declared system dependency: {name:?}",
-        section = kind.manifest_section(),
-    )]
-    SystemNotSupportedForKind {
-        name: String,
-        kind: cabin_core::DependencyKind,
     },
 
     #[error(

@@ -2463,8 +2463,8 @@ mod jobs_parallelism;
 #[path = "cli/tidy_command.rs"]
 mod tidy_command;
 
-#[path = "cli/system_deps_pkg_config.rs"]
-mod system_deps_pkg_config;
+#[path = "cli/pkg_config.rs"]
+mod pkg_config;
 
 /// Integration tests for the conventional C/C++ build-flag
 /// environment variables: `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and

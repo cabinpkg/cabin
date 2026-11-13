@@ -1020,17 +1020,18 @@ fn a_library_a_script_supplies_is_one_the_build_links() {
     }
 
     // pkg-config's modules are something to link too, each with its
-    // requirement as written.
+    // requirement as written and its name as upstream spells it.
     let report = parse(
         &script,
-        "pkg-config demo zlib >=1.2.11, <2\npkg-config demo libpng16",
+        "pkg-config demo zlib >=1.2.11, <2\npkg-config demo glib-2.0\npkg-config demo SDL2",
     )
     .unwrap();
     assert_eq!(
         report.targets["demo"].pkg_config,
         [
             ("zlib".to_owned(), ">=1.2.11, <2".to_owned()),
-            ("libpng16".to_owned(), String::new())
+            ("glib-2.0".to_owned(), String::new()),
+            ("SDL2".to_owned(), String::new())
         ]
     );
 

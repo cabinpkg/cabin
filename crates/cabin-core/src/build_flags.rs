@@ -210,11 +210,10 @@ pub struct ResolvedProfileFlags {
     pub include_dirs: Vec<Utf8PathBuf>,
     /// Include directories the compile commands mark as *system*
     /// search paths (`-isystem` in the GCC/Clang dialect), so
-    /// diagnostics inside their headers are suppressed.  Populated
-    /// from third-party contributions the user does not control -
-    /// today the `pkg-config` probe of `system = true`
-    /// dependencies - never from the package's own manifest
-    /// declarations, which stay in [`Self::include_dirs`].
+    /// diagnostics inside their headers are suppressed.  For
+    /// third-party contributions the user does not control, never
+    /// the package's own manifest declarations, which stay in
+    /// [`Self::include_dirs`].
     pub system_include_dirs: Vec<Utf8PathBuf>,
     /// Language-neutral compile-time escape-hatch arguments.
     /// Applied to every compile command, both C/C++.

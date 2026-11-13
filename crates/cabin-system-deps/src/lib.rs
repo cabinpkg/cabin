@@ -1,5 +1,5 @@
-//! `pkg-config` runner used to probe Cabin's
-//! `system = true` dependencies.
+//! `pkg-config` runner behind the `pkg-config` lines of build
+//! scripts.
 //!
 //! `cabin-system-deps` is the only crate that knows how to spawn
 //! `pkg-config`, parse its output, and translate the result into
@@ -16,8 +16,8 @@
 //!   the orchestration layer threads the report into
 //!   `ResolvedProfileFlags`.
 //!
-//! Cabin spawns `pkg-config` only when a primary package declares an
-//! active system dependency.
+//! Cabin spawns `pkg-config` only when a build script that ran
+//! reports a `pkg-config` line.
 
 #![deny(missing_docs)]
 
@@ -61,7 +61,7 @@ where
 /// Holds the resolved executable name (or absolute path) and the
 /// optional extra env vars Cabin applies to every child
 /// invocation.  Constructed once per orchestrating call and
-/// reused across every system dependency.
+/// reused across every module.
 #[derive(Debug, Clone)]
 pub struct PkgConfigTool {
     executable: OsString,
@@ -124,28 +124,24 @@ impl PkgConfigTool {
 /// Inputs for [`probe_system_dependency`].
 ///
 /// The orchestration layer fills this in from already-resolved
-/// typed values: each system dependency from the manifest plus
+/// typed values: each module a build script named plus
 /// the shared [`PkgConfigTool`] handle.
 #[derive(Debug, Clone)]
 pub struct SystemDependencyProbeRequest<'a> {
-    /// The system dependency name from the manifest, passed to
-    /// `pkg-config` as the module name.
+    /// The module name passed to `pkg-config`.
     pub name: &'a str,
-    /// Free-form version requirement string as declared in the
-    /// manifest.  Empty when no version constraint was specified.
+    /// Free-form version requirement string as the build script
+    /// wrote it.  Empty when no version constraint was specified.
     pub version_requirement: &'a str,
     /// The shared `pkg-config` handle.
     pub tool: &'a PkgConfigTool,
 }
 
-/// Successful probe details for a single system dependency.
+/// Successful probe details for a single module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemDependencyResolution {
-    /// The system dependency name from the manifest.
+    /// The module name.
     pub name: String,
-    /// Version string reported by `pkg-config --modversion`.
-    /// `None` when `pkg-config` reported no version.
-    pub version: Option<String>,
     /// Typed contributions from `pkg-config --cflags` and
     /// `pkg-config --libs`, classified by purpose.
     pub flags: SystemDependencyFlags,
@@ -243,54 +239,52 @@ pub enum PkgConfigError {
         detail: String,
     },
 
-    /// `pkg-config --exists` reported the system dependency was
-    /// missing.
-    #[error("system dependency {name:?} was not found by pkg-config")]
+    /// `pkg-config --exists` reported the module was missing.
+    #[error("pkg-config module {name:?} was not found")]
     #[diagnostic(
         code(cabin::system_deps::package_not_found),
         help("install the system library or update PKG_CONFIG_PATH so pkg-config can find it")
     )]
     PackageNotFound {
-        /// The system dependency name from the manifest.
+        /// The module name.
         name: String,
         /// Stderr text `pkg-config` produced, trimmed of trailing
         /// whitespace.  Empty when `pkg-config` printed nothing.
         stderr: String,
     },
 
-    /// The system dependency was found but its installed version
-    /// did not satisfy the requirement declared in the manifest.
+    /// The module was found but its installed version did not
+    /// satisfy the requirement.
     #[error(
-        "system dependency {name:?} does not satisfy version requirement {requirement:?}{}",
+        "pkg-config module {name:?} does not satisfy version requirement {requirement:?}{}",
         display_installed(installed.as_deref())
     )]
     #[diagnostic(
         code(cabin::system_deps::version_mismatch),
         help(
-            "install a version that satisfies the requirement, or relax the cabin.toml version requirements it comes from"
+            "install a version that satisfies the requirement, which the build script of the package that uses the library sets"
         )
     )]
     VersionMismatch {
-        /// The system dependency name from the manifest.
+        /// The module name.
         name: String,
-        /// Cabin's view of the requirement (as written in the
-        /// manifest).
+        /// The requirement as the build script wrote it.
         requirement: String,
         /// Installed version `pkg-config` reported, or `None`
         /// when `pkg-config` declined to report a version.
         installed: Option<String>,
     },
 
-    /// The version requirement string in the manifest is neither a
+    /// The version requirement string is neither a
     /// recognized `SemVer` comparator list nor a sequence of
     /// `op version` pairs with a `pkg-config` comparison operator.
     /// Detected before `pkg-config` runs.  The probe layer never
     /// rewrites the user's text; the diagnostic quotes it
     /// verbatim.
-    #[error("system dependency {name:?} declares unsupported version requirement {requirement:?}")]
+    #[error("pkg-config module {name:?} has unsupported version requirement {requirement:?}")]
     #[diagnostic(code(cabin::system_deps::invalid_version_requirement))]
     InvalidVersionRequirement {
-        /// The system dependency name from the manifest.
+        /// The module name.
         name: String,
         /// Free-form requirement string Cabin failed to interpret.
         requirement: String,
@@ -301,12 +295,12 @@ pub enum PkgConfigError {
     /// include malformed `.pc` files or environment-variable
     /// misconfiguration.
     #[error(
-        "pkg-config failed while probing system dependency {name:?}{}",
+        "pkg-config failed while probing module {name:?}{}",
         display_block(stderr)
     )]
     #[diagnostic(code(cabin::system_deps::pkg_config_failed))]
     PkgConfigFailed {
-        /// The system dependency name from the manifest.
+        /// The module name.
         name: String,
         /// Stage that failed (`--cflags` / `--libs` / `--modversion`).
         stage: String,
@@ -318,10 +312,10 @@ pub enum PkgConfigError {
     /// turn back into a sequence of argv-shaped tokens.  Surfaced
     /// rather than silently dropped because compile / link
     /// behavior depends on every token.
-    #[error("pkg-config produced unparsable output for system dependency {name:?}: {detail}")]
+    #[error("pkg-config produced unparsable output for module {name:?}: {detail}")]
     #[diagnostic(code(cabin::system_deps::malformed_output))]
     MalformedOutput {
-        /// The system dependency name from the manifest.
+        /// The module name.
         name: String,
         /// Short human-readable detail.
         detail: String,
@@ -345,7 +339,7 @@ fn display_block(stderr: &str) -> String {
     }
 }
 
-/// Probe a single system dependency through `pkg-config`.
+/// Probe a single module through `pkg-config`.
 ///
 /// The implementation always asks `pkg-config` to evaluate the
 /// version constraint when one is present so the comparison
@@ -395,12 +389,7 @@ pub fn probe_system_dependency(
         )?);
     }
 
-    // Stage 2: modversion (best-effort; absence is not fatal).
-    // `--exists` already enforced the requirement; the version
-    // only feeds verbose output.
-    let version = best_effort_modversion(req.tool, req.name);
-
-    // Stage 3 / 4: --cflags and --libs.  The version constraint
+    // Stage 2 / 3: --cflags and --libs.  The version constraint
     // was already enforced by --exists, so we ask pkg-config
     // for the bare module's flags.  The real pkg-config's
     // --cflags / --libs deduplicate by module name when the
@@ -459,7 +448,6 @@ pub fn probe_system_dependency(
 
     Ok(SystemDependencyResolution {
         name: req.name.to_owned(),
-        version,
         flags,
     })
 }

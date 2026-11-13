@@ -9,7 +9,7 @@
 //! vendor's SDK links.
 
 use super::build_scripts::printed;
-use super::system_deps_pkg_config::{Fixtures, cabin_with_fake_pkg_config};
+use super::pkg_config::{Fixtures, cabin_with_fake_pkg_config};
 use super::*;
 
 fn example_root() -> PathBuf {

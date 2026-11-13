@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "pkg-config probing for Cabin's system dependencies"
+description = "pkg-config probing for the system libraries of Cabin's build scripts"
 
 [lib]
 name = "cabin_system_deps"

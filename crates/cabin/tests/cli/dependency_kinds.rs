@@ -1,8 +1,8 @@
 //! End-to-end coverage for the dependency-kind feature: every
 //! kind shows up in `cabin metadata`, the resolver only sees
 //! resolvable kinds, dev deps stay declaration-only outside
-//! `cabin test`, system deps never reach the registry, and
-//! unsupported syntax is rejected with clear errors.
+//! `cabin test`, and unsupported syntax is rejected with clear
+//! errors.
 
 use super::*;
 
@@ -13,8 +13,6 @@ version = "0.1.0"
 
 [dependencies]
 fmt = ">=10"
-zlib = { version = ">=1.2", system = true }
-openssl = { version = ">=3", system = true }
 
 [dev-dependencies]
 gtest = "^1.14"
@@ -31,68 +29,18 @@ fn dep_entry<'a>(package: &'a serde_json::Value, name: &str, kind: &str) -> &'a 
         .unwrap_or_else(|| panic!("dep {name:?} of kind {kind:?} not found in {package}"))
 }
 
-/// Run `cabin metadata` on the mixed-kinds manifest with the bundled
-/// fake pkg-config resolving its `zlib` / `openssl` system deps, so
-/// the command succeeds on hosts without a real pkg-config or those
-/// libraries (e.g.  Windows).  The resolved values are irrelevant to
-/// the assertions below, which only inspect *declared* metadata.
-fn run_mixed_kinds_metadata(manifest_path: &Path) -> serde_json::Value {
-    let fixtures = TempDir::new().expect("fixtures tempdir");
-    for (name, version) in [("zlib", "1.3"), ("openssl", "3.2")] {
-        assert_fs::fixture::ChildPath::new(fixtures.path().join(format!("{name}.json")))
-            .write_str(&format!(
-                r#"{{ "version": "{version}", "cflags": "", "libs": "" }}"#
-            ))
-            .unwrap();
-    }
-    let output = cabin()
-        .env(
-            "CABIN_PKG_CONFIG",
-            workspace_test_bin("cabin-system-deps-fake-pkg-config"),
-        )
-        .env("CABIN_FAKE_PKG_CONFIG_FIXTURES", fixtures.path())
-        .args(["metadata", "--manifest-path"])
-        .arg(manifest_path)
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    serde_json::from_str(&stdout)
-        .unwrap_or_else(|err| panic!("expected valid JSON, got error {err} for: {stdout}"))
-}
-
 #[test]
 fn metadata_lists_every_dependency_kind_with_explicit_kind_field() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(MIXED_KINDS_MANIFEST)
         .unwrap();
-    let value = run_mixed_kinds_metadata(&dir.path().join("cabin.toml"));
+    let value = run_metadata(&dir.path().join("cabin.toml"));
     let demo = package_in(&value, "demo");
     for (name, kind) in [("fmt", "normal"), ("gtest", "dev")] {
         let dep = dep_entry(demo, name, kind);
         assert_eq!(dep["kind"], "version", "{name} should be a version source");
     }
-    // System deps are reported separately, not under `dependencies`.
-    let system = demo["system_dependencies"]
-        .as_array()
-        .expect("system_dependencies array");
-    assert_eq!(system.len(), 2);
-    let by_name: std::collections::BTreeMap<&str, &serde_json::Value> = system
-        .iter()
-        .map(|sd| (sd["name"].as_str().expect("system dep name"), sd))
-        .collect();
-    assert_eq!(by_name["zlib"]["version"], ">=1.2");
-    assert!(
-        by_name["zlib"].get("required").is_none(),
-        "system dep metadata must not expose a `required` field: {:?}",
-        by_name["zlib"],
-    );
-    assert_eq!(by_name["zlib"]["dependency_kind"], "normal");
-    assert_eq!(by_name["openssl"]["version"], ">=3");
-    assert!(by_name["openssl"].get("required").is_none());
-    assert_eq!(by_name["openssl"]["dependency_kind"], "normal");
 }
 
 #[test]
@@ -101,7 +49,7 @@ fn metadata_dependency_listing_is_sorted_by_kind_then_name() {
     dir.child("cabin.toml")
         .write_str(MIXED_KINDS_MANIFEST)
         .unwrap();
-    let value = run_mixed_kinds_metadata(&dir.path().join("cabin.toml"));
+    let value = run_metadata(&dir.path().join("cabin.toml"));
     let demo = package_in(&value, "demo");
     let listed: Vec<(String, String)> = demo["dependencies"]
         .as_array()
@@ -141,10 +89,6 @@ fmt = ">=10"
         .unwrap();
     let value = run_metadata(&dir.path().join("cabin.toml"));
     let app = package_in(&value, "app");
-    assert!(
-        app["system_dependencies"].is_null(),
-        "system_dependencies must be omitted when empty: got {app}"
-    );
     let deps = app["dependencies"].as_array().unwrap();
     assert_eq!(deps.len(), 1);
     assert_eq!(deps[0]["name"], "fmt");
@@ -190,66 +134,76 @@ gtest = "^1.14"
     );
 }
 
+/// A version published while Cabin read `system = true` lists the
+/// libraries it took from pkg-config, in an index that carries them as
+/// the hosted registry's does.  Nothing supplies them now, so a build
+/// that selects the version stops, and the package's other versions
+/// resolve as before.
 #[test]
-fn resolve_does_not_send_system_dependencies_to_resolver() {
-    // System dependencies must never reach the resolver, so
-    // declaring an unrelated system dep cannot break a resolve
-    // run that is otherwise only about Cabin packages.
+fn a_version_published_with_system_dependencies_is_refused() {
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml")
-        .write_str(
-            r#"[package]
+    let version = |system_dependencies: &str| {
+        format!(
+            r#"{{
+      "dependencies": {{}},{system_dependencies}
+      "yanked": false,
+      "revision": "0000000000000000",
+      "revisions": {{
+        "0000000000000000": {{
+          "checksum": "sha256:{}",
+          "published-at": "2026-01-01T00:00:00Z",
+          "source": {{ "type": "archive", "path": "unfetched.zip", "format": "zip" }}
+        }}
+      }}
+    }}"#,
+            "0".repeat(64)
+        )
+    };
+    dir.child("index/fmt.json")
+        .write_str(&format!(
+            r#"{{
+  "schema": 1,
+  "name": "fmt",
+  "versions": {{
+    "10.1.0": {},
+    "10.2.0": {}
+  }}
+}}"#,
+            version(""),
+            version(
+                r#"
+      "system-dependencies": { "zlib": { "version": ">=1.2", "dependency_kind": "normal" } },"#
+            ),
+        ))
+        .unwrap();
+    let resolve = |requirement: &str| {
+        dir.child("cabin.toml")
+            .write_str(&format!(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
-fmt = ">=10"
-zlib = { version = ">=1.2", system = true }
-"#,
-        )
-        .unwrap();
-    write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
-    let assertion = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .args(["--index-path"])
-        .arg(dir.path().join("index"))
-        .assert()
-        .success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
-    assert!(stdout.contains("fmt"));
-    assert!(
-        !stdout.contains("zlib"),
-        "system dep zlib must not appear in resolver output: {stdout}"
-    );
-}
+fmt = "{requirement}"
+"#
+            ))
+            .unwrap();
+        let mut cmd = cabin();
+        cmd.args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"));
+        cmd.assert()
+    };
 
-#[test]
-fn optional_dependency_in_system_section_is_rejected_at_cli() {
-    // `optional = true` is valid on a normal Cabin package
-    // dependency but incompatible with `system = true`.
-    let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml")
-        .write_str(
-            r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-zlib = { version = ">=1.2", system = true, optional = true }
-"#,
-        )
-        .unwrap();
-    let assertion = cabin()
-        .args(["metadata", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    let refused = stderr_with_wrapping_joined(&resolve(">=10").failure());
     assert!(
-        stderr.contains("optional"),
-        "expected an error mentioning the unsupported optional system dep, got: {stderr}"
+        refused.contains("`fmt10.2.0`waspublishedwithsystemdependencies(`zlib`)"),
+        "{refused}"
     );
+    resolve("=10.1.0")
+        .success()
+        .stdout(predicate::str::contains("10.1.0"));
 }
 
 #[test]
@@ -316,15 +270,4 @@ fn package_metadata_round_trips_every_dependency_kind() {
         metadata["dev-dependencies"]["gtest"].as_str().unwrap(),
         "^1.14"
     );
-    let zlib = &metadata["system-dependencies"]["zlib"];
-    assert_eq!(zlib["version"].as_str().unwrap(), ">=1.2");
-    assert!(
-        zlib.get("required").is_none(),
-        "canonical metadata must not carry `required`: {zlib:?}",
-    );
-    assert_eq!(zlib["dependency_kind"].as_str().unwrap(), "normal");
-    let openssl = &metadata["system-dependencies"]["openssl"];
-    assert_eq!(openssl["version"].as_str().unwrap(), ">=3");
-    assert!(openssl.get("required").is_none());
-    assert_eq!(openssl["dependency_kind"].as_str().unwrap(), "normal");
 }
