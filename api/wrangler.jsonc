@@ -4,7 +4,7 @@
     // names while remaining closed to allowlisted maintainers and labeled
     // as under development. Launch is a data/policy event, not an
     // infrastructure cutover (docs/runbook.md, "Launch checklist").
-    "name": "registry",
+    "name": "api",
     "main": "build/index.js",
     "compatibility_date": "2026-07-09",
     "workers_dev": false,
