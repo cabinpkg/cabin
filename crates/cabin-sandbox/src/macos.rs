@@ -3,18 +3,28 @@
 //!
 //! The profile allows by default, then denies the network, reads under
 //! the places user data lives (`/Users`, `/Volumes`, the per-user and
-//! shared temporary directories, and `$HOME`), every write, mounting and
-//! unmounting (a user may mount `devfs` over a directory they own and
-//! unmount what they mounted), signals to and task ports of processes
+//! shared temporary directories, and `$HOME`), learning whether a path
+//! there exists (no read to Seatbelt, and what `fsgetpath(2)` asks to turn
+//! a file's number into its path) under either name it has
+//! (`/System/Volumes/Data` holds those places again, which Seatbelt sees
+//! through for a read alone; a granted path spelled that way is refused
+//! as well), searching a volume for names whatever directory holds them
+//! (`searchfs(2)`), every write, mounting and unmounting (a user may mount
+//! `devfs` over a directory they own and unmount what they mounted),
+//! signals to and task ports of processes
 //! outside the sandbox (a program signed to debug would read their
-//! memory), and what reaches outside it: shared memory and semaphores,
+//! memory), which processes there are and what the system tells of one
+//! outside the sandbox (where each file it has open or mapped lies, among
+//! it), and what reaches outside it: shared memory and semaphores,
 //! launchd jobs, Apple events, `open`, and every Mach service but
 //! logging, notifications, and user lookup (daemons such as the
 //! keychain's or the DNS resolver would otherwise act on the program's
-//! behalf).  It then re-allows the granted paths, and the metadata alone
+//! behalf).  It then re-allows the granted paths, the metadata alone
 //! of each directory leading to one and of the files the standard output
 //! and error go to (a program resolves the paths it is given, and examines
-//! those streams before it writes to them), and finally denies the hidden
+//! those streams before it writes to them), and learning whether a path
+//! beneath the working directory exists (a compiler looks there for the
+//! headers it finds elsewhere), and finally denies the hidden
 //! paths inside the grants, and removing, renaming, or making anything in
 //! place of a writable directory itself.  Of two rules for one operation
 //! the later wins, and a rule naming an operation outranks one that covers
@@ -62,6 +72,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
     let home = std::env::home_dir().and_then(|home| home.canonicalize().ok());
     let read = canonical(&read);
     let write = canonical(&write);
+    let cwd = canonical(std::slice::from_ref(&current_dir));
     let hidden = crate::resolve_hidden(&hidden).map_err(|source| SandboxError::Run {
         program: program.clone(),
         source,
@@ -76,6 +87,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         read.len(),
         write.len(),
         seen.len(),
+        cwd.len(),
         hidden.len(),
     ));
     let params = home
@@ -84,6 +96,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         .chain(read.iter().enumerate().map(|(i, p)| (format!("R{i}"), p)))
         .chain(write.iter().enumerate().map(|(i, p)| (format!("W{i}"), p)))
         .chain(seen.iter().enumerate().map(|(i, p)| (format!("M{i}"), p)))
+        .chain(cwd.iter().enumerate().map(|(i, p)| (format!("C{i}"), p)))
         .chain(hidden.iter().enumerate().map(|(i, p)| (format!("H{i}"), p)));
     for (key, path) in params {
         let mut definition = OsString::from(key);
@@ -117,9 +130,17 @@ fn canonical(paths: &[PathBuf]) -> Vec<PathBuf> {
 
 /// The profile for `reads` granted read paths (`R0`..), `writes`
 /// granted write paths (`W0`..), `seen` paths of which only the metadata
-/// is read (`M0`..), and `hidden` paths (`H0`..) inside the grants,
-/// denying reads under `HOME` when set.
-fn profile(home: bool, reads: usize, writes: usize, seen: usize, hidden: usize) -> String {
+/// is read (`M0`..), the working directory (`C0`, when `cwd` is 1), and
+/// `hidden` paths (`H0`..) inside the grants, denying reads under `HOME`
+/// when set.
+fn profile(
+    home: bool,
+    reads: usize,
+    writes: usize,
+    seen: usize,
+    cwd: usize,
+    hidden: usize,
+) -> String {
     let params = |filter: &str, prefix: &str, count: usize| -> String {
         (0..count).fold(String::new(), |mut out, i| {
             let _ = write!(out, " ({filter} (param \"{prefix}{i}\"))");
@@ -147,12 +168,16 @@ fn profile(home: bool, reads: usize, writes: usize, seen: usize, hidden: usize) 
 (allow signal (target same-sandbox))
 (deny mach-priv-task-port)
 (allow mach-priv-task-port (target same-sandbox))
+(deny process-info*)
+(allow process-info* (target same-sandbox))
 (deny mach-lookup)
 (allow mach-lookup (global-name "com.apple.system.logger")
   (global-name "com.apple.system.notification_center")
   (global-name "com.apple.system.opendirectoryd.libinfo")
   (global-name "com.apple.system.opendirectoryd.membership"))
-(deny file-read*{denied})
+(deny file-read* file-test-existence{denied})
+(deny file-test-existence (subpath "/System/Volumes/Data"))
+(deny file-search)
 (deny file-write*)
 (deny file-mount)
 (deny file-unmount)
@@ -164,10 +189,13 @@ fn profile(home: bool, reads: usize, writes: usize, seen: usize, hidden: usize) 
         params("subpath", "W", writes),
     );
     if !read.is_empty() {
-        let _ = writeln!(profile, "(allow file-read*{read})");
+        let _ = writeln!(profile, "(allow file-read* file-test-existence{read})");
     }
     if !write.is_empty() {
-        let _ = writeln!(profile, "(allow file-read* file-write*{write})");
+        let _ = writeln!(
+            profile,
+            "(allow file-read* file-test-existence file-write*{write})"
+        );
         // A symlink the program put in a directory's place would lead the
         // next run's grant elsewhere.
         let roots = params("literal", "W", writes);
@@ -175,11 +203,21 @@ fn profile(home: bool, reads: usize, writes: usize, seen: usize, hidden: usize) 
     }
     let seen = params("literal", "M", seen);
     if !seen.is_empty() {
-        let _ = writeln!(profile, "(allow file-read-metadata{seen})");
+        let _ = writeln!(
+            profile,
+            "(allow file-read-metadata file-test-existence{seen})"
+        );
+    }
+    let cwd = params("subpath", "C", cwd);
+    if !cwd.is_empty() {
+        let _ = writeln!(profile, "(allow file-test-existence{cwd})");
     }
     let hidden = params("subpath", "H", hidden);
     if !hidden.is_empty() {
-        let _ = writeln!(profile, "(deny file-read* file-read-metadata{hidden})");
+        let _ = writeln!(
+            profile,
+            "(deny file-read* file-read-metadata file-test-existence{hidden})"
+        );
     }
     profile
 }

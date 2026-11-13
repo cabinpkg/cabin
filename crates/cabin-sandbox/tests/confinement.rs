@@ -57,6 +57,18 @@ mod enforced {
                     [1, 2].map(|fd| errno(unsafe { libc::fstat(fd, &mut std::mem::zeroed()) }));
                 report(verb, examined.into_iter().collect());
             }
+            // Ask whether `arg` exists, which examining it (`stat`) is not.
+            #[cfg(unix)]
+            "access" => {
+                let path = std::ffi::CString::new(arg).unwrap();
+                // SAFETY: valid C string.
+                report(
+                    verb,
+                    errno(unsafe { libc::access(path.as_ptr(), libc::F_OK) }),
+                );
+            }
+            #[cfg(target_os = "macos")]
+            "search" => report(verb, search_volume(arg)),
             "write" => report(verb, std::fs::write(arg, "x")),
             "rmdir" => report(verb, std::fs::remove_dir(arg)),
             // Mount `devfs` on `arg`, change that mount, or end it.
@@ -375,6 +387,16 @@ mod enforced {
                 // SAFETY: signal 0 only checks permission.
                 report(verb, errno(unsafe { libc::kill(arg.parse().unwrap(), 0) }));
             }
+            // Ask where the program of process `arg`, or this one's, lies.
+            #[cfg(target_os = "macos")]
+            "pidpath" => {
+                // SAFETY: plain system call.
+                let pid = arg.parse().unwrap_or_else(|_| unsafe { libc::getpid() });
+                let mut path = [0_u8; 4096];
+                // SAFETY: the buffer is as long as it is said to be.
+                let len = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), 4096) };
+                report(verb, errno(if len > 0 { 0 } else { -1 }));
+            }
             #[cfg(target_os = "macos")]
             "mach" => println!("mach: {}", mach_lookup(arg)),
             #[cfg(target_os = "macos")]
@@ -613,6 +635,85 @@ mod enforced {
         unsafe { bootstrap_look_up(bootstrap_port, name.as_ptr(), &raw mut port) }
     }
 
+    /// Start a search of the volume holding `path` for what is named
+    /// like `x` (`searchfs(2)`, which the `libc` crate does not declare).
+    #[cfg(target_os = "macos")]
+    fn search_volume(path: &str) -> std::io::Result<()> {
+        /// `struct fssearchblock` of `<sys/attr.h>`.
+        #[repr(C)]
+        struct Search {
+            returnattrs: *mut libc::attrlist,
+            returnbuffer: *mut libc::c_void,
+            returnbuffersize: usize,
+            maxmatches: libc::c_ulong,
+            timelimit: libc::timeval,
+            searchparams1: *mut libc::c_void,
+            sizeofsearchparams1: usize,
+            searchparams2: *mut libc::c_void,
+            sizeofsearchparams2: usize,
+            searchattrs: libc::attrlist,
+        }
+        unsafe extern "C" {
+            fn searchfs(
+                path: *const libc::c_char,
+                search: *mut Search,
+                matches: *mut libc::c_ulong,
+                script: libc::c_uint,
+                options: libc::c_uint,
+                state: *mut [u8; 556],
+            ) -> libc::c_int;
+        }
+        // `SRCHFS_START`, `SRCHFS_MATCHPARTIALNAMES`, `SRCHFS_MATCHDIRS`,
+        // and `SRCHFS_MATCHFILES`.
+        const OPTIONS: libc::c_uint = 0xf;
+        let names = libc::attrlist {
+            bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+            reserved: 0,
+            commonattr: libc::ATTR_CMN_NAME,
+            volattr: 0,
+            dirattr: 0,
+            fileattr: 0,
+            forkattr: 0,
+        };
+        // Each its length, then an `attrreference_t` (an offset from itself
+        // and a length) to the name: `x`, and for the upper bound none.
+        let (mut lower, mut upper) = ([14_u32, 8, 2, b'x'.into()], [12_u32, 8, 0]);
+        let (mut returned, mut found, mut matches) = (names, [0_u8; 1024], 0);
+        let mut search = Search {
+            returnattrs: &raw mut returned,
+            returnbuffer: found.as_mut_ptr().cast(),
+            returnbuffersize: found.len(),
+            maxmatches: 1,
+            timelimit: libc::timeval {
+                tv_sec: 0,
+                tv_usec: 1,
+            },
+            searchparams1: lower.as_mut_ptr().cast(),
+            sizeofsearchparams1: 14,
+            searchparams2: upper.as_mut_ptr().cast(),
+            sizeofsearchparams2: 12,
+            searchattrs: names,
+        };
+        let path = std::ffi::CString::new(path).unwrap();
+        // SAFETY: the structures are laid out as `<sys/attr.h>` declares
+        // them, and each pointer is to one that outlives the call.
+        let rc = unsafe {
+            searchfs(
+                path.as_ptr(),
+                &raw mut search,
+                &raw mut matches,
+                0,
+                OPTIONS,
+                &mut [0; 556],
+            )
+        };
+        // `EAGAIN`: the time ran out with more of the volume to search.
+        match errno(rc) {
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(()),
+            result => result,
+        }
+    }
+
     /// A C call's `0` or `-1` result, the latter with its `errno`.
     #[cfg(unix)]
     fn errno(rc: libc::c_int) -> std::io::Result<()> {
@@ -778,6 +879,18 @@ mod enforced {
         write: &[&Path],
         hidden: &[&Path],
     ) -> Result<Probed, SandboxError> {
+        confine_in(exe.parent().unwrap(), exe, action, read, write, hidden)
+    }
+
+    /// [`confine_as`], started in `current_dir`.
+    fn confine_in(
+        current_dir: &Path,
+        exe: &Path,
+        action: &str,
+        read: &[&Path],
+        write: &[&Path],
+        hidden: &[&Path],
+    ) -> Result<Probed, SandboxError> {
         #[cfg(windows)]
         disable_debug_privilege();
         let exe = exe.to_owned();
@@ -787,7 +900,7 @@ mod enforced {
         let status = cabin_sandbox::run(Confinement {
             program: exe,
             args: PROBE_ARGS.map(OsString::from).to_vec(),
-            current_dir: exe_dir.clone(),
+            current_dir: current_dir.to_owned(),
             env: probe_env(action),
             read: std::iter::once(exe_dir)
                 .chain(read.iter().map(|p| p.to_path_buf()))
@@ -850,6 +963,65 @@ mod enforced {
         // Landlock does not govern metadata.
         #[cfg(target_os = "macos")]
         assert_eq!(confined("resolve", &forbidden), "PermissionDenied");
+    }
+
+    /// Whether a path exists is told of what a program is given, of what
+    /// leads there, and of what its working directory holds, where it
+    /// looks for what may be elsewhere.  Anywhere else a missing path is
+    /// refused as one that is there, which Landlock, not governing
+    /// metadata, cannot do.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_path_is_seen_to_exist_only_where_the_program_is_let() {
+        let package = TempDir::new().unwrap();
+        let given = TempDir::new().unwrap();
+        let elsewhere = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+        let hidden = package.path().canonicalize().unwrap().join(".git");
+        let elsewhere = elsewhere.path().canonicalize().unwrap();
+        let forbidden = elsewhere.join("secret");
+        std::fs::create_dir(&hidden).unwrap();
+        for file in [&forbidden, &hidden.join("config")] {
+            std::fs::write(file, "token").unwrap();
+        }
+        let exe = std::env::current_exe().unwrap();
+        let exists = |path: &Path| {
+            let action = format!("access:{}", arg(path));
+            let (read, write, hidden) = ([given.path()], [out.path()], [hidden.as_path()]);
+            confine_in(package.path(), &exe, &action, &read, &write, &hidden)
+                .unwrap()
+                .outcome("access")
+                .to_owned()
+        };
+
+        assert_eq!(exists(out.path().parent().unwrap()), "ok");
+        for missing in [package.path(), given.path(), out.path()] {
+            assert_eq!(exists(&missing.join("missing")), "NotFound", "{missing:?}");
+        }
+        let unseen = [forbidden, elsewhere.join("missing"), hidden.join("config")];
+        // The volume that holds them names each a second way.
+        let renamed = unseen
+            .clone()
+            .map(|path| Path::new("/System/Volumes/Data").join(path.strip_prefix("/").unwrap()));
+        for unseen in unseen.into_iter().chain(renamed) {
+            assert_eq!(exists(&unseen), "PermissionDenied", "{unseen:?}");
+        }
+    }
+
+    /// A search of a volume answers with the names of what it holds,
+    /// whatever directory holds them.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_volume_is_not_searched() {
+        // A path the program is given: one it may not read names no
+        // volume to it.
+        let exe = std::env::current_exe().unwrap();
+        let action = format!("search:{}", arg(exe.parent().unwrap()));
+        let unconfined = probe_command(&action).output().unwrap();
+        let control = String::from_utf8_lossy(&unconfined.stdout);
+        assert!(control.contains("search: ok"), "{control}");
+        let probed = confine(&action, &[], &[]).unwrap();
+        assert_eq!(probed.outcome("search"), "PermissionDenied");
     }
 
     /// A program examines its standard output and error before it writes
@@ -1878,6 +2050,19 @@ mod enforced {
         let me = std::process::id().to_string();
         let probed = confine(&format!("signal:{me}"), &[], &[]).unwrap();
         assert_eq!(probed.outcome("signal"), "PermissionDenied");
+    }
+
+    /// Asked of a process, the system tells where its program, its
+    /// working directory, and each file it has open or mapped lie.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn processes_outside_the_sandbox_are_not_asked_about() {
+        let asked = |pid: &str| {
+            let probed = confine(&format!("pidpath:{pid}"), &[], &[]).unwrap();
+            probed.outcome("pidpath").to_owned()
+        };
+        assert_eq!(asked(&std::process::id().to_string()), "PermissionDenied");
+        assert_eq!(asked("self"), "ok");
     }
 
     /// Any program may sign itself to debug, and then read the memory of
