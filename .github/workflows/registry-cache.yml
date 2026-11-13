@@ -21,7 +21,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: registry
+        working-directory: api
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -37,7 +37,7 @@ jobs:
           cache-bin: false
           cache-workspaces: |
             .
-            registry
+            api
           rustflags: ""
 
       - run: cargo clippy --all-targets --locked -- -D warnings

@@ -409,7 +409,7 @@ pub fn driver(args: &[String]) -> Result<()> {
 /// one (never downloaded), each with distinct bytes, then five more for
 /// the load leg.  Each of those is verified before the next is
 /// published: the default class holds three pending uploads at a time
-/// (`registry/src/quota.rs`), and two are already held.
+/// (`api/src/quota.rs`), and two are already held.
 fn governor_fixtures(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<Fixtures> {
     step("seeding isolation fixtures for the governor legs");
     d1_quiet(BURST_RESET)?;

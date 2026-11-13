@@ -3,7 +3,7 @@
 //! the placement pass's two writes, and the generations and jobs of the
 //! publish pass.
 
-use cabin_registry_worker::{publication, sql, verify};
+use cabin_api_worker::{publication, sql, verify};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 

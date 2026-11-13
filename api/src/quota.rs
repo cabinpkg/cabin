@@ -1057,7 +1057,7 @@ mod tests {
 }
 
 /// Kani proof harness for [`check_publish`] (`cargo kani` from
-/// `registry/`; the module is invisible to every other build). The
+/// `api/`; the module is invisible to every other build). The
 /// specification below is written from the documented policy, not from
 /// the function body, and compares bytes in `u128` so the storage limit
 /// is the mathematical sum, never the `u64` expression under proof.

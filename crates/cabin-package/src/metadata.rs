@@ -261,7 +261,7 @@ pub fn canonical_metadata(
     // `packages/<scope>/<name>.json` (two levels), and the artifact
     // filename embeds the scope and the packaging revision.  The
     // scoped shape must byte-match the hosted registry's canonical
-    // source path (`registry/src/publish.rs`) - it is validated
+    // source path (`api/src/publish.rs`) - it is validated
     // verbatim at publish time.
     let source_path = match package.name.scope() {
         Some(scope) => format!(

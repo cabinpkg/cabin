@@ -213,7 +213,7 @@ mod tests {
         let text = r#"# comment
 
 registry:
-  - "registry/**"
+  - "api/**"
   - "Cargo.toml"
 ports:
   - "ports/**"
@@ -224,7 +224,7 @@ ports:
         );
         assert_eq!(
             filter_entries(text, "registry").unwrap(),
-            vec!["registry/**".to_owned(), "Cargo.toml".to_owned()]
+            vec!["api/**".to_owned(), "Cargo.toml".to_owned()]
         );
     }
 
@@ -233,13 +233,13 @@ ports:
         for text in [
             "registry:\n  - unquoted/**\n",
             "registry:\n  - \"\"\n",
-            "registry:\n- \"registry/**\"\n",
+            "registry:\n- \"api/**\"\n",
             "ports:\n  - \"ports/**\"\n",
             "registry:\n",
             "registry:\n  - \"a/**\"\nregistry:\n  - \"b/**\"\n",
             "ports:\n  - \"p/**\"\nports:\n  - \"q/**\"\nregistry:\n  - \"r/**\"\n",
             "registry:\n  - \"r/**\"\nports: # note\n  - \"p/**\"\n",
-            "registry:\n  - \"registry/**\" # \"worker sources\"\n",
+            "registry:\n  - \"api/**\" # \"worker sources\"\n",
             "registry:\n  - \"\\x72egistry/**\"\n",
         ] {
             assert_eq!(filter_entries(text, "registry"), None, "{text:?}");

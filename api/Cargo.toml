@@ -1,5 +1,5 @@
 [package]
-name = "cabin-registry-worker"
+name = "cabin-api-worker"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"

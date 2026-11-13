@@ -16,7 +16,7 @@
 //!   See `SameShaDeploy`.  SAFETY INVARIANT this arm leans on, pinned
 //!   here because the gate lives in `.github/path-filters.yml`: every
 //!   path that can change the Worker's accepted schema or the publish
-//!   client (`registry/`, `crates/`, the root manifests, `.cargo/`,
+//!   client (`api/`, `crates/`, the root manifests, `.cargo/`,
 //!   the filter file itself) must stay in `registry.yml`'s `registry`
 //!   filter, so the only pushes that reach this arm - the registry
 //!   jobs skipped - are ones touching nothing any Worker or client
@@ -355,7 +355,7 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Op
         "Registry run for this SHA succeeded but skipped its Deploy (superseded by a newer \
          registry-relevant commit) and no pending run can deliver a deploy containing it; not \
          publishing against a possibly-stale worker - rerun this workflow once the deploy lands \
-         (registry/docs/runbook.md)"
+         (api/docs/runbook.md)"
             .to_owned()
     } else {
         format!(

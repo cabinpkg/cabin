@@ -121,7 +121,7 @@ pub(crate) fn d1_rows(sql: &str) -> Result<Vec<Map<String, Value>>> {
 
 /// Where local R2 keeps one upload's archive: the UPLOADS bucket
 /// (`wrangler.jsonc`) and the key the Worker gives the upload id
-/// (`registry/src/upload.rs`, `object_key`), spelled out here so the
+/// (`api/src/upload.rs`, `object_key`), spelled out here so the
 /// run notices if either moves.
 fn upload_object(upload_id: &str) -> String {
     format!("registry-uploads/uploads/{upload_id}.zip")
@@ -134,14 +134,14 @@ pub(crate) fn stored_upload(upload_id: &str, work: &Path) -> Result<Option<Vec<u
 }
 
 /// The archive local R2 holds in the ARCHIVES bucket (`wrangler.jsonc`)
-/// under a revision's key (`registry/src/publication.rs`,
+/// under a revision's key (`api/src/publication.rs`,
 /// `archive_key`), if any, read through `work`.
 pub(crate) fn stored_archive(key: &str, work: &Path) -> Result<Option<Vec<u8>>> {
     stored_object(&format!("registry-archives/{key}"), work)
 }
 
 /// The document local R2 holds in the INDEX bucket (`wrangler.jsonc`)
-/// under a key of `registry/src/publication.rs`, if any, read through
+/// under a key of `api/src/publication.rs`, if any, read through
 /// `work`.
 pub(crate) fn stored_document(key: &str, work: &Path) -> Result<Option<Vec<u8>>> {
     stored_object(&format!("registry-index/{key}"), work)
@@ -289,7 +289,7 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     DELETE FROM publication_jobs WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
     -- The deletes above bypass the publish batches that keep the quota
-    -- tallies exact, so recompute them (registry/docs/runbook.md, "Quota tallies").
+    -- tallies exact, so recompute them (api/docs/runbook.md, "Quota tallies").
     UPDATE users SET
       package_count = (SELECT COUNT(*) FROM packages WHERE created_by = users.id),
       stored_bytes = (SELECT COALESCE(SUM(archive_size), 0) FROM revisions
@@ -353,7 +353,7 @@ pub struct DevServers {
     dev_vars_created: bool,
     /// Kept beside `.dev.vars` rather than in `$TMPDIR`: the signal
     /// path restores it with `rename(2)`, which cannot cross a
-    /// filesystem (`registry/.gitignore` covers `/.dev.vars*`).
+    /// filesystem (`api/.gitignore` covers `/.dev.vars*`).
     dev_vars_backup: Option<TempPath>,
     /// The website role's forwarding worker (`WEB_WORKER`).
     web_worker: TempDir,

@@ -1,4 +1,4 @@
-//! Host-target tests for the launch guard (`registry/docs/runbook.md`,
+//! Host-target tests for the launch guard (`api/docs/runbook.md`,
 //! "Data policy"): the real command runs against a fake `node` shim on
 //! `PATH` that logs every invocation and answers with a canned wrangler
 //! response, so every refusal branch - and the single pass state - is
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn registry_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../registry")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../api")
 }
 
 /// How a logged call starts: the `npm ci`-installed entry point, then

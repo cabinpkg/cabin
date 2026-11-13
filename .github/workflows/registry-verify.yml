@@ -1,6 +1,6 @@
 name: Registry Verify
 
-# The registry's external verifier (registry/docs/runbook.md,
+# The registry's external verifier (api/docs/runbook.md,
 # "Verification pipeline"): a normal pass every 5 minutes, plus
 # operator dispatches. What a run verifies is whatever the registry
 # reports as pending, never this repository's files; the dispatch
@@ -54,7 +54,7 @@ jobs:
     permissions:
       contents: read
       # Verdicts authenticate this run's own OIDC JWT, pinned
-      # server-side by the VERIFIER_* vars in registry/wrangler.jsonc;
+      # server-side by the VERIFIER_* vars in api/wrangler.jsonc;
       # the same grant mints the run's verify-scoped registry token
       # through the trusted-publishing exchange (no token secret).
       id-token: write

@@ -621,7 +621,7 @@ pub fn verify_checksum(metadata: &VersionMetadata, computed: &str) -> Result<(),
 ///
 /// This is only the container gate. The full profile - compression
 /// method, general-purpose bits, extra fields, local-vs-central agreement,
-/// CRCs - lives in the async verifier (`registry/docs/archive-format.md`);
+/// CRCs - lives in the async verifier (`api/docs/archive-format.md`);
 /// signature-shaped garbage that clears this check enters the pending
 /// queue and burns only bounded verifier work under the existing
 /// size / rate / quota controls.

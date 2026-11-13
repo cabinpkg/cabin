@@ -29,7 +29,7 @@ COPY . /src
 RUN cargo fetch --locked \
     && cargo test --workspace --all-targets --all-features --locked --no-run
 
-RUN cd registry \
+RUN cd api \
     && cargo fetch --locked \
     && cargo test --locked --no-run \
     && worker-build --release \

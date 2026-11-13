@@ -1,7 +1,7 @@
 //! Executed-semantics tests for `src/sql/downloads.rs`: download
 //! counting and the public stats totals.
 
-use cabin_registry_worker::sql;
+use cabin_api_worker::sql;
 
 use crate::common::{archive_verified, migrated_connection, seed_scope_collision};
 

@@ -31,7 +31,7 @@ current when one moves. Cross-crate rules that are easy to violate:
   `publish = false` `crates/xtask-*` crates exposed through aliases in
   `.cargo/config.toml`. Extend the owning xtask; add one only for a new
   responsibility with a new dependency set. Run aliases from the repository
-  root because `registry/` is a separate workspace.
+  root because `api/` is a separate workspace.
 
 ## Test portability
 

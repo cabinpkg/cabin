@@ -1,7 +1,7 @@
 //! Executed-semantics tests for `src/sql/scopes.rs`: the claim flow
 //! and membership management.
 
-use cabin_registry_worker::{names, sql};
+use cabin_api_worker::{names, sql};
 
 use crate::common::{count, migrated_connection, seed_scope_collision};
 

@@ -2,7 +2,7 @@
 //! gates and the `changes()` chain behind them, the reservation
 //! lifecycle, and the cron sweeps. `prepare` sees none of it.
 
-use cabin_registry_worker::{quota, sql, upload};
+use cabin_api_worker::{quota, sql, upload};
 use rusqlite::{Connection, params};
 
 use crate::common::{

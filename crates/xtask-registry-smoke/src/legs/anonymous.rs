@@ -585,7 +585,7 @@ fn parameterless_callback(smoke: &mut Smoke) -> Result<()> {
     uniform_401(smoke, Base::Registry, "/login")
 }
 
-/// The launch guard end to end (`registry/docs/runbook.md`, "Data
+/// The launch guard end to end (`api/docs/runbook.md`, "Data
 /// policy") - flip the local flag, expect the wipe to refuse with the
 /// guard's message and to leave the state untouched, then flip it back.
 fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {

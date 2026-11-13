@@ -1,7 +1,7 @@
 //! Executed-semantics tests for `src/sql/trustpub.rs`: OIDC jti replay,
 //! the verifier's heartbeat, and the trusted-publishing seed.
 
-use cabin_registry_worker::{publication, sql, verify};
+use cabin_api_worker::{publication, sql, verify};
 use rusqlite::types::Value;
 
 use crate::common::{batch, count, migrated_connection};

@@ -1,5 +1,5 @@
 //! Operator commands against the hosted registry Worker
-//! (`registry/`), run by hand from the repository root - or, for
+//! (`api/`), run by hand from the repository root - or, for
 //! [`verify`], by the `registry-verify` workflow.
 //!
 //! Crate boundaries: these hold the operator's own credentials and talk
@@ -7,7 +7,7 @@
 //! guards in `xtask-registry-guard` - those read committed sources,
 //! take no credentials and mutate nothing.
 //!
-//! The disclosure rule the commands keep (`registry/docs/runbook.md`,
+//! The disclosure rule the commands keep (`api/docs/runbook.md`,
 //! "Logs") is written for an operator reading their
 //! own terminal, and [`verify`] is the command whose audience is
 //! neither an operator nor a private one: it runs unattended and its
@@ -62,12 +62,12 @@ pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// The `registry/` directory the commands operate on.  Every wrangler
+/// The `api/` directory the commands operate on.  Every wrangler
 /// invocation runs here, because `wrangler.jsonc` is what binds D1 and
 /// R2 to the commands' arguments.
 #[must_use]
 pub fn registry_dir() -> PathBuf {
-    repo_root().join("registry")
+    repo_root().join("api")
 }
 
 /// The registry root a command reads, writes and runs wrangler in.
@@ -157,8 +157,8 @@ pub(crate) fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().redirects(0).build()
 }
 
-/// `wrangler` as `npm ci` installed it from `registry/package-lock.json`,
-/// run from `registry/`.  The entry point is named by path, not resolved
+/// `wrangler` as `npm ci` installed it from `api/package-lock.json`,
+/// run from `api/`.  The entry point is named by path, not resolved
 /// through `npx`, which falls back to any other wrangler on the machine
 /// when that install is missing; so no command can reach an unpinned CLI.
 pub fn wrangler(arguments: &[&str]) -> Command {

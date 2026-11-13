@@ -60,7 +60,7 @@ impl fmt::Display for Finding {
 
 /// The confusability skeleton: `-` and `_` fold away, `{1, i} -> l`
 /// and `0 -> o`.  A structural mirror of the registry worker's
-/// `names::skeleton` (`registry/src/names.rs`) - the worker is a
+/// `names::skeleton` (`api/src/names.rs`) - the worker is a
 /// standalone wasm32 workspace, so the map cannot be shared as code;
 /// the two copies are pinned by each crate's tests.
 fn skeleton(name: &str) -> String {

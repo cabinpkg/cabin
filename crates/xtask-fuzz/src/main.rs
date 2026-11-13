@@ -26,7 +26,7 @@ const SEED_PACKAGES: &[&str] = &[
 ];
 
 /// A published archive with a dependency (`cargo gen-fixtures`).
-const SEED_ARCHIVE: &str = "registry/tests/fixtures/smoke-withdep-0.2.0.zip";
+const SEED_ARCHIVE: &str = "api/tests/fixtures/smoke-withdep-0.2.0.zip";
 
 /// The fuzz harness's `FALLBACK_MANIFEST` (`fuzz/src/lib.rs`), staged
 /// into a seed archive of its own; the harness's test checks the copy.

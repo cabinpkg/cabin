@@ -26,7 +26,7 @@ Confirm nothing was missed, then refresh the lockfile:
 ```sh
 # updates Cargo.lock
 cargo check
-cargo update --workspace --manifest-path registry/Cargo.toml
+cargo update --workspace --manifest-path api/Cargo.toml
 cargo update --workspace --manifest-path fuzz/Cargo.toml
 
 rg 'x\.y\.z'  # must not show Cabin workspace version pins

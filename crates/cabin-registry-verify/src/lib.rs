@@ -23,7 +23,7 @@
 //! reason instead of exhausting the runner.  Checks run in order:
 //!
 //! 1. structure and size discipline over the strict zip container
-//!    (`registry/docs/archive-format.md`): a fixed-offset EOCD, a
+//!    (`api/docs/archive-format.md`): a fixed-offset EOCD, a
 //!    contiguously tiled central directory and local records, no
 //!    zip64/descriptors/extra fields, methods restricted to
 //!    store/deflate, local headers matching central, declared

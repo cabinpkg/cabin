@@ -1,5 +1,5 @@
 //! Wipe and recreate the registry's data from zero
-//! (`registry/docs/runbook.md`, "Wipe procedure (pre-launch only)"):
+//! (`api/docs/runbook.md`, "Wipe procedure (pre-launch only)"):
 //!
 //! ```text
 //!   cargo registry-wipe            the deployed registry (asks to confirm)
@@ -131,7 +131,7 @@ pub fn run(mode: Mode) -> Result<()> {
         println!(
             "before wiping: gh workflow disable publish.yml -R cabin-ports/ports and gh \
              workflow disable registry-verify.yml, and cancel every queued or in-flight run of \
-             either (registry/docs/runbook.md, \"Post-wipe re-provisioning\")"
+             either (api/docs/runbook.md, \"Post-wipe re-provisioning\")"
         );
         or_fail(confirm());
     }
@@ -209,7 +209,7 @@ fn remote() -> Result<()> {
 
     // The binding deploys whatever `database_id` names, which must be
     // the recreated id before migrating and deploying
-    // (`registry/docs/runbook.md`).
+    // (`api/docs/runbook.md`).
     let path = root.join("wrangler.jsonc");
     let config =
         std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
@@ -251,7 +251,7 @@ fn remote() -> Result<()> {
     print!(
         r#"wipe OK ({deleted} object(s) deleted)
 
-Follow-ups, IN THIS ORDER (registry/docs/runbook.md, "Post-wipe re-provisioning"):
+Follow-ups, IN THIS ORDER (api/docs/runbook.md, "Post-wipe re-provisioning"):
   1. commit the wrangler.jsonc database-id change and the refreshed
      migrations-applied stamp to the pull request that changes the
      migrations (to one of their own when main already carries them)

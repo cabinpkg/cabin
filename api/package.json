@@ -1,5 +1,5 @@
 {
-  "name": "cabin-registry",
+  "name": "cabin-api-worker",
   "private": true,
   "dependencies": {
     "wrangler": "4.156.0"

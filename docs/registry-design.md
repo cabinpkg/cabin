@@ -13,7 +13,7 @@ It does **not** contain the registry service itself: account systems,
 ownership workflows, token issuance, hosted storage, signing policy, and
 other server-side control planes are outside the OSS core's boundary
 (the hosted service is developed under the repository's separate
-`registry/` workspace, not in the Cabin crates).
+`api/` workspace, not in the Cabin crates).
 The *client* side of the remote registry protocol has stable reads and
 experimental (`-Z remote-registry`-gated) mutations; see
 [Remote registry client](#remote-registry-client).
@@ -154,7 +154,7 @@ protocol both sides implement is specified in
   origin the registry's `config.json` declares.
 
 The registry *service* itself - accounts, token issuance, storage -
-remains outside the OSS core, in the repository's separate `registry/`
+remains outside the OSS core, in the repository's separate `api/`
 workspace.
 
 ## Out Of Scope

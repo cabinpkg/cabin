@@ -65,7 +65,7 @@ export async function fetchCatalog({
     }
 }
 
-// The registry's uniform private-alpha 401 (registry/src/error.rs
+// The registry's uniform private-alpha 401 (api/src/error.rs
 // PRIVATE_ALPHA_CODE); a 401 without that code is an unexpected refusal.
 function isPrivateAlphaRefusal(body) {
     try {

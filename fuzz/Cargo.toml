@@ -8,7 +8,7 @@ description = "libFuzzer targets for Cabin's hostile-input boundaries"
 [package.metadata]
 cargo-fuzz = true
 
-# A standalone workspace, like `registry/`: the targets build on a pinned
+# A standalone workspace, like `api/`: the targets build on a pinned
 # nightly with sanitizer flags that must not leak into the main
 # workspace.
 [workspace]

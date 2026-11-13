@@ -1,5 +1,5 @@
 // Client-side parsing for the registry's strict zip profile
-// (registry/docs/archive-format.md in the repository). The source viewer
+// (api/docs/archive-format.md in the repository). The source viewer
 // range-reads a verified version's archive through the session route and
 // parses the container in the browser, so the server stays a byte proxy.
 // Only what the viewer needs is parsed: the end-of-central-directory
@@ -20,7 +20,7 @@ const CENTRAL_SIGNATURE = 0x02014b50;
 const LOCAL_HEADER_SIZE = 30;
 
 // What one archive slice request may ask for: the server refuses longer
-// ranges (registry/src/source.rs MAX_RANGE_BYTES), so larger spans are
+// ranges (api/src/source.rs MAX_RANGE_BYTES), so larger spans are
 // fetched in chunks of this size.
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 

@@ -1,4 +1,4 @@
-# Strict-profile zip records (registry/docs/archive-format.md).
+# Strict-profile zip records (api/docs/archive-format.md).
 local_header="PK\x03\x04"
 central_header="PK\x01\x02"
 end_of_central_directory="PK\x05\x06"

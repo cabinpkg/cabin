@@ -23,7 +23,7 @@ use cabin_credentials::Token;
 use crate::cli::term_verbosity::Reporter;
 
 /// The audience the registry's JWT verifier expects
-/// (`registry/src/trustpub.rs`, `DEFAULT_AUDIENCE`).
+/// (`api/src/trustpub.rs`, `DEFAULT_AUDIENCE`).
 const AUDIENCE: &str = "cabinpkg.com";
 
 /// How the publish credential resolves before API discovery.

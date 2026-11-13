@@ -1,4 +1,4 @@
-//! Safe diagnostics bundle (`registry/docs/runbook.md`, "Logs"): the
+//! Safe diagnostics bundle (`api/docs/runbook.md`, "Logs"): the
 //! aggregate state an incident report or a bug thread needs, and
 //! nothing that must not leave the operator's terminal - no tokens or
 //! token hashes, no object keys or content checksums, no package names,
@@ -82,7 +82,7 @@ pub fn run() -> Result<()> {
     }
     migrations_stamp();
 
-    step("service state (meta; registry/docs/runbook.md \"Budget breaker and service mode\")");
+    step("service state (meta; api/docs/runbook.md \"Budget breaker and service mode\")");
     let state = output(&mut wrangler(&[
         "d1",
         "execute",
@@ -115,7 +115,7 @@ pub fn run() -> Result<()> {
         println!("    {key}: {}", display(value));
     }
 
-    step("alerts (D1; registry/docs/runbook.md \"Alerts\")");
+    step("alerts (D1; api/docs/runbook.md \"Alerts\")");
     let alerts = output(&mut wrangler(&[
         "d1",
         "execute",

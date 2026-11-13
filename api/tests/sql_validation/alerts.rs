@@ -1,8 +1,8 @@
 //! Executed-semantics tests for `src/sql/alerts.rs`: which rows a cron
 //! pass claims for its mail, pass after pass.
 
-use cabin_registry_worker::alerts::{ATTEMPTS, CRITICAL, Kind, RENOTIFY, WARNING};
-use cabin_registry_worker::sql;
+use cabin_api_worker::alerts::{ATTEMPTS, CRITICAL, Kind, RENOTIFY, WARNING};
+use cabin_api_worker::sql;
 use rusqlite::Connection;
 
 use crate::common::{migrated_connection, rows};

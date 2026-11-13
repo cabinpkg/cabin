@@ -3,7 +3,7 @@
 //! the registry's publish validation is tested against exactly what the
 //! client uploads and the two sides can never silently drift.
 //!
-//! The frozen pair under `registry/tests/fixtures/` is a checked-in copy
+//! The frozen pair under `api/tests/fixtures/` is a checked-in copy
 //! of the `withdep` output; regenerate it here if the canonical metadata
 //! format changes intentionally.
 

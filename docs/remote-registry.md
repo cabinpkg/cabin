@@ -16,7 +16,7 @@
 > packaging revision (`<scope>-<name>-<version>-<revision>.zip`, so a downloaded archive stays
 > self-identifying outside the
 > directory tree), and publish/yank additionally require the token's user to be a member of the
-> target scope (see `registry/README.md`, "Getting a token").  Bare names exist only in
+> target scope (see `api/README.md`, "Getting a token").  Bare names exist only in
 > local-only manifests and local file registries; `cabin publish` rejects them before any
 > connection.
 
@@ -27,7 +27,7 @@
 This is the authoritative contract for Cabin's remote registry protocol: exactly what the Cabin
 client (this repository) and a conforming registry server implement.  The registry *service*
 itself - accounts, token issuance, hosted storage - is not part of the Cabin crates; its hosted
-implementation lives under `registry/` in this repository, outside the OSS core boundary
+implementation lives under `api/` in this repository, outside the OSS core boundary
 described in [`registry-design.md`](registry-design.md).
 
 Client status today: the [`config.json` fields](#registry-configuration) below and client-side
@@ -721,7 +721,7 @@ Actions workflow (operations live in the service runbook).  It inspects each pen
 against the canonical metadata the listing reported - parsing the zip container by hand,
 metering every entry's decompressed output against one archive-global budget, never extracting
 the registry archive to disk, and assuming the archive is hostile.  The archive must conform to the strict zip profile whose normative
-definition is `registry/docs/archive-format.md`; this section is the user-facing summary.  The
+definition is `api/docs/archive-format.md`; this section is the user-facing summary.  The
 checks, in order:
 
 1. **Size discipline**: the sum of the entries' declared uncompressed sizes is a cheap up-front

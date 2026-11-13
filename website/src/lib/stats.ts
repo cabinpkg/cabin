@@ -1,5 +1,5 @@
 // Client for the registry's stats endpoint, mounted on this
-// site's origin at /api/v1/stats (registry/src/web_glue.rs,
+// site's origin at /api/v1/stats (api/src/web_glue.rs,
 // `respond_stats`). Totals cover verified versions only, and the
 // download count is approximate - it may lag by the endpoint's cache
 // TTL. Dependency-free like lib/account.ts; `null` covers every

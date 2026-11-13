@@ -31,7 +31,7 @@ enum Command {
     },
     /// Fail, with an error annotation naming the by-hand recovery, unless
     /// the committed D1 migrations match the stamp in
-    /// registry/migrations-applied (`cargo workflow-migrations-pending`).
+    /// api/migrations-applied (`cargo workflow-migrations-pending`).
     MigrationsPending,
     /// Wait for a successful main Registry deploy whose head contains
     /// `--sha`, or for one of the answers that ends the wait early

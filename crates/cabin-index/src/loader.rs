@@ -786,7 +786,7 @@ struct RawVersion {
     ///
     /// Private-alpha leniency: an entry published without a license
     /// still loads.  The field becomes mandatory before the public
-    /// launch (`registry/docs/runbook.md`, "Launch checklist").
+    /// launch (`api/docs/runbook.md`, "Launch checklist").
     #[serde(default)]
     license: Option<String>,
     /// Declared build script, `build.c` or `build.cpp`.  Optional;

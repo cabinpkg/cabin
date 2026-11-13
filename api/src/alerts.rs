@@ -140,7 +140,7 @@ pub fn digest(claimed: &[Claimed]) -> Mail {
     text.push_str(
         "A kind is mailed when its level rises and once when it recovers; \
          a CRITICAL one is repeated every 24 hours.\n\
-         registry/docs/runbook.md, \"Alerts\"\n",
+         api/docs/runbook.md, \"Alerts\"\n",
     );
     Mail { subject, text }
 }
@@ -182,7 +182,7 @@ RECOVERED verification, at 2026-11-13T01:00:00.000Z
   it was: 3 revision(s) pending
 
 A kind is mailed when its level rises and once when it recovers; a CRITICAL one is repeated every 24 hours.
-registry/docs/runbook.md, "Alerts"
+api/docs/runbook.md, "Alerts"
 "#
         );
     }

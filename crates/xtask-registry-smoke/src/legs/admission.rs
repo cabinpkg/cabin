@@ -1,7 +1,7 @@
 //! The OIDC admission control: the global cache-bypass budget on
 //! unknown-kid JWKS refetches, then the per-client-IP gate on the two
 //! public OIDC endpoints and the session mint
-//! (`registry/wrangler.jsonc`, the ratelimit bindings).  Deliberately
+//! (`api/wrangler.jsonc`, the ratelimit bindings).  Deliberately
 //! the run's LAST leg: every local request shares one admission bucket
 //! (no `CF-Connecting-IP` off the edge), so the exhaustion burst would
 //! answer any later OIDC request or session mint with the 429 for up to

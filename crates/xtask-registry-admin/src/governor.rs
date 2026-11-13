@@ -1,5 +1,5 @@
 //! Operator surface for the cost governor
-//! (`registry/docs/runbook.md`, "The cost governor"): the usage
+//! (`api/docs/runbook.md`, "The cost governor"): the usage
 //! snapshot, read through the admin endpoint so it never starts from a
 //! hand-typed `curl`.
 //!
@@ -60,7 +60,7 @@ impl Api {
         if token.is_empty() {
             bail!(
                 "{} is required: mint a login-session token and export it \
-                 (registry/docs/runbook.md)",
+                 (api/docs/runbook.md)",
                 cabin_env::CABIN_REGISTRY_TOKEN
             );
         }

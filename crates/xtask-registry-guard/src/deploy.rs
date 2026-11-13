@@ -1,4 +1,4 @@
-//! The deploy-configuration guard (`registry/docs/runbook.md`, "The cost
+//! The deploy-configuration guard (`api/docs/runbook.md`, "The cost
 //! governor", "Deploy notes").
 //!
 //! Proves `wrangler.jsonc` still declares the bindings, Durable Object

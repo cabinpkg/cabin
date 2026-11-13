@@ -12,7 +12,7 @@ evidence of current behavior, not proof that the behavior is correct.
 
 - Read `crates/AGENTS.md` before changing `crates/`. Before changing
   `crates/cabin/`, also read `crates/cabin/AGENTS.md`.
-- Read `registry/AGENTS.md` before changing `registry/`; it routes registry
+- Read `api/AGENTS.md` before changing `api/`; it routes registry
   work to the owning module and names the registry-specific checks, which
   `cargo ci` does not cover.
 - Read `website/AGENTS.md` before changing `website/` or `docs/`; those paths
@@ -131,8 +131,8 @@ evidence of current behavior, not proof that the behavior is correct.
 - Changes under `docs/` or `website/` require the website gate defined in
   `website/AGENTS.md`. `cargo ci` runs it for those
   paths; run it manually if site output changes through another path.
-- Changes under `registry/` require the registry checks listed in
-  `registry/AGENTS.md`; `cargo ci` does not run them.
+- Changes under `api/` require the registry checks listed in
+  `api/AGENTS.md`; `cargo ci` does not run them.
 - Commit-message policy follows `@commitlint/config-conventional`; treat
   upstream commitlint behavior as authoritative. The generated squash-merge
   header must remain within its 100-character limit.

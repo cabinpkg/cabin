@@ -2,7 +2,7 @@
 //! existing user signs in whatever their account age, a fresh account
 //! under the sign-up gate's 90 days is refused with the first eligible
 //! date, and a fresh account past them is created and signed in
-//! (`registry/src/signup.rs`).
+//! (`api/src/signup.rs`).
 
 use anyhow::{Result, bail};
 

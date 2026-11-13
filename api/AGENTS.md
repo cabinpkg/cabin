@@ -1,4 +1,4 @@
-# registry/AGENTS.md
+# api/AGENTS.md
 
 Context-routing guide for the hosted registry Worker. The goal is to keep
 the files read per change small: start from the narrowest module that owns
@@ -50,7 +50,7 @@ breaker, `migrations/` (schema-change policy in
 ## Checks
 
 This directory is a standalone workspace: the root `cargo ci` gate does not
-cover it. From `registry/`:
+cover it. From `api/`:
 
 ```sh
 cargo fmt --all -- --check

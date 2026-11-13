@@ -29,7 +29,7 @@ impl Surfaces {
 /// The surfaces a list of changed paths touches.
 ///
 /// The prefixes are matched at the start of each path: a `crates/`
-/// nested deeper (`registry/crates/x`) belongs to another workspace
+/// nested deeper (`api/crates/x`) belongs to another workspace
 /// and is not a Rust change.
 #[must_use]
 pub fn surfaces(changed: &[String]) -> Surfaces {
@@ -71,8 +71,8 @@ mod tests {
             assert!(of(&[path]).rust, "{path} should be a Rust change");
         }
         for path in [
-            "registry/crates/x/src/lib.rs",
-            "registry/src/lib.rs",
+            "api/crates/x/src/lib.rs",
+            "api/src/lib.rs",
             "website/src/pages/index.astro",
             "README.md",
             ".github/workflows/rust.yml",

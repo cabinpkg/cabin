@@ -105,8 +105,8 @@ fn push_commit(work: &Path, name: &str, message: &str) -> String {
 fn superseded_answers_through_github_output() {
     let scratch = assert_fs::TempDir::new().unwrap();
     let work = cloned_pair(scratch.path());
-    let first = push_commit(&work, "registry/src/lib.rs", "first");
-    push_commit(&work, "registry/src/lib.rs", "second");
+    let first = push_commit(&work, "api/src/lib.rs", "first");
+    push_commit(&work, "api/src/lib.rs", "second");
     let newest = push_commit(&work, "website/page.astro", "third");
 
     let output = scratch.path().join("overtaken");
@@ -163,8 +163,8 @@ fn superseded_answers_through_github_output() {
 fn superseded_fails_closed_when_the_range_cannot_be_walked() {
     let scratch = assert_fs::TempDir::new().unwrap();
     let work = cloned_pair(scratch.path());
-    let first = push_commit(&work, "registry/src/lib.rs", "first");
-    push_commit(&work, "registry/src/lib.rs", "second");
+    let first = push_commit(&work, "api/src/lib.rs", "first");
+    push_commit(&work, "api/src/lib.rs", "second");
 
     let answered = scratch.path().join("answered");
     let run = guard(
@@ -214,12 +214,12 @@ fn superseded_scoping_reads_the_shared_filter_file() {
         work.join(".github/path-filters.yml"),
         r#"# fixture copy of the shared filter file
 registry:
-  - "registry/**"
+  - "api/**"
   - "Cargo.toml"
 "#,
     )
     .unwrap();
-    let first = push_commit(&work, "registry/src/lib.rs", "first");
+    let first = push_commit(&work, "api/src/lib.rs", "first");
     push_commit(&work, "website/page.astro", "website only");
 
     let ignored = scratch.path().join("ignored");
@@ -238,7 +238,7 @@ registry:
     );
     assert!(run.stderr.is_empty(), "no fallback warning: {run:?}");
 
-    push_commit(&work, "registry/src/main.rs", "registry again");
+    push_commit(&work, "api/src/main.rs", "registry again");
     let output = scratch.path().join("overtaken");
     let run = guard(
         &work,
@@ -269,10 +269,10 @@ registry:
 }
 
 fn stamp_corpus(root: &Path, applied: &str) {
-    let migrations = root.join("registry/migrations");
+    let migrations = root.join("api/migrations");
     fs::create_dir_all(&migrations).unwrap();
     fs::write(migrations.join("0001_init.sql"), SQL).unwrap();
-    fs::write(root.join("registry/migrations-applied"), applied).unwrap();
+    fs::write(root.join("api/migrations-applied"), applied).unwrap();
 }
 
 const SQL: &str = "create table t (x);\n";
@@ -342,7 +342,7 @@ fn a_migration_change_without_its_stamp_blocks_the_merge() {
     let edited = assert_fs::TempDir::new().unwrap();
     stamp_corpus(edited.path(), &format!("{}\n", stamp()));
     fs::write(
-        edited.path().join("registry/migrations/0001_init.sql"),
+        edited.path().join("api/migrations/0001_init.sql"),
         format!("{SQL}create table added (y);\n"),
     )
     .unwrap();
@@ -353,7 +353,7 @@ fn a_migration_change_without_its_stamp_blocks_the_merge() {
     let added = assert_fs::TempDir::new().unwrap();
     stamp_corpus(added.path(), &format!("{}\n", stamp()));
     fs::write(
-        added.path().join("registry/migrations/0002_next.sql"),
+        added.path().join("api/migrations/0002_next.sql"),
         "create table next (z);\n",
     )
     .unwrap();
@@ -369,7 +369,7 @@ fn a_migration_change_without_its_stamp_blocks_the_merge() {
 fn an_unreadable_stamp_blocks_the_deploy() {
     let scratch = assert_fs::TempDir::new().unwrap();
     stamp_corpus(scratch.path(), "");
-    fs::remove_file(scratch.path().join("registry/migrations-applied")).unwrap();
+    fs::remove_file(scratch.path().join("api/migrations-applied")).unwrap();
     let (run, wrote) = migrations_gate(scratch.path());
     assert!(!run.status.success() && !wrote, "{run:?}");
     let annotation = blocked_annotation(&run).expect("a blocked-deploy annotation");

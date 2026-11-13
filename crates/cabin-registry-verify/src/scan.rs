@@ -1,5 +1,5 @@
 //! The structure pass: a hand-rolled parser for the strict zip
-//! profile (`registry/docs/archive-format.md`), running the size
+//! profile (`api/docs/archive-format.md`), running the size
 //! discipline and every container rule without extracting to disk.
 //!
 //! The container is read into memory once and parsed by fixed
