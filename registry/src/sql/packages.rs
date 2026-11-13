@@ -121,13 +121,6 @@ statements! {
     SCOPE_MEMBERSHIP =
         "SELECT COUNT(*) AS n FROM scope_members WHERE scope_name = ?1 AND user_id = ?2";
 
-    /// How many stored uploads have sat `pending` for over an hour (the
-    /// stuck-verifier alert). `stored_at` is in the ISO 8601 shape the
-    /// cutoff is rendered in, so the comparison stays lexicographic.
-    COUNT_STALE_PENDING =
-        "SELECT COUNT(*) AS n FROM revisions WHERE verification = 'pending' \
-         AND stored_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')";
-
     /// The dashboard search's row set: every verified version of every
     /// package whose canonical `<scope>/<name>` name contains the term
     /// as a literal substring. `instr`, deliberately not a `LIKE`

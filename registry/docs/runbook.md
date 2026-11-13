@@ -23,9 +23,10 @@ infrastructure cutover.
   layout, reshaped D1 columns - the registry is wiped and recreated
   (`cargo registry-wipe`) rather than migrated - the database and
   every object in the four buckets. The schema ships as a
-  single from-zero baseline (`migrations/0001_init.sql`) edited in
+  from-zero baseline (`migrations/0001_init.sql`) edited in
   place: while the data is disposable, no ALTER TABLE history
-  accretes.
+  accretes. A later migration file holds a change the live database
+  took without a wipe (a data fix, an added index).
 - **Post-launch (`meta.launched` = `'true'`): permanent.** Published
   archives and index state are never wiped, mutated, or deleted; format
   changes need real migrations. The flag is flipped exactly once, by
@@ -629,8 +630,8 @@ revoking first would have the cron running degraded in between. Without a
 working token the cron logs the skip, evaluates on the exact
 self-accounted storage alone, and never de-escalates the persisted mode on
 the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
-a JSON summary POST on every mode change and on every stuck-verifier
-alert.
+a JSON summary POST on every mode change and on every pass that finds
+the verifier stuck or the publication stalled.
 
 ## The cost governor
 
@@ -960,7 +961,16 @@ in UPLOADS. A revision row is in one of five states
   for 15 to 30 minutes, longer while more than 100 packages have open
   rows. One open for 45 minutes with fewer than that means a document
   is not getting into INDEX or its purge is failing; the pass logs why
-  (`document publication: ...`).
+  (`document publication: ...`). The cron reports a row open that
+  long, and a verified archive unplaced that long, on every pass until
+  it clears (`publication health: ...`, and `publication.alert` in the
+  webhook's summary). The report does not tell a backlog from a
+  failure. Both passes take the oldest first, so a backlog shows as
+  `publication.stalled_archive` or `publication.stalled_job` moving on
+  from pass to pass (`cargo registry-diagnose` prints `open_jobs`);
+  a time that stays the same is an archive or a row the pass cannot
+  finish. A completed row is deleted 30 days after its
+  `completed_at`; an open row is never deleted for its age.
 
   The same pass keeps `config.json` in INDEX: it reads the object every
   time (one `b_infra` operation and one `a_infra`, as for a document)
@@ -1091,6 +1101,12 @@ load. On the alert, dispatch a run:
 gh workflow run registry-verify.yml
 gh run list --workflow registry-verify.yml --limit 5
 ```
+
+The alert's summary carries `verification.verifier_seen_at`
+(`meta.verifier_seen_at`), the last time the verifier exchanged its
+identity for a token: it tells a verifier that has obtained no token
+since (it did not run, or its exchange was refused) from one that
+runs and leaves the versions pending. It is not itself an alert.
 
 Per-version operational failures (a download error, a verifier crash,
 a `409` from the verdict PATCH because the version was republished
@@ -1288,7 +1304,8 @@ internal error or a refusal reason included - is absent.
 For an incident report or a bug thread, `cargo registry-diagnose`, run from
 the repository root, gathers
 the shareable aggregate state in one pass - config and stamp status,
-service mode, corpus counts, the governor snapshot (with
+service mode, corpus counts and the pipeline's oldest waits, the
+governor snapshot (with
 `CABIN_REGISTRY_TOKEN`), and the deployment list - and deliberately
 prints no tokens, object keys, content checksums, package names, or
 user data.

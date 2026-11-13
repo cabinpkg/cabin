@@ -1,7 +1,10 @@
-//! Executed-semantics tests for `src/sql/trustpub.rs`: OIDC jti replay
-//! and the trusted-publishing seed.
+//! Executed-semantics tests for `src/sql/trustpub.rs`: OIDC jti replay,
+//! the verifier's heartbeat, and the trusted-publishing seed.
 
-use crate::common::{count, migrated_connection};
+use cabin_registry_worker::{publication, sql, verify};
+use rusqlite::types::Value;
+
+use crate::common::{batch, count, migrated_connection};
 
 #[test]
 fn used_jtis_refuse_null_and_replayed_ids() {
@@ -27,6 +30,61 @@ fn used_jtis_refuse_null_and_replayed_ids() {
         )
         .expect_err("a null jti must fail NOT NULL");
     assert!(null.to_string().contains("NOT NULL"), "{null}");
+}
+
+/// The verifier arm's exchange, as `glue::bearer::tokens::exchange_mint`
+/// batches it: the heartbeat moves with a stored mint and never with a
+/// replayed jti, and the health read returns it.
+#[test]
+fn the_verifier_heartbeat_moves_with_a_stored_mint_only() {
+    let conn = migrated_connection();
+    let text = |value: &str| Value::Text(value.to_owned());
+    let exchange = |jti: &str, minute: u8| {
+        let token = format!("token-{minute}");
+        batch(
+            &conn,
+            vec![
+                (sql::CONSUME_OIDC_JTI, vec![text(jti), Value::Integer(1)]),
+                (
+                    sql::INSERT_TRUSTPUB_VERIFY_TOKEN,
+                    vec![
+                        text(&token),
+                        Value::Integer(1),
+                        text("trusted-publishing: verify.yml"),
+                        text(&token),
+                        text(&format!("2026-07-16T00:{minute:02}:00.000Z")),
+                        text(&format!("2026-07-16T01:{minute:02}:00.000Z")),
+                    ],
+                ),
+                (
+                    sql::RECORD_VERIFIER_SEEN,
+                    vec![text(&format!("2026-07-16T00:{minute:02}:00.000Z"))],
+                ),
+            ],
+        )
+        .into_iter()
+        .map(|(changed, _)| changed)
+        .collect::<Vec<_>>()
+    };
+    let seen = || {
+        conn.query_row(
+            sql::PIPELINE_HEALTH,
+            rusqlite::params![
+                "2026-07-16T02:00:00.000Z",
+                verify::STALE_PENDING,
+                publication::STALL
+            ],
+            |row| row.get::<_, Option<String>>("verifier_seen_at"),
+        )
+        .expect("PIPELINE_HEALTH")
+    };
+    assert_eq!(seen(), None);
+    assert_eq!(exchange("jti-1", 10), [1, 1, 1]);
+    assert_eq!(seen().as_deref(), Some("2026-07-16T00:10:00.000Z"));
+    assert_eq!(exchange("jti-1", 20), [0, 0, 0], "replayed");
+    assert_eq!(seen().as_deref(), Some("2026-07-16T00:10:00.000Z"));
+    assert_eq!(exchange("jti-2", 30), [1, 1, 1]);
+    assert_eq!(seen().as_deref(), Some("2026-07-16T00:30:00.000Z"));
 }
 
 #[test]

@@ -23,7 +23,7 @@ use crate::{display, key_value, output, registry_dir, repo_root, results, step, 
 // publisher is charged.
 const SERVICE_STATE: &str = "
   SELECT key, value FROM meta WHERE key IN
-    ('service_mode', 'service_mode_reason', 'launched')
+    ('service_mode', 'service_mode_reason', 'launched', 'verifier_seen_at')
   UNION ALL
   SELECT 'total_stored_bytes', COALESCE(SUM(stored_bytes), 0) FROM users
   ORDER BY key";
@@ -39,7 +39,15 @@ const COUNTS: &str = "
     (SELECT COUNT(*) FROM revisions WHERE verification = 'verified') AS verified,
     (SELECT COUNT(*) FROM revisions WHERE verification = 'rejected') AS rejected,
     (SELECT COUNT(*) FROM versions WHERE yanked = 1) AS yanked,
-    (SELECT COUNT(*) FROM tokens) AS tokens";
+    (SELECT COUNT(*) FROM tokens) AS tokens,
+    (SELECT MIN(stored_at) FROM revisions
+      WHERE verification = 'pending') AS oldest_pending,
+    (SELECT MIN(verified_at) FROM revisions
+      WHERE verification = 'verified' AND archived_at IS NULL) AS oldest_unplaced,
+    (SELECT COUNT(*) FROM publication_jobs WHERE completed_at IS NULL) AS open_jobs,
+    (SELECT MIN(created_at) FROM publication_jobs
+      WHERE completed_at IS NULL) AS oldest_open_job,
+    (SELECT MAX(completed_at) FROM publication_jobs) AS last_completed_job";
 
 /// # Errors
 ///
