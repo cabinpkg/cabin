@@ -1021,8 +1021,8 @@ fn first_standard_token(flags: &[String]) -> Option<String> {
 /// Detect the documented conflict candidates: an explicit
 /// first-class implementation standard declaration (package or
 /// target level) for a language whose manifest-derived flag list
-/// also pins a standard.  Runs on resolved flags *before* env /
-/// pkg-config augmentation so `CFLAGS` / `CXXFLAGS` remain exempt.
+/// also pins a standard.  Runs on resolved flags *before* env
+/// augmentation so `CFLAGS` / `CXXFLAGS` remain exempt.
 ///
 /// These are *candidates*, scoped per declaration: the build
 /// planner surfaces one only when a compile its scope covers is

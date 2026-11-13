@@ -201,20 +201,12 @@ impl ProfileSettings {
 ///
 /// `defines` holds one entry per macro, the highest-precedence
 /// layer's, sorted by macro name; every other list keeps
-/// declaration order, and `include_dirs`, `system_include_dirs`,
-/// `link_libs`, and `frameworks` also drop repeats after the first
-/// occurrence.
+/// declaration order, and `include_dirs`, `link_libs`, and
+/// `frameworks` also drop repeats after the first occurrence.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfileFlags {
     pub defines: Vec<String>,
     pub include_dirs: Vec<Utf8PathBuf>,
-    /// Include directories the compile commands mark as *system*
-    /// search paths (`-isystem` in the GCC/Clang dialect), so
-    /// diagnostics inside their headers are suppressed.  For
-    /// third-party contributions the user does not control, never
-    /// the package's own manifest declarations, which stay in
-    /// [`Self::include_dirs`].
-    pub system_include_dirs: Vec<Utf8PathBuf>,
     /// Language-neutral compile-time escape-hatch arguments.
     /// Applied to every compile command, both C/C++.
     pub extra_compile_args: Vec<String>,
@@ -243,7 +235,6 @@ impl ResolvedProfileFlags {
     pub fn is_empty(&self) -> bool {
         self.defines.is_empty()
             && self.include_dirs.is_empty()
-            && self.system_include_dirs.is_empty()
             && self.extra_compile_args.is_empty()
             && self.cflags.is_empty()
             && self.cxxflags.is_empty()
@@ -258,11 +249,6 @@ impl ResolvedProfileFlags {
             "defines": self.defines,
             "include_dirs": self
                 .include_dirs
-                .iter()
-                .map(|p| p.as_str())
-                .collect::<Vec<_>>(),
-            "system_include_dirs": self
-                .system_include_dirs
                 .iter()
                 .map(|p| p.as_str())
                 .collect::<Vec<_>>(),
@@ -1284,29 +1270,5 @@ mod tests {
             decl.validate().unwrap_err(),
             BuildFlagsValidationError::DefineMissingName { .. }
         ));
-    }
-
-    #[test]
-    fn resolved_flags_with_only_system_include_dirs_are_not_empty() {
-        // System include dirs (e.g. a pkg-config contribution) must
-        // count as a non-empty flag set, or consumers keyed on
-        // `is_empty` would drop them from metadata views.
-        let flags = ResolvedProfileFlags {
-            system_include_dirs: vec![Utf8PathBuf::from("/opt/dep/include")],
-            ..Default::default()
-        };
-        assert!(!flags.is_empty());
-    }
-
-    #[test]
-    fn resolved_flags_json_includes_system_include_dirs() {
-        let flags = ResolvedProfileFlags {
-            system_include_dirs: vec![Utf8PathBuf::from("/opt/dep/include")],
-            ..Default::default()
-        };
-        assert_eq!(
-            flags.as_json()["system_include_dirs"],
-            serde_json::json!(["/opt/dep/include"]),
-        );
     }
 }

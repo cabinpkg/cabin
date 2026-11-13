@@ -2664,50 +2664,6 @@ fn msvc_without_external_support_collapses_system_includes() {
 }
 
 #[test]
-fn flag_system_include_dirs_route_to_system_bucket() {
-    // `ResolvedProfileFlags::system_include_dirs` (the pkg-config
-    // contribution) lands in the compile's system bucket.
-    let package = Package::new(
-        pkg_name("hello"),
-        version(),
-        vec![target(
-            "hello",
-            TargetKind::Executable,
-            &["src/main.cc"],
-            &[],
-        )],
-        Vec::new(),
-    )
-    .unwrap();
-    let graph = single_package_graph(package, "/abs/proj");
-    let tc = toolchain();
-    let mut flags = HashMap::new();
-    flags.insert(
-        0,
-        ResolvedProfileFlags {
-            system_include_dirs: vec![Utf8PathBuf::from("/opt/zlib/include")],
-            ..Default::default()
-        },
-    );
-    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
-    req.build_flags = &flags;
-    let bg = plan(&req).unwrap();
-    let compile = compile_for(&bg, "/hello/");
-    assert!(
-        compile
-            .arguments
-            .system_include_dirs
-            .contains(&Utf8PathBuf::from("/opt/zlib/include"))
-    );
-    assert!(
-        !compile
-            .arguments
-            .include_dirs
-            .contains(&Utf8PathBuf::from("/opt/zlib/include"))
-    );
-}
-
-#[test]
 fn link_libs_propagate_to_consumer_link_after_archives() {
     // A library package declares `link-libs` (resolved into its
     // per-package build flags); an executable in another package
