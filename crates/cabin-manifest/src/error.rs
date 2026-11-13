@@ -351,14 +351,18 @@ pub enum ManifestError {
         source: cabin_core::PatchValidationError,
     },
 
-    /// A `[system-provided]` entry is not one valid module or a
-    /// non-empty table of valid modules per target.
-    #[error("invalid `[system-provided]` entry for `{package}`: {source}")]
-    InvalidSystemProvider {
-        package: String,
-        #[source]
-        source: cabin_core::SystemProviderError,
-    },
+    /// The `[system-provided]` table, which Cabin read until a package
+    /// could offer the system's copy of its library itself.  Refused,
+    /// not ignored: the build would otherwise fetch and compile what
+    /// the manifest asks to take from the system.
+    #[error("`[system-provided]` is no longer supported")]
+    #[diagnostic(
+        code(cabin::manifest::system_provided_removed),
+        help(
+            "remove the table: a package that can use the system's copy of its library offers that itself, behind a feature it documents"
+        )
+    )]
+    SystemProvidedRemoved,
 }
 
 /// Source-annotated form of a TOML parse failure.  Carries the

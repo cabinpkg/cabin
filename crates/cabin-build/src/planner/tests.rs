@@ -232,8 +232,6 @@ fn plan_request<'a>(
         LazyLock::new(HashMap::new);
     static NO_FLAG_CONFLICTS: LazyLock<HashMap<usize, Vec<cabin_core::StandardFlagConflict>>> =
         LazyLock::new(HashMap::new);
-    static NO_SYSTEM_TARGETS: LazyLock<HashMap<(usize, String), crate::SystemTargetInterface>> =
-        LazyLock::new(HashMap::new);
     static NO_SCRIPT_OUTPUTS: LazyLock<HashMap<(usize, String), crate::BuildScriptOutput>> =
         LazyLock::new(HashMap::new);
     PlanRequest {
@@ -242,7 +240,6 @@ fn plan_request<'a>(
         build_flags: &EMPTY_BUILD_FLAGS,
         language_standards: &NO_LANGUAGE_STANDARDS,
         standard_flag_conflicts: &NO_FLAG_CONFLICTS,
-        system_targets: &NO_SYSTEM_TARGETS,
         build_scripts: &[],
         build_script_outputs: &NO_SCRIPT_OUTPUTS,
         build_dir: PathBuf::from(build_dir),
@@ -792,17 +789,18 @@ fn cross_package_path_dep_links_library() {
     assert!(app_compile.arguments.system_include_dirs.is_empty());
 }
 
-/// A system-provided target's interface reaches the C and C++ compiles
-/// that see it like any library's, its compile arguments ahead of the
-/// consumer's own and its definitions under the conflict check, and its
-/// link arguments follow the package's `ldflags` in every link that
-/// reaches it, private edges included.
+/// What pkg-config gives a library a build script takes from the
+/// system reaches the C and C++ compiles that see the library like any
+/// library's interface, its compile arguments ahead of the consumer's
+/// own and its definitions under the conflict check, and its link
+/// arguments follow the package's `ldflags` in every link that reaches
+/// it, private edges included.
 #[test]
-fn system_provided_target_supplies_its_interface_and_link_arguments() {
+fn a_system_library_supplies_its_interface_and_link_arguments() {
     let zlib = Package::new(
         pkg_name("zlib"),
         version(),
-        vec![target("z", TargetKind::HeaderOnly, &[], &[])],
+        vec![target("z", TargetKind::Library, &["src/z.c"], &[])],
         Vec::new(),
     )
     .unwrap();
@@ -839,8 +837,16 @@ fn system_provided_target_supplies_its_interface_and_link_arguments() {
         vec![2],
         Some(2),
     );
-    let system_targets = HashMap::from([(
-        (0, "z".to_owned()),
+    let supplied = |target: (usize, &str), provided| {
+        let output = BuildScriptOutput {
+            external: true,
+            provided,
+            ..Default::default()
+        };
+        HashMap::from([((target.0, target.1.to_owned()), output)])
+    };
+    let outputs = supplied(
+        (0, "z"),
         crate::SystemTargetInterface {
             include_dirs: vec![Utf8PathBuf::from("/usr/include")],
             system_include_dirs: vec![Utf8PathBuf::from("/opt/zlib/include")],
@@ -848,7 +854,7 @@ fn system_provided_target_supplies_its_interface_and_link_arguments() {
             compile_args: vec!["-pthread".to_owned()],
             link_args: vec!["-L/opt/zlib/lib".to_owned(), "-lz".to_owned()],
         },
-    )]);
+    );
     let build_flags = HashMap::from([
         (
             1,
@@ -867,9 +873,14 @@ fn system_provided_target_supplies_its_interface_and_link_arguments() {
     ]);
     let tc = toolchain_with_cc();
     let mut req = plan_request(&graph, &tc, "/abs/build");
-    req.system_targets = &system_targets;
+    req.build_script_outputs = &outputs;
     req.build_flags = &build_flags;
     let bg = plan(&req).unwrap();
+    assert!(
+        compile_actions(&bg)
+            .iter()
+            .all(|c| c.source != "/abs/zlib/src/z.c")
+    );
 
     let compiles_of = |package: &str| -> Vec<&CompileAction> {
         compile_actions(&bg)
@@ -908,15 +919,15 @@ fn system_provided_target_supplies_its_interface_and_link_arguments() {
     // A supplied definition that disagrees with a visible
     // `interface-defines` entry is a conflict.
     let graph = diamond_with_defines(&["ZLIB_CONST=1"], &[], &[]);
-    let system_targets = HashMap::from([(
-        (1, "b".to_owned()),
+    let outputs = supplied(
+        (1, "b"),
         crate::SystemTargetInterface {
             defines: vec!["ZLIB_CONST=2".to_owned()],
             ..Default::default()
         },
-    )]);
+    );
     let mut req = plan_request(&graph, &tc, "/abs/build");
-    req.system_targets = &system_targets;
+    req.build_script_outputs = &outputs;
     let err = crate::validate_planned_standards(&plan(&req).unwrap()).unwrap_err();
     assert!(
         matches!(&err, BuildError::PlannedStandard(PlannedStandardError::ConflictingInterfaceDefines { name, .. }) if name == "ZLIB_CONST"),
@@ -3109,7 +3120,6 @@ fn target_dep_cycle_within_package_is_reported() {
         language: Default::default(),
         compiler_wrapper: Default::default(),
         patches: Default::default(),
-        system_provided: Default::default(),
         upstream: None,
         license: None,
         include: Vec::new(),

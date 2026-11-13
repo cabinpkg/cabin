@@ -212,7 +212,7 @@ pub enum ConfigParseError {
     /// A top-level table the parser did not recognize.  Lists the
     /// supported tables so users can see the full surface.
     #[error(
-        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, gc, toolchain, term, trust, patch, source-replacement, system-provided, runner, sysroot"
+        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, gc, toolchain, term, trust, patch, source-replacement, runner, sysroot"
     )]
     UnknownTopLevelTable { table: String },
 
@@ -230,18 +230,14 @@ pub enum ConfigParseError {
         source: cabin_core::PatchValidationError,
     },
 
-    /// A `[system-provided]` key is not a valid package name.
-    #[error("invalid `[system-provided]` package name: {0}")]
-    InvalidSystemProvidedPackageName(String),
-
-    /// A `[system-provided]` row is not one valid module or a
-    /// non-empty table of valid modules per target.
-    #[error("invalid `[system-provided]` entry for `{package}`: {source}")]
-    InvalidSystemProvider {
-        package: String,
-        #[source]
-        source: Box<cabin_core::SystemProviderError>,
-    },
+    /// The `[system-provided]` table, which Cabin read until a package
+    /// could offer the system's copy of its library itself.  Refused,
+    /// not ignored: the build would otherwise fetch and compile what
+    /// the file asks to take from the system.
+    #[error(
+        "config table `system-provided` is no longer supported; remove it: a package that can use the system's copy of its library offers that itself, behind a feature it documents"
+    )]
+    SystemProvidedRemoved,
 
     /// A `[source-replacement]` row failed validation
     /// (ambiguous, missing target, unsupported kind, credential

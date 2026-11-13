@@ -43,12 +43,10 @@ use semver::Version;
 
 pub use error::{ResolveError, ResolverConstraint};
 pub use input::{LinkDomain, LinksClaim, LockedVersion, ResolveInput, ResolveMode};
-pub use output::{
-    BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, ResolvedSource, active_dependency,
-};
+pub use output::{BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, ResolvedSource};
 
 use crate::explanation::explain_no_solution;
-use crate::output::selected_dependencies_to_output;
+use crate::output::{active_dependency, selected_dependencies_to_output};
 use crate::preflight::{effective_locked, preflight_root_dependencies};
 use crate::provider::{Node, Provider, version_metadata, without_rejected_prereleases};
 use crate::range::req_to_range;

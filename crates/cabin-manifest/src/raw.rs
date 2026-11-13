@@ -72,10 +72,11 @@ pub(crate) struct RawManifest {
     /// development policy and never enter published metadata.
     #[serde(default)]
     pub(crate) patch: BTreeMap<String, RawPatch>,
-    /// `[system-provided]` - packages the build takes from the system.
-    /// Workspace-root only, like `[patch]`.
+    /// `[system-provided]`, which Cabin no longer reads.  Named so
+    /// that a manifest still carrying it is refused with the error
+    /// that says what replaced it, whatever the table holds.
     #[serde(default, rename = "system-provided")]
-    pub(crate) system_provided: BTreeMap<String, RawSystemProvider>,
+    pub(crate) system_provided: Option<serde::de::IgnoredAny>,
     /// `[standard-header-shadowing]` - read only from the workspace
     /// root manifest and ignored elsewhere, so only the consumer may
     /// let a registry package replace standard headers, never the
@@ -176,25 +177,6 @@ pub(crate) struct RawProfileFlags {
 pub(crate) struct RawPatch {
     #[serde(default)]
     pub(crate) path: Option<String>,
-}
-
-/// One row in the `[system-provided]` table: `pkg-config` for a sole
-/// library target, or `targets` with one module per library target.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawSystemProvider {
-    #[serde(default, rename = "pkg-config")]
-    pub(crate) pkg_config: Option<String>,
-    #[serde(default)]
-    pub(crate) targets: Option<BTreeMap<String, RawSystemTargetProvider>>,
-}
-
-/// One `targets.<name>` row of a `[system-provided]` entry.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawSystemTargetProvider {
-    #[serde(rename = "pkg-config")]
-    pub(crate) pkg_config: String,
 }
 
 /// One `[profile.<name>]` table.

@@ -146,8 +146,7 @@ variable overrides the default with a verbatim executable path or command name:
 CABIN_PKG_CONFIG=/opt/pkgconf/bin/pkg-config cabin build
 ```
 
-If a build has no active `system = true` entry, no
-[system-provided package](#system-provided-packages), and no build script that reports a
+If a build has no active `system = true` entry and no build script that reports a
 [`pkg-config` line](build-scripts.md#supplying-a-library), Cabin never spawns `pkg-config` and the
 executable is not required.  When the project does declare system dependencies and the resolved
 executable is missing, Cabin produces a single diagnostic suggesting the install / override fix.
@@ -193,69 +192,27 @@ Quiet mode (`cabin -q ...`): probe status output is suppressed.  Errors are not.
 | `cabin::system_deps::invocation_failed`         | A `pkg-config` invocation failed for a reason other than not-found. |
 | `cabin::system_deps::malformed_output`          | `pkg-config` produced output Cabin could not split into argv tokens. |
 
-## System-provided packages
+## The removed `[system-provided]` table
 
-`system = true` names a library that has no Cabin package.  To build a Cabin package against the
-system's copy of it instead, name the package in the workspace root manifest's `[system-provided]`
-table, or in a [config file's](config.md#system-provided), with the pkg-config module that supplies
-it:
+Cabin used to read a `[system-provided]` table, in the workspace root manifest and in config files,
+that made a build take a registry package from a pkg-config module.  It no longer does, and a
+manifest or config file that still carries the table is an error.  Remove the table.
 
-```toml
-[system-provided."cabin-ports/zlib"]
-pkg-config = "zlib"
-```
+A package now offers the system's copy of its library itself, as
+[A package for a system library](build-scripts.md#a-package-for-a-system-library) describes, and a
+build asks for it the way that package documents, usually by a [feature](features.md).  That
+differs from the table:
 
-A package with several library targets names a module for each of them under `targets`:
-
-```toml
-[system-provided."acme/tls"]
-targets.ssl = { pkg-config = "libssl" }
-targets.crypto = { pkg-config = "libcrypto" }
-```
-
-The manifests that depend on the package keep their `"cabin-ports/zlib" = "^1.3"` edges and
-`deps = ["cabin-ports/zlib"]` references unchanged.  Like `[patch]`, the table is the root's
-policy: a member or dependency manifest that declares it is an error, and `cabin package` refuses a
-manifest that carries it.
-
-- **Resolution and `cabin.lock` ignore the table.**  The package resolves from the index as it would
-  without the table, so switching between the source build and the system copy never rewrites the
-  lockfile, and `--locked`, `--frozen`, and `--offline` behave as usual.
-- **Fetching stops at the package.**  `cabin build`, `run`, `test`, and `fetch` fetch neither the
-  package nor anything only it depends on, and a `[patch]` fork only it reaches stays unused.
-  `cabin vendor` ignores the table, so a vendored tree also builds where the system lacks the
-  library.
-- **Probing.**  Each provided package the build includes is probed, with the module's version
-  checked against the comparators of every edge onto the package that the build uses: from an
-  included package, active on the target platform, and, when optional, enabled by a feature.  `*`
-  adds none; the rest are joined as in [Version requirements](#version-requirements).  A missing
-  module or a version outside them stops the build; it never falls back to the source build.  With
-  `targets`, every module must be installed and is checked against the same comparators, including
-  the modules of targets nothing uses.  Unselected members, disabled features, and dev dependencies
-  the command does not build need no installed library.  A `--target` build for another machine
-  needs the target's pkg-config, as [above](#manifest-declaration).
-- **Interface.**  `pkg-config` needs the index to list exactly one library target for the package;
-  `targets` must name every library target the index lists, no more and no fewer.  Each target
-  takes its module's interface: `-I` directories as include dirs (system search paths, except
-  compiler default dirs such as `/usr/include`), the other `--cflags` tokens verbatim and in order
-  ahead of each consumer compile's standard and profile flags, and the `--libs` tokens, in order,
-  after the archives of every link that reaches the target.  The language-standard check does not
-  constrain its consumers, since its standards are the system library's.
-- **One copy per link.**  A package that a provided package depends on, directly or not, is an
-  error when the build also builds it from source for another package: the system library links
-  its own copy, so provide that dependency from the system too.  Build dependencies do not count:
-  the system library does not link the tools it was built with.
-- **Other policy.**  Only a registry package can be provided: naming a workspace member or path
-  dependency fails the build.  A package cannot be both `[patch]`ed and provided.  Source
-  replacement only changes the index the package resolves from.
-- **Rebuilds.**  The interface reaches the consumers' command lines, so a changed probe result
-  re-runs their compiles and links through Ninja's command-line check.  Like a dependency's
-  interface, it is not part of any package's build-configuration fingerprint.
-
-`cabin metadata` reports the effective table, config files' entries included, under the top-level
-`system_provided` object; `cabin -v` prints each probed module's version.  Not yet supported: static
-linking (`--static`), cross-sysroot defaults, a provider for MSVC, and provided packages a
-build dependency reaches.
+- Only a package written to offer the system's copy has one to offer.  A build can no longer name
+  a pkg-config module to stand in for a package of its choosing, and a feature or a wrapper package
+  does not do that for a package that was not written for it.  [`[patch]`](patch-overrides.md)
+  still replaces a package with a copy of it that you keep, a whole package with its own manifest;
+  it is not a table of system libraries.
+- The package is fetched either way, since the build script that finds the system's copy is part
+  of it.  The table skipped the fetch.
+- The package's script names the pkg-config module and the version it accepts.  The table checked
+  the module against the versions the dependents asked of the package.
+- The choice is a feature, made in a manifest or with `--features`, not an entry of a config file.
 
 ## What Cabin does not do
 

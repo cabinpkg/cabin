@@ -361,9 +361,6 @@ pub(crate) struct PreparedWorkspace {
     /// The build context, when the target context's packages declare
     /// build dependencies or the build runs a build script.
     pub build_context: Option<BuildContextPrep>,
-    /// The interfaces of the system-provided targets the target
-    /// context uses.
-    pub system_targets: HashMap<(usize, String), cabin_build::SystemTargetInterface>,
     /// The build scripts of the packages the build reaches, a registry
     /// package's only when its index entry declares it
     /// ([`find_build_scripts`]): each as its package's index, whether it
@@ -518,7 +515,6 @@ pub(crate) fn prepare_workspace(
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
-                system: &[],
                 registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
                 include_dev_for: &dev_for,
             },
@@ -542,7 +538,7 @@ pub(crate) fn prepare_workspace(
     })?;
     let has_versioned = seed.has_versioned_deps();
 
-    let (registry, lockfile_pinned, checksums, activated_patches, system, registry_scripts) =
+    let (registry, lockfile_pinned, checksums, activated_patches, registry_scripts) =
         if has_versioned {
             let inputs = super::config::resolve_pipeline_inputs(
                 resolved_index_source.as_ref(),
@@ -575,7 +571,6 @@ pub(crate) fn prepare_workspace(
                 )?,
                 no_patches: args.no_patches,
                 dev_for: &dev_for,
-                system_provided: &initial_graph.root_settings.system_provided,
             })?;
             (
                 pipeline.registry_sources(),
@@ -589,7 +584,6 @@ pub(crate) fn prepare_workspace(
                     })
                     .collect(),
                 pipeline.activated_patches,
-                pipeline.system,
                 pipeline.build_scripts,
             )
         } else {
@@ -605,7 +599,6 @@ pub(crate) fn prepare_workspace(
                 BTreeSet::new(),
                 BTreeMap::new(),
                 seed.patched_deps.activated.clone(),
-                super::system_provided::SystemSplit::default(),
                 BTreeMap::new(),
             )
         };
@@ -646,7 +639,6 @@ pub(crate) fn prepare_workspace(
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &patched_sources,
-                system: &[],
                 registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
                 include_dev_for: &dev_for,
             },
@@ -667,17 +659,15 @@ pub(crate) fn prepare_workspace(
     }
     strict_packages.extend(activated_patches.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
-    let mut graph = cabin_workspace::load_workspace_with_options(
+    let graph = cabin_workspace::load_workspace_with_options(
         &manifest_path,
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
-            system: &system.stubs,
             registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
             include_dev_for: &dev_for,
         },
     )?;
-    super::system_provided::apply_config_entries(&mut graph, &effective_config, &patched_names);
 
     // Resolve the workspace package selection up-front.  The planner
     // consumes the selected indices through `PlanRequest::selected_packages`
@@ -821,15 +811,6 @@ pub(crate) fn prepare_workspace(
         cabin_build::Dialect::from_compiler_kind(detection_report.lead().identity.kind),
         selected_closure,
     )?;
-    let system_targets = super::system_provided::probe_provided(
-        &graph,
-        &feature_resolution,
-        &build_features.included,
-        &system.reaches,
-        &platform,
-        cabin_build::Dialect::from_compiler_kind(detection_report.lead().identity.kind),
-        reporter,
-    )?;
     let prep = resolve_build_prep(BuildConfigInputs {
         graph: &graph,
         platform: &platform,
@@ -931,7 +912,6 @@ pub(crate) fn prepare_workspace(
         configured_sysroot,
         runner,
         build_context,
-        system_targets,
         build_scripts: scripts,
     })
 }
@@ -1299,7 +1279,6 @@ fn target_request<'a>(
         build_flags: &prepared.prep.build_flags,
         language_standards: &prepared.language_standards,
         standard_flag_conflicts: &prepared.prep.standard_flag_conflicts,
-        system_targets: &prepared.system_targets,
         build_scripts: &[],
         build_script_outputs: reported,
         build_dir: prepared.build_dir.clone(),
@@ -1347,7 +1326,6 @@ pub(crate) fn plan_build_context(
         build_flags: &context.build_flags,
         language_standards: &prepared.language_standards,
         standard_flag_conflicts: &context.standard_flag_conflicts,
-        system_targets: &HashMap::new(),
         build_scripts: scripts,
         build_script_outputs: reported,
         build_dir: prepared.build_dir.clone(),

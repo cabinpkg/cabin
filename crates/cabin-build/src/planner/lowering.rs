@@ -220,7 +220,7 @@ pub(super) struct CollectedInterface {
     pub(super) system: Vec<Utf8PathBuf>,
     /// The visible dependencies' `interface-defines`, in visit order.
     pub(super) defines: Vec<String>,
-    /// The visible system-provided targets' compile arguments, in
+    /// The visible system-supplied targets' compile arguments, in
     /// visit order.
     pub(super) args: Vec<String>,
     /// The visible library-like dependency targets, in visit order.
@@ -488,13 +488,11 @@ pub(super) fn collect_link_names(
     names
 }
 
-/// What the system supplies for `tid`: a `[system-provided]` package's
-/// target, or what pkg-config gave a library a build script supplies.
+/// What the system supplies for `tid`: what pkg-config gave a library
+/// a build script supplies.
 fn provided<'a>(req: &PlanRequest<'a>, tid: &TargetId) -> Option<&'a SystemTargetInterface> {
     let reported = req.build_script_outputs.get(tid);
-    req.system_targets
-        .get(tid)
-        .or(reported.map(|reported| &reported.provided))
+    reported.map(|reported| &reported.provided)
 }
 
 /// The link arguments of the system-supplied targets the link of

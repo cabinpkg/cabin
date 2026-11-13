@@ -31,7 +31,6 @@ pub(crate) mod seed;
 pub(crate) mod source_tooling;
 pub(crate) mod standard_compat;
 pub(crate) mod system_deps;
-mod system_provided;
 pub(crate) mod term_color;
 pub(crate) mod term_verbosity;
 pub(crate) mod test;

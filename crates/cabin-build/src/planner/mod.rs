@@ -64,13 +64,10 @@ impl ManifestTargetSelector {
     }
 }
 
-/// What a system provider supplies for one library target of a
-/// package the build takes from the system instead of building it.
-/// The graph holds that target as a header-only target with no sources
-/// of its own, which the planner never builds; consumers receive this
-/// interface wherever they would receive the target's include dirs and
-/// `interface-defines`, and every link that reaches it takes its link
-/// arguments.
+/// What pkg-config gives a library target a build script takes from
+/// the system instead of building it.  Consumers receive this interface
+/// beside the include dirs and `interface-defines` the script reports,
+/// and every link that reaches the target takes its link arguments.
 #[derive(Debug, Default)]
 pub struct SystemTargetInterface {
     /// Include dirs passed as plain `-I`: compiler default dirs such as
@@ -211,9 +208,6 @@ pub struct PlanRequest<'a> {
     /// compile a candidate's scope covers; candidates whose scope
     /// is never planned (an unbuilt sibling target) gate nothing.
     pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
-    /// The interfaces of the system-provided targets this plan uses,
-    /// keyed by `graph.packages` index and target name.
-    pub system_targets: &'a HashMap<(usize, String), SystemTargetInterface>,
     /// The build scripts to build.  Only a build-context plan
     /// (`build_context`) has any: a script runs on the build machine.
     pub build_scripts: &'a [BuildScript],
@@ -1041,7 +1035,7 @@ fn emit_actions(
                 // GNU, `<name>.lib` for MSVC) and places them after the
                 // archives for left-to-right resolution. `arguments`
                 // is the package's own raw `ldflags`, then the link
-                // arguments of the system-provided targets it reaches.
+                // arguments of the system-supplied targets it reaches.
                 // Apple's linker resolves archives in any order and
                 // warns on a repeated library, so its links name each
                 // once; other linkers search left to right.
