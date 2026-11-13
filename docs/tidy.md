@@ -29,8 +29,12 @@ pass `-v` / `--verbose` to drop `-quiet` and see the driver's full progress outp
 
 `cabin tidy` neither runs [build scripts](build-scripts.md) nor applies what they reported: the
 compilation database lacks the include directories, definitions, and sources a script adds, so a
-source that includes a generated header fails to compile under `clang-tidy`, and a target whose
-every source a build script generates is refused as having no sources.
+source that includes a generated header fails to compile under `clang-tidy`.  A library that lists
+no source for the platform, in a package with a build script, is taken as one the script
+[supplies](build-scripts.md#supplying-a-library): nothing of it is analyzed, and what depends on it
+is analyzed without the library's `include-dirs` and `interface-defines` and without what the
+script would report.  An executable, test, or example whose every source a build script generates
+is refused as having no source.
 
 `cabin tidy` exits non-zero whenever `run-clang-tidy` exits non-zero, which is the standard way
 clang-tidy signals that at least one file produced a diagnostic.

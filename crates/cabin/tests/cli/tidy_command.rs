@@ -142,6 +142,75 @@ deps = ["demo"]
         .stdout(predicate::str::contains("Checked 3 files"));
 }
 
+/// `cabin tidy` runs no build script, so it takes a library that lists
+/// no source for the one its package's build script supplies, and
+/// analyzes what depends on it.
+#[test]
+fn tidy_analyses_what_depends_on_a_library_a_build_script_supplies() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["zlib-sys", "app"]
+"#,
+        )
+        .unwrap();
+    dir.child("zlib-sys/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "zlib-sys"
+version = "0.1.0"
+interface-c-standard = "c89"
+interface-cxx-standard = "c++98"
+
+[target.z]
+type = "library"
+sources = []
+links = "z"
+"#,
+        )
+        .unwrap();
+    // Never built: tidy only looks for the file.
+    let script = dir.child("zlib-sys/build.c");
+    script.write_str("int main(void) { return 1; }\n").unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+zlib-sys = { path = "../zlib-sys" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["zlib-sys"]
+"#,
+        )
+        .unwrap();
+    dir.child("app/src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+
+    cabin_with_fake_tidy()
+        .current_dir(dir.path())
+        .args(["tidy", "--workspace"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Checked 1 file"));
+
+    // Without a build script nothing supplies the library.
+    fs::remove_file(script.path()).unwrap();
+    cabin_with_fake_tidy()
+        .current_dir(dir.path())
+        .args(["tidy", "--workspace"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("has no source files"));
+}
+
 #[test]
 fn tidy_skips_gated_target_but_errors_when_everything_is_gated() {
     let dir = TempDir::new().unwrap();
