@@ -36,7 +36,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: crate-ci/typos@v1.51.1
+      - uses: crate-ci/typos@v1.52.0
 
       # gh actions-lock reads .github/workflows from the working
       # directory; .github/AGENTS.md has the lockfile procedure.
