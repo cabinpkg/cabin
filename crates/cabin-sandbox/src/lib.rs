@@ -38,7 +38,12 @@
 //! - macOS: reads are denied only where user data lives: `/Users`,
 //!   `/Volumes`, the temporary directories, and the home directory.  A
 //!   file elsewhere, such as on a volume mounted at another path, stays
-//!   readable.  The program can read the command line and environment any
+//!   readable.  The program reads the metadata (what `stat(2)` reports,
+//!   the names of the extended attributes, the access-control list) of
+//!   each directory leading to a granted path, which resolving a path it
+//!   is given takes (`realpath(3)`), and of the files its standard output
+//!   and error go to.
+//!   The program can read the command line and environment any
 //!   process of its user was started with (`sysctl` `KERN_PROCARGS2`),
 //!   which Seatbelt cannot deny.  A process that leaves the program's
 //!   process group (`setsid(2)`, `setpgid(2)`) escapes the final kill, as

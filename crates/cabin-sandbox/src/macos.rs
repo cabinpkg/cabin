@@ -11,14 +11,24 @@
 //! launchd jobs, Apple events, `open`, and every Mach service but
 //! logging, notifications, and user lookup (daemons such as the
 //! keychain's or the DNS resolver would otherwise act on the program's
-//! behalf).  It then re-allows the granted paths, and finally denies the
-//! hidden ones inside them, and removing, renaming, or making anything in
-//! place of a writable directory itself.  Later rules win.  Paths are
-//! passed as `-D` parameters, never spliced into the profile text.
+//! behalf).  It then re-allows the granted paths, and the metadata alone
+//! of each directory leading to one and of the files the standard output
+//! and error go to (a program resolves the paths it is given, and examines
+//! those streams before it writes to them), and finally denies the hidden
+//! paths inside the grants, and removing, renaming, or making anything in
+//! place of a writable directory itself.  Of two rules for one operation
+//! the later wins, and a rule naming an operation outranks one that covers
+//! it by wildcard wherever it stands, so the last deny names the metadata
+//! too.  Paths are passed as `-D` parameters, never spliced into the
+//! profile text.
 
-use std::ffi::OsString;
+use std::collections::BTreeSet;
+use std::ffi::{CStr, OsStr, OsString};
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::fs::File;
+use std::os::fd::AsRawFd as _;
+use std::os::unix::ffi::OsStrExt as _;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::sync::OnceLock;
 
@@ -56,11 +66,16 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         program: program.clone(),
         source,
     })?;
+    let granted = read.iter().chain(&write);
+    let leading = granted.flat_map(|path| path.ancestors().skip(1));
+    let streams = [&stdout, &stderr].into_iter().filter_map(path_of);
+    let seen: BTreeSet<PathBuf> = leading.map(Path::to_path_buf).chain(streams).collect();
     let mut command = Command::new(SANDBOX_EXEC);
     command.arg("-p").arg(profile(
         home.is_some(),
         read.len(),
         write.len(),
+        seen.len(),
         hidden.len(),
     ));
     let params = home
@@ -68,6 +83,7 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
         .map(|home| ("HOME".to_owned(), home))
         .chain(read.iter().enumerate().map(|(i, p)| (format!("R{i}"), p)))
         .chain(write.iter().enumerate().map(|(i, p)| (format!("W{i}"), p)))
+        .chain(seen.iter().enumerate().map(|(i, p)| (format!("M{i}"), p)))
         .chain(hidden.iter().enumerate().map(|(i, p)| (format!("H{i}"), p)));
     for (key, path) in params {
         let mut definition = OsString::from(key);
@@ -80,6 +96,17 @@ pub(crate) fn run(confinement: Confinement) -> Result<ExitStatus, SandboxError> 
     unix::run(command, &program)
 }
 
+/// Where an open file lies, as Seatbelt spells it; `None` for one
+/// without a path, such as a pipe.
+fn path_of(file: &File) -> Option<PathBuf> {
+    let mut path = [0; libc::PATH_MAX as usize];
+    // SAFETY: `F_GETPATH` writes a NUL-terminated path of at most
+    // `PATH_MAX` bytes.
+    let found = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, path.as_mut_ptr()) } != -1;
+    let path = CStr::from_bytes_until_nul(&path).ok().filter(|_| found)?;
+    Some(OsStr::from_bytes(path.to_bytes()).into())
+}
+
 /// Missing paths grant nothing, as on Linux.
 fn canonical(paths: &[PathBuf]) -> Vec<PathBuf> {
     paths
@@ -89,9 +116,10 @@ fn canonical(paths: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 /// The profile for `reads` granted read paths (`R0`..), `writes`
-/// granted write paths (`W0`..), and `hidden` paths (`H0`..) inside the
-/// grants, denying reads under `HOME` when set.
-fn profile(home: bool, reads: usize, writes: usize, hidden: usize) -> String {
+/// granted write paths (`W0`..), `seen` paths of which only the metadata
+/// is read (`M0`..), and `hidden` paths (`H0`..) inside the grants,
+/// denying reads under `HOME` when set.
+fn profile(home: bool, reads: usize, writes: usize, seen: usize, hidden: usize) -> String {
     let params = |filter: &str, prefix: &str, count: usize| -> String {
         (0..count).fold(String::new(), |mut out, i| {
             let _ = write!(out, " ({filter} (param \"{prefix}{i}\"))");
@@ -145,9 +173,13 @@ fn profile(home: bool, reads: usize, writes: usize, hidden: usize) -> String {
         let roots = params("literal", "W", writes);
         let _ = writeln!(profile, "(deny file-write-create file-write-unlink{roots})");
     }
+    let seen = params("literal", "M", seen);
+    if !seen.is_empty() {
+        let _ = writeln!(profile, "(allow file-read-metadata{seen})");
+    }
     let hidden = params("subpath", "H", hidden);
     if !hidden.is_empty() {
-        let _ = writeln!(profile, "(deny file-read*{hidden})");
+        let _ = writeln!(profile, "(deny file-read* file-read-metadata{hidden})");
     }
     profile
 }

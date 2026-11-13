@@ -48,6 +48,15 @@ mod enforced {
         match verb {
             "read" => report(verb, std::fs::read(arg).map(drop)),
             "list" => report(verb, std::fs::read_dir(arg).map(drop)),
+            "resolve" => report(verb, std::fs::canonicalize(arg).map(drop)),
+            // Examine the standard output and the standard error.
+            #[cfg(unix)]
+            "fstat" => {
+                // SAFETY: `fstat` fills in the structure it is given.
+                let examined =
+                    [1, 2].map(|fd| errno(unsafe { libc::fstat(fd, &mut std::mem::zeroed()) }));
+                report(verb, examined.into_iter().collect());
+            }
             "write" => report(verb, std::fs::write(arg, "x")),
             "rmdir" => report(verb, std::fs::remove_dir(arg)),
             // Mount `devfs` on `arg`, change that mount, or end it.
@@ -818,6 +827,38 @@ mod enforced {
                 .outcome("read"),
             "ok"
         );
+    }
+
+    /// A program resolves the paths it is given (`realpath`, `cd`), which
+    /// takes seeing each directory on the way, and nothing of what one holds.
+    #[cfg(unix)]
+    #[test]
+    fn a_granted_path_resolves_without_opening_what_leads_to_it() {
+        let package = TempDir::new().unwrap();
+        let (granted, forbidden) = (package.path().join("src"), package.path().join("secret"));
+        std::fs::create_dir(&granted).unwrap();
+        std::fs::write(&forbidden, "token").unwrap();
+        let confined = |action: &str, path: &Path| {
+            let probed = confine(&format!("{action}:{}", arg(path)), &[&granted], &[]).unwrap();
+            probed.outcome(action).to_owned()
+        };
+
+        assert_eq!(confined("resolve", &granted), "ok");
+        assert_eq!(confined("list", &granted), "ok");
+        assert_eq!(confined("list", package.path()), "PermissionDenied");
+        assert_eq!(confined("read", &forbidden), "PermissionDenied");
+        // Landlock does not govern metadata.
+        #[cfg(target_os = "macos")]
+        assert_eq!(confined("resolve", &forbidden), "PermissionDenied");
+    }
+
+    /// A program examines its standard output and error before it writes
+    /// to them (a compiler built on LLVM exits when it cannot), though
+    /// Cabin keeps the files they go to where the program reads nothing.
+    #[cfg(unix)]
+    #[test]
+    fn a_program_examines_its_standard_output_and_error() {
+        assert_eq!(confine("fstat", &[], &[]).unwrap().outcome("fstat"), "ok");
     }
 
     #[test]
