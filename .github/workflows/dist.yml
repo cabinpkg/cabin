@@ -58,7 +58,7 @@ jobs:
           persist-credentials: false
       # No caches: a release build restores nothing, and a pull request's
       # saves serve only that pull request.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           target: ${{ matrix.target }}
           cache: false

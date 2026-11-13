@@ -47,7 +47,7 @@ jobs:
           persist-credentials: false
 
       - parallel:
-        - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
           with:
             cache: ${{ needs.changes.outputs.rust == 'true' }}
             # Restore-only: rust-cache.yml seeds every rust.yml key on main.
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache-shared-key: debug-${{ matrix.os }}
           cache-bin: false
@@ -161,7 +161,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache-shared-key: fuzz-ubuntu-24.04
           cache-bin: false
@@ -240,7 +240,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache-shared-key: debug-windows-2025-vs2026
           cache-bin: false
@@ -281,7 +281,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache-shared-key: debug-windows-2025-vs2026
           cache-bin: false
@@ -324,7 +324,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
         with:
           cache-shared-key: debug-ubuntu-24.04
           cache-bin: false
