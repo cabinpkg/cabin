@@ -835,9 +835,9 @@ mod enforced {
     #[test]
     fn a_granted_path_resolves_without_opening_what_leads_to_it() {
         let package = TempDir::new().unwrap();
-        let (granted, secret) = (package.path().join("src"), package.path().join("secret"));
+        let (granted, forbidden) = (package.path().join("src"), package.path().join("secret"));
         std::fs::create_dir(&granted).unwrap();
-        std::fs::write(&secret, "token").unwrap();
+        std::fs::write(&forbidden, "token").unwrap();
         let confined = |action: &str, path: &Path| {
             let probed = confine(&format!("{action}:{}", arg(path)), &[&granted], &[]).unwrap();
             probed.outcome(action).to_owned()
@@ -846,10 +846,10 @@ mod enforced {
         assert_eq!(confined("resolve", &granted), "ok");
         assert_eq!(confined("list", &granted), "ok");
         assert_eq!(confined("list", package.path()), "PermissionDenied");
-        assert_eq!(confined("read", &secret), "PermissionDenied");
+        assert_eq!(confined("read", &forbidden), "PermissionDenied");
         // Landlock does not govern metadata.
         #[cfg(target_os = "macos")]
-        assert_eq!(confined("resolve", &secret), "PermissionDenied");
+        assert_eq!(confined("resolve", &forbidden), "PermissionDenied");
     }
 
     /// A program examines its standard output and error before it writes
