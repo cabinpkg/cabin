@@ -41,7 +41,7 @@ This project was initially funded in 2018 by the
 [MITOU IT Program](https://www.ipa.go.jp/en/it-talents/mitou/index.html)
 ([project page (ja)](https://www.ipa.go.jp/jinzai/mitou/it/2018/gaiyou_t-2.html)),
 with additional financial support from
-[Shigeru Urushibara of ULS Consulting, Inc.](https://www.ulsconsulting.co.jp/company/management-committee.html).
+[Shigeru Urushibara of ULS Consulting, Inc.](https://www.ulsconsulting.co.jp/company/message.html).
 
 In 2026, Cabin's development is also supported by Anthropic's
 [Claude for Open Source](https://claude.com/contact-sales/claude-for-oss) program.
